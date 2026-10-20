@@ -16,8 +16,13 @@
  *   both     TEMP sets the ice's Q (C10, natural ice: ~290-650 near -20 C, 40-100 above about -5 C) and how wet it is;
  *            FIZZ: melting ice releases bubbles, a fizz of many small events at 1-3 kHz (C8 / C11): sparse
  *            impulses into a broad 2 kHz resonance, louder near 0 C.
- * Keys: the icicle length / the glass size, a semitone per key. Sheet break-up (chirps) is #18 Lake ice. */
+ * Keys: the icicle length / the glass size, a semitone per key. Sheet break-up (chirps) is #18 Lake ice.
+ * Realism (icicle and cubes-in-glass references, analysis only): breaking icicles are a bright shatter (bands 5-13 kHz
+ * on top, 0.5-0.8 kHz 15-25 dB under, little under 120 Hz, kurtosis 900-2200), so the rod rings -20 dB under the
+ * crack, the ground thud is -20 dB, the cracks' and chunks' clicks +12 dB and brighter (a ~5 kHz high-pass); the
+ * cube's clink adds a few-sample spike (ice on glass is hard and light) and its burst is brighter too (ours). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_modal.h"
 #include "tx_core_contact.h"
@@ -36,6 +41,9 @@ static const tx_param_t PARAMS[NP] = {
 #define NV 8u                      /* ringing bodies (icicles or glasses) */
 #define NMB 4u
 #define NF 32u                     /* chunks */
+#define OUT_TRIM 25800             /* output gain, Q12 (+15.9 dB; LOUDNESS.md: a v100 icicle toward -20 LUFS max
+                                    * momentary, held at -33.5 by its crack's crest: the default chord <= +12 dBFS and
+                                    * the output limiter under ~8 dB) */
 #define A_REF 100000000            /* a mode's amplitude for a v100 impact (Q30; calibrated by render) */
 
 static const uint16_t ROD_R[NMB] = {1024, 2823, 5534, 9147};      /* free-free, Q10 */
@@ -62,7 +70,7 @@ typedef struct {
     tx_mode_t thud[2];
     tx_ireso_t fz;
     tx_event_t ev[TX_CLOUD_EV_MAX];
-    int32_t buf[TX_BLOCK], bpush[TX_BLOCK];
+    int32_t buf[TX_BLOCK], bpush[TX_BLOCK], spk[TX_BLOCK];
     uint16_t fo[64];
     int16_t fa[64];
     int32_t res, res_x1;
@@ -168,10 +176,11 @@ static void icicle(ice_t *s, const tx_event_t *e)
     tx_contact_hit(&s->mal, lv, &tc, &er);
     a = (int32_t)(((int64_t)A_REF * (int32_t)tx_exp2(lv - 65536 + (15 << 16))) >> 15);
     a = (int32_t)(((int64_t)a * s->level) >> 15);
-    body_strike(s, e->note, a, tc);
-    tx_mode_strike(&s->thud[0], a / 3);                      /* the ground */
-    tx_mode_strike(&s->thud[1], -a / 6);
-    s->bpush[e->offset] += a >> 8;                           /* the first crack; 1-4 more within ~20 ms follow as */
+    body_strike(s, e->note, (int32_t)(((int64_t)a * 3277) >> 15), tc);    /* the rod rings -20 dB under the crack (the
+                                                              * icicle references: 0.5-0.8 kHz 15-25 dB under 5 kHz) */
+    tx_mode_strike(&s->thud[0], a / 30);                     /* the ground (-20 dB: the references' 30-120 Hz) */
+    tx_mode_strike(&s->thud[1], -a / 60);
+    s->bpush[e->offset] += a >> 6;                           /* the first crack; 1-4 more within ~20 ms follow as */
     for (c = 0, j = e->offset; c < 1u + (tx_rand(r) >> 30); c++) {   /* one-impact chunks (k = 4: no bounce) */
         chunk_t *h = 0;
         j += 40u + tx_rand_below(r, 300u);
@@ -200,7 +209,7 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
     if (n > TX_BLOCK) n = TX_BLOCK;
     k = tx_cloud_block(&s->cloud, s->ev, n);
     if (!k && s->quiet) return;
-    for (j = 0; j < n; j++) s->buf[j] = s->bpush[j] = 0;
+    for (j = 0; j < n; j++) s->buf[j] = s->bpush[j] = s->spk[j] = 0;
     for (i = 0; i < k; i++) {
         const tx_event_t *e = &s->ev[i];
         if (!cubes(s)) { if (e->kind == TX_EV_MAIN) icicle(s, e); continue; }
@@ -216,6 +225,14 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
                 body_strike(s, e->note, c ? a >> c : a, tc);
                 s->bpush[e->offset] += a >> 5;
             }
+            {   /* the cube meets the glass: ice on glass is hard and light, a contact of a few us, so the clink's own
+                 * click is a pulse of a few samples, bright (a cubes-in-glass recording keeps 5-8 kHz within
+                 * 6-8 dB of its peak: ours) */
+                static const int16_t SH[5] = {256, 180, -154, -154, -128};   /* a zero-mean ~5-7 kHz pulse (ours) */
+                int32_t sp = a >> 2;
+                unsigned q;
+                for (q = 0; q < 5u && e->offset + q < n; q++) s->spk[e->offset + q] += (sp >> 8) * SH[q];
+            }
         }
     }
     for (i = 0; i < NF; i++) {                               /* chunk impacts: a click and a small thud each */
@@ -224,8 +241,8 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
         any = 1;
         while (h->alive && h->t < n) {
             int32_t a = (int32_t)(((int64_t)h->a * h->v) >> 11);
-            s->bpush[h->t] += a >> 10;
-            tx_mode_strike(&s->thud[h->k & 1u], a >> 5);
+            s->bpush[h->t] += a >> 8;                        /* the chunk's click, +12 dB (references: shatter) */
+            tx_mode_strike(&s->thud[h->k & 1u], a >> 9);
             h->k++;
             h->v = (h->v * 6554) >> 15;                      /* restitution 0.2 (ice on frozen ground: ours) */
             if (h->v < 60 || h->k > 4) { h->alive = 0; break; }
@@ -264,7 +281,7 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
             e += s->bpush[j];
             if (!e) continue;
             x = (int32_t)(tx_rand(r) >> 17) - 16384;
-            x1 += (x - x1) >> 2;
+            x1 += (x - x1) >> 1;                             /* minus a ~5 kHz low-pass: bright (references 5-8 kHz) */
             s->buf[j] += ((x - x1) * (e >> 12)) >> 2;
             e -= (e >> 5) + 1;
             if (e < 0) e = 0;
@@ -272,6 +289,12 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
         s->res = e; s->res_x1 = e ? x1 : 0;
         any |= e;
     }
+    for (j = 0; j < n; j++) {                                /* + the clinks' spikes; at most full scale before the
+                                                              * trim (only the max scene gets there: <= +16 dBFS after) */
+        int32_t v = s->buf[j] + s->spk[j];
+        s->buf[j] = v > TX_Q23 ? TX_Q23 : v < -TX_Q23 ? -TX_Q23 : v;
+    }
+    tx_trim(s->buf, n, OUT_TRIM);                            /* the loudness target */
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !any && !(s->hp.x1 | s->hp.y1));
