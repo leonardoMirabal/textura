@@ -21,7 +21,9 @@
  *            body (~90-110 Hz, Q 4: the recording's strongest single peak is ~94 Hz; ours).
  *   humidity water lowers Q (M9 marble, M6): Q x (1 - 0.6 HUMID) for the porous (sandstone, limestone, marble),
  *            x (1 - 0.25 HUMID) for the rest (ours).
- * Keys: a different specimen per key, a semitone smaller per key up; velocity = how hard (level, contact time). */
+ * Keys: a different specimen per key, a semitone smaller per key up; velocity = how hard (level, contact time).
+ * VARY (no two knocks alike, the user's session 3): at 0 each key is one fixed specimen; above, every knock is a new
+ * one (shape, tuning, Q, hardness drawn; ours). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_cloud.h"
@@ -33,7 +35,7 @@
                                     * lowered 4.3 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS,
                                     * the limiter under ~8 dB in the chord) */
 
-enum { P_MINERAL, P_ACTION, P_SIZE, P_HOLD, P_HUMID, NP };
+enum { P_MINERAL, P_ACTION, P_SIZE, P_HOLD, P_HUMID, P_VARY, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"MINERAL", 127, 0, "granite | marble | sandstone | slate | limestone | basalt | flint | obsidian | quartz"},
@@ -41,6 +43,7 @@ static const tx_param_t PARAMS[NP] = {
     {"SIZE", 127, 64, "specimen size at C4: 25 .. 2 cm (log): f1 = 0.025 c / L (~1.3 kHz for 8 cm granite)"},
     {"HOLD", 127, 76, "the hand: hung on a string (free ring) .. fingertips .. a firm grip (damping 1 .. 80 /s)"},
     {"HUMID", 127, 0, "dry .. wet (Q lower, the porous most)"},
+    {"VARY", 127, 100, "each knock: the same specimen per key (0) .. a new specimen every time (shape, +-3 % tuning, Q +-30 %, hardness)"},
 };
 
 #define NV 8u
@@ -142,7 +145,11 @@ static void build(min_t *s, pair_t *v, uint32_t tc)
 {
     tx_rng_t r;
     unsigned k, sp, two = action_of(s) > 0;
-    tx_rng_seed(&r, v->note * 2654435761u ^ 0x5701E5u);
+    int32_t vy = s->p[P_VARY];
+    uint32_t qx = s->q_x16 * 2u;                             /* see set_q: x 2 */
+    /* VARY 0: one fixed specimen per key (drawn from the note); above: a new one every knock, its Q +-30 % */
+    tx_rng_seed(&r, vy ? tx_rand(&s->cloud.rng) | 1u : v->note * 2654435761u ^ 0x5701E5u);
+    if (vy) qx = (uint32_t)(((uint64_t)qx * (uint32_t)(32768 + ((tx_rand_s15(&s->cloud.rng) * vy * 77) >> 15))) >> 15);
     for (sp = 0; sp < 2; sp++) {
         int32_t f_l2 = tx_log2_q16(s->c) - 348773 - s->size_l2 - ((int32_t)v->note - 60) * 5461;   /* 0.025 c / L */
         if (sp) f_l2 += (int32_t)tx_rand_below(&r, 42000u) - 21000;   /* the second: x 0.8 .. 1.25 */
@@ -151,11 +158,11 @@ static void build(min_t *s, pair_t *v, uint32_t tc)
             uint32_t f;
             int32_t g;
             if (k) f_l2 += 10715 + (int32_t)tx_rand_below(&r, 39450u);   /* x 1.12 .. 1.7 */
-            f = tx_exp2(f_l2);
+            f = tx_exp2(f_l2 + (vy ? (tx_rand_s15(&s->cloud.rng) * vy) >> 10 : 0));   /* +-3 % */
             g = k ? 12000 + (int32_t)tx_rand_below(&r, 20767u) : 32767;
             v->f[i] = (uint16_t)(f > 20000u || (sp && !two) ? 0u : f);
             v->m[i].inc = f * 97391u;
-            v->m[i].m16 = tx_mode_decay(f, s->q_x16 * 2u, s->s0_q8 >> (2 * k));   /* see set_q: x 2; the hand damps the low modes most (ours) */
+            v->m[i].m16 = tx_mode_decay(f, qx, s->s0_q8 >> (2 * k));   /* the hand damps the low modes most (ours) */
             v->gw[i] = (int16_t)(v->f[i] ? ((int64_t)g * tx_contact_weight(tc, f)) >> 15 : 0);
         }
     }
@@ -178,7 +185,7 @@ static void knock(min_t *s, const tx_event_t *e)
     unsigned i, act = action_of(s);
     int32_t lv = 65536 + ((int32_t)e->vel - 100) * 1638, ev, a;
     uint32_t tc;
-    for (i = 0; i < s->limit && !v; i++) if (s->v[i].alive && s->v[i].note == e->note) v = &s->v[i];
+    if (!s->p[P_VARY]) for (i = 0; i < s->limit && !v; i++) if (s->v[i].alive && s->v[i].note == e->note) v = &s->v[i];
     for (i = 0; i < s->limit && !v; i++) if (!s->v[i].alive) v = &s->v[i];
     if (!v) {
         int32_t lo = 0x7FFFFFFF;
@@ -187,6 +194,7 @@ static void knock(min_t *s, const tx_event_t *e)
         if (v) { unsigned k; for (k = 0; k < NMV; k++) v->m[k].amp = 0; }
     }
     if (!v) return;
+    lv += (tx_rand_s15(&s->cloud.rng) * s->p[P_VARY]) >> 7;  /* no two knocks alike: +-0.4 oct of speed at VARY 100 */
     tx_contact_hit(act ? &s->stone : &s->tool, lv, &tc, &ev);
     a = (int32_t)(((int64_t)A_REF * (int32_t)tx_exp2(lv + (15 << 16))) >> 16);
     a = (int32_t)(((int64_t)a * (32768 + ev)) >> 16);

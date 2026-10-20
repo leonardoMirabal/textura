@@ -126,7 +126,9 @@ function selectEngine(i) {
   if (ed === 0) { engIdx = i; try { localStorage.setItem("textura.engine", String(i)); } catch (e) { } }
   M._txw_slot(k);
   for (const [n] of held) M._txw_key_slot(k, n, 0, 0);
-  M._txw_select(i, 1 + k);
+  const seed = new Uint32Array(1);                       // a fresh seed each time: no two sessions alike (the checks
+  crypto.getRandomValues(seed);                         // use fixed seeds of their own)
+  M._txw_select(i, seed[0] || 1);
   layers[k].eng = i; layers[k].vals = {};
   for (const [n, h] of held) M._txw_key_slot(k, n, h.vel, 1);
   buildSliders();

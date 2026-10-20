@@ -19,7 +19,8 @@
  *            micro-collisions within ~15 ms at -10 .. -20 dB (I1: "a few within ~15 ms"; their numbers ours).
  *   nonlinear above strain ~1e-7 rock loses more and its pitch drops (M9): for 50 ms after a hard hit Q_eff =
  *            Q / (1 + (v / 3 m/s)^2), the pitch down 5 % x min(1, v / 3 m/s), relaxing over ~100 ms (note 05's rule).
- * Keys: a semitone each from TUNE at C4. */
+ * Keys: a semitone each from TUNE at C4. VARY (no two strikes alike, the user's session 3): at 0 each key is one fixed
+ * stone; above, every strike is a new stone (shape, tuning, Q, strike point and speed drawn; ours). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_cloud.h"
@@ -30,7 +31,7 @@
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 2.0 dB: the limiter under ~8 dB in the default chord) */
 
-enum { P_MATERIAL, P_SHAPE, P_MALLET, P_DAMP, P_POS, P_TUNE, NP };
+enum { P_MATERIAL, P_SHAPE, P_MALLET, P_DAMP, P_POS, P_TUNE, P_VARY, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"MATERIAL", 127, 72, "granite Q180 | marble 300 | sandstone 100 | slate 185 | limestone 150 | ringing rock 2000 | flint 160 | obsidian 175 | quartz 4000"},
@@ -39,6 +40,7 @@ static const tx_param_t PARAMS[NP] = {
     {"DAMP", 127, 0, "a hand on the stone: extra damping 0.7 .. 60 /s (log)"},
     {"POS", 127, 40, "strike position: the end / edge .. the centre (which modes sound)"},
     {"TUNE", 127, 75, "the lowest mode at C4: 100 Hz .. 2 kHz (log); keys a semitone each"},
+    {"VARY", 127, 100, "each strike: the same stone per key (0: a lithophone) .. a new stone every time (shape, +-3 % tuning, Q +-30 %, strike point, hardness)"},
 };
 
 #define NV 12u
@@ -138,9 +140,12 @@ static int32_t voice_level(const stone_t *v)
 static unsigned modes(drum_t *s, unsigned note, uint32_t *ratio, int32_t *gain)
 {
     unsigned sh = shape_of(s), k, n;
-    int32_t p = s->p[P_POS] * 129;                           /* 0 .. 0.5, Q15 */
+    int32_t p = s->p[P_POS] * 129, vy = s->p[P_VARY];        /* 0 .. 0.5, Q15 */
     tx_rng_t r;
-    tx_rng_seed(&r, note * 2654435761u ^ 0xB01DE5u);
+    /* VARY 0: each key one fixed stone (the shape drawn from the note); above: every strike a new stone from the
+     * running random draws, and the strike point moves (+-0.08 of the length at 127) */
+    tx_rng_seed(&r, vy ? tx_rand(&s->cloud.rng) | 1u : note * 2654435761u ^ 0xB01DE5u);
+    if (vy) { p += (tx_rand_s15(&s->cloud.rng) * vy) >> 12; p = p < 0 ? -p : p > 16384 ? 32768 - p : p; }
     if (sh == 0) {                                           /* free-free bar: shape ~ sqrt 2 cos((n + 1.5) pi p - pi/4) */
         for (k = 0; k < 5; k++) {
             uint32_t ph = (uint32_t)((int64_t)((2 * (int32_t)k + 3) * p) << 15) - 0x20000000u;
@@ -173,9 +178,12 @@ static void tune(drum_t *s, stone_t *v, const uint32_t *ratio, unsigned n, unsig
 {
     uint32_t f1 = tx_exp2(s->f1_l2 + ((int32_t)note - 60) * 5461);
     unsigned k;
+    int32_t vy = s->p[P_VARY];
     v->nm = (uint8_t)n;
+    if (vy) qx16 = (uint32_t)(((uint64_t)qx16 * (uint32_t)(32768 + ((tx_rand_s15(&s->cloud.rng) * vy * 77) >> 15))) >> 15);   /* Q +-30 % */
     for (k = 0; k < n; k++) {
         uint32_t f = (f1 * ratio[k]) >> 10;
+        if (vy) f = (uint32_t)(((uint64_t)f * (uint32_t)(65536 + ((tx_rand_s15(&s->cloud.rng) * vy * 31) >> 15))) >> 16);   /* +-3 % */
         v->f[k] = (uint16_t)(f > 20000u ? 0u : f);
         v->inc0[k] = f * 97391u;
         v->m[k].inc = v->inc0[k];
@@ -189,7 +197,8 @@ static void hit(drum_t *s, const tx_event_t *e, unsigned *which)
     unsigned i;
     uint32_t ratio[NM], tc;
     int32_t gain[NM], lv, ev, a, x;
-    for (i = 0; i < s->limit && !v; i++) if (s->v[i].alive && s->v[i].note == e->note) v = &s->v[i];   /* a restrike */
+    if (!s->p[P_VARY])                                       /* the same stone: a restrike adds to its ring */
+        for (i = 0; i < s->limit && !v; i++) if (s->v[i].alive && s->v[i].note == e->note) v = &s->v[i];
     for (i = 0; i < s->limit && !v; i++) if (!s->v[i].alive) v = &s->v[i];
     if (!v) {                                                /* steal the quietest */
         int32_t lo = 0x7FFFFFFF;
@@ -200,6 +209,7 @@ static void hit(drum_t *s, const tx_event_t *e, unsigned *which)
     if (!v) return;
     *which = (unsigned)(v - s->v);
     lv = 65536 + ((int32_t)e->vel - 100) * 1638;            /* 2 m/s at v100, +-1 octave per 40 */
+    lv += (tx_rand_s15(&s->cloud.rng) * s->p[P_VARY]) >> 7;  /* no two hits alike: +-0.4 oct of speed at VARY 100 */
     tx_contact_hit(&s->mallet, lv, &tc, &ev);
     a = (int32_t)(((int64_t)A_REF * (int32_t)tx_exp2(lv + (15 << 16))) >> 16);   /* ~ v: 2 m/s -> A_REF */
     a = (int32_t)(((int64_t)a * (32768 + ev)) >> 16);         /* x (1 + e) / 2 */
