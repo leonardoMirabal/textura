@@ -44,8 +44,11 @@ REFDIRS = {
     "bees": ["bees"], "candle": ["candle"], "mineral": ["mineral", "krint"], "pebble": ["pebble"], "sandsong": ["sandsong"],
     "aeolian": ["aeolian"], "sand": ["sand"], "rainsurf": ["rainsurf"], "rainwater": ["rainwater"],
     "stream": ["stream"], "surf": ["surf"], "storm": ["storm"], "crickets": ["crickets"], "cicadas": ["cicadas"],
-    "katydids": ["katydids"], "crumple": ["crumple"], "fire": ["fire"], "stonedrum": ["stone"],
-    "stonecloud": ["stone"], "minerals": ["stone"], "glass": ["glass"], "wood": ["wood"], "ice": ["ice"],
+    "katydids": ["katydids"], "crumple": ["crumple"], "fire": ["fire"], "stonedrum": ["stonedrum", "stone"],
+    "stonecloud": ["stone"], "minerals": ["minerals", "stone"], "glass": ["glass"], "wood": ["wood"], "ice": ["ice"],
+    # step 4: candidates (cand_*.wav) for the user to choose from by ear
+    "drip": ["drip"], "sparks": ["sparks"], "gravel": ["gravel"], "rainstick": ["rainstick"], "thunder": ["thunder"],
+    "lakeice": ["lakeice"], "spring": ["spring"], "chimes": ["chimes"], "rockfall": ["rockfall"], "plate": ["plate"],
 }
 
 
