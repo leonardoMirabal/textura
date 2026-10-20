@@ -90,7 +90,11 @@ TX_AUDIO_CODE void tx_modal_run(tx_mode_t *m, unsigned nm, int32_t *out, unsigne
             for (k = 0; k < L; k++) {
                 uint32_t ix = ph >> 23;
                 int32_t sv = SIN512[ix] + (((SIN512[ix + 1] - SIN512[ix]) * (int32_t)((ph >> 15) & 0xFFu)) >> 8);
-                out[j + k] += (sv * (aa >> 15)) >> 7;        /* Q15 x Q15 -> Q23 */
+                out[j + k] += ((sv * (aa >> 15)) >> 7) + ((sv * ((aa >> 7) & 255)) >> 15);   /* Q15 x Q23 -> Q23: the
+                                                              * amplitude's next 8 bits too. With Q15 alone a quiet ring
+                                                              * stepped through a few dozen levels, a periodic staircase whose
+                                                              * sidebands swept as it decayed: the "arcs" under the stone drum
+                                                              * (session 5's spectrogram review) */
                 ph += inc;
                 aa += st;
             }
