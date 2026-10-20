@@ -7,7 +7,8 @@
  *            alpha ~3 by ear, E1; big fires lower: small surface fires ~200 Hz, E35). Here noise -> a broad band-pass
  *            (Q 0.5) at f_pk 400 Hz (fire 0.1 m) .. 120 Hz (3 m), -6 dB/oct above, plus a faint hiss band at 2.5 kHz:
  *            campfire recordings are broad (100 Hz-16 kHz within ~10 dB) and their bed sits 7-14 dB under the
- *            crackle. The burning logs add as independent sources:
+ *            crackle; and a 50 Hz band for the plume's slow turbulence (the recordings: -12..-26 dB re total at 40-100
+ *            Hz; ours). The burning logs add as independent sources:
  *            gain ~ sqrt(sum of their heat).
  *   flicker  the fire puffs at f_p = 0.52 sqrt(g / D) (E14: ~3 Hz for 30 cm, 1.6 Hz for 1 m): an amplitude
  *            modulation of the roar, depth and gusts by DRAUGHT, plus a ~1 Hz wander (E9's idea).
@@ -30,7 +31,7 @@ enum { P_SIZE, P_MOIST, P_WOOD, P_DRAUGHT, P_BURSTY, P_ROAR, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"SIZE", 127, 50, "fire diameter D: 0.1 .. 3 m (log): flicker 0.52 sqrt(g/D) 5.2 .. 0.9 Hz, roar peak 400 .. 120 Hz"},
-    {"MOIST", 127, 50, "moisture / resin: crackles 1 .. 30 /s per log (log; campfire recordings: 8-15 onsets/s in all)"},
+    {"MOIST", 127, 72, "moisture / resin: crackles 1 .. 30 /s per log (log; campfire recordings: 8-15 onsets/s in all)"},
     {"WOOD", 127, 40, "green / needles (3.2 + 7.2 kHz, notch at 6) .. dry (brighter, 4.5 + 9.5 kHz)"},
     {"DRAUGHT", 127, 30, "wind on the fire: steady .. deep flicker and gusts"},
     {"BURSTY", 127, 24, "aftershocks per crackle: 0 .. 8 (Omori p 1.68, c 70 ms)"},
@@ -43,9 +44,9 @@ static const tx_param_t PARAMS[NP] = {
 #define NEV 64u
 #define RANGE_L2 40795             /* 3 decades of energy: log2(10^3) Q12 (E33: 2-3; the recordings spread 5-7.6 dB) */
 #define HERO_L2 34816              /* the top ~5 % of the truncated law (8.5 octaves of 10) */
-#define A_REF 18000                /* the largest crackle's amplitude, Q15 (calibrated by render) */
+#define A_REF 21000                /* the largest crackle's amplitude, Q15 (calibrated by render) */
 #define DRY 96                     /* the dry click: Q15 x 96 -> Q23 (0.37 of the impulse; by the recordings' flat HF) */
-#define ROAR_G 1800                /* roar gain of one log fully burning at ROAR 127 (Q15, 0.27; by the recordings: */
+#define ROAR_G 2500                /* roar gain of one log fully burning at ROAR 127 (Q15, 0.27; by the recordings: */
                                    /* the bed sits 7-14 dB under the total) */
 
 typedef struct {
@@ -55,7 +56,7 @@ typedef struct {
 
 typedef struct {
     tx_cloud_t cloud;
-    tx_noise_t roar, hiss;         /* the roar band and the flame's hiss (2.5 kHz, Q 0.5) */
+    tx_noise_t roar, hiss, rumble; /* the roar band, the flame's hiss (2.5 kHz, Q 0.5), the plume's rumble (50 Hz) */
     tx_dcblock_t hp;
     tx_ireso_t bank[NB];
     tx_ireso_t hero[NH];
@@ -123,6 +124,9 @@ static void fire_init(void *st, uint32_t seed)
     tx_noise_init(&s->hiss, seed ^ 0x415541u);
     tx_noise_band(&s->hiss, 2500, 8, TX_NOISE_BAND);
     s->hiss.glide = 0;
+    tx_noise_init(&s->rumble, seed ^ 0x2B3C4Du);
+    tx_noise_band(&s->rumble, 50, 8, TX_NOISE_BAND);      /* the buoyant plume's slow turbulence, below 100 Hz */
+    s->rumble.glide = 0;                                     /* (the recordings: -13..-25 dB re total at 40-80 Hz; ours) */
     for (i = 0; i < NLOG; i++) s->lg[i].em = 0xFF;
     {   /* the truncated power law b = 1.4: pinv = 1 / 0.4, Lmax = RANGE x 0.4 */
         int32_t lmax = (int32_t)((RANGE_L2 * 1638) >> 12);
@@ -250,13 +254,15 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
         tx_noise_roar_add(&s->roar, g, s->buf, n);
         tx_noise_level(&s->hiss, g >> 6);                    /* the hiss well under the roar, same flicker (ours) */
         tx_noise_add(&s->hiss, s->buf, n);
+        tx_noise_level(&s->rumble, g * 2);
+        tx_noise_add(&s->rumble, s->buf, n);
     }
     for (i = 0; i < NB; i++) tx_ireso_add(&s->bank[i], s->off, s->amp, ne, s->buf, n);
     for (i = 0; i < NH; i++) { tx_ireso_add(&s->hero[i], &s->hoff[i], &s->hamp[i], s->hnum[i], s->buf, n); s->hnum[i] = 0; }
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
-        int32_t z = any | s->roar.gain | !tx_noise_quiet(&s->hiss) | s->hp.x1 | s->hp.y1;
+        int32_t z = any | s->roar.gain | !tx_noise_quiet(&s->hiss) | !tx_noise_quiet(&s->rumble) | s->hp.x1 | s->hp.y1;
         for (i = 0; i < NB; i++) z |= !tx_ireso_quiet(&s->bank[i]);
         for (i = 0; i < NH; i++) z |= !tx_ireso_quiet(&s->hero[i]);
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
