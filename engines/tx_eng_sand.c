@@ -17,7 +17,12 @@
  *            (closed-open: odd harmonics of c / 4L; an inverting comb with a damped loop) driven by the flow
  *            (granular flow couples to the tube's modes: G24 / G25).
  *   pulse    narrow-tube flow is intermittent at ~4 Hz (G21): an optional flow modulation.
- * Keys: the container size (tray / bulb modes, tube length) at C4 = SIZE, a semitone per key. */
+ * Keys: the container size (tray / bulb modes, tube length) at C4 = SIZE, a semitone per key.
+ * Realism pass (sand-pouring references, analysis only): a pour is lumpy (rms std 3-17 dB, 0.5-1 Hz swings), clumped
+ * (kurtosis 1-25) and bright (energy at 3-10 kHz, little under 1 kHz). Ours was a steady white hiss (rms std 0.2 dB,
+ * kurtosis -0.5, flat to 30 Hz). So: the flow rate wanders log-normally (+-0.6 oct slow, +-0.4 oct fast), the dense
+ * noise comes in 0.7 ms clumps of random gain (2^(-1.5 .. 0.5)), and the dry path is a band (hand 1.5-6 kHz, pile
+ * 0.8-4 kHz: one-pole high-pass, two-pole low-pass) instead of a 3 kHz low-pass (ours, set against the references). */
 #include "tx_engine.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
@@ -36,7 +41,7 @@ static const tx_param_t PARAMS[NP] = {
 #define NV 4u
 #define NM 6u
 #define DMAX 512u                  /* tube delay line (2L / c: 1 m = 257 samples) */
-#define A_REF 3000                 /* noise amplitude at the reference flow (Q15; calibrated by render) */
+#define A_REF 2700                 /* noise amplitude at the reference flow (Q15; calibrated by render) */
 
 typedef struct { uint16_t hz[NM]; uint16_t q; uint8_t nm, dry; } surface_t;
 static const surface_t SURF[5] = {
@@ -52,7 +57,8 @@ typedef struct {
     int32_t f[NM], gin[NM], g[NM];
     int32_t line[DMAX];
     uint32_t wpos, dly_q8;         /* tube: write position, delay (samples Q8) */
-    int32_t tlp, lp;               /* tube loop low-pass, dry low-pass */
+    int32_t tlp, lp, lp2, hp;      /* tube loop low-pass, dry low-pass (two poles), dry high-pass state */
+    int32_t lump, flick;           /* flow irregularity: slow (~1 Hz) and fast (~7 Hz) random log-rate (Q15) */
     int32_t flow;                  /* Q15 ramp */
     uint32_t pph;                  /* pulse phase */
     int32_t stop;                  /* blocks the grains in the air still take to land */
@@ -114,7 +120,7 @@ static void clear(pour_t *v)
     unsigned i;
     for (i = 0; i < NM; i++) v->body[i].low = v->body[i].band = v->body[i].ef = 0;
     for (i = 0; i < DMAX; i++) v->line[i] = 0;
-    v->tlp = v->lp = 0; v->flow = 0; v->alive = 0; v->em = 0xFF; v->c_ok = 0;
+    v->tlp = v->lp = v->lp2 = v->hp = 0; v->flow = 0; v->alive = 0; v->em = 0xFF; v->c_ok = 0;
 }
 
 static void sand_param(void *st, uint8_t id, uint8_t val)
@@ -173,7 +179,10 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
     uint16_t d0 = s->dropped;
     const surface_t *sf = &SURF[(s->p[P_SURFACE] * 5u) >> 7];
     int tube = (s->p[P_SURFACE] * 5u) >> 7 == 4u;
-    int32_t lpa = (s->p[P_SURFACE] * 5u) >> 7 == 1u ? 5200 : 12800;   /* dry low-pass: pile 1.2 kHz, else 3 kHz (Q15) */
+    /* the dry path: grain clicks are bright (references: energy at 3-10 kHz, little under 1 kHz): a one-pole high-pass
+     * (pile 0.8 kHz, hand 1.5 kHz) and a two-pole low-pass (pile 4 kHz, hand 6 kHz) */
+    int32_t lpa = (s->p[P_SURFACE] * 5u) >> 7 == 1u ? 14250 : 18850;   /* Q15: 1 - exp(-2 pi fc / fs) */
+    int32_t hpa = (s->p[P_SURFACE] * 5u) >> 7 == 1u ? 3700 : 6300;
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) buf[j] = 0;
     k = tx_cloud_block(&s->cloud, s->ev, n);
@@ -183,7 +192,7 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
         int held = v->alive && v->em < TX_CLOUD_EMITTERS && s->cloud.em[v->em].held && s->cloud.em[v->em].note == v->note;
         int32_t lx, lam_l2, amp, p16, mpul;
         uint32_t x32;
-        if (!v->alive && tx_svf_bank_quiet(v->body, NM) && !v->tlp && !v->lp) continue;
+        if (!v->alive && tx_svf_bank_quiet(v->body, NM) && !v->tlp && !v->lp && !v->lp2 && !v->hp) continue;
         if (held) v->stop = (int32_t)tx_exp2((s->h_l2 >> 1) + 411640);   /* sqrt(2 h / g) = 0.45 s sqrt(h): 77.8 sqrt(h) blocks */
         else if (v->stop > 0) v->stop--;
         v->flow += (held || v->stop > 0) && v->alive ? (32768 - v->flow) >> 3 : -(v->flow >> 2);
@@ -207,6 +216,13 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
         v->pph += 99728636u + (uint32_t)(tx_rand_s15(&s->cloud.rng) * 900);
         mpul = 32768 - (int32_t)(((32768 + tx_sin_q15(v->pph)) >> 1) * s->pulse >> 15);
         amp = (int32_t)(((int64_t)amp * mpul) >> 15);
+        {   /* a real pour is lumpy (references: rms std 3-17 dB, slow 0.5-1 Hz swings and fast flutter): the rate wanders
+             * log-normally, +-0.6 oct slow and +-0.4 oct fast (ours, set against the references) */
+            tx_rng_t *r = &s->cloud.rng;
+            v->lump += (tx_rand_s15(r) - v->lump) >> 5;
+            v->flick += (tx_rand_s15(r) - v->flick) >> 2;
+            amp = (int32_t)(((int64_t)amp * tx_exp2(v->lump * 16 + v->flick * 4 + (16 << 16))) >> 16);
+        }
         if (amp > 16383) amp = 16383;
         /* the shot train: clicks (rare) or noise of the same variance (dense) */
         x32 = s->cloud.rng.s;
@@ -218,22 +234,33 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
         } else {
             int32_t sd = (int32_t)(((int64_t)amp * (int32_t)tx_exp2((int32_t)((log2_q16((uint32_t)p16) - (16 << 16)) / 2) + (16 << 16))) >> 16);
             if (sd > 16383) sd = 16383;                      /* the force at most +-1 full scale */
-            for (j = 0; j < n; j++) {
+            for (j = 0; j < n; j += 32) {                    /* clumps: each 0.7 ms its own gain (+-1 oct, ours: */
+                unsigned e = j + 32u < n ? j + 32u : n, q;   /* grains arrive in clusters; references kurtosis 1-25) */
+                int32_t g;
                 x32 ^= x32 << 13; x32 ^= x32 >> 17; x32 ^= x32 << 5;
-                x[j] = (((int32_t)(x32 >> 17) - 16384) * sd) >> 13;   /* uniform, sd ~ amp sqrt(p) x 2 / sqrt 3 */
+                g = (int32_t)tx_exp2((int32_t)((x32 >> 16) & 0xFFFFu) * 2 - 98304 + (16 << 16));   /* 2^(-1.5 .. 0.5), Q16 */
+                g = (int32_t)(((int64_t)g * sd) >> 16);
+                for (q = j; q < e; q++) {
+                    x32 ^= x32 << 13; x32 ^= x32 >> 17; x32 ^= x32 << 5;
+                    x[q] = (((int32_t)(x32 >> 17) - 16384) * g) >> 13;   /* uniform, sd ~ amp sqrt(p) x 2 / sqrt 3 */
+                }
             }
         }
         s->cloud.rng.s = x32 ? x32 : 1u;
         /* x is Q15 force: the dry share (low-passed), the modes, or the tube */
         {
-            int32_t lp = v->lp, dry = sf->dry;
+            int32_t lp = v->lp, lp2 = v->lp2, hp = v->hp, dry = sf->dry;
             for (j = 0; j < n; j++) {
                 lp += ((x[j] - lp) * (lpa >> 2)) >> 13;
-                buf[j] += lp * dry;                          /* Q15 x Q8 -> Q23 */
+                lp2 += ((lp - lp2) * (lpa >> 2)) >> 13;
+                hp += ((lp2 - hp) * (hpa >> 2)) >> 13;
+                buf[j] += (lp2 - hp) * dry;                  /* Q15 x Q8 -> Q23 */
                 x[j] = x[j] * 256;                           /* -> Q23 for the bank / tube */
             }
             if (lp > -4 && lp < 4) { int32_t any = 0; for (j = 0; j < n; j++) any |= x[j]; if (!any) lp = 0; }
-            v->lp = lp;
+            if (lp2 > -16 && lp2 < 16 && !lp) lp2 = 0;            /* floor rounding sticks a one-pole at a few */
+            if (hp > -16 && hp < 16 && !lp2) hp = 0;              /* LSB: under -66 dBFS, cleared */
+            v->lp = lp; v->lp2 = lp2; v->hp = hp;
         }
         if (sf->nm) tx_svf_bank_add_g(v->body, v->f, (int32_t)(16384u / sf->q), v->gin, v->g, sf->nm, x, buf, n);
         if (tube) {                                          /* quarter-wave: y = x - g lp(y[n - D]) (odd harmonics) */
@@ -259,7 +286,7 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
         int32_t z = s->hp.x1 | s->hp.y1;
-        for (i = 0; i < NV; i++) z |= s->v[i].alive | !tx_svf_bank_quiet(s->v[i].body, NM) | s->v[i].tlp | s->v[i].lp;
+        for (i = 0; i < NV; i++) z |= s->v[i].alive | !tx_svf_bank_quiet(s->v[i].body, NM) | s->v[i].tlp | s->v[i].lp | s->v[i].lp2 | s->v[i].hp;
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }
 }
