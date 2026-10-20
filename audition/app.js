@@ -7,13 +7,15 @@
 
 const ENG_RATE = 44100, BLOCK = 256, BLOCK_US = 5805, LAYER = 0.18, GATE = 0.75;   // one layer, all four
 const KEY_LO = 53, KEY_HI = 79;                      // the FM-1's keys F3 .. G5
-const LOWER = ["KeyZ", "KeyS", "KeyX", "KeyD", "KeyC", "KeyV", "KeyG", "KeyB", "KeyH", "KeyN", "KeyJ", "KeyM",
-               "Comma", "KeyL", "Period", "Semicolon", "Slash"];
-const UPPER = ["KeyQ", "Digit2", "KeyW", "Digit3", "KeyE", "KeyR", "Digit5", "KeyT", "Digit6", "KeyY", "Digit7",
-               "KeyU", "KeyI", "Digit9", "KeyO", "Digit0", "KeyP"];
+// the computer keys, as Ableton's: the middle letter row plays the white keys, the row above the black ones
+const KEYMAP = { KeyA: 0, KeyW: 1, KeyS: 2, KeyE: 3, KeyD: 4, KeyF: 5, KeyT: 6, KeyG: 7, KeyY: 8, KeyH: 9, KeyU: 10, KeyJ: 11,
+                 KeyK: 12, KeyO: 13, KeyL: 14, KeyP: 15, Semicolon: 16, Quote: 17 };
+const KEYCAP = { KeyA: "A", KeyW: "W", KeyS: "S", KeyE: "E", KeyD: "D", KeyF: "F", KeyT: "T", KeyG: "G", KeyY: "Y", KeyH: "H",
+                 KeyU: "U", KeyJ: "J", KeyK: "K", KeyO: "O", KeyL: "L", KeyP: "P", Semicolon: ";", Quote: "'" };
+const VELS = [20, 40, 64, 80, 100, 115, 127];          // C / V step through these
 const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-let M = null, ctx = null, node = null, calib = null, fm1PerUs = 0, engIdx = 0, base = 48;
+let M = null, ctx = null, node = null, calib = null, fm1PerUs = 0, engIdx = 0, base = 60;   // A = C4
 // the layers: engine index (-1 off), parameter values, pan, key zone; ed = the edited one
 const layers = [0, 1, 2, 3].map(k => ({ eng: -1, vals: {}, pan: 64, lo: KEY_LO, hi: KEY_HI, time: 0, pk: -120 }));
 let ed = 0, keyMode = "shared";
@@ -41,12 +43,11 @@ const S = p => M.UTF8ToString(p);
 
 // ---- start-up: engines, calibration, keyboard, MIDI
 async function init() {
-  const sel = $("engine");
-  for (let i = 0; i < M._txw_count(); i++) {
-    const o = document.createElement("option");
-    o.value = i; o.textContent = `${S(M._txw_name(i))}: ${S(M._txw_title(i))}`;
-    sel.appendChild(o);
-  }
+  const sel = $("engine");                            // the engine stepper: a slider over the engines
+  sel.max = M._txw_count() - 1;
+  sel.oninput = () => { if (+sel.value !== layers[ed].eng) selectEngine(+sel.value); };
+  $("eng-prev").onclick = () => stepEngine(-1);
+  $("eng-next").onclick = () => stepEngine(1);
   try { const s = +localStorage.getItem("textura.engine"); if (s >= 0 && s < M._txw_count()) engIdx = s; } catch (e) { }
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem("textura.layers") || "null"); } catch (e) { }
@@ -63,12 +64,11 @@ async function init() {
   $("keymode").onchange = () => { allOff(); keyMode = $("keymode").value; saveLayers(); };
   for (let k = 0; k < 4; k++) M._txw_pan(k, layers[k].pan);
   editLayer(0);
-  sel.value = engIdx;
-  sel.onchange = () => selectEngine(+sel.value);
   selectEngine(engIdx);
   buildChamber();
   buildKeyboard();
   octave(0);
+  $("velv").textContent = $("vel").value;
   await loadCalib();
   midiInit();
   window.txTest.ready = true;
@@ -78,6 +78,9 @@ async function init() {
   window.txTest.editLayer = editLayer;
   window.txTest.selectEngine = selectEngine;
   window.txTest.layerOff = layerOff;
+  window.txTest.stepEngine = stepEngine;
+  window.txTest.held = () => [...down.keys()];
+  window.txTest.renderCopy = n => { const p = M._txw_render(n) >> 2; return Array.from(M.HEAPF32.subarray(p, p + 2 * n * BLOCK)); };
   window.txTest.setMode = m => { $("keymode").value = m; $("keymode").onchange(); };
   window.txTest.route = n => [0, 1, 2, 3].filter(k => layers[k].eng >= 0 && (keyMode === "shared" || (n >= layers[k].lo && n <= layers[k].hi)));
   window.txTest.zone = (k, lo, hi) => { layers[k].lo = lo; layers[k].hi = hi; showLayers(); };
@@ -116,29 +119,48 @@ async function loadCalib() {
 }
 
 // ---- the engine and its sliders
-function selectEngine(i) {                           // the edited layer's engine (fresh, at its defaults)
-  allOff();
+// the edited layer's engine (fresh, at its defaults). Instant and click-free: the keys this layer holds are released
+// on the old engine, which fades out over 23 ms (tx_web.c) while the new one starts, and pressed again on the new one
+function selectEngine(i) {
+  const k = ed, held = [...down.entries()].filter(([, h]) => h.to.includes(k));
   if (ed === 0) { engIdx = i; try { localStorage.setItem("textura.engine", String(i)); } catch (e) { } }
-  M._txw_slot(ed);
-  M._txw_select(i, 1 + ed);
-  layers[ed].eng = i; layers[ed].vals = {};
+  M._txw_slot(k);
+  for (const [n] of held) M._txw_key_slot(k, n, 0, 0);
+  M._txw_select(i, 1 + k);
+  layers[k].eng = i; layers[k].vals = {};
+  for (const [n, h] of held) M._txw_key_slot(k, n, h.vel, 1);
   buildSliders();
   showLayers();
+  showEngine();
   saveLayers();
 }
+function stepEngine(d) {                             // previous / next engine on the edited layer, wrapping
+  const n = M._txw_count(), cur = layers[ed].eng < 0 ? (d > 0 ? -1 : 0) : layers[ed].eng;
+  selectEngine(((cur + d) % n + n) % n);
+}
+function showEngine() {                              // the stepper and the big name for the edited layer
+  const i = layers[ed].eng;
+  $("eng-layer").textContent = `(layer ${ed + 1})`;
+  if (i < 0) { $("eng-num").textContent = "–"; $("eng-name").textContent = "off"; $("eng-title").textContent = "this layer is off: pick an engine"; return; }
+  $("engine").value = i;
+  $("eng-num").textContent = i + 1;
+  $("eng-name").textContent = S(M._txw_name(i));
+  $("eng-title").textContent = `${S(M._txw_title(i))} · ${i + 1} of ${M._txw_count()}`;
+}
 function layerOff(k) {
-  allOff();
+  for (const [n, h] of down.entries()) if (h.to.includes(k)) { M._txw_key_slot(k, n, 0, 0); h.to = h.to.filter(x => x !== k); }
   M._txw_slot(k); M._txw_select(-1, 0);
+  M._txw_slot(ed);
   layers[k].eng = -1; layers[k].vals = {};
-  if (k === ed) buildSliders();
+  if (k === ed) { buildSliders(); showEngine(); }
   showLayers(); saveLayers();
 }
 function editLayer(k) {
   ed = k;
   M._txw_slot(k);
-  if (layers[k].eng >= 0) $("engine").value = layers[k].eng;
   buildSliders();
   showLayers();
+  showEngine();
 }
 function buildSliders() {                            // the edited layer's sliders, at the values it has now
   const box = $("sliders"), L = layers[ed], i = L.eng;
@@ -227,7 +249,8 @@ function setSlider(id, val) {                         // from MIDI CC (the edite
 // ---- notes (several sources may hold the same note)
 function noteOn(n, vel) {                            // to every layer on (shared) or whose zone holds the note
   if (!M || n < 0 || n > 127) return;
-  const h = down.get(n) || { c: 0, to: [] };
+  const h = down.get(n) || { c: 0, to: [], vel: 100 };
+  h.vel = Math.max(1, Math.min(127, vel));
   if (!h.c) h.to = [0, 1, 2, 3].filter(k => layers[k].eng >= 0 && (keyMode === "shared" || (n >= layers[k].lo && n <= layers[k].hi)));
   h.c++;
   down.set(n, h);
@@ -245,34 +268,47 @@ function noteOff(n) {
 function allOff() { for (const n of [...down.keys()]) { down.get(n).c = 1; noteOff(n); } pressed.clear(); }
 function vel() { return +$("vel").value; }
 
-function codeNote(code) {
-  let i = LOWER.indexOf(code);
-  if (i >= 0) return base + i;
-  i = UPPER.indexOf(code);
-  return i >= 0 ? base + 12 + i : -1;
-}
+function codeNote(code) { return code in KEYMAP ? base + KEYMAP[code] : -1; }
 function octave(d) {
   base = Math.max(12, Math.min(96, base + 12 * d));
-  $("oct").textContent = `Z = ${NAMES[base % 12]}${base / 12 - 1}, Q = ${NAMES[base % 12]}${base / 12}`;
+  $("oct").textContent = `A = ${NAMES[base % 12]}${base / 12 - 1}`;
+  keyLabels();
 }
-window.addEventListener("keydown", e => {
-  if (e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === "SELECT") return;
-  if (e.code === "BracketLeft") { octave(-1); return; }
-  if (e.code === "BracketRight") { octave(1); return; }
-  const n = codeNote(e.code);
-  if (n < 0 || e.repeat || pressed.has(e.code)) return;
-  e.preventDefault();
+function velStep(d) {                                 // C / V: the next lower / higher of the velocity steps
+  const v = vel(), up = VELS.find(x => x > v), dn = [...VELS].reverse().find(x => x < v);
+  const nv = d > 0 ? (up ?? 127) : (dn ?? 1);
+  $("vel").value = nv; $("vel").oninput();
+}
+// at document level, in the capture phase: a focused slider, select or button never swallows a playing key
+document.addEventListener("keydown", e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const c = e.code;
+  if (c === "KeyZ" || c === "KeyX") { e.preventDefault(); if (!e.repeat) octave(c === "KeyZ" ? -1 : 1); return; }
+  if (c === "KeyC" || c === "KeyV") { e.preventDefault(); if (!e.repeat) velStep(c === "KeyC" ? -1 : 1); return; }
+  if (c === "BracketLeft" || c === "BracketRight" || c === "Minus" || c === "Equal" ||
+      ((c === "ArrowLeft" || c === "ArrowRight") && e.target.tagName !== "INPUT" && e.target.tagName !== "SELECT")) {
+    e.preventDefault();
+    if (!e.repeat || c.startsWith("Arrow")) stepEngine(c === "BracketLeft" || c === "Minus" || c === "ArrowLeft" ? -1 : 1);
+    return;
+  }
+  const n = codeNote(c);
+  if (n < 0) return;
+  e.preventDefault();                                 // also stops a focused select's type-ahead
+  if (e.repeat || pressed.has(c)) return;             // held: no retrigger
   if (!ctx) startAudio();
-  pressed.set(e.code, n);
+  pressed.set(c, n);
   noteOn(n, vel());
-});
-window.addEventListener("keyup", e => {
+}, true);
+document.addEventListener("keyup", e => {
   const n = pressed.get(e.code);
   if (n === undefined) return;
   pressed.delete(e.code);
   noteOff(n);
-});
-window.addEventListener("blur", () => { for (const [c, n] of pressed) noteOff(n); pressed.clear(); });
+}, true);
+window.addEventListener("blur", () => { for (const [, n] of pressed) noteOff(n); pressed.clear(); });
+// after a click on a slider or a select, give the keys back to the page (the arrows then step engines too)
+document.addEventListener("change", e => { if (e.target.tagName === "SELECT" || e.target.type === "range") e.target.blur(); }, true);
+document.addEventListener("pointerup", e => { if (e.target.type === "range") setTimeout(() => e.target.blur(), 0); }, true);
 $("vel").oninput = () => { $("velv").textContent = $("vel").value; };
 $("octdn").onclick = () => octave(-1);
 $("octup").onclick = () => octave(1);
@@ -291,6 +327,7 @@ function buildKeyboard() {
       k.style.left = `${whites.indexOf(n) * w}%`; k.style.width = `${w}%`;
       if (n % 12 === 0) k.innerHTML = `<span>C${n / 12 - 1}</span>`;
     }
+    k.insertAdjacentHTML("beforeend", `<em class="lt"></em>`);
     let on = false;
     const press = e => { e.preventDefault(); if (!ctx) startAudio(); if (!on) { on = true; noteOn(n, vel()); } };
     const release = () => { if (on) { on = false; noteOff(n); } };
@@ -300,6 +337,11 @@ function buildKeyboard() {
     k.addEventListener("pointerleave", release);
     kb.appendChild(k);
   }
+}
+function keyLabels() {                               // the computer letter of each on-screen key, for this octave
+  const at = {};
+  for (const c in KEYMAP) at[base + KEYMAP[c]] = KEYCAP[c];
+  document.querySelectorAll("#kb .key").forEach(k => { k.querySelector(".lt").textContent = at[+k.dataset.n] || ""; });
 }
 function lightKey(n, on) { const k = document.querySelector(`#kb .key[data-n="${n}"]`); if (k) k.classList.toggle("on", on); }
 

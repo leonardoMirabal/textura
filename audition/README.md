@@ -24,8 +24,16 @@ git clone https://github.com/emscripten-core/emsdk.git .local/emsdk
 
 ## Playing
 
-- **Layers** (stage S3): four engines at once. Click a layer to edit it; the selector at the top sets the edited
-  layer's engine, `off` empties a layer. Each layer has its own parameters (PARTICLES, the hero-pool limit, and
+- **Keys** (at the top): the on-screen keys are the FM-1's 27 (F3 to G5). Computer keys as in Ableton: `A S D F G H J
+  K L ; '` play the white keys and `W E T Y U O P` the black ones (the letters are printed on the keys); `Z` / `X` move
+  the octave, `C` / `V` the velocity. A held letter holds the note (no repeats). The keys are read at page level, so a
+  focused slider or select never swallows them. A key pressed fires a burst, held keeps the cloud going, released lets
+  it ring out. A MIDI keyboard plays with its velocity; CC 20-27 move the first eight parameters, CC 7 the level.
+- **Engine**: a slider and `◀` `▶` step through the engines (`[` / `]` or `←` / `→` from the keyboard) with the
+  number and name shown large. A switch is instant and click-free: the old engine fades out over 23 ms while the new
+  one starts, and the keys held on that layer carry over to the new engine.
+- **Layers** (stage S3): four engines at once. Click a layer to edit it; the engine stepper sets the edited layer's
+  engine, `off` empties a layer. Each layer has its own parameters (PARTICLES, the hero-pool limit, and
   LEVEL are shared by all engines), a pan (constant power) and a key zone. Keys: `shared` sends every key to every
   layer, `zones` only to the layers whose range holds it. The layers are summed in stereo, then the CHAMBER (if on),
   then the output limiter (`engines/tx_core_mix.c`, the same chain as the native checks).
@@ -33,10 +41,6 @@ git clone https://github.com/emscripten-core/emsdk.git .local/emsdk
   mono, on the middle of the stereo pair): the room's
   lowest modes (BODY) and a short diffuse tail (TAIL) for a room of SIZE 0.2-3 m and wall absorption ABSORB (decay
   from Sabine's law). The same stage renders natively with `build/bench/txrender ENGINE SCENE -c`.
-- **Keys**: a key pressed fires a burst, held keeps the cloud going, released lets it ring out. The on-screen keys are
-  the FM-1's 27 (F3 to G5). Computer keys: the `Z` row and the `Q` row play two octaves, `[` and `]` move them; their
-  velocity is the slider. A MIDI keyboard plays with its velocity; CC 20-27 move the first eight parameters, CC 7 the
-  level.
 - **Meters**: CPU here (all layers' time per 256-frame block in this browser, averaged over 2 s); the FM-1 estimate
   of all four together against the 75 % gate (each callback also renders one block of a reference scene whose native
   time `make tx-bench` measured, so the engines are compared at the same clock, then scaled by the calibration against

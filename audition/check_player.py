@@ -58,14 +58,22 @@ def main():
         page.goto(url)
         page.wait_for_function("window.txTest && window.txTest.ready", timeout=20000)
         check(page.evaluate("window.crossOriginIsolated"), "served cross-origin isolated (audition/serve.py)")
-        n = page.eval_on_selector_all("#engine option", "o => o.length")
-        check(n >= 1, f"engine selector lists {n} engine(s)")
+        n = page.evaluate("Module._txw_count()")
+        mx = page.eval_on_selector("#engine", "s => +s.max")
+        check(n >= 1 and mx == n - 1, f"engine slider spans {n} engine(s)")
+        ys = page.evaluate("""() => ['kb', 'engine', 'layers', 'sliders', 'ch-sliders'].map(i => document.getElementById(i).getBoundingClientRect().top)""")
+        check(ys == sorted(ys), f"layout: keyboard, engine, layers, parameters, CHAMBER from the top ({[round(y) for y in ys]})")
+        def pick(i):
+            page.evaluate(f"(() => {{ const s = document.getElementById('engine'); s.value = {i}; s.oninput(); }})()")
         for i in range(n):
-            page.select_option("#engine", str(i))
+            pick(i)
             name = page.evaluate(f"Module.UTF8ToString(Module._txw_name({i}))")
             np_ = page.evaluate("Module._txw_nparams()")
             ns = page.eval_on_selector_all("#sliders input", "x => x.length")
             check(ns == np_ + 2, f"{name}: {ns} sliders = {np_} own parameters + PARTICLES + LEVEL")
+            if i in (0, n - 1):
+                big = page.text_content("#eng-name")
+                check(big == name and page.text_content("#eng-num") == str(i + 1), f"engine slider at {i}: shows {page.text_content('#eng-num')} {big}")
             sha = page.evaluate(f"window.txTest.sha({i})")
             want = base.get(f"{name}-max")
             check(want is not None and sha == want, f"{name}: wasm render of the max scene = native baseline ({sha[:16]})")
@@ -77,14 +85,61 @@ def main():
             sha = page.evaluate(f"window.txTest.chSha({idrip})")
             want = base.get("chamber+drip-max")
             check(want is not None and sha == want, f"CHAMBER: wasm render of drip max through it = native baseline ({sha[:16]})")
-        page.select_option("#engine", "0")
+        # the computer keys (Ableton layout): letters on the keys, Z / X octave, C / V velocity, letters play even with a
+        # slider or a select focused, held = no retrigger
+        lab = page.eval_on_selector('#kb .key[data-n="60"] .lt', "e => e.textContent")
+        lab2 = page.eval_on_selector('#kb .key[data-n="61"] .lt', "e => e.textContent")
+        page.keyboard.press("KeyZ")
+        lab3 = page.eval_on_selector('#kb .key[data-n="60"] .lt', "e => e.textContent")
+        oct3 = page.text_content("#oct")
+        page.keyboard.press("KeyX")
+        check(lab == "A" and lab2 == "W" and lab3 == "K" and "C3" in oct3, f"key letters: C4 {lab}, C#4 {lab2}; after Z: C4 {lab3} ({oct3})")
+        page.click("#engine")                           # a slider clicked (focused): letters still play
+        page.focus("#vel")
+        page.keyboard.down("KeyA")
+        h1 = page.evaluate("window.txTest.held()")
+        page.keyboard.up("KeyA")
+        h2 = page.evaluate("window.txTest.held()")
+        check(60 in h1 and 60 not in h2, f"a letter plays with a slider focused: A held {h1}, released {h2}")
+        km = page.eval_on_selector("#keymode", "s => s.value")
+        page.focus("#keymode")
+        page.keyboard.down("KeyS")
+        h3 = page.evaluate("window.txTest.held()")
+        km2 = page.eval_on_selector("#keymode", "s => s.value")
+        page.keyboard.up("KeyS")
+        check(62 in h3 and km == km2, f"a letter plays with a select focused (S -> {h3}), the select unchanged ({km2})")
+        ev0 = page.evaluate("Array.from(new Int32Array(Module.HEAP32.buffer, Module._txw_stats(), 8))[5]")
+        page.keyboard.down("KeyF")
+        for _ in range(5):
+            page.keyboard.down("KeyF")                  # auto-repeat while held: no new notes
+        page.keyboard.up("KeyF")
+        check(page.evaluate("window.txTest.held()") == [], "a held letter does not retrigger, its release frees it")
+        v0 = page.text_content("#velv")
+        page.keyboard.press("KeyC")
+        v1 = page.text_content("#velv")
+        page.keyboard.press("KeyV")
+        v2 = page.text_content("#velv")
+        check(int(v1) < int(v0) and v2 == v0, f"velocity: {v0}, C -> {v1}, V -> {v2}")
+        pick(n - 1)
+        page.keyboard.press("BracketRight")             # the shortcuts: ] wraps to the first, - goes back
+        first0 = page.text_content("#eng-name")
+        pick(n - 1)
+        page.evaluate("document.activeElement && document.activeElement.blur()")   # the arrows: not inside a select
+        page.keyboard.press("ArrowRight")
+        first = page.text_content("#eng-name")
+        page.keyboard.press("Minus")
+        last = page.text_content("#eng-name")
+        names0 = [page.evaluate(f"Module.UTF8ToString(Module._txw_name({i}))") for i in (0, n - 1)]
+        check(first0 == first == names0[0] and last == names0[1], f"shortcuts: ] -> {first0}, → -> {first}, - -> {last}")
+        pick(0)
         cal = page.evaluate("window.txTest.calib || null")
         check(cal is not None, f"calibration loaded: {cal}")
-        page.click("#start")
+        if page.is_enabled("#start"):                   # (a letter played above may have started it already)
+            page.click("#start")
         page.wait_for_function("document.getElementById('status').textContent.startsWith('Sound on')", timeout=5000)
         check(True, "sound started: " + page.text_content("#status"))
-        page.keyboard.down("KeyZ")                      # C3 below the FM-1 range; then the on-screen C4 key
-        page.keyboard.down("KeyQ")
+        page.keyboard.down("KeyD")                      # E4 and B4 from the letters; then the on-screen C4 key
+        page.keyboard.down("KeyJ")
         time.sleep(0.6)
         page.mouse.move(0, 0)
         box = page.locator('#kb .key[data-n="60"]').bounding_box()
@@ -126,12 +181,34 @@ def main():
         lv = page.evaluate("window.txTest.render(8)")
         check(lv > 0, f"CHAMBER on: the output still sounds (peak {lv})")
         page.uncheck("#ch-on")
+        # a switch with keys held: the new engine takes them over; switching a sounding layer off fades (no click)
+        page.evaluate("window.txTest.stepEngine(1)")
+        time.sleep(0.6)
+        st1 = page.evaluate("Module._txw_stats() && Array.from(new Int32Array(Module.HEAP32.buffer, Module._txw_stats(), 8))")
+        check(st1[5] > 0, f"engine switched with keys held: the new engine ({page.text_content('#eng-name')}) got them ({st1[5]} events)")
+        page.evaluate("window.txTest.stepEngine(-1)")
+        time.sleep(0.4)
+        jumps = page.evaluate("""() => {
+            const a = window.txTest.renderCopy(16);       // the test engine sounding: its own largest sample step
+            window.txTest.layerOff(0);
+            const b = window.txTest.renderCopy(8);        // switched off: the fade
+            const step = x => { let m = 0; for (let i = 2; i < x.length; i += 2) m = Math.max(m, Math.abs(x[i] - x[i - 2])); return m; };
+            const peak = x => x.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+            return [step(a), step(b), peak(b.slice(-512))];
+        }""")
+        check(jumps[1] <= jumps[0] * 1.05 and jumps[2] == 0, f"a layer switched off fades, no click: largest step {jumps[1]:.4f} "
+              f"vs {jumps[0]:.4f} while sounding; silent after ({jumps[2]})")
+        pick(0)                                         # back to the test engine, every key pressed again
+        page.mouse.up(); page.keyboard.up("KeyD"); page.keyboard.up("KeyJ")
+        page.keyboard.down("KeyD"); page.keyboard.down("KeyJ")
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] - 10)
+        page.mouse.down()
         # S3: a second layer (rain on surfaces, panned right) with the keys held: both layers sound, each has a CPU share
         names = [page.evaluate(f"Module.UTF8ToString(Module._txw_name({i}))") for i in range(n)]
         irs = names.index("rainsurf") if "rainsurf" in names else 1
         page.evaluate(f"(() => {{ window.txTest.editLayer(1); window.txTest.selectEngine({irs}); window.txTest.editLayer(0); }})()")
         page.evaluate("""() => { const p = document.querySelectorAll('#layers .pan')[1]; p.value = 110; p.oninput(); }""")
-        page.keyboard.up("KeyQ"); page.keyboard.down("KeyQ")   # a fresh press reaches the new layer
+        page.keyboard.up("KeyJ"); page.keyboard.down("KeyJ")   # a fresh press reaches the new layer
         time.sleep(1.5)
         rows = page.eval_on_selector_all("#layers .layer .st", "x => x.map(e => e.textContent)")
         check(len(rows) == 4 and "%" in rows[0] and "%" in rows[1] and "dBFS" in rows[1] and "-inf" not in rows[1],
@@ -145,7 +222,7 @@ def main():
             if nm in names:
                 page.evaluate(f"(() => {{ window.txTest.editLayer({k}); window.txTest.selectEngine({names.index(nm)}); }})()")
         page.evaluate("window.txTest.editLayer(0)")
-        page.keyboard.up("KeyQ"); page.keyboard.down("KeyQ")
+        page.keyboard.up("KeyJ"); page.keyboard.down("KeyJ")
         time.sleep(2.2)
         cpu4 = page.text_content("#cpu-fm1")
         rows = page.eval_on_selector_all("#layers .layer .st", "x => x.map(e => e.textContent)")
@@ -153,7 +230,7 @@ def main():
         page.screenshot(path=os.path.join(OUT, "layers.png"), full_page=True)
         for k in (1, 2, 3):
             page.evaluate(f"window.txTest.layerOff({k})")
-        page.keyboard.down("KeyQ")
+        page.keyboard.down("KeyJ")
         with page.expect_download(timeout=20000) as dl:
             page.click("#rec")
         d = dl.value
@@ -162,8 +239,8 @@ def main():
         size = os.path.getsize(path)
         check(size == 44 + 441000 * 6, f"record 10 s: {d.suggested_filename}, {size} B (24-bit stereo 44.1 kHz)")
         page.mouse.up()
-        page.keyboard.up("KeyZ")
-        page.keyboard.up("KeyQ")
+        page.keyboard.up("KeyD")
+        page.keyboard.up("KeyJ")
         time.sleep(0.5)
         lit = page.eval_on_selector_all("#kb .key.on", "k => k.length")
         check(lit == 0, "all keys released")

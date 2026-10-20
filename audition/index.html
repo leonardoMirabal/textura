@@ -44,10 +44,19 @@
   .key.b { background: var(--keyb); height: 72px; z-index: 2; border-color: var(--keyb); }
   .key.on { background: var(--lit) !important; }
   .key span { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 10px; color: #777; }
+  .key .lt { position: absolute; left: 0; right: 0; text-align: center; font-style: normal; font-weight: 700; font-size: 13px; }
+  .key.w .lt { bottom: 20px; color: #444; } .key.b .lt { bottom: 6px; color: #ddd; }
+  .keyinfo { font-weight: 600; font-variant-numeric: tabular-nums; }
   .hint { color: var(--dim); font-size: 12.5px; margin-top: 8px; }
   kbd { border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; font-size: 11px; background: var(--bg); }
   #rec.on { background: var(--warn); color: var(--panel); border-color: var(--warn); }
   .small { font-size: 12px; color: var(--dim); }
+  .eng-step { display: flex; gap: 8px; align-items: center; }
+  .eng-step input { flex: 1; min-width: 0; accent-color: var(--accent); height: 28px; }
+  .eng-step button { font-size: 18px; padding: 4px 14px; }
+  .eng-big { display: flex; gap: 14px; align-items: baseline; margin-top: 6px; min-width: 0; }
+  #eng-num { font-size: 34px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+  #eng-name { font-size: 26px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .layer { display: grid; grid-template-columns: 74px minmax(0, 1fr) 150px 170px 120px; gap: 6px 12px; align-items: center;
            padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; margin-top: 6px; cursor: pointer; }
   .layer.ed { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
@@ -62,11 +71,37 @@
 <main>
   <h1>Textura player</h1>
   <div class="row">
-    <label>Engine of the edited layer <select id="engine"></select></label>
     <button id="start" class="primary">Start sound</button>
     <button id="rec" disabled>Record 10 s</button>
     <span id="status">Loading the engines…</span>
   </div>
+
+  <section class="panel">
+    <h2>Keys <span class="small" id="midi"></span></h2>
+    <div class="row">
+      <button id="octdn" title="Z">Oct − <kbd>Z</kbd></button><button id="octup" title="X">Oct + <kbd>X</kbd></button>
+      <span class="keyinfo" id="oct"></span>
+      <label>Velocity <kbd>C</kbd> <kbd>V</kbd> <input type="range" id="vel" min="1" max="127" value="100" style="accent-color: var(--accent); vertical-align: middle"></label>
+      <span class="keyinfo" id="velv">100</span>
+    </div>
+    <div id="kb"></div>
+    <div class="hint">Computer keys, as in Ableton: <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> <kbd>F</kbd> <kbd>G</kbd> <kbd>H</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> <kbd>;</kbd> <kbd>'</kbd>
+      play the white keys, <kbd>W</kbd> <kbd>E</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>O</kbd> <kbd>P</kbd> the black ones (the letters are on the keys above);
+      <kbd>Z</kbd> <kbd>X</kbd> octave, <kbd>C</kbd> <kbd>V</kbd> velocity, <kbd>[</kbd> <kbd>]</kbd> (or <kbd>←</kbd> <kbd>→</kbd>) previous / next engine (held keys carry over).
+      A key pressed fires a burst, held keeps the cloud going, released lets it ring out.
+      A USB MIDI keyboard plays with velocity (Web MIDI: Chrome / Edge / Firefox); CC 20–27 move the first eight parameters, CC 7 the level.</div>
+  </section>
+
+  <section class="panel" id="eng-panel">
+    <h2>Engine <span class="small" id="eng-layer">(layer 1)</span></h2>
+    <div class="eng-step">
+      <button id="eng-prev" title="previous engine ([ or ←)">◀</button>
+      <input type="range" id="engine" min="0" max="0" value="0" aria-label="engine">
+      <button id="eng-next" title="next engine (] or →)">▶</button>
+    </div>
+    <div class="eng-big"><span id="eng-num">1</span><span id="eng-name">–</span></div>
+    <div class="small" id="eng-title"></div>
+  </section>
 
   <section class="panel">
     <h2>Layers <span class="small">four engines at once (stage S3); click a layer to edit it</span></h2>
@@ -103,18 +138,6 @@
     <div class="sliders" id="ch-sliders"></div>
   </section>
 
-  <section class="panel">
-    <h2>Keys <span class="small" id="midi"></span></h2>
-    <div class="row">
-      <label>Velocity (computer keys / mouse) <input type="range" id="vel" min="1" max="127" value="100" style="accent-color: var(--accent)"></label>
-      <span class="small" id="velv">100</span>
-      <button id="octdn">Oct −</button><button id="octup">Oct +</button><span class="small" id="oct"></span>
-    </div>
-    <div id="kb"></div>
-    <div class="hint">Computer keys: <kbd>Z</kbd>…<kbd>M</kbd> (with <kbd>S</kbd> <kbd>D</kbd> <kbd>G</kbd> <kbd>H</kbd> <kbd>J</kbd>) and <kbd>Q</kbd>…<kbd>P</kbd> (with the digit row) play two octaves;
-      <kbd>[</kbd> <kbd>]</kbd> move them. A key pressed fires a burst, held keeps the cloud going, released lets it ring out.
-      A USB MIDI keyboard plays with velocity (Web MIDI: Chrome / Edge / Firefox); CC 20–27 move the first eight parameters, CC 7 the level.</div>
-  </section>
 </main>
 <script src="app.js"></script>
 <script src="txweb.js"></script>
