@@ -19,7 +19,7 @@
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
 
-enum { P_RATE, P_CARRIER, P_Q, P_COHERE, P_CHORUS, P_DIST, NP };
+enum { P_RATE, P_CARRIER, P_Q, P_COHERE, P_CHORUS, P_DIST, P_PHRASE, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"RATE", 127, 20, "clicks per tymbal: 100 .. 250 Hz (log; the two tymbals together twice that: 230 Hz Cyclochila)"},
@@ -28,6 +28,7 @@ static const tx_param_t PARAMS[NP] = {
     {"COHERE", 127, 100, "rib coherence: buzzy (ribs and clicks jitter) .. a clean tone"},
     {"CHORUS", 127, 0, "companions per key: 0 .. 7 cicadas farther out"},
     {"DIST", 127, 40, "distance: 0.3 .. 30 m (log): level 1 / r"},
+    {"PHRASE", 127, 70, "pulse groups of the song: steady .. 20 /s (recordings: 7-13 /s)"},
 };
 
 #define NV 16u
@@ -44,6 +45,8 @@ typedef struct {
     uint32_t f;                    /* carrier, Hz */
     int32_t a1s, a1o, dur;         /* a click's start a1, an out-click's start a1, the glide length (samples) */
     int32_t gain, env;             /* Q12 at this distance, the swell (Q15) */
+    uint32_t pph, pinc;            /* the pulse-group phase and its step per block */
+    int32_t pmod;                  /* the pulse-group gain now, Q15 */
     uint8_t npend, side, em, note, alive, vel, pad[2];
 } cicada_t;
 
@@ -150,6 +153,7 @@ static void spawn(cicadas_t *s, const tx_event_t *e)
             c->per_q8 = (TX_FS << 7) / tx_exp2(rt) ;          /* fs / (2 R), Q8 */
         }
         if (!c->alive) { c->next_q8 = k ? tx_rand_below(r, 65535u) % (c->per_q8 * 2u) : 0; c->env = 0; c->npend = 0; }
+        c->pinc = (uint32_t)(((uint64_t)s->p[P_PHRASE] * 1963000u * (60000u + tx_rand_below(r, 11000u))) >> 16);   /* sin^2 at 0 .. 20 Hz x 0.92-1.08 */
         c->alive = 1; c->em = e->emitter; c->note = e->note; c->vel = e->vel;
     }
 }
@@ -173,6 +177,7 @@ static void clicks(cicadas_t *s, cicada_t *c, unsigned n)
     while ((c->next_q8 >> 8) < n) {
         int32_t t0 = (int32_t)(c->next_q8 >> 8);
         int32_t a = (int32_t)(((int64_t)RIB_AMP * c->env) >> 15);
+        a = (int32_t)(((int64_t)a * c->pmod) >> 15);
         if (c->side) a = (a * 29205) >> 15;                  /* the other tymbal -1 dB (ours) */
         for (k = 0; k < (int32_t)NRIB; k++) {
             int32_t dj = (int32_t)(((int64_t)tx_rand_s15(r) * s->jit) >> 15) * cyc >> 16;   /* +-0.5 cycle x jit */
@@ -207,7 +212,13 @@ TX_AUDIO_CODE static void cicadas_render(void *st, int32_t *mix, unsigned n)
         else c->env -= (c->env >> 6) + 1;                    /* the fade */
         if (c->env < 0) c->env = 0;
         if (c->alive && !held && c->env < 64) { c->alive = 0; c->em = 0xFF; }
-        if (c->alive) clicks(s, c, n);
+        if (c->alive) {                                      /* the pulse groups: 0.55 + 0.45 sin^2 (ours, from the */
+            int32_t sn;                                      /* recordings' 7-13 Hz modulation, depth 0.17-0.38) */
+            c->pph += c->pinc;
+            sn = tx_sin_q15(c->pph);
+            c->pmod = c->pinc ? 18022 + (int32_t)(((int64_t)sn * sn * 14745) >> 30) : 32767;
+            clicks(s, c, n);
+        }
         for (j = 1; j < c->npend; j++) {                     /* insertion sort by offset (a few events) */
             tx_tev_t t = c->pend[j];
             unsigned q = j;
@@ -219,6 +230,14 @@ TX_AUDIO_CODE static void cicadas_render(void *st, int32_t *mix, unsigned n)
             int32_t g = (int32_t)(((int64_t)c->gain * s->level) >> 15);
             g = (int32_t)(((int64_t)g * c->vel * c->vel) >> 14);   /* velocity = loudness (v / 127)^2 */
             c->ty.g = g > 6000 ? 6000 : g;                      /* closer than ~0.8 m: no louder (headroom) */
+        }
+        {   /* the ribs' own clicks, radiated directly (a 2-sample spike each: brighter, as the recordings */
+            unsigned q;                                      /* keep 5-12 kHz within ~10 dB of the peak: ours) */
+            for (q = 0; q < m; q++) {
+                int32_t d = (c->pend[q].amp * c->ty.g) >> 4;
+                mix[c->pend[q].off] += d;
+                if (c->pend[q].off + 1u < n) mix[c->pend[q].off + 1u] -= d;
+            }
         }
         tx_tymbal_add(&c->ty, c->pend, m, mix, n);
         for (j = m; j < c->npend; j++) { c->pend[j - m] = c->pend[j]; c->pend[j - m].off = (uint16_t)(c->pend[j].off - n); }
