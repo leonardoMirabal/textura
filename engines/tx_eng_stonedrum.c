@@ -266,6 +266,7 @@ TX_AUDIO_CODE static void drum_render(void *st, int32_t *mix, unsigned n)
         for (e = 0; e < k; e++) {                            /* key strikes land at the block start (keys are */
             unsigned w = NV;                                 /* block-rate events); micro-collisions at their sample */
             hit(s, &s->ev[e], &w);
+            (void)w;
         }
     }
     for (i = 0; i < NV; i++) {
