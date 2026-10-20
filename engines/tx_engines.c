@@ -14,6 +14,7 @@ extern const tx_engine_t tx_eng_thunder;
 extern const tx_engine_t tx_eng_bees;
 extern const tx_engine_t tx_eng_sandsong;
 extern const tx_engine_t tx_eng_aeolian;
+extern const tx_engine_t tx_eng_sand;
 
 const tx_engine_t *const tx_engines[] = {
     &tx_eng_test,
@@ -28,6 +29,7 @@ const tx_engine_t *const tx_engines[] = {
     &tx_eng_bees,
     &tx_eng_sandsong,
     &tx_eng_aeolian,
+    &tx_eng_sand,
     0,
 };
 
