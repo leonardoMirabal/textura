@@ -29,7 +29,7 @@ static const tx_param_t PARAMS[NP] = {
     {"LOAD", 127, 40, "time to the snap while held: 0.3 .. 8 s (log); 127 = never (creaks and crackles only)"},
     {"WOOD", 127, 40, "spruce (bright, Q 160) | pine (Q 120) | maple (Q 110) | oak (dark, Q 80) | green branch (Q 40)"},
     {"MOIST", 127, 20, "dry .. wet: duller, fewer cracks, more damping"},
-    {"CREAK", 127, 45, "stick-slip creak: off .. strong"},
+    {"CREAK", 127, 25, "stick-slip creak: off .. strong"},
     {"PITCH", 127, 70, "creak slip rate: 30 .. 800 Hz (log): ratchety .. singing (W7)"},
     {"SIZE", 127, 64, "piece length at C4: 10 .. 100 cm (log): f1 ~ 0.06 c / L"},
 };
@@ -40,7 +40,7 @@ static const tx_param_t PARAMS[NP] = {
 #define NAF 12u                    /* pending aftershocks per piece */
 #define NEVB 48u
 #define NWOOD 5u
-#define A_REF 460000000            /* a mode's amplitude for the snap at v100 (Q30; calibrated by render) */
+#define A_REF 540000000            /* a mode's amplitude for the snap at v100 (Q30; calibrated by render) */
 
 static const uint16_t W_Q[NWOOD] = {160, 120, 110, 80, 40};
 static const uint16_t W_C[NWOOD] = {5500, 4500, 4300, 4000, 3000};   /* sqrt(E' / rho), m/s (ours, typical) */
@@ -183,6 +183,11 @@ static void crack(wood_t *s, piece_t *p, unsigned o, int32_t x, unsigned *ne)
         s->eo[*ne] = (uint16_t)o; s->ea[*ne] = (int16_t)(a >> 15); (*ne)++;   /* (strikes of this block, in order) */
     }
     s->bpush[o] += (int32_t)(((int64_t)(a >> 10) * dull) >> 15);
+    {   /* the fracture front itself: a 2-sample spike (fibres break in microseconds: a sharp crack, ours) */
+        int32_t sp = (int32_t)(((int64_t)(a >> 7) * dull) >> 15);
+        s->buf[o] += sp;
+        if (o + 1u < TX_BLOCK) s->buf[o + 1u] -= sp >> 1;
+    }
     (void)p;
 }
 
@@ -206,7 +211,7 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
         if (p->alive) {
             p->held = (uint8_t)(p->em < TX_CLOUD_EMITTERS && s->cloud.em[p->em].held && s->cloud.em[p->em].note == p->note);
             if (p->held && !p->snapped) {                    /* loading: precursors at a rate rising to the snap */
-                uint32_t per_q8, rate_q8 = 12u * (256u - s->p[P_MOIST]);  /* ~12 /s dry at the start, ~6 wet (ours) */
+                uint32_t per_q8, rate_q8 = 24u * (256u - s->p[P_MOIST]);  /* ~24 /s dry at the start, ~12 wet (ours) */
                 int32_t lr = 0;
                 if (p->tau) {                                /* x ((tau - t) / tau)^-1.27 (W4) */
                     uint32_t left = p->tau > p->t ? p->tau - p->t : 1u;
@@ -217,7 +222,7 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
                 per_q8 = (TX_FS << 16) / rate_q8;           /* fs / rate, Q8 */
                 per_q8 = (uint32_t)(((uint64_t)per_q8 * tx_exp2((16 << 16) - lr)) >> 16);
                 while ((p->next_q8 >> 8) < n) {
-                    int32_t x = 16000 + (int32_t)(((int64_t)tx_neglog2_q12(tx_rand(r)) * 5851) >> 12);   /* E^-1.7, from */
+                    int32_t x = 21000 + (int32_t)(((int64_t)tx_neglog2_q12(tx_rand(r)) * 5851) >> 12);   /* E^-1.7, from */
                     crack(s, p, p->next_q8 >> 8, x > 40000 ? 40000 : x, &ne);                        /* 1 dec down */
                     p->next_q8 += tx_cloud_exp_q8(&s->cloud, per_q8 ? per_q8 : 1u);
                 }
