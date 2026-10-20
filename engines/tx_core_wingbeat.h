@@ -12,7 +12,7 @@
  *   - the tables carry 24 harmonics: the given levels at half their dB, then -1.2 dB per harmonic (ours);
  *   - every wing stroke is its own: each cycle draws its period (+-JIT, ~4 %) and level (+-10 %), so the waveform
  *     never repeats and the upper harmonics smear into bands;
- *   - the stroke's turbulence: noise band-passed by the body (~150 Hz .. 2.5 kHz, two one-poles) and pulsed by the
+ *   - the stroke's turbulence: noise band-passed by the body (~150 Hz .. 7 kHz, two one-poles) and pulsed by the
  *     stroke (sin^2 of the phase), at NZ (Q15) of the buzz.
  * ~30 ops per sample. 40 B per buzzer. */
 #ifndef TX_CORE_WINGBEAT_H

@@ -50,7 +50,9 @@ TX_AUDIO_CODE void tx_buzz_add(tx_buzz_t *b, const int16_t *front, const int16_t
         y = (y * (ca >> 1)) >> 14;                           /* this stroke's level */
         x ^= x << 13; x ^= x >> 17; x ^= x << 5;             /* the stroke's turbulence */
         u = (int32_t)(x >> 17) - 16384;                      /* Q14 */
-        n1 += (u - n1) >> 2;                                 /* low-pass ~2.5 kHz */
+        n1 += (u - n1) >> 1;                                 /* low-pass ~7 kHz, one pole: the turbulence reaches 20 kHz
+                                                              * (at >> 2 the buzz stopped near 6.5 kHz; the references
+                                                              * carry noise to the top) */
         n2 += (n1 - n2) >> 7;                                /* (its own low part, ~150 Hz: taken off) */
         se = (f * f) >> 15;                                  /* pulsed by the stroke (its own waveform, squared) */
         y += (((n1 - n2) * se) >> 14) * nz >> 15;

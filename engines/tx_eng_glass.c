@@ -148,7 +148,9 @@ static void impact(glass_t *s, shard_t *h, unsigned o, int32_t v_mm)
         ringv_t *r = &s->rv[h->ring];
         unsigned k;
         for (k = 0; k < NMS; k++) if (r->m[k].inc) tx_mode_strike(&r->m[k], (k & 1u) ? -(a >> (k + 0)) : a >> k);
-        tx_mode_strike(&s->floor[o & 1u], a >> 3);          /* the floor: big shards only (ours) */
+        if (h->a > A_REF / 3)                                /* the floor: the big shards only, softly (ours; every */
+            tx_mode_strike(&s->floor[o & 1u], a >> 5);      /* ringing shard at -18 dB made a pulsing low bed between the
+                                                              * breaks: session 5's spectrogram review) */
     }
     s->bpush[o] += (int32_t)(((int64_t)h->c * v_mm) >> (h->ring == 0xFF ? 12 : 10));   /* the click (every shard: ~ L,
                                                               * ours; the chips that do not ring -12 dB: together they

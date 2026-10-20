@@ -21,6 +21,8 @@
  * (ours, the standard degenerate-pair picture of bells and bars). And a struck tube swings away on its string and
  * twists: what reaches the listener swells and fades at the pendulum's ~0.6-1.2 Hz, by 15-50 % from the blow, dying
  * in a few seconds (ours).
+ * Six modes now (1 : 2.76 : 5.40 : 8.93 : 13.34 : 18.64, those under fs / 6), the first two in both planes, the upper
+ * ones single (the same oscillator count as four in pairs): the inharmonic shimmer a struck tube has above its hum.
  * Spectrogram review (session 5: "pure sine lines, no strike transient"): each strike now also clicks: the clapper
  * meets the tube for ~0.1-0.4 ms (a Hertz pulse, harder = shorter and brighter), ~-14 dB under the ring's peak (ours),
  * so the strike has the broadband body a struck tube has before its modes take over. */
@@ -54,16 +56,17 @@ static const tx_param_t PARAMS[NP] = {
 };
 
 #define NT 8u
-#define NM 4u
+#define NM 6u                       /* modes (the first two in two planes: NM + 2 oscillators) */
+#define NB 2u
 #define A_STRIKE 5000              /* a mode's amplitude for a full strike (Q15 band state; calibrated by render) */
 
-TX_AUDIO_DATA static const uint16_t RATIO[NM] = { 1024, 2823, 5534, 9147 };   /* Q10 */
+TX_AUDIO_DATA static const uint16_t RATIO[NM] = { 1024, 2823, 5534, 9147, 13664, 19085 };   /* Q10 */
 TX_AUDIO_DATA static const uint16_t MAT_Q[3] = { 1500, 600, 100 };
-static const int32_t L2_RATIO[NM] = { 0, 96004, 161761, 207036 };   /* log2 of the mode ratios, Q16 */
+static const int32_t L2_RATIO[NM] = { 0, 96004, 161761, 207036, 244980, 276575 };   /* log2 of the ratios, Q16 */
 
 typedef struct {
-    tx_pmode_t m[2u * NM];         /* the free modes, two planes (m[i], m[nm + i]): PLATE core oscillators */
-    int32_t ge[2u * NM];           /* their envelopes with 8 more bits (g << 8): the decay stays exponential to the end */
+    tx_pmode_t m[NM + NB];         /* the free modes (m[i]); the first NB also in the other plane (m[nm + i]) */
+    int32_t ge[NM + NB];           /* their envelopes with 8 more bits (g << 8): the decay stays exponential to the end */
     uint32_t f1;                   /* Hz */
     uint32_t silent, tmax;         /* samples since the last strike; 3 T60 */
     uint32_t bdue[2];              /* the clapper's bounces: samples to go (0 = none) */
@@ -123,13 +126,13 @@ static void chimes_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void quiet_tube(tube_t *t)
 {
     unsigned i;
-    for (i = 0; i < 2u * NM; i++) t->m[i].g = t->m[i].gl = 0;
+    for (i = 0; i < NM + NB; i++) t->m[i].g = t->m[i].gl = 0;
 }
 
 static int tube_quiet(const tube_t *t)
 {
     unsigned i;
-    for (i = 0; i < 2u * NM; i++) if (t->m[i].g | t->m[i].gl) return 0;
+    for (i = 0; i < NM + NB; i++) if (t->m[i].g | t->m[i].gl) return 0;
     return 1;
 }
 
@@ -197,8 +200,11 @@ static void strike(chimes_t *s, tube_t *t, int32_t force_q15, int bounce)
         int32_t a = (int32_t)(((int64_t)force_q15 * g >> 15) * A_STRIKE >> 15);
         a = (int32_t)(((int64_t)a * (4915 + (((sh < 0 ? -sh : sh) * 27853) >> 15))) >> 15);
         a = (int32_t)(((int64_t)a * s->level) >> 15);
-        kick_mode(&t->m[i], (int32_t)(((int64_t)sg * a * ca) >> 15));
-        kick_mode(&t->m[t->nm + i], (int32_t)(((int64_t)sg * a * sa) >> 15));
+        if (i < NB) {                                        /* the low modes: shared between the planes */
+            kick_mode(&t->m[i], (int32_t)(((int64_t)sg * a * ca) >> 15));
+            kick_mode(&t->m[t->nm + i], (int32_t)(((int64_t)sg * a * sa) >> 15));
+        } else
+            kick_mode(&t->m[i], sg * a);
     }
     t->silent = 0;
     {   /* the clapper's click: a Hertz pulse of 4-18 samples (harder clapper = shorter), ~ the force (ours) */
@@ -238,7 +244,7 @@ static void hang(chimes_t *s, const tx_event_t *e)
         }
         for (i = 0; i < t->nm; i++) {
             uint32_t hz = (f1 * RATIO[i]) >> 10, f8 = (f1 * RATIO[i]) >> 2, k;
-            for (k = 0; k < 2u; k++) {
+            for (k = 0; k < (i < NB ? 2u : 1u); k++) {
                 tx_pmode_t *m = &t->m[k * t->nm + i];
                 m->e0 = m->e = coef_q16(k ? f8 + (uint32_t)(((uint64_t)f8 * split) >> 16) : f8);   /* Hz Q8 */
                 m->hz = (uint16_t)hz;
@@ -306,9 +312,9 @@ TX_AUDIO_CODE static void chimes_render(void *st, int32_t *mix, unsigned n)
         if (!t->nm || tube_quiet(t)) continue;
         t->sw_ph += t->sw_inc;
         t->sw_d -= t->sw_d >> 8;                             /* the swing dies (~1.5 s) */
-        tx_pmode_add(t->m, 2u * t->nm, 32767 - t->sw_d + ((t->sw_d * tx_sin_q15(t->sw_ph)) >> 15),
+        tx_pmode_add(t->m, t->nm + (t->nm < NB ? t->nm : NB), 32767 - t->sw_d + ((t->sw_d * tx_sin_q15(t->sw_ph)) >> 15),
                      buf, n);                                /* the envelope ramps to g x the swing over the block */
-        for (q = 0; q < 2u * t->nm; q++) {                   /* then decays one block */
+        for (q = 0; q < t->nm + (t->nm < NB ? t->nm : NB); q++) {   /* then decays one block */
             int32_t e = t->ge[q];
             if ((e >> 8) != t->m[q].g) e = t->m[q].g << 8;   /* (struck since: from the mode's amplitude) */
             e = (int32_t)(((int64_t)e * t->m[q].dec) >> 16);   /* (per block: 64-bit is fine) */

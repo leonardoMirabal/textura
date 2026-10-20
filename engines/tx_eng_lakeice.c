@@ -19,7 +19,7 @@
 #include "tx_core_pulse.h"
 #include "tx_core_chirp.h"
 
-#define OUT_TRIM 23033               /* output gain, Q12 (+1.3 dB with the spectrogram fixes, session 5; +10.8 dB): max momentary (one velocity-100 press): -37.8 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 16686               /* output gain, Q12 (-2.8 dB with the branching cracks, session 5; +1.3 dB with the spectrogram fixes, session 5; +10.8 dB): max momentary (one velocity-100 press): -37.8 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 7.0 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS,
                                     * the limiter under ~8 dB in the chord) */
@@ -105,6 +105,9 @@ static void ice_init(void *st, uint32_t seed)
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 1, 0);
     tx_cloud_sizes(&s->cloud, 6144, 3u << 12);
+    tx_cloud_omori(&s->cloud, 2, 6963, 120, 3u << 12);      /* a crack branches: ~2 smaller ones follow within ~0.1-1 s
+                                                              * (Omori p 1.7, c 120 ms, at least 3 octaves of energy
+                                                              * under it; ours): no two presses alike (session 5) */
     tx_pool_init(&s->pool, NV, 6);
     tx_pulses_init(&s->clicks);
     s->q = 60;
@@ -136,18 +139,19 @@ static void ice_param(void *st, uint8_t id, uint8_t val)
 static void crack(ice_t *s, const tx_event_t *e)
 {
     tx_rng_t *r = &s->cloud.rng;
-    /* no two cracks alike (the user's session 3): each one somewhere else on the sheet (distance +-0.5 oct), through
-     * ice of its own local thickness (+-0.2 oct: sweep and tone), with +-3 dB of energy (ours) */
-    int32_t xl2 = s->x_l2 - ((int32_t)e->note - 60) * 5461 + tx_rand_s15(r);
+    /* no two cracks alike (the user's session 3): each one somewhere else on the sheet (distance +-0.8 oct), through
+     * ice of its own local thickness (+-0.3 oct: sweep and tone), with +-3 dB of energy (ours) */
+    int32_t jx = (tx_rand_s15(r) * 8) / 5;                   /* (its level change halved below: playable peaks) */
+    int32_t xl2 = s->x_l2 - ((int32_t)e->note - 60) * 5461 + jx;
     int32_t size = e->size_l2 * 8 + ((int32_t)e->vel - 100) * 819 + (tx_rand_s15(r) >> 1);
-    int32_t hl2 = s->h_l2 + (tx_rand_s15(r) * 13) / 32;
+    int32_t hl2 = s->h_l2 + (tx_rand_s15(r) * 20) / 32;
     uint32_t x, stolen, i;
     int32_t a, lx;
     xl2 = xl2 < 435412 ? 435412 : xl2 > 1175000 ? 1175000 : xl2;   /* 1 .. 2500 m */
     x = tx_exp2(xl2);
     lx = xl2 - 805306;                                       /* log2(x / 50 m) */
     int slot;
-    a = (int32_t)tx_exp2(CHIRP_L2 + size - lx / 2);          /* 2-D spreading ~ 1 / sqrt(x) */
+    a = (int32_t)tx_exp2(CHIRP_L2 + size - lx / 2 + jx / 4); /* 2-D spreading ~ 1 / sqrt(x) */
     a = (int32_t)(((int64_t)(a > 32767 ? 32767 : a) * s->level) >> 15);
     slot = tx_pool_take(&s->pool, (uint32_t)a, &stolen);
     if (slot >= 0) {
@@ -157,7 +161,7 @@ static void crack(ice_t *s, const tx_event_t *e)
     }
     for (i = 0; i < NAIR; i++) if (!s->air[i].amp) break;
     if (i < NAIR) {                                          /* the air wave: ~ 1 / x (ours: -6 dB at 50 m vs the chirp) */
-        int32_t aa = (int32_t)tx_exp2(CHIRP_L2 - (1 << 16) + size - lx);
+        int32_t aa = (int32_t)tx_exp2(CHIRP_L2 - (1 << 16) + size - lx + jx / 2);
         s->air[i].amp = (int32_t)(((int64_t)(aa > 32767 ? 32767 : aa) * s->level) >> 15);
         s->air[i].due = s->now + e->offset + tx_chirp_air(x);
         s->air[i].hl2 = hl2;
