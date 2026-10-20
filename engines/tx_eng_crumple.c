@@ -26,8 +26,8 @@
 enum { P_RATE, P_MATERIAL, P_THICK, P_BURST, P_CLUSTER, P_SIZE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"RATE", 127, 70, "crush speed: 3 .. 1000 clicks/s per hand (log)"},
-    {"MATERIAL", 127, 64, "foil | mylar (alpha 1, bright) | paper (alpha 1.45, ~2 kHz) | leaves (dark, soft) | snow (dense, dull)"},
+    {"RATE", 127, 50, "crush speed: 3 .. 1000 clicks/s per hand (log)"},
+    {"MATERIAL", 127, 64, "foil | mylar (alpha 1, bright) | paper (alpha 1.45, ~2 kHz) | dry leaves (a bright rustle) | snow (dense, dull)"},
     {"THICK", 127, 64, "sheet thickness x 0.25 .. 4: the largest clicks ~ h^2, their rate ~ 1 / h^2"},
     {"BURST", 127, 50, "squeeze burstiness: steady .. bursts (random walks of 30 ms / 0.3 s / 3 s)"},
     {"CLUSTER", 127, 40, "aftershocks per click: 0 .. 4 (clicks bunch within ~10 ms)"},
@@ -41,7 +41,9 @@ static const tx_param_t PARAMS[NP] = {
 #define CLICK_MAX 32u              /* clicks per block, at most (5.5 k/s; the rest is counted as dropped) */
 #define NMAT 5u
 #define RANGE_L2 54426             /* four decades of energy: log2(1e4) Q12 */
-#define A_REF 20000                /* the largest click's amplitude at THICK 1, v100 (Q15; calibrated by render) */
+#define OUT_G 11670                /* output gain, Q12 (x 2.85, calibrated: a held key at the defaults = -26 LUFS,
+                                    * the loudness target for sustained textures) */
+#define A_REF 40000                /* the largest click's amplitude at THICK 1, v100 (Q15; calibrated by render) */
 #define HERO_L2 45056              /* clicks above 11 octaves of energy (the top ~2.3 octaves) ring a hero */
 
 typedef struct {
@@ -54,14 +56,17 @@ typedef struct {
     uint8_t rate_x;                /* rate multiplier (snow is dense) */
     uint8_t tilt;                  /* each higher resonance x tilt / 256 (darker materials fall) */
     uint16_t lvl;                  /* click level x lvl / 256 (by ear: soft materials hold their loudness) */
+    uint8_t bright;                /* 1: the burst keeps its top octave (foil, mylar, dry leaves: their recordings */
+                                   /* stay within ~10 dB up to 16 kHz) */
 } mat_t;
 
 static const mat_t MAT[NMAT] = {
-    {4300, {1800, 3100, 4700, 6200, 7000, 5400}, 24, 150, 400, 3000, 9000, 1, 255, 256},     /* foil (ours) */
-    {4096, {1200, 2300, 3600, 5000, 6500, 7200}, 16, 128, 600, 2000, 8000, 1, 240, 256},     /* mylar: alpha 1 (G14) */
-    {5939, {700, 1200, 1800, 2300, 3000, 4200}, 12, 40, 1500, 1200, 3000, 1, 200, 320},      /* paper: 1.45, ~2 kHz (G13) */
-    {5734, {400, 700, 1100, 1700, 2500, 3600}, 10, 40, 3000, 600, 2500, 2, 160, 400},        /* leaves (ours) */
-    {6554, {250, 450, 800, 1300, 2000, 3000}, 8, 12, 4000, 0, 0, 4, 128, 900},               /* snow (ours): no ridges */
+    {4300, {1800, 3100, 4700, 6200, 7000, 5400}, 24, 150, 800, 3000, 9000, 1, 255, 256, 1},  /* foil (ours) */
+    {4096, {1200, 2300, 3600, 5000, 6500, 7200}, 16, 128, 1200, 2000, 8000, 1, 240, 256, 1},  /* mylar: alpha 1 (G14) */
+    {5939, {700, 1200, 1800, 2300, 3000, 4200}, 12, 64, 3000, 1200, 3000, 1, 200, 320, 0},   /* paper: 1.45, ~2 kHz (G13) */
+    {5734, {1200, 1900, 2800, 4000, 5500, 7000}, 10, 96, 2500, 1500, 6000, 2, 220, 900, 1},   /* dry leaves (ours; a
+                                                                 * recording of shuffled leaves: flat 2.5-10 kHz) */
+    {6554, {250, 450, 800, 1300, 2000, 3000}, 8, 12, 4000, 0, 0, 4, 128, 900, 0},            /* snow (ours): no ridges */
 };
 
 typedef struct {
@@ -89,6 +94,7 @@ typedef struct {
     uint16_t hoff[NH];             /* each hero's strike in this block */
     int16_t hamp[NH];
     uint8_t hnum[NH];
+    int32_t nlp1, nlp2;            /* the burst noise's low-pass states */
     int32_t walk[3];               /* the burst random walks, Q12 */
     int32_t benv, bdecay;          /* the noise-burst envelope (Q23-ish) and its decay per sample (Q15) */
     uint32_t now;
@@ -203,8 +209,17 @@ static void click(crumple_t *s, unsigned o, int32_t size, unsigned shi)
     if (a > 32767) a = 32767;
     if (!a) return;
     if (s->ncl >= CLICK_MAX) { s->dropped++; return; }
-    s->exc[o] += a << 8;                                     /* the impulse (Q15 -> Q23) */
-    s->bpush[o] += a << 3;                                   /* the noise burst starts (its envelope) */
+    {   /* a crinkle: 3-7 micro-clicks over ~1-7 ms (a ridge snaps in steps; the recordings' events rise in 3-8 ms,
+         * far less impulsive than single spikes: ours), each ~a / 2 with a random sign */
+        uint32_t k = 3u + (tx_rand(&s->cloud.rng) >> 30) + (tx_rand(&s->cloud.rng) >> 31) * 2u, c, t = o;
+        int32_t sa = a >> 1;
+        for (c = 0; c < k && t < TX_BLOCK; c++) {
+            s->exc[t] += ((tx_rand(&s->cloud.rng) & 1u) ? sa : -sa) * 256;   /* Q15 -> Q23 */
+            s->bpush[t] += sa << 3;                          /* the noise burst (its envelope) */
+            t += 20u + tx_rand_below(&s->cloud.rng, 60u);
+            sa = sa * 27000 >> 15;
+        }
+    }
     s->ho[s->ncl] = (uint16_t)o; s->ha[s->ncl] = (int16_t)a;
     s->hn[s->ncl] = (uint8_t)(m->h_hi && size >= HERO_L2 ? shi : 0xFF);
     s->ncl++;
@@ -305,20 +320,28 @@ TX_AUDIO_CODE static void crumple_render(void *st, int32_t *mix, unsigned n)
     }
     {   /* the click bursts (noise x envelope) and the dry clicks */
         int32_t e = s->benv, dk = s->bdecay, dry = m->dry;
+        int32_t l1 = s->nlp1, l2 = s->nlp2;
         if (e || s->ncl) for (j = 0; j < n; j++) {
-            int32_t x;
+            int32_t x, bn;
             e -= ((e >> 8) * (32768 - dk)) >> 7;             /* the burst decays (tau by material) */
             e += s->bpush[j];
             x = (int32_t)(tx_rand(r) >> 20) - 2048;          /* +-2^11 */
-            s->exc[j] += (x * (e >> 6)) >> 2;                /* the burst, Q23 */
-            s->buf[j] += (s->exc[j] >> 8) * dry;
-        }
+            l1 += (x - l1) >> 1; l2 += (l1 - l2) >> (1 - m->bright);   /* low-passes: paper falls above */
+            bn = (l2 * (e >> 6)) >> 1;                       /* ~8-10 kHz; the burst, Q23 */
+            s->exc[j] += bn;
+            s->buf[j] += (bn >> 8) * dry;                    /* heard dry: the burst only (the 1-sample spikes made */
+        }                                                    /* it far too impulsive: kurtosis 650-770 vs 14-25) */
+        s->nlp1 = e ? l1 : 0; s->nlp2 = e ? l2 : 0;
         if (e < 256) e = 0;                                  /* (e >> 8 stops decaying below 256) */
         s->benv = e;
     }
     tx_svf_bank_add(s->bank, s->bf, s->bq, s->bg, NM, s->exc, s->buf, n);
     for (i = 0; i < s->ncl; i++) if (s->hn[i] != 0xFF) hero_start(s, s->ho[i], s->ha[i], s->hn[i]);
     for (i = 0; i < NH; i++) { tx_ireso_add(&s->hero[i], &s->hoff[i], &s->hamp[i], s->hnum[i], s->buf, n); s->hnum[i] = 0; }
+    for (j = 0; j < n; j++) {                                /* the loudness target (OUT_G) */
+        int32_t v = s->buf[j] > (1 << 25) ? (1 << 25) : s->buf[j] < -(1 << 25) ? -(1 << 25) : s->buf[j];
+        s->buf[j] = ((v >> 8) * OUT_G) >> 4;
+    }
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->now += n;
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
