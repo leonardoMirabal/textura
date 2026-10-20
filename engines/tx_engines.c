@@ -32,6 +32,7 @@ extern const tx_engine_t tx_eng_stonecloud;
 extern const tx_engine_t tx_eng_minerals;
 extern const tx_engine_t tx_eng_glass;
 extern const tx_engine_t tx_eng_wood;
+extern const tx_engine_t tx_eng_ice;
 
 const tx_engine_t *const tx_engines[] = {
     &tx_eng_test,
@@ -64,6 +65,7 @@ const tx_engine_t *const tx_engines[] = {
     &tx_eng_minerals,
     &tx_eng_glass,
     &tx_eng_wood,
+    &tx_eng_ice,
     0,
 };
 
