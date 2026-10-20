@@ -26,7 +26,7 @@
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
 
-#define OUT_TRIM 17075               /* output gain, Q12 (+1.6 dB with the spectrogram fixes, session 5; +8.5 dB): integrated (a key held 10 s): -34.5 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 12804               /* output gain, Q12 (-2.5 dB step 6, longer syllables; +1.6 dB with the spectrogram fixes, session 5; +8.5 dB): integrated (a key held 10 s): -34.5 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -67,11 +67,12 @@ typedef struct {
 } species_t;
 
 static const species_t SPECIES[NSP] = {
-    {4500, 9000, 64, 80, 7000, 2, 3, 200, 0, 1500, 0, 0, 650},    /* a true katydid's rasp: 3 syllables ("ka-ty-did") of
-                                                                    * ~45 ms, 150 ms apart, a call per 0.65 s; wing Q 4,
-                                                                    * uneven teeth at half the carrier rate (ours, fitted
-                                                                    * to two katydid recordings: peak 5 kHz, broad 2.5-5
-                                                                    * kHz, 5-6 onsets /s, soft 25-30 ms attacks) */
+    {4500, 6800, 64, 80, 3000, 2, 3, 630, 0, 2300, 0, 0, 1300},   /* a true katydid's rasp: 3 syllables ("ka-ty-did") of
+                                                                    * ~140 ms, 230 ms apart, a call per 1.3 s; wing Q 4,
+                                                                    * uneven teeth at half the carrier rate, the upper
+                                                                    * resonance at 6.8 kHz -21 dB (step 6: the katydid
+                                                                    * references' syllables last 70-200 ms in a band 1.5-7
+                                                                    * kHz; ours were 45 ms bursts reaching 20 kHz) */
     {5000, 14700, 264, 160, 11024, 1, 0, 226, 0, 0, 0, 0, 600},    /* Panacanthus (N8c); 14.7 kHz -9.4 dB */
     {6570, 18000, 96, 96, 26000, 0, 3, 0, 80, 200, 730, 24, 3500}, /* C. biguttulus (N25, N30); upper -2 dB (ours) */
     {9720, 19500, 96, 96, 20000, 0, 1, 0, 75, 100, 100, 20, 2000}, /* C. brunneus (N25: 7-8 ms pulses at ~100 /s) */
@@ -103,6 +104,7 @@ typedef struct {
     uint16_t dropped;
     tx_vary_t vy;
     tx_rad_t rad;                  /* the body radiates its lows poorly (tx_core_radiate.h) */
+    int32_t lp1, lp2;              /* and its highs: the 7 kHz low-pass */
 } katy_t;
 
 static const species_t *sp_of(const katy_t *s) { return &SPECIES[(s->p[P_SPECIES] * NSP) >> 7]; }
@@ -263,7 +265,7 @@ static unsigned strikes(katy_t *s, singer_t *v, unsigned n)
     int32_t g = (int32_t)(((int64_t)v->gain * s->level) >> 15);
     int32_t len = call_len(s, v->f1);
     unsigned legs = sp->katydid ? 1u : 2u, L, cnt[2] = {0, 0}, a, b, m;
-    int32_t per_q8 = sp->katydid ? (int32_t)((TX_FS << 8) / (sp->katydid == 2u ? v->f1 >> 1 : v->f1)) : (int32_t)((TX_FS << 8) / tx_exp2(s->peg_l2));
+    int32_t per_q8 = sp->katydid ? (int32_t)((TX_FS << 8) / (sp->katydid == 2u ? (v->f1 * 3u) >> 2 : v->f1)) : (int32_t)((TX_FS << 8) / tx_exp2(s->peg_l2));
     for (L = 0; L < legs; L++) {
         while (v->in_call && (v->next_q8[L] >> 8) < (int32_t)n && cnt[L] < NEV) {
             int32_t o = v->next_q8[L] >> 8, ts = v->t + o, e, amp;
@@ -340,7 +342,20 @@ TX_AUDIO_CODE static void katy_render(void *st, int32_t *mix, unsigned n)
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) b[j] = 0;
     katy_render_raw(st, b, n);
-    tx_rad_hp(&((katy_t *)st)->rad, b, n, 3);   /* a katydid or grasshopper radiates under ~1 kHz poorly: -12 dB / oct */
+    tx_rad_hp(&((katy_t *)st)->rad, b, n, 3);
+    {   /* above ~7 kHz the wings radiate less and the grass and the air take the rest: two one-poles (step 6: the
+         * references' katydid band stops near 7-8 kHz, ours ran flat to 20 kHz) */
+        katy_t *k = (katy_t *)st;
+        int32_t a = k->lp1, c = k->lp2;
+        unsigned j;
+        for (j = 0; j < n; j++) {
+            int32_t h = b[j] - a; a += (h * 5 + (h > 0 ? 7 : 0)) >> 3;
+            h = a - c; c += (h * 5 + (h > 0 ? 7 : 0)) >> 3;
+            b[j] = c;
+        }
+        k->lp1 = a; k->lp2 = c;
+        if (a | c) k->quiet = 0;
+    }   /* a katydid or grasshopper radiates under ~1 kHz poorly: -12 dB / oct */
     if (!tx_rad_quiet(&((katy_t *)st)->rad)) ((katy_t *)st)->quiet = 0;
     tx_vary_block(&((katy_t *)st)->vy, b, n);
     if (((katy_t *)st)->vy.lp) ((katy_t *)st)->quiet = 0;          /* the split still settling */
