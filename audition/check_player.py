@@ -142,6 +142,7 @@ def main():
         page.keyboard.down("KeyJ")
         time.sleep(0.6)
         page.mouse.move(0, 0)
+        page.locator('#kb .key[data-n="60"]').scroll_into_view_if_needed()   # (the page is taller than the window)
         box = page.locator('#kb .key[data-n="60"]').bounding_box()
         page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] - 10)
         page.mouse.down()
@@ -244,6 +245,24 @@ def main():
         time.sleep(0.5)
         lit = page.eval_on_selector_all("#kb .key.on", "k => k.length")
         check(lit == 0, "all keys released")
+        if os.path.exists(os.path.join(SITE, "ab", "manifest.json")):   # A/B (make tx-ab: local data, references)
+            names = page.evaluate("() => [...Array(Module._txw_count()).keys()].map(i => Module.UTF8ToString(Module._txw_name(i)))")
+            page.evaluate("window.txTest.editLayer(0)")
+            page.evaluate(f"window.txTest.selectEngine({names.index('stream')})")
+            time.sleep(0.8)
+            ab = page.evaluate("window.txTest.ab()")
+            imgs = page.evaluate("() => ['ab-ours', 'ab-ref'].map(i => { const m = document.getElementById(i); return m.complete ? m.naturalWidth : 0; })")
+            check(ab["loaded"] and ab["buttons"] >= 3 and ab["ours"].endswith("stream-ours.png") and ab["ref"].endswith("stream-r1.png")
+                  and min(imgs) > 0, f"A/B: stream has {ab['buttons'] - 2} reference button(s), both spectrograms shown ({imgs})")
+            page.evaluate("window.txTest.abPlay(2)")         # reference 2: plays, its spectrogram replaces the first
+            time.sleep(0.8)
+            ab2 = page.evaluate("window.txTest.ab()")
+            check(ab2["playing"] == "ref 2" and ab2["ref"].endswith("stream-r2.png"), f"A/B: ref 2 plays ({ab2['playing']}), its spectrogram shown")
+            page.screenshot(path=os.path.join(OUT, "ab.png"), full_page=True)
+            page.evaluate("window.txTest.abPlay(document.querySelectorAll('#ab-buttons button').length - 1)")   # stop
+            check(page.evaluate("window.txTest.ab()")["playing"] is None, "A/B: stop")
+        else:
+            check("make tx-ab" in page.text_content("#ab-note"), "A/B: no data here (make tx-ab), the panel says so")
         plain = serve(isolated=False)                   # the README's plain python3 -m http.server case, phone width
         ph = br.new_page(viewport={"width": 390, "height": 844})
         ph.on("pageerror", lambda e: errors.append(f"phone pageerror: {e}"))

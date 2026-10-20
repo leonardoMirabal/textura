@@ -70,6 +70,7 @@ async function init() {
   octave(0);
   $("velv").textContent = $("vel").value;
   await loadCalib();
+  await loadAB();
   midiInit();
   window.txTest.ready = true;
   window.txTest.sha = i => S(M._txw_max_sha(i));
@@ -85,6 +86,9 @@ async function init() {
   window.txTest.route = n => [0, 1, 2, 3].filter(k => layers[k].eng >= 0 && (keyMode === "shared" || (n >= layers[k].lo && n <= layers[k].hi)));
   window.txTest.zone = (k, lo, hi) => { layers[k].lo = lo; layers[k].hi = hi; showLayers(); };
   window.txTest.chSha = i => S(M._txw_ch_max_sha(i));
+  window.txTest.ab = () => ({ loaded: !!ab, buttons: document.querySelectorAll("#ab-buttons button").length,
+                              playing: abNow ? abNow.label : null, ours: $("ab-ours").currentSrc, ref: $("ab-ref").currentSrc });
+  window.txTest.abPlay = k => { const b = document.querySelectorAll("#ab-buttons button")[k]; if (b) b.click(); };
   status("Ready. Press Start sound, then play.");
   requestAnimationFrame(meters);
 }
@@ -148,6 +152,82 @@ function showEngine() {                              // the stepper and the big 
   $("eng-num").textContent = i + 1;
   $("eng-name").textContent = S(M._txw_name(i));
   $("eng-title").textContent = `${S(M._txw_title(i))} · ${i + 1} of ${M._txw_count()}`;
+  showAB();
+}
+
+// ---- A/B: the edited layer's engine against its reference recordings (make tx-ab: build/audition/ab/, local only;
+// the recordings are never committed and never played by an engine, only played back here for listening). Each
+// reference is played at the gain that matches ours' loudness (BS.1770, in manifest.json); the spectrograms (10 s,
+// 20 Hz-20 kHz log, one dB scale, the reference after its gain) sit side by side.
+let ab = null, abSel = 0, abNow = null;
+const abBufs = new Map();
+async function loadAB() {
+  try { const r = await fetch("ab/manifest.json", { cache: "no-store" }); if (!r.ok) throw new Error(r.status); ab = await r.json(); }
+  catch (e) { ab = null; }
+  showAB();
+}
+function abStop() {
+  if (abNow) { try { abNow.src.stop(); } catch (e) { } abNow = null; }
+  document.querySelectorAll("#ab-buttons button.on").forEach(b => b.classList.remove("on"));
+}
+async function abPlay(url, gainDb, btn, label) {
+  if (!ctx) startAudio();
+  abStop();
+  btn.classList.add("on");
+  try {
+    let buf = abBufs.get(url);
+    if (!buf) {
+      const r = await fetch(url, { cache: "no-store" });
+      buf = await ctx.decodeAudioData(await r.arrayBuffer());
+      abBufs.set(url, buf);
+    }
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = buf; g.gain.value = Math.pow(10, gainDb / 20);
+    src.connect(g).connect(ctx.destination);
+    src.onended = () => { if (abNow && abNow.src === src) abStop(); };
+    abStop(); btn.classList.add("on");
+    abNow = { src, label };
+    src.start();
+  } catch (e) { btn.classList.remove("on"); status("A/B: could not play " + url + " (" + e + ")"); }
+}
+function showAB() {
+  const box = $("ab-buttons"), i = layers[ed].eng;
+  box.textContent = ""; $("ab-info").textContent = "";
+  const imgs = [$("ab-ours"), $("ab-ref")];
+  const hide = () => { imgs.forEach(im => { im.removeAttribute("src"); im.style.display = "none"; }); $("ab-ours-cap").textContent = $("ab-ref-cap").textContent = ""; };
+  if (!ab) { hide(); $("ab-note").textContent = "(no A/B data: run make tx-ab; the references stay in .local, local only)"; return; }
+  if (i < 0) { hide(); $("ab-note").textContent = "(this layer is off)"; return; }
+  const name = S(M._txw_name(i)), e = ab.engines[name];
+  if (!e) { hide(); $("ab-note").textContent = "(not in the A/B data: run make tx-ab again)"; return; }
+  if (abSel >= e.refs.length) abSel = 0;
+  $("ab-note").textContent = e.refs.length ? `#${e.num} ${name}: ${e.refs.length} reference${e.refs.length > 1 ? "s" : ""}, loudness-matched to ours`
+                                           : `#${e.num} ${name}: no reference recordings yet (step 4 brings candidates)`;
+  const add = (text, title, fn) => { const b = document.createElement("button"); b.textContent = text; b.title = title; b.onclick = () => fn(b); box.appendChild(b); return b; };
+  add("▶ ours", `ours at the defaults: ${e.ours.kind} (${e.ours.lufs} LUFS)`, b => abPlay(e.ours.wav, 0, b, "ours"));
+  e.refs.forEach((r, k) => {
+    const b = add(`▶ ref ${k + 1}: ${r.name.length > 28 ? r.name.slice(0, 27) + "…" : r.name}`,
+      `${r.name}\n${r.url || "(no URL)"} ${r.licence ? "(" + r.licence + ")" : ""}\n${r.lufs} LUFS, played ${r.gain_db >= 0 ? "+" : ""}${r.gain_db} dB` +
+      (r.short_db ? ` (${r.short_db} dB short of ours: its peak)` : ""),
+      b => { abSel = k; showABRef(e); abPlay(r.wav, r.gain_db, b, "ref " + (k + 1)); });
+    if (k === abSel) b.classList.add("sel");
+  });
+  add("■ stop", "stop the A/B playback", () => abStop());
+  imgs.forEach(im => { im.style.display = ""; });
+  $("ab-ours").src = e.ours.png;
+  $("ab-ours-cap").textContent = `ours: ${e.ours.kind}, ${e.ours.lufs} LUFS, seed 1`;
+  showABRef(e);
+}
+function showABRef(e) {
+  document.querySelectorAll("#ab-buttons button").forEach((b, k) => b.classList.toggle("sel", k === abSel + 1));
+  const r = e.refs[abSel];
+  if (!r) { $("ab-ref").removeAttribute("src"); $("ab-ref").style.display = "none"; $("ab-ref-cap").textContent = "no reference"; return; }
+  $("ab-ref").style.display = ""; $("ab-ref").src = r.png;
+  $("ab-ref-cap").textContent = `reference ${abSel + 1}: the loudest 10 s, ${r.gain_db >= 0 ? "+" : ""}${r.gain_db} dB to match` + (r.short_db ? ` (${r.short_db} dB short)` : "");
+  const info = $("ab-info");
+  info.textContent = `Reference ${abSel + 1}: ${r.name}. `;
+  if (r.url) { const a = document.createElement("a"); a.href = r.url; a.target = "_blank"; a.rel = "noopener"; a.textContent = r.url; info.appendChild(a); }
+  if (r.licence) info.append(` (${r.licence})`);
+  info.append(`. Both spectrograms: 10 s, 20 Hz-20 kHz (log), ${ab.scale_db[0]} .. ${ab.scale_db[1]} dBFS per bin, the reference after its gain.`);
 }
 function layerOff(k) {
   for (const [n, h] of down.entries()) if (h.to.includes(k)) { M._txw_key_slot(k, n, 0, 0); h.to = h.to.filter(x => x !== k); }

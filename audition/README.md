@@ -46,6 +46,13 @@ git clone https://github.com/emscripten-core/emsdk.git .local/emsdk
   time `make tx-bench` measured, so the engines are compared at the same clock, then scaled by the calibration against
   Frodhes' measured worst block), split per layer in the layer rows (a layer over 18 % is flagged); the output peak
   level (and the limiter when it acts); the edited layer's particles, events per second and steals.
+- **A/B: references**: for the edited layer's engine, buttons that play ours (a 10 s render at the defaults) and each
+  reference recording (its loudest 10 s), the reference at the gain that matches ours' loudness (BS.1770 integrated;
+  less when its peak would clip, shown). Under them, side by side, the spectrograms of ours and of the chosen reference
+  on one scale (10 s, 20 Hz-20 kHz log, -120 .. -20 dBFS per bin, the reference after its gain): missing grains, noise
+  beds or unwanted tonal lines show at a glance. The data comes from `make tx-ab` (`audition/ab_prepare.py`) into
+  `build/audition/ab/`: the recordings are read from `.local/reference/` and stay local (never committed, never
+  played by an engine); without it the panel says so.
 - **Record 10 s**: downloads the next 10 s of the output as a 24-bit stereo WAV.
 
 ## Checking it

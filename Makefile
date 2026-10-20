@@ -8,6 +8,8 @@
 #   make tx-calib      Frodhes' worst scene timed on this host (needs ../frodhes, read-only; FRODHES=path to change)
 #   make tx-player     the browser player -> build/audition/ (Emscripten from .local/emsdk)
 #   make tx-player-check   the player in headless Chromium (Playwright in .local/venv, browsers in .local/playwright)
+#   make tx-ab         the player's A/B data: ours vs the local reference recordings (.local/reference), loudness-
+#                      matched, with spectrograms -> build/audition/ab/ (local only, never committed)
 #   make tx-baseline   rewrite bench/baselines/renders.sha256 (after a reviewed sound change)
 #   make tx-tables     regenerate engines/tx_tables.[ch]
 #   make tx-size       code size of each engines/ object (host arm64 -Os, a rough proxy for the device)
@@ -23,7 +25,7 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-.PHONY: tx-test tx-render tx-bench tx-calib tx-player tx-player-check tx-baseline tx-tables tx-size tx-libcalls tx-clean
+.PHONY: tx-test tx-render tx-bench tx-calib tx-player tx-player-check tx-ab tx-baseline tx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -95,6 +97,9 @@ tx-player-check:
 	@[ -f $(B)/calib.json ] || $(MAKE) -s tx-bench   # the check reads the FM-1 calibration (check_player.py)
 	$(MAKE) -s tx-player
 	PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python audition/check_player.py
+
+tx-ab: $(B)/txrender
+	.local/venv/bin/python -I audition/ab_prepare.py
 
 tx-size:
 	@mkdir -p build/size; for f in $(ENG_SRC); do $(CC) -Os -Iengines -c -o build/size/$$(basename $$f .c).o $$f; done; \

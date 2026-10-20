@@ -65,6 +65,14 @@
   .layer select { padding: 2px 4px; }
   .layer .st { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
   @media (max-width: 700px) { .layer { grid-template-columns: 64px minmax(0, 1fr); } }
+  #ab-buttons button.on { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+  #ab-buttons button.sel { box-shadow: inset 0 -3px 0 var(--accent); }
+  .ab-specs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 10px; }
+  .ab-specs figure { margin: 0; min-width: 0; }
+  .ab-specs img { width: 100%; height: auto; display: block; border: 1px solid var(--line); border-radius: 6px; background: #000; }
+  .ab-specs figcaption { font-size: 12px; color: var(--dim); margin-top: 3px; overflow-wrap: anywhere; }
+  #ab-info a { color: var(--accent); overflow-wrap: anywhere; }
+  @media (max-width: 700px) { .ab-specs { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
@@ -101,6 +109,16 @@
     </div>
     <div class="eng-big"><span id="eng-num">1</span><span id="eng-name">–</span></div>
     <div class="small" id="eng-title"></div>
+  </section>
+
+  <section class="panel" id="ab-panel">
+    <h2>A/B: references <span class="small" id="ab-note"></span></h2>
+    <div class="row" id="ab-buttons"></div>
+    <div class="ab-specs">
+      <figure><img id="ab-ours" alt="spectrogram of ours"><figcaption id="ab-ours-cap"></figcaption></figure>
+      <figure><img id="ab-ref" alt="spectrogram of the reference"><figcaption id="ab-ref-cap"></figcaption></figure>
+    </div>
+    <div class="small" id="ab-info" style="margin-top:6px"></div>
   </section>
 
   <section class="panel">
