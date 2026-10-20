@@ -107,16 +107,18 @@ TX_AUDIO_CODE void tx_tymbal_add(tx_tymbal_t *t, const tx_tev_t *ev, unsigned ne
 TX_AUDIO_CODE void tx_ireso_add(tx_ireso_t *r, const uint16_t *off, const int16_t *imp, unsigned nimp, int32_t *out,
                                 unsigned n)
 {
-    int32_t y1 = r->y1, y2 = r->y2, a1 = r->a1, a2 = r->a2, b0 = r->b0, g = r->g, y01 = y1, y02 = y2;
+    int32_t y1 = r->y1, y2 = r->y2, p1 = r->p1, p2 = r->p2, a1 = r->a1, a2 = r->a2, g = r->g, y01 = y1, y02 = y2;
     unsigned j, k = 0;
-    if (!nimp && !(y1 | y2)) return;
+    if (!nimp && !(y1 | y2 | p1 | p2)) return;
     for (j = 0; j < n; j++) {
-        int32_t y = ((a1 * y1) >> 14) - ((a2 * y2) >> 14);
-        while (k < nimp && off[k] == j) { y += (imp[k] * b0) >> 15; k++; }
+        int32_t x = 0, y;
+        while (k < nimp && off[k] == j) { x += imp[k]; k++; }
+        y = ((a1 * y1) >> 14) - ((a2 * y2) >> 14) + ((x - p2) >> 1);   /* (1 - z^-2) / 2: a band-pass, no DC */
         y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
+        p2 = p1; p1 = x;
         y2 = y1; y1 = y;
         out[j] += y * g;
     }
-    if (!nimp && ((y1 > -8 && y1 < 8 && y2 > -8 && y2 < 8) || (y1 == y01 && y2 == y02))) y1 = y2 = 0;
-    r->y1 = y1; r->y2 = y2;
+    if (!nimp && !(p1 | p2) && ((y1 > -8 && y1 < 8 && y2 > -8 && y2 < 8) || (y1 == y01 && y2 == y02))) y1 = y2 = 0;
+    r->y1 = y1; r->y2 = y2; r->p1 = p1; r->p2 = p2;
 }

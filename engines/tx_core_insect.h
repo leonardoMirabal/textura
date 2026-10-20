@@ -36,17 +36,20 @@ TX_AUDIO_CODE void tx_itone_add(tx_itone_t *t, const int16_t *env, int32_t *out,
 
 typedef struct {
     int32_t y1, y2;                /* state, Q15 scale */
+    int32_t p1, p2;                /* the last two inputs (the band-pass zeros) */
     int32_t a1, a2;                /* Q14 */
-    int32_t b0;                    /* input gain sin w (Q15): an impulse of A rings at amplitude ~A */
+    int32_t b0;                    /* (set by tx_ireso_coefs; the impulse input uses (1 - z^-2) / 2 instead) */
     int32_t g;                     /* output gain, Q8 (Q15 state x Q8 = Q23) */
 } tx_ireso_t;
 
 /* frequency (Hz, < fs / 2) and Q (x 16) -> coefficients (control rate); keeps the state */
 void tx_ireso_set(tx_ireso_t *r, uint32_t f_hz, uint32_t q_x16);
-/* run over n samples: impulses imp[k] (Q15 amplitude, signed) at offsets off[k] (ascending, k < nimp), output added */
+/* run over n samples: impulses imp[k] (Q15 amplitude, signed) at offsets off[k] (ascending, k < nimp), output added.
+ * The input passes (1 - z^-2) / 2 (zeros at DC and fs / 2: a force impulse radiates no DC): an impulse of A rings at
+ * amplitude ~A at any frequency. */
 TX_AUDIO_CODE void tx_ireso_add(tx_ireso_t *r, const uint16_t *off, const int16_t *imp, unsigned nimp, int32_t *out,
                                 unsigned n);
-static inline int tx_ireso_quiet(const tx_ireso_t *r) { return !(r->y1 | r->y2); }
+static inline int tx_ireso_quiet(const tx_ireso_t *r) { return !(r->y1 | r->y2 | r->p1 | r->p2); }
 
 /* TYMBAL (the cicada, N4-N6): rib impulses into a tymbal resonance whose pitch glides down within each click (a1
  * moves linearly per sample from the click's start value toward a1_end: the buckling tymbal's 5.5 -> 4.3 kHz and
