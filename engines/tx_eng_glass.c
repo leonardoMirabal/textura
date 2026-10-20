@@ -61,6 +61,7 @@ typedef struct {
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t buf[TX_BLOCK], bpush[TX_BLOCK];
     int32_t res, res_x1;
+    int32_t shn, shn_x1, shn_in;   /* the shattering's noise: envelope, high-pass state, energy still to come */
     tx_mallet_t mal;
     uint8_t p[NP], limit, quiet;
     int32_t level, size_l2, e_q15, h_l2;
@@ -190,6 +191,20 @@ static void glass_break(glass_t *s, const tx_event_t *e)
         }
     }
     s->bpush[e->offset] += (int32_t)((((int64_t)A_REF * s->level) >> 15) >> 7);   /* the crack itself */
+    {   /* the shattering: the pane breaks in many cracks within a few ms, each a sharp spike (a recording's first
+         * 100 ms is its loudest: -4 dB re its peak; ours) */
+        int32_t sp = (int32_t)((((int64_t)A_REF * s->level) >> 15) >> 7), v2 = ((int32_t)e->vel * 258);
+        uint32_t o = e->offset, c;
+        sp = (int32_t)(((int64_t)sp * v2) >> 15);
+        for (c = 0; c < 14u && o < TX_BLOCK; c++) {
+            s->buf[o] += (c & 1u) ? -sp : sp;
+            s->bpush[o] += sp >> 4;
+            o += 2u + tx_rand_below(r, 20u);
+            sp -= sp >> 3;
+        }
+        int32_t add = (int32_t)(((int64_t)(((int64_t)A_REF * s->level) >> 15) * v2) >> 15) * 3 >> 4;   /* ~0.1 s of breaking */
+        s->shn_in = s->shn_in > add ? s->shn_in + (add >> 2) : add + (s->shn_in >> 2);   /* noise; breaks add ~ in power */
+    }
     {   /* the blow knocks the frame / floor: the low body of the break (a recording's loudest moment, 65-180 Hz) */
         int32_t b = (int32_t)(((int64_t)A_REF * 3 * s->level) >> 15);
         tx_mode_strike(&s->floor[0], b);
@@ -245,6 +260,21 @@ TX_AUDIO_CODE static void glass_render(void *st, int32_t *mix, unsigned n)
     }
     tx_modal_run(s->floor, 2, s->buf, 0, n);
     any |= s->floor[0].amp | s->floor[1].amp;
+    if (s->shn | s->shn_in) {                                /* the shattering: bright noise rising over ~25 ms, */
+        int32_t e = s->shn, x1 = s->shn_x1, in = s->shn_in;  /* falling with tau ~90 ms (ours) */
+        for (j = 0; j < n; j++) {
+            int32_t x = (int32_t)(tx_rand(&s->cloud.rng) >> 17) - 16384;
+            x1 += (x - x1) >> 1;                             /* white, gently low-passed (~7 kHz) */
+            s->buf[j] += (x1 * (e >> 14)) >> 1;
+            e += (in >> 10) - (e >> 12) - 1;
+            in -= in >> 10;
+            if (in < 1024) in = 0;
+            if (e < 0) e = 0;
+            if (!e && !in) break;
+        }
+        s->shn = e; s->shn_in = in; s->shn_x1 = e ? x1 : 0;
+        any |= e | in;
+    }
     {   /* the clicks: noise bursts, tau ~0.4 ms (glass) */
         int32_t e = s->res, x1 = s->res_x1;
         for (j = 0; j < n; j++) {
