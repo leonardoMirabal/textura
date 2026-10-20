@@ -20,7 +20,8 @@ still to be designed (**todo**).
   Host numbers are estimates until measured on the FM-1.
 - **No samples, ever.** Engines are physics models. Recordings are measured for numbers only; commit only numbers.
 - **Licence:** GPL-3.0 open source. New files start with `SPDX-License-Identifier: GPL-3.0-only`. Reused code
-  keeps its original file header (that's all; no notice lists in the docs). Unlicensed code is ideas only.
+  keeps its original file header (that's all; no notice lists in the docs). GPL-3.0-compatible code (Frodhes,
+  Felucca, Dinghy, SLOOP, SDT, STK, Mutable Instruments) may be reused. Unlicensed code is ideas only.
 - **Only our own work goes into git history, ever** (2026-10-20: an earlier bootstrap committed FM1 Open's tree,
   closed SDK binaries included, and the whole history had to be rewritten). Never base the repo on, merge, or fetch
   into it a third-party tree you have not audited; never commit binaries, SDKs or vendor folders. Third-party code
