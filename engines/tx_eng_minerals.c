@@ -14,7 +14,9 @@
  *            ~175 (M22), quartz capped 2000); 5 inharmonic modes per specimen (1.12-1.7 apart: compact irregular
  *            bodies, ours). Size: f1 = 0.025 c / L with c = sqrt(E / rho) from the table: fitted to a recording of
  *            two hand-held stones knocked together (peaks 1.3-4.2 kHz for ~8 cm stones; ours).
- *   hand     the holding hand damps the stone: sigma0 by HOLD (fingertips .. a firm grip; the recording rings
+ *   specimen a hand specimen rings at 2 x the table's Q (the table is for rock masses, their cracks included; a
+ *            sound pebble has fewer: ours, from the reference's 4.2 kHz ring of 50-150 ms)
+ *   hand     the holding hand damps the stone: sigma0 by HOLD, most on the low modes (sigma0 / 4^k, ours) (fingertips .. a firm grip; the recording rings
  *            -30 dB in ~64 ms at ~1.8 kHz, i.e. sigma0 ~ 22 /s over the granite Q), and a low thud of the hand-arm
  *            body (~90-110 Hz, Q 4: the recording's strongest single peak is ~94 Hz; ours).
  *   humidity water lowers Q (M9 marble, M6): Q x (1 - 0.6 HUMID) for the porous (sandstone, limestone, marble),
@@ -39,7 +41,7 @@ static const tx_param_t PARAMS[NP] = {
 #define NMS 4u                     /* modes per specimen */
 #define NMV (2u * NMS + 1u)        /* a pair + the hand thud */
 #define NMIN 9u
-#define A_REF 42000000             /* a mode's amplitude for a v100 knock (Q30; calibrated by render) */
+#define A_REF 50000000             /* a mode's amplitude for a v100 knock (Q30; calibrated by render) */
 
 static const uint16_t MIN_Q[NMIN] = {180, 300, 100, 185, 150, 600, 160, 175, 2000};
 static const uint16_t MIN_C[NMIN] = {4300, 4700, 3500, 4500, 4200, 5100, 5400, 5400, 6000};
@@ -147,7 +149,7 @@ static void build(min_t *s, pair_t *v, uint32_t tc)
             g = k ? 12000 + (int32_t)tx_rand_below(&r, 20767u) : 32767;
             v->f[i] = (uint16_t)(f > 20000u || (sp && !two) ? 0u : f);
             v->m[i].inc = f * 97391u;
-            v->m[i].m16 = tx_mode_decay(f, s->q_x16, s->s0_q8);
+            v->m[i].m16 = tx_mode_decay(f, s->q_x16 * 2u, s->s0_q8 >> (2 * k));   /* see set_q: x 2; the hand damps the low modes most (ours) */
             v->gw[i] = (int16_t)(v->f[i] ? ((int64_t)g * tx_contact_weight(tc, f)) >> 15 : 0);
         }
     }
