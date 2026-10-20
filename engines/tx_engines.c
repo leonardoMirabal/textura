@@ -12,6 +12,7 @@ extern const tx_engine_t tx_eng_mineral;
 extern const tx_engine_t tx_eng_pebble;
 extern const tx_engine_t tx_eng_thunder;
 extern const tx_engine_t tx_eng_bees;
+extern const tx_engine_t tx_eng_sandsong;
 
 const tx_engine_t *const tx_engines[] = {
     &tx_eng_test,
@@ -24,6 +25,7 @@ const tx_engine_t *const tx_engines[] = {
     &tx_eng_pebble,
     &tx_eng_thunder,
     &tx_eng_bees,
+    &tx_eng_sandsong,
     0,
 };
 
