@@ -119,6 +119,10 @@ TX_AUDIO_CODE void tx_ireso_add(tx_ireso_t *r, const uint16_t *off, const int16_
         y2 = y1; y1 = y;
         out[j] += y * g;
     }
-    if (!nimp && !(p1 | p2) && ((y1 > -8 && y1 < 8 && y2 > -8 && y2 < 8) || (y1 == y01 && y2 == y02))) y1 = y2 = 0;
+    {   /* silent input: small (under zlim, default 8) or frozen -> exact zero. Rounding holds limit cycles of up to
+         * ~1 / (2 (1 - r)) LSB in a high-r two-pole: a caller with such poles raises zlim. */
+        int32_t zl = r->zlim ? r->zlim : 8;
+        if (!nimp && !(p1 | p2) && ((y1 > -zl && y1 < zl && y2 > -zl && y2 < zl) || (y1 == y01 && y2 == y02))) y1 = y2 = 0;
+    }
     r->y1 = y1; r->y2 = y2; r->p1 = p1; r->p2 = p2;
 }

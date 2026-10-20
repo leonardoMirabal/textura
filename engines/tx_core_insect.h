@@ -40,6 +40,7 @@ typedef struct {
     int32_t a1, a2;                /* Q14 */
     int32_t b0;                    /* (set by tx_ireso_coefs; the impulse input uses (1 - z^-2) / 2 instead) */
     int32_t g;                     /* output gain, Q8 (Q15 state x Q8 = Q23) */
+    int32_t zlim;                  /* the zero test's level (0 = 8 LSB) */
 } tx_ireso_t;
 
 /* frequency (Hz, < fs / 2) and Q (x 16) -> coefficients (control rate); keeps the state */
