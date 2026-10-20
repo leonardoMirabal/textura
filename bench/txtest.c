@@ -15,6 +15,8 @@
  *   cap       in the cap and max scenes the sounding particles never exceed the PARTICLES limit in force
  *   instance  two instances rendered block-interleaved give the same samples as each alone (no hidden globals)
  *   determinism  each standard scene twice from scratch: same sha256; and equal to the committed baseline
+ * CHAMBER: idle zero, a quiet sweep (each knob at 0/64/90/127 after a drip tap), overflow (test max at its loudest),
+ *          determinism + baseline (drip hold / max, gravel tap, test chord through the chamber at its defaults).
  * Sources: no float / double / floating literal in engines/ (comments and strings stripped). */
 #include <dirent.h>
 #include <math.h>
@@ -219,6 +221,93 @@ static void check_engine(const tx_engine_t *e, FILE *update)
     }
 }
 
+/* ---- CHAMBER (the post-stage): idle zero, a quiet sweep, overflow under the loudest input, determinism / baseline */
+static int run_ch(const tx_engine_t *e, const char *scene, const char *extra, acc_t *a, char hex[65])
+{
+    tx_script_t *s = malloc(sizeof *s);
+    void *st = tx_state_new(e);
+    tx_chamber_t *ch = malloc(sizeof *ch);
+    char *t = tx_scene_text(e, scene), *u;
+    memset(a, 0, sizeof *a);
+    tx_sha256_init(&a->sha);
+    if (!t) { free(s); free(st); free(ch); return -1; }
+    u = malloc(strlen(t) + strlen(extra) + 2);
+    sprintf(u, "%s\n%s", extra, t);
+    if (tx_script_parse(s, e, u)) { fprintf(stderr, "%s\n", s->err); free(t); free(u); free(s); free(st); free(ch); return -1; }
+    tx_script_run_ch(e, st, ch, s, on_block, a);
+    tx_sha256_hex(&a->sha, hex);
+    free(t); free(u); free(s); free(st); free(ch);
+    return 0;
+}
+
+static void check_chamber(FILE *update)
+{
+    static const char *const CH_SCENES[][2] = { {"drip", "hold"}, {"gravel", "tap"}, {"test", "chord"}, {"drip", "max"}, {0, 0} };
+    tx_chamber_t *ch = malloc(sizeof *ch);
+    int32_t buf[TX_BLOCK];
+    char hex[65], hex2[65], msg[200], name[64];
+    acc_t a;
+    unsigned b, j, nz = 0, p, k, bad = 0, i;
+    uint32_t worst = 0;
+    const tx_engine_t *drip = tx_engine_find("drip");
+    tx_chamber_init(ch);
+    for (b = 0; b < 345; b++) {                             /* idle: silence in -> exact zeros, never active */
+        for (j = 0; j < TX_BLOCK; j++) buf[j] = 0;
+        tx_chamber_process(ch, buf, TX_BLOCK);
+        for (j = 0; j < TX_BLOCK; j++) nz += buf[j] != 0;
+    }
+    snprintf(msg, sizeof msg, "%u nonzero samples in 2 s of silence, idle %d", nz, tx_chamber_quiet(ch));
+    verdict("chamber", "idle", !nz && tx_chamber_quiet(ch), msg, 0);
+    if (drip) {                                             /* quiet sweep: a drip tap, each chamber knob at 0/64/90/127 */
+        void *st = tx_state_new(drip);
+        for (p = 0; p < TX_CH_NP; p++)
+            for (k = 0; k < 4; k++) {
+                static const uint8_t VALS[4] = {0, 64, 90, 127};
+                uint32_t quiet_at = 0;
+                tx_stats_t s;
+                drip->init(st, 3);
+                tx_chamber_init(ch);
+                tx_chamber_param(ch, p, VALS[k]);
+                drip->key(st, 60, 127, 1);
+                for (b = 0; b < 3446u && !quiet_at; b++) {
+                    for (j = 0; j < TX_BLOCK; j++) buf[j] = 0;
+                    if (b == 26) drip->key(st, 60, 0, 0);
+                    drip->render(st, buf, TX_BLOCK);
+                    tx_chamber_process(ch, buf, TX_BLOCK);
+                    drip->stats(st, &s);
+                    if (b > 26 && s.quiet && tx_chamber_quiet(ch)) quiet_at = b;
+                }
+                if (!quiet_at) bad++; else if (quiet_at > worst) worst = quiet_at;
+            }
+        snprintf(msg, sizeof msg, "a drip tap, each chamber knob at 0/64/90/127: idle within 20 s (%u never; slowest %.1f s)",
+                 bad, worst * 256.0 / 44100.0);
+        verdict("chamber", "quiet", !bad, msg, 0);
+        free(st);
+    }
+    if (!run_ch(tx_engine_find("test"), "max", "0 chamber SIZE 127\n0 chamber ABSORB 0\n0 chamber BODY 127\n0 chamber TAIL 127",
+                &a, hex)) {
+        snprintf(msg, sizeof msg, "test max scene through the chamber at its loudest: peak %.1f dBFS (limit +24.1)",
+                 a.peak ? 20.0 * log10(a.peak / 8388608.0) : -999.0);
+        verdict("chamber", "overflow", a.peak < (1 << 27), msg, 0);
+    }
+    for (i = 0; CH_SCENES[i][0]; i++) {
+        const tx_engine_t *e = tx_engine_find(CH_SCENES[i][0]);
+        const char *bl;
+        if (!e) continue;
+        snprintf(name, sizeof name, "chamber+%s-%s", CH_SCENES[i][0], CH_SCENES[i][1]);
+        if (run_ch(e, CH_SCENES[i][1], "", &a, hex) || run_ch(e, CH_SCENES[i][1], "", &a, hex2)) {
+            verdict("chamber", "determinism", 0, name, " does not load"); continue;
+        }
+        if (strcmp(hex, hex2)) { verdict("chamber", "determinism", 0, name, ": two renders differ"); continue; }
+        if (update) { fprintf(update, "%s  %s\n", hex, name); continue; }
+        bl = baseline_get(name);
+        snprintf(msg, sizeof msg, "%s %.16s", name, hex);
+        verdict("chamber", "determinism", bl && !strcmp(bl, hex), msg,
+                !bl ? " (no baseline: make tx-baseline)" : strcmp(bl, hex) ? " != baseline (a change moved the sound)" : " = baseline");
+    }
+    free(ch);
+}
+
 /* ---- the source check: no float in engines/ */
 static void strip(char *t)                                   /* comments, strings, chars -> spaces */
 {
@@ -289,6 +378,7 @@ int main(int argc, char **argv)
         baseline_load();
     check_sources("engines");
     for (k = 0; tx_engines[k]; k++) check_engine(tx_engines[k], update);
+    check_chamber(update);
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }
     printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);
     return fails ? 1 : 0;

@@ -6,6 +6,7 @@
 #include "tx_engine.h"
 #include "tx_host.h"
 #include "tx_script.h"
+#include "tx_core_chamber.h"
 
 static uint8_t arena[TX_STATE_MAX] __attribute__((aligned(64)));    /* the live instance */
 static uint8_t arena2[TX_STATE_MAX] __attribute__((aligned(64)));   /* the reference render (CPU ratio, hash) */
@@ -13,6 +14,9 @@ static const tx_engine_t *cur;
 static int32_t mix[TX_BLOCK], peak, stats[8];
 static float out[TX_BLOCK * 64];
 static char hex[65];
+static tx_chamber_t chamber, chamber2;                 /* the live CHAMBER (after the engine) and the check's */
+static int ch_on;
+static uint8_t ch_p[TX_CH_NP];
 
 static const tx_engine_t *eng(int i)
 {
@@ -65,6 +69,7 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
         float *o = out + b * TX_BLOCK;
         for (j = 0; j < (int)TX_BLOCK; j++) mix[j] = 0;
         if (cur) cur->render(arena, mix, TX_BLOCK);
+        if (ch_on) tx_chamber_process(&chamber, mix, TX_BLOCK);
         for (j = 0; j < (int)TX_BLOCK; j++) {
             int32_t v = mix[j], a = v < 0 ? -v : v;
             if (a > peak) peak = a;
@@ -135,6 +140,44 @@ EMSCRIPTEN_KEEPALIVE const char *txw_max_sha(int i)
     tx_sha256_init(&h);
     e->init(arena2, s.seed);
     for (b = 0; b < s.blocks; b++) { tx_script_step(e, arena2, &s, b, &next, mix); tx_sha256_q23(&h, mix, TX_BLOCK); }
+    tx_sha256_hex(&h, hex);
+    return hex;
+}
+
+/* ---- CHAMBER: its own parameters, on / off (off: not computed; on: starts silent with the current knobs) */
+EMSCRIPTEN_KEEPALIVE int txw_ch_n(void) { return TX_CH_NP; }
+EMSCRIPTEN_KEEPALIVE const char *txw_ch_pname(int i) { return i >= 0 && i < (int)TX_CH_NP ? tx_chamber_params[i].name : ""; }
+EMSCRIPTEN_KEEPALIVE const char *txw_ch_phelp(int i) { return i >= 0 && i < (int)TX_CH_NP ? tx_chamber_params[i].help : ""; }
+EMSCRIPTEN_KEEPALIVE int txw_ch_pmax(int i) { return i >= 0 && i < (int)TX_CH_NP ? tx_chamber_params[i].max : 0; }
+EMSCRIPTEN_KEEPALIVE int txw_ch_pdef(int i) { return i >= 0 && i < (int)TX_CH_NP ? tx_chamber_params[i].def : 0; }
+EMSCRIPTEN_KEEPALIVE void txw_ch_param(int i, int v)
+{
+    if (i < 0 || i >= (int)TX_CH_NP) return;
+    ch_p[i] = (uint8_t)v;
+    tx_chamber_param(&chamber, (unsigned)i, (unsigned)v);
+}
+EMSCRIPTEN_KEEPALIVE void txw_ch_on(int on)
+{
+    unsigned i;
+    if (on && !ch_on) {
+        tx_chamber_init(&chamber);
+        for (i = 0; i < TX_CH_NP; i++) tx_chamber_param(&chamber, i, ch_p[i]);
+    }
+    ch_on = on != 0;
+}
+/* sha256 of an engine's max scene through the CHAMBER at its defaults (txtest: chamber+<engine>-max) */
+EMSCRIPTEN_KEEPALIVE const char *txw_ch_max_sha(int i)
+{
+    const tx_engine_t *e = eng(i);
+    static tx_script_t s;
+    tx_sha256_t h;
+    unsigned next = 0;
+    uint32_t b;
+    if (!e || tx_script_parse(&s, e, e->scene_max)) return "";
+    tx_sha256_init(&h);
+    e->init(arena2, s.seed);
+    tx_chamber_init(&chamber2);
+    for (b = 0; b < s.blocks; b++) { tx_script_step_ch(e, arena2, &chamber2, &s, b, &next, mix); tx_sha256_q23(&h, mix, TX_BLOCK); }
     tx_sha256_hex(&h, hex);
     return hex;
 }

@@ -3,6 +3,7 @@
 #
 #   make tx-test       the checks (txtest with UBSan, no-float source scan, no libcalls on a 32-bit target)
 #   make tx-render     every engine x every standard scene -> build/wav/   (one: make tx-render ENGINE=test SCENE=tap)
+#                      (through the CHAMBER: build/bench/txrender ENGINE SCENE -c -> build/wav/ENGINE-SCENE-chamber.wav)
 #   make tx-bench      CPU per block + the FM-1 estimate (runs tx-calib first; CALIB=0 skips the calibration)
 #   make tx-calib      Frodhes' worst scene timed on this host (needs ../frodhes, read-only; FRODHES=path to change)
 #   make tx-player     the browser player -> build/audition/ (Emscripten from .local/emsdk)

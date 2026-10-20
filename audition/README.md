@@ -26,6 +26,9 @@ git clone https://github.com/emscripten-core/emsdk.git .local/emsdk
 
 - **Engine**: the selector at the top. Each engine shows its own parameters; PARTICLES (the hero-pool limit: density
   against CPU) and LEVEL are shared by all.
+- **CHAMBER**: a small space after the engine (off by default; the switch is remembered in this browser): the room's
+  lowest modes (BODY) and a short diffuse tail (TAIL) for a room of SIZE 0.2-3 m and wall absorption ABSORB (decay
+  from Sabine's law). The same stage renders natively with `build/bench/txrender ENGINE SCENE -c`.
 - **Keys**: a key pressed fires a burst, held keeps the cloud going, released lets it ring out. The on-screen keys are
   the FM-1's 27 (F3 to G5). Computer keys: the `Z` row and the `Q` row play two octaves, `[` and `]` move them; their
   velocity is the slider. A MIDI keyboard plays with its velocity; CC 20-27 move the first eight parameters, CC 7 the

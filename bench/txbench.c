@@ -162,6 +162,41 @@ int main(int argc, char **argv)
         }
         printf("%-8s state %u B\n", e->name, e->state_bytes);
     }
+    {   /* CHAMBER (the post-stage): a busy input (white noise at -12 dBFS), 690 blocks, defaults and the heaviest */
+        static const char *const lab[2] = {"defaults", "max"};
+        unsigned c2;
+        for (c2 = 0; c2 < 2; c2++) {
+            tx_chamber_t *ch = malloc(sizeof *ch);
+            int32_t buf[TX_BLOCK];
+            uint64_t *t[64];
+            unsigned r;
+            uint32_t b, rng = 12345u;
+            meas_t m;
+            for (r = 0; r <= runs; r++) {
+                uint64_t *row = r ? (t[r - 1] = malloc(sizeof(uint64_t) * 690u)) : 0;
+                tx_chamber_init(ch);
+                if (c2) { tx_chamber_param(ch, TX_CH_SIZE, 127); tx_chamber_param(ch, TX_CH_ABSORB, 0);
+                          tx_chamber_param(ch, TX_CH_BODY, 127); tx_chamber_param(ch, TX_CH_TAIL, 127); }
+                for (b = 0; b < 690u; b++) {
+                    unsigned j;
+                    uint64_t t0;
+                    for (j = 0; j < TX_BLOCK; j++) { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; buf[j] = (int32_t)(rng >> 10) - (1 << 21); }
+                    t0 = tx_now_ns();
+                    tx_chamber_process(ch, buf, TX_BLOCK);
+                    if (row) row[b] = tx_now_ns() - t0;
+                }
+            }
+            m = reduce(t, runs, 690u, 0);
+            for (r = 0; r < runs; r++) free(t[r]);
+            free(ch);
+            if (factor > 0)
+                printf("%-8s %-14s %9.2f %9.2f %8.0f us %7.1f%%\n", "chamber", lab[c2], m.mean_us, m.worst_us,
+                       m.worst_us * factor, 100.0 * m.worst_us * factor / TX_BLOCK_US);
+            else
+                printf("%-8s %-14s %9.2f %9.2f %11s %8s\n", "chamber", lab[c2], m.mean_us, m.worst_us, "-", "-");
+        }
+        printf("%-8s state %u B (one per output, outside the engine arenas)\n", "chamber", (unsigned)sizeof(tx_chamber_t));
+    }
     if ((jf = fopen(json, "w"))) {                           /* for the browser player */
         fprintf(jf, "{\n  \"fm1_worst_us\": 3620,\n  \"frodhes_host_worst_us\": %.3f,\n  \"factor\": %.4f,\n"
                     "  \"ref_engine\": \"%s\",\n  \"ref_scene\": \"max\",\n  \"ref_particles\": %u,\n"

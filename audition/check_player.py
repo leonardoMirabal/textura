@@ -68,6 +68,14 @@ def main():
             sha = page.evaluate(f"window.txTest.sha({i})")
             want = base.get(f"{name}-max")
             check(want is not None and sha == want, f"{name}: wasm render of the max scene = native baseline ({sha[:16]})")
+        nch = page.evaluate("Module._txw_ch_n()")
+        ns = page.eval_on_selector_all("#ch-sliders input", "x => x.length")
+        check(nch == 4 and ns == nch, f"CHAMBER: {ns} sliders = its {nch} parameters, switch present ({page.locator('#ch-on').count()})")
+        idrip = next((i for i in range(n) if page.evaluate(f"Module.UTF8ToString(Module._txw_name({i}))") == "drip"), None)
+        if idrip is not None:
+            sha = page.evaluate(f"window.txTest.chSha({idrip})")
+            want = base.get("chamber+drip-max")
+            check(want is not None and sha == want, f"CHAMBER: wasm render of drip max through it = native baseline ({sha[:16]})")
         page.select_option("#engine", "0")
         cal = page.evaluate("window.txTest.calib || null")
         check(cal is not None, f"calibration loaded: {cal}")
@@ -110,6 +118,11 @@ def main():
         page.evaluate("""() => { const s = document.querySelector('#sliders input[data-id="0"]'); s.value = 127; s.oninput(); }""")
         check(page.eval_on_selector('#sliders input[data-id="0"]', "s => s.parentElement.querySelector('label span:last-child').textContent") == "127",
               "slider RATE moved to 127")
+        page.check("#ch-on")                            # the CHAMBER on while the keys are held: still sound
+        time.sleep(0.5)
+        lv = page.evaluate("window.txTest.render(8)")
+        check(lv > 0, f"CHAMBER on: the output still sounds (peak {lv})")
+        page.uncheck("#ch-on")
         with page.expect_download(timeout=20000) as dl:
             page.click("#rec")
         d = dl.value

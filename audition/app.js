@@ -47,6 +47,7 @@ async function init() {
   sel.value = engIdx;
   sel.onchange = () => selectEngine(+sel.value);
   selectEngine(engIdx);
+  buildChamber();
   buildKeyboard();
   octave(0);
   await loadCalib();
@@ -54,6 +55,7 @@ async function init() {
   window.txTest.ready = true;
   window.txTest.sha = i => S(M._txw_max_sha(i));
   window.txTest.render = n => { M._txw_render(n); return M._txw_peak_take(); };
+  window.txTest.chSha = i => S(M._txw_ch_max_sha(i));
   status("Ready. Press Start sound, then play.");
   requestAnimationFrame(meters);
 }
@@ -100,6 +102,19 @@ function selectEngine(i) {
   slider(box, "PARTICLES", "shared: the hero-pool limit (density against CPU)", 1, M._txw_particles_max(),
          M._txw_particles_def(), v => M._txw_param(-1, v), true, -1);
   slider(box, "LEVEL", "shared: output level, 100 = unity", 0, 127, 100, v => M._txw_param(-2, v), true, -2);
+}
+
+// ---- the CHAMBER after the engine: its own sliders and an on / off switch (remembered in this browser)
+function buildChamber() {
+  const box = $("ch-sliders"), on = $("ch-on");
+  for (let p = 0; p < M._txw_ch_n(); p++) {
+    slider(box, S(M._txw_ch_pname(p)), S(M._txw_ch_phelp(p)), 0, M._txw_ch_pmax(p), M._txw_ch_pdef(p),
+           v => M._txw_ch_param(p, v), false, "ch" + p);
+    M._txw_ch_param(p, M._txw_ch_pdef(p));
+  }
+  try { on.checked = localStorage.getItem("textura.chamber") === "1"; } catch (e) { }
+  M._txw_ch_on(on.checked ? 1 : 0);
+  on.onchange = () => { M._txw_ch_on(on.checked ? 1 : 0); try { localStorage.setItem("textura.chamber", on.checked ? "1" : "0"); } catch (e) { } };
 }
 
 function slider(box, name, help, lo, hi, def, set, shared, id) {

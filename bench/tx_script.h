@@ -8,6 +8,7 @@
  *   T param NAME V       the engine's own parameter, by name (or index)
  *   T particles V        the shared PARTICLES limit
  *   T level V            the shared LEVEL (100 = unity)
+ *   T chamber NAME V     a CHAMBER parameter (SIZE ABSORB BODY TAIL): applied when the run uses a chamber
  *   T end                the render stops here (default: 1 s after the last event)
  *   seed N               the engine's PRNG seed (default 1)
  *   engine NAME          the engine (a command-line choice overrides it)
@@ -17,8 +18,9 @@
 #define TX_SCRIPT_H
 #include <stdint.h>
 #include "tx_engine.h"
+#include "tx_core_chamber.h"
 
-enum { TX_SEV_ON, TX_SEV_OFF, TX_SEV_PARAM };
+enum { TX_SEV_ON, TX_SEV_OFF, TX_SEV_PARAM, TX_SEV_CHAMBER };
 
 typedef struct { uint32_t block; uint8_t kind, id, a, b; } tx_sev_t;   /* PARAM: id = param id, a = value */
 
@@ -43,5 +45,11 @@ typedef void (*tx_block_cb)(void *user, uint32_t blk, const int32_t *mix, const 
 void tx_script_run(const tx_engine_t *e, void *st, const tx_script_t *s, tx_block_cb cb, void *user);
 /* step API (for interleaving instances): apply the events of block blk (from index *next), render one block */
 void tx_script_step(const tx_engine_t *e, void *st, const tx_script_t *s, uint32_t blk, unsigned *next, int32_t *mix);
+/* the same with a CHAMBER after the engine (ch may be 0: then = tx_script_step); chamber events go to ch */
+void tx_script_step_ch(const tx_engine_t *e, void *st, tx_chamber_t *ch, const tx_script_t *s, uint32_t blk,
+                       unsigned *next, int32_t *mix);
+/* tx_script_run with a chamber (ch init'ed here with its defaults, then the script's chamber events) */
+void tx_script_run_ch(const tx_engine_t *e, void *st, tx_chamber_t *ch, const tx_script_t *s, tx_block_cb cb, void *user);
+int tx_script_has_chamber(const tx_script_t *s);
 
 #endif

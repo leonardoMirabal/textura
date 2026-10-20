@@ -78,6 +78,15 @@ int tx_script_parse(tx_script_t *s, const tx_engine_t *e, const char *text)
                 int id = isdigit((unsigned char)w2[0]) ? atoi(w2) : tx_param_find(e, w2), val = atoi(w3);
                 if (id < 0 || id >= e->n_params) { snprintf(s->err, sizeof s->err, "line %u: %s has no parameter %s", line, e->name, w2); return -1; }
                 v->kind = TX_SEV_PARAM; v->id = (uint8_t)id; v->a = (uint8_t)(val < 0 ? 0 : val > 127 ? 127 : val);
+            } else if (!strcmp(w1, "chamber") && nw >= 4) {
+                int id = -1, k, val = atoi(w3);
+                for (k = 0; k < (int)TX_CH_NP; k++) {
+                    const char *a = tx_chamber_params[k].name, *b = w2;
+                    while (*a && toupper((unsigned char)*b) == *a) { a++; b++; }
+                    if (!*a && !*b) id = k;
+                }
+                if (id < 0) { snprintf(s->err, sizeof s->err, "line %u: the chamber has no parameter %s", line, w2); return -1; }
+                v->kind = TX_SEV_CHAMBER; v->id = (uint8_t)id; v->a = (uint8_t)(val < 0 ? 0 : val > 127 ? 127 : val);
             } else if ((!strcmp(w1, "particles") || !strcmp(w1, "level")) && nw >= 3) {
                 int val = atoi(w2);
                 v->kind = TX_SEV_PARAM; v->id = w1[0] == 'p' ? TX_PID_PARTICLES : TX_PID_LEVEL;
@@ -98,6 +107,7 @@ int tx_script_parse(tx_script_t *s, const tx_engine_t *e, const char *text)
 
 static void apply(const tx_engine_t *e, void *st, const tx_sev_t *v)
 {
+    if (v->kind == TX_SEV_CHAMBER) return;
     if (v->kind == TX_SEV_ON) e->key(st, v->a, v->b, 1);
     else if (v->kind == TX_SEV_OFF) e->key(st, v->a, 0, 0);
     else e->param(st, v->id, v->a);
@@ -123,4 +133,40 @@ void tx_script_run(const tx_engine_t *e, void *st, const tx_script_t *s, tx_bloc
         e->stats(st, &stt);
         if (cb) cb(user, b, mix, &stt);
     }
+}
+
+void tx_script_step_ch(const tx_engine_t *e, void *st, tx_chamber_t *ch, const tx_script_t *s, uint32_t blk,
+                       unsigned *next, int32_t *mix)
+{
+    unsigned j;
+    while (*next < s->n && s->ev[*next].block <= blk) {
+        const tx_sev_t *v = &s->ev[(*next)++];
+        if (v->kind == TX_SEV_CHAMBER) { if (ch) tx_chamber_param(ch, v->id, v->a); }
+        else apply(e, st, v);
+    }
+    for (j = 0; j < TX_BLOCK; j++) mix[j] = 0;
+    e->render(st, mix, TX_BLOCK);
+    if (ch) tx_chamber_process(ch, mix, TX_BLOCK);
+}
+
+void tx_script_run_ch(const tx_engine_t *e, void *st, tx_chamber_t *ch, const tx_script_t *s, tx_block_cb cb, void *user)
+{
+    int32_t mix[TX_BLOCK];
+    unsigned next = 0;
+    uint32_t b;
+    e->init(st, s->seed);
+    if (ch) tx_chamber_init(ch);
+    for (b = 0; b < s->blocks; b++) {
+        tx_stats_t stt;
+        tx_script_step_ch(e, st, ch, s, b, &next, mix);
+        e->stats(st, &stt);
+        if (cb) cb(user, b, mix, &stt);
+    }
+}
+
+int tx_script_has_chamber(const tx_script_t *s)
+{
+    unsigned i;
+    for (i = 0; i < s->n; i++) if (s->ev[i].kind == TX_SEV_CHAMBER) return 1;
+    return 0;
 }
