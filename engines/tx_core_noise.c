@@ -9,6 +9,7 @@ void tx_noise_init(tx_noise_t *z, uint32_t seed)
     z->gain = z->target = 0;
     z->glide = 2;                                            /* ~4 blocks (23 ms) to settle */
     z->flick = 32768; z->flick_depth = 0;
+    z->lp = 0; z->tilt = 0;
     tx_noise_band(z, 1000, 16, TX_NOISE_BAND);
 }
 
@@ -61,4 +62,37 @@ TX_AUDIO_CODE void tx_noise_add(tx_noise_t *z, int32_t *out, unsigned n)
     }
     if (!z->gain) low = band = 0;
     z->low = low; z->band = band;
+}
+
+void tx_noise_tilt(tx_noise_t *z, uint32_t fc_hz)
+{
+    uint32_t e;
+    if (!fc_hz) { z->tilt = 0; return; }
+    if (fc_hz > 20000u) fc_hz = 20000u;
+    e = fc_hz * 862u >> 6;                                   /* 2 pi fc / (fs ln 2), Q16 (13.47 fc) */
+    z->tilt = 32768 - (int32_t)tx_exp2((15 << 16) - (int32_t)e);   /* 1 - exp(-2 pi fc / fs), Q15 */
+    if (z->tilt < 1) z->tilt = 1;
+}
+
+TX_AUDIO_CODE void tx_noise_roar_add(tx_noise_t *z, int32_t g_q15, int32_t *out, unsigned n)
+{
+    int32_t low = z->low, band = z->band, lp = z->lp, f = z->f, q = z->q, a = z->tilt ? z->tilt : 32768, g, gstep, x, y;
+    unsigned j;
+    if (!g_q15 && !z->gain) { z->low = z->band = z->lp = 0; return; }
+    if (g_q15 > 524288) g_q15 = 524288;
+    if (g_q15 < 0) g_q15 = 0;
+    g = z->gain;
+    gstep = (g_q15 - g) / (int32_t)(n ? n : 1u);             /* 32-bit division, once per block */
+    for (j = 0; j < n; j++) {
+        x = (int32_t)(tx_rand(&z->rng) >> 18) - 8192;          /* white, +-2^13 */
+        low += (f * band) >> 14;
+        y = x - low - ((q * band) >> 14);
+        band += (f * y) >> 14;
+        lp += ((band - lp) * a) >> 15;
+        out[j] += lp * (g >> 5);                             /* Q13 x Q10 -> Q23 */
+        g += gstep;
+    }
+    z->gain = g_q15;
+    if (!g_q15) low = band = lp = 0;
+    z->low = low; z->band = band; z->lp = lp;
 }

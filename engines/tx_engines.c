@@ -4,10 +4,12 @@
 
 extern const tx_engine_t tx_eng_test;
 extern const tx_engine_t tx_eng_drip;
+extern const tx_engine_t tx_eng_candle;
 
 const tx_engine_t *const tx_engines[] = {
     &tx_eng_test,
     &tx_eng_drip,
+    &tx_eng_candle,
     0,
 };
 
