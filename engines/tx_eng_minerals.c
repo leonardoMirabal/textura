@@ -23,9 +23,15 @@
  *            x (1 - 0.25 HUMID) for the rest (ours).
  * Keys: a different specimen per key, a semitone smaller per key up; velocity = how hard (level, contact time). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_modal.h"
 #include "tx_core_contact.h"
+
+#define OUT_TRIM 10774               /* output gain, Q12 (+8.4 dB): max momentary (one velocity-100 press): -32.7 LUFS at LEVEL 100 -> target -20 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
+                                    * lowered 4.3 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS,
+                                    * the limiter under ~8 dB in the chord) */
 
 enum { P_MINERAL, P_ACTION, P_SIZE, P_HOLD, P_HUMID, NP };
 
@@ -252,6 +258,7 @@ TX_AUDIO_CODE static void min_render(void *st, int32_t *mix, unsigned n)
         for (m = 0; m < NMV; m++) live |= v->m[m].amp != 0;
         if (!live && !v->rub && v->moff[0] == 0xFFFF && v->moff[1] == 0xFFFF && v->moff[2] == 0xFFFF) v->alive = 0;
     }
+    tx_trim(s->buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

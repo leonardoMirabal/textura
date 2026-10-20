@@ -18,9 +18,13 @@
  * (NOISE roar path, 110 Hz, Q 0.5, tilted above 250 Hz, ~u^3, gusting with u plus a ~10 Hz flutter: ours, set
  * against the references), and the 3 f lift partial 0.25 -> 0.08 (by ear before; the references show it weaker). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_aeolian.h"
+
+#define OUT_TRIM 3368               /* output gain, Q12 (-1.7 dB): integrated (a key held 10 s): -24.3 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_WIND, P_GUST, P_WIRE, P_LOCK, P_ANGLE, NP };
 
@@ -205,6 +209,7 @@ TX_AUDIO_CODE static void aeol_render(void *st, int32_t *mix, unsigned n)
         g = (int32_t)(((int64_t)g * s->level) >> 15);
         tx_noise_roar_add(&s->bed, s->benv ? g : 0, buf, n);
     }
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     (void)nlive;
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

@@ -22,10 +22,14 @@
  *            2.5-12 kHz, lower for bigger logs: ours).
  * Keys: log size (a semitone per key: lower = bigger: deeper pops, more heat); velocity = the throw's burst size. */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
+
+#define OUT_TRIM 5589               /* output gain, Q12 (+2.7 dB): integrated (a key held 10 s): -41.6 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_SIZE, P_MOIST, P_WOOD, P_DRAUGHT, P_BURSTY, P_ROAR, NP };
 
@@ -259,6 +263,7 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
     }
     for (i = 0; i < NB; i++) tx_ireso_add(&s->bank[i], s->off, s->amp, ne, s->buf, n);
     for (i = 0; i < NH; i++) { tx_ireso_add(&s->hero[i], &s->hoff[i], &s->hamp[i], s->hnum[i], s->buf, n); s->hnum[i] = 0; }
+    tx_trim(s->buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

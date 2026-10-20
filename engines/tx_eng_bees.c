@@ -14,8 +14,12 @@
  *            stroke amplitude, not f0 (N13): an amplitude wander +-3 dB, f0 wander ~1 %.
  *   swarm    companions with f0 spread SPREAD (CV ~5 % across a swarm, note 08). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_wingbeat.h"
+
+#define OUT_TRIM 6567               /* output gain, Q12 (+4.1 dB): integrated (a key held 10 s): -30.1 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_SPECIES, P_SWARM, P_SPREAD, P_SPEED, P_DIST, NP };
 
@@ -244,6 +248,7 @@ TX_AUDIO_CODE static void bees_render(void *st, int32_t *mix, unsigned n)
         tx_buzz_add(&b->bz, s->front, s->side, g1, m1, buf, n);
         if (b->alive && b->fade >= FADE_BLK && !b->bz.g) { b->alive = 0; b->em = 0xFF; }
     }
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

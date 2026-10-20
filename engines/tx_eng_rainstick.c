@@ -16,9 +16,13 @@
  * Velocity = tilt: faster flow and harder clicks. No rain-stick measurement exists: the pin count, tube Q
  * and gains are ours. */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_shaker.h"
 #include "tx_core_noise.h"
+
+#define OUT_TRIM 9492               /* output gain, Q12 (+7.3 dB): integrated (a key held 10 s): -33.3 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_SEEDS, P_TIME, P_GRAIN, P_LENGTH, P_BODY, P_PULSE, NP };
 
@@ -198,6 +202,7 @@ TX_AUDIO_CODE static void stick_render(void *st, int32_t *mix, unsigned n)
             && s->cloud.em[v->em].held && s->cloud.em[v->em].note == v->note))) { v->alive = 0; v->em = 0xFF; }
     }
     tx_declick_run(&s->dc, buf, n);
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

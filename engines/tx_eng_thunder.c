@@ -8,8 +8,12 @@
  * Velocity scales the energy per length (+-1 octave of E_l per 40 velocity) and the level. The sound starts at the
  * first arrival: the flash-to-bang delay d / c (2.9 s per km) is not waited for. */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_thunder.h"
+
+#define OUT_TRIM 46490               /* output gain, Q12 (+21.1 dB): max momentary (one velocity-100 press): -41.1 LUFS at LEVEL 100 -> target -20 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_DIST, P_ENERGY, P_TORT, P_HEIGHT, NP };
 
@@ -139,6 +143,7 @@ TX_AUDIO_CODE static void thunder_render(void *st, int32_t *mix, unsigned n)
         if (!f->active) { s->em[i] = 0xFF; s->next[i] = 0; }
     }
     tx_declick_run(&s->dc, buf, n);
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

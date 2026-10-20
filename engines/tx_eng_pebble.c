@@ -19,9 +19,13 @@
  * with Q 12 (were 180 Hz, Q 40: a low honk), more of the contact itself, a per-block level jitter (+-6 dB) and bumps
  * (+9 dB, ~3 / s), a slow speed wander (+-0.5 oct) and a jittered turn (a periodic 5.7 Hz swell read as a wheel). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_scrape.h"
+
+#define OUT_TRIM 7453               /* output gain, Q12 (+5.2 dB): integrated (a key held 10 s): -31.2 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_SIZE, P_SPEED, P_ROUGH, P_ROUND, P_SURFACE, P_DRAG, NP };
 
@@ -246,6 +250,7 @@ TX_AUDIO_CODE static void pebble_render(void *st, int32_t *mix, unsigned n)
     for (j = 0; j < n; j++) buf[j] = force[j] >> 1;         /* the contact itself (the clicks' edge) */
     tx_svf_bank_add_g(s->surf, s->sf, s->sq, s->sgin, s->sg, NM, force, buf, n);   /* the surface */
     tx_declick_run(&s->dc, buf, n);
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

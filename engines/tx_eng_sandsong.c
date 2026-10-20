@@ -16,9 +16,13 @@
  * 40-400 Hz) falling 6-8 dB / oct above, with little hiss. So: the surface resonance Q 10 -> 25, an output one-pole
  * low-pass at ~500 Hz (the bed absorbs the highs), the hiss 12 dB lower and at 0.9 kHz (was 1.6). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_sync.h"
+
+#define OUT_TRIM 1453               /* output gain, Q12 (-9.0 dB): integrated (a key held 10 s): -17.0 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_GRAIN, P_FLOW, P_SORTING, P_STEADY, P_DETUNE, NP };
 
@@ -169,6 +173,7 @@ TX_AUDIO_CODE static void song_render(void *st, int32_t *mix, unsigned n)
         for (j = 0; j < n; j++) { lp += ((buf[j] - lp) >> 4) * 2254 >> 11; buf[j] = lp; }
         s->lp = (lp > -16 && lp < 16) ? 0 : lp;
     }
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

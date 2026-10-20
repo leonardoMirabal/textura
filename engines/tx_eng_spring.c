@@ -8,8 +8,13 @@
  * low F_C, darker), DECAY the loop gain (0.5-0.95 range), CHIRP the number of allpass sections
  * (how far each echo is smeared). The high chirp chain is dropped (D2b: >= 30 dB down). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_disperse.h"
+
+#define OUT_TRIM 44912               /* output gain, Q12 (+20.8 dB): max momentary (one velocity-100 press): -44.8 LUFS at LEVEL 100 -> target -20 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
+                                    * lowered 2.0 dB: the limiter under ~8 dB in the default chord) */
 
 enum { P_LENGTH, P_RADIUS, P_DECAY, P_CHIRP, NP };
 
@@ -122,6 +127,7 @@ TX_AUDIO_CODE static void spring_render(void *st, int32_t *mix, unsigned n)
         tx_spring_add(&s->sp[i], buf, n);
         if (s->age[i] < 255u) s->age[i]++;
     }
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

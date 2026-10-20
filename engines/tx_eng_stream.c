@@ -15,9 +15,13 @@
  *   eddies     the flow is not steady: the bubble rate wanders with the eddies (two random processes, ~0.5 and ~4 Hz,
  *              depth EDDY; ours, set against the references' 1-2.4 dB rms swings). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_bubble.h"
 #include "tx_core_noise.h"
+
+#define OUT_TRIM 5098               /* output gain, Q12 (+1.9 dB): integrated (a key held 10 s): -27.9 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_FLOW, P_SIZE, P_SPREAD, P_NEAR, P_EDDY, NP };
 
@@ -193,6 +197,7 @@ TX_AUDIO_CODE static void stream_render(void *st, int32_t *mix, unsigned n)
     tx_bubbles_render(s->b, &s->pool, &s->dc, buf, n);
     tx_pool_tick(&s->pool);
     tx_declick_run(&s->dc, buf, n);
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     z = s->hp.x1 | s->hp.y1 | s->dc.v | (int32_t)s->pool.alive | s->bed.gain | s->roar.gain | s->flow_on;

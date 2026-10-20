@@ -14,9 +14,13 @@
  * Ours: per-collision level ~ d (heavier stones click louder); GROUND = a shared pair of low box modes (230 / 610 Hz,
  * Q 4-12) for a container or a wooden floor, 0 = open ground. */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_shaker.h"
 #include "tx_core_noise.h"
+
+#define OUT_TRIM 12658               /* output gain, Q12 (+9.8 dB): integrated (a key held 10 s): -39.5 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_SIZE, P_AMOUNT, P_SHAKE, P_RATE, P_SPREAD, P_GROUND, NP };
 
@@ -184,6 +188,7 @@ TX_AUDIO_CODE static void gravel_render(void *st, int32_t *mix, unsigned n)
     } else
         for (i = 0; i < NG; i++) s->ground[i].low = s->ground[i].band = 0;
     tx_declick_run(&s->dc, buf, n);
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

@@ -18,9 +18,13 @@
  *            hardening raises the low modes' pitch while the energy is high (ours: up to +3 %), so a hard hit glides
  *            down as it decays. */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_plate.h"
+
+#define OUT_TRIM 4703               /* output gain, Q12 (+1.2 dB): max momentary (one velocity-100 press): -21.2 LUFS at LEVEL 100 -> target -20 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_SIZE, P_THICK, P_MALLET, P_CRASH, P_DAMP, NP };
 
@@ -234,7 +238,7 @@ TX_AUDIO_CODE static void noise(plate_t *s, unsigned n, int32_t gh, int32_t *mix
     s->xlo.low = l1; s->xlo.band = b1; s->hi.low = l2; s->hi.band = b2;
 }
 
-TX_AUDIO_CODE static void plate_render(void *st, int32_t *mix, unsigned n)
+TX_AUDIO_CODE static void plate_render_raw(void *st, int32_t *mix, unsigned n)
 {
     plate_t *s = (plate_t *)st;
     unsigned k, i, live = 0;
@@ -296,6 +300,17 @@ TX_AUDIO_CODE static void plate_render(void *st, int32_t *mix, unsigned n)
     }
     for (i = 0; i < NB; i++) live |= s->W[i];
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !live);
+}
+
+/* the engine into its own block, then trimmed into the mix (OUT_TRIM) */
+TX_AUDIO_CODE static void plate_render(void *st, int32_t *mix, unsigned n)
+{
+    int32_t b[TX_BLOCK];
+    unsigned j;
+    if (n > TX_BLOCK) n = TX_BLOCK;
+    for (j = 0; j < n; j++) b[j] = 0;
+    plate_render_raw(st, b, n);
+    tx_trim_add(b, mix, n, OUT_TRIM);
 }
 
 static void plate_stats(const void *st, tx_stats_t *o)

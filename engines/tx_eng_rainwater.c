@@ -15,8 +15,12 @@
  * bed of the same power (Campbell: rate x A^2 / 4d) high-passed at 12 kHz; the medium clicks are a shot train.
  * DIST: the air between (a high-cut, ours) and 1 / r. */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_bubble.h"
+
+#define OUT_TRIM 4491               /* output gain, Q12 (+0.8 dB): integrated (a key held 10 s): -26.8 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_RATE, P_STORM, P_AREA, P_WIND, P_DIST, NP };
 
@@ -291,6 +295,7 @@ TX_AUDIO_CODE static void rw_render(void *st, int32_t *mix, unsigned n)
         }
         s->olp = lp;
     }
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     z = s->hp.x1 | s->hp.y1 | s->wet | s->olp | s->clp | s->blp | s->bhp | s->dc.v | (int32_t)s->pool.alive;

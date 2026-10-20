@@ -24,8 +24,12 @@
  * noise comes in 0.7 ms clumps of random gain (2^(-1.5 .. 0.5)), and the dry path is a band (hand 1.5-6 kHz, pile
  * 0.8-4 kHz: one-pole high-pass, two-pole low-pass) instead of a 3 kHz low-pass (ours, set against the references). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
+
+#define OUT_TRIM 3693               /* output gain, Q12 (-0.9 dB): integrated (a key held 10 s): -25.1 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_GRAIN, P_ORIFICE, P_SURFACE, P_SIZE, P_HEIGHT, P_PULSE, NP };
 
@@ -282,6 +286,7 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
             v->tlp = tlp; v->wpos = w;
         }
     }
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

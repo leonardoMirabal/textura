@@ -15,9 +15,14 @@
  * Ours: the swell and the fade, the rib / click jitter of COHERENCE, the companions of CHORUS (rate CV 5 %, carrier
  * CV 4 %, 1.5-4 x farther, free-running: no cicada synchrony data in the note). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
+
+#define OUT_TRIM 5589               /* output gain, Q12 (+2.7 dB): integrated (a key held 10 s): -29.8 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
+                                    * lowered 1.1 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS) */
 
 enum { P_RATE, P_CARRIER, P_Q, P_COHERE, P_CHORUS, P_DIST, P_PHRASE, NP };
 
@@ -194,7 +199,7 @@ static void clicks(cicadas_t *s, cicada_t *c, unsigned n)
     c->next_q8 -= n << 8;
 }
 
-TX_AUDIO_CODE static void cicadas_render(void *st, int32_t *mix, unsigned n)
+TX_AUDIO_CODE static void cicadas_render_raw(void *st, int32_t *mix, unsigned n)
 {
     cicadas_t *s = (cicadas_t *)st;
     unsigned k, i, j;
@@ -250,6 +255,17 @@ TX_AUDIO_CODE static void cicadas_render(void *st, int32_t *mix, unsigned n)
         for (i = 0; i < NV; i++) z |= !quiet_c(&s->c[i]);
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }
+}
+
+/* the engine into its own block, then trimmed into the mix (OUT_TRIM) */
+TX_AUDIO_CODE static void cicadas_render(void *st, int32_t *mix, unsigned n)
+{
+    int32_t b[TX_BLOCK];
+    unsigned j;
+    if (n > TX_BLOCK) n = TX_BLOCK;
+    for (j = 0; j < n; j++) b[j] = 0;
+    cicadas_render_raw(st, b, n);
+    tx_trim_add(b, mix, n, OUT_TRIM);
 }
 
 static void cicadas_stats(const void *st, tx_stats_t *o)

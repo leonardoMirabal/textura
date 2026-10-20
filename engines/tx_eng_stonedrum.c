@@ -21,9 +21,14 @@
  *            Q / (1 + (v / 3 m/s)^2), the pitch down 5 % x min(1, v / 3 m/s), relaxing over ~100 ms (note 05's rule).
  * Keys: a semitone each from TUNE at C4. */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_modal.h"
 #include "tx_core_contact.h"
+
+#define OUT_TRIM 9713               /* output gain, Q12 (+7.5 dB): max momentary (one velocity-100 press): -29.5 LUFS at LEVEL 100 -> target -20 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
+                                    * lowered 2.0 dB: the limiter under ~8 dB in the default chord) */
 
 enum { P_MATERIAL, P_SHAPE, P_MALLET, P_DAMP, P_POS, P_TUNE, NP };
 
@@ -288,6 +293,7 @@ TX_AUDIO_CODE static void drum_render(void *st, int32_t *mix, unsigned n)
         }
         s->res = e; s->res_x1 = e ? x1 : 0;
     }
+    tx_trim(s->buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

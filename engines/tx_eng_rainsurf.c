@@ -22,8 +22,12 @@
  * level is the force law's fourth root (ours: D^2 V^2 spread 44 dB between the classes), and the surface bands rise
  * +6 dB / oct (radiation below coincidence, ours). The default SURFACE is wood as documented (50 was the tent). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
+
+#define OUT_TRIM 4491               /* output gain, Q12 (+0.8 dB): integrated (a key held 10 s): -26.8 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_RATE, P_SURFACE, P_DROPS, P_AREA, P_INSIDE, NP };
 
@@ -285,6 +289,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
     } else s->olp = 0;
     for (j = 0; j < CARRY; j++) { ex[j] = ex[n + j]; ex[n + j] = 0; }   /* the pulses' tails */
     for (j = CARRY; j < n; j++) ex[j] = 0;
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

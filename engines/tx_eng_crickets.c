@@ -18,10 +18,14 @@
  * proximity (+-1 octave of distance). FIELD: the distant chorus as a band of noise at the carrier, its envelope from
  * 8 virtual callers at the chirp rate (sounds while a key is held). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
+
+#define OUT_TRIM 7987               /* output gain, Q12 (+5.8 dB): integrated (a key held 10 s): -31.8 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_TEMP, P_SPECIES, P_CHORUS, P_SYNC, P_DIST, P_FIELD, NP };
 
@@ -198,7 +202,7 @@ static void spawn(crickets_t *s, const tx_event_t *e)
     }
 }
 
-TX_AUDIO_CODE static void crickets_render(void *st, int32_t *mix, unsigned n)
+TX_AUDIO_CODE static void crickets_render_raw(void *st, int32_t *mix, unsigned n)
 {
     crickets_t *s = (crickets_t *)st;
     const species_t *sp = sp_of(s);
@@ -261,6 +265,17 @@ TX_AUDIO_CODE static void crickets_render(void *st, int32_t *mix, unsigned n)
         for (i = 0; i < NV; i++) z |= s->c[i].alive | s->c[i].tone[0].on | s->c[i].tone[1].on;
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }
+}
+
+/* the engine into its own block, then trimmed into the mix (OUT_TRIM) */
+TX_AUDIO_CODE static void crickets_render(void *st, int32_t *mix, unsigned n)
+{
+    int32_t b[TX_BLOCK];
+    unsigned j;
+    if (n > TX_BLOCK) n = TX_BLOCK;
+    for (j = 0; j < n; j++) b[j] = 0;
+    crickets_render_raw(st, b, n);
+    tx_trim_add(b, mix, n, OUT_TRIM);
 }
 
 static void crickets_stats(const void *st, tx_stats_t *o)

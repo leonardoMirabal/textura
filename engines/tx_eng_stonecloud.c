@@ -20,10 +20,14 @@
  *            tail). Bounded: the tail is cleared 3 T60 after the last input (no rounding cycles).
  * Keys: a semitone smaller pieces per key up (C4 = SIZE); velocity = how hard they are thrown (energy). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_modal.h"
 #include "tx_core_contact.h"
 #include "tx_core_chorus.h"
+
+#define OUT_TRIM 7200               /* output gain, Q12 (+4.9 dB): integrated (a key held 10 s): -30.9 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_DENSITY, P_SIZE, P_SPREAD, P_MINERAL, P_HARD, P_IRREG, P_ROOM, NP };
 
@@ -265,6 +269,7 @@ TX_AUDIO_CODE static void sc_render(void *st, int32_t *mix, unsigned n)
             }
         }
     }
+    tx_trim(s->buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

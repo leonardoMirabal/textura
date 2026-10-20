@@ -21,9 +21,14 @@
  * level wandering slowly (0.5-1.3 Hz, 1.5-3 dB): so the still-air flicker no longer modulates the roar (a 12 Hz
  * tremolo read as synthetic), the roar is broader (Q 0.5) and lower (from 120 Hz), and quieter at the default. */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_pulse.h"
+
+#define OUT_TRIM 10650               /* output gain, Q12 (+8.3 dB): integrated (a key held 10 s): -39.9 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
+                                    * lowered 1.9 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS) */
 
 enum { P_SIZE, P_FLOW, P_SLOPE, P_SPACING, P_DRAUGHT, P_SPUTTER, NP };
 
@@ -242,6 +247,7 @@ TX_AUDIO_CODE static void candle_render(void *st, int32_t *mix, unsigned n)
     g = (int32_t)(((uint64_t)(uint32_t)g * (uint32_t)s->level) >> 15);
     tx_noise_roar_add(&s->roar, g, buf, n);
     tx_pulses_add(&s->ticks, buf, n);
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !g && !s->roar.gain && !tx_pulses_active(&s->ticks)

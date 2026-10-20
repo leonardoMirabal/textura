@@ -18,10 +18,14 @@
  *            ~260 and ~490 Hz with body peaks 0.5-1.6 / 2.8-3.2 kHz.
  * Keys: the piece's length (a semitone per key); velocity = how hard it is bent (crack sizes, creak level). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_modal.h"
 #include "tx_core_insect.h"
 #include "tx_core_creak.h"
+
+#define OUT_TRIM 5989               /* output gain, Q12 (+3.3 dB): max momentary (one velocity-100 press): -23.3 LUFS at LEVEL 100 -> target -20 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_LOAD, P_WOOD, P_MOIST, P_CREAK, P_PITCH, P_SIZE, NP };
 
@@ -302,6 +306,7 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
         s->res = e; s->res_x1 = e ? x1 : 0;
         any |= e;
     }
+    tx_trim(s->buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !any && !(s->hp.x1 | s->hp.y1));

@@ -13,9 +13,13 @@
  *   thunder  one flash at a time (THUNDER core: the channel model channel, N-waves by distance); the cell's distance DIST,
  *            each flash at DIST x 2^(+-1) (nearer as INTENSITY rises), energy and height drawn per flash. */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_thunder.h"
+
+#define OUT_TRIM 3823               /* output gain, Q12 (-0.6 dB): integrated (a key held 10 s): -25.4 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 extern const tx_engine_t tx_eng_rainwater;
 extern const tx_engine_t tx_eng_rainsurf;
@@ -204,6 +208,7 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
             buf[j] += v;
         }
     }
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     z = s->hp.x1 | s->hp.y1 | s->on | s->wind.gain | s->fl.active | !rq;

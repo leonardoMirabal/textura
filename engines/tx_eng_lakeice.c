@@ -12,10 +12,16 @@
  * Ice loss Q: near 0 C 40-100, -20 C ~290-650 (natural ice, C10): COLD sets it (Q 60 .. 500). Crack sizes: Pareto
  * alpha 1.5 over 3 octaves of energy (ours; note 09 gives crack rates as a knob). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_pulse.h"
 #include "tx_core_chirp.h"
+
+#define OUT_TRIM 14202               /* output gain, Q12 (+10.8 dB): max momentary (one velocity-100 press): -37.8 LUFS at LEVEL 100 -> target -20 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
+                                    * lowered 7.0 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS,
+                                    * the limiter under ~8 dB in the chord) */
 
 enum { P_THICK, P_DIST, P_RATE, P_ICE, P_COLD, NP };
 
@@ -172,6 +178,7 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
         if (s->tsilent > s->tmax) s->tone.low = s->tone.band = s->tone.ef = 0;   /* 3 T60 after its last ring */
     }
     s->now += n;
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (s->pool.rejected - rej0) + s->dropped);
     s->dropped = 0;

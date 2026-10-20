@@ -16,9 +16,13 @@
  * block, four modes interleaved), no longer SVF bank resonators on the error-feedback path: 2.5x cheaper, the same
  * mode frequencies and Q; a strike adds energy with a random phase instead of adding to the band state. */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_plate.h"
+
+#define OUT_TRIM 6876               /* output gain, Q12 (+4.5 dB): integrated (a key held 10 s): -30.5 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_WIND, P_GUST, P_MATERIAL, P_CLAPPER, NP };
 
@@ -212,6 +216,7 @@ TX_AUDIO_CODE static void chimes_render(void *st, int32_t *mix, unsigned n)
         t->silent += n;
         if (t->silent > t->tmax) quiet_tube(t);              /* 3 T60: a bound */
     }
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

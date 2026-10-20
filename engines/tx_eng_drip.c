@@ -13,9 +13,14 @@
  * U from the fall height (HEIGHT) for a 4 mm drop: U = V_T sqrt(1 - exp(-2 g h / V_T^2)), V_T = 8.83 m/s; the key
  * velocity scales U (100 = the HEIGHT's speed). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_bubble.h"
 #include "tx_core_pulse.h"
+
+#define OUT_TRIM 8460               /* output gain, Q12 (+6.3 dB): max momentary (one velocity-100 press): -37.6 LUFS at LEVEL 100 -> target -20 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
+                                    * lowered 8.7 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS) */
 
 enum { P_SIZE, P_SCATTER, P_RATE, P_REGULAR, P_DEPTH, P_HEIGHT, NP };
 
@@ -202,6 +207,7 @@ TX_AUDIO_CODE static void drip_render(void *st, int32_t *mix, unsigned n)
     tx_bubbles_render(s->b, &s->pool, &s->dc, buf, n);
     tx_pulses_add(&s->clicks, buf, n);
     tx_declick_run(&s->dc, buf, n);
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->last_dropped = (uint16_t)(s->cloud.last_dropped + (s->pool.rejected - rej0));
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !s->pool.alive && !tx_pulses_active(&s->clicks)

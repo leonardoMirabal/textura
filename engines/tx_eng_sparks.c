@@ -20,8 +20,14 @@
  * would make a small tick inaudible next to a big crack; the gap's part is applied at half its dB, distance at its
  * full law. */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
+
+#define OUT_TRIM 15721               /* output gain, Q12 (+11.7 dB): max momentary (one velocity-100 press): -54.2 LUFS at LEVEL 100 -> target -20 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
+                                    * lowered 12.4 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS,
+                                    * the limiter under ~8 dB in the chord) */
 
 enum { P_GAP, P_RATE, P_BURST, P_DIST, P_CORONA, P_BODY, NP };
 
@@ -207,6 +213,7 @@ TX_AUDIO_CODE static void sparks_render(void *st, int32_t *mix, unsigned n)
         }
         s->cor_g = g1;
     }
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

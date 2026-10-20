@@ -19,9 +19,13 @@
  *   chorus       N19 resetting between callers (CHORUS core): SYNC = s.
  * Keys: carrier / peak a quarter tone per key around the species' (body size); velocity = proximity. */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
+
+#define OUT_TRIM 10898               /* output gain, Q12 (+8.5 dB): integrated (a key held 10 s): -34.5 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_SPECIES, P_JITTER, P_PEGS, P_TEMP, P_CHORUS, P_SYNC, P_DIST, NP };
 
@@ -264,7 +268,7 @@ static unsigned strikes(katy_t *s, singer_t *v, unsigned n)
     return m;
 }
 
-TX_AUDIO_CODE static void katy_render(void *st, int32_t *mix, unsigned n)
+TX_AUDIO_CODE static void katy_render_raw(void *st, int32_t *mix, unsigned n)
 {
     katy_t *s = (katy_t *)st;
     unsigned k, i, ncall;
@@ -299,6 +303,17 @@ TX_AUDIO_CODE static void katy_render(void *st, int32_t *mix, unsigned n)
         for (i = 0; i < NV; i++) z |= !quiet_v(&s->v[i]);
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }
+}
+
+/* the engine into its own block, then trimmed into the mix (OUT_TRIM) */
+TX_AUDIO_CODE static void katy_render(void *st, int32_t *mix, unsigned n)
+{
+    int32_t b[TX_BLOCK];
+    unsigned j;
+    if (n > TX_BLOCK) n = TX_BLOCK;
+    for (j = 0; j < n; j++) b[j] = 0;
+    katy_render_raw(st, b, n);
+    tx_trim_add(b, mix, n, OUT_TRIM);
 }
 
 static void katy_stats(const void *st, tx_stats_t *o)

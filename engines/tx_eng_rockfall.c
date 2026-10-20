@@ -14,10 +14,15 @@
  * (3 modes 35 / 70 / 140 Hz, Q 3: ours, note 04's 30-150 Hz) plus a bright click on hard ground. Distance: 1 / r and
  * air absorption (a low-pass); far away the 70-120 Hz air-wave rumble stays (R7). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_pulse.h"
 #include "tx_core_shaker.h"
+
+#define OUT_TRIM 7627               /* output gain, Q12 (+5.4 dB): max momentary (one velocity-100 press): -34.2 LUFS at LEVEL 100 -> target -20 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
+                                    * lowered 5.8 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS) */
 
 enum { P_VOLUME, P_HEIGHT, P_FRAG, P_GROUND, P_DIST, NP };
 
@@ -261,6 +266,7 @@ TX_AUDIO_CODE static void rock_render(void *st, int32_t *mix, unsigned n)
         tx_noise_level(&s->rumble, g);
         tx_noise_add(&s->rumble, buf, n);
     }
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

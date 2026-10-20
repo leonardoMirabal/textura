@@ -18,9 +18,13 @@
  *            recording shows 65-180 Hz peaks at its impacts: ours).
  * Keys: SIZE shifts with the key (a semitone smaller shards per key up). */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_modal.h"
 #include "tx_core_contact.h"
+
+#define OUT_TRIM 3486               /* output gain, Q12 (-1.4 dB): max momentary (one velocity-100 press): -18.6 LUFS at LEVEL 100 -> target -20 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_ENERGY, P_SIZE, P_RING, P_BOUNCE, P_HEIGHT, NP };
 
@@ -290,6 +294,7 @@ TX_AUDIO_CODE static void glass_render(void *st, int32_t *mix, unsigned n)
         s->res = e; s->res_x1 = e ? x1 : 0;
         any |= e;
     }
+    tx_trim(s->buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !any && !(s->hp.x1 | s->hp.y1));

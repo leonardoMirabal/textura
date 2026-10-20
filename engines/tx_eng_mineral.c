@@ -25,10 +25,14 @@
  * ~1 Hz hand wander of ~0.6 oct, +-6 dB per block, catches +9 dB at ~2 / s), and a key press knocks the stones
  * together first (a Hertz pulse ~0.2 ms: the user expects a percussive start). Ours, set against the references. */
 #include "tx_engine.h"
+#include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_pulse.h"
 #include "tx_core_scrape.h"
+
+#define OUT_TRIM 7284               /* output gain, Q12 (+5.0 dB): integrated (a key held 10 s): -31.0 LUFS at LEVEL 100 -> target -26 LUFS
+                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 enum { P_STONE, P_SIZE, P_PRESSURE, P_SPEED, P_ROUGH, P_STICK, NP };
 
@@ -282,6 +286,7 @@ TX_AUDIO_CODE static void mineral_render(void *st, int32_t *mix, unsigned n)
         }
     }
     tx_declick_run(&s->dc, buf, n);
+    tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
