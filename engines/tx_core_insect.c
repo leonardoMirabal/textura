@@ -48,6 +48,7 @@ TX_AUDIO_CODE void tx_itone_add(tx_itone_t *t, const int16_t *env, int32_t *out,
         y = tx_sin_q15(ph);
         if (h2) y += (tx_sin_q15(ph << 1) * h2) >> 15;
         if (h3) y += (tx_sin_q15(ph * 3u) * h3) >> 15;
+        if (t->rasp) { t->nz = t->nz * 1664525u + 1013904223u; y += (((int32_t)(t->nz >> 17) - 16384) * t->rasp) >> 14; }
         out[j] += (y * ((e * amp) >> 15)) >> 7;              /* Q15 x Q15 -> Q23 */
         ph += inc;
         inc = (uint32_t)((int32_t)inc + dinc);

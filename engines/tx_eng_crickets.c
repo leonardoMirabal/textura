@@ -31,7 +31,7 @@ static const tx_param_t PARAMS[NP] = {
     {"CHORUS", 127, 16, "companions per key: 0 .. 15 crickets farther out (carriers +-3 %)"},
     {"SYNC", 127, 64, "reset by neighbours s: 0 free .. 0.5 alternate .. 1 synchrony"},
     {"DIST", 127, 50, "distance at velocity 100: 0.3 .. 30 m (log): level 1 / r; delays between callers"},
-    {"FIELD", 127, 32, "the distant chorus behind (a band at the carrier): off .. loud"},
+    {"FIELD", 127, 0, "the distant chorus behind (a band at the carrier): off .. loud"},
 };
 
 #define NV 32u
@@ -47,8 +47,8 @@ typedef struct {
 } species_t;
 
 static const species_t SPECIES[NSP] = {
-    {4830, 3277, 1843, 0, 3, 1826, 2867},   /* field cricket: 10 % fall, H2 -25 dB, ~200 cycles (N1, N10) */
-    {3200, 2621, 4626, 0, 4, 1323, 1985},   /* Eugryllodes: H2 -17 dB (N1) */
+    {4830, 1311, 1843, 0, 3, 794, 1588},    /* field cricket: H2 -25 dB (N1, N10); 18 ms pulses 36 ms apart, 4 % fall */
+    {3200, 1638, 4626, 0, 4, 794, 1323},    /* Eugryllodes: H2 -17 dB (N1) */
     {2900, 1638, 1843, 0, 7, 529, 970},     /* Dolbear's tree cricket (ours) */
     {3510, 1638, 1642, 583, 0, 617, 882},   /* mole cricket G. vineae: H2 -26, H3 -35 dB (N28), a trill */
 };
@@ -135,7 +135,7 @@ static void crickets_init(void *st, uint32_t seed)
     tx_chorus_init(&s->ch);
     tx_noise_init(&s->bed, seed ^ 0xC41C7E75u);
     tx_noise_flicker(&s->bed, 6000);
-    tx_itone_env(s->env, 21845);                             /* the peak 2/3 through the pulse (N10) */
+    tx_itone_env(s->env, 18022);                             /* the peak 0.55 through the pulse (recordings 0.41-0.61) */
     for (i = 0; i < NV; i++) s->c[i].em = 0xFF;
     for (i = 0; i < 8; i++) s->vph[i] = tx_rand(&s->cloud.rng);
     s->limit = 16;
@@ -224,12 +224,20 @@ TX_AUDIO_CODE static void crickets_render(void *st, int32_t *mix, unsigned n)
         if (c->alive && !held && !c->stop) { c->stop = 1; tx_chorus_stop(&s->ch, i); }
         held_any |= held;
         while (c->pl && c->pc < (int32_t)n) {
-            int32_t g = (int32_t)(((int64_t)c->gain * s->level) >> 15);
+            /* each pulse its own: level SD ~3 dB, length CV 8 %, spacing 5 % (the recordings: 2.4-4.8 dB, 0.1) */
+            int32_t g = (int32_t)(((int64_t)c->gain * s->level) >> 15), jv;
+            uint32_t ln;
+            g = (int32_t)(((int64_t)g * (32768 + ((tx_gauss_q12(&s->cloud.rng) * 2867) >> 10))) >> 15);
+            g = g < 0 ? 0 : g;
+            ln = (uint32_t)((int32_t)len + (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * (int32_t)len * 82) >> 22));
             c->slot ^= 1u;
-            tx_itone_start(&c->tone[c->slot], c->inc, sp->glide, len, g > 32767 ? 32767 : g, sp->h2, sp->h3,
+            tx_itone_start(&c->tone[c->slot], c->inc, sp->glide, ln, g > 32767 ? 32767 : g, sp->h2, sp->h3,
                            (unsigned)c->pc);
+            c->tone[c->slot].rasp = 3300;                    /* the teeth's rasp ~-20 dB under the tone (recordings: */
+            if (!c->tone[c->slot].nz) c->tone[c->slot].nz = c->inc | 1u;   /* carrier band 18-24 dB over the rest) */
             c->pl--;
-            c->pc += (int32_t)per;
+            jv = (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * (int32_t)per * 51) >> 22);
+            c->pc += (int32_t)per + jv;
         }
         if (c->pl) c->pc -= (int32_t)n;
         tx_itone_add(&c->tone[0], s->env, mix, n);

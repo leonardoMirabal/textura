@@ -4,7 +4,8 @@
  *   TONE   a cricket pulse (one wing closing). The clockwork escapement makes one tooth = one cycle of the harp
  *          resonance, so a steady pulse is a near-pure tone at the carrier: a 32-bit phase, the pitch falling
  *          linearly by a glide over the pulse (5-15 %), an envelope table (65 points, Q15) read across the pulse,
- *          and phase-locked H2 / H3 (sin 2ph, sin 3ph) at their own levels. ~14 ops per sample while it sounds.
+ *          and phase-locked H2 / H3 (sin 2ph, sin 3ph) at their own levels, plus an optional rasp: noise under the
+ *          same envelope (the scraper's irregular teeth). ~14-17 ops per sample while it sounds.
  *          tx_itone_env builds the envelope: sin^2 rise to the peak position, sin^2 fall to zero.
  *   RESO   a two-pole resonator (y = a1 y1 - a2 y2 + x; a1 = 2 r cos w, a2 = r^2, Q14) excited by impulses at
  *          given sample offsets: a tooth strike, a tymbal rib, a peg impact. Any frequency up to fs / 2 (the
@@ -25,6 +26,8 @@ typedef struct {
     int32_t amp, h2, h3;           /* Q15: level (of full scale), H2 / H3 re H1 */
     uint16_t wait;                 /* samples to wait in the next block (the start offset) */
     uint8_t on, pad;
+    int32_t rasp;                  /* the scraper's broadband part under the tone, Q15 of the tone (0 = pure) */
+    uint32_t nz;                   /* its noise state (LCG) */
 } tx_itone_t;
 
 /* env[0..64]: sin^2 rise to peak_q15 (position of the peak, 0..1 of the pulse), sin^2 fall to zero */
