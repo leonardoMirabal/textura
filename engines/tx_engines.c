@@ -26,6 +26,7 @@ extern const tx_engine_t tx_eng_cicadas;
 extern const tx_engine_t tx_eng_katydids;
 extern const tx_engine_t tx_eng_crumple;
 extern const tx_engine_t tx_eng_fire;
+extern const tx_engine_t tx_eng_stonedrum;
 
 const tx_engine_t *const tx_engines[] = {
     &tx_eng_test,
@@ -52,6 +53,7 @@ const tx_engine_t *const tx_engines[] = {
     &tx_eng_katydids,
     &tx_eng_crumple,
     &tx_eng_fire,
+    &tx_eng_stonedrum,
     0,
 };
 
