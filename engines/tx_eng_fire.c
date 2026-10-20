@@ -4,17 +4,19 @@
  * A key throws a log on the fire: a burst of crackle with an Omori tail, the roar swelling as it catches (~1.5 s);
  * holding keeps it burning (crackles at the MOIST rate); release lets it burn down (~3 s). Physics:
  *   roar     turbulent combustion, a monopole noise: broadband, peaking at f_pk 300-600 Hz and falling above (E11;
- *            alpha ~3 by ear, E1; big fires lower: small surface fires ~200 Hz, E35). Here noise -> band-pass at
- *            f_pk (Q 0.75) -> a one-pole low-pass 2.5 octaves up (the candle's roar path); f_pk from 600 Hz (fire
- *            0.1 m) to 250 Hz (3 m) (ours, between E11 and E35). The burning logs add as independent sources:
+ *            alpha ~3 by ear, E1; big fires lower: small surface fires ~200 Hz, E35). Here noise -> a broad band-pass
+ *            (Q 0.5) at f_pk 400 Hz (fire 0.1 m) .. 120 Hz (3 m), -6 dB/oct above, plus a faint hiss band at 2.5 kHz:
+ *            campfire recordings are broad (100 Hz-16 kHz within ~10 dB) and their bed sits 7-14 dB under the
+ *            crackle. The burning logs add as independent sources:
  *            gain ~ sqrt(sum of their heat).
  *   flicker  the fire puffs at f_p = 0.52 sqrt(g / D) (E14: ~3 Hz for 30 cm, 1.6 Hz for 1 m): an amplitude
  *            modulation of the roar, depth and gusts by DRAUGHT, plus a ~1 Hz wander (E9's idea).
- *   crackle  fracture: energies p(E) ~ E^-1.4 (E33 / E34: 1.37-1.45) over 2.5 decades, Omori aftershocks after each
+ *   crackle  fracture: energies p(E) ~ E^-1.4 (E33 / E34: 1.37-1.45) over 3 decades, Omori aftershocks after each
  *            crackle (p 1.68, c 70 ms, sizes at most 1.7 decades below: E33; BURSTY = their mean count, E33 ~8 per
  *            main shock). Each crackle: a click into a shared bank (E32: peaks ~3.2 and ~7.2 kHz, a notch near
  *            6 kHz for green wood / needles; dry wood brighter, 4.5 / 9.5 kHz: ours, unmeasured), Q giving a
- *            ~1-1.5 ms ring-down (E32). Base rate per log: MOIST 0.3-3 /s ( recipe: no measurement exists).
+ *            ~1-1.5 ms ring-down (E32), each a burst of 1-4 sharp clicks over ~0.3-4 ms heard dry too (the recordings:
+ *            very impulsive, flat to 16 kHz). Base rate per log: MOIST 1-30 /s (campfires: 8-15 onsets /s in all).
  *   pops     the top ~5 % of the energies also ring a pop of their own (a hero: one two-pole at a random pitch in
  *            2.5-12 kHz, lower for bigger logs: ours).
  * Keys: log size (a semitone per key: lower = bigger: deeper pops, more heat); velocity = the throw's burst size. */
@@ -27,11 +29,11 @@
 enum { P_SIZE, P_MOIST, P_WOOD, P_DRAUGHT, P_BURSTY, P_ROAR, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"SIZE", 127, 50, "fire diameter D: 0.1 .. 3 m (log): flicker 0.52 sqrt(g/D) 5.2 .. 0.9 Hz, roar peak 600 .. 250 Hz"},
-    {"MOIST", 127, 64, "moisture / resin: crackles 0.3 .. 3 /s per log (log; unmeasured)"},
+    {"SIZE", 127, 50, "fire diameter D: 0.1 .. 3 m (log): flicker 0.52 sqrt(g/D) 5.2 .. 0.9 Hz, roar peak 400 .. 120 Hz"},
+    {"MOIST", 127, 50, "moisture / resin: crackles 1 .. 30 /s per log (log; campfire recordings: 8-15 onsets/s in all)"},
     {"WOOD", 127, 40, "green / needles (3.2 + 7.2 kHz, notch at 6) .. dry (brighter, 4.5 + 9.5 kHz)"},
     {"DRAUGHT", 127, 30, "wind on the fire: steady .. deep flicker and gusts"},
-    {"BURSTY", 127, 50, "aftershocks per crackle: 0 .. 8 (Omori p 1.68, c 70 ms)"},
+    {"BURSTY", 127, 24, "aftershocks per crackle: 0 .. 8 (Omori p 1.68, c 70 ms)"},
     {"ROAR", 127, 80, "roar level: off .. loud"},
 };
 
@@ -39,10 +41,12 @@ static const tx_param_t PARAMS[NP] = {
 #define NH 12u
 #define NB 4u                      /* the crackle bank: two pairs (green / dry) */
 #define NEV 64u
-#define RANGE_L2 33997             /* 2.5 decades of energy: log2(10^2.5) Q12 */
-#define HERO_L2 28672              /* the top ~5 % of the truncated law (7 octaves of 8.3) */
-#define A_REF 8000                 /* the largest crackle's amplitude, Q15 (calibrated by render) */
-#define ROAR_G 26214               /* roar gain of one log fully burning at ROAR 127 (Q15, 0.8) */
+#define RANGE_L2 40795             /* 3 decades of energy: log2(10^3) Q12 (E33: 2-3; the recordings spread 5-7.6 dB) */
+#define HERO_L2 34816              /* the top ~5 % of the truncated law (8.5 octaves of 10) */
+#define A_REF 18000                /* the largest crackle's amplitude, Q15 (calibrated by render) */
+#define DRY 96                     /* the dry click: Q15 x 96 -> Q23 (0.37 of the impulse; by the recordings' flat HF) */
+#define ROAR_G 1800                /* roar gain of one log fully burning at ROAR 127 (Q15, 0.27; by the recordings: */
+                                   /* the bed sits 7-14 dB under the total) */
 
 typedef struct {
     int32_t heat;                  /* Q15: catches ~1.5 s, burns down ~3 s */
@@ -51,7 +55,7 @@ typedef struct {
 
 typedef struct {
     tx_cloud_t cloud;
-    tx_noise_t roar;
+    tx_noise_t roar, hiss;         /* the roar band and the flame's hiss (2.5 kHz, Q 0.5) */
     tx_dcblock_t hp;
     tx_ireso_t bank[NB];
     tx_ireso_t hero[NH];
@@ -91,14 +95,14 @@ static void set_param(fire_t *s, unsigned id, unsigned v)
     case P_SIZE: {
         uint32_t fpk;
         s->d_l2 = -217706 + (int32_t)(v * 2531u);           /* log2(0.1 m) + v log2(30) / 127, Q16 */
-        fpk = tx_exp2(604646 - (int32_t)v * 650);         /* 600 Hz -> 250 Hz (1.26 oct down), ours */
-        tx_noise_band(&s->roar, fpk, 12, TX_NOISE_BAND);
-        tx_noise_tilt(&s->roar, fpk * 45u / 8u);             /* 2.5 octaves up */
+        fpk = tx_exp2(566323 - (int32_t)v * 900);         /* 400 Hz -> 120 Hz (1.74 oct down): broad and low, as the */
+        tx_noise_band(&s->roar, fpk, 8, TX_NOISE_BAND);      /* campfire recordings (Q 0.5, no tilt: -6 dB/oct above) */
+        tx_noise_tilt(&s->roar, 0);
         /* f_p = 0.52 sqrt(g / D) = 1.6287 / sqrt(D) Hz; the phase step per block: f_p x 256 / fs x 2^32 */
         s->fw = tx_exp2(1656437 - s->d_l2 / 2);
         break;
     }
-    case P_MOIST: tx_cloud_rate(&s->cloud, tx_knob_exp(v, 77u, 217706)); break;   /* 0.3 .. 3 /s, Q8 */
+    case P_MOIST: tx_cloud_rate(&s->cloud, tx_knob_exp(v, 256u, 321580)); break;  /* 1 .. 30 /s, Q8 */
     case P_WOOD: set_wood(s); break;
     case P_BURSTY: tx_cloud_omori(&s->cloud, (v + 8u) >> 4, 6881, 70, 23101); break;   /* p 1.68, c 70 ms, 1.7 dec */
     default: break;
@@ -116,6 +120,9 @@ static void fire_init(void *st, uint32_t seed)
     tx_cloud_sizes(&s->cloud, 5734, RANGE_L2);               /* (aftershock sizes; the rest are redrawn) */
     s->cloud.after_stream = 1;
     tx_noise_init(&s->roar, seed ^ 0xF12EF12Eu);
+    tx_noise_init(&s->hiss, seed ^ 0x415541u);
+    tx_noise_band(&s->hiss, 2500, 8, TX_NOISE_BAND);
+    s->hiss.glide = 0;
     for (i = 0; i < NLOG; i++) s->lg[i].em = 0xFF;
     {   /* the truncated power law b = 1.4: pinv = 1 / 0.4, Lmax = RANGE x 0.4 */
         int32_t lmax = (int32_t)((RANGE_L2 * 1638) >> 12);
@@ -190,13 +197,23 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
             if (lg) { if (!lg->alive) lg->heat = 0; lg->alive = 1; lg->em = e->emitter; lg->note = e->note; }
         }
         sz = e->kind == TX_EV_AFTER ? e->size_l2 : draw_size(s);
-        if (e->kind == TX_EV_MAIN) sz = RANGE_L2 - (int32_t)tx_rand_below(r, 8192u);   /* the throw's big one */
+        if (e->kind == TX_EV_MAIN) sz = RANGE_L2 - 8192 - (int32_t)tx_rand_below(r, 8192u);   /* the throw's big one */
         vl2 = ((int32_t)e->vel - 100) * 655 + ((60 - (int32_t)e->note) * 1365);   /* velocity; bigger logs +3 dB/oct */
         a = (int32_t)(((int64_t)tx_exp2(((sz - RANGE_L2) * 16 + vl2) / 2 + (15 << 16)) * A_REF) >> 15);
         a = (int32_t)(((int64_t)a * s->level) >> 15);
         if (a > 32767) a = 32767;
         if (a < 8) continue;
-        if (ne < NEV) { s->off[ne] = e->offset; s->amp[ne] = (int16_t)a; ne++; }
+        {   /* a crackle = a burst of 1-4 sharp clicks over ~0.3-4 ms, random signs, each ~0.6 x the last (the */
+            uint32_t nc = 1u + tx_rand_below(r, 4u), c, o = e->offset;   /* recordings: attack 2-5 ms, very */
+            int32_t aa = a;                                  /* impulsive: kurtosis 200-2600; ours) */
+            for (c = 0; c < nc && o < n && ne < NEV; c++) {
+                int32_t sa = (tx_rand(r) & 1u) ? aa : -aa;
+                s->off[ne] = (uint16_t)o; s->amp[ne] = (int16_t)sa; ne++;
+                s->buf[o] += sa * DRY;                       /* the click itself, broadband (to 16 kHz in the refs) */
+                o += 13u + tx_rand_below(r, 40u);
+                aa = aa * 19661 >> 15;
+            }
+        }
         if (sz >= HERO_L2) pop(s, e->offset, a, e->note);
     }
     for (i = 0; i < NLOG; i++) {                             /* the logs' heat -> the roar */
@@ -231,13 +248,15 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
         g = (int32_t)(((int64_t)g * s->level) >> 15);
         if (!any) g = 0;
         tx_noise_roar_add(&s->roar, g, s->buf, n);
+        tx_noise_level(&s->hiss, g >> 6);                    /* the hiss well under the roar, same flicker (ours) */
+        tx_noise_add(&s->hiss, s->buf, n);
     }
     for (i = 0; i < NB; i++) tx_ireso_add(&s->bank[i], s->off, s->amp, ne, s->buf, n);
     for (i = 0; i < NH; i++) { tx_ireso_add(&s->hero[i], &s->hoff[i], &s->hamp[i], s->hnum[i], s->buf, n); s->hnum[i] = 0; }
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
-        int32_t z = any | s->roar.gain | s->hp.x1 | s->hp.y1;
+        int32_t z = any | s->roar.gain | !tx_noise_quiet(&s->hiss) | s->hp.x1 | s->hp.y1;
         for (i = 0; i < NB; i++) z |= !tx_ireso_quiet(&s->bank[i]);
         for (i = 0; i < NH; i++) z |= !tx_ireso_quiet(&s->hero[i]);
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
