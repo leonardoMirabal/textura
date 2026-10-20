@@ -13,7 +13,11 @@
  *   surface  what is heard is mostly the surface (pebbles ring ultrasonically, note 05): one shared modal bank fed
  *            by every pebble's force (physically one object), 6 modes of irregular plate-like ratios (ours), Q from
  *            the material (wood 40, stone 150 (granite, 05), glass 400, metal 1000), driven at unit noise power.
- * Keys: the pebble radius at C4 = SIZE, 2^(1/12) smaller per semitone up. */
+ * Keys: the pebble radius at C4 = SIZE, 2^(1/12) smaller per semitone up.
+ * Realism pass (marble-on-wood references, analysis only): real rolling is irregular and bright (energy 0.6-4 kHz,
+ * kurtosis 14-370, event-level std 6-7 dB, slow 0.5-0.8 Hz level changes). So: the wood table's modes start at 620 Hz
+ * with Q 12 (were 180 Hz, Q 40: a low honk), more of the contact itself, a per-block level jitter (+-6 dB) and bumps
+ * (+9 dB, ~3 / s), a slow speed wander (+-0.5 oct) and a jittered turn (a periodic 5.7 Hz swell read as a wheel). */
 #include "tx_engine.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
@@ -25,17 +29,18 @@ static const tx_param_t PARAMS[NP] = {
     {"SIZE", 127, 64, "pebble radius at C4: 2 .. 40 mm (log): longer, softer, sparser impacts as it grows"},
     {"SPEED", 127, 64, "push speed at velocity 100: 5 cm/s .. 2 m/s (log)"},
     {"ROUGH", 127, 50, "surface roughness depth h: 1 .. 100 um (log): bridging spacing 2 sqrt(2 r h), louder"},
-    {"ROUND", 127, 40, "out-of-roundness: a sphere .. a lumpy pebble (swells once per turn, v / 2 pi r)"},
-    {"SURFACE", 127, 0, "surface: wood table (Q 40) .. stone slab (150) .. glass (400) .. metal tray (1000)"},
+    {"ROUND", 127, 12, "out-of-roundness: a sphere .. a lumpy pebble (swells once per turn, v / 2 pi r)"},
+    {"SURFACE", 127, 0, "surface: wood table (Q 12) .. stone slab (150) .. glass (400) .. metal tray (1000)"},
     {"DRAG", 127, 62, "rolling resistance mu_r: 0.005 (marble on glass) .. 0.2 (lumpy pebble on wood) (log): coasting"},
 };
 
 #define NV 8u
 #define NM 6u
-#define G_REF 6400                 /* impact gain: r 10 mm at 0.3 m/s (Q15; calibrated by render) */
+#define G_REF 4000                 /* impact gain: r 10 mm at 0.3 m/s (Q15; calibrated by render) */
 
-TX_AUDIO_DATA static const uint16_t SURF_HZ[4] = { 180, 420, 600, 260 };      /* first surface mode (ours) */
-TX_AUDIO_DATA static const uint16_t SURF_Q[4] = { 40, 150, 400, 1000 };
+TX_AUDIO_DATA static const uint16_t SURF_HZ[4] = { 620, 420, 600, 260 };      /* first surface mode (ours; wood from the
+                                                              * marble-on-wood references: 0.6-4 kHz) */
+TX_AUDIO_DATA static const uint16_t SURF_Q[4] = { 12, 150, 400, 1000 };
 TX_AUDIO_DATA static const uint16_t SURF_R[NM] = { 1024, 1516, 2222, 2806, 3717, 4823 };   /* ratios, Q10 (ours) */
 TX_AUDIO_DATA static const uint16_t SURF_G[NM] = { 2048, 1843, 1638, 1434, 1229, 1024 };   /* gains, Q11 */
 
@@ -43,6 +48,7 @@ typedef struct {
     tx_scrape_t sc;
     uint32_t v;                    /* speed, um/s */
     uint32_t rot;                  /* rotation phase */
+    int32_t wander;                /* slow random speed wander (Q15, ~0.8 Hz): an uneven slope / table */
     int32_t r_l2;                  /* log2(r / 1 mm), Q16 */
     uint8_t em, note, alive, pad;
 } voice_t;
@@ -180,12 +186,14 @@ static void roll(pebble_t *s, voice_t *v)
     uint32_t w_um, gap, rot_inc, fc;
     int32_t a_l2, vl2;
     if (!held) v->v = v->v > s->decel ? v->v - s->decel : 0;   /* coasting: mu_r g */
+    v->wander += (tx_rand_s15(&s->cloud.rng) - v->wander) >> 5;   /* ~0.85 Hz low-passed random */
     if (v->v < 10000u) {                                     /* under 1 cm/s: it stops */
         v->v = 0;
         v->sc.imp = 0; v->sc.gap_q8 = 0;
         return;
     }
     vl2 = (32 << 16) - (int32_t)(tx_neglog2_q12(v->v) << 4); /* log2(v / 1 um/s) */
+    vl2 += v->wander * 3;                                    /* +-0.5 octave of speed wander (std ~0.1) */
     /* bridging spacing w = 2 sqrt(2 r h), um: r (um) = 1000 2^r_l2, h (um) = 2^h_l2 */
     w_um = 2u * isqrt32((uint32_t)(((uint64_t)tx_exp2(v->r_l2 + (16 << 16)) * 2000u * tx_exp2(s->h_l2 + (16 << 16))) >> 32));
     if (w_um < 20u) w_um = 20u;
@@ -199,11 +207,18 @@ static void roll(pebble_t *s, voice_t *v)
     if (v->sc.kdur_q8 > (64u << 8)) v->sc.kdur_q8 = 64u << 8;
     /* level ~ r^1.5 v (momentum), against r 10 mm at 0.3 m/s, and rougher = louder (h^0.5, ours) */
     a_l2 = (3 * (v->r_l2 - 217706)) / 2 + (vl2 - 1192079) + (s->h_l2 - 217706) / 2;
+    {   /* irregularity (references: event-level std 5.6-7.2 dB, kurtosis 14-370): the contact's level jitters per block
+         * (+-6 dB, triangular) and a bump or a grain of grit gives a louder burst at ~3 / s (+9 dB, ours) */
+        tx_rng_t *r = &s->cloud.rng;
+        a_l2 += (tx_rand_s15(r) + tx_rand_s15(r)) * 1;
+        if (tx_rand(r) < 73u * 1000000u) a_l2 += 98304;      /* p = 0.017 per block */
+    }
     a_l2 = a_l2 > (2 << 16) ? (2 << 16) : a_l2 < -(10 << 16) ? -(10 << 16) : a_l2;
     v->sc.imp = (int32_t)(((uint64_t)tx_exp2(a_l2 + (16 << 16)) * G_REF * (uint32_t)s->level) >> 31);
     if (v->sc.imp > 32767) v->sc.imp = 32767;
     /* out-of-roundness: the impacts swell once per turn, v / (2 pi r) */
     rot_inc = tx_exp2(vl2 + 783429 - v->r_l2);               /* v / (2 pi r) per block: log2(256 2^32 / (fs 2 pi 1000)) */
+    rot_inc += (uint32_t)(((int64_t)rot_inc * tx_rand_s15(&s->cloud.rng)) >> 16);   /* +-50 %: a pebble is no wheel */
     v->rot += rot_inc;
     v->sc.amod = 32768 + ((tx_sin_q15(v->rot) * s->round) >> 15);
     /* contact low-pass: 500 Hz + 8 v / w */
@@ -228,7 +243,7 @@ TX_AUDIO_CODE static void pebble_render(void *st, int32_t *mix, unsigned n)
         tx_scrape_add(&v->sc, force, n);
         if (!v->v && tx_scrape_quiet(&v->sc)) { v->alive = 0; v->em = 0xFF; }
     }
-    for (j = 0; j < n; j++) buf[j] = force[j] >> 2;         /* a little of the contact itself */
+    for (j = 0; j < n; j++) buf[j] = force[j] >> 1;         /* the contact itself (the clicks' edge) */
     tx_svf_bank_add_g(s->surf, s->sf, s->sq, s->sgin, s->sg, NM, force, buf, n);   /* the surface */
     tx_declick_run(&s->dc, buf, n);
     tx_dcblock_add(&s->hp, buf, mix, n);
