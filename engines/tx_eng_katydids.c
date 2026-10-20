@@ -26,7 +26,7 @@
 enum { P_SPECIES, P_JITTER, P_PEGS, P_TEMP, P_CHORUS, P_SYNC, P_DIST, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"SPECIES", 127, 0, "katydid Panacanthus 5 kHz | grasshopper C. biguttulus 6.6 kHz | C. brunneus 9.7 kHz"},
+    {"SPECIES", 127, 0, "true katydid rasp 4.5 kHz | katydid Panacanthus 5 kHz (tonal) | grasshopper C. biguttulus 6.6 kHz | C. brunneus 9.7 kHz"},
     {"JITTER", 127, 12, "strike timing SD: 0 .. 50 % of an interval: a pure tone .. a broadband rasp"},
     {"PEGS", 127, 50, "grasshoppers: peg impacts within a pulse 1.5 .. 6 kHz (log; N30 >= 1.5 kHz)"},
     {"TEMP", 127, 76, "temperature 10 .. 35 C: call and syllable rhythm (Q10 2); the spectrum stays"},
@@ -36,7 +36,7 @@ static const tx_param_t PARAMS[NP] = {
 };
 
 #define NV 16u
-#define NSP 3u
+#define NSP 4u
 #define NEV 96u                    /* strikes per voice per block, at most */
 #define G_REF 1600                 /* strike amplitude at 1 m (Q15; calibrated by render) */
 
@@ -52,6 +52,11 @@ typedef struct {
 } species_t;
 
 static const species_t SPECIES[NSP] = {
+    {4500, 9000, 64, 80, 7000, 2, 3, 200, 0, 1500, 0, 0, 650},    /* a true katydid's rasp: 3 syllables ("ka-ty-did") of
+                                                                    * ~45 ms, 150 ms apart, a call per 0.65 s; wing Q 4,
+                                                                    * uneven teeth at half the carrier rate (ours, fitted
+                                                                    * to two katydid recordings: peak 5 kHz, broad 2.5-5
+                                                                    * kHz, 5-6 onsets /s, soft 25-30 ms attacks) */
     {5000, 14700, 264, 160, 11024, 1, 0, 226, 0, 0, 0, 0, 600},    /* Panacanthus (N8c); 14.7 kHz -9.4 dB */
     {6570, 18000, 96, 96, 26000, 0, 3, 0, 80, 200, 730, 24, 3500}, /* C. biguttulus (N25, N30); upper -2 dB (ours) */
     {9720, 19500, 96, 96, 20000, 0, 1, 0, 75, 100, 100, 20, 2000}, /* C. brunneus (N25: 7-8 ms pulses at ~100 /s) */
@@ -95,6 +100,7 @@ static int32_t call_T(const katy_t *s, int32_t tf)
 static int32_t call_len(const katy_t *s, uint32_t f1)
 {
     const species_t *sp = sp_of(s);
+    if (sp->katydid == 2u) return ms10(s, (uint32_t)sp->pspc * (sp->pulses - 1u)) + (int32_t)(sp->teeth * TX_FS / f1);
     if (sp->katydid) return (int32_t)(sp->teeth * TX_FS / f1);
     return ms10(s, (uint32_t)sp->syl * sp->nsyl);
 }
@@ -191,9 +197,10 @@ static void spawn(katy_t *s, const tx_event_t *e)
         v->f1 = (uint32_t)(((uint64_t)sp->f1 * tx_exp2(f_l2 + (16 << 16))) >> 16);
         if (v->f1 > 16000u) v->f1 = 16000u;
         tx_ireso_set(&v->r1, v->f1, sp->q1);
-        tx_ireso_set(&v->r2, sp->katydid ? (v->f1 * 2940u / 1000u > 20000u ? 20000u : v->f1 * 2940u / 1000u) : sp->f2, sp->q2);
-        v->r1.g = sp->katydid ? 256 : 640;                    /* grasshopper clicks do not build up: x 2.5 */
-        v->r2.g = sp->katydid ? (sp->l2 >> 7) * 10 : (sp->l2 * 5) >> 8;   /* the upper level; katydid: x 10 for */
+        tx_ireso_set(&v->r2, sp->katydid == 1u ? (v->f1 * 2940u / 1000u > 20000u ? 20000u : v->f1 * 2940u / 1000u)
+                             : sp->katydid ? v->f1 * 2u : sp->f2, sp->q2);
+        v->r1.g = sp->katydid == 1u ? 256 : sp->katydid ? 900 : 640;   /* clicks / a rasp do not build up: x 2.5-3.5 */
+        v->r2.g = sp->katydid == 1u ? (sp->l2 >> 7) * 10 : (sp->l2 * 5) >> 8;   /* the upper level; katydid: x 10 for */
                                                                           /* the low mode's build-up (by render) */
         v->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);   /* own period CV 5 % (ours) */
         v->alive = 1; v->stop = 0; v->em = e->emitter; v->note = e->note; v->in_call = 0;
@@ -204,7 +211,8 @@ static void spawn(katy_t *s, const tx_event_t *e)
 /* the strike interval: the period x (1 + JITTER x a normal draw), at least 1/4 of it */
 static int32_t interval_q8(katy_t *s, int32_t per_q8)
 {
-    int32_t d = (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * s->jit) >> 15);   /* Q12 */
+    int32_t j = sp_of(s)->katydid == 2u && s->jit < 11469 ? 11469 : s->jit;   /* a rasp: uneven teeth (SD >= 35 %) */
+    int32_t d = (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * j) >> 15);   /* Q12 */
     int32_t q = per_q8 + (int32_t)(((int64_t)per_q8 * d) >> 12);
     return q < (per_q8 >> 2) ? (per_q8 >> 2) : q;
 }
@@ -228,12 +236,16 @@ static unsigned strikes(katy_t *s, singer_t *v, unsigned n)
     int32_t g = (int32_t)(((int64_t)v->gain * s->level) >> 15);
     int32_t len = call_len(s, v->f1);
     unsigned legs = sp->katydid ? 1u : 2u, L, cnt[2] = {0, 0}, a, b, m;
-    int32_t per_q8 = sp->katydid ? (int32_t)((TX_FS << 8) / v->f1) : (int32_t)((TX_FS << 8) / tx_exp2(s->peg_l2));
+    int32_t per_q8 = sp->katydid ? (int32_t)((TX_FS << 8) / (sp->katydid == 2u ? v->f1 >> 1 : v->f1)) : (int32_t)((TX_FS << 8) / tx_exp2(s->peg_l2));
     for (L = 0; L < legs; L++) {
         while (v->in_call && (v->next_q8[L] >> 8) < (int32_t)n && cnt[L] < NEV) {
             int32_t o = v->next_q8[L] >> 8, ts = v->t + o, e, amp;
             if (ts >= len) { if (L + 1 == legs) v->in_call = 0; break; }
-            if (sp->katydid) {
+            if (sp->katydid == 2u) {                         /* syllables: each its own sweep of the file */
+                int32_t spc = ms10(s, sp->pspc), sl = (int32_t)(sp->teeth * TX_FS / v->f1), u = ts % spc;
+                uint32_t pos = u < sl ? (uint32_t)(((uint32_t)u << 6) / (uint32_t)sl) : 64u;
+                e = s->env[pos > 64u ? 64u : pos];
+            } else if (sp->katydid) {
                 uint32_t pos = (uint32_t)(((uint32_t)ts << 6) / (uint32_t)len);   /* along the call: the file */
                 e = s->env[pos > 64u ? 64u : pos];
             } else
@@ -305,7 +317,7 @@ static void katy_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: 16 katydids calling in synchrony (every resonator rings at once), jittered, close, hot */
 static const char SCENE_MAX[] =
-    "0 particles 16\n0 param SPECIES 0\n0 param PEGS 127\n0 param JITTER 127\n0 param CHORUS 127\n0 param SYNC 127\n"
+    "0 particles 16\n0 param SPECIES 40\n0 param PEGS 127\n0 param JITTER 127\n0 param CHORUS 127\n0 param SYNC 127\n"
     "0 param DIST 0\n0 param TEMP 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
