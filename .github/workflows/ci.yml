@@ -1,0 +1,12 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  # Research, papers and recordings stay on the developer's machine (.private/, AGENTS.md section 2).
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: nothing private, no audio, no papers tracked
+        run: |
+          bad=$(git ls-files | grep -iE '^\.private/|^\.local/|\.(wav|flac|mp3|ogg|aiff?|pdf)$' || true)
+          if [ -n "$bad" ]; then echo "tracked files that must not be in git:"; echo "$bad"; exit 1; fi

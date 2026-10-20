@@ -1,0 +1,46 @@
+/build/
+*.key
+*.pem
+*.p12
+.env
+.env.*
+
+# ---- Textura ----
+# Everything we generate stays inside the project folder, in one of these, never in /tmp or a scratchpad:
+#   build/          build outputs: firmware, host renders, HIL reports, scans (upstream already ignores /build/)
+#   .local/         project-local tooling: JieLi toolchain, venv, emsdk/WASI SDK, Playwright, reference material
+#   .local-backup/  history bundles and backups before any rewrite
+#   .private/       research: papers, notes, engine plans, classification, test plans. Never pushed.
+/.local/
+/.local-backup/
+/.private/
+# Claude Code session state (worktrees, locks, settings)
+/.claude/
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+# OS and editor files
+.DS_Store
+._*
+__MACOSX/
+.vscode/
+.idea/
+*.swp
+*~
+# Audio is measured, never committed: commit derived numbers instead
+*.wav
+*.flac
+*.mp3
+*.ogg
+*.aif
+*.aiff
+# Papers and third-party documents never go in git (they live in .private/)
+*.pdf
+# Build products outside build/
+*.o
+*.elf
+*.dis
+a.out
