@@ -23,7 +23,10 @@
  *            x (1 - 0.25 HUMID) for the rest (ours).
  * Keys: a different specimen per key, a semitone smaller per key up; velocity = how hard (level, contact time).
  * VARY (no two knocks alike, the user's session 3): at 0 each key is one fixed specimen; above, every knock is a new
- * one (shape, tuning, Q, hardness drawn; ours). */
+ * one (shape, tuning, Q, hardness drawn; ours).
+ * Listening session 5 ("nice, but must be more glassy"): the defaults are now a quartz crystal (Q 4000 held), a
+ * little smaller (SIZE 84) and held by the fingertips (HOLD 36): a crystalline ring, -20 dB after ~0.6 s (granite
+ * gripped: 0.12 s), its centroid ~3 kHz (was 1.7). Granite and the others stay a knob away. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_vary.h"
@@ -31,14 +34,14 @@
 #include "tx_core_modal.h"
 #include "tx_core_contact.h"
 
-#define OUT_TRIM 12950               /* output gain, Q12 (+8.4 dB): max momentary (one velocity-100 press): -32.7 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 12090               /* output gain, Q12 (+8.4 dB): max momentary (one velocity-100 press): -32.7 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 4.3 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS,
                                     * the limiter under ~8 dB in the chord) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
- * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +1.6 dB with it, held there by the chord's limiter under ~8 dB (its mean
- * loudness below the old one) */
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +1.6 dB with it, held there by the chord's limiter under
+ * ~8 dB; -0.6 dB with the quartz default (session 5: rings longer, -20 LUFS max momentary reached) */
 #define VARY_LO -130
 #define VARY_HI 15
 #define VARY_TILT 100
@@ -48,10 +51,10 @@
 enum { P_MINERAL, P_ACTION, P_SIZE, P_HOLD, P_HUMID, P_VARY, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"MINERAL", 127, 0, "granite | marble | sandstone | slate | limestone | basalt | flint | obsidian | quartz"},
+    {"MINERAL", 127, 127, "granite | marble | sandstone | slate | limestone | basalt | flint | obsidian | quartz"},
     {"ACTION", 127, 64, "strike (a tool) | clink (two stones knocked together) | rub (held: stick-slip)"},
-    {"SIZE", 127, 64, "specimen size at C4: 25 .. 2 cm (log): f1 = 0.025 c / L (~1.3 kHz for 8 cm granite)"},
-    {"HOLD", 127, 76, "the hand: hung on a string (free ring) .. fingertips .. a firm grip (damping 1 .. 80 /s)"},
+    {"SIZE", 127, 84, "specimen size at C4: 25 .. 2 cm (log): f1 = 0.025 c / L (~1.3 kHz for 8 cm granite)"},
+    {"HOLD", 127, 36, "the hand: hung on a string (free ring) .. fingertips .. a firm grip (damping 1 .. 80 /s)"},
     {"HUMID", 127, 0, "dry .. wet (Q lower, the porous most)"},
     {"VARY", 127, 100, "each knock: the same specimen per key (0) .. a new specimen every time (shape, +-3 % tuning, Q +-30 %, hardness)"},
 };

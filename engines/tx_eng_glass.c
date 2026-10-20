@@ -150,7 +150,9 @@ static void impact(glass_t *s, shard_t *h, unsigned o, int32_t v_mm)
         for (k = 0; k < NMS; k++) if (r->m[k].inc) tx_mode_strike(&r->m[k], (k & 1u) ? -(a >> (k + 0)) : a >> k);
         tx_mode_strike(&s->floor[o & 1u], a >> 3);          /* the floor: big shards only (ours) */
     }
-    s->bpush[o] += (int32_t)(((int64_t)h->c * v_mm) >> 10);   /* the click (every shard: ~ L, ours) */
+    s->bpush[o] += (int32_t)(((int64_t)h->c * v_mm) >> (h->ring == 0xFF ? 12 : 10));   /* the click (every shard: ~ L,
+                                                              * ours; the chips that do not ring -12 dB: together they
+                                                              * were a hiss under the shards, session 5) */
 }
 
 static void glass_break(glass_t *s, const tx_event_t *e)
@@ -277,12 +279,16 @@ TX_AUDIO_CODE static void glass_render(void *st, int32_t *mix, unsigned n)
     }
     tx_modal_run(s->floor, 2, s->buf, 0, n);
     any |= s->floor[0].amp | s->floor[1].amp;
-    if (s->shn | s->shn_in) {                                /* the shattering: bright noise rising over ~25 ms, */
-        int32_t e = s->shn, x1 = s->shn_x1, in = s->shn_in;  /* falling with tau ~90 ms (ours) */
-        for (j = 0; j < n; j++) {
-            int32_t x = (int32_t)(tx_rand(&s->cloud.rng) >> 17) - 16384;
-            x1 += (x - x1) >> 1;                             /* white, gently low-passed (~7 kHz) */
-            s->buf[j] += (x1 * (e >> 14)) >> 1;
+    if (s->shn | s->shn_in) {                                /* the shattering: rising over ~25 ms, falling with */
+        int32_t e = s->shn, x1 = s->shn_x1, in = s->shn_in;  /* tau ~90 ms (ours). Not a noise (the user, session 5: */
+        for (j = 0; j < n; j++) {                            /* "an unpleasant white-noise background"): the pane */
+            uint32_t u = tx_rand(&s->cloud.rng);             /* breaks in many separate cracks and chips, each a */
+            if ((u >> 16) < (uint32_t)(e >> 12)) {           /* sharp tick of its own size (~3 k/s at the peak, */
+                int32_t a = (e >> 14) * (int32_t)((u & 0xFFFFu) * (u & 0xFFFFu) >> 18);   /* a u^2 level: a few */
+                s->buf[j] += (u & 0x10000u) ? a : -a;        /* loud, most faint; ours) */
+                s->bpush[j] += a >> 10;
+            }
+            (void)x1;
             e += (in >> 10) - (e >> 12) - 1;
             in -= in >> 10;
             if (in < 1024) in = 0;

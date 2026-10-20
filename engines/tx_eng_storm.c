@@ -11,7 +11,10 @@
  *   wind     a gusting broadband roar (NOISE roar path, ~250 Hz, Q 0.5, tilted), level ~ u^3 (u 3 .. 20 m/s with
  *            INTENSITY), gusts as a slow random walk (~0.3 Hz, +-40 %) and a flutter (ours, as #22's bed).
  *   thunder  one flash at a time (THUNDER core: the channel model channel, N-waves by distance); the cell's distance DIST,
- *            each flash at DIST x 2^(+-1) (nearer as INTENSITY rises), energy and height drawn per flash. */
+ *            each flash at DIST x 2^(+-1) (nearer as INTENSITY rises), energy and height drawn per flash.
+ * The end (the user, session 5: "ends super sharp, not natural"): released, the rain thins out over ~3-4 s (its
+ * output faded, tau 0.74 s, its drops let go only at -54 dB) and the wind dies away over ~4-5 s; a thunder tail
+ * is never cut: a new flash waits for the one still rolling (a press then strikes at once only after ~4 s). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_cloud.h"
@@ -48,6 +51,9 @@ typedef struct {
     const tx_engine_t *rain;
     uint32_t seed, next;           /* samples to the next flash while the storm is on */
     int32_t on, gust, flut, u_l2;
+    int32_t rf;                    /* the rain's fade (Q15): 1 while held, falling after */
+    uint32_t fl_age;               /* samples since the flash started */
+    uint8_t pend;                  /* a pressed flash waiting for the rolling one (its velocity; 0 = none) */
     uint8_t p[NP], quiet, rain_on, dirty, lv;
     int32_t level;
     uint16_t dropped;
@@ -138,8 +144,8 @@ static void strike(storm_t *s, uint32_t vel)
     uint32_t h = 2000u + tx_rand_below(r, 3000u);
     int32_t lv = (int32_t)(((uint32_t)(vel > 127u ? 127u : vel) * 258u * (uint32_t)s->level) >> 15);   /* ~ velocity */
     d_l2 = d_l2 < 566000 ? 566000 : d_l2 > 910000 ? 910000 : d_l2;   /* 0.4 .. 15 km */
-    if (s->fl.active) s->dropped++;
     tx_flash_start(&s->fl, r, tx_exp2(d_l2), h, 256u, el2, lv);
+    s->fl_age = 0;
 }
 
 TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
@@ -147,7 +153,7 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
     storm_t *s = (storm_t *)st;
     tx_rng_t *r = &s->cloud.rng;
     unsigned k, i, j, held;
-    int32_t *buf = s->buf, z, rq = 1;
+    int32_t *buf = s->buf, z;
     uint16_t d0 = s->dropped;
     if (n > TX_BLOCK) n = TX_BLOCK;
     if (s->dirty) rain_setup(s);
@@ -155,24 +161,31 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
     if (!k && s->quiet) return;                              /* silent and nothing new */
     for (j = 0; j < n; j++) buf[j] = 0;
     held = tx_cloud_held(&s->cloud);
-    for (i = 0; i < k; i++) strike(s, s->ev[i].vel);         /* a press: a flash now */
-    if (s->rain) {                                           /* the rain follows the storm */
-        if (held && !s->rain_on) { s->rain->key(s->arena, 60, 100, 1); s->rain_on = 1; }
-        if (!held && s->rain_on) { s->rain->key(s->arena, 60, 0, 0); s->rain_on = 0; }
-        s->rain->render(s->arena, buf, n);
-        {
-            tx_stats_t rs;
-            s->rain->stats(s->arena, &rs);
-            rq = rs.quiet;
-        }
+    for (i = 0; i < k; i++) {                                /* a press: a flash now, unless one still rolls */
+        if (s->fl.active && s->fl_age < 176400u) { s->pend = s->ev[i].vel; s->dropped++; }
+        else strike(s, s->ev[i].vel);
     }
-    s->on += held ? (32768 - s->on) >> 5 : -(s->on >> 5);    /* ~1 s build / fade */
+    if (s->pend && !s->fl.active) { strike(s, s->pend); s->pend = 0; }
+    if (s->rain) {                                           /* the rain follows the storm, thinning out after it */
+        int32_t r0 = s->rf, dr;
+        if (held) s->rf += (32767 - s->rf + 7) >> 3;            /* (back in ~50 ms) */
+        else s->rf -= (s->rf >> 7) + 1;                      /* tau ~0.74 s */
+        if (s->rf < 64) s->rf = 0;
+        if (held && !s->rain_on) { s->rain->key(s->arena, 60, 100, 1); s->rain_on = 1; }
+        if (!held && s->rain_on && !s->rf) { s->rain->key(s->arena, 60, 0, 0); s->rain_on = 0; }
+        s->rain->render(s->arena, buf, n);
+        dr = (s->rf - r0) / (int32_t)n;
+        if (r0 != 32767 || s->rf != 32767)
+            for (j = 0; j < n; j++) { r0 += dr; buf[j] = tx_trim1(buf[j], r0 >> 3); }   /* Q12 */
+    }
+    s->on += held ? (32768 - s->on) >> 5 : -((s->on >> 7) + 1);   /* ~1 s build, ~4-5 s fade */
     if (!held && s->on < 64) s->on = 0;
+    if (s->fl.active) s->fl_age += n;
     if (held) {                                              /* lightning: Poisson, 0.5 .. 8 / min */
         uint32_t per_min_q8 = tx_knob_exp(s->p[P_INTENS], 256u, 234960);   /* 1 .. 12 / min, Q8 */
         if (s->next > n) s->next -= n;
         else {
-            if (s->next) strike(s, 64u + (tx_rand(r) >> 26));
+            if (s->next && !s->fl.active) strike(s, 64u + (tx_rand(r) >> 26));   /* (not over a rolling one) */
             s->next = tx_cloud_exp_q8(&s->cloud, (677376000u / per_min_q8) << 8) >> 8;   /* mean 60 fs / rate */
             if (s->next < 4410u) s->next = 4410u;
         }
@@ -211,7 +224,7 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
-    z = s->hp.x1 | s->hp.y1 | s->on | s->wind.gain | s->fl.active | !rq;
+    z = s->hp.x1 | s->hp.y1 | s->on | s->wind.gain | s->fl.active | s->rf | s->pend;   /* (the rain: silent once faded) */
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
 }
 
