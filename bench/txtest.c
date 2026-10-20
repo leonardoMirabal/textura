@@ -28,6 +28,7 @@
 #include "tx_host.h"
 #include "tx_core_noise.h"
 #include "tx_core_limit.h"
+#include "tx_core_mix.h"
 
 #define BASELINE "bench/baselines/renders.sha256"
 static int fails;
@@ -424,6 +425,86 @@ static void check_sources(const char *dir)
     }
 }
 
+/* ---- S3: four engines at their worst cases (max scenes at the default PARTICLES) together through the MIX core:
+ * panned apart, summed, the CHAMBER (on or off), the linked limiter. The limited pair never passes -1 dBFS, the raw
+ * pair keeps int32 headroom, and the render is deterministic (baseline "layers4-max" / "layers4+chamber-max"). */
+static const char *const LAYERS4[4] = { "plate", "storm", "mineral", "spring" };
+
+static int run_layers(int chamber_on, char hex[65], int32_t *raw_peak, int32_t *lim_peak, uint32_t *lim_blocks)
+{
+    tx_mix_t *m = malloc(sizeof *m);
+    tx_chamber_t *ch = malloc(sizeof *ch);
+    tx_script_t *s[4];
+    void *st[4];
+    unsigned next[4] = {0, 0, 0, 0}, k, i, j;
+    uint32_t blocks = 0, b;
+    int32_t blk[TX_BLOCK], L[TX_BLOCK], R[TX_BLOCK];
+    tx_sha256_t sha;
+    static const unsigned PAN[4] = {20, 50, 80, 110};
+    tx_mix_init(m);
+    tx_chamber_init(ch);
+    m->ch = ch; m->ch_on = chamber_on;
+    for (k = 0; k < 4; k++) {
+        const tx_engine_t *e = tx_engine_find(LAYERS4[k]);
+        s[k] = malloc(sizeof *s[k]);
+        if (!e || tx_scene_load(s[k], e, "max")) { for (i = 0; i <= k; i++) free(s[i]); free(m); free(ch); return -1; }
+        for (i = 0; i < s[k]->n; i++)
+            if (s[k]->ev[i].kind == TX_SEV_PARAM && s[k]->ev[i].id == TX_PID_PARTICLES) s[k]->ev[i].a = e->particles_def;
+        st[k] = tx_state_new(e);
+        tx_mix_set(m, k, e, st[k], s[k]->seed);
+        e->param(st[k], TX_PID_PARTICLES, e->particles_def);
+        tx_mix_pan(m, k, PAN[k]);
+        if (s[k]->blocks > blocks) blocks = s[k]->blocks;
+    }
+    tx_sha256_init(&sha);
+    *raw_peak = *lim_peak = 0; *lim_blocks = 0;
+    for (b = 0; b < blocks; b++) {
+        tx_mix_begin(m, TX_BLOCK);
+        for (k = 0; k < 4; k++) {
+            tx_script_step(m->e[k], st[k], s[k], b, &next[k], blk);
+            tx_mix_add(m, k, blk, TX_BLOCK);
+        }
+        tx_mix_end(m, L, R, TX_BLOCK);
+        if (m->raw_peak > *raw_peak) *raw_peak = m->raw_peak;
+        for (j = 0; j < TX_BLOCK; j++) {
+            int32_t a = L[j] < 0 ? -L[j] : L[j], c = R[j] < 0 ? -R[j] : R[j];
+            if (a > *lim_peak) *lim_peak = a;
+            if (c > *lim_peak) *lim_peak = c;
+        }
+        if (tx_limit_take(&m->lim)) (*lim_blocks)++;
+        tx_sha256_q23(&sha, L, TX_BLOCK);
+        tx_sha256_q23(&sha, R, TX_BLOCK);
+    }
+    tx_sha256_hex(&sha, hex);
+    for (k = 0; k < 4; k++) { free(s[k]); free(st[k]); }
+    free(m); free(ch);
+    return (int)blocks;
+}
+
+static void check_layers(FILE *update)
+{
+    unsigned c;
+    for (c = 0; c < 2; c++) {
+        char hex[65], hex2[65], msg[240], name[48];
+        int32_t rp, lp, rp2, lp2;
+        uint32_t lb, lb2;
+        int nb = run_layers((int)c, hex, &rp, &lp, &lb);
+        const char *bl;
+        snprintf(name, sizeof name, "layers4%s-max", c ? "+chamber" : "");
+        if (nb < 0 || run_layers((int)c, hex2, &rp2, &lp2, &lb2) < 0) { verdict("layers", "load", 0, name, " does not load"); continue; }
+        snprintf(msg, sizeof msg, "%s+%s+%s+%s at their worst%s: raw pair peak %.1f dBFS (int32 headroom +48), limited %.2f dBFS "
+                 "(<= -1), the limiter in %u of %d blocks", LAYERS4[0], LAYERS4[1], LAYERS4[2], LAYERS4[3],
+                 c ? " + CHAMBER" : "", rp ? 20.0 * log10(rp / 8388608.0) : -999.0, lp ? 20.0 * log10(lp / 8388608.0) : -999.0, lb, nb);
+        verdict("layers", c ? "chamber" : "mix", rp < (1 << 29) && lp <= 7476717, msg, 0);
+        if (strcmp(hex, hex2)) { verdict("layers", "determinism", 0, name, ": two renders differ"); continue; }
+        if (update) { fprintf(update, "%s  %s\n", hex, name); continue; }
+        bl = baseline_get(name);
+        snprintf(msg, sizeof msg, "%s %.16s %s", name, hex, bl ? (strcmp(bl, hex) ? "!= baseline (a change moved the sound)" : "= baseline")
+                 : "(no baseline: make tx-baseline)");
+        verdict("layers", "determinism", bl && !strcmp(bl, hex), msg, 0);
+    }
+}
+
 int main(int argc, char **argv)
 {
     unsigned k;
@@ -439,6 +520,7 @@ int main(int argc, char **argv)
     check_sources("engines");
     for (k = 0; tx_engines[k]; k++) check_engine(tx_engines[k], update);
     check_chamber(update);
+    check_layers(update);
     check_noise_core();
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }
     printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);

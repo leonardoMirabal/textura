@@ -2,7 +2,8 @@
 """Textura player check (headless Chromium, Playwright): the page loads without JS errors, lists the engines and
 builds each engine's sliders, renders the same samples as the native build (sha256 of every engine's worst scene
 against bench/baselines/renders.sha256), starts the sound, plays computer keys and the on-screen keys, moves a
-slider, fills the meters, records 10 s to a downloaded WAV, and takes screenshots (desktop and phone width).
+slider, fills the meters, plays four layers at once (a second layer sounds, the CPU split per layer, key zones),
+records 10 s to a downloaded stereo WAV, and takes screenshots (desktop and phone width).
 
     PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python audition/check_player.py
 Outputs in build/audition-check/. Exit 1 on any failure. Web MIDI with a real keyboard and the sound itself are not
@@ -125,13 +126,41 @@ def main():
         lv = page.evaluate("window.txTest.render(8)")
         check(lv > 0, f"CHAMBER on: the output still sounds (peak {lv})")
         page.uncheck("#ch-on")
+        # S3: a second layer (rain on surfaces, panned right) with the keys held: both layers sound, each has a CPU share
+        names = [page.evaluate(f"Module.UTF8ToString(Module._txw_name({i}))") for i in range(n)]
+        irs = names.index("rainsurf") if "rainsurf" in names else 1
+        page.evaluate(f"(() => {{ window.txTest.editLayer(1); window.txTest.selectEngine({irs}); window.txTest.editLayer(0); }})()")
+        page.evaluate("""() => { const p = document.querySelectorAll('#layers .pan')[1]; p.value = 110; p.oninput(); }""")
+        page.keyboard.up("KeyQ"); page.keyboard.down("KeyQ")   # a fresh press reaches the new layer
+        time.sleep(1.5)
+        rows = page.eval_on_selector_all("#layers .layer .st", "x => x.map(e => e.textContent)")
+        check(len(rows) == 4 and "%" in rows[0] and "%" in rows[1] and "dBFS" in rows[1] and "-inf" not in rows[1],
+              f"two layers sounding, each with its CPU share and level: {rows[:2]}")
+        check(page.evaluate("window.txTest.route(60).length") == 2, "shared keys: C4 goes to both layers")
+        page.evaluate("(() => { window.txTest.setMode('zones'); window.txTest.zone(0, 53, 59); window.txTest.zone(1, 60, 79); })()")
+        r60, r55 = page.evaluate("window.txTest.route(60)"), page.evaluate("window.txTest.route(55)")
+        check(r60 == [1] and r55 == [0], f"zones: C4 -> layer {r60}, G3 -> layer {r55}")
+        page.evaluate("window.txTest.setMode('shared')")
+        for k, nm in ((2, "stream"), (3, "chimes")):          # four layers: the meter sums them against the 75 % gate
+            if nm in names:
+                page.evaluate(f"(() => {{ window.txTest.editLayer({k}); window.txTest.selectEngine({names.index(nm)}); }})()")
+        page.evaluate("window.txTest.editLayer(0)")
+        page.keyboard.up("KeyQ"); page.keyboard.down("KeyQ")
+        time.sleep(2.2)
+        cpu4 = page.text_content("#cpu-fm1")
+        rows = page.eval_on_selector_all("#layers .layer .st", "x => x.map(e => e.textContent)")
+        check(cpu4 and "%" in cpu4 and all("%" in r for r in rows), f"four layers: total {cpu4}; rows {rows}")
+        page.screenshot(path=os.path.join(OUT, "layers.png"), full_page=True)
+        for k in (1, 2, 3):
+            page.evaluate(f"window.txTest.layerOff({k})")
+        page.keyboard.down("KeyQ")
         with page.expect_download(timeout=20000) as dl:
             page.click("#rec")
         d = dl.value
         path = os.path.join(OUT, "record.wav")
         d.save_as(path)
         size = os.path.getsize(path)
-        check(size == 44 + 441000 * 3, f"record 10 s: {d.suggested_filename}, {size} B (24-bit mono 44.1 kHz)")
+        check(size == 44 + 441000 * 6, f"record 10 s: {d.suggested_filename}, {size} B (24-bit stereo 44.1 kHz)")
         page.mouse.up()
         page.keyboard.up("KeyZ")
         page.keyboard.up("KeyQ")

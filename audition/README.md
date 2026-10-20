@@ -24,23 +24,29 @@ git clone https://github.com/emscripten-core/emsdk.git .local/emsdk
 
 ## Playing
 
-- **Engine**: the selector at the top. Each engine shows its own parameters; PARTICLES (the hero-pool limit: density
-  against CPU) and LEVEL are shared by all.
-- **CHAMBER**: a small space after the engine (off by default; the switch is remembered in this browser): the room's
+- **Layers** (stage S3): four engines at once. Click a layer to edit it; the selector at the top sets the edited
+  layer's engine, `off` empties a layer. Each layer has its own parameters (PARTICLES, the hero-pool limit, and
+  LEVEL are shared by all engines), a pan (constant power) and a key zone. Keys: `shared` sends every key to every
+  layer, `zones` only to the layers whose range holds it. The layers are summed in stereo, then the CHAMBER (if on),
+  then the output limiter (`engines/tx_core_mix.c`, the same chain as the native checks).
+- **CHAMBER**: a small space after the mix of the layers (off by default; the switch is remembered in this browser;
+  mono, on the middle of the stereo pair): the room's
   lowest modes (BODY) and a short diffuse tail (TAIL) for a room of SIZE 0.2-3 m and wall absorption ABSORB (decay
   from Sabine's law). The same stage renders natively with `build/bench/txrender ENGINE SCENE -c`.
 - **Keys**: a key pressed fires a burst, held keeps the cloud going, released lets it ring out. The on-screen keys are
   the FM-1's 27 (F3 to G5). Computer keys: the `Z` row and the `Q` row play two octaves, `[` and `]` move them; their
   velocity is the slider. A MIDI keyboard plays with its velocity; CC 20-27 move the first eight parameters, CC 7 the
   level.
-- **Meters**: CPU here (the engine's time per 256-frame block in this browser, averaged over 2 s); the FM-1 estimate
-  (each callback also renders one block of a reference scene whose native time `make tx-bench` measured, so the
-  engine is compared at the same clock, then scaled by the calibration against Frodhes' measured worst block); the
-  output peak level; the particles sounding, events per second and steals.
-- **Record 10 s**: downloads the next 10 s of the engine's output as a 24-bit mono WAV.
+- **Meters**: CPU here (all layers' time per 256-frame block in this browser, averaged over 2 s); the FM-1 estimate
+  of all four together against the 75 % gate (each callback also renders one block of a reference scene whose native
+  time `make tx-bench` measured, so the engines are compared at the same clock, then scaled by the calibration against
+  Frodhes' measured worst block), split per layer in the layer rows (a layer over 18 % is flagged); the output peak
+  level (and the limiter when it acts); the edited layer's particles, events per second and steals.
+- **Record 10 s**: downloads the next 10 s of the output as a 24-bit stereo WAV.
 
 ## Checking it
 
 `make tx-player-check` loads the page in headless Chromium (Playwright, in `.local/`), checks that every engine's
-worst scene renders the same samples as the native build, plays keys, reads the meters, records 10 s and takes
-screenshots in `build/audition-check/`.
+worst scene renders the same samples as the native build, plays keys, reads the meters, plays four layers (shared
+keys and zones), records 10 s and takes screenshots in `build/audition-check/`. `make tx-test` and `make tx-bench`
+run four of the heaviest engines' worst cases together through the same mix (`layers`).

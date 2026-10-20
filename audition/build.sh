@@ -11,7 +11,7 @@ mkdir -p build/audition
 emcc -O2 -std=c99 -D_DEFAULT_SOURCE -Iengines -Ibench -Wall -Wno-unused-function \
   audition/tx_web.c bench/tx_script.c bench/tx_host.c engines/*.c -o build/audition/txweb.js \
   -sALLOW_MEMORY_GROWTH=0 -sINITIAL_MEMORY=16777216 -sENVIRONMENT=web \
-  -sEXPORTED_FUNCTIONS='["_txw_count","_txw_name","_txw_title","_txw_state_bytes","_txw_select","_txw_nparams","_txw_pname","_txw_phelp","_txw_pmax","_txw_pdef","_txw_particles_max","_txw_particles_def","_txw_param","_txw_key","_txw_render","_txw_peak_take","_txw_lim_take","_txw_stats","_txw_ref","_txw_ref_step","_txw_max_sha","_txw_ch_n","_txw_ch_pname","_txw_ch_phelp","_txw_ch_pmax","_txw_ch_pdef","_txw_ch_param","_txw_ch_on","_txw_ch_max_sha"]' \
+  -sEXPORTED_FUNCTIONS='["_txw_count","_txw_name","_txw_title","_txw_state_bytes","_txw_select","_txw_slots","_txw_slot","_txw_pan","_txw_key_slot","_txw_slot_time","_txw_slot_peak","_txw_nparams","_txw_pname","_txw_phelp","_txw_pmax","_txw_pdef","_txw_particles_max","_txw_particles_def","_txw_param","_txw_key","_txw_render","_txw_peak_take","_txw_lim_take","_txw_stats","_txw_ref","_txw_ref_step","_txw_max_sha","_txw_ch_n","_txw_ch_pname","_txw_ch_phelp","_txw_ch_pmax","_txw_ch_pdef","_txw_ch_param","_txw_ch_on","_txw_ch_max_sha"]' \
   -sEXPORTED_RUNTIME_METHODS='["HEAPF32","HEAP32","UTF8ToString"]'
 cp audition/index.html audition/app.js build/audition/
 if [ -f build/bench/calib.json ]; then cp build/bench/calib.json build/audition/; else

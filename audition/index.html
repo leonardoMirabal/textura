@@ -48,28 +48,45 @@
   kbd { border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; font-size: 11px; background: var(--bg); }
   #rec.on { background: var(--warn); color: var(--panel); border-color: var(--warn); }
   .small { font-size: 12px; color: var(--dim); }
+  .layer { display: grid; grid-template-columns: 74px minmax(0, 1fr) 150px 170px 120px; gap: 6px 12px; align-items: center;
+           padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; margin-top: 6px; cursor: pointer; }
+  .layer.ed { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  .layer .nm { font-weight: 600; } .layer .eng { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .layer input[type=range] { width: 100%; accent-color: var(--accent); }
+  .layer select { padding: 2px 4px; }
+  .layer .st { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  @media (max-width: 700px) { .layer { grid-template-columns: 64px minmax(0, 1fr); } }
 </style>
 </head>
 <body>
 <main>
   <h1>Textura player</h1>
   <div class="row">
-    <label>Engine <select id="engine"></select></label>
+    <label>Engine of the edited layer <select id="engine"></select></label>
     <button id="start" class="primary">Start sound</button>
     <button id="rec" disabled>Record 10 s</button>
     <span id="status">Loading the engines…</span>
   </div>
 
   <section class="panel">
+    <h2>Layers <span class="small">four engines at once (stage S3); click a layer to edit it</span></h2>
+    <div class="row" style="margin-bottom:6px">
+      <label>Keys <select id="keymode"><option value="shared">shared: every layer plays every key</option>
+        <option value="zones">zones: each layer only in its own range</option></select></label>
+    </div>
+    <div id="layers"></div>
+  </section>
+
+  <section class="panel">
     <h2>Meters</h2>
     <div class="meters">
       <div class="meter"><div class="lab"><span>CPU here (this browser)</span><span class="val" id="cpu-host">–</span></div>
         <div class="bar"><i id="cpu-host-bar"></i></div></div>
-      <div class="meter"><div class="lab"><span>FM-1 estimate (of 5805 µs)</span><span class="val" id="cpu-fm1">–</span></div>
-        <div class="bar" id="cpu-fm1-box"><i id="cpu-fm1-bar"></i><b title="18 %: one of four layers"></b></div></div>
+      <div class="meter"><div class="lab"><span>FM-1 estimate, all layers (of 5805 µs)</span><span class="val" id="cpu-fm1">–</span></div>
+        <div class="bar" id="cpu-fm1-box"><i id="cpu-fm1-bar"></i><b style="left:75%" title="75 %: the gate for four layers"></b></div></div>
       <div class="meter"><div class="lab"><span>Level (peak)</span><span class="val" id="lvl">–</span></div>
         <div class="bar" id="lvl-box"><i id="lvl-bar"></i></div></div>
-      <div class="meter"><div class="lab"><span>Particles</span><span class="val" id="parts">–</span></div>
+      <div class="meter"><div class="lab"><span>Particles (edited layer)</span><span class="val" id="parts">–</span></div>
         <div class="bar"><i id="parts-bar"></i></div></div>
     </div>
     <div class="small" id="cpu-note" style="margin-top:8px"></div>
@@ -82,7 +99,7 @@
 
   <section class="panel">
     <h2>CHAMBER <label class="small"><input type="checkbox" id="ch-on"> on</label></h2>
-    <div class="small" style="margin-bottom:8px">A small space after the engine: its lowest modes and a short diffuse tail.</div>
+    <div class="small" style="margin-bottom:8px">A small space after the mix of the layers: its lowest modes and a short diffuse tail (mono, on the middle of the stereo pair).</div>
     <div class="sliders" id="ch-sliders"></div>
   </section>
 

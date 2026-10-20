@@ -6,20 +6,31 @@
 #include "tx_engine.h"
 #include "tx_host.h"
 #include "tx_script.h"
+#include <math.h>
 #include "tx_core_chamber.h"
 #include "tx_core_limit.h"
+#include "tx_core_mix.h"
 
-static uint8_t arena[TX_STATE_MAX] __attribute__((aligned(64)));    /* the live instance */
+static uint8_t arenas[TX_MIX_SLOTS][TX_STATE_MAX] __attribute__((aligned(64)));   /* the four layers */
 static uint8_t arena2[TX_STATE_MAX] __attribute__((aligned(64)));   /* the reference render (CPU ratio, hash) */
-static const tx_engine_t *cur;
-static int32_t mix[TX_BLOCK], peak, stats[8];
-static float out[TX_BLOCK * 64];
+static tx_mix_t mixer;                                  /* S3: four layers -> pan -> stereo -> CHAMBER -> limiter */
+static int ed;                                          /* the layer the txw_* parameter / key calls act on */
+static const tx_engine_t *cur;                          /* = mixer.e[ed] */
+static uint8_t *arena = arenas[0];                      /* = arenas[ed] */
+static int32_t mix[TX_BLOCK], peak, stats[8], outL[TX_BLOCK], outR[TX_BLOCK];
+static float out[TX_BLOCK * 64 * 2];                    /* stereo, interleaved */
+static double slot_ms[TX_MIX_SLOTS];                    /* render time per layer since the last txw_slot_time */
 static char hex[65];
-static tx_chamber_t chamber, chamber2;                 /* the live CHAMBER (after the engine) and the check's */
+static tx_chamber_t chamber, chamber2;                 /* the live CHAMBER (after the mix) and the check's */
 static int ch_on;
-static tx_limit_t lim;                                  /* the output stage after the CHAMBER */
-static int lim_db10;                                    /* its deepest reduction since the last txw_lim_take */
 static uint8_t ch_p[TX_CH_NP];
+static int lim_db10;                                    /* the output limiter's deepest reduction since the last take */
+
+static void ready(void)                                 /* the mixer, once, before any call that uses it */
+{
+    static int r;
+    if (!r) { tx_mix_init(&mixer); mixer.ch = &chamber; r = 1; }
+}
 
 static const tx_engine_t *eng(int i)
 {
@@ -33,15 +44,50 @@ EMSCRIPTEN_KEEPALIVE const char *txw_name(int i) { return eng(i) ? eng(i)->name 
 EMSCRIPTEN_KEEPALIVE const char *txw_title(int i) { return eng(i) ? eng(i)->title : ""; }
 EMSCRIPTEN_KEEPALIVE int txw_state_bytes(int i) { return eng(i) ? (int)eng(i)->state_bytes : 0; }
 
+/* ---- layers: which one the parameter / key calls act on; its engine; its pan; keys to any layer */
+EMSCRIPTEN_KEEPALIVE int txw_slots(void) { return (int)TX_MIX_SLOTS; }
+EMSCRIPTEN_KEEPALIVE void txw_slot(int k)
+{
+    if (k < 0 || k >= (int)TX_MIX_SLOTS) return;
+    ready();
+    ed = k; cur = mixer.e[k]; arena = arenas[k];
+}
+/* the engine of the edited layer: i (an engine index), or -1 = the layer off */
 EMSCRIPTEN_KEEPALIVE int txw_select(int i, unsigned seed)
 {
+    ready();
+    if (i < 0) { tx_mix_set(&mixer, (unsigned)ed, 0, 0, 0); cur = 0; return 0; }
     if (!eng(i)) return -1;
-    cur = eng(i);
-    memset(arena, 0, sizeof arena);
-    cur->init(arena, seed);
+    memset(arenas[ed], 0, TX_STATE_MAX);
+    tx_mix_set(&mixer, (unsigned)ed, eng(i), arenas[ed], seed);
+    cur = eng(i); arena = arenas[ed];
     peak = 0;
-    tx_limit_init(&lim);
+    tx_limit_init(&mixer.lim);
     return 0;
+}
+EMSCRIPTEN_KEEPALIVE void txw_pan(int k, int v) { ready(); tx_mix_pan(&mixer, (unsigned)k, (unsigned)(v < 0 ? 0 : v)); }
+EMSCRIPTEN_KEEPALIVE void txw_key_slot(int k, int note, int vel, int on)
+{
+    if (k < 0 || k >= (int)TX_MIX_SLOTS || !mixer.e[k] || note < 0 || note > 127) return;
+    mixer.e[k]->key(arenas[k], (uint8_t)note, (uint8_t)vel, (uint8_t)(on != 0));
+}
+/* a layer's render time since the last call, us x 10 (and reset): the CPU meter's split */
+EMSCRIPTEN_KEEPALIVE int txw_slot_time(int k)
+{
+    int t;
+    if (k < 0 || k >= (int)TX_MIX_SLOTS) return 0;
+    t = (int)(slot_ms[k] * 10000.0);
+    slot_ms[k] = 0;
+    return t;
+}
+/* a layer's peak since the last call, dBFS x 10 (-1200 = silent) */
+EMSCRIPTEN_KEEPALIVE int txw_slot_peak(int k)
+{
+    int32_t p;
+    if (k < 0 || k >= (int)TX_MIX_SLOTS) return -1200;
+    p = mixer.slot_peak[k]; mixer.slot_peak[k] = 0;
+    if (!p) return -1200;
+    return (int)(200.0 * log10((double)p / 8388608.0));
 }
 
 EMSCRIPTEN_KEEPALIVE int txw_nparams(void) { return cur ? cur->n_params : 0; }
@@ -64,30 +110,33 @@ EMSCRIPTEN_KEEPALIVE void txw_key(int note, int vel, int on)
     if (cur && note >= 0 && note < 128) cur->key(arena, (uint8_t)note, (uint8_t)vel, (uint8_t)(on != 0));
 }
 
-/* render blocks x 256 frames -> floats in [-1, 1] (Q23 / 2^23, clamped) */
+/* render blocks x 256 frames of the four layers -> stereo floats in [-1, 1], interleaved L R (Q23 / 2^23) */
 EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
 {
     int b, j;
+    unsigned k;
+    ready();
     if (blocks > 64) blocks = 64;
     for (b = 0; b < blocks; b++) {
-        float *o = out + b * TX_BLOCK;
-        for (j = 0; j < (int)TX_BLOCK; j++) mix[j] = 0;
-        if (cur) cur->render(arena, mix, TX_BLOCK);
-        if (ch_on) tx_chamber_process(&chamber, mix, TX_BLOCK);
-        for (j = 0; j < (int)TX_BLOCK; j++) {                /* the meter reads the mix before the limiter */
-            int32_t a = mix[j] < 0 ? -mix[j] : mix[j];
-            if (a > peak) peak = a;
+        float *o = out + 2 * b * TX_BLOCK;
+        tx_mix_begin(&mixer, TX_BLOCK);
+        for (k = 0; k < TX_MIX_SLOTS; k++) {
+            double t0;
+            if (!mixer.e[k]) continue;
+            t0 = emscripten_get_now();
+            tx_mix_slot_render(&mixer, k, TX_BLOCK);
+            slot_ms[k] += emscripten_get_now() - t0;
         }
-        tx_limit_process(&lim, mix, TX_BLOCK);
+        mixer.ch_on = ch_on;
+        tx_mix_end(&mixer, outL, outR, TX_BLOCK);
+        if (mixer.raw_peak > peak) peak = mixer.raw_peak;    /* the meter reads the mix before the limiter */
         {
-            int g = (int)tx_limit_take(&lim);
+            int g = (int)tx_limit_take(&mixer.lim);
             if (g > lim_db10) lim_db10 = g;
         }
         for (j = 0; j < (int)TX_BLOCK; j++) {
-            int32_t v = mix[j];
-            if (v > TX_Q23) v = TX_Q23;
-            if (v < -TX_Q23) v = -TX_Q23;
-            o[j] = (float)v * (1.0f / 8388608.0f);
+            o[2 * j] = (float)outL[j] * (1.0f / 8388608.0f);
+            o[2 * j + 1] = (float)outR[j] * (1.0f / 8388608.0f);
         }
     }
     return out;
@@ -175,6 +224,7 @@ EMSCRIPTEN_KEEPALIVE void txw_ch_on(int on)
 {
     unsigned i;
     if (on && !ch_on) {
+        ready();
         tx_chamber_init(&chamber);
         for (i = 0; i < TX_CH_NP; i++) tx_chamber_param(&chamber, i, ch_p[i]);
     }

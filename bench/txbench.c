@@ -14,12 +14,15 @@
  * Assumption: Textura's integer code runs at the same Mac-to-FM-1 speed ratio as Frodhes' Rhodes + effects code.
  * Both are 32-bit integer DSP, but Frodhes leans on 32x32->64 products and Textura on 32-bit ones, the clock and the
  * compiler (JieLi clang -Os vs host -O2) differ: read it as +-30 % until the engines are measured on the device.
+ * S3: the four heaviest engines' worst cases together through the MIX core (with and without the CHAMBER) against
+ * the 75 % gate for four layers.
  * Without the calibration files only host times are printed. */
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "tx_host.h"
+#include "tx_core_mix.h"
 
 #define FM1_WORST_US 3620.0        /* Frodhes' worst block on the FM-1 (tools/hil_cpu.py, 9 voices, every effect) */
 #define FR_SKIP_BLOCKS 20u         /* Frodhes' boot and effect set-up blocks, before its notes (110 ms) */
@@ -115,6 +118,60 @@ static int load_calib(const char *dir, meas_t *m, unsigned *nfiles)
     return 0;
 }
 
+/* S3: four engines at their worst cases (max scenes at the default PARTICLES) through the MIX core, the CHAMBER on
+ * or off: the whole chain's time per block (renders, pan, sum, chamber, limiter) against the 75 % gate */
+static const char *const LAYERS4[4] = { "plate", "storm", "mineral", "spring" };
+
+static int bench_layers(int chamber_on, meas_t *out)
+{
+    tx_mix_t *m = malloc(sizeof *m);
+    tx_chamber_t *ch = malloc(sizeof *ch);
+    tx_script_t *s[4];
+    void *st[4];
+    uint64_t *t[64];
+    int32_t blk[TX_BLOCK], L[TX_BLOCK], R[TX_BLOCK];
+    uint32_t blocks = 0, b;
+    unsigned k, i, r;
+    for (k = 0; k < 4; k++) {
+        const tx_engine_t *e = tx_engine_find(LAYERS4[k]);
+        s[k] = malloc(sizeof *s[k]);
+        st[k] = 0;
+        if (!e || tx_scene_load(s[k], e, "max")) { for (i = 0; i <= k; i++) { free(s[i]); free(st[i]); } free(m); free(ch); return -1; }
+        for (i = 0; i < s[k]->n; i++)
+            if (s[k]->ev[i].kind == TX_SEV_PARAM && s[k]->ev[i].id == TX_PID_PARTICLES) s[k]->ev[i].a = e->particles_def;
+        st[k] = tx_state_new(e);
+        if (s[k]->blocks > blocks) blocks = s[k]->blocks;
+    }
+    if (blocks > MAXB) blocks = MAXB;
+    for (r = 0; r <= runs; r++) {                            /* run 0: the warm-up */
+        unsigned next[4] = {0, 0, 0, 0};
+        uint64_t *row = r ? (t[r - 1] = malloc(sizeof(uint64_t) * blocks)) : 0;
+        static const unsigned PAN[4] = {20, 50, 80, 110};
+        tx_mix_init(m);
+        tx_chamber_init(ch);
+        m->ch = ch; m->ch_on = chamber_on;
+        for (k = 0; k < 4; k++) {
+            const tx_engine_t *e = tx_engine_find(LAYERS4[k]);
+            tx_mix_set(m, k, e, st[k], s[k]->seed);
+            e->param(st[k], TX_PID_PARTICLES, e->particles_def);
+            tx_mix_pan(m, k, PAN[k]);
+        }
+        for (b = 0; b < blocks; b++) {
+            uint64_t t0 = tx_now_ns();
+            tx_mix_begin(m, TX_BLOCK);
+            for (k = 0; k < 4; k++) { tx_script_step(m->e[k], st[k], s[k], b, &next[k], blk); tx_mix_add(m, k, blk, TX_BLOCK); }
+            tx_mix_end(m, L, R, TX_BLOCK);
+            if (row) row[b] = tx_now_ns() - t0;
+        }
+    }
+    *out = reduce(t, runs, blocks, 0);
+    for (r = 0; r < runs; r++) free(t[r]);
+    for (k = 0; k < 4; k++) { free(s[k]); free(st[k]); }
+    free(m); free(ch);
+    return 0;
+}
+
+
 int main(int argc, char **argv)
 {
     const char *cdir = "build/calib/run", *json = "build/bench/calib.json";
@@ -196,6 +253,22 @@ int main(int argc, char **argv)
                 printf("%-8s %-14s %9.2f %9.2f %11s %8s\n", "chamber", lab[c2], m.mean_us, m.worst_us, "-", "-");
         }
         printf("%-8s state %u B (one per output, outside the engine arenas)\n", "chamber", (unsigned)sizeof(tx_chamber_t));
+    }
+    {   /* S3: four layers at their worst cases together */
+        unsigned c;
+        for (c = 0; c < 2; c++) {
+            meas_t m;
+            char label[32];
+            if (bench_layers((int)c, &m)) continue;
+            snprintf(label, sizeof label, "4 worst%s", c ? "+ch" : "");
+            if (factor > 0)
+                printf("%-8s %-14s %9.2f %9.2f %8.0f us %7.1f%%%s\n", "layers", label, m.mean_us, m.worst_us, m.worst_us * factor,
+                       100.0 * m.worst_us * factor / TX_BLOCK_US, m.worst_us * factor > 0.75 * TX_BLOCK_US ? "  OVER the 75 % gate" : "");
+            else
+                printf("%-8s %-14s %9.2f %9.2f %11s %8s\n", "layers", label, m.mean_us, m.worst_us, "-", "-");
+        }
+        printf("%-8s %s + %s + %s + %s (max scenes at the default PARTICLES), panned, summed, the CHAMBER, the limiter\n",
+               "layers", LAYERS4[0], LAYERS4[1], LAYERS4[2], LAYERS4[3]);
     }
     if ((jf = fopen(json, "w"))) {                           /* for the browser player */
         fprintf(jf, "{\n  \"fm1_worst_us\": 3620,\n  \"frodhes_host_worst_us\": %.3f,\n  \"factor\": %.4f,\n"
