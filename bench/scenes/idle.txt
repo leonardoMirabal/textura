@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# nothing played: the output must be exact digital zero
+2000 end

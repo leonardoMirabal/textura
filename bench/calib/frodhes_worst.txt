@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Frodhes' FM-1 worst case (tools/hil_cpu.py: "9 bass notes v127 + pedal, every effect on"), as a script for its host
+# build (tests/host.c format). Measured on the FM-1 at 3612-3620 us per 256-frame block (Frodhes AGENTS.md 5).
+# Every effect at its heaviest (hil_cpu.py "heavy"): chorus switch first (CC 85 = 64), then the rest.
+10 midi 0xB0 85 64
+11 midi 0xB0 86 127
+12 midi 0xB0 81 127
+13 midi 0xB0 106 127
+14 midi 0xB0 107 100
+15 midi 0xB0 17 127
+16 midi 0xB0 18 127
+17 midi 0xB0 12 127
+18 midi 0xB0 13 127
+19 midi 0xB0 16 127
+20 midi 0xB0 88 127
+21 midi 0xB0 89 127
+22 midi 0xB0 90 127
+23 midi 0xB0 26 127
+24 midi 0xB0 91 127
+25 midi 0xB0 70 45
+26 midi 0xB0 74 60
+27 midi 0xB0 71 100
+28 midi 0xB0 72 64
+# the sustain pedal, then the 9 bass notes at velocity 127 (hil_cpu.py bass8 with --voices 9)
+100 midi 0xB0 64 127
+110 midi 0x90 28 127
+110 midi 0x90 31 127
+110 midi 0x90 33 127
+111 midi 0x90 35 127
+111 midi 0x90 36 127
+111 midi 0x90 38 127
+112 midi 0x90 40 127
+112 midi 0x90 41 127
+112 midi 0x90 43 127
+1610 midi 0x80 28 0
+1610 midi 0x80 31 0
+1610 midi 0x80 33 0
+1611 midi 0x80 35 0
+1611 midi 0x80 36 0
+1611 midi 0x80 38 0
+1612 midi 0x80 40 0
+1612 midi 0x80 41 0
+1612 midi 0x80 43 0
+1700 end

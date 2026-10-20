@@ -1,0 +1,264 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* txtest: the checks every engine must pass (built with UBSan: any signed overflow or bad shift aborts the run).
+ *
+ *   txtest                  all checks, every engine; exit 1 on any failure
+ *   txtest --src DIR        only the no-float source check, on DIR (to test the check itself)
+ *   txtest --update         rewrite bench/baselines/renders.sha256 from the current renders (after a reviewed change)
+ *
+ * Per engine:
+ *   state     state_bytes <= TX_STATE_MAX; particles_def within 1..particles_max
+ *   idle      a fresh instance renders exact zeros for 2 s and says quiet
+ *   tail      after a tap the output reaches exact zero (quiet) within 30 s and stays zero
+ *   overflow  the worst-case scene runs without signed overflow (UBSan) and peaks under 2^27 (16x full scale, so 4
+ *             layers stay 4x inside int32); the chord scene at the default level stays under full scale
+ *   cap       in the cap and max scenes the sounding particles never exceed the PARTICLES limit in force
+ *   instance  two instances rendered block-interleaved give the same samples as each alone (no hidden globals)
+ *   determinism  each standard scene twice from scratch: same sha256; and equal to the committed baseline
+ * Sources: no float / double / floating literal in engines/ (comments and strings stripped). */
+#include <dirent.h>
+#include <math.h>
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "tx_host.h"
+
+#define BASELINE "bench/baselines/renders.sha256"
+static int fails;
+
+static void verdict(const char *eng, const char *check, int ok, const char *fmt, const char *detail)
+{
+    printf("%-5s %-8s %-12s %s%s\n", ok ? "ok" : "FAIL", eng, check, fmt ? fmt : "", detail ? detail : "");
+    if (!ok) fails++;
+}
+
+/* ---- per-scene accumulator */
+typedef struct {
+    tx_sha256_t sha;
+    int32_t peak;
+    uint32_t over_cap, maxp, over_fs, nonzero;
+} acc_t;
+
+static void on_block(void *u, uint32_t blk, const int32_t *mix, const tx_stats_t *st)
+{
+    acc_t *a = u;
+    unsigned j;
+    (void)blk;
+    tx_sha256_q23(&a->sha, mix, TX_BLOCK);
+    for (j = 0; j < TX_BLOCK; j++) {
+        int32_t v = mix[j] < 0 ? -mix[j] : mix[j];
+        if (v > a->peak) a->peak = v;
+        if (v >= TX_Q23) a->over_fs++;
+        if (v) a->nonzero++;
+    }
+    if (st->particles > st->limit) a->over_cap++;
+    if (st->particles > a->maxp) a->maxp = st->particles;
+}
+
+static int run_scene(const tx_engine_t *e, const char *scene, acc_t *a, char hex[65])
+{
+    tx_script_t *s = malloc(sizeof *s);
+    void *st = tx_state_new(e);
+    memset(a, 0, sizeof *a);
+    tx_sha256_init(&a->sha);
+    if (tx_scene_load(s, e, scene)) { free(s); free(st); return -1; }
+    tx_script_run(e, st, s, on_block, a);
+    tx_sha256_hex(&a->sha, hex);
+    free(s); free(st);
+    return 0;
+}
+
+/* ---- baseline file: "<sha256>  <engine>-<scene>" per line */
+static char base_names[256][48], base_hex[256][65];
+static unsigned base_n;
+static void baseline_load(void)
+{
+    FILE *f = fopen(BASELINE, "r");
+    char line[256];
+    if (!f) return;
+    while (base_n < 256 && fgets(line, sizeof line, f))
+        if (sscanf(line, "%64s %47s", base_hex[base_n], base_names[base_n]) == 2) base_n++;
+    fclose(f);
+}
+static const char *baseline_get(const char *name)
+{
+    unsigned i;
+    for (i = 0; i < base_n; i++) if (!strcmp(base_names[i], name)) return base_hex[i];
+    return 0;
+}
+
+static void check_engine(const tx_engine_t *e, FILE *update)
+{
+    char hex[65], hex2[65], msg[200], name[64];
+    acc_t a;
+    unsigned sc;
+    const char *n = e->name;
+
+    snprintf(msg, sizeof msg, "%u B (max %u), PARTICLES 1..%u default %u", e->state_bytes, TX_STATE_MAX,
+             e->particles_max, e->particles_def);
+    verdict(n, "state", e->state_bytes <= TX_STATE_MAX && e->particles_def >= 1 && e->particles_def <= e->particles_max
+            && e->particles_max <= 32, msg, 0);
+
+    {   /* idle: fresh instance, no events */
+        void *st = tx_state_new(e);
+        int32_t mix[TX_BLOCK];
+        uint32_t b, nz = 0, j;
+        tx_stats_t s;
+        e->init(st, 1);
+        for (b = 0; b < 345; b++) {
+            for (j = 0; j < TX_BLOCK; j++) mix[j] = 0;
+            e->render(st, mix, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) nz += mix[j] != 0;
+        }
+        e->stats(st, &s);
+        snprintf(msg, sizeof msg, "%u nonzero samples in 2 s, quiet %u", nz, s.quiet);
+        verdict(n, "idle", !nz && s.quiet, msg, 0);
+        free(st);
+    }
+    {   /* tail: a tap, then render until quiet, then 1 s more must be zero */
+        void *st = tx_state_new(e);
+        int32_t mix[TX_BLOCK];
+        uint32_t b, j, nz = 0, quiet_at = 0;
+        tx_stats_t s;
+        e->init(st, 7);
+        e->key(st, 60, 127, 1);
+        for (b = 0; b < 5168u; b++) {                       /* 30 s */
+            for (j = 0; j < TX_BLOCK; j++) mix[j] = 0;
+            if (b == 26) e->key(st, 60, 0, 0);              /* released after 150 ms */
+            e->render(st, mix, TX_BLOCK);
+            if (quiet_at) for (j = 0; j < TX_BLOCK; j++) nz += mix[j] != 0;
+            e->stats(st, &s);
+            if (!quiet_at && s.quiet && b > 26) quiet_at = b;
+            if (quiet_at && b > quiet_at + 172u) break;
+        }
+        snprintf(msg, sizeof msg, "quiet after %.2f s, %u nonzero samples after", quiet_at * 256.0 / 44100.0, nz);
+        verdict(n, "tail", quiet_at && !nz, msg, 0);
+        free(st);
+    }
+    if (!run_scene(e, "max", &a, hex)) {
+        snprintf(msg, sizeof msg, "max scene peak %.1f dBFS (limit +24.1), %u samples over full scale (info)",
+                 a.peak ? 20.0 * log10(a.peak / 8388608.0) : -999.0, a.over_fs);
+        verdict(n, "overflow", a.peak < (1 << 27), msg, 0);
+        snprintf(msg, sizeof msg, "max scene: particles <= limit at every block (most %u)", a.maxp);
+        verdict(n, "cap", !a.over_cap, msg, 0);
+    } else verdict(n, "overflow", 0, "max scene does not load", 0);
+    if (!run_scene(e, "chord", &a, hex)) {
+        snprintf(msg, sizeof msg, "chord at the default level peaks %.1f dBFS", a.peak ? 20.0 * log10(a.peak / 8388608.0) : -999.0);
+        verdict(n, "level", a.peak < TX_Q23, msg, 0);
+    }
+    if (!run_scene(e, "cap", &a, hex)) {
+        snprintf(msg, sizeof msg, "cap scene (32 -> 4 -> 1 -> 32 -> 8): %u blocks over the limit, most %u", a.over_cap, a.maxp);
+        verdict(n, "cap", !a.over_cap, msg, 0);
+    }
+    {   /* instance independence: max and chord interleaved block by block vs alone */
+        tx_script_t *s1 = malloc(sizeof *s1), *s2 = malloc(sizeof *s2);
+        void *A = tx_state_new(e), *B = tx_state_new(e);
+        int32_t m1[TX_BLOCK], m2[TX_BLOCK];
+        tx_sha256_t h1, h2;
+        char x1[65], x2[65], y1[65], y2[65];
+        unsigned i1 = 0, i2 = 0;
+        uint32_t b;
+        acc_t a1, a2;
+        if (!tx_scene_load(s1, e, "max") && !tx_scene_load(s2, e, "chord")) {
+            tx_sha256_init(&h1); tx_sha256_init(&h2);
+            e->init(A, s1->seed); e->init(B, s2->seed);
+            for (b = 0; b < s1->blocks || b < s2->blocks; b++) {
+                if (b < s1->blocks) { tx_script_step(e, A, s1, b, &i1, m1); tx_sha256_q23(&h1, m1, TX_BLOCK); }
+                if (b < s2->blocks) { tx_script_step(e, B, s2, b, &i2, m2); tx_sha256_q23(&h2, m2, TX_BLOCK); }
+            }
+            tx_sha256_hex(&h1, x1); tx_sha256_hex(&h2, x2);
+            run_scene(e, "max", &a1, y1); run_scene(e, "chord", &a2, y2);
+            verdict(n, "instance", !strcmp(x1, y1) && !strcmp(x2, y2), "two instances interleaved = each alone", 0);
+        }
+        free(s1); free(s2); free(A); free(B);
+    }
+    for (sc = 0; tx_std_scenes[sc]; sc++) {                 /* determinism and the baseline */
+        const char *b;
+        snprintf(name, sizeof name, "%s-%s", n, tx_std_scenes[sc]);
+        if (run_scene(e, tx_std_scenes[sc], &a, hex) || run_scene(e, tx_std_scenes[sc], &a, hex2)) {
+            verdict(n, "determinism", 0, name, " does not load");
+            continue;
+        }
+        if (strcmp(hex, hex2)) { verdict(n, "determinism", 0, name, ": two renders differ"); continue; }
+        if (update) { fprintf(update, "%s  %s\n", hex, name); continue; }
+        b = baseline_get(name);
+        snprintf(msg, sizeof msg, "%s %.16s", name, hex);
+        verdict(n, "determinism", b && !strcmp(b, hex), msg,
+                !b ? " (no baseline: make tx-baseline)" : strcmp(b, hex) ? " != baseline (a change moved the sound)" : " = baseline");
+    }
+}
+
+/* ---- the source check: no float in engines/ */
+static void strip(char *t)                                   /* comments, strings, chars -> spaces */
+{
+    char *p = t;
+    while (*p) {
+        if (p[0] == '/' && p[1] == '*') { char *e = strstr(p + 2, "*/"); char *end = e ? e + 2 : p + strlen(p);
+                                          while (p < end) { if (*p != '\n') *p = ' '; p++; } }
+        else if (p[0] == '/' && p[1] == '/') { while (*p && *p != '\n') *p++ = ' '; }
+        else if (*p == '"' || *p == '\'') { char q = *p; *p++ = ' ';
+                                            while (*p && *p != q) { if (*p == '\\' && p[1]) *p++ = ' '; if (*p != '\n') *p = ' '; p++; }
+                                            if (*p) *p++ = ' '; }
+        else p++;
+    }
+}
+static void check_sources(const char *dir)
+{
+    DIR *d = opendir(dir);
+    struct dirent *de;
+    unsigned files = 0;
+    int f0 = fails;
+    if (!d) { verdict("-", "no-float", 0, "cannot open ", dir); return; }
+    while ((de = readdir(d))) {
+        size_t l = strlen(de->d_name);
+        char path[512], *t, *p;
+        unsigned line = 1;
+        if (l < 3 || (strcmp(de->d_name + l - 2, ".c") && strcmp(de->d_name + l - 2, ".h"))) continue;
+        snprintf(path, sizeof path, "%s/%s", dir, de->d_name);
+        if (!(t = tx_read_file(path))) continue;
+        files++;
+        strip(t);
+        for (p = t; *p; p++) {
+            if (*p == '\n') { line++; continue; }
+            if ((p == t || !(isalnum((unsigned char)p[-1]) || p[-1] == '_'))
+                && ((!strncmp(p, "float", 5) && !(isalnum((unsigned char)p[5]) || p[5] == '_'))
+                    || (!strncmp(p, "double", 6) && !(isalnum((unsigned char)p[6]) || p[6] == '_')))) {
+                char m[600]; snprintf(m, sizeof m, "%s:%u: float type", path, line); verdict("-", "no-float", 0, m, 0);
+            }
+            if (isdigit((unsigned char)*p) && (p == t || !(isalnum((unsigned char)p[-1]) || p[-1] == '_' || p[-1] == '.'))) {
+                char *q = p;
+                if (q[0] == '0' && (q[1] == 'x' || q[1] == 'X')) { p = q + 1; while (isxdigit((unsigned char)p[1])) p++; continue; }
+                while (isdigit((unsigned char)*q)) q++;
+                if (*q == '.' || ((*q == 'e' || *q == 'E') && (isdigit((unsigned char)q[1]) || q[1] == '-' || q[1] == '+'))) {
+                    char m[600]; snprintf(m, sizeof m, "%s:%u: floating literal", path, line); verdict("-", "no-float", 0, m, 0);
+                }
+                p = q - 1;
+            }
+        }
+        free(t);
+    }
+    closedir(d);
+    {
+        char m[600]; snprintf(m, sizeof m, "%u files in %s/ (comments stripped)", files, dir);
+        if (fails == f0) verdict("-", "no-float", 1, m, 0);
+    }
+}
+
+int main(int argc, char **argv)
+{
+    unsigned k;
+    FILE *update = 0;
+    if (argc > 2 && !strcmp(argv[1], "--src")) {            /* the source check alone, on another folder */
+        check_sources(argv[2]);
+        return fails ? 1 : 0;
+    }
+    if (argc > 1 && !strcmp(argv[1], "--update")) {
+        if (!(update = fopen(BASELINE, "w"))) { perror(BASELINE); return 2; }
+    } else
+        baseline_load();
+    check_sources("engines");
+    for (k = 0; tx_engines[k]; k++) check_engine(tx_engines[k], update);
+    if (update) { fclose(update); printf("wrote %s\n", BASELINE); }
+    printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);
+    return fails ? 1 : 0;
+}

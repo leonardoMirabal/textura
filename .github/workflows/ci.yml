@@ -8,3 +8,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: tracked files allowed
         run: sh tools/guard.sh
+  # The engines' checks: no float, no 64-bit division on a 32-bit target, idle zero, no overflow, the particle cap,
+  # determinism against bench/baselines (AGENTS.md section 4).
+  engines:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make tx-test CC=clang

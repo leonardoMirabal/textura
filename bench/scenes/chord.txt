@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# four keys across the FM-1's range held for 2 s at mixed velocities
+0 on F3 90
+0 on C4 110
+0 on G4 80
+0 on C5 127
+2000 off F3
+2000 off C4
+2000 off G4
+2000 off C5
+4000 end

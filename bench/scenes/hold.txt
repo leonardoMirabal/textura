@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# one key held for 3 s (continuous emission at the engine's defaults), then released
+0 on C4 100
+3000 off C4
+5000 end

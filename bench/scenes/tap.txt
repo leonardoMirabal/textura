@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# one key tapped at velocity 100: a burst, then the tail rings out
+0 on C4 100
+150 off C4
+3000 end

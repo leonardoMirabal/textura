@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# the PARTICLES limit moved while the cloud is full: the count must follow it at every block
+0 particles 32
+0 on F3 127
+0 on C4 127
+0 on G4 127
+0 on C5 127
+0 on G5 127
+500 on C4 127
+500 on C5 127
+1000 particles 4
+1200 on F3 127
+1500 particles 1
+1700 on G4 127
+2000 particles 32
+2100 on G5 127
+2500 particles 8
+3000 off F3
+3000 off C4
+3000 off G4
+3000 off C5
+3000 off G5
+4500 end

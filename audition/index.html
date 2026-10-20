@@ -1,0 +1,99 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- Textura player: play the texture engines from the keyboard, a MIDI keyboard or the mouse -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Textura player</title>
+<style>
+  :root { --bg: #f4f2ee; --panel: #ffffff; --ink: #1d1d1f; --dim: #6b6b70; --line: #dddad3; --accent: #2f6f62;
+          --warn: #b5532a; --key: #ffffff; --keyb: #2a2a2e; --lit: #7fc3b2; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+          --bg: #141416; --panel: #1e1e22; --ink: #ececef; --dim: #9a9aa2; --line: #33333a; --accent: #6fc2ad;
+          --warn: #e08a5f; --key: #e9e9ec; --keyb: #0c0c0e; --lit: #4f9d8b; } }
+  :root[data-theme="dark"] { --bg: #141416; --panel: #1e1e22; --ink: #ececef; --dim: #9a9aa2; --line: #33333a;
+          --accent: #6fc2ad; --warn: #e08a5f; --key: #e9e9ec; --keyb: #0c0c0e; --lit: #4f9d8b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, -apple-system, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: .02em; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-top: 12px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0 0 8px; font-weight: 600; }
+  select, button { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+  button { cursor: pointer; } button.primary { background: var(--accent); color: var(--panel); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { color: var(--dim); font-size: 13px; }
+  .meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 18px; }
+  .meter .lab { font-size: 12px; color: var(--dim); }
+  .meter .val { display: block; color: var(--ink); font-size: 13px; font-variant-numeric: tabular-nums; min-height: 1.4em; }
+  .bar { height: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; margin-top: 3px; position: relative; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); }
+  .bar > b { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--warn); left: 18%; }
+  .bar.hot > i { background: var(--warn); }
+  .sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 22px; }
+  .sl label { display: flex; justify-content: space-between; font-size: 13px; }
+  .sl label span:last-child { font-variant-numeric: tabular-nums; color: var(--dim); }
+  .sl input { width: 100%; accent-color: var(--accent); }
+  .sl small { display: block; color: var(--dim); font-size: 11.5px; min-height: 1.4em; }
+  .sl.shared label span:first-child { color: var(--accent); font-weight: 600; }
+  #kb { position: relative; height: 120px; user-select: none; touch-action: none; margin-top: 4px; }
+  .key { position: absolute; top: 0; border: 1px solid var(--line); border-radius: 0 0 5px 5px; }
+  .key.w { background: var(--key); height: 118px; z-index: 1; }
+  .key.b { background: var(--keyb); height: 72px; z-index: 2; border-color: var(--keyb); }
+  .key.on { background: var(--lit) !important; }
+  .key span { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 10px; color: #777; }
+  .hint { color: var(--dim); font-size: 12.5px; margin-top: 8px; }
+  kbd { border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; font-size: 11px; background: var(--bg); }
+  #rec.on { background: var(--warn); color: var(--panel); border-color: var(--warn); }
+  .small { font-size: 12px; color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Textura player</h1>
+  <div class="row">
+    <label>Engine <select id="engine"></select></label>
+    <button id="start" class="primary">Start sound</button>
+    <button id="rec" disabled>Record 10 s</button>
+    <span id="status">Loading the engines…</span>
+  </div>
+
+  <section class="panel">
+    <h2>Meters</h2>
+    <div class="meters">
+      <div class="meter"><div class="lab"><span>CPU here (this browser)</span><span class="val" id="cpu-host">–</span></div>
+        <div class="bar"><i id="cpu-host-bar"></i></div></div>
+      <div class="meter"><div class="lab"><span>FM-1 estimate (of 5805 µs)</span><span class="val" id="cpu-fm1">–</span></div>
+        <div class="bar" id="cpu-fm1-box"><i id="cpu-fm1-bar"></i><b title="18 %: one of four layers"></b></div></div>
+      <div class="meter"><div class="lab"><span>Level (peak)</span><span class="val" id="lvl">–</span></div>
+        <div class="bar" id="lvl-box"><i id="lvl-bar"></i></div></div>
+      <div class="meter"><div class="lab"><span>Particles</span><span class="val" id="parts">–</span></div>
+        <div class="bar"><i id="parts-bar"></i></div></div>
+    </div>
+    <div class="small" id="cpu-note" style="margin-top:8px"></div>
+  </section>
+
+  <section class="panel">
+    <h2 id="params-title">Parameters</h2>
+    <div class="sliders" id="sliders"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Keys <span class="small" id="midi"></span></h2>
+    <div class="row">
+      <label>Velocity (computer keys / mouse) <input type="range" id="vel" min="1" max="127" value="100" style="accent-color: var(--accent)"></label>
+      <span class="small" id="velv">100</span>
+      <button id="octdn">Oct −</button><button id="octup">Oct +</button><span class="small" id="oct"></span>
+    </div>
+    <div id="kb"></div>
+    <div class="hint">Computer keys: <kbd>Z</kbd>…<kbd>M</kbd> (with <kbd>S</kbd> <kbd>D</kbd> <kbd>G</kbd> <kbd>H</kbd> <kbd>J</kbd>) and <kbd>Q</kbd>…<kbd>P</kbd> (with the digit row) play two octaves;
+      <kbd>[</kbd> <kbd>]</kbd> move them. A key pressed fires a burst, held keeps the cloud going, released lets it ring out.
+      A USB MIDI keyboard plays with velocity (Web MIDI: Chrome / Edge / Firefox); CC 20–27 move the first eight parameters, CC 7 the level.</div>
+  </section>
+</main>
+<script src="app.js"></script>
+<script src="txweb.js"></script>
+</body>
+</html>
