@@ -15,7 +15,12 @@
  *            Q 40, ours), plus 6 low panel modes (60-400 Hz) at the material's own Q for glass and metal (note 03).
  *   leaves   a water-repellent leaf gets a second, weaker push from the rebounding jet at 0.44 tau_g,
  *            tau_g = sqrt(rho D^3 / gamma) (gain 0.2, measured < 0.37 when splashing).
- *   inside   heard from under the roof: a low-pass (~600 Hz .. open) (ours). */
+ *   inside   heard from under the roof: a low-pass (~600 Hz .. open) (ours).
+ * Realism pass (rain on a porch, a shed roof, a tent, a window, a metal roof; references, analysis only): real rain on a
+ * surface is an even patter (drop-level std 1-5 dB, crest 10-13 dB, kurtosis 0-5) with its energy up to 1-2 kHz
+ * and beyond. Ours was a few loud drops over a dull bed (kurtosis 91, crest 22 dB, centroid 750 Hz). So: the drop's
+ * level is the force law's fourth root (ours: D^2 V^2 spread 44 dB between the classes), and the surface bands rise
+ * +6 dB / oct (radiation below coincidence, ours). The default SURFACE is wood as documented (50 was the tent). */
 #include "tx_engine.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
@@ -24,7 +29,7 @@ enum { P_RATE, P_SURFACE, P_DROPS, P_AREA, P_INSIDE, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"RATE", 127, 70, "rain rate R: 0.1 .. 100 mm/h (log): drizzle .. downpour"},
-    {"SURFACE", 127, 50, "leaves (Q 8, rebound) | tent (Q 5) | wood (Q 15) | glass (Q 400) | metal roof (Q 1400)"},
+    {"SURFACE", 127, 64, "leaves (Q 8, rebound) | tent (Q 5) | wood (Q 15) | glass (Q 400) | metal roof (Q 1400)"},
     {"DROPS", 127, 64, "drop sizes: drizzle (small drops) .. convective (big drops: louder, darker)"},
     {"AREA", 127, 50, "listening area: 0.1 .. 20 m^2 (log): a few drops near you .. a whole roof"},
     {"INSIDE", 127, 0, "outside .. inside under the roof (low-passed)"},
@@ -35,7 +40,7 @@ static const tx_param_t PARAMS[NP] = {
 #define NPANEL 6u
 #define TABN 64u
 #define CARRY 64u
-#define A_REF 12000                /* the biggest class's pulse peak (Q15 force units; calibrated by render) */
+#define A_REF 3800                 /* the biggest class's pulse peak (Q15 force units; calibrated by render) */
 
 /* per class: arrivals per m^2 per s at R = 1, 5, 25, 100 mm/h (note 02, L15 x L16), x 100 */
 static const uint32_t RATE_TAB[NC][4] = {
@@ -95,7 +100,8 @@ static void surface(rain_t *s)
         uint32_t hz = tx_exp2(473750 + (int32_t)i * 32768);  /* 150 Hz x 2^(i/2) .. 6.8 kHz */
         s->bf[i] = tx_svf_coef(hz);
         s->bgin[i] = (int32_t)tx_svf_gin_noise(hz, qb * 16u);
-        s->bg[i] = 1024;
+        s->bg[i] = (int32_t)tx_exp2((10 << 16) + ((int32_t)i - 6) * 32768);   /* +6 dB / oct: a plate radiates
+                                                              * better as f rises (below coincidence; ours: Q11, 1.0 at 1.2 kHz) */
     }
     s->pq = (int32_t)(16384u / q);
     for (i = 0; i < NPANEL; i++) {
@@ -105,10 +111,12 @@ static void surface(rain_t *s)
     }
 }
 
-/* a pulse's peak from D and V: A_REF (D / 5 mm)^2 (V / 9.1 m/s)^2 (F_max = 0.85 rho D^2 V^2), Q15 */
+/* a pulse's peak from D and V: A_REF sqrt((D / 5 mm) (V / 9.1 m/s)): the force F_max = 0.85 rho D^2 V^2, compressed to
+ * its fourth root (ours: the references' drops vary 1-5 dB, crest 10-13 dB; the D^2 V^2 law gave a 44 dB spread and a
+ * kurtosis of 90, D V still 18.7 dB crest) */
 static int32_t peak_of(uint32_t d_um, uint32_t v_mm)
 {
-    int32_t l = 2 * (log2_q16(d_um) - 805306) + 2 * (log2_q16(v_mm) - 862000);   /* log2 5000, log2 9100 */
+    int32_t l = ((log2_q16(d_um) - 805306) + (log2_q16(v_mm) - 862000)) / 2;   /* log2 5000, log2 9100 */
     return (int32_t)tx_exp2(log2_q16(A_REF) + (l > (2 << 16) ? (2 << 16) : l));
 }
 
