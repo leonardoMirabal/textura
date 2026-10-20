@@ -16,6 +16,7 @@ extern const tx_engine_t tx_eng_sandsong;
 extern const tx_engine_t tx_eng_aeolian;
 extern const tx_engine_t tx_eng_sand;
 extern const tx_engine_t tx_eng_lakeice;
+extern const tx_engine_t tx_eng_spring;
 extern const tx_engine_t tx_eng_crickets;
 
 const tx_engine_t *const tx_engines[] = {
@@ -33,6 +34,7 @@ const tx_engine_t *const tx_engines[] = {
     &tx_eng_aeolian,
     &tx_eng_sand,
     &tx_eng_lakeice,
+    &tx_eng_spring,
     &tx_eng_crickets,
     0,
 };
