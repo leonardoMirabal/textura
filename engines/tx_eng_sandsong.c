@@ -11,7 +11,10 @@
  * sorted sand does not sing (G11: sorted -> tone, mixed -> noise). Near the threshold two patches may sing a doublet
  * (beating). Pushing fast raises f (inertia: G5); here velocity raises f up to +10 % (ours).
  * Keys: grain size per key (C4 = GRAIN, 2^(-2/12) per semitone up: f a semitone up). Ours: the surface resonance Q 10,
- * the coupling strength, the hiss band (1.6 kHz, Q 0.7, -30 dB). */
+ * the coupling strength, the hiss band (0.9 kHz, Q 0.7, -42 dB).
+ * Realism pass (singing-dune references, analysis only): the song is a nearly pure tone (28-43 dB over the rest of
+ * 40-400 Hz) falling 6-8 dB / oct above, with little hiss. So: the surface resonance Q 10 -> 25, an output one-pole
+ * low-pass at ~500 Hz (the bed absorbs the highs), the hiss 12 dB lower and at 0.9 kHz (was 1.6). */
 #include "tx_engine.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
@@ -45,6 +48,7 @@ typedef struct {
     int32_t buf[TX_BLOCK];
     uint8_t p[NP], limit, quiet;
     int32_t level, grain_l2, flow_l2, spread, jit, detune;
+    int32_t lp;                    /* the output low-pass (the sand bed absorbs the highs) */
     uint16_t dropped;
 } song_t;
 
@@ -73,7 +77,7 @@ static void song_init(void *st, uint32_t seed)
     tx_cloud_burst(&s->cloud, 1, 0);
     tx_cloud_rate(&s->cloud, 0);
     tx_noise_init(&s->hiss, seed ^ 0x51A9D00Du);
-    tx_noise_band(&s->hiss, 1600, 11, TX_NOISE_BAND);
+    tx_noise_band(&s->hiss, 900, 11, TX_NOISE_BAND);
     for (i = 0; i < NA; i++) { tx_sync_init(&s->a[i].sy); s->a[i].em = 0xFF; }
     s->limit = 3;
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
@@ -119,8 +123,8 @@ static void avalanche(song_t *s, const tx_event_t *e)
     f = key_hz(s, e->note, e->vel);
     if (!a->alive) {
         tx_sync_emitters(&a->sy, &s->cloud.rng, TX_SYNC_N, f, s->spread);
-        tx_sync_res(&a->sy, 0, f, 160);                      /* Q 10 (ours) */
-        tx_sync_res(&a->sy, 1, (uint32_t)(((uint64_t)f * (uint32_t)(32768 + s->detune)) >> 15), 160);
+        tx_sync_res(&a->sy, 0, f, 400);                      /* Q 25 (ours; the references' tone stands 28-43 dB */
+        tx_sync_res(&a->sy, 1, (uint32_t)(((uint64_t)f * (uint32_t)(32768 + s->detune)) >> 15), 400);   /* over the rest) */
         {   /* the second patch's grains at the detuned rate */
             unsigned k;
             for (k = 1; k < TX_SYNC_N; k += 2) a->sy.inc[k] = (uint32_t)(((uint64_t)a->sy.inc[k] * (uint32_t)(32768 + s->detune)) >> 15);
@@ -138,6 +142,7 @@ TX_AUDIO_CODE static void song_render(void *st, int32_t *mix, unsigned n)
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) buf[j] = 0;
     k = tx_cloud_block(&s->cloud, s->ev, n);
+    if (!k && s->quiet) return;                              /* silent and nothing new */
     for (i = 0; i < k; i++) avalanche(s, &s->ev[i]);
     for (i = 0; i < NA; i++) {
         aval_t *a = &s->a[i];
@@ -157,12 +162,17 @@ TX_AUDIO_CODE static void song_render(void *st, int32_t *mix, unsigned n)
         }
         tx_sync_add(&a->sy, &s->cloud.rng, ((s->level * 181) >> 15) + 1, buf, n);   /* <= 1.4 FS per avalanche */
     }
-    tx_noise_level(&s->hiss, (int32_t)(((int64_t)(hiss > 65535 ? 65535 : hiss) * s->level) >> 17));
+    tx_noise_level(&s->hiss, (int32_t)(((int64_t)(hiss > 65535 ? 65535 : hiss) * s->level) >> 19));   /* -12 dB (references) */
     tx_noise_add(&s->hiss, buf, n);
+    {   /* a one-pole low-pass at ~500 Hz: the references fall 6-8 dB / oct above the tone, ours fell 3 */
+        int32_t lp = s->lp;
+        for (j = 0; j < n; j++) { lp += ((buf[j] - lp) >> 4) * 2254 >> 11; buf[j] = lp; }
+        s->lp = (lp > -16 && lp < 16) ? 0 : lp;
+    }
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
-        int32_t z = s->hp.x1 | s->hp.y1 | !tx_noise_quiet(&s->hiss);
+        int32_t z = s->hp.x1 | s->hp.y1 | s->lp | !tx_noise_quiet(&s->hiss);
         for (i = 0; i < NA; i++) z |= s->a[i].alive | !tx_sync_quiet(&s->a[i].sy);
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }
