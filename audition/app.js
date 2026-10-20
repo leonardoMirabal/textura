@@ -20,7 +20,7 @@ const pressed = new Map();                           // computer key code -> not
 // The FM-1 estimate times one block of the reference scene (txbench's, in calib.json) next to the engine in every
 // callback: engine / reference at the same moment x the reference's native time x the calibration factor.
 const cpu = { log: [], ref: [], hold: 0, holdT: 0, fine: !!window.crossOriginIsolated };
-const lvl = { hold: 0, holdT: 0 };
+const lvl = { hold: 0, holdT: 0, gr: 0, grT: 0 };
 let rec = null, lastTotal = 0, lastT = 0, evRate = 0;
 
 function $(id) { return document.getElementById(id); }
@@ -342,7 +342,10 @@ function meters(t) {
   window.txTest.live = { host, refUs, per };
   const pk = M._txw_peak_take(), db = pk ? 20 * Math.log10(pk / 8388608) : -120;
   if (db > lvl.hold || t - lvl.holdT > 1500) { lvl.hold = db; lvl.holdT = t; }
-  $("lvl").textContent = `${db > -120 ? db.toFixed(1) : "-inf"} dBFS (hold ${lvl.hold > -120 ? lvl.hold.toFixed(1) : "-inf"})`;
+  const gr = M._txw_lim_take();                        // the output limiter (after the mix and the CHAMBER)
+  if (gr > lvl.gr || t - lvl.grT > 1500) { lvl.gr = gr; lvl.grT = t; }
+  $("lvl").textContent = `${db > -120 ? db.toFixed(1) : "-inf"} dBFS (hold ${lvl.hold > -120 ? lvl.hold.toFixed(1) : "-inf"})` +
+    (lvl.gr ? `, limiter -${(lvl.gr / 10).toFixed(1)} dB` : "");
   $("lvl-bar").style.width = `${Math.max(0, Math.min(100, (db + 60) / 60 * 100))}%`;
   $("lvl-box").classList.toggle("hot", lvl.hold >= 0);
   const st = new Int32Array(M.HEAP32.buffer, M._txw_stats(), 8);

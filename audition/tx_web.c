@@ -7,6 +7,7 @@
 #include "tx_host.h"
 #include "tx_script.h"
 #include "tx_core_chamber.h"
+#include "tx_core_limit.h"
 
 static uint8_t arena[TX_STATE_MAX] __attribute__((aligned(64)));    /* the live instance */
 static uint8_t arena2[TX_STATE_MAX] __attribute__((aligned(64)));   /* the reference render (CPU ratio, hash) */
@@ -16,6 +17,8 @@ static float out[TX_BLOCK * 64];
 static char hex[65];
 static tx_chamber_t chamber, chamber2;                 /* the live CHAMBER (after the engine) and the check's */
 static int ch_on;
+static tx_limit_t lim;                                  /* the output stage after the CHAMBER */
+static int lim_db10;                                    /* its deepest reduction since the last txw_lim_take */
 static uint8_t ch_p[TX_CH_NP];
 
 static const tx_engine_t *eng(int i)
@@ -37,6 +40,7 @@ EMSCRIPTEN_KEEPALIVE int txw_select(int i, unsigned seed)
     memset(arena, 0, sizeof arena);
     cur->init(arena, seed);
     peak = 0;
+    tx_limit_init(&lim);
     return 0;
 }
 
@@ -70,9 +74,17 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
         for (j = 0; j < (int)TX_BLOCK; j++) mix[j] = 0;
         if (cur) cur->render(arena, mix, TX_BLOCK);
         if (ch_on) tx_chamber_process(&chamber, mix, TX_BLOCK);
-        for (j = 0; j < (int)TX_BLOCK; j++) {
-            int32_t v = mix[j], a = v < 0 ? -v : v;
+        for (j = 0; j < (int)TX_BLOCK; j++) {                /* the meter reads the mix before the limiter */
+            int32_t a = mix[j] < 0 ? -mix[j] : mix[j];
             if (a > peak) peak = a;
+        }
+        tx_limit_process(&lim, mix, TX_BLOCK);
+        {
+            int g = (int)tx_limit_take(&lim);
+            if (g > lim_db10) lim_db10 = g;
+        }
+        for (j = 0; j < (int)TX_BLOCK; j++) {
+            int32_t v = mix[j];
             if (v > TX_Q23) v = TX_Q23;
             if (v < -TX_Q23) v = -TX_Q23;
             o[j] = (float)v * (1.0f / 8388608.0f);
@@ -82,6 +94,9 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
 }
 
 EMSCRIPTEN_KEEPALIVE int txw_peak_take(void) { int p = peak; peak = 0; return p; }
+
+/* the output limiter's deepest gain reduction since the last call, dB x 10 (0 = it did not act) */
+EMSCRIPTEN_KEEPALIVE int txw_lim_take(void) { int g = lim_db10; lim_db10 = 0; return g; }
 
 /* particles, limit, events (last block), dropped (last block), steals, total events, quiet */
 EMSCRIPTEN_KEEPALIVE int32_t *txw_stats(void)

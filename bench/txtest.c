@@ -27,6 +27,7 @@
 #include <string.h>
 #include "tx_host.h"
 #include "tx_core_noise.h"
+#include "tx_core_limit.h"
 
 #define BASELINE "bench/baselines/renders.sha256"
 static int fails;
@@ -40,8 +41,10 @@ static void verdict(const char *eng, const char *check, int ok, const char *fmt,
 /* ---- per-scene accumulator */
 typedef struct {
     tx_sha256_t sha;
-    int32_t peak;
+    int32_t peak, lpeak;           /* raw mix peak; after the output limiter */
     uint32_t over_cap, maxp, over_fs, nonzero;
+    tx_limit_t lim;
+    uint32_t lim_blocks, lim_db10, blocks;
 } acc_t;
 
 static void on_block(void *u, uint32_t blk, const int32_t *mix, const tx_stats_t *st)
@@ -56,6 +59,16 @@ static void on_block(void *u, uint32_t blk, const int32_t *mix, const tx_stats_t
         if (v >= TX_Q23) a->over_fs++;
         if (v) a->nonzero++;
     }
+    {   /* the output limiter (the player's last stage): its peak and activity */
+        int32_t l[TX_BLOCK];
+        uint32_t gr;
+        for (j = 0; j < TX_BLOCK; j++) l[j] = mix[j];
+        tx_limit_process(&a->lim, l, TX_BLOCK);
+        for (j = 0; j < TX_BLOCK; j++) { int32_t v = l[j] < 0 ? -l[j] : l[j]; if (v > a->lpeak) a->lpeak = v; }
+        gr = tx_limit_take(&a->lim);
+        if (gr) { a->lim_blocks++; if (gr > a->lim_db10) a->lim_db10 = gr; }
+        a->blocks++;
+    }
     if (st->particles > st->limit) a->over_cap++;
     if (st->particles > a->maxp) a->maxp = st->particles;
 }
@@ -65,6 +78,7 @@ static int run_scene(const tx_engine_t *e, const char *scene, acc_t *a, char hex
     tx_script_t *s = malloc(sizeof *s);
     void *st = tx_state_new(e);
     memset(a, 0, sizeof *a);
+    tx_limit_init(&a->lim);
     tx_sha256_init(&a->sha);
     if (tx_scene_load(s, e, scene)) { free(s); free(st); return -1; }
     tx_script_run(e, st, s, on_block, a);
@@ -177,9 +191,19 @@ static void check_engine(const tx_engine_t *e, FILE *update)
         snprintf(msg, sizeof msg, "max scene: particles <= limit at every block (most %u)", a.maxp);
         verdict(n, "cap", !a.over_cap, msg, 0);
     } else verdict(n, "overflow", 0, "max scene does not load", 0);
-    if (!run_scene(e, "chord", &a, hex)) {
-        snprintf(msg, sizeof msg, "chord at the default level peaks %.1f dBFS", a.peak ? 20.0 * log10(a.peak / 8388608.0) : -999.0);
-        verdict(n, "level", a.peak < TX_Q23, msg, 0);
+    if (!run_scene(e, "chord", &a, hex)) {           /* the limited chord under full scale, the raw one <= +12 dBFS */
+        snprintf(msg, sizeof msg, "chord at the default level: raw peak %.1f dBFS (<= +12), limited %.1f dBFS",
+                 a.peak ? 20.0 * log10(a.peak / 8388608.0) : -999.0, a.lpeak ? 20.0 * log10(a.lpeak / 8388608.0) : -999.0);
+        verdict(n, "level", a.peak <= 33410000 && a.lpeak < TX_Q23, msg, 0);
+    }
+    {   /* how often and how deep the limiter acts at the defaults (info: a safety net, it should rarely act) */
+        static const char *const SC[3] = { "tap", "hold", "chord" };
+        unsigned q, lb = 0, nb = 0, deep = 0;
+        for (q = 0; q < 3; q++)
+            if (!run_scene(e, SC[q], &a, hex)) { lb += a.lim_blocks; nb += a.blocks; if (a.lim_db10 > deep) deep = a.lim_db10; }
+        snprintf(msg, sizeof msg, "output limiter at the defaults (tap, hold, chord): %u of %u blocks (%.1f %%), deepest %.1f dB (info)",
+                 lb, nb, nb ? 100.0 * lb / nb : 0.0, deep / 10.0);
+        verdict(n, "limiter", 1, msg, 0);
     }
     if (!run_scene(e, "cap", &a, hex)) {
         snprintf(msg, sizeof msg, "cap scene (32 -> 4 -> 1 -> 32 -> 8): %u blocks over the limit, most %u", a.over_cap, a.maxp);
@@ -231,6 +255,7 @@ static int run_ch(const tx_engine_t *e, const char *scene, const char *extra, ac
     tx_chamber_t *ch = malloc(sizeof *ch);
     char *t = tx_scene_text(e, scene), *u;
     memset(a, 0, sizeof *a);
+    tx_limit_init(&a->lim);
     tx_sha256_init(&a->sha);
     if (!t) { free(s); free(st); free(ch); return -1; }
     u = malloc(strlen(t) + strlen(extra) + 2);

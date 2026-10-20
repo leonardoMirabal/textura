@@ -7,14 +7,16 @@
  *                                                  automatic when the scene has chamber lines): <engine>-<scene>-chamber.wav
  *   txrender all                                   every engine x every standard scene
  *   txrender list                                  the engines and their parameters
- * The summary: blocks, peak (dBFS), samples over full scale, most particles at once, events, steals, sha256 of the
- * Q23 samples (the same hash txtest keeps in bench/baselines/renders.sha256). */
+ * The summary: blocks, peak (dBFS), samples over full scale, most particles at once, events, steals, the output
+ * limiter's activity (blocks it acted in, its deepest reduction), sha256 of the raw Q23 samples (the same hash txtest
+ * keeps in bench/baselines/renders.sha256). The WAV goes through the output limiter (tx_core_limit), as the player. */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include "tx_host.h"
+#include "tx_core_limit.h"
 
 typedef struct {
     tx_wav_t wav;
@@ -22,6 +24,9 @@ typedef struct {
     tx_sha256_t sha;
     int32_t peak;
     uint32_t clips, maxp, events, steals, dropped;
+    tx_limit_t lim;                /* the output stage: only the WAV is limited (the hash is the raw mix) */
+    uint32_t lim_blocks, lim_db10;
+    int32_t lout[TX_BLOCK];
 } acc_t;
 
 static void on_block(void *u, uint32_t blk, const int32_t *mix, const tx_stats_t *st)
@@ -34,7 +39,14 @@ static void on_block(void *u, uint32_t blk, const int32_t *mix, const tx_stats_t
         if (v > a->peak) a->peak = v;
         if (v >= TX_Q23) a->clips++;
     }
-    if (a->use_wav) tx_wav_write(&a->wav, mix, TX_BLOCK);
+    {   /* the WAV through the output limiter (the player's chain); the hash below stays on the raw mix */
+        uint32_t gr;
+        for (j = 0; j < TX_BLOCK; j++) a->lout[j] = mix[j];
+        tx_limit_process(&a->lim, a->lout, TX_BLOCK);
+        gr = tx_limit_take(&a->lim);
+        if (gr) { a->lim_blocks++; if (gr > a->lim_db10) a->lim_db10 = gr; }
+    }
+    if (a->use_wav) tx_wav_write(&a->wav, a->lout, TX_BLOCK);
     tx_sha256_q23(&a->sha, mix, TX_BLOCK);
     if (st->particles > a->maxp) a->maxp = st->particles;
     a->events += st->events;
@@ -51,6 +63,7 @@ static int render(const tx_engine_t *e, const char *scene, const char *out, long
     char path[512], hex[65];
     const char *base = strrchr(scene, '/') ? strrchr(scene, '/') + 1 : scene;
     memset(&a, 0, sizeof a);
+    tx_limit_init(&a.lim);
     if (tx_scene_load(s, e, scene)) return 1;
     if (seed >= 0) s->seed = (uint32_t)seed;
     if (use_ch || tx_script_has_chamber(s)) ch = malloc(sizeof *ch);
@@ -65,8 +78,9 @@ static int render(const tx_engine_t *e, const char *scene, const char *out, long
     if (a.use_wav) tx_wav_close(&a.wav);
     tx_sha256_hex(&a.sha, hex);
     printf("%-8s %-6s %5u blocks  peak %6.1f dBFS  over-FS %u  particles max %2u  events %6u  dropped %5u  steals %5u"
-           "  sha256 %.16s  -> %s\n", e->name, base, s->blocks, a.peak ? 20.0 * log10(a.peak / 8388608.0) : -999.0, a.clips,
-           a.maxp, a.events, a.dropped, a.steals, hex, out);
+           "  limiter %u blocks (max %.1f dB)  sha256 %.16s  -> %s\n", e->name, base, s->blocks,
+           a.peak ? 20.0 * log10(a.peak / 8388608.0) : -999.0, a.clips, a.maxp, a.events, a.dropped, a.steals,
+           a.lim_blocks, a.lim_db10 / 10.0, hex, out);
     free(st); free(s); free(ch);
     return 0;
 }
