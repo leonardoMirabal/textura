@@ -17,12 +17,22 @@
  * low-pass at ~500 Hz (the bed absorbs the highs), the hiss 12 dB lower and at 0.9 kHz (was 1.6). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_sync.h"
 
-#define OUT_TRIM 1453               /* output gain, Q12 (-9.0 dB): integrated (a key held 10 s): -17.0 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 1850               /* output gain, Q12 (-9.0 dB): integrated (a key held 10 s): -17.0 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +2.1 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 60
+#define VARY_SPLIT 5
 
 enum { P_GRAIN, P_FLOW, P_SORTING, P_STEADY, P_DETUNE, NP };
 
@@ -54,6 +64,7 @@ typedef struct {
     int32_t level, grain_l2, flow_l2, spread, jit, detune;
     int32_t lp;                    /* the output low-pass (the sand bed absorbs the highs) */
     uint16_t dropped;
+    tx_vary_t vy;
 } song_t;
 
 static void set_param(song_t *s, unsigned id, unsigned v)
@@ -87,10 +98,12 @@ static void song_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((song_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void song_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((song_t *)st)->vy);
     tx_cloud_key(&((song_t *)st)->cloud, note, vel, on);
 }
 
@@ -110,7 +123,8 @@ static void song_param(void *st, uint8_t id, uint8_t val)
 /* the frequency of a key: f = 0.4 sqrt(g / d) = 1253 Hz / sqrt(d / 1 um), x velocity push (ours, up to +10 %) */
 static uint32_t key_hz(song_t *s, unsigned note, unsigned vel)
 {
-    int32_t d_l2 = s->grain_l2 - ((int32_t)note - 60) * 10923;  /* 2^(-2/12) per semitone */
+    int32_t d_l2 = s->grain_l2 - ((int32_t)note - 60) * 10923   /* 2^(-2/12) per semitone; */
+                 - (tx_vary_tone(&s->vy) >> 2);              /* the press's sand: brighter = finer */
     int32_t f_l2 = 674457 - d_l2 / 2 + (int32_t)vel * 70;        /* log2(1253) = 10.291; vel 127: +0.136 oct */
     return tx_exp2(f_l2);
 }
@@ -173,6 +187,7 @@ TX_AUDIO_CODE static void song_render(void *st, int32_t *mix, unsigned n)
         for (j = 0; j < n; j++) { lp += ((buf[j] - lp) >> 4) * 2254 >> 11; buf[j] = lp; }
         s->lp = (lp > -16 && lp < 16) ? 0 : lp;
     }
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

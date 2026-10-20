@@ -20,12 +20,22 @@
  * Keys: carrier / peak a quarter tone per key around the species' (body size); velocity = proximity. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
 
-#define OUT_TRIM 10898               /* output gain, Q12 (+8.5 dB): integrated (a key held 10 s): -34.5 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 14202               /* output gain, Q12 (+8.5 dB): integrated (a key held 10 s): -34.5 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +2.3 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -130
+#define VARY_HI 15
+#define VARY_TILT 140
+#define VARY_DRIFT 60
+#define VARY_SPLIT 0
 
 enum { P_SPECIES, P_JITTER, P_PEGS, P_TEMP, P_CHORUS, P_SYNC, P_DIST, NP };
 
@@ -89,6 +99,7 @@ typedef struct {
     uint8_t p[NP], limit, quiet;
     int32_t level, q15, jit, peg_l2, dist_l2;
     uint16_t dropped;
+    tx_vary_t vy;
 } katy_t;
 
 static const species_t *sp_of(const katy_t *s) { return &SPECIES[(s->p[P_SPECIES] * NSP) >> 7]; }
@@ -152,10 +163,12 @@ static void katy_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((katy_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void katy_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((katy_t *)st)->vy);
     tx_cloud_key(&((katy_t *)st)->cloud, note, vel, on);
 }
 
@@ -173,6 +186,15 @@ static void katy_param(void *st, uint8_t id, uint8_t val)
 }
 
 static int quiet_v(const singer_t *v) { return !v->alive && tx_ireso_quiet(&v->r1) && tx_ireso_quiet(&v->r2); }
+
+/* the two resonances for a carrier f1 (Hz) */
+static void tune(const species_t *sp, singer_t *v, uint32_t f1)
+{
+    if (f1 > 16000u) f1 = 16000u;
+    tx_ireso_set(&v->r1, f1, sp->q1);
+    tx_ireso_set(&v->r2, sp->katydid == 1u ? (f1 * 2940u / 1000u > 20000u ? 20000u : f1 * 2940u / 1000u)
+                         : sp->katydid ? f1 * 2u : sp->f2, sp->q2);
+}
 
 static void spawn(katy_t *s, const tx_event_t *e)
 {
@@ -196,13 +218,11 @@ static void spawn(katy_t *s, const tx_event_t *e)
         tx_chorus_place(&s->ch, vi, (tx_sin_q15((uint32_t)ang + 0x40000000u) * (rr >> 4)) >> 11,
                         (tx_sin_q15((uint32_t)ang) * (rr >> 4)) >> 11);
         v->gain = (int32_t)((uint32_t)G_REF * 1000u / (uint32_t)(rr < 300 ? 300 : rr));
-        f_l2 = ((int32_t)e->note - 60) * 2731;
+        f_l2 = ((int32_t)e->note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3);   /* the character (warmer = higher, faster) */
         if (k) f_l2 += (tx_gauss_q12(r) * 2789) >> 12;       /* individuals: CV 3 % (ours) */
         v->f1 = (uint32_t)(((uint64_t)sp->f1 * tx_exp2(f_l2 + (16 << 16))) >> 16);
         if (v->f1 > 16000u) v->f1 = 16000u;
-        tx_ireso_set(&v->r1, v->f1, sp->q1);
-        tx_ireso_set(&v->r2, sp->katydid == 1u ? (v->f1 * 2940u / 1000u > 20000u ? 20000u : v->f1 * 2940u / 1000u)
-                             : sp->katydid ? v->f1 * 2u : sp->f2, sp->q2);
+        tune(sp, v, v->f1);
         v->r1.g = sp->katydid == 1u ? 256 : sp->katydid ? 900 : 640;   /* clicks / a rasp do not build up: x 2.5-3.5 */
         v->r2.g = sp->katydid == 1u ? (sp->l2 >> 7) * 10 : (sp->l2 * 5) >> 8;   /* the upper level; katydid: x 10 for */
                                                                           /* the low mode's build-up (by render) */
@@ -281,6 +301,7 @@ TX_AUDIO_CODE static void katy_render_raw(void *st, int32_t *mix, unsigned n)
         singer_t *v = &s->v[s->who[i]];
         if (!v->alive || v->stop) continue;
         v->in_call = 1;
+        tune(sp_of(s), v, tx_vary_scale(v->f1, tx_vary_drift(&s->vy) >> 3));   /* the night warms, cools */
         v->t = -(int32_t)s->off[i];
         v->next_q8[0] = v->next_q8[1] = (int32_t)s->off[i] << 8;
     }
@@ -313,6 +334,8 @@ TX_AUDIO_CODE static void katy_render(void *st, int32_t *mix, unsigned n)
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) b[j] = 0;
     katy_render_raw(st, b, n);
+    tx_vary_block(&((katy_t *)st)->vy, b, n);
+    if (((katy_t *)st)->vy.lp) ((katy_t *)st)->quiet = 0;          /* the split still settling */
     tx_trim_add(b, mix, n, OUT_TRIM);
 }
 

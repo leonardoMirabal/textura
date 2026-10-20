@@ -14,15 +14,31 @@
  * A tube rings out to exact zero (its modes stop under -72 dBFS; a time bound of 3 T60 after its last strike).
  * CPU pass (wave 4): the modes are PLATE core oscillators (lossless magic circle, the decay e^(-pi f t / Q) applied per
  * block, four modes interleaved), no longer SVF bank resonators on the error-feedback path: 2.5x cheaper, the same
- * mode frequencies and Q; a strike adds energy with a random phase instead of adding to the band state. */
+ * mode frequencies and Q; a strike adds energy with a random phase instead of adding to the band state.
+ * Variation pass (the user's session 5: "the same every time"): a round tube's bending modes come in pairs, one per
+ * plane, and no real tube is perfectly round: each pair is split by 0.1-0.8 % (this tube's own), so the two beat
+ * slowly; the clapper's angle sets how the strike shares out between the planes, so every strike beats differently
+ * (ours, the standard degenerate-pair picture of bells and bars). And a struck tube swings away on its string and
+ * twists: what reaches the listener swells and fades at the pendulum's ~0.6-1.2 Hz, by 15-50 % from the blow, dying
+ * in a few seconds (ours). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_plate.h"
 
-#define OUT_TRIM 6876               /* output gain, Q12 (+4.5 dB): integrated (a key held 10 s): -30.5 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 11412               /* output gain, Q12 (+4.5 dB): integrated (a key held 10 s): -30.5 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +4.4 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 5
 
 enum { P_WIND, P_GUST, P_MATERIAL, P_CLAPPER, NP };
 
@@ -42,9 +58,13 @@ TX_AUDIO_DATA static const uint16_t MAT_Q[3] = { 1500, 600, 100 };
 static const int32_t L2_RATIO[NM] = { 0, 96004, 161761, 207036 };   /* log2 of the mode ratios, Q16 */
 
 typedef struct {
-    tx_pmode_t m[NM];              /* the free modes: PLATE core oscillators (lossless, an envelope per block) */
+    tx_pmode_t m[2u * NM];         /* the free modes, two planes (m[i], m[nm + i]): PLATE core oscillators */
     uint32_t f1;                   /* Hz */
     uint32_t silent, tmax;         /* samples since the last strike; 3 T60 */
+    uint32_t bdue[2];              /* the clapper's bounces: samples to go (0 = none) */
+    uint32_t sw_ph, sw_inc;        /* the swing: phase, step per block */
+    int32_t sw_d;                  /* its depth (Q15), dying */
+    int32_t bforce[2];             /* their force (Q15), signed */
     uint8_t em, note, alive, nm;
 } tube_t;
 
@@ -58,6 +78,7 @@ typedef struct {
     int32_t level, energy, gust, tilt;
     uint32_t q;
     uint16_t dropped;
+    tx_vary_t vy;
 } chimes_t;
 
 static void set_param(chimes_t *s, unsigned id, unsigned v)
@@ -83,23 +104,25 @@ static void chimes_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((chimes_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void chimes_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((chimes_t *)st)->vy);
     tx_cloud_key(&((chimes_t *)st)->cloud, note, vel, on);
 }
 
 static void quiet_tube(tube_t *t)
 {
     unsigned i;
-    for (i = 0; i < NM; i++) t->m[i].g = t->m[i].gl = 0;
+    for (i = 0; i < 2u * NM; i++) t->m[i].g = t->m[i].gl = 0;
 }
 
 static int tube_quiet(const tube_t *t)
 {
     unsigned i;
-    for (i = 0; i < NM; i++) if (t->m[i].g | t->m[i].gl) return 0;
+    for (i = 0; i < 2u * NM; i++) if (t->m[i].g | t->m[i].gl) return 0;
     return 1;
 }
 
@@ -124,17 +147,61 @@ static void chimes_param(void *st, uint8_t id, uint8_t val)
         set_param(s, id, val);
 }
 
-/* strike a tube: each mode's amplitude set from the force and the clapper (n^-tilt) */
-static void strike(chimes_t *s, tube_t *t, int32_t force_q15)
+/* a phase-correct kick into a ringing mode: the mode's (x, y) at amplitude g plus a velocity kick a, renormalised
+ * (event rate, 64-bit); from rest it starts at zero displacement */
+static void kick_mode(tx_pmode_t *m, int32_t a)
 {
+    int32_t X, Y;
+    uint64_t g2;
+    uint32_t g;
+    if (!m->g && !m->gl) { m->x = 16000; m->y = 0; }
+    a = a > 32767 ? 32767 : a < -32767 ? -32767 : a;
+    X = m->g * m->x / 16000 + a;                             /* 32-bit: g < 2^15, |x| < 2^15 */
+    Y = m->g * m->y / 16000;
+    g2 = (uint64_t)((int64_t)X * X) + (uint64_t)((int64_t)Y * Y);
+    if (g2 > 0x3FFFFFFFull) g2 = 0x3FFFFFFFull;
+    g = tx_isqrt32((uint32_t)g2);
+    if (!g) { m->g = 0; return; }
+    m->x = X * 16000 / (int32_t)g;                           /* |X| <= g: < 2^30 */
+    m->y = Y * 16000 / (int32_t)g;
+    m->g = (int32_t)(g > 32767u ? 32767u : g);
+}
+
+/* strike a tube: each mode's amplitude from the force, the clapper (n^-tilt) and where it hits. No two strikes alike
+ * (the user's session 3): the force +-0.4 oct, the clapper's hardness +-0.5 of the tilt (and the press's tone), the point along the tube
+ * (each mode weighted 0.15 .. 1 by its shape there), and 1-2 bounces 3-40 ms later at -6 .. -18 dB that add to the
+ * ring in phase or against it (ours) */
+static void strike(chimes_t *s, tube_t *t, int32_t force_q15, int bounce)
+{
+    tx_rng_t *r = &s->cloud.rng;
     unsigned i;
+    int32_t tilt = s->tilt + ((tx_rand_s15(r) * 33) >> 5) - (tx_vary_tone(&s->vy) >> 1), pt = 4915 + (int32_t)tx_rand_below(r, 11469u);   /* 0.15 .. 0.5 */
+    int32_t sg = bounce ? (force_q15 < 0 ? -1 : 1) : ((tx_rand(r) & 1u) ? 1 : -1);
+    uint32_t ang = tx_rand(r);                               /* the clapper's angle to the planes */
+    int32_t ca = tx_sin_q15(ang + 0x40000000u), sa = tx_sin_q15(ang);
+    if (force_q15 < 0) force_q15 = -force_q15;
+    if (!bounce) force_q15 = (int32_t)(((int64_t)force_q15 * tx_exp2((tx_rand_s15(r) * 26) / 32 + (16 << 16))) >> 16);   /* +-0.4 oct */
+    tilt = tilt < 0 ? 0 : tilt;
     for (i = 0; i < t->nm; i++) {
-        int32_t g = (int32_t)tx_exp2((15 << 16) - (int32_t)(((int64_t)s->tilt * L2_RATIO[i]) >> 16));   /* (f_n / f1)^-tilt */
+        int32_t g = (int32_t)tx_exp2((15 << 16) - (int32_t)(((int64_t)tilt * L2_RATIO[i]) >> 16));   /* (f_n / f1)^-tilt */
+        int32_t sh = tx_sin_q15((uint32_t)((2u * i + 3u) * (uint32_t)pt) << 15);   /* the mode's shape at the point (ours) */
         int32_t a = (int32_t)(((int64_t)force_q15 * g >> 15) * A_STRIKE >> 15);
+        a = (int32_t)(((int64_t)a * (4915 + (((sh < 0 ? -sh : sh) * 27853) >> 15))) >> 15);
         a = (int32_t)(((int64_t)a * s->level) >> 15);
-        tx_pmode_strike(&t->m[i], a);                        /* energies add (the kick's phase is random) */
+        kick_mode(&t->m[i], (int32_t)(((int64_t)sg * a * ca) >> 15));
+        kick_mode(&t->m[t->nm + i], (int32_t)(((int64_t)sg * a * sa) >> 15));
     }
     t->silent = 0;
+    if (!bounce) {                                           /* the blow sets the tube swinging */
+        t->sw_inc = 14984956u + (tx_rand(r) >> 16) * 228u;   /* 0.6 .. 1.2 Hz at 172.3 blocks / s */
+        t->sw_ph = tx_rand(r);
+        t->sw_d = 4915 + (int32_t)tx_rand_below(r, 11469u); /* 15 .. 50 % */
+        unsigned nb = 1u + tx_rand_below(r, 2u), k;           /* a clapper on a string rebounds */
+        for (k = 0; k < 2u; k++) {
+            t->bdue[k] = k < nb ? 132u + tx_rand_below(r, 1632u) * (k + 1u) : 0u;
+            t->bforce[k] = (int32_t)(((int64_t)force_q15 * (4129 + (int32_t)tx_rand_below(r, 12288u))) >> 15) * ((tx_rand(r) & 1u) ? 1 : -1);
+        }
+    }
 }
 
 static void hang(chimes_t *s, const tx_event_t *e)
@@ -147,20 +214,27 @@ static void hang(chimes_t *s, const tx_event_t *e)
     if (!t) { s->dropped++; return; }
     if (!t->alive || t->note != e->note) {
         uint32_t f1 = tx_note_inc((int32_t)e->note << 16) / 97391u;
+        uint32_t split = 66u + tx_rand_below(&s->cloud.rng, 459u);   /* the planes 0.1 .. 0.8 % apart, Q16 */
         quiet_tube(t);
         t->f1 = f1; t->nm = 0;
         for (i = 0; i < NM; i++) {
             uint32_t hz = (f1 * RATIO[i]) >> 10;
             if (hz > 7300u) break;
-            t->m[i].e0 = t->m[i].e = coef_q16((f1 * RATIO[i]) >> 2);   /* Hz Q8 */
-            t->m[i].hz = (uint16_t)hz;
-            t->m[i].dec = tx_plate_decay((uint32_t)(((uint64_t)hz * 804u) / s->q));   /* pi f / Q per s, Q8 */
             t->nm = (uint8_t)(i + 1u);
+        }
+        for (i = 0; i < t->nm; i++) {
+            uint32_t hz = (f1 * RATIO[i]) >> 10, f8 = (f1 * RATIO[i]) >> 2, k;
+            for (k = 0; k < 2u; k++) {
+                tx_pmode_t *m = &t->m[k * t->nm + i];
+                m->e0 = m->e = coef_q16(k ? f8 + (uint32_t)(((uint64_t)f8 * split) >> 16) : f8);   /* Hz Q8 */
+                m->hz = (uint16_t)hz;
+                m->dec = tx_plate_decay((uint32_t)(((uint64_t)hz * 804u) / s->q));   /* pi f / Q per s, Q8 */
+            }
         }
     }
     t->alive = 1; t->em = e->emitter; t->note = e->note;
     t->tmax = s->q * 291060u / (t->f1 ? t->f1 : 1u);         /* 3 T60 = 6.6 Q / f1 s, samples */
-    strike(s, t, (int32_t)e->vel * e->vel * 2);
+    strike(s, t, (int32_t)e->vel * e->vel * 2, 0);
 }
 
 TX_AUDIO_CODE static void chimes_render(void *st, int32_t *mix, unsigned n)
@@ -198,7 +272,7 @@ TX_AUDIO_CODE static void chimes_render(void *st, int32_t *mix, unsigned n)
                 unsigned pick = tx_rand_below(r, hanging), c = 0;
                 for (i = 0; i < NT; i++)
                     if (s->t[i].alive && c++ == pick) {
-                        strike(s, &s->t[i], (int32_t)(((s->energy >> 1) + (int32_t)(tx_rand(r) >> 18)) >> 0));
+                        strike(s, &s->t[i], (int32_t)(((s->energy >> 1) + (int32_t)(tx_rand(r) >> 18)) >> 0), 0);
                         break;
                     }
             }
@@ -207,15 +281,27 @@ TX_AUDIO_CODE static void chimes_render(void *st, int32_t *mix, unsigned n)
     for (i = 0; i < NT; i++) {
         tube_t *t = &s->t[i];
         unsigned q;
+        {   /* the clapper's bounces due in this block (at its start) */
+            unsigned k;
+            for (k = 0; k < 2u; k++)
+                if (t->bdue[k]) {
+                    if (t->bdue[k] <= n) { t->bdue[k] = 0; if (t->nm) strike(s, t, t->bforce[k], 1); }
+                    else t->bdue[k] -= n;
+                }
+        }
         if (!t->nm || tube_quiet(t)) continue;
-        tx_pmode_add(t->m, t->nm, 32767, buf, n);           /* the envelope ramps to g over the block */
-        for (q = 0; q < t->nm; q++) {                        /* then decays one block */
+        t->sw_ph += t->sw_inc;
+        t->sw_d -= t->sw_d >> 8;                             /* the swing dies (~1.5 s) */
+        tx_pmode_add(t->m, 2u * t->nm, 32767 - t->sw_d + ((t->sw_d * tx_sin_q15(t->sw_ph)) >> 15),
+                     buf, n);                                /* the envelope ramps to g x the swing over the block */
+        for (q = 0; q < 2u * t->nm; q++) {                   /* then decays one block */
             t->m[q].g = (int32_t)(((uint32_t)t->m[q].g * t->m[q].dec) >> 16);
             if (t->m[q].g < 8) t->m[q].g = 0;
         }
         t->silent += n;
         if (t->silent > t->tmax) quiet_tube(t);              /* 3 T60: a bound */
     }
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

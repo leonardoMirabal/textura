@@ -18,10 +18,20 @@
  * Keys: the sheet's size (its resonances and the ridge pitches) a semitone per key around SIZE; velocity = the
  * squeeze's energy (rate x (v / 100)^2, click energies x (v / 100)^2). */
 #include "tx_engine.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_G +1.3 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 2
 
 enum { P_RATE, P_MATERIAL, P_THICK, P_BURST, P_CLUSTER, P_SIZE, NP };
 
@@ -41,7 +51,7 @@ static const tx_param_t PARAMS[NP] = {
 #define CLICK_MAX 32u              /* clicks per block, at most (5.5 k/s; the rest is counted as dropped) */
 #define NMAT 5u
 #define RANGE_L2 54426             /* four decades of energy: log2(1e4) Q12 */
-#define OUT_G 11670                /* output gain, Q12 (x 2.85, calibrated: a held key at the defaults = -26 LUFS,
+#define OUT_G 13582                /* output gain, Q12 (x 3.32; x 2.85 before tx_core_vary, calibrated: a held key at the defaults = -26 LUFS,
                                     * the loudness target for sustained textures) */
 #define A_REF 40000                /* the largest click's amplitude at THICK 1, v100 (Q15; calibrated by render) */
 #define HERO_L2 45056              /* clicks above 11 octaves of energy (the top ~2.3 octaves) ring a hero */
@@ -103,6 +113,7 @@ typedef struct {
     int32_t pinv;                  /* 1 / (alpha - 1), Q12 (0: log-uniform) */
     uint32_t pm;                   /* (1 - 2^-Lmax) x 2^32: the power law truncated at RANGE */
     uint16_t dropped, ncl;
+    tx_vary_t vy;
 } crumple_t;
 
 static const mat_t *mat_of(const crumple_t *s) { return &MAT[(s->p[P_MATERIAL] * NMAT) >> 7]; }
@@ -156,10 +167,12 @@ static void crumple_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((crumple_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void crumple_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((crumple_t *)st)->vy);
     tx_cloud_key(&((crumple_t *)st)->cloud, note, vel, on);
 }
 
@@ -342,6 +355,7 @@ TX_AUDIO_CODE static void crumple_render(void *st, int32_t *mix, unsigned n)
         int32_t v = s->buf[j] > (1 << 25) ? (1 << 25) : s->buf[j] < -(1 << 25) ? -(1 << 25) : s->buf[j];
         s->buf[j] = ((v >> 8) * OUT_G) >> 4;
     }
+    tx_vary_block(&s->vy, s->buf, n);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->now += n;
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

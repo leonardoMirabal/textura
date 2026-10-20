@@ -9,11 +9,21 @@
  * first arrival: the flash-to-bang delay d / c (2.9 s per km) is not waited for. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_thunder.h"
 
-#define OUT_TRIM 46490               /* output gain, Q12 (+21.1 dB): max momentary (one velocity-100 press): -41.1 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 55254               /* output gain, Q12 (+21.1 dB): max momentary (one velocity-100 press): -41.1 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +1.5 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 80
+#define VARY_DRIFT 40
+#define VARY_SPLIT 5
 
 enum { P_DIST, P_ENERGY, P_TORT, P_HEIGHT, NP };
 
@@ -39,6 +49,7 @@ typedef struct {
     int32_t dist_l2, el_l2, height_l2;
     uint32_t tort_q8;
     uint16_t dropped;
+    tx_vary_t vy;
 } thunder_t;
 
 static void set_param(thunder_t *s, unsigned id, unsigned v)
@@ -69,10 +80,12 @@ static void thunder_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((thunder_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void thunder_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((thunder_t *)st)->vy);
     tx_cloud_key(&((thunder_t *)st)->cloud, note, vel, on);
 }
 
@@ -109,11 +122,25 @@ static void flash(thunder_t *s, const tx_event_t *e)
         s->dropped++;
         cut(s, k);
     }
-    dl2 = s->dist_l2 - ((int32_t)e->note - 60) * 5461;
-    el2 = s->el_l2 + ((int32_t)e->vel - 100) * 1638;
-    el2 = el2 < 0 ? 0 : el2 > 435412 ? 435412 : el2;
-    lv = (int32_t)(((uint32_t)e->vel * e->vel * 2u * (uint32_t)s->level) >> 15);
-    tx_flash_start(&s->fl[k], &s->cloud.rng, tx_exp2(dl2), tx_exp2(s->height_l2), s->tort_q8, el2, lv);
+    /* no two flashes alike (the user's session 4: "the same type of thunder every time"): each its own distance
+     * (+-0.4 oct, and +-0.8 more with the press's tone: a crack nearer .. a rumble farther; its level change halved,
+     * so the loudness stays playable), start height (+-0.6 oct: a short low channel .. a long one), tortuosity
+     * (x 0.5 .. 2) and energy per length (+-0.25 oct); the stroke count when held stays the cloud's */
+    {
+        tx_rng_t *r = &s->cloud.rng;
+        int32_t hl2 = s->height_l2 + ((tx_rand_s15(r) * 39322) >> 15);
+        uint32_t tq = tx_vary_scale(s->tort_q8, tx_rand_s15(r) * 2);
+        int32_t dj = ((tx_rand_s15(r) * 26214) >> 15) - tx_vary_tone(&s->vy);   /* (the tone: brighter = nearer) */
+        dl2 = s->dist_l2 - ((int32_t)e->note - 60) * 5461 + dj;
+        el2 = s->el_l2 + ((int32_t)e->vel - 100) * 1638 + (tx_rand_s15(r) >> 1);
+        el2 = el2 < 0 ? 0 : el2 > 435412 ? 435412 : el2;
+        dl2 = dl2 < 458752 ? 458752 : dl2 > 983040 ? 983040 : dl2;    /* 128 m .. 32 km */
+        hl2 = hl2 < 524288 ? 524288 : hl2 > 851968 ? 851968 : hl2;    /* 256 m .. 8 km */
+        lv = (int32_t)(((uint32_t)e->vel * e->vel * 2u * (uint32_t)s->level) >> 15);
+        lv = (int32_t)tx_vary_scale((uint32_t)lv, dj >> 1);
+        lv = lv > 32767 ? 32767 : lv;
+        tx_flash_start(&s->fl[k], r, tx_exp2(dl2), tx_exp2(hl2), tq < 32u ? 32u : tq > 2048u ? 2048u : tq, el2, lv);
+    }
     s->em[k] = e->emitter; s->note[k] = e->note;
     s->next[k] = 1323u + (tx_cloud_exp_q8(&s->cloud, 882u << 8) >> 8);   /* 30 ms + exp(20 ms) */
 }
@@ -143,6 +170,7 @@ TX_AUDIO_CODE static void thunder_render(void *st, int32_t *mix, unsigned n)
         if (!f->active) { s->em[i] = 0xFF; s->next[i] = 0; }
     }
     tx_declick_run(&s->dc, buf, n);
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

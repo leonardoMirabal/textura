@@ -23,11 +23,21 @@
  * +6 dB / oct (radiation below coincidence, ours). The default SURFACE is wood as documented (50 was the tent). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 
-#define OUT_TRIM 4491               /* output gain, Q12 (+0.8 dB): integrated (a key held 10 s): -26.8 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 7540               /* output gain, Q12 (+0.8 dB): integrated (a key held 10 s): -26.8 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +4.5 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -130
+#define VARY_HI 15
+#define VARY_TILT 160
+#define VARY_DRIFT 60
+#define VARY_SPLIT 3
 
 enum { P_RATE, P_SURFACE, P_DROPS, P_AREA, P_INSIDE, NP };
 
@@ -74,6 +84,7 @@ typedef struct {
     uint8_t p[NP], limit, quiet, surf, nrain;
     int32_t level;
     uint16_t dropped;
+    tx_vary_t vy;
 } rain_t;
 
 #define MUL15(a, b) ((((a) >> 15) * (b)) + ((((a) & 0x7FFF) * (b)) >> 15))
@@ -178,10 +189,12 @@ static void rain_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((rain_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void rain_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((rain_t *)st)->vy);
     tx_cloud_key(&((rain_t *)st)->cloud, note, vel, on);
 }
 
@@ -218,7 +231,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
     k = tx_cloud_block(&s->cloud, s->ev, n);
     for (i = 0; i < k; i++) {                                /* a press: one big drop near you (2 .. 6 mm by key) */
         const tx_event_t *e = &s->ev[i];
-        int32_t dl2 = 718615 + (60 - (int32_t)e->note) * 3641;   /* log2(2000 um), 2^(1/18) bigger per key down */
+        int32_t dl2 = 718615 + (60 - (int32_t)e->note) * 3641 - (tx_vary_tone(&s->vy) >> 2);   /* brighter = smaller drops */   /* log2(2000 um), 2^(1/18) bigger per key down */
         uint32_t D = tx_exp2(dl2 < 718615 ? 718615 : dl2 > 822500 ? 822500 : dl2), L = 882u * D / 9100u / 10u;
         int32_t a = peak_of(D, 9100u) * e->vel * e->vel / 16129;   /* (<= 2^16 x 2^14: 32-bit) */
         a = (int32_t)(((int64_t)a * s->level) >> 15);
@@ -289,6 +302,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
     } else s->olp = 0;
     for (j = 0; j < CARRY; j++) { ex[j] = ex[n + j]; ex[n + j] = 0; }   /* the pulses' tails */
     for (j = CARRY; j < n; j++) ex[j] = 0;
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

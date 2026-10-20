@@ -21,13 +21,23 @@
  * Keys: a semitone smaller pieces per key up (C4 = SIZE); velocity = how hard they are thrown (energy). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_modal.h"
 #include "tx_core_contact.h"
 #include "tx_core_chorus.h"
 
-#define OUT_TRIM 7200               /* output gain, Q12 (+4.9 dB): integrated (a key held 10 s): -30.9 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 9939               /* output gain, Q12 (+4.9 dB): integrated (a key held 10 s): -30.9 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +2.8 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 2
 
 enum { P_DENSITY, P_SIZE, P_SPREAD, P_MINERAL, P_HARD, P_IRREG, P_ROOM, NP };
 
@@ -77,6 +87,7 @@ typedef struct {
     int32_t pinv;
     uint32_t pm;
     uint16_t dropped;
+    tx_vary_t vy;
 } cloud_t;
 
 static void set_room(cloud_t *s)
@@ -130,10 +141,12 @@ static void sc_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((cloud_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void sc_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((cloud_t *)st)->vy);
     tx_cloud_key(&((cloud_t *)st)->cloud, note, vel, on);
 }
 
@@ -269,6 +282,7 @@ TX_AUDIO_CODE static void sc_render(void *st, int32_t *mix, unsigned n)
             }
         }
     }
+    tx_vary_block(&s->vy, s->buf, n);
     tx_trim(s->buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

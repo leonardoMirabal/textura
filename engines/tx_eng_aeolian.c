@@ -19,12 +19,22 @@
  * against the references), and the 3 f lift partial 0.25 -> 0.08 (by ear before; the references show it weaker). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_aeolian.h"
 
-#define OUT_TRIM 3368               /* output gain, Q12 (-1.7 dB): integrated (a key held 10 s): -24.3 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 4650               /* output gain, Q12 (-1.7 dB): integrated (a key held 10 s): -24.3 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +2.8 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 4
 
 enum { P_WIND, P_GUST, P_WIRE, P_LOCK, P_ANGLE, NP };
 
@@ -57,6 +67,7 @@ typedef struct {
     uint8_t p[NP], limit, quiet;
     int32_t level, wind_l2, gust, gsd, d_l2, lock, sinA, cosA, benv, bfl;
     uint16_t dropped;
+    tx_vary_t vy;
 } aeol_t;
 
 static void set_param(aeol_t *s, unsigned id, unsigned v)
@@ -96,10 +107,12 @@ static void aeol_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((aeol_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void aeol_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((aeol_t *)st)->vy);
     tx_cloud_key(&((aeol_t *)st)->cloud, note, vel, on);
 }
 
@@ -209,6 +222,7 @@ TX_AUDIO_CODE static void aeol_render(void *st, int32_t *mix, unsigned n)
         g = (int32_t)(((int64_t)g * s->level) >> 15);
         tx_noise_roar_add(&s->bed, s->benv ? g : 0, buf, n);
     }
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     (void)nlive;

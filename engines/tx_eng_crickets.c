@@ -19,13 +19,23 @@
  * 8 virtual callers at the chirp rate (sounds while a key is held). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
 
-#define OUT_TRIM 7987               /* output gain, Q12 (+5.8 dB): integrated (a key held 10 s): -31.8 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 9276               /* output gain, Q12 (+5.8 dB): integrated (a key held 10 s): -31.8 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +1.3 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 160
+#define VARY_DRIFT 60
+#define VARY_SPLIT 0
 
 enum { P_TEMP, P_SPECIES, P_CHORUS, P_SYNC, P_DIST, P_FIELD, NP };
 
@@ -81,6 +91,7 @@ typedef struct {
     int32_t chirp_T;               /* the chirp period at TEMP, samples */
     int32_t dist_l2;
     uint16_t dropped;
+    tx_vary_t vy;
 } crickets_t;
 
 static const species_t *sp_of(const crickets_t *s) { return &SPECIES[(s->p[P_SPECIES] * NSP) >> 7]; }
@@ -147,10 +158,12 @@ static void crickets_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((crickets_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void crickets_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((crickets_t *)st)->vy);
     tx_cloud_key(&((crickets_t *)st)->cloud, note, vel, on);
 }
 
@@ -193,7 +206,7 @@ static void spawn(crickets_t *s, const tx_event_t *e)
         tx_chorus_place(&s->ch, ci, (tx_sin_q15((uint32_t)ang + 0x40000000u) * (rr >> 4)) >> 11,
                         (tx_sin_q15((uint32_t)ang) * (rr >> 4)) >> 11);
         c->gain = (int32_t)((uint32_t)G_REF * 1000u / (uint32_t)(rr < 300 ? 300 : rr));
-        f_l2 = ((int32_t)e->note - 60) * 2731;               /* a quarter tone per key (2^(1/24), Q16) */
+        f_l2 = ((int32_t)e->note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3);   /* a quarter tone per key (2^(1/24), Q16); the character (warmer = higher, faster) */
         if (k) f_l2 += (tx_gauss_q12(r) * 2789) >> 12;       /* companions: carrier CV 3 % (N1: 4.8-5.3 kHz) */
         c->inc = (uint32_t)(((uint64_t)sp->f0 * 97391u * tx_exp2(f_l2 + (16 << 16))) >> 16);
         c->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);    /* own period: CV 5 % (ours) */
@@ -235,7 +248,8 @@ TX_AUDIO_CODE static void crickets_render_raw(void *st, int32_t *mix, unsigned n
             g = g < 0 ? 0 : g;
             ln = (uint32_t)((int32_t)len + (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * (int32_t)len * 82) >> 22));
             c->slot ^= 1u;
-            tx_itone_start(&c->tone[c->slot], c->inc, sp->glide, ln, g > 32767 ? 32767 : g, sp->h2, sp->h3,
+            tx_itone_start(&c->tone[c->slot], tx_vary_scale(c->inc, tx_vary_drift(&s->vy) >> 3), sp->glide,   /* (the night warms, cools) */
+                           ln, g > 32767 ? 32767 : g, sp->h2, sp->h3,
                            (unsigned)c->pc);
             c->tone[c->slot].rasp = 3300;                    /* the teeth's rasp ~-20 dB under the tone (recordings: */
             if (!c->tone[c->slot].nz) c->tone[c->slot].nz = c->inc | 1u;   /* carrier band 18-24 dB over the rest) */
@@ -275,6 +289,8 @@ TX_AUDIO_CODE static void crickets_render(void *st, int32_t *mix, unsigned n)
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) b[j] = 0;
     crickets_render_raw(st, b, n);
+    tx_vary_block(&((crickets_t *)st)->vy, b, n);
+    if (((crickets_t *)st)->vy.lp) ((crickets_t *)st)->quiet = 0;          /* the split still settling */
     tx_trim_add(b, mix, n, OUT_TRIM);
 }
 

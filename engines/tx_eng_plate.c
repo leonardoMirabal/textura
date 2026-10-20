@@ -19,12 +19,22 @@
  *            down as it decays. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_plate.h"
 
-#define OUT_TRIM 4703               /* output gain, Q12 (+1.2 dB): max momentary (one velocity-100 press): -21.2 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 7540               /* output gain, Q12 (+1.2 dB): max momentary (one velocity-100 press): -21.2 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +4.1 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -130
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 2
 
 enum { P_SIZE, P_THICK, P_MALLET, P_CRASH, P_DAMP, NP };
 
@@ -58,6 +68,7 @@ typedef struct {
     uint32_t h_um, fc_hz, crash, sig_q8, fk;
     int32_t level;
     uint8_t p[NP], nm, limit, quiet, dirty;
+    tx_vary_t vy;
 } plate_t;
 
 static void set_param(plate_t *s, unsigned id, unsigned v)
@@ -144,10 +155,12 @@ static void plate_init(void *st, uint32_t seed)
     s->level = tx_level_q15(100);
     s->quiet = 1;
     modes(s);
+    tx_vary_init(&((plate_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void plate_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((plate_t *)st)->vy);
     tx_cloud_key(&((plate_t *)st)->cloud, note, vel, on);
 }
 
@@ -310,6 +323,8 @@ TX_AUDIO_CODE static void plate_render(void *st, int32_t *mix, unsigned n)
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) b[j] = 0;
     plate_render_raw(st, b, n);
+    tx_vary_block(&((plate_t *)st)->vy, b, n);
+    if (((plate_t *)st)->vy.lp) ((plate_t *)st)->quiet = 0;          /* the split still settling */
     tx_trim_add(b, mix, n, OUT_TRIM);
 }
 

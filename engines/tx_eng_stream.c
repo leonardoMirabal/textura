@@ -19,12 +19,22 @@
  * sizes over 5 octaves (centre / 4 .. x 8) and amplitude ~ a^1/4 (the brook references: flat 0.5-5 kHz). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_bubble.h"
 #include "tx_core_noise.h"
 
-#define OUT_TRIM 5400               /* output gain, Q12 (+2.4 dB): integrated (a key held 10 s) at -26 LUFS, LEVEL 100
+#define OUT_TRIM 8757               /* output gain, Q12 (+2.4 dB): integrated (a key held 10 s) at -26 LUFS, LEVEL 100
                                     * (LOUDNESS.md; re-set with the water-only default, session 2) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +4.2 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -130
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 2
 
 enum { P_FLOW, P_SIZE, P_SPREAD, P_NEAR, P_EDDY, P_ROAR, NP };
 
@@ -57,6 +67,7 @@ typedef struct {
     uint8_t p[NP], limit, quiet, pad;
     int32_t level;
     uint16_t dropped;
+    tx_vary_t vy;
 } stream_t;
 
 static uint32_t isqrt_s(uint32_t x)
@@ -99,10 +110,12 @@ static void stream_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((stream_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void stream_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((stream_t *)st)->vy);
     tx_cloud_key(&((stream_t *)st)->cloud, note, vel, on);
 }
 
@@ -204,6 +217,7 @@ TX_AUDIO_CODE static void stream_render(void *st, int32_t *mix, unsigned n)
     tx_bubbles_render(s->b, &s->pool, &s->dc, buf, n);
     tx_pool_tick(&s->pool);
     tx_declick_run(&s->dc, buf, n);
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

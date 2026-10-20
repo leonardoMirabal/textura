@@ -9,20 +9,30 @@
  * (how far each echo is smeared). The high chirp chain is dropped (D2b: >= 30 dB down). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_disperse.h"
 
-#define OUT_TRIM 44912               /* output gain, Q12 (+20.8 dB): max momentary (one velocity-100 press): -44.8 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 50975               /* output gain, Q12 (+20.8 dB): max momentary (one velocity-100 press): -44.8 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 2.0 dB: the limiter under ~8 dB in the default chord) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +1.1 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 3
 
 enum { P_LENGTH, P_RADIUS, P_DECAY, P_CHIRP, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"LENGTH", 127, 64, "echo period T_D at C4: 20 .. 80 ms (log) (wire length, turns; keys: a semitone each)"},
+    {"LENGTH", 127, 100, "echo period T_D at C4: 20 .. 80 ms (log) (wire length, turns; keys: a semitone each)"},
     {"RADIUS", 127, 64, "transition frequency F_C: 1.5 .. 5 kHz (log) (thick wire on a narrow helix = higher, brighter)"},
-    {"DECAY", 127, 80, "loop gain per echo: 0.5 .. 0.95 (short splash .. long rattle)"},
-    {"CHIRP", 127, 64, "dispersion: 10 .. 40 allpass sections at fs/4 (a click .. a long descending chirp per echo)"},
+    {"DECAY", 127, 112, "loop gain per echo: 0.5 .. 0.96 (short splash .. long rattle)"},
+    {"CHIRP", 127, 84, "dispersion: 10 .. 40 allpass sections at fs/4 (a click .. a long descending chirp per echo)"},
 };
 
 #define NV 3u
@@ -35,10 +45,14 @@ typedef struct {
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t buf[TX_BLOCK];
     uint8_t note[NV], age[NV];
+    int32_t pk[NV][3];             /* the kick's tail: up to 3 more knocks, one per block (Q15, signed) */
+    int32_t jt[NV], jf[NV], jg[NV];   /* this spring's own: T_D and F_C (log2 Q16), loop gain (Q15) offsets */
+    uint32_t ring[NV], tmax[NV];   /* samples since the last kick; the bound (the loop's 66 dB, at most 18 s) */
     uint8_t p[NP], limit, quiet;
     int32_t level, td_l2;
     uint32_t fc, m, g;
     uint16_t dropped;
+    tx_vary_t vy;
 } spring_t;
 
 static void set_param(spring_t *s, unsigned id, unsigned v)
@@ -49,7 +63,7 @@ static void set_param(spring_t *s, unsigned id, unsigned v)
     switch (id) {
     case P_LENGTH: s->td_l2 = 935968 + (int32_t)(v * 1032u); break;       /* log2(20000 us) + v x 2 oct / 127 */
     case P_RADIUS: s->fc = tx_knob_exp(v, 1500u, 113808); break;          /* 1.5 .. 5 kHz (1.74 oct) */
-    case P_DECAY: s->g = 16384u + v * 116u; break;                       /* 0.5 .. 0.95, Q15 */
+    case P_DECAY: s->g = 16384u + v * 118u; break;                       /* 0.5 .. 0.96, Q15 */
     case P_CHIRP: s->m = 10u + (v * 30u) / 127u; break;     /* (40 at most: the CPU rule) */
     default: break;
     }
@@ -69,10 +83,12 @@ static void spring_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((spring_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void spring_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((spring_t *)st)->vy);
     tx_cloud_key(&((spring_t *)st)->cloud, note, vel, on);
 }
 
@@ -91,8 +107,15 @@ static void spring_param(void *st, uint8_t id, uint8_t val)
 
 static void configure(spring_t *s, unsigned i)
 {
-    int32_t l = s->td_l2 - ((int32_t)s->note[i] - 60) * 5461;
-    tx_spring_set(&s->sp[i], tx_exp2(l), s->fc, s->m, (int32_t)s->g);
+    int32_t l = s->td_l2 - ((int32_t)s->note[i] - 60) * 5461 + s->jt[i], g = (int32_t)s->g + s->jg[i];
+    uint32_t td = tx_exp2(l), lq;
+    g = g > 31785 ? 31785 : g;
+    tx_spring_set(&s->sp[i], td, tx_vary_scale(s->fc, s->jf[i]), s->m, g);
+    /* a time bound: the echoes fall 66 dB after 10.96 / -log2(g) passes of T_D (the loop's rounding keeps a floor
+     * ringing at a high F_C and a long DECAY: it is stopped there, as the chimes stop at 3 T60) */
+    lq = tx_neglog2_q12((uint32_t)g << 17);
+    s->tmax[i] = (44892u / (lq ? lq : 1u)) * (td * 441u / 10000u);
+    if (s->tmax[i] > 793800u) s->tmax[i] = 793800u;
 }
 
 static void kick(spring_t *s, const tx_event_t *e)
@@ -106,9 +129,25 @@ static void kick(spring_t *s, const tx_event_t *e)
         s->dropped++;
         tx_spring_init(&s->sp[k]);
     }
-    s->note[k] = e->note; s->age[k] = 0;
+    if (!s->sp[k].active || s->note[k] != e->note) {   /* a spring at rest: which one of the tank, how tense (ours) */
+        tx_rng_t *r = &s->cloud.rng;
+        s->jt[k] = (tx_rand_s15(r) * 9830) >> 15;           /* T_D +-0.15 oct */
+        s->jf[k] = 0;                                        /* (F_C: not jittered, it moves the dispersion's
+                                                              * stretch k, which costs CPU at the worst case) */
+        s->jg[k] = (tx_rand_s15(r) * 983) >> 15;            /* loop gain +-0.03 */
+    }
+    s->note[k] = e->note; s->age[k] = 0; s->ring[k] = 0;
     configure(s, k);
-    tx_spring_kick(&s->sp[k], (int32_t)(((int64_t)KICK * e->vel * e->vel / 16129 * s->level) >> 15));
+    {   /* no two kicks alike (the user's session 3): the level +-2 dB, and a kick is a knock plus 1-3 smaller ones of
+         * either sign in the next blocks (a tank knocked chatters; ours) */
+        tx_rng_t *r = &s->cloud.rng;
+        int32_t a = (int32_t)(((int64_t)KICK * e->vel * e->vel / 16129 * s->level) >> 15), j;
+        unsigned nk = 1u + tx_rand_below(r, 3u);
+        a = (int32_t)(((int64_t)a * tx_exp2((tx_rand_s15(r) * 21) / 32 + (16 << 16))) >> 16);   /* +-0.33 oct */
+        tx_spring_kick(&s->sp[k], (tx_rand(r) & 1u) ? a : -a);
+        for (j = 0; j < 3; j++)
+            s->pk[k][j] = (unsigned)j < nk ? (int32_t)(((int64_t)a * (3277 + (int32_t)tx_rand_below(r, 13107u))) >> 15) * ((tx_rand(r) & 1u) ? 1 : -1) : 0;
+    }
 }
 
 TX_AUDIO_CODE static void spring_render(void *st, int32_t *mix, unsigned n)
@@ -124,9 +163,16 @@ TX_AUDIO_CODE static void spring_render(void *st, int32_t *mix, unsigned n)
     for (i = 0; i < NV; i++) {
         if (!s->sp[i].active) continue;
         configure(s, i);                                     /* the knobs act on ringing springs too */
+        if (s->pk[i][0]) {                                   /* the kick's tail, one knock per block */
+            tx_spring_kick(&s->sp[i], s->pk[i][0]);
+            s->pk[i][0] = s->pk[i][1]; s->pk[i][1] = s->pk[i][2]; s->pk[i][2] = 0;
+        }
         tx_spring_add(&s->sp[i], buf, n);
         if (s->age[i] < 255u) s->age[i]++;
+        s->ring[i] += n;
+        if (s->ring[i] > s->tmax[i] && !s->pk[i][0]) tx_spring_init(&s->sp[i]);
     }
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

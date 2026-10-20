@@ -23,13 +23,23 @@
  * Keys: log size (a semitone per key: lower = bigger: deeper pops, more heat); velocity = the throw's burst size. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
 
-#define OUT_TRIM 5589               /* output gain, Q12 (+2.7 dB): integrated (a key held 10 s): -41.6 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 7036               /* output gain, Q12 (+2.7 dB): integrated (a key held 10 s): -41.6 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +2.0 dB with it: the mean of 8 presses back on its
+ * loudness (held by the peak bound: raw peaks at most 1 dB over the old ones) */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 1
 
 enum { P_SIZE, P_MOIST, P_WOOD, P_DRAUGHT, P_BURSTY, P_ROAR, NP };
 
@@ -76,6 +86,7 @@ typedef struct {
     int32_t level, d_l2, pinv;
     uint32_t pm;
     uint16_t dropped;
+    tx_vary_t vy;
 } fire_t;
 
 static void set_wood(fire_t *s)
@@ -141,10 +152,12 @@ static void fire_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((fire_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void fire_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((fire_t *)st)->vy);
     tx_cloud_key(&((fire_t *)st)->cloud, note, vel, on);
 }
 
@@ -263,6 +276,7 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
     }
     for (i = 0; i < NB; i++) tx_ireso_add(&s->bank[i], s->off, s->amp, ne, s->buf, n);
     for (i = 0; i < NH; i++) { tx_ireso_add(&s->hero[i], &s->hoff[i], &s->hamp[i], s->hnum[i], s->buf, n); s->hnum[i] = 0; }
+    tx_vary_block(&s->vy, s->buf, n);
     tx_trim(s->buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

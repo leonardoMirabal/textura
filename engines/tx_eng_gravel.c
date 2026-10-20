@@ -15,12 +15,22 @@
  * Q 4-12) for a container or a wooden floor, 0 = open ground. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_shaker.h"
 #include "tx_core_noise.h"
 
-#define OUT_TRIM 12658               /* output gain, Q12 (+9.8 dB): integrated (a key held 10 s): -39.5 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 14702               /* output gain, Q12 (+9.8 dB): integrated (a key held 10 s): -39.5 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +1.3 dB with it: the mean of 8 presses back on its
+ * loudness (held by the peak bound: raw peaks at most 1 dB over the old ones) */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 60
+#define VARY_DRIFT 40
+#define VARY_SPLIT 0
 
 enum { P_SIZE, P_AMOUNT, P_SHAKE, P_RATE, P_SPREAD, P_GROUND, NP };
 
@@ -61,6 +71,7 @@ typedef struct {
     uint32_t n_q4, t60;
     int32_t vary;
     uint16_t dropped;
+    tx_vary_t vy;
 } gravel_t;
 
 static void set_param(gravel_t *s, unsigned id, unsigned v)
@@ -100,10 +111,12 @@ static void gravel_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((gravel_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void gravel_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((gravel_t *)st)->vy);
     tx_cloud_key(&((gravel_t *)st)->cloud, note, vel, on);
 }
 
@@ -146,14 +159,15 @@ static void shake(gravel_t *s, const tx_event_t *e)
         v->alive = 1; v->em = e->emitter; v->note = e->note;
     }
     {                                                        /* (re)configure: the knobs apply at every shake */
-        d_l2 = s->size_l2 - ((int32_t)e->note - 60) * 2731;
+        int32_t tn = tx_vary_tone(&s->vy);                   /* the press's character: brighter = finer, */
+        d_l2 = s->size_l2 - ((int32_t)e->note - 60) * 2731 - tn;   /* at the same level (playable) */
         if (d_l2 < -65536) d_l2 = -65536;                    /* 0.5 .. 64 mm */
         if (d_l2 > 393216) d_l2 = 393216;
         f_l2 = L2_F15 - (int32_t)(((int64_t)(d_l2 - L2_D15) * 27394) >> 16);   /* f ~ d^-0.418 */
         r = 15270 + (int32_t)(((int64_t)(d_l2 - L2_D15) * 627) >> 16);          /* r: 0.843 @3 mm, 0.932 @15 mm */
         r = r < 9830 ? 9830 : r > 16000 ? 16000 : r;
         tx_shaker_res(&v->sh, 0, tx_exp2(f_l2 > 935000 ? 935000 : f_l2), r);
-        amp_l2 = d_l2 - L2_D15;                              /* level ~ d (ours), +-3 octaves */
+        amp_l2 = d_l2 - L2_D15 + tn;                         /* level ~ d (ours), +-3 octaves */
         amp_l2 = amp_l2 > (3 << 16) ? (3 << 16) : amp_l2 < -(3 << 16) ? -(3 << 16) : amp_l2;
         tx_shaker_objects(&v->sh, s->n_q4,
                           (int32_t)(((uint64_t)tx_exp2(BASE_L2 + amp_l2 + (11 << 16)) * (uint32_t)s->level) >> 15));
@@ -188,6 +202,7 @@ TX_AUDIO_CODE static void gravel_render(void *st, int32_t *mix, unsigned n)
     } else
         for (i = 0; i < NG; i++) s->ground[i].low = s->ground[i].band = 0;
     tx_declick_run(&s->dc, buf, n);
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

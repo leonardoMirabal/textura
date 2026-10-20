@@ -23,13 +23,23 @@
  * stone; above, every strike is a new stone (shape, tuning, Q, strike point and speed drawn; ours). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_modal.h"
 #include "tx_core_contact.h"
 
-#define OUT_TRIM 9713               /* output gain, Q12 (+7.5 dB): max momentary (one velocity-100 press): -29.5 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 13879               /* output gain, Q12 (+7.5 dB): max momentary (one velocity-100 press): -29.5 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 2.0 dB: the limiter under ~8 dB in the default chord) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +3.1 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 140
+#define VARY_DRIFT 40
+#define VARY_SPLIT 3
 
 enum { P_MATERIAL, P_SHAPE, P_MALLET, P_DAMP, P_POS, P_TUNE, P_VARY, NP };
 
@@ -77,6 +87,7 @@ typedef struct {
     int32_t level, f1_l2;
     uint32_t q_x16, s0_q8;
     uint16_t dropped;
+    tx_vary_t vy;
 } drum_t;
 
 static unsigned shape_of(const drum_t *s) { return (unsigned)(s->p[P_SHAPE] * 3u) >> 7; }
@@ -108,10 +119,12 @@ static void drum_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((drum_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void drum_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((drum_t *)st)->vy);
     tx_cloud_key(&((drum_t *)st)->cloud, note, vel, on);
 }
 
@@ -211,6 +224,8 @@ static void hit(drum_t *s, const tx_event_t *e, unsigned *which)
     lv = 65536 + ((int32_t)e->vel - 100) * 1638;            /* 2 m/s at v100, +-1 octave per 40 */
     lv += (tx_rand_s15(&s->cloud.rng) * s->p[P_VARY]) >> 7;  /* no two hits alike: +-0.4 oct of speed at VARY 100 */
     tx_contact_hit(&s->mallet, lv, &tc, &ev);
+    tc = tx_vary_scale(tc, -(tx_vary_tone(&s->vy) >> 1));    /* the press's tone: a harder / softer blow */
+    if (tc < 1u) tc = 1u;
     a = (int32_t)(((int64_t)A_REF * (int32_t)tx_exp2(lv + (15 << 16))) >> 16);   /* ~ v: 2 m/s -> A_REF */
     a = (int32_t)(((int64_t)a * (32768 + ev)) >> 16);         /* x (1 + e) / 2 */
     a = (int32_t)(((int64_t)a * s->level) >> 15);
@@ -230,7 +245,8 @@ static void hit(drum_t *s, const tx_event_t *e, unsigned *which)
         /* the attack residue: the many short-lived high modes a real stone has beyond the NM kept (and the contact's
          * own noise), as a ~3 ms low-passed noise burst weighted by the force spectrum at 4 kHz (ours; by the reference: the
          * first 10 ms of a hammer on a ringing rock is ~2.4 kHz centroid, > 4 kHz at -15 dB) */
-        s->res += (int32_t)(((int64_t)(a >> 1) * tx_contact_weight(tc, 4000u)) >> 15);
+        s->res += (int32_t)(((int64_t)(int32_t)tx_vary_scale((uint32_t)(a >> 1), tx_vary_tone(&s->vy) >> 1)
+                             * tx_contact_weight(tc, 4000u)) >> 15);   /* (brighter: more of it) */
     }
     v->alive = 1; v->note = e->note; v->a0 = a;
     {   /* micro-collisions: hard mallets bounce (stone / wood), 0-2 within 15 ms */
@@ -303,6 +319,7 @@ TX_AUDIO_CODE static void drum_render(void *st, int32_t *mix, unsigned n)
         }
         s->res = e; s->res_x1 = e ? x1 : 0;
     }
+    tx_vary_block(&s->vy, s->buf, n);
     tx_trim(s->buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

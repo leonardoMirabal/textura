@@ -22,13 +22,23 @@
  * tremolo read as synthetic), the roar is broader (Q 0.5) and lower (from 120 Hz), and quieter at the default. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_pulse.h"
 
-#define OUT_TRIM 10650               /* output gain, Q12 (+8.3 dB): integrated (a key held 10 s): -39.9 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 11410               /* output gain, Q12 (+8.3 dB): integrated (a key held 10 s): -39.9 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 1.9 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +0.6 dB with it, held there by the max scene under +24.1 dBFS (its mean
+ * loudness below the old one) */
+#define VARY_LO -100
+#define VARY_HI 0                  /* (no boost: the max scene stays under +24.1 dBFS) */
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 3
 
 enum { P_SIZE, P_FLOW, P_SLOPE, P_SPACING, P_DRAUGHT, P_SPUTTER, NP };
 
@@ -69,6 +79,7 @@ typedef struct {
     int32_t draught;               /* Q15 */
     int32_t gust;                  /* slow random gain, Q15 signed */
     uint16_t dropped;
+    tx_vary_t vy;
 } candle_t;
 
 static uint32_t isqrt32(uint32_t x)
@@ -127,10 +138,12 @@ static void candle_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((candle_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void candle_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((candle_t *)st)->vy);
     tx_cloud_key(&((candle_t *)st)->cloud, note, vel, on);
 }
 
@@ -247,6 +260,7 @@ TX_AUDIO_CODE static void candle_render(void *st, int32_t *mix, unsigned n)
     g = (int32_t)(((uint64_t)(uint32_t)g * (uint32_t)s->level) >> 15);
     tx_noise_roar_add(&s->roar, g, buf, n);
     tx_pulses_add(&s->ticks, buf, n);
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

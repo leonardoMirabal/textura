@@ -26,13 +26,23 @@
  * together first (a Hertz pulse ~0.2 ms: the user expects a percussive start). Ours, set against the references. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_pulse.h"
 #include "tx_core_scrape.h"
 
-#define OUT_TRIM 7284               /* output gain, Q12 (+5.0 dB): integrated (a key held 10 s): -31.0 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 10055               /* output gain, Q12 (+5.0 dB): integrated (a key held 10 s): -31.0 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +2.8 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 3
 
 enum { P_STONE, P_SIZE, P_PRESSURE, P_SPEED, P_ROUGH, P_STICK, NP };
 
@@ -81,6 +91,7 @@ typedef struct {
     int32_t press_l2, speed_l2;    /* log2(F / 5 N), log2(v / 0.1 m/s), Q16 */
     int32_t stick;                 /* Q15 */
     uint16_t dropped;
+    tx_vary_t vy;
 } mineral_t;
 
 static void set_param(mineral_t *s, unsigned id, unsigned v)
@@ -121,10 +132,12 @@ static void mineral_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((mineral_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void mineral_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((mineral_t *)st)->vy);
     tx_cloud_key(&((mineral_t *)st)->cloud, note, vel, on);
 }
 
@@ -171,6 +184,7 @@ static void press(mineral_t *s, const tx_event_t *e)
     }
     v->em = e->emitter; v->note = e->note; v->vel = e->vel;
     v->honk = 0;                                             /* F5: a light tap restores the groan */
+    v->sc.wait = 0;                                          /* the first impact now (no wait left from a stopping rub) */
     {   /* the stones meet: a knock (a Hertz pulse ~0.2 ms, ~ velocity) before the rub (the user expects a percussive
          * start; ours) */
         int32_t a = (int32_t)e->vel * e->vel;                /* Q15 x 1/2 */
@@ -184,7 +198,7 @@ static void control(mineral_t *s, voice_t *v)
 {
     tx_rng_t *r = &s->cloud.rng;
     int held = v->em < TX_CLOUD_EMITTERS && s->cloud.em[v->em].held && s->cloud.em[v->em].note == v->note;
-    int32_t f1 = s->f1_l2 + ((int32_t)v->note - 60) * 5461, pl2, vl2, rough = s->p[P_ROUGH] * 258, a_l2, fsp;
+    int32_t f1 = s->f1_l2 + ((int32_t)v->note - 60) * 5461 + (tx_vary_tone(&s->vy) >> 2), pl2, vl2, rough = s->p[P_ROUGH] * 258, a_l2, fsp;
     uint32_t i, fc, sp_mm;
     v->nm = 0;
     for (i = 0; i < NM; i++) {                               /* bar modes under fs/6 */
@@ -286,6 +300,7 @@ TX_AUDIO_CODE static void mineral_render(void *st, int32_t *mix, unsigned n)
         }
     }
     tx_declick_run(&s->dc, buf, n);
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

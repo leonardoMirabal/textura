@@ -19,13 +19,23 @@
  * Keys: the piece's length (a semitone per key); velocity = how hard it is bent (crack sizes, creak level). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_modal.h"
 #include "tx_core_insect.h"
 #include "tx_core_creak.h"
 
-#define OUT_TRIM 5989               /* output gain, Q12 (+3.3 dB): max momentary (one velocity-100 press): -23.3 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 7716               /* output gain, Q12 (+3.3 dB): max momentary (one velocity-100 press): -23.3 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +2.2 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 2
 
 enum { P_LOAD, P_WOOD, P_MOIST, P_CREAK, P_PITCH, P_SIZE, NP };
 
@@ -61,7 +71,7 @@ typedef struct {
     int32_t afs[NAF];              /* their sizes (Q12 log2 under the main) */
     int32_t cenv, cgoal;           /* creak burst envelope, Q15 */
     uint32_t f1;
-    uint8_t em, note, vel, alive, held, snapped, pad[2];
+    uint8_t em, note, vel, alive, held, snapped, rel, pad;   /* rel: how fast the hands let go (the creak's fade, 2^-rel per block) */
 } piece_t;
 
 typedef struct {
@@ -77,6 +87,7 @@ typedef struct {
     int32_t level, size_l2;
     uint32_t q_x16, c, tau_s;      /* tau in samples (0 = never) */
     uint16_t dropped;
+    tx_vary_t vy;
 } wood_t;
 
 static void set_param(wood_t *s, unsigned id, unsigned v)
@@ -108,10 +119,12 @@ static void wood_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((wood_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void wood_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((wood_t *)st)->vy);
     tx_cloud_key(&((wood_t *)st)->cloud, note, vel, on);
 }
 
@@ -150,12 +163,16 @@ static void take(wood_t *s, const tx_event_t *e)
     for (i = 0; i < s->limit && !p; i++) if (piece_quiet(&s->pc[i])) p = &s->pc[i];
     for (i = 0; i < s->limit && !p; i++) if (!s->pc[i].alive) p = &s->pc[i];
     if (!p) { s->dropped++; return; }
-    p->f1 = tx_exp2(tx_log2_q16(s->c) - 267150 - s->size_l2 + ((int32_t)e->note - 60) * 5461);   /* 0.059 c / L */
+    p->f1 = tx_exp2(tx_log2_q16(s->c) - 267150 - s->size_l2 + ((int32_t)e->note - 60) * 5461 + (tx_vary_tone(&s->vy) >> 2));   /* 0.059 c / L */
+    {   /* no two pieces alike: the grain's loss (Q x 2^+-1) and the grip (sigma0 5 .. 80 /s) are this piece's */
+        uint32_t q = tx_vary_scale(s->q_x16, tx_rand_s15(&s->cloud.rng) * 2);
+        uint32_t grip = (5u + tx_rand_below(&s->cloud.rng, 76u)) * 256u;
     for (k = 0; k < NMW; k++) {
         uint32_t f = (p->f1 * BAR_R[k]) >> 10;
         p->m[k].inc = f < 20000u ? f * 97391u : 0u;
-        p->m[k].m16 = f < 20000u ? tx_mode_decay(f, s->q_x16, 25u * 256u) : 0u;
+        p->m[k].m16 = f < 20000u ? tx_mode_decay(f, q < 16u ? 16u : q, grip) : 0u;
         if (!p->m[k].inc) p->m[k].amp = 0;
+    }
     }
     {
         static const uint16_t CR[NR] = {1024, 1536, 2823};   /* creak body: f1, 1.5 f1 (ours), f2 */
@@ -172,6 +189,7 @@ static void take(wood_t *s, const tx_event_t *e)
     p->tau = s->tau_s ? s->tau_s - (s->tau_s >> 2) + (uint32_t)(((uint64_t)s->tau_s * (tx_rand(&s->cloud.rng) >> 16)) >> 17) : 0u;   /* +-25 % (ours) */ p->next_q8 = 0; p->snapped = 0;
     for (k = 0; k < NAF; k++) p->af[k] = 0;
     p->cenv = 0; p->cgoal = 32767;
+    p->rel = (uint8_t)(2u + tx_rand_below(&s->cloud.rng, 5u));   /* let go in ~20 .. 300 ms (ours) */
     p->em = e->emitter; p->note = e->note; p->vel = e->vel; p->alive = 1; p->held = 1;
 }
 
@@ -259,7 +277,7 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
             {   /* the creak: bursts while bent (a slow envelope toward a random goal, ours) */
                 int32_t lvl;
                 if (p->held && !p->snapped && (tx_rand(r) >> 26) == 0) p->cgoal = (int32_t)(tx_rand(r) >> 17);
-                p->cenv += (p->cgoal - p->cenv) >> 4;
+                p->cenv += (p->cgoal - p->cenv) >> (p->held ? 4u : p->rel);
                 lvl = (int32_t)(((int64_t)p->cenv * s->p[P_CREAK] * (40 + p->vel)) >> 15);   /* Q15-ish slip size */
                 lvl = (int32_t)(((int64_t)lvl * s->level) >> 15);
                 if (lvl > 64) {
@@ -306,6 +324,7 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
         s->res = e; s->res_x1 = e ? x1 : 0;
         any |= e;
     }
+    tx_vary_block(&s->vy, s->buf, n);
     tx_trim(s->buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

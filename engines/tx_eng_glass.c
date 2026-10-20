@@ -19,12 +19,22 @@
  * Keys: SIZE shifts with the key (a semitone smaller shards per key up). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_modal.h"
 #include "tx_core_contact.h"
 
-#define OUT_TRIM 3486               /* output gain, Q12 (-1.4 dB): max momentary (one velocity-100 press): -18.6 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 4981               /* output gain, Q12 (-1.4 dB): max momentary (one velocity-100 press): -18.6 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +3.1 dB with it: the mean of 8 presses back on its
+ * loudness (held by the peak bound: raw peaks at most 1 dB over the old ones) */
+#define VARY_LO -130
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 2
 
 enum { P_ENERGY, P_SIZE, P_RING, P_BOUNCE, P_HEIGHT, NP };
 
@@ -71,6 +81,7 @@ typedef struct {
     int32_t level, size_l2, e_q15, h_l2;
     uint32_t q_x16;
     uint16_t dropped;
+    tx_vary_t vy;
 } glass_t;
 
 static void set_param(glass_t *s, unsigned id, unsigned v)
@@ -103,10 +114,12 @@ static void glass_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((glass_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void glass_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((glass_t *)st)->vy);
     tx_cloud_key(&((glass_t *)st)->cloud, note, vel, on);
 }
 
@@ -294,6 +307,7 @@ TX_AUDIO_CODE static void glass_render(void *st, int32_t *mix, unsigned n)
         s->res = e; s->res_x1 = e ? x1 : 0;
         any |= e;
     }
+    tx_vary_block(&s->vy, s->buf, n);
     tx_trim(s->buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

@@ -25,11 +25,21 @@
  * 0.8-4 kHz: one-pole high-pass, two-pole low-pass) instead of a 3 kHz low-pass (ours, set against the references). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 
-#define OUT_TRIM 3693               /* output gain, Q12 (-0.9 dB): integrated (a key held 10 s): -25.1 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 4869               /* output gain, Q12 (-0.9 dB): integrated (a key held 10 s): -25.1 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +2.4 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 120
+#define VARY_DRIFT 40
+#define VARY_SPLIT 0
 
 enum { P_GRAIN, P_ORIFICE, P_SURFACE, P_SIZE, P_HEIGHT, P_PULSE, NP };
 
@@ -79,6 +89,7 @@ typedef struct {
     uint8_t p[NP], limit, quiet;
     int32_t level, d_l2, d0_l2, size_l2, h_l2, pulse;
     uint16_t dropped;
+    tx_vary_t vy;
 } sand_t;
 
 static int32_t log2_q16(uint32_t x) { return (32 << 16) - (int32_t)(tx_neglog2_q12(x) << 4); }
@@ -112,10 +123,12 @@ static void sand_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((sand_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void sand_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((sand_t *)st)->vy);
     tx_cloud_key(&((sand_t *)st)->cloud, note, vel, on);
 }
 
@@ -286,6 +299,7 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
             v->tlp = tlp; v->wpos = w;
         }
     }
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

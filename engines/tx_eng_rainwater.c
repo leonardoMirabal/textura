@@ -16,11 +16,21 @@
  * DIST: the air between (a high-cut, ours) and 1 / r. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_bubble.h"
 
-#define OUT_TRIM 4491               /* output gain, Q12 (+0.8 dB): integrated (a key held 10 s): -26.8 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 5653               /* output gain, Q12 (+0.8 dB): integrated (a key held 10 s): -26.8 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +2.0 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 120
+#define VARY_DRIFT 60
+#define VARY_SPLIT 0
 
 enum { P_RATE, P_STORM, P_AREA, P_WIND, P_DIST, NP };
 
@@ -62,6 +72,7 @@ typedef struct {
     uint8_t p[NP], limit, quiet, pad;
     int32_t level;
     uint16_t dropped;
+    tx_vary_t vy;
 } rw_t;
 
 static uint32_t tx_isqrt_rw(uint32_t x)
@@ -122,10 +133,12 @@ static void rw_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((rw_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void rw_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((rw_t *)st)->vy);
     tx_cloud_key(&((rw_t *)st)->cloud, note, vel, on);
 }
 
@@ -295,6 +308,7 @@ TX_AUDIO_CODE static void rw_render(void *st, int32_t *mix, unsigned n)
         }
         s->olp = lp;
     }
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

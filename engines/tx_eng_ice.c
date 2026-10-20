@@ -23,10 +23,20 @@
  * cube's clink adds a few-sample spike (ice on glass is hard and light) and its burst is brighter too (ours). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_modal.h"
 #include "tx_core_contact.h"
 #include "tx_core_insect.h"
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM -1.5 dB with it, held there by the chord's limiter under ~8 dB (its mean
+ * loudness below the old one) */
+#define VARY_LO -130
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 1
 
 enum { P_ACTION, P_TEMP, P_AMOUNT, P_SIZE, P_FIZZ, NP };
 
@@ -41,7 +51,7 @@ static const tx_param_t PARAMS[NP] = {
 #define NV 8u                      /* ringing bodies (icicles or glasses) */
 #define NMB 4u
 #define NF 32u                     /* chunks */
-#define OUT_TRIM 25800             /* output gain, Q12 (+15.9 dB; LOUDNESS.md: a v100 icicle toward -20 LUFS max
+#define OUT_TRIM 21700             /* output gain, Q12 (+15.9 dB; LOUDNESS.md: a v100 icicle toward -20 LUFS max
                                     * momentary, held at -33.5 by its crack's crest: the default chord <= +12 dBFS and
                                     * the output limiter under ~8 dB) */
 #define A_REF 100000000            /* a mode's amplitude for a v100 impact (Q30; calibrated by render) */
@@ -79,6 +89,7 @@ typedef struct {
     int32_t level, size_l2;
     uint32_t q_x16, fizz;
     uint16_t dropped;
+    tx_vary_t vy;
 } ice_t;
 
 static unsigned cubes(const ice_t *s) { return s->p[P_ACTION] >= 64u; }
@@ -116,10 +127,12 @@ static void ice_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((ice_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void ice_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((ice_t *)st)->vy);
     tx_cloud_key(&((ice_t *)st)->cloud, note, vel, on);
 }
 
@@ -136,13 +149,14 @@ static void ice_param(void *st, uint8_t id, uint8_t val)
         set_param(s, id, val);
 }
 
-/* a body (icicle or glass) for this key, struck with a (Q30) */
-static void body_strike(ice_t *s, unsigned note, int32_t a, uint32_t tc)
+/* a body (icicle or glass) for this key, struck with a (Q30); fresh: a new icicle (its own length: +-0.3 oct, and
+ * the press's tone), not the one still ringing on this key */
+static void body_strike(ice_t *s, unsigned note, int32_t a, uint32_t tc, int fresh)
 {
     body_t *b = 0;
     unsigned i, k, cu = cubes(s);
     uint32_t f1;
-    for (i = 0; i < s->limit && !b; i++) if (s->b[i].used && s->b[i].note == note) b = &s->b[i];
+    for (i = 0; i < s->limit && !b && !fresh; i++) if (s->b[i].used && s->b[i].note == note) b = &s->b[i];
     for (i = 0; i < s->limit && !b; i++) if (!s->b[i].used) b = &s->b[i];
     if (!b) {
         int32_t lo = 0x7FFFFFFF;
@@ -150,9 +164,10 @@ static void body_strike(ice_t *s, unsigned note, int32_t a, uint32_t tc)
         s->dropped++;
     }
     if (!b) return;
-    if (!b->used || b->note != note) {
+    if (!b->used || b->note != note || fresh) {
+        int32_t own = fresh ? ((tx_rand_s15(&s->cloud.rng) * 19661) >> 15) + (tx_vary_tone(&s->vy) >> 1) : 0;
         if (cu) f1 = tx_exp2(539293 + s->size_l2 * 2 / 3 + ((int32_t)note - 60) * 5461);   /* 300 Hz x 2^(0..2) */
-        else f1 = tx_exp2(tx_log2_q16(3140u) - 267150 + 217706 - s->size_l2 + ((int32_t)note - 60) * 5461);   /* 0.059 c / L */
+        else f1 = tx_exp2(tx_log2_q16(3140u) - 267150 + 217706 - s->size_l2 + ((int32_t)note - 60) * 5461 + own);   /* 0.059 c / L */
         for (k = 0; k < NMB; k++) {
             uint32_t f = (f1 * (cu ? GLS_R[k] : ROD_R[k])) >> 10;
             b->m[k].amp = 0; b->m[k].ph = 0;
@@ -174,9 +189,10 @@ static void icicle(ice_t *s, const tx_event_t *e)
     int32_t lv = 65536 + ((int32_t)e->vel - 100) * 1638, er, a;
     uint32_t tc, n = 3u + ((uint32_t)s->p[P_AMOUNT] * 21u >> 7), j, i, c;
     tx_contact_hit(&s->mal, lv, &tc, &er);
+    tc = tx_vary_scale(tc, -(tx_vary_tone(&s->vy) >> 1)); if (tc < 1u) tc = 1u;   /* the press's tone: harder / softer */
     a = (int32_t)(((int64_t)A_REF * (int32_t)tx_exp2(lv - 65536 + (15 << 16))) >> 15);
     a = (int32_t)(((int64_t)a * s->level) >> 15);
-    body_strike(s, e->note, (int32_t)(((int64_t)a * 3277) >> 15), tc);    /* the rod rings -20 dB under the crack (the
+    body_strike(s, e->note, (int32_t)(((int64_t)a * 3277) >> 15), tc, 1);    /* the rod rings -20 dB under the crack (the
                                                               * icicle references: 0.5-0.8 kHz 15-25 dB under 5 kHz) */
     tx_mode_strike(&s->thud[0], a / 30);                     /* the ground (-20 dB: the references' 30-120 Hz) */
     tx_mode_strike(&s->thud[1], -a / 60);
@@ -219,10 +235,11 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
             if (x > 20400) x = 20400;
             lv = 65536 + ((int32_t)e->vel - 100) * 1638 - x * 8;
             tx_contact_hit(&s->mal, lv, &tc, &er);
+            tc = tx_vary_scale(tc, -(tx_vary_tone(&s->vy) >> 1)); if (tc < 1u) tc = 1u;   /* the press's tone: harder / softer */
             a = (int32_t)(((int64_t)A_REF / 5 * (int32_t)tx_exp2(lv - 65536 + (15 << 16))) >> 15);
             a = (int32_t)(((int64_t)a * s->level) >> 15);
             for (c = 0; c < nb; c++) {                       /* dropped in: a few clinks at once (ours) */
-                body_strike(s, e->note, c ? a >> c : a, tc);
+                body_strike(s, e->note, c ? a >> c : a, tc, 0);
                 s->bpush[e->offset] += a >> 5;
             }
             {   /* the cube meets the glass: ice on glass is hard and light, a contact of a few us, so the clink's own
@@ -294,6 +311,7 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
         int32_t v = s->buf[j] + s->spk[j];
         s->buf[j] = v > TX_Q23 ? TX_Q23 : v < -TX_Q23 ? -TX_Q23 : v;
     }
+    tx_vary_block(&s->vy, s->buf, n);
     tx_trim(s->buf, n, OUT_TRIM);                            /* the loudness target */
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

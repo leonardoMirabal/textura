@@ -20,12 +20,22 @@
  * (+9 dB, ~3 / s), a slow speed wander (+-0.5 oct) and a jittered turn (a periodic 5.7 Hz swell read as a wheel). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_scrape.h"
 
-#define OUT_TRIM 7453               /* output gain, Q12 (+5.2 dB): integrated (a key held 10 s): -31.2 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 7627               /* output gain, Q12 (+5.2 dB): integrated (a key held 10 s): -31.2 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +0.2 dB with it: the mean of 8 presses back on its
+ * loudness (held by the peak bound: raw peaks at most 1 dB over the old ones) */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 90
+#define VARY_DRIFT 60
+#define VARY_SPLIT 3
 
 enum { P_SIZE, P_SPEED, P_ROUGH, P_ROUND, P_SURFACE, P_DRAG, NP };
 
@@ -54,6 +64,7 @@ typedef struct {
     uint32_t rot;                  /* rotation phase */
     int32_t wander;                /* slow random speed wander (Q15, ~0.8 Hz): an uneven slope / table */
     int32_t r_l2;                  /* log2(r / 1 mm), Q16 */
+    int32_t rt;                    /* the press's character in r_l2 (its level change is taken back: playable) */
     uint8_t em, note, alive, pad;
 } voice_t;
 
@@ -72,6 +83,7 @@ typedef struct {
     uint32_t decel;                /* um/s lost per block */
     int32_t round;                 /* Q15 */
     uint16_t dropped;
+    tx_vary_t vy;
 } pebble_t;
 
 static uint32_t isqrt32(uint32_t x)
@@ -130,10 +142,12 @@ static void pebble_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((pebble_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void pebble_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((pebble_t *)st)->vy);
     tx_cloud_key(&((pebble_t *)st)->cloud, note, vel, on);
 }
 
@@ -176,12 +190,14 @@ static void push(pebble_t *s, const tx_event_t *e)
         v->rot = tx_rand(&s->cloud.rng);
     }
     v->em = e->emitter; v->note = e->note;
-    v->r_l2 = s->size_l2 - ((int32_t)e->note - 60) * 5461;
+    v->rt = tx_vary_tone(&s->vy);
+    v->r_l2 = s->size_l2 - ((int32_t)e->note - 60) * 5461 - v->rt;   /* brighter = smaller */
     if (v->r_l2 < 0) v->r_l2 = 0;                            /* >= 1 mm */
     v0 = tx_exp2(s->speed_l2);                               /* um/s */
     v0 = v0 * e->vel / 100u;                                 /* <= 2e6 x 127: 32-bit */
     if (v0 > v->v) v->v = v0;
-}
+    v->sc.wait = 0;                                          /* the first impact now (not a wait left over from a */
+}                                                            /* pebble that was slowing to a stop) */
 
 /* per block: the pebble's motion -> its contact (gap, Hertz length, level, rotation swell, cutoff) */
 static void roll(pebble_t *s, voice_t *v)
@@ -210,7 +226,7 @@ static void roll(pebble_t *s, voice_t *v)
     if (v->sc.kdur_q8 < (2u << 8)) v->sc.kdur_q8 = 2u << 8;
     if (v->sc.kdur_q8 > (64u << 8)) v->sc.kdur_q8 = 64u << 8;
     /* level ~ r^1.5 v (momentum), against r 10 mm at 0.3 m/s, and rougher = louder (h^0.5, ours) */
-    a_l2 = (3 * (v->r_l2 - 217706)) / 2 + (vl2 - 1192079) + (s->h_l2 - 217706) / 2;
+    a_l2 = (3 * (v->r_l2 - 217706 + v->rt)) / 2 + (vl2 - 1192079) + (s->h_l2 - 217706) / 2;
     {   /* irregularity (references: event-level std 5.6-7.2 dB, kurtosis 14-370): the contact's level jitters per block
          * (+-6 dB, triangular) and a bump or a grain of grit gives a louder burst at ~3 / s (+9 dB, ours) */
         tx_rng_t *r = &s->cloud.rng;
@@ -250,6 +266,7 @@ TX_AUDIO_CODE static void pebble_render(void *st, int32_t *mix, unsigned n)
     for (j = 0; j < n; j++) buf[j] = force[j] >> 1;         /* the contact itself (the clicks' edge) */
     tx_svf_bank_add_g(s->surf, s->sf, s->sq, s->sgin, s->sg, NM, force, buf, n);   /* the surface */
     tx_declick_run(&s->dc, buf, n);
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

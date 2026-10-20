@@ -268,6 +268,192 @@ static int run_ch(const tx_engine_t *e, const char *scene, const char *extra, ac
     return 0;
 }
 
+/* ---- variation: no two events may sound the same. The same key (C4) at the same velocity (100) is pressed 8 times,
+ * each press released after 150 ms and the next one only once the engine is quiet again (at most 25 s); the first
+ * 1.5 s after each press is the event's window. Every pair must differ: the normalized cross-correlation (the best
+ * lag within +-1 ms) under 0.9, and their dB envelopes (512-sample frames, louder than -70 dBFS) or their 1/3-octave
+ * spectra (100 Hz .. 16 kHz) at least 0.5 dB apart on average. The spread is reported: the std of the event's level (dB), brightness (zero-crossing rate, Hz) and
+ * length (to -40 dB under its peak, ms). */
+#define VAR_N 8
+#define VAR_WIN 66150u             /* 1.5 s */
+#define VAR_LAG 44
+static int32_t *var_buf[VAR_N];
+
+/* the window's 1/3-octave band levels (dB, 100 Hz .. 16 kHz: 23 bands) from an averaged 4096-point power spectrum */
+#define VAR_NB 23
+static void var_bands(const int32_t *x, double *db)
+{
+    static double re[4096], im[4096], pw[2049];
+    unsigned f, i, j, k, m, nfr = VAR_WIN / 4096u;
+    for (i = 0; i <= 2048; i++) pw[i] = 0;
+    for (f = 0; f < nfr; f++) {
+        for (i = 0; i < 4096; i++) { re[i] = x[f * 4096 + i] * (0.5 - 0.5 * cos(2 * M_PI * i / 4096.0)); im[i] = 0; }
+        for (i = 1, j = 0; i < 4096; i++) {                  /* bit reversal, then radix-2 butterflies */
+            unsigned b = 2048;
+            for (; j & b; b >>= 1) j ^= b;
+            j |= b;
+            if (i < j) { double t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+        }
+        for (m = 2; m <= 4096; m <<= 1)
+            for (k = 0; k < 4096; k += m)
+                for (i = 0; i < m / 2; i++) {
+                    double wr = cos(-2 * M_PI * i / m), wi = sin(-2 * M_PI * i / m);
+                    double xr = re[k + i + m / 2] * wr - im[k + i + m / 2] * wi, xi = re[k + i + m / 2] * wi + im[k + i + m / 2] * wr;
+                    re[k + i + m / 2] = re[k + i] - xr; im[k + i + m / 2] = im[k + i] - xi;
+                    re[k + i] += xr; im[k + i] += xi;
+                }
+        for (i = 0; i <= 2048; i++) pw[i] += re[i] * re[i] + im[i] * im[i];
+    }
+    for (k = 0; k < VAR_NB; k++) {
+        double fc = 100.0 * pow(2.0, k / 3.0), lo = fc * pow(2.0, -1.0 / 6), hi = fc * pow(2.0, 1.0 / 6), e = 0;
+        for (i = 1; i <= 2048; i++) { double fr = i * 44100.0 / 4096; if (fr >= lo && fr < hi) e += pw[i]; }
+        db[k] = 10.0 * log10(e / (7.03687e13 * 4096.0 * nfr) + 1e-20);
+    }
+}
+
+/* band centroid (Hz) of a band-level vector */
+static double var_centroid(const double *db)
+{
+    double w = 0, sw = 0;
+    unsigned q;
+    for (q = 0; q < VAR_NB; q++) { double e = pow(10.0, db[q] / 10.0); sw += e * 100.0 * pow(2.0, q / 3.0); w += e; }
+    return w > 0 ? sw / w : 0;
+}
+
+static double var_std(const double *x, unsigned n, double *mean)
+{
+    double m = 0, v = 0;
+    unsigned i;
+    for (i = 0; i < n; i++) m += x[i];
+    m /= n;
+    for (i = 0; i < n; i++) v += (x[i] - m) * (x[i] - m);
+    if (mean) *mean = m;
+    return sqrt(v / n);
+}
+
+/* what the ear hears between 8 presses of the same key (C4 v100), each event's first 1.5 s: the waveforms (pairwise
+ * correlation, best lag within +-1 ms: mean and max), the level (dB), the brightness (1/3-octave centroid), the
+ * length (to -20 dB under the event's peak, 512-sample frames) and the envelope shape (mean |dB| difference of
+ * 512-sample frames: the event pattern). First a key held 16 s tells a sustained texture (still sounding at the end)
+ * from an event engine; a texture's presses are held 1 s, an event's released after 150 ms, the next press once
+ * quiet. A texture must also drift while held (2 s segments: a level or a brightness spread): it never loops.
+ * Thresholds (VAR_*): the stone cloud, which the user praised for its variety (LISTENING.md, session 5), passes them
+ * all with room; the held drift is set by the references (real rain on a roof or a pond is steady: 0.1-0.7 dB,
+ * 2-9 %; brooks 0.4-1.1 dB, 5-11 %; surf 1.6-4 dB, 15-22 %): ours wanders at least like a brook. */
+#define VAR_MEANC 0.5              /* mean pairwise correlation under this */
+#define VAR_MAXC 0.9               /* and no pair over this */
+#define VAR_LVL 2.0                /* level spread (std, dB) at least (2 JND: the "same" ones were 0.2-1.7) */
+#define VAR_CEN 0.10               /* brightness spread (std / mean) at least */
+#define VAR_LEN 0.12               /* events: length spread (std / mean) at least (when shorter than 1.2 s:
+                                    * longer ones fill the window; their pattern tells them apart) */
+#define VAR_SHAPE 3.0              /* mean envelope distance (dB) at least: the pattern differs */
+#define VAR_HLVL 1.0               /* textures held: level drift (std of 2 s segments, dB) at least */
+#define VAR_HCEN 0.05              /* or brightness drift (std / mean) at least */
+static void check_variation(const tx_engine_t *e)
+{
+    void *st = tx_state_new(e);
+    int32_t mix[TX_BLOCK];
+    double lv[VAR_N], cen[VAR_N], du[VAR_N], sb[VAR_N][VAR_NB], maxc = 0, sumc = 0, sumd = 0;
+    double env[VAR_N][VAR_WIN / 512u], hl, hc;
+    unsigned i, j, k, nfr = VAR_WIN / 512u, np = 0, sus, hold;
+    char msg[400];
+    tx_stats_t s;
+    {   /* held: 16 s, 2 s segments */
+        double sl2[8], sc2[8], mm;
+        unsigned seg;
+        static int32_t sbuf[VAR_WIN];
+        e->init(st, 13);
+        e->key(st, 60, 100, 1);
+        for (seg = 0; seg < 8; seg++) {
+            uint32_t w = 0;
+            double se = 0, bd[VAR_NB];
+            while (w < 88200u) {
+                for (j = 0; j < TX_BLOCK; j++) mix[j] = 0;
+                e->render(st, mix, TX_BLOCK);
+                for (j = 0; j < TX_BLOCK; j++, w++) { se += (double)mix[j] * mix[j]; if (w < VAR_WIN) sbuf[w] = mix[j]; }
+            }
+            sl2[seg] = 10.0 * log10(se / w / 7.03687e13 + 1e-20);
+            var_bands(sbuf, bd);
+            sc2[seg] = var_centroid(bd);
+        }
+        sus = sl2[7] > -70 && sl2[7] > sl2[0] - 20;
+        hl = var_std(sl2, 8, &mm);
+        hc = var_std(sc2, 8, &mm); hc = mm > 0 ? hc / mm : 0;
+    }
+    hold = sus ? 172u : 26u;
+    e->init(st, 11);
+    for (i = 0; i < VAR_N; i++) {
+        uint32_t b, w = 0, q;
+        double pk = -200;
+        if (!var_buf[i]) var_buf[i] = malloc(sizeof(int32_t) * VAR_WIN);
+        e->key(st, 60, 100, 1);
+        for (b = 0; w < VAR_WIN; b++) {
+            for (j = 0; j < TX_BLOCK; j++) mix[j] = 0;
+            if (b == hold) e->key(st, 60, 0, 0);
+            e->render(st, mix, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK && w < VAR_WIN; j++) var_buf[i][w++] = mix[j];
+        }
+        if (b <= hold) e->key(st, 60, 0, 0);
+        for (q = 0; q < 4307u; q++) {
+            for (j = 0; j < TX_BLOCK; j++) mix[j] = 0;
+            e->render(st, mix, TX_BLOCK);
+            e->stats(st, &s);
+            if (s.quiet) break;
+        }
+        {
+            double se = 0;
+            unsigned f, last = 0;
+            for (j = 0; j < VAR_WIN; j++) se += (double)var_buf[i][j] * var_buf[i][j];
+            lv[i] = 10.0 * log10(se / VAR_WIN / 7.03687e13 + 1e-20);
+            var_bands(var_buf[i], sb[i]);
+            cen[i] = var_centroid(sb[i]);
+            for (f = 0; f < nfr; f++) {
+                double a = 0;
+                for (j = f * 512u; j < f * 512u + 512u; j++) a += (double)var_buf[i][j] * var_buf[i][j];
+                env[i][f] = 10.0 * log10(a / 512.0 / 7.03687e13 + 1e-20);
+                if (env[i][f] < -80) env[i][f] = -80;
+                if (env[i][f] > pk) pk = env[i][f];
+            }
+            for (f = 0; f < nfr; f++) if (env[i][f] > pk - 20) last = f;
+            du[i] = (last + 1) * 512 / 44.1;
+        }
+    }
+    for (i = 0; i < VAR_N; i++)
+        for (k = i + 1; k < VAR_N; k++) {
+            double best = 0, ea = 0, eb = 0, dd = 0;
+            int lag;
+            unsigned f, nf = 0;
+            for (j = 0; j < VAR_WIN; j++) { ea += (double)var_buf[i][j] * var_buf[i][j]; eb += (double)var_buf[k][j] * var_buf[k][j]; }
+            if (ea > 0 && eb > 0)
+                for (lag = -VAR_LAG; lag <= VAR_LAG; lag++) {
+                    double c = 0;
+                    for (j = VAR_LAG; j < VAR_WIN - VAR_LAG; j++) c += (double)var_buf[i][j] * var_buf[k][(int)j + lag];
+                    c /= sqrt(ea * eb);
+                    if (c > best) best = c;
+                }
+            else if (ea == eb) best = 1;
+            for (f = 0; f < nfr; f++) { if (env[i][f] <= -79 && env[k][f] <= -79) continue; dd += fabs(env[i][f] - env[k][f]); nf++; }
+            dd = nf ? dd / nf : 0;
+            if (best > maxc) maxc = best;
+            sumc += best; sumd += dd; np++;
+        }
+    {
+        double ml, mc, md, sl = var_std(lv, VAR_N, &ml), sc = var_std(cen, VAR_N, &mc), sd = var_std(du, VAR_N, &md);
+        double meanc = sumc / np, shape = sumd / np, rc = mc > 0 ? sc / mc : 0, rd = md > 0 ? sd / md : 0;
+        int ok = meanc < VAR_MEANC && maxc < VAR_MAXC && sl >= VAR_LVL && rc >= VAR_CEN && shape >= VAR_SHAPE &&
+                 (sus ? hl >= VAR_HLVL || hc >= VAR_HCEN : rd >= VAR_LEN || md >= 1200);
+        if (!strcmp(e->name, "test")) ok = 1;            /* the calibration tone: alike on purpose */
+        if (sus)
+            snprintf(msg, sizeof msg, "texture, 8 presses: corr %.2f / %.2f | level %.1f dB | brightness %.0f %% of %.0f Hz | pattern %.1f dB"
+                     " | held 16 s: level %.1f dB, brightness %.0f %%", meanc, maxc, sl, 100 * rc, mc, shape, hl, 100 * hc);
+        else
+            snprintf(msg, sizeof msg, "event, 8 presses: corr %.2f / %.2f | level %.1f dB | brightness %.0f %% of %.0f Hz | pattern %.1f dB"
+                     " | length %.0f %% of %.0f ms", meanc, maxc, sl, 100 * rc, mc, shape, 100 * rd, md);
+        verdict(e->name, "variation", ok, msg, 0);
+    }
+    free(st);
+}
+
 static void check_chamber(FILE *update)
 {
     static const char *const CH_SCENES[][2] = { {"drip", "hold"}, {"gravel", "tap"}, {"test", "chord"}, {"drip", "max"}, {0, 0} };
@@ -519,6 +705,7 @@ int main(int argc, char **argv)
         baseline_load();
     check_sources("engines");
     for (k = 0; tx_engines[k]; k++) check_engine(tx_engines[k], update);
+    if (!update) for (k = 0; tx_engines[k]; k++) check_variation(tx_engines[k]);
     check_chamber(update);
     check_layers(update);
     check_noise_core();

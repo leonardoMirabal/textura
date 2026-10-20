@@ -14,13 +14,23 @@
  * velocity scales U (100 = the HEIGHT's speed). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_bubble.h"
 #include "tx_core_pulse.h"
 
-#define OUT_TRIM 8460               /* output gain, Q12 (+6.3 dB): max momentary (one velocity-100 press): -37.6 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 6720               /* output gain, Q12 (+6.3 dB): max momentary (one velocity-100 press): -37.6 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 8.7 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM -2.0 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 120
+#define VARY_DRIFT 40
+#define VARY_SPLIT 0
 
 enum { P_SIZE, P_SCATTER, P_RATE, P_REGULAR, P_DEPTH, P_HEIGHT, NP };
 
@@ -53,6 +63,7 @@ typedef struct {
     uint32_t u_q8;                 /* impact speed at velocity 100, m/s Q8 */
     uint32_t rise_p16;             /* probability that a bubble rises, Q16 */
     uint16_t last_dropped;
+    tx_vary_t vy;
 } drip_t;
 
 static uint32_t isqrt32(uint32_t x)                          /* floor(sqrt(x)), control rate */
@@ -108,10 +119,12 @@ static void drip_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((drip_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void drip_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((drip_t *)st)->vy);
     tx_cloud_key(&((drip_t *)st)->cloud, note, vel, on);
 }
 
@@ -165,7 +178,7 @@ static void drop(drip_t *s, const tx_event_t *e)
     /* the bubble: P ~0.9 above 1 m/s, down to 0.2 at 0.3 m/s (ours) */
     p_bub = u >= 256u ? 58982u : u <= 77u ? 13107u : 13107u + (u - 77u) * 256u;
     if (!chance(s, p_bub)) return;
-    a_l2 = s->size_l2 - ((int32_t)e->note - 60) * 5461
+    a_l2 = s->size_l2 - ((int32_t)e->note - 60) * 5461 - (tx_vary_tone(&s->vy) >> 2)   /* the character: brighter = smaller */
          + (int32_t)(((int64_t)s->scatter_q16 * tx_rand_s15(r)) >> 15);
     rel = a_l2 - s->size_l2;                                 /* amplitude ~ a^1.5 against the SIZE radius, +-18 dB */
     rel = rel + rel / 2;
@@ -207,6 +220,7 @@ TX_AUDIO_CODE static void drip_render(void *st, int32_t *mix, unsigned n)
     tx_bubbles_render(s->b, &s->pool, &s->dc, buf, n);
     tx_pulses_add(&s->clicks, buf, n);
     tx_declick_run(&s->dc, buf, n);
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->last_dropped = (uint16_t)(s->cloud.last_dropped + (s->pool.rejected - rej0));

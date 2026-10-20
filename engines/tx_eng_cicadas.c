@@ -16,13 +16,23 @@
  * CV 4 %, 1.5-4 x farther, free-running: no cicada synchrony data in the note). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
 
-#define OUT_TRIM 5589               /* output gain, Q12 (+2.7 dB): integrated (a key held 10 s): -29.8 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 5200               /* output gain, Q12 (+2.7 dB): integrated (a key held 10 s): -29.8 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 1.1 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM -0.6 dB with it, held there by the max scene under +24.1 dBFS (its mean
+ * loudness below the old one) */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 0
 
 enum { P_RATE, P_CARRIER, P_Q, P_COHERE, P_CHORUS, P_DIST, P_PHRASE, NP };
 
@@ -62,6 +72,7 @@ typedef struct {
     uint8_t p[NP], limit, quiet;
     int32_t level, rate_l2, car_l2, q_x16, jit, dist_l2;
     uint16_t dropped;
+    tx_vary_t vy;
 } cicadas_t;
 
 static void tune(cicadas_t *s, cicada_t *c)
@@ -111,10 +122,12 @@ static void cicadas_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((cicadas_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void cicadas_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((cicadas_t *)st)->vy);
     tx_cloud_key(&((cicadas_t *)st)->cloud, note, vel, on);
 }
 
@@ -143,7 +156,7 @@ static void spawn(cicadas_t *s, const tx_event_t *e)
         for (i = 0; i < s->limit && !c; i++) if (quiet_c(&s->c[i])) c = &s->c[i];
         for (i = 0; i < s->limit && !c; i++) if (!s->c[i].alive) c = &s->c[i];
         if (!c) { s->dropped++; continue; }
-        f_l2 = s->car_l2 + ((int32_t)e->note - 60) * 2731;  /* a quarter tone per key */
+        f_l2 = s->car_l2 + ((int32_t)e->note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3);  /* a quarter tone per key; the character */
         if (k) {
             f_l2 += (tx_gauss_q12(r) * 3718) >> 12;          /* carrier CV 4 % */
             rl2 += 38336 + (int32_t)tx_rand_below(r, 92736u);   /* 1.5 .. 4 x farther */
@@ -265,6 +278,8 @@ TX_AUDIO_CODE static void cicadas_render(void *st, int32_t *mix, unsigned n)
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) b[j] = 0;
     cicadas_render_raw(st, b, n);
+    tx_vary_block(&((cicadas_t *)st)->vy, b, n);
+    if (((cicadas_t *)st)->vy.lp) ((cicadas_t *)st)->quiet = 0;          /* the split still settling */
     tx_trim_add(b, mix, n, OUT_TRIM);
 }
 

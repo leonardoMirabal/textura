@@ -15,11 +15,21 @@
  *   swarm    companions with f0 spread SPREAD (CV ~5 % across a swarm, note 08). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_wingbeat.h"
 
-#define OUT_TRIM 6567               /* output gain, Q12 (+4.1 dB): integrated (a key held 10 s): -30.1 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 8859               /* output gain, Q12 (+4.1 dB): integrated (a key held 10 s): -30.1 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +2.6 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 60
+#define VARY_SPLIT 4
 
 enum { P_SPECIES, P_SWARM, P_SPREAD, P_SPEED, P_DIST, NP };
 
@@ -71,6 +81,7 @@ typedef struct {
     int32_t level, speed_l2, dist_l2, cv;
     uint32_t f0;
     uint16_t dropped;
+    tx_vary_t vy;
 } bees_t;
 
 static uint32_t isqrt32(uint32_t x)
@@ -128,10 +139,12 @@ static void bees_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((bees_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void bees_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((bees_t *)st)->vy);
     tx_cloud_key(&((bees_t *)st)->cloud, note, vel, on);
 }
 
@@ -170,7 +183,7 @@ static void launch(bees_t *s, const tx_event_t *e)
         b->vx = (tx_sin_q15((uint32_t)ang) * b->speed) >> 15;     /* off tangentially */
         b->vy = -(tx_sin_q15((uint32_t)ang + 0x40000000u) * b->speed) >> 15;
         b->home = home;
-        f_l2 = ((int32_t)e->note - 60) * 2731 + ((gauss_q12(r) * s->cv * 3) >> 12);   /* CV -> log2: x 1.44, Q16 */
+        f_l2 = ((int32_t)e->note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3) + ((gauss_q12(r) * s->cv * 3) >> 12);   /* CV -> log2: x 1.44, Q16 */
         b->inc0 = (uint32_t)(((uint64_t)s->f0 * 97391u * tx_exp2(f_l2 + (16 << 16))) >> 16);
         b->wob = 32768;
         b->fade = 0;
@@ -248,6 +261,7 @@ TX_AUDIO_CODE static void bees_render(void *st, int32_t *mix, unsigned n)
         tx_buzz_add(&b->bz, s->front, s->side, g1, m1, buf, n);
         if (b->alive && b->fade >= FADE_BLK && !b->bz.g) { b->alive = 0; b->em = 0xFF; }
     }
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

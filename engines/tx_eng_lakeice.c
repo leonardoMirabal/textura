@@ -13,15 +13,25 @@
  * alpha 1.5 over 3 octaves of energy (ours; note 09 gives crack rates as a knob). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_pulse.h"
 #include "tx_core_chirp.h"
 
-#define OUT_TRIM 14202               /* output gain, Q12 (+10.8 dB): max momentary (one velocity-100 press): -37.8 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 19831               /* output gain, Q12 (+10.8 dB): max momentary (one velocity-100 press): -37.8 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 7.0 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS,
                                     * the limiter under ~8 dB in the chord) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +2.9 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -130
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 3
 
 enum { P_THICK, P_DIST, P_RATE, P_ICE, P_COLD, NP };
 
@@ -53,6 +63,7 @@ typedef struct {
     uint8_t p[NP], quiet, pad;
     int32_t level, h_l2, x_l2, q, tf, tg, tq;
     uint16_t dropped;
+    tx_vary_t vy;
 } ice_t;
 
 static void set_param(ice_t *s, unsigned id, unsigned v)
@@ -92,10 +103,12 @@ static void ice_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((ice_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void ice_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((ice_t *)st)->vy);
     tx_cloud_key(&((ice_t *)st)->cloud, note, vel, on);
 }
 
@@ -114,7 +127,12 @@ static void ice_param(void *st, uint8_t id, uint8_t val)
 /* one crack: a chirp hero + a delayed air wave (click + tone) */
 static void crack(ice_t *s, const tx_event_t *e)
 {
-    int32_t xl2 = s->x_l2 - ((int32_t)e->note - 60) * 5461, size = e->size_l2 * 8 + ((int32_t)e->vel - 100) * 819;
+    tx_rng_t *r = &s->cloud.rng;
+    /* no two cracks alike (the user's session 3): each one somewhere else on the sheet (distance +-0.5 oct), through
+     * ice of its own local thickness (+-0.2 oct: sweep and tone), with +-3 dB of energy (ours) */
+    int32_t xl2 = s->x_l2 - ((int32_t)e->note - 60) * 5461 + tx_rand_s15(r);
+    int32_t size = e->size_l2 * 8 + ((int32_t)e->vel - 100) * 819 + (tx_rand_s15(r) >> 1);
+    int32_t hl2 = s->h_l2 + (tx_rand_s15(r) * 13) / 32;
     uint32_t x, stolen, i;
     int32_t a, lx;
     xl2 = xl2 < 435412 ? 435412 : xl2 > 1175000 ? 1175000 : xl2;   /* 1 .. 2500 m */
@@ -125,7 +143,7 @@ static void crack(ice_t *s, const tx_event_t *e)
     a = (int32_t)(((int64_t)(a > 32767 ? 32767 : a) * s->level) >> 15);
     slot = tx_pool_take(&s->pool, (uint32_t)a, &stolen);
     if (slot >= 0) {
-        tx_chirp_start(&s->ch[slot], x, tx_exp2(s->h_l2), (uint32_t)s->q, a);
+        tx_chirp_start(&s->ch[slot], x, tx_exp2(hl2), (uint32_t)s->q, a);
         s->ch[slot].wait += e->offset;
         if (!s->ch[slot].on) tx_pool_free(&s->pool, (unsigned)slot);
     }
@@ -178,6 +196,7 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
         if (s->tsilent > s->tmax) s->tone.low = s->tone.band = s->tone.ef = 0;   /* 3 T60 after its last ring */
     }
     s->now += n;
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (s->pool.rejected - rej0) + s->dropped);

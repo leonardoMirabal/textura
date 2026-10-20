@@ -17,12 +17,22 @@
  * and gains are ours. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_shaker.h"
 #include "tx_core_noise.h"
 
-#define OUT_TRIM 9492               /* output gain, Q12 (+7.3 dB): integrated (a key held 10 s): -33.3 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 12658               /* output gain, Q12 (+7.3 dB): integrated (a key held 10 s): -33.3 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +2.5 dB with it: the mean of 8 presses back on its
+ * loudness */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 100
+#define VARY_DRIFT 40
+#define VARY_SPLIT 0
 
 enum { P_SEEDS, P_TIME, P_GRAIN, P_LENGTH, P_BODY, P_PULSE, NP };
 
@@ -48,6 +58,8 @@ typedef struct {
     int32_t f[NT];
     int32_t res;                   /* reservoir, Q16 (65536 = all seeds at the top) */
     uint32_t pph;                  /* pulse phase */
+    int32_t tone;                  /* this turn's seed resonance against GRAIN's, log2 Q16 (the press's tone) */
+    uint16_t t60, tilt;            /* this turn: the settling T60 (ms), the tilt (flow x, Q8) */
     uint8_t em, note, vel, alive;
 } voice_t;
 
@@ -65,6 +77,7 @@ typedef struct {
     int32_t len_l2;                /* log2(f1 at C4 / 1 Hz), Q16 */
     int32_t q, wet, pulse;
     uint16_t dropped;
+    tx_vary_t vy;
 } stick_t;
 
 static void set_param(stick_t *s, unsigned id, unsigned v)
@@ -100,10 +113,12 @@ static void stick_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((stick_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void stick_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((stick_t *)st)->vy);
     tx_cloud_key(&((stick_t *)st)->cloud, note, vel, on);
 }
 
@@ -129,6 +144,16 @@ static void stick_param(void *st, uint8_t id, uint8_t val)
         set_param(s, id, val);
 }
 
+/* no two turns alike: how steeply it is held (the flow 0.6 .. 1.4 x), how the seeds settle when it is laid flat
+ * (T60 100 .. 700 ms), the seeds' ring (the press's tone, tx_core_vary.h) */
+static void character(stick_t *s, voice_t *v)
+{
+    tx_rng_t *r = &s->cloud.rng;
+    v->tilt = (uint16_t)(154u + tx_rand_below(r, 205u));
+    v->t60 = (uint16_t)(100u + tx_rand_below(r, 601u));
+    v->tone = tx_vary_tone(&s->vy) >> 2;
+}
+
 /* a key press: turn the stick over */
 static void turn(stick_t *s, const tx_event_t *e)
 {
@@ -136,7 +161,7 @@ static void turn(stick_t *s, const tx_event_t *e)
     unsigned i;
     for (i = 0; i < s->limit && !v; i++)
         if (s->v[i].alive && s->v[i].note == e->note) v = &s->v[i];
-    if (v) { v->res = 65536 - v->res; v->em = e->emitter; v->vel = e->vel; return; }   /* the fallen seeds are on top */
+    if (v) { v->res = 65536 - v->res; v->em = e->emitter; v->vel = e->vel; character(s, v); return; }   /* the fallen seeds are on top */
     for (i = 0; i < s->limit && !v; i++) if (!s->v[i].alive) v = &s->v[i];
     if (!v) {
         int32_t lo = 0x7FFFFFFF;
@@ -146,6 +171,7 @@ static void turn(stick_t *s, const tx_event_t *e)
     }
     v->alive = 1; v->em = e->emitter; v->note = e->note; v->vel = e->vel; v->res = 65536;
     v->pph = tx_rand(&s->cloud.rng);
+    character(s, v);
     {
         int32_t f1 = s->len_l2 + ((int32_t)e->note - 60) * 5461;
         for (i = 0; i < NT; i++) {
@@ -160,15 +186,15 @@ static void flow(stick_t *s, voice_t *v)
 {
     int held = v->em < TX_CLOUD_EMITTERS && s->cloud.em[v->em].held && s->cloud.em[v->em].note == v->note;
     uint32_t vel = v->vel;
-    tx_shaker_res(&v->sh, 0, (uint32_t)s->gf, s->gr);
+    tx_shaker_res(&v->sh, 0, tx_vary_scale((uint32_t)s->gf, v->tone), s->gr);
     tx_shaker_vary(&v->sh, 8192);
     tx_shaker_eq(&v->sh, 0, -1);
     if (held && v->res > 0) {
-        uint32_t n_q4 = s->seeds * 7430u / s->t_ms * vel / 100u;   /* N = seeds x 20 pins / T / 43.07, Q4 */
-        uint32_t dr = 380430u * vel / 100u / s->t_ms;          /* reservoir per block: 1 / (T blocks) */
+        uint32_t n_q4 = s->seeds * 7430u / s->t_ms * vel / 100u * v->tilt >> 8;   /* N = seeds x 20 pins / T / 43.07, Q4 */
+        uint32_t dr = 380430u * vel / 100u / s->t_ms * v->tilt >> 8;   /* reservoir per block: 1 / (T blocks) */
         int32_t e = (int32_t)tx_exp2(E_L2) / 16129 * (int32_t)(vel * vel), m;
         tx_shaker_objects(&v->sh, n_q4, (int32_t)(((uint32_t)BASE_Q11 * (uint32_t)s->level) >> 15));
-        tx_shaker_decay(&v->sh, 250, 31457);                 /* flat: the seeds in transit settle; decay 0.96 */
+        tx_shaker_decay(&v->sh, v->t60, 31457);              /* flat: the seeds in transit settle; decay 0.96 */
         v->pph += 24932159u * 4u + (uint32_t)((int32_t)tx_rand_s15(&s->cloud.rng) * 900);   /* ~4 Hz +-30 % */
         m = 32768 + ((tx_sin_q15(v->pph) * s->pulse) >> 15);
         tx_shaker_energy(&v->sh, (int32_t)(((int64_t)e * m) >> 15));
@@ -202,6 +228,7 @@ TX_AUDIO_CODE static void stick_render(void *st, int32_t *mix, unsigned n)
             && s->cloud.em[v->em].held && s->cloud.em[v->em].note == v->note))) { v->alive = 0; v->em = 0xFF; }
     }
     tx_declick_run(&s->dc, buf, n);
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));

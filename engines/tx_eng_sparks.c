@@ -21,13 +21,23 @@
  * full law. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
+#include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 
-#define OUT_TRIM 15721               /* output gain, Q12 (+11.7 dB): max momentary (one velocity-100 press): -54.2 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 7460               /* output gain, Q12 (+11.7 dB): max momentary (one velocity-100 press): -54.2 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 12.4 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS,
                                     * the limiter under ~8 dB in the chord) */
+
+/* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
+ * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM -6.5 dB with it, held there by the chord's limiter under ~8 dB (its mean
+ * loudness below the old one) */
+#define VARY_LO -100
+#define VARY_HI 15
+#define VARY_TILT 160
+#define VARY_DRIFT 40
+#define VARY_SPLIT 0
 
 enum { P_GAP, P_RATE, P_BURST, P_DIST, P_CORONA, P_BODY, NP };
 
@@ -65,6 +75,7 @@ typedef struct {
     int32_t len_l2;                /* distance: log2 of the lengthening sqrt(1 + sigma0 ln(r/r0)), Q16 */
     int32_t att_l2;                /* distance: log2 of the pressure factor (r0 / r) / sqrt(...), Q16 (<= 0) */
     uint16_t dropped;
+    tx_vary_t vy;
 } sparks_t;
 
 static int32_t log2_q16(uint32_t x) { return (32 << 16) - (int32_t)(tx_neglog2_q12(x) << 4); }
@@ -114,10 +125,12 @@ static void sparks_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    tx_vary_init(&((sparks_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 static void sparks_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    if (on && vel) tx_vary_press(&((sparks_t *)st)->vy);
     tx_cloud_key(&((sparks_t *)st)->cloud, note, vel, on);
 }
 
@@ -132,7 +145,8 @@ static void sparks_param(void *st, uint8_t id, uint8_t val)
 /* one discharge -> its kernel in tick[] */
 static void spark(sparks_t *s, const tx_event_t *e)
 {
-    int32_t d_l2 = s->gap_l2 - ((int32_t)e->note - 60) * 2731 + ((int32_t)e->vel - 100) * 1638;   /* 2^(1/24) / key */
+    int32_t d_l2 = s->gap_l2 - ((int32_t)e->note - 60) * 2731 + ((int32_t)e->vel - 100) * 1638   /* 2^(1/24) / key */
+                 - tx_vary_tone(&s->vy);                  /* the character: brighter = a narrower gap */
     int32_t t_l2, p_l2, a_l2, x, y1 = 0, y2 = 0, c, a;
     uint32_t fc, k;
     if (d_l2 < -131072) d_l2 = -131072;                      /* 0.25 .. 32 mm */
@@ -177,7 +191,8 @@ TX_AUDIO_CODE static void sparks_render(void *st, int32_t *mix, unsigned n)
     for (j = 0; j < n; j++) any |= t[j];
     /* body: the ticks through the shared bank helper (unit-peak modes), mixed with the dry ticks */
     if (any || !tx_svf_bank_quiet(s->body, NB)) {
-        int32_t wet = s->wet, dry = 32768 - (wet >> 1), g[NB];
+        uint32_t wv = tx_vary_scale((uint32_t)s->wet, -tx_vary_tone(&s->vy));   /* the character: duller = */
+        int32_t wet = wv > 32767u ? 32767 : (int32_t)wv, dry = 32768 - (wet >> 1), g[NB];   /* more of the body */
         for (j = 0; j < n; j++) buf[j] = (t[j] >> 15) * dry + (((t[j] & 0x7FFF) * dry) >> 15);
         for (i = 0; i < NB; i++) g[i] = wet >> 4;            /* Q11 */
         if (wet) tx_svf_bank_add(s->body, s->f, s->q, g, NB, t, buf, n);
@@ -213,6 +228,7 @@ TX_AUDIO_CODE static void sparks_render(void *st, int32_t *mix, unsigned n)
         }
         s->cor_g = g1;
     }
+    tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
