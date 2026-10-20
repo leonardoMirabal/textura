@@ -48,4 +48,23 @@ TX_AUDIO_CODE void tx_ireso_add(tx_ireso_t *r, const uint16_t *off, const int16_
                                 unsigned n);
 static inline int tx_ireso_quiet(const tx_ireso_t *r) { return !(r->y1 | r->y2); }
 
+/* TYMBAL (the cicada, N4-N6): rib impulses into a tymbal resonance whose pitch glides down within each click (a1
+ * moves linearly per sample from the click's start value toward a1_end: the buckling tymbal's 5.5 -> 4.3 kHz and
+ * the in-click tail's -17 %), in series with the abdominal air sac (a low-Q two-pole at the carrier). An event with
+ * a1 != 0 restarts the glide (a click's first rib); amp is the impulse (Q15, signed). ~12 ops per sample. */
+typedef struct { uint16_t off; int16_t amp; int32_t a1; } tx_tev_t;
+typedef struct {
+    int32_t y1, y2, s1, s2;        /* tymbal and sac states (Q15 scale, clamped below 2^16) */
+    int32_t a1, a1_end, da1;       /* tymbal a1 now, where its glide stops, its step per sample (Q14 / Q14 x 2^-8) */
+    int32_t a2, b0;                /* tymbal r^2 (Q14), input gain sin w (Q15) */
+    int32_t sa1, sa2, sb0;         /* sac coefficients */
+    int32_t g;                     /* output gain, Q12 (Q15 x Q12 >> 4 = Q23), <= 16383 */
+    int32_t frac;                  /* the glide's fractional accumulator */
+} tx_tymbal_t;
+
+/* coefficient helper: a1 (Q14) and a2 (Q14) and b0 (Q15) of a two-pole at f, Q */
+void tx_ireso_coefs(uint32_t f_hz, uint32_t q_x16, int32_t *a1, int32_t *a2, int32_t *b0);
+TX_AUDIO_CODE void tx_tymbal_add(tx_tymbal_t *t, const tx_tev_t *ev, unsigned nev, int32_t *out, unsigned n);
+static inline int tx_tymbal_quiet(const tx_tymbal_t *t) { return !(t->y1 | t->y2 | t->s1 | t->s2); }
+
 #endif

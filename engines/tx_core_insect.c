@@ -56,7 +56,7 @@ TX_AUDIO_CODE void tx_itone_add(tx_itone_t *t, const int16_t *env, int32_t *out,
     t->ph = ph; t->inc = inc; t->epos = epos;
 }
 
-void tx_ireso_set(tx_ireso_t *r, uint32_t f_hz, uint32_t q_x16)
+void tx_ireso_coefs(uint32_t f_hz, uint32_t q_x16, int32_t *a1, int32_t *a2, int32_t *b0)
 {
     int32_t x, rq;
     uint32_t w;
@@ -66,10 +66,42 @@ void tx_ireso_set(tx_ireso_t *r, uint32_t f_hz, uint32_t q_x16)
     x = (int32_t)(f_hz * 1078u / (q_x16 * 10u));            /* pi f / (Q fs ln 2) in Q16: 107.8 f / q_x16 */
     rq = (int32_t)(tx_exp2((30 << 16) - x) >> 15);          /* r = exp(-pi f / (Q fs)), Q15 */
     w = f_hz * 97391u;                                       /* 2 pi f / fs as a 32-bit phase */
-    r->a1 = (rq * tx_sin_q15(w + 0x40000000u)) >> 15;       /* 2 r cos w in Q14 = r cos w in Q15 */
-    r->a2 = (rq * rq) >> 16;                                 /* r^2, Q14 */
-    r->b0 = tx_sin_q15(w);
-    if (r->b0 < 0) r->b0 = -r->b0;
+    *a1 = (rq * tx_sin_q15(w + 0x40000000u)) >> 15;         /* 2 r cos w in Q14 = r cos w in Q15 */
+    *a2 = (rq * rq) >> 16;                                   /* r^2, Q14 */
+    *b0 = tx_sin_q15(w);
+    if (*b0 < 0) *b0 = -*b0;
+}
+
+void tx_ireso_set(tx_ireso_t *r, uint32_t f_hz, uint32_t q_x16) { tx_ireso_coefs(f_hz, q_x16, &r->a1, &r->a2, &r->b0); }
+
+TX_AUDIO_CODE void tx_tymbal_add(tx_tymbal_t *t, const tx_tev_t *ev, unsigned nev, int32_t *out, unsigned n)
+{
+    int32_t y1 = t->y1, y2 = t->y2, s1 = t->s1, s2 = t->s2, a1 = t->a1, a1e = t->a1_end, da1 = t->da1, fr = t->frac;
+    int32_t a2 = t->a2, b0 = t->b0, sa1 = t->sa1, sa2 = t->sa2, sb0 = t->sb0, g = t->g;
+    int32_t z0 = y1 | y2 | s1 | s2;
+    unsigned j, k = 0;
+    if (!nev && !z0) return;
+    for (j = 0; j < n; j++) {
+        int32_t y, s;
+        while (k < nev && ev[k].off == j) {
+            if (ev[k].a1) { a1 = ev[k].a1; fr = 0; }
+            y1 += (ev[k].amp * b0) >> 15;
+            k++;
+        }
+        y = ((a1 * y1) >> 14) - ((a2 * y2) >> 14);
+        y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
+        y2 = y1; y1 = y;
+        s = ((sa1 * s1) >> 14) - ((sa2 * s2) >> 14) + ((y * sb0) >> 15);
+        s = s > 65535 ? 65535 : s < -65535 ? -65535 : s;
+        s2 = s1; s1 = s;
+        out[j] += (s * g) >> 4;
+        if (a1 < a1e) { fr += da1; a1 += fr >> 8; fr &= 0xFF; if (a1 > a1e) a1 = a1e; }   /* the glide (pitch down) */
+    }
+    if (!nev) {                                              /* silent input: small or frozen -> exact zero */
+        int32_t m = (y1 < 0 ? -y1 : y1) | (y2 < 0 ? -y2 : y2) | (s1 < 0 ? -s1 : s1) | (s2 < 0 ? -s2 : s2);
+        if (m < 8 || (y1 == t->y1 && y2 == t->y2 && s1 == t->s1 && s2 == t->s2)) y1 = y2 = s1 = s2 = 0;
+    }
+    t->y1 = y1; t->y2 = y2; t->s1 = s1; t->s2 = s2; t->a1 = a1; t->frac = fr;
 }
 
 TX_AUDIO_CODE void tx_ireso_add(tx_ireso_t *r, const uint16_t *off, const int16_t *imp, unsigned nimp, int32_t *out,

@@ -19,6 +19,7 @@ extern const tx_engine_t tx_eng_lakeice;
 extern const tx_engine_t tx_eng_spring;
 extern const tx_engine_t tx_eng_chimes;
 extern const tx_engine_t tx_eng_crickets;
+extern const tx_engine_t tx_eng_cicadas;
 
 const tx_engine_t *const tx_engines[] = {
     &tx_eng_test,
@@ -38,6 +39,7 @@ const tx_engine_t *const tx_engines[] = {
     &tx_eng_spring,
     &tx_eng_chimes,
     &tx_eng_crickets,
+    &tx_eng_cicadas,
     0,
 };
 
