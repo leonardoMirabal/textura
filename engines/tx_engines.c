@@ -7,6 +7,7 @@ extern const tx_engine_t tx_eng_drip;
 extern const tx_engine_t tx_eng_candle;
 extern const tx_engine_t tx_eng_sparks;
 extern const tx_engine_t tx_eng_gravel;
+extern const tx_engine_t tx_eng_rainstick;
 
 const tx_engine_t *const tx_engines[] = {
     &tx_eng_test,
@@ -14,6 +15,7 @@ const tx_engine_t *const tx_engines[] = {
     &tx_eng_candle,
     &tx_eng_sparks,
     &tx_eng_gravel,
+    &tx_eng_rainstick,
     0,
 };
 

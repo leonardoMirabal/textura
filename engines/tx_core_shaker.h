@@ -52,9 +52,17 @@ void tx_shaker_objects(tx_shaker_t *s, uint32_t n_q4, int32_t base_q11);
 void tx_shaker_decay(tx_shaker_t *s, uint32_t t60_ms, int32_t sound_q15);
 static inline void tx_shaker_eq(tx_shaker_t *s, int32_t t1, int32_t t2) { s->eq1 = t1; s->eq2 = t2; }
 static inline void tx_shaker_vary(tx_shaker_t *s, int32_t vary_q15) { s->vary = vary_q15; }
+/* hold the shake energy at a level (Q24, a sustained feed: rain stick, pouring) */
+static inline void tx_shaker_energy(tx_shaker_t *s, int32_t e_q24)
+{
+    s->energy = e_q24 < 0 ? 0 : e_q24 > TX_SHAKER_ONE ? TX_SHAKER_ONE : e_q24;
+}
 /* add shake energy (Q24), capped at 1.0 (STK noteOn / energy controller) */
 void tx_shaker_shake(tx_shaker_t *s, int32_t e_q24);
 TX_AUDIO_CODE void tx_shaker_add(tx_shaker_t *s, int32_t *out, unsigned n);   /* ADDS Q23 */
+/* the same, also ADDING the raw collision impulses (before the resonators, Q23) into exc (may be 0): to drive
+ * a body / tube of the caller's */
+TX_AUDIO_CODE void tx_shaker_add_exc(tx_shaker_t *s, int32_t *out, int32_t *exc, unsigned n);
 int tx_shaker_quiet(const tx_shaker_t *s);
 
 #endif

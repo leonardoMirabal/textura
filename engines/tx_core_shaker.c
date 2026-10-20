@@ -130,13 +130,17 @@ int tx_shaker_quiet(const tx_shaker_t *s)
     return 1;
 }
 
-TX_AUDIO_CODE void tx_shaker_add(tx_shaker_t *s, int32_t *out, unsigned n)
+TX_AUDIO_CODE void tx_shaker_add_exc(tx_shaker_t *s, int32_t *out, int32_t *exc, unsigned n)
 {
     uint32_t x32 = s->rng.s, p16 = s->p16, edec = s->edec;
     int32_t e = s->energy, snd = s->snd, sdec = s->sdec, g = s->gain, h1 = s->h1, h2 = s->h2, eq1 = s->eq1, eq2 = s->eq2;
-    int32_t lastv = s->last;
+    int32_t lastv = s->last, vary = s->vary;
+    int32_t a1[TX_SHAKER_RES], a2[TX_SHAKER_RES], b0[TX_SHAKER_RES], y1[TX_SHAKER_RES], y2[TX_SHAKER_RES];
     unsigned j = 0, i, nres = s->nres, vcnt = s->vcnt;
     if (!e && tx_shaker_quiet(s)) return;
+    for (i = 0; i < nres; i++) {                             /* locals: out[] stores cannot alias them */
+        a1[i] = s->res[i].a1; a2[i] = s->res[i].a2; b0[i] = s->res[i].b0; y1[i] = s->res[i].y1; y2[i] = s->res[i].y2;
+    }
     while (j < n) {
         unsigned end = j + SUB < n ? j + SUB : n;
         int32_t e1 = (int32_t)(((uint32_t)e >> 16) * edec + ((((uint32_t)e & 0xFFFFu) * edec) >> 16));
@@ -151,14 +155,15 @@ TX_AUDIO_CODE void tx_shaker_add(tx_shaker_t *s, int32_t *out, unsigned n)
                 snd += e;
                 if (snd > SND_MAX) snd = SND_MAX;
                 x = ((snd >> 12) * g) >> 9;                  /* Q12 x Q11 >> 9 = Q14 */
-                if (s->vary && vcnt >= 8u) {                 /* re-tune: f (1 + vary x noise) */
+                if (exc) exc[j] += x * 512;                  /* the raw collision impulses, Q23 */
+                if (vary && vcnt >= 8u) {                    /* re-tune: f (1 + vary x noise) */
                     vcnt = 0;
                     x32 ^= x32 << 13; x32 ^= x32 >> 17; x32 ^= x32 << 5;
                     for (i = 0; i < nres; i++) {
-                        tx_shaker_res_t *r = &s->res[i];
+                        const tx_shaker_res_t *r = &s->res[i];
                         int32_t nz = (int32_t)(x32 >> 16) - 32768;   /* -1 .. 1, Q15 */
-                        uint32_t inc = r->inc + (uint32_t)((int32_t)(r->inc >> 15) * ((nz * s->vary) >> 15));
-                        r->a1 = -((2 * r->r * tx_sin_q15(inc + 0x40000000u)) >> 15);
+                        uint32_t inc = r->inc + (uint32_t)((int32_t)(r->inc >> 15) * ((nz * vary) >> 15));
+                        a1[i] = -((2 * r->r * tx_sin_q15(inc + 0x40000000u)) >> 15);
                         x32 = (x32 >> 7) | (x32 << 25);
                     }
                 }
@@ -166,10 +171,9 @@ TX_AUDIO_CODE void tx_shaker_add(tx_shaker_t *s, int32_t *out, unsigned n)
             vcnt += vcnt < 255u;
             snd = (snd >> 15) * sdec + (((snd & 0x7FFF) * sdec) >> 15);   /* level x soundDecay */
             for (i = 0; i < nres; i++) {
-                tx_shaker_res_t *r = &s->res[i];
-                int32_t y = (((x >> 7) * r->b0) >> 7) - ((r->a1 * r->y1) >> 14) - ((r->a2 * r->y2) >> 14);
+                int32_t y = (((x >> 7) * b0[i]) >> 7) - ((a1[i] * y1[i]) >> 14) - ((a2[i] * y2[i]) >> 14);
                 y = y > Y_MAX ? Y_MAX : y < -Y_MAX ? -Y_MAX : y;
-                r->y2 = r->y1; r->y1 = y;
+                y2[i] = y1[i]; y1[i] = y;
                 acc += y;
             }
             o = acc + eq1 * h1 + eq2 * h2;                   /* STK equaliser: taps 1, eq1, eq2 */
@@ -182,12 +186,14 @@ TX_AUDIO_CODE void tx_shaker_add(tx_shaker_t *s, int32_t *out, unsigned n)
     if (!e) {                                                /* rung out: exact zero (integer limit cycles) */
         int32_t z = 0;
         for (i = 0; i < nres; i++) {
-            tx_shaker_res_t *r = &s->res[i];
-            if (r->y1 > -4 && r->y1 < 4 && r->y2 > -4 && r->y2 < 4) r->y1 = r->y2 = 0;
-            z |= r->y1 | r->y2;
+            if (y1[i] > -4 && y1[i] < 4 && y2[i] > -4 && y2[i] < 4) y1[i] = y2[i] = 0;
+            z |= y1[i] | y2[i];
         }
         if (!z) { h1 = h2 = 0; snd = 0; lastv = 0; }
     }
+    for (i = 0; i < nres; i++) { s->res[i].a1 = a1[i]; s->res[i].y1 = y1[i]; s->res[i].y2 = y2[i]; }
     s->rng.s = x32 ? x32 : 0x9E3779B9u;
     s->energy = e; s->snd = snd; s->h1 = h1; s->h2 = h2; s->vcnt = (uint8_t)vcnt; s->last = lastv;
 }
+
+TX_AUDIO_CODE void tx_shaker_add(tx_shaker_t *s, int32_t *out, unsigned n) { tx_shaker_add_exc(s, out, 0, n); }

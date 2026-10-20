@@ -96,3 +96,33 @@ TX_AUDIO_CODE void tx_noise_roar_add(tx_noise_t *z, int32_t g_q15, int32_t *out,
     if (!g_q15) low = band = lp = 0;
     z->low = low; z->band = band; z->lp = lp;
 }
+
+TX_AUDIO_CODE void tx_svf_bank_add(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *g_q11, unsigned nr,
+                                   const int32_t *in, int32_t *out, unsigned n)
+{
+    int32_t lo[TX_SVF_MAX], bd[TX_SVF_MAX], fi[TX_SVF_MAX], g[TX_SVF_MAX], lo0[TX_SVF_MAX], bd0[TX_SVF_MAX];
+    unsigned i, j;
+    int32_t silent = 0;
+    if (nr > TX_SVF_MAX) nr = TX_SVF_MAX;
+    for (j = 0; j < n; j++) silent |= in[j];
+    silent = !silent;
+    if (silent && tx_svf_bank_quiet(r, nr)) return;
+    for (i = 0; i < nr; i++) { lo[i] = lo0[i] = r[i].low; bd[i] = bd0[i] = r[i].band; fi[i] = f[i]; g[i] = g_q11[i]; }
+    for (j = 0; j < n; j++) {                                /* the modes side by side: independent chains overlap */
+        int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
+        int32_t x = ((v >> 8) * q) >> 14, y = 0;             /* Q15, input gain 1 / Q */
+        for (i = 0; i < nr; i++) {
+            int32_t h;
+            lo[i] += (fi[i] * bd[i]) >> 14;
+            h = x - lo[i] - ((q * bd[i]) >> 14);
+            bd[i] += (fi[i] * h) >> 14;
+            y += (bd[i] * g[i]) >> 3;                        /* Q15 x Q11 >> 3 -> Q23 */
+        }
+        out[j] += y;
+    }
+    for (i = 0; i < nr; i++) {
+        if (silent && ((bd[i] > -16 && bd[i] < 16 && lo[i] > -1024 && lo[i] < 1024) || (bd[i] == bd0[i] && lo[i] == lo0[i])))
+            lo[i] = bd[i] = 0;
+        r[i].low = lo[i]; r[i].band = bd[i];
+    }
+}
