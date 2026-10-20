@@ -14,7 +14,8 @@
  *
  * Mono, in place on a Q23 buffer (the dry signal is kept; body and tail are added, together at most 4 full scale). State ~22 KB (the lines: 8 x 640
  * int32): one instance per output, outside the engines' 16 KB arenas. After 2 T60 of silent input it clears and idles
- * (exact zero, nothing computed). */
+ * (exact zero, nothing computed).
+ * Later: run the tail at half rate (the plan's cost is ~half of today's 6.5 %); stereo (decorrelated outputs) in S3. */
 #ifndef TX_CORE_CHAMBER_H
 #define TX_CORE_CHAMBER_H
 #include <stdint.h>

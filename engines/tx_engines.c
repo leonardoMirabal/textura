@@ -10,6 +10,7 @@ extern const tx_engine_t tx_eng_gravel;
 extern const tx_engine_t tx_eng_rainstick;
 extern const tx_engine_t tx_eng_mineral;
 extern const tx_engine_t tx_eng_pebble;
+extern const tx_engine_t tx_eng_thunder;
 
 const tx_engine_t *const tx_engines[] = {
     &tx_eng_test,
@@ -20,6 +21,7 @@ const tx_engine_t *const tx_engines[] = {
     &tx_eng_rainstick,
     &tx_eng_mineral,
     &tx_eng_pebble,
+    &tx_eng_thunder,
     0,
 };
 

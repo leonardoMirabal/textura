@@ -16,8 +16,9 @@
  *            held.
  *   body     what the spark jumps to (ours): a shared bank of 4 band-pass resonators (1.2 / 2.7 / 4.4 / 6.5 kHz,
  *            Q 3-20), each fed with input gain 1 / Q so its peak gain is 1 (bank headroom).
- * Level law: the physical P_s T^2 spans ~70 dB over the GAP range; the gap's part is applied at half its dB (ours,
- * so a small tick stays audible), distance at its full law. */
+ * Level law (a DELIBERATE choice, approved 2026-10-20): the physical P_s T^2 spans ~70 dB over the GAP range, which
+ * would make a small tick inaudible next to a big crack; the gap's part is applied at half its dB, distance at its
+ * full law. */
 #include "tx_engine.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
