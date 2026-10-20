@@ -19,7 +19,7 @@
 #include "tx_core_cloud.h"
 #include "tx_core_wingbeat.h"
 
-#define OUT_TRIM 7540               /* output gain, Q12 (-1.4 dB with the spectrogram fixes, session 5; +4.1 dB): integrated (a key held 10 s): -30.1 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 9826               /* output gain, Q12 (+2.3 dB with the buzz rework, session 5; -1.4 dB with the spectrogram fixes, session 5; +4.1 dB): integrated (a key held 10 s): -30.1 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -67,6 +67,8 @@ typedef struct {
     int32_t speed, home;           /* mm/s, mm */
     int32_t wob;                   /* amplitude wander, Q15 around 1 */
     int32_t fw1, fw2;              /* the wingbeat's own wander (slow, ~1 Hz) and flutter (~6 Hz), Q15 */
+    int32_t lg;                    /* landed (0) .. flying (32767): a bee at the flowers lands and takes off */
+    uint16_t land;                 /* blocks it stays landed (0 = flying) */
     uint16_t fade;                 /* blocks into the fly-off (0 = still around) */
     uint8_t em, note, alive, pad;
 } bug_t;
@@ -189,7 +191,10 @@ static void launch(bees_t *s, const tx_event_t *e)
         b->wob = 32768;
         b->fade = 0;
         b->alive = 1; b->em = e->emitter; b->note = e->note;
-        if (!b->bz.g) b->bz.ph = tx_rand(r);
+        if (!b->bz.g) { b->bz.ph = tx_rand(r); b->bz.nr = tx_rand(r) | 1u; }
+        b->lg = 32767; b->land = 0;
+        b->bz.jit = (int16_t)(983 + tx_rand_below(r, 984u));   /* each stroke's period +-3 .. 6 % (wing-beat */
+        b->bz.nz = (int16_t)(9000 + tx_rand_below(r, 8000u));  /* irregularity); turbulence ~-14 .. -10 dB (ours) */
     }
 }
 
@@ -245,6 +250,16 @@ static void fly(bees_t *s, bug_t *b, int32_t *g1, int32_t *mix1)
     gm = (int32_t)(((int64_t)(G_REF * R_REF / (rr > R_MIN ? rr : R_MIN)) * b->wob) >> 15);
     gm = (int32_t)(((int64_t)gm * s->level) >> 15);
     gm = gm > 32767 ? 32767 : gm;
+    {   /* at the flowers: now and then it lands (every ~3 s on average) for 0.3 .. 1.7 s, the buzz stopping and
+         * starting again over ~50 ms (ours; the references: a bumblebee at work comes and goes, with gaps) */
+        if (held && !b->fade) {
+            if (b->land) b->land--;
+            else if ((tx_rand(r) >> 16) < 127u) b->land = (uint16_t)(52u + tx_rand_below(r, 240u));
+        } else
+            b->land = 0;
+        b->lg += ((b->land ? 0 : 32767) - b->lg) >> 3;
+        gm = (int32_t)(((int64_t)gm * b->lg) >> 15);
+    }
     if (b->fade) {
         int32_t q = (int32_t)((FADE_BLK - (b->fade < FADE_BLK ? b->fade : FADE_BLK)) * 32767u / FADE_BLK);   /* 1 .. 0 */
         q = (int32_t)(((int64_t)q * q >> 15) * q >> 15);     /* cubed: it fades away, no audible end (session 5) */

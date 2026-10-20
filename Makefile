@@ -4,7 +4,8 @@
 #   make tx-test       the checks (txtest with UBSan, no-float source scan, no libcalls on a 32-bit target)
 #   make tx-render     every engine x every standard scene -> build/wav/   (one: make tx-render ENGINE=test SCENE=tap)
 #                      (through the CHAMBER: build/bench/txrender ENGINE SCENE -c -> build/wav/ENGINE-SCENE-chamber.wav)
-#   make tx-bench      CPU per block + the FM-1 estimate (runs tx-calib first; CALIB=0 skips the calibration)
+#   make tx-bench      CPU per block + the FM-1 estimate (runs tx-calib first; CALIB=0 skips the calibration;
+#                      REPEAT=3: each scene measured 3 times, the median kept: no flakes from a slow host moment)
 #   make tx-calib      Frodhes' worst scene timed on this host (needs ../frodhes, read-only; FRODHES=path to change)
 #   make tx-player     the browser player -> build/audition/ (Emscripten from .local/emsdk)
 #   make tx-player-check   the player in headless Chromium (Playwright in .local/venv, browsers in .local/playwright)
@@ -16,6 +17,7 @@
 CC       ?= cc
 FRODHES  ?= ../frodhes
 CALIB    ?= 1
+REPEAT   ?= 1
 CALIB_RUNS ?= 9
 B        := build/bench
 CSTD     := -std=c99 -D_DARWIN_C_SOURCE -D_DEFAULT_SOURCE -Wall -Wextra -Iengines -Ibench
@@ -88,7 +90,7 @@ tx-calib: build/calib/frodhes
 
 tx-bench: $(B)/txbench
 	@if [ "$(CALIB)" = 1 ]; then $(MAKE) -s tx-calib || echo "calibration failed: host times only"; fi
-	$(B)/txbench | tee $(B)/bench.txt
+	$(B)/txbench --repeat $(REPEAT) | tee $(B)/bench.txt
 
 tx-player:
 	sh audition/build.sh

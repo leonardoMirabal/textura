@@ -41,7 +41,7 @@ DUR = 10.0
 
 # which reference folders belong to which engine (folder names under .local/reference)
 REFDIRS = {
-    "candle": ["candle"], "mineral": ["mineral", "krint"], "pebble": ["pebble"], "sandsong": ["sandsong"],
+    "bees": ["bees"], "candle": ["candle"], "mineral": ["mineral", "krint"], "pebble": ["pebble"], "sandsong": ["sandsong"],
     "aeolian": ["aeolian"], "sand": ["sand"], "rainsurf": ["rainsurf"], "rainwater": ["rainwater"],
     "stream": ["stream"], "surf": ["surf"], "storm": ["storm"], "crickets": ["crickets"], "cicadas": ["cicadas"],
     "katydids": ["katydids"], "crumple": ["crumple"], "fire": ["fire"], "stonedrum": ["stone"],

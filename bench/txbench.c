@@ -2,7 +2,7 @@
 /* txbench: CPU per 256-frame block on this computer, per engine and scene, and an FM-1 estimate calibrated against
  * Frodhes, whose worst block was measured on the FM-1.
  *
- *   txbench [--runs N] [--calib DIR] [--json OUT]       (make tx-bench runs the calibration first: make tx-calib)
+ *   txbench [--runs N] [--repeat K] [--calib DIR] [--json OUT]   (make tx-bench runs the calibration first: make tx-calib)
  *
  * Method. Every scene is rendered N times (default 9) from a fresh instance after one untimed warm-up; each block is
  * timed alone (the key events of the block included). Per block the fastest of the N runs is kept (that removes
@@ -16,6 +16,9 @@
  * compiler (JieLi clang -Os vs host -O2) differ: read it as +-30 % until the engines are measured on the device.
  * S3: the four heaviest engines' worst cases together through the MIX core (with and without the CHAMBER) against
  * the 75 % gate for four layers.
+ * --repeat K (default 1: as before): every scene is measured K times over (each the N runs above) and the median of
+ * the K worst blocks is printed (its mean with it): a slow minute of the host no longer flags a scene OVER (plate read
+ * 18.5 % once and 17.5 % on re-runs). make tx-bench REPEAT=3.
  * Without the calibration files only host times are printed. */
 #include <dirent.h>
 #include <stdio.h>
@@ -28,7 +31,7 @@
 #define FR_SKIP_BLOCKS 20u         /* Frodhes' boot and effect set-up blocks, before its notes (110 ms) */
 #define MAXB 4096u
 
-static unsigned runs = 9;
+static unsigned runs = 9, repeat = 1;
 
 typedef struct { double mean_us, worst_us, run_us; uint32_t blocks; } meas_t;   /* run_us: fastest whole run / blocks */
 
@@ -84,6 +87,23 @@ static int bench_scene(const tx_engine_t *e, const char *scene, int particles_ov
     out->run_us = best;
     for (r = 0; r < runs; r++) free(t[r]);
     free(s); free(st);
+    return 0;
+}
+
+/* --repeat: the median (by the worst block) of K measurements */
+static meas_t median_of(meas_t *m, unsigned k)
+{
+    unsigned i, j;
+    for (i = 1; i < k; i++)
+        for (j = i; j > 0 && m[j - 1].worst_us > m[j].worst_us; j--) { meas_t t = m[j]; m[j] = m[j - 1]; m[j - 1] = t; }
+    return m[k / 2];
+}
+static int bench_scene_rep(const tx_engine_t *e, const char *scene, int particles_override, meas_t *out)
+{
+    meas_t m[15];
+    unsigned i, k = repeat > 15u ? 15u : repeat;
+    for (i = 0; i < k; i++) if (bench_scene(e, scene, particles_override, &m[i])) return -1;
+    *out = median_of(m, k);
     return 0;
 }
 
@@ -182,13 +202,17 @@ int main(int argc, char **argv)
     FILE *jf;
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--runs") && i + 1 < argc) runs = (unsigned)atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--repeat") && i + 1 < argc) repeat = (unsigned)atoi(argv[++i]);
         else if (!strcmp(argv[i], "--calib") && i + 1 < argc) cdir = argv[++i];
         else if (!strcmp(argv[i], "--json") && i + 1 < argc) json = argv[++i];
     }
     tx_bench_prepare();
     if (runs < 1) runs = 1;
     if (runs > 63) runs = 63;
-    printf("txbench: %u runs per scene, the fastest run per block; 256-frame blocks (budget %u us on the FM-1)\n", runs, TX_BLOCK_US);
+    if (repeat < 1) repeat = 1;
+    if (repeat > 15) repeat = 15;
+    printf("txbench: %u runs per scene, the fastest run per block; 256-frame blocks (budget %u us on the FM-1)%s\n", runs, TX_BLOCK_US,
+           repeat > 1 ? "; each scene measured over again, the median kept (--repeat)" : "");
     if (!load_calib(cdir, &cal, &ncal)) {
         factor = FM1_WORST_US / cal.worst_us;
         printf("calibration: Frodhes' worst scene (9 bass v127 + pedal, every effect) on this host: worst %.1f us, mean %.1f us"
@@ -205,7 +229,7 @@ int main(int argc, char **argv)
             meas_t m;
             char label[32];
             int def = !strcmp(sc[j], "max@def");
-            if (bench_scene(e, def ? "max" : sc[j], def ? e->particles_def : 0, &m)) continue;
+            if (bench_scene_rep(e, def ? "max" : sc[j], def ? e->particles_def : 0, &m)) continue;
             if (def) snprintf(label, sizeof label, "max@P%u", e->particles_def);
             else if (!strcmp(sc[j], "max")) snprintf(label, sizeof label, "max@P%u", e->particles_max);
             else snprintf(label, sizeof label, "%s", sc[j]);
@@ -257,9 +281,12 @@ int main(int argc, char **argv)
     {   /* S3: four layers at their worst cases together */
         unsigned c;
         for (c = 0; c < 2; c++) {
-            meas_t m;
+            meas_t m, mr[15];
             char label[32];
-            if (bench_layers((int)c, &m)) continue;
+            unsigned q, kk = repeat > 15u ? 15u : repeat, bad = 0;
+            for (q = 0; q < kk; q++) bad |= bench_layers((int)c, &mr[q]) != 0;
+            if (bad) continue;
+            m = median_of(mr, kk);
             snprintf(label, sizeof label, "4 worst%s", c ? "+ch" : "");
             if (factor > 0)
                 printf("%-8s %-14s %9.2f %9.2f %8.0f us %7.1f%%%s\n", "layers", label, m.mean_us, m.worst_us, m.worst_us * factor,
