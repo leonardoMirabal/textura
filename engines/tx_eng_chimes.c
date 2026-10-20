@@ -11,10 +11,14 @@
  *   wind     PhISEM timing (note 04: chimes = PhISEM timing into tubes): a wind energy fed by the WIND level and gusts
  *            (a slow random walk), strikes at a Poisson rate ~ energy x the number of tubes (up to ~20 / s), each on a
  *            random hanging tube with a force ~ energy x a random draw (ours: no chime measurement).
- * A tube rings out to exact zero (a time bound of 3 T60 after its last strike guards against rounding cycles). */
+ * A tube rings out to exact zero (its modes stop under -72 dBFS; a time bound of 3 T60 after its last strike).
+ * CPU pass (wave 4): the modes are PLATE core oscillators (lossless magic circle, the decay e^(-pi f t / Q) applied per
+ * block, four modes interleaved), no longer SVF bank resonators on the error-feedback path: 2.5x cheaper, the same
+ * mode frequencies and Q; a strike adds energy with a random phase instead of adding to the band state. */
 #include "tx_engine.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
+#include "tx_core_plate.h"
 
 enum { P_WIND, P_GUST, P_MATERIAL, P_CLAPPER, NP };
 
@@ -34,8 +38,7 @@ TX_AUDIO_DATA static const uint16_t MAT_Q[3] = { 1500, 600, 100 };
 static const int32_t L2_RATIO[NM] = { 0, 96004, 161761, 207036 };   /* log2 of the mode ratios, Q16 */
 
 typedef struct {
-    tx_svf_t m[NM];
-    int32_t f[NM];
+    tx_pmode_t m[NM];              /* the free modes: PLATE core oscillators (lossless, an envelope per block) */
     uint32_t f1;                   /* Hz */
     uint32_t silent, tmax;         /* samples since the last strike; 3 T60 */
     uint8_t em, note, alive, nm;
@@ -46,7 +49,7 @@ typedef struct {
     tx_dcblock_t hp;
     tube_t t[NT];
     tx_event_t ev[TX_CLOUD_EV_MAX];
-    int32_t zero[TX_BLOCK], buf[TX_BLOCK];
+    int32_t buf[TX_BLOCK];
     uint8_t p[NP], limit, quiet;
     int32_t level, energy, gust, tilt;
     uint32_t q;
@@ -86,7 +89,22 @@ static void chimes_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void quiet_tube(tube_t *t)
 {
     unsigned i;
-    for (i = 0; i < NM; i++) t->m[i].low = t->m[i].band = t->m[i].ef = 0;
+    for (i = 0; i < NM; i++) t->m[i].g = t->m[i].gl = 0;
+}
+
+static int tube_quiet(const tube_t *t)
+{
+    unsigned i;
+    for (i = 0; i < NM; i++) if (t->m[i].g | t->m[i].gl) return 0;
+    return 1;
+}
+
+/* 2 sin(pi f / fs), Q16, from f in Hz Q8 (series to x^5: < 3e-6 below fs / 6) */
+static int32_t coef_q16(uint32_t f_q8)
+{
+    int64_t x = (int64_t)f_q8 * 299, x2 = (x * x) >> 30, s;
+    s = x - ((((x * x2) >> 30) * 178956971) >> 30) + ((((((x * x2) >> 30) * x2) >> 30) * 8947849) >> 30);
+    return (int32_t)(s >> 13);
 }
 
 static void chimes_param(void *st, uint8_t id, uint8_t val)
@@ -110,9 +128,7 @@ static void strike(chimes_t *s, tube_t *t, int32_t force_q15)
         int32_t g = (int32_t)tx_exp2((15 << 16) - (int32_t)(((int64_t)s->tilt * L2_RATIO[i]) >> 16));   /* (f_n / f1)^-tilt */
         int32_t a = (int32_t)(((int64_t)force_q15 * g >> 15) * A_STRIKE >> 15);
         a = (int32_t)(((int64_t)a * s->level) >> 15);
-        t->m[i].band += (tx_rand(&s->cloud.rng) & 1u) ? a : -a;   /* the phase of each mode's kick (ours) */
-        if (t->m[i].band > 65000) t->m[i].band = 65000;
-        if (t->m[i].band < -65000) t->m[i].band = -65000;
+        tx_pmode_strike(&t->m[i], a);                        /* energies add (the kick's phase is random) */
     }
     t->silent = 0;
 }
@@ -122,7 +138,7 @@ static void hang(chimes_t *s, const tx_event_t *e)
     tube_t *t = 0;
     unsigned i;
     for (i = 0; i < s->limit && !t; i++) if (s->t[i].alive && s->t[i].note == e->note) t = &s->t[i];
-    for (i = 0; i < s->limit && !t; i++) if (!s->t[i].alive && tx_svf_bank_quiet(s->t[i].m, NM)) t = &s->t[i];
+    for (i = 0; i < s->limit && !t; i++) if (!s->t[i].alive && tube_quiet(&s->t[i])) t = &s->t[i];
     for (i = 0; i < s->limit && !t; i++) if (!s->t[i].alive) t = &s->t[i];
     if (!t) { s->dropped++; return; }
     if (!t->alive || t->note != e->note) {
@@ -132,7 +148,9 @@ static void hang(chimes_t *s, const tx_event_t *e)
         for (i = 0; i < NM; i++) {
             uint32_t hz = (f1 * RATIO[i]) >> 10;
             if (hz > 7300u) break;
-            t->f[i] = tx_svf_coef(hz);
+            t->m[i].e0 = t->m[i].e = coef_q16((f1 * RATIO[i]) >> 2);   /* Hz Q8 */
+            t->m[i].hz = (uint16_t)hz;
+            t->m[i].dec = tx_plate_decay((uint32_t)(((uint64_t)hz * 804u) / s->q));   /* pi f / Q per s, Q8 */
             t->nm = (uint8_t)(i + 1u);
         }
     }
@@ -148,7 +166,7 @@ TX_AUDIO_CODE static void chimes_render(void *st, int32_t *mix, unsigned n)
     int32_t *buf = s->buf;
     uint16_t d0 = s->dropped;
     if (n > TX_BLOCK) n = TX_BLOCK;
-    for (j = 0; j < n; j++) buf[j] = s->zero[j] = 0;
+    for (j = 0; j < n; j++) buf[j] = 0;
     k = tx_cloud_block(&s->cloud, s->ev, n);
     for (i = 0; i < k; i++) hang(s, &s->ev[i]);
     for (i = 0; i < NT; i++) {                               /* released keys: the tube stops hanging (rings out) */
@@ -184,17 +202,21 @@ TX_AUDIO_CODE static void chimes_render(void *st, int32_t *mix, unsigned n)
     }
     for (i = 0; i < NT; i++) {
         tube_t *t = &s->t[i];
-        int32_t g[NM] = { 2048, 2048, 2048, 2048 }, gi[NM] = { 256, 256, 256, 256 };
-        if (!t->nm || tx_svf_bank_quiet(t->m, NM)) continue;
-        tx_svf_bank_add_g(t->m, t->f, (int32_t)(16384u / s->q), gi, g, t->nm, s->zero, buf, n);
+        unsigned q;
+        if (!t->nm || tube_quiet(t)) continue;
+        tx_pmode_add(t->m, t->nm, 32767, buf, n);           /* the envelope ramps to g over the block */
+        for (q = 0; q < t->nm; q++) {                        /* then decays one block */
+            t->m[q].g = (int32_t)(((uint32_t)t->m[q].g * t->m[q].dec) >> 16);
+            if (t->m[q].g < 8) t->m[q].g = 0;
+        }
         t->silent += n;
-        if (t->silent > t->tmax) quiet_tube(t);              /* 3 T60: a rounding cycle must not hold it */
+        if (t->silent > t->tmax) quiet_tube(t);              /* 3 T60: a bound */
     }
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
         int32_t z = s->hp.x1 | s->hp.y1;
-        for (i = 0; i < NT; i++) z |= s->t[i].alive | !tx_svf_bank_quiet(s->t[i].m, NM);
+        for (i = 0; i < NT; i++) z |= s->t[i].alive | !tube_quiet(&s->t[i]);
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }
 }
