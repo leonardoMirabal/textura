@@ -18,5 +18,7 @@ the firmware platform.
   ignored, never pushed; its own local-only git for history). Public files never cite papers or link into it.
 - **`.private/PROGRESS.md` is the progress log**: read it first; add an entry whenever work moves.
 - Push code as soon as a piece is reviewed and its checks pass. Never push `.private/`.
+- **Only our own work in git history.** No third-party trees, SDKs, binaries or vendor folders, ever; audit any outside
+  history before importing it. Run `tools/guard.sh` before every commit (CI runs it too).
 - One research / implementation agent at a time; agents write their own files and never spawn sub-agents.
 - The FM-1 may be busy with Frodhes: ask before using it. Confirm before any outward-facing action.
