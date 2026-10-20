@@ -53,6 +53,8 @@ typedef struct {
     int32_t x, s1, s2;             /* excitation and the window sums */
     int32_t lp1, lp2, lpa;         /* air low-passes (Q15 coefficient) */
     int32_t out_g;                 /* output multiplier (calibrated by render) */
+    int32_t env, n1, n2;           /* the rolling tail: the output's envelope (slow release), its low noise */
+    uint32_t nr;                   /* (the tail's noise state) */
 } tx_flash_t;
 
 /* start a flash: distance (m), start height (m), tortuosity (Q8, 256 = the channel model), energy per length E_l (log2 of

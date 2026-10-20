@@ -112,6 +112,7 @@ static void stream_init(void *st, uint32_t seed)
     for (i = 0; i < sizeof *s; i++) b[i] = 0;
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 12, 60);                       /* a stone tipped in: a gulp of bubbles */
+    tx_cloud_release(&s->cloud, 7);                          /* released, the flow dies away (tau 0.74 s, ~3 s) */
     tx_noise_init(&s->bed, seed ^ 0xB0BB1Eu);
     tx_noise_init(&s->roar, seed ^ 0x2041u);
     tx_pulses_init(&s->ticks);
@@ -201,10 +202,12 @@ TX_AUDIO_CODE static void stream_render(void *st, int32_t *mix, unsigned n)
     stream_t *s = (stream_t *)st;
     tx_rng_t *r = &s->cloud.rng;
     unsigned k, i, j, held;
+    uint32_t lvq;
     int32_t *buf = s->buf, z;
     uint16_t d0 = s->dropped;
     if (n > TX_BLOCK) n = TX_BLOCK;
     held = tx_cloud_held(&s->cloud);
+    lvq = tx_cloud_level(&s->cloud);                         /* held keys and the released ones dying away, Q15 */
     {   /* eddies: the rate wanders (two low-passed random processes) */
         int32_t m;
         s->e1 += (tx_rand_s15(r) - s->e1) >> 6;              /* ~0.4 Hz */
@@ -218,19 +221,21 @@ TX_AUDIO_CODE static void stream_render(void *st, int32_t *mix, unsigned n)
     for (j = 0; j < n; j++) buf[j] = 0;
     s->bed_e = 0;
     for (i = 0; i < k; i++) bubble(s, &s->ev[i]);
-    if (held) {   /* the spray: ~20 / s per plunge at the default FLOW (rate / 64), Poisson */
-        uint32_t per = (uint32_t)((TX_FS << 6) / ((s->rate_q8 >> 8) * held + 1u)) << 8;   /* mean samples, Q8 */
+    if (lvq) {   /* the spray: ~20 / s per plunge at the default FLOW (rate / 64), Poisson; thinning as it dies */
+        uint32_t per = (uint32_t)((TX_FS << 6) / ((((s->rate_q8 >> 8) * (lvq >> 3)) >> 12) + 1u)) << 8;   /* mean samples, Q8 */
+        unsigned live = 0, e;
+        for (e = 0; e < TX_CLOUD_EMITTERS; e++) live += s->cloud.em[e].held || s->cloud.em[e].fade;
         while (s->spray_wait < n) {
-            unsigned e, c = tx_rand_below(r, held), q = 0;
+            unsigned c = tx_rand_below(r, live ? live : 1u), q = 0;
             for (e = 0; e < TX_CLOUD_EMITTERS; e++)
-                if (s->cloud.em[e].held && q++ == c) { spray(s, s->cloud.em[e].note, s->cloud.em[e].vel, s->spray_wait); break; }
+                if ((s->cloud.em[e].held || s->cloud.em[e].fade) && q++ == c) { spray(s, s->cloud.em[e].note, s->cloud.em[e].vel, s->spray_wait); break; }
             s->spray_wait += (tx_cloud_exp_q8(&s->cloud, per) >> 8) + 1u;
         }
         s->spray_wait -= n;
     } else
         s->spray_wait = 0;
-    s->flow_on += held ? (32768 - s->flow_on) >> 4 : -(s->flow_on >> 4);
-    if (!held && s->flow_on < 64) s->flow_on = 0;
+    s->flow_on += ((int32_t)(lvq > 32768u ? 32768u : lvq) - s->flow_on) >> 4;   /* follows the keys and their release */
+    if (!lvq && s->flow_on < 64) s->flow_on = 0;
     {   /* the events over the per-block cap: as average bubbles into the bed */
         uint32_t over = s->cloud.last_dropped;
         if (over) {
@@ -248,7 +253,7 @@ TX_AUDIO_CODE static void stream_render(void *st, int32_t *mix, unsigned n)
     }
     {   /* the roar: the cloud's low modes, ~ sqrt(rate) while the stream flows */
         uint32_t fl = tx_exp2(L2_FC(s->size_l2)) / 8u;
-        uint32_t g = isqrt_s(s->rate_q8 >> 8) * (uint32_t)held;
+        uint32_t g = isqrt_s(s->rate_q8 >> 8) * (uint32_t)(held ? held : lvq > 0u);
         fl = fl < 100u ? 100u : fl > 600u ? 600u : fl;
         g = (uint32_t)(((uint64_t)g * 220u * (uint32_t)s->flow_on) >> 15);
         g = (uint32_t)(((uint64_t)g * s->p[P_ROAR]) >> 6);    /* ROAR: 0 .. 2 (64 = the former default level) */

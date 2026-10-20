@@ -212,7 +212,8 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
         if (!v->alive && tx_svf_bank_quiet(v->body, NM) && !v->tlp && !v->lp && !v->lp2 && !v->hp) continue;
         if (held) v->stop = (int32_t)tx_exp2((s->h_l2 >> 1) + 411640);   /* sqrt(2 h / g) = 0.45 s sqrt(h): 77.8 sqrt(h) blocks */
         else if (v->stop > 0) v->stop--;
-        v->flow += (held || v->stop > 0) && v->alive ? (32768 - v->flow) >> 3 : -(v->flow >> 2);
+        v->flow += (held || v->stop > 0) && v->alive ? (32768 - v->flow) >> 3 : -((v->flow >> 5) + 1);   /* the last grains
+                                                              * trickle out over ~1 s (tau 0.19 s; session 5: no hard stop) */
         if (!held && v->stop <= 0 && v->flow < 64) { v->flow = 0; v->alive = 0; v->em = 0xFF; }
         surface(s, v);
         /* Beverloo: lambda = 1.963 (D0 - 2.9 d)^2.5 / d^3 (m), lengths in um: log2 = 10.94 + 2.5 log2(D0 - 2.9 d) - 3 log2 d */

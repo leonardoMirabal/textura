@@ -167,7 +167,8 @@ TX_AUDIO_CODE static void song_render(void *st, int32_t *mix, unsigned n)
         int held;
         if (!a->alive && tx_sync_quiet(&a->sy)) continue;
         held = a->alive && a->em < TX_CLOUD_EMITTERS && s->cloud.em[a->em].held && s->cloud.em[a->em].note == a->note;
-        a->flow += held ? (32768 - a->flow) >> 4 : -(a->flow >> 3);   /* start ~0.1 s, stop ~0.05-0.3 s */
+        a->flow += held ? (32768 - a->flow) >> 4 : -((a->flow >> 6) + 1);   /* start ~0.1 s; the avalanche slows and
+                                                              * stops over ~1.5-2 s (tau 0.37 s; session 5: no hard stop) */
         if (!held && a->flow < 256) { a->flow = 0; a->alive = 0; a->em = 0xFF; }
         {   /* speed v = FLOW x flow ramp: the coupling switches on above the threshold v_c (ours: K ~ (v - v_c) / v_c) */
             int32_t vl2 = s->flow_l2 + ((int32_t)a->vel - 100) * 819;   /* velocity: +-0.5 oct of speed per 40 */

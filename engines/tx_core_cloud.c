@@ -113,16 +113,21 @@ void tx_cloud_key(tx_cloud_t *c, uint8_t note, uint8_t vel, uint8_t on)
     tx_emitter_t *e;
     if (!on) {
         for (i = 0; i < TX_CLOUD_EMITTERS; i++)
-            if (c->em[i].held && c->em[i].note == note) c->em[i].held = 0;
+            if (c->em[i].held && c->em[i].note == note) {
+                c->em[i].held = 0;
+                if (!c->rel_k) c->em[i].fade = 0;            /* (RELEASE: the stream fades out instead) */
+            }
         return;
     }
     for (i = 0; i < TX_CLOUD_EMITTERS && pick == TX_CLOUD_EMITTERS; i++)   /* the same key again, else a free one */
         if (c->em[i].held && c->em[i].note == note) pick = i;
     for (i = 0; i < TX_CLOUD_EMITTERS && pick == TX_CLOUD_EMITTERS; i++)
+        if (!c->em[i].held && !c->em[i].fade) pick = i;
+    for (i = 0; i < TX_CLOUD_EMITTERS && pick == TX_CLOUD_EMITTERS; i++)   /* else a fading one */
         if (!c->em[i].held) pick = i;
     if (pick == TX_CLOUD_EMITTERS) pick = c->em_rr++ % TX_CLOUD_EMITTERS;   /* all held: take the next in turn */
     e = &c->em[pick];
-    e->note = note; e->vel = vel ? vel : 1u; e->held = 1;
+    e->note = note; e->vel = vel ? vel : 1u; e->held = 1; e->fade = 32767;
     e->next_q8 = c->period_q8 ? stream_gap(c) : 0;
     {
         uint32_t acc = 0;                                    /* the burst: MAIN at once, then Poisson spaced */
@@ -141,7 +146,15 @@ unsigned tx_cloud_held(const tx_cloud_t *c)
     return n;
 }
 
-int tx_cloud_idle(const tx_cloud_t *c) { return !c->npend && !tx_cloud_held(c); }
+uint32_t tx_cloud_level(const tx_cloud_t *c)
+{
+    unsigned i;
+    uint32_t n = 0;
+    for (i = 0; i < TX_CLOUD_EMITTERS; i++) n += c->em[i].held ? 32767u : c->em[i].fade;
+    return n;
+}
+
+int tx_cloud_idle(const tx_cloud_t *c) { return !c->npend && !tx_cloud_level(c); }
 
 /* ---- one block: the due events, sorted by offset, at most TX_CLOUD_EV_MAX */
 static void emit(tx_cloud_t *c, tx_event_t *ev, unsigned *k, unsigned *drop, uint32_t off, int32_t size,
@@ -161,10 +174,16 @@ TX_AUDIO_CODE unsigned tx_cloud_block(tx_cloud_t *c, tx_event_t *ev, unsigned n)
     for (i = 0; i < TX_CLOUD_EMITTERS; i++) {               /* streams of the held keys */
         tx_emitter_t *e = &c->em[i];
         unsigned guard = 0;
-        if (!e->held || !c->period_q8) continue;
+        if (!e->held) {                                      /* released: fading (RELEASE), else stopped */
+            if (!e->fade) continue;
+            e->fade = (uint16_t)(e->fade - (e->fade >> c->rel_k) - 1u);
+            if (e->fade < 256u) { e->fade = 0; continue; }   /* -42 dB: stopped */
+        }
+        if (!c->period_q8) continue;
         while ((e->next_q8 >> 8) < n && guard++ < TX_STREAM_GUARD) {
-            emit(c, ev, &k, &drop, e->next_q8 >> 8, tx_cloud_pareto(c, c->size_inv_q12, c->size_max_l2),
-                 e->note, e->vel, TX_EV_STREAM, (uint8_t)i);
+            if (e->held || (tx_rand(&c->rng) >> 17) < e->fade)   /* thinned by the fade (a Poisson stream stays one) */
+                emit(c, ev, &k, &drop, e->next_q8 >> 8, tx_cloud_pareto(c, c->size_inv_q12, c->size_max_l2),
+                     e->note, e->vel, TX_EV_STREAM, (uint8_t)i);
             e->next_q8 += stream_gap(c) + 1u;
         }
         e->next_q8 = (e->next_q8 >> 8) >= n ? e->next_q8 - (n << 8) : 0;

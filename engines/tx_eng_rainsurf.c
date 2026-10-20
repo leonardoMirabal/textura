@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura #3 Rain on surfaces: rain on leaves, a tent, a wooden deck, a window, a metal roof (02).
  *
- * While a key is held it rains (velocity: heavier), release lets the shower pass (~0.4 s); a press also drops one big
+ * While a key is held it rains (velocity: heavier), release lets the shower pass (~3-4 s); a press also drops one big
  * drop near you (key row: lower = bigger drop, 2 .. 6 mm). Physics:
  *   drops    four size classes (0.7-1.2 / 1.2-2.4 / 2.4-4.1 / > 4.1 mm, L21) arriving per m^2 per s as note 02's table
  *            (Marshall-Palmer x Gunn-Kinzer, L15 / L16; log-log in R), times the listening AREA; DROPS shifts the size
@@ -237,10 +237,11 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
         a = (int32_t)(((int64_t)a * s->level) >> 15);
         pulse(s, e->offset, ((uint32_t)TABN << 16) / (L ? L : 1u), a);
     }
-    {   /* rain: on while a key is held; the shower passes in ~0.4 s */
+    {   /* rain: on while a key is held; released, the shower passes over ~3-4 s (session 5: no hard stop): the drop rate
+     * thins out, the last drops sparse */
         unsigned held = tx_cloud_held(&s->cloud);
-        s->wet += held ? (32768 - s->wet) >> 4 : -(s->wet >> 4);
-        if (!held && s->wet < 64) s->wet = 0;
+        s->wet += held ? (32768 - s->wet) >> 4 : -((s->wet >> 7) + 1);   /* (released: tau 0.74 s, the rate thins) */
+        if (s->wet < 0) s->wet = 0;                          /* (released: it thins out to nothing, no last step) */
     }
     if (s->wet) {
         uint32_t x32 = s->rng_n;

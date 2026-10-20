@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura #2 Rain on water: rain falling on a lake, a pond, a puddle.
  *
- * A held key = rain (it starts and stops over ~0.4 s); a press also drops one big drop near you (velocity = size).
+ * A held key = rain (it starts in ~0.1 s and passes over ~3-4 s); a press also drops one big drop near you (velocity = size).
  * Physics: in water the sound is the bubbles, and the four drop classes behave differently (L21, L18):
  *   small      0.7-1.2 mm: a tiny "type I" bubble (a 0.16-0.25 mm: 13-20 kHz, T60 ~2 ms), with probability p_I
  *              (note 02 open question: 0.5, ours); wind (oblique drops) suppresses it (L21). The shimmer of light rain.
@@ -217,10 +217,11 @@ TX_AUDIO_CODE static void rw_render(void *st, int32_t *mix, unsigned n)
         const tx_event_t *e = &s->ev[i];
         big_drop(s, e->offset, CLICK_L * 2 * e->vel / 127, e->vel > 90);
     }
-    {   /* rain: on while a key is held; the shower passes in ~0.4 s; wind gusts the rate */
+    {   /* rain: on while a key is held; released, the shower passes over ~3-4 s (session 5: no hard stop): the drop rate
+     * thins out, the last drops sparse; wind gusts the rate */
         unsigned held = tx_cloud_held(&s->cloud);
-        s->wet += held ? (32768 - s->wet) >> 4 : -(s->wet >> 4);
-        if (!held && s->wet < 64) s->wet = 0;
+        s->wet += held ? (32768 - s->wet) >> 4 : -((s->wet >> 7) + 1);   /* (released: tau 0.74 s, the rate thins) */
+        if (s->wet < 0) s->wet = 0;                          /* (released: it thins out to nothing, no last step) */
         s->gust += ((tx_rand_s15(r) * (int32_t)s->p[P_WIND]) >> 10) - (s->gust >> 6);
         s->gust = s->gust > 16384 ? 16384 : s->gust < -16384 ? -16384 : s->gust;
     }

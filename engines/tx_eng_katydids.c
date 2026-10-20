@@ -83,7 +83,8 @@ typedef struct {
     int32_t gain;                  /* strike amplitude, Q15 */
     int32_t tf;                    /* own period factor, Q15 */
     uint32_t f1;                   /* carrier / low peak at this key, Hz */
-    uint8_t in_call, em, note, alive, stop, pad[3];
+    uint8_t in_call, em, note, alive, stop, pad;
+    uint16_t linger;               /* released: blocks it keeps calling (0 = not yet counted) */
 } singer_t;
 
 typedef struct {
@@ -227,7 +228,7 @@ static void spawn(katy_t *s, const tx_event_t *e)
         v->r2.g = sp->katydid == 1u ? (sp->l2 >> 7) * 10 : (sp->l2 * 5) >> 8;   /* the upper level; katydid: x 10 for */
                                                                           /* the low mode's build-up (by render) */
         v->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);   /* own period CV 5 % (ours) */
-        v->alive = 1; v->stop = 0; v->em = e->emitter; v->note = e->note; v->in_call = 0;
+        v->alive = 1; v->stop = 0; v->em = e->emitter; v->note = e->note; v->in_call = 0; v->linger = 0;
         tx_chorus_start(&s->ch, vi, call_T(s, v->tf), k ? tx_rand_below(r, 65535u) % (uint32_t)call_T(s, v->tf) : 0);
     }
 }
@@ -311,7 +312,10 @@ TX_AUDIO_CODE static void katy_render_raw(void *st, int32_t *mix, unsigned n)
         int held;
         if (quiet_v(v)) continue;
         held = v->alive && v->em < TX_CLOUD_EMITTERS && s->cloud.em[v->em].held && s->cloud.em[v->em].note == v->note;
-        if (v->alive && !held && !v->stop) { v->stop = 1; tx_chorus_stop(&s->ch, i); }
+        if (v->alive && !held && !v->stop) {                 /* released: each singer goes on for 0-3 s, then stops */
+            if (!v->linger) v->linger = (uint16_t)(2u + tx_rand_below(&s->cloud.rng, 516u));   /* after its call */
+            else if (--v->linger == 1u) { v->stop = 1; tx_chorus_stop(&s->ch, i); }            /* (session 5) */
+        }
         if (v->in_call) m = strikes(s, v, n);
         if (v->in_call) v->t += (int32_t)n;
         tx_ireso_add(&v->r1, s->mo, s->ma, m, mix, n);

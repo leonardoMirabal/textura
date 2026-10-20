@@ -34,7 +34,8 @@ TX_AUDIO_CODE void tx_buzz_add(tx_buzz_t *b, const int16_t *front, const int16_t
         int32_t f = front[k] + (((front[k + 1] - front[k]) * (int32_t)fr) >> 8);
         int32_t s = side[k] + (((side[k + 1] - side[k]) * (int32_t)fr) >> 8);
         int32_t y = f + (((s - f) * (mx >> 1)) >> 14);         /* crossfade, Q15 */
-        out[j] += y * (g >> 7);                              /* Q15 x Q8 -> Q23 */
+        out[j] += y * (g >> 7) + ((y * (g & 127)) >> 7);     /* Q15 x Q15 -> Q23, the gain's low bits kept: a fading
+                                                              * insect falls to silence, not from -48 dB (session 5) */
         ph += inc;
         g += gs; mx += ms;
     }

@@ -169,7 +169,11 @@ TX_AUDIO_CODE void tx_flash_add(tx_flash_t *f, tx_rng_t *r, int32_t *out, unsign
     }
     /* integrate, N-wave window, air, out */
     x = f->x; s1 = f->s1; s2 = f->s2; lp1 = f->lp1; lp2 = f->lp2;
-    {
+    {   /* the rolling tail (session 5: "a thunder tail never cuts"): the arrivals of the channel's segments end at
+         * once, real thunder rolls on, its sound scattered and reflected by the ground and the air: a low noise
+         * (~200 Hz, two one-poles) following the output's envelope, which falls with tau 1.5 s (ours) */
+        int32_t env = f->env, n1 = f->n1, n2 = f->n2;
+        uint32_t nr = f->nr ? f->nr : 0x2545F491u;
         int32_t L2 = f->l2, rc = f->recip, a = f->lpa, g = f->out_g;
         int16_t *dl = f->dl;
         unsigned p = f->dlpos;
@@ -185,10 +189,21 @@ TX_AUDIO_CODE void tx_flash_add(tx_flash_t *f, tx_rng_t *r, int32_t *out, unsign
             y = s1 - MUL15(s2, rc);                          /* the odd ramp +1 .. -1 */
             lp1 += MUL15(y - lp1, a);
             lp2 += MUL15(lp1 - lp2, a);
-            out[j] += lp2 * g;                               /* (calibrated by render) */
+            {
+                int32_t yo = lp2 * g, ay = (yo < 0 ? -yo : yo), u;
+                ay = (ay > (1 << 26) ? (1 << 26) : ay) << 4;   /* (x 16: the fall's last steps are under -70 dBFS) */
+                env = ay > env ? env + ((ay - env) >> 6) : env - (env >> 16) - (env > 0);
+                nr ^= nr << 13; nr ^= nr >> 17; nr ^= nr << 5;
+                u = (int32_t)(nr >> 17) - 16384;
+                n1 += (u - n1) >> 5;
+                n2 += (n1 - n2) >> 5;
+                out[j] += yo + ((n2 * (env >> 16)) >> 1);    /* (calibrated by render) */
+            }
             any |= xc | s1 | s2;
         }
         f->dlpos = (uint16_t)p;
+        if (!env) n1 = n2 = 0;
+        f->env = env; f->n1 = n1; f->n2 = n2; f->nr = nr;
     }
     for (j = 0; j < TX_TH_SMEAR + 1u; j++) d[j] = d[n + j];  /* carry the boxes' far edges */
     for (; j < n + TX_TH_SMEAR + 1u; j++) d[j] = 0;
@@ -197,5 +212,5 @@ TX_AUDIO_CODE void tx_flash_add(tx_flash_t *f, tx_rng_t *r, int32_t *out, unsign
     if (!any && ((lp1 > -16 && lp1 < 16 && lp2 > -16 && lp2 < 16) || (lp1 == f->lp1 && lp2 == f->lp2)))
         lp1 = lp2 = 0;                                       /* small, or frozen (the step rounds to zero) */
     f->lp1 = lp1; f->lp2 = lp2;
-    if (f->clock > f->st_t[f->nst - 1] + f->tmax + TX_TH_SMEAR && !any && !lp1 && !lp2 && !x) f->active = 0;
+    if (f->clock > f->st_t[f->nst - 1] + f->tmax + TX_TH_SMEAR && !any && !lp1 && !lp2 && !x && !f->env) f->active = 0;
 }

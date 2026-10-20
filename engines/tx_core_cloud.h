@@ -2,7 +2,9 @@
 /* Textura CLOUD / EVENTS core: when particles happen and how big they are, and which hero voice sounds each one.
  *
  *   EMITTERS  one per held key (up to TX_CLOUD_EMITTERS): a key press fires a BURST (its first event is the MAIN
- *             event), a held key a Poisson STREAM at a mean period; release stops the stream.
+ *             event), a held key a Poisson STREAM at a mean period; release stops the stream, or, with a RELEASE
+ *             time set (tx_cloud_release), thins it out: each released key's stream keeps going at the rate x its
+ *             fade (Poisson thinning), the fade falling exponentially until it stops: rain, flow, wind die away.
  *   SIZES     power law p(E) ~ E^-alpha on [E_min, E_max], drawn in log2: size_l2 = log2(E / E_min), Q12.
  *   OMORI     optional aftershocks after a MAIN event: count ~ binomial(2n, 1/2) (mean n), times from the normalised
  *             Omori law t = c ((1 - u)^(-1/(p-1)) - 1), sizes from the same power law, capped a gap below the main.
@@ -47,6 +49,8 @@ typedef struct {                   /* a burst / aftershock event waiting for its
 typedef struct {
     uint32_t next_q8;              /* samples to the next stream event, Q8 */
     uint8_t note, vel, held, pad;
+    uint16_t fade;                 /* Q15: 32767 while held; after release falling (RELEASE), 0 = stopped */
+    uint16_t pad2;
 } tx_emitter_t;
 
 typedef struct {
@@ -62,6 +66,7 @@ typedef struct {
     uint8_t after_n;               /* mean aftershocks per MAIN event (0 = off: the Omori hook is idle) */
     uint8_t after_stream;          /* 1: stream events trigger aftershocks too */
     uint8_t npend;
+    uint8_t rel_k;                 /* RELEASE: the fade falls by 2^-rel_k per block (0 = off: release stops at once) */
     uint16_t jitter_q8;            /* stream spacing: 256 = Poisson (exponential gaps, the default), 0 = periodic; */
                                    /* between: gap = mean (1 - j) + exponential draw x j */
     /* state */
@@ -93,6 +98,9 @@ void tx_cloud_init(tx_cloud_t *c, uint32_t seed);
 void tx_cloud_key(tx_cloud_t *c, uint8_t note, uint8_t vel, uint8_t on);
 TX_AUDIO_CODE unsigned tx_cloud_block(tx_cloud_t *c, tx_event_t *ev, unsigned n);   /* -> events, by offset */
 unsigned tx_cloud_held(const tx_cloud_t *c);                   /* keys held now */
+uint32_t tx_cloud_level(const tx_cloud_t *c);                  /* held keys + released keys' fades, Q15 per key */
+/* RELEASE: a released key's stream fades out with tau = 2^k blocks (k 5: 0.19 s, 6: 0.37, 7: 0.74, 8: 1.5 s); 0 = off */
+static inline void tx_cloud_release(tx_cloud_t *c, unsigned k) { c->rel_k = (uint8_t)(k > 10u ? 10u : k); }
 int tx_cloud_idle(const tx_cloud_t *c);                         /* nothing held, nothing pending */
 void tx_cloud_rate(tx_cloud_t *c, uint32_t rate_q8);           /* stream rate per held key, events/s Q8 (0 = off) */
 void tx_cloud_regular(tx_cloud_t *c, uint32_t jitter_q8);      /* 256 = Poisson stream (default) .. 0 = periodic */

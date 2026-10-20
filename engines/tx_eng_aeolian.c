@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura #22 Wind / Aeolian harp: wind singing in wires and harp strings (AEOLIAN core).
  *
- * Each held key is a string tuned to its note, exposed to the wind; release damps it (~0.3 s). Physics:
+ * Each held key is a string tuned to its note, exposed to the wind; release: the gust dies over ~1.5 s. Physics:
  *   shedding  vortices leave the wire at f_l = St(Re) u / d (A2b Table 2), a narrow tone of Q(Re) (A2b Eq. 11):
  *             lift at f_l (and 3 f_l, by ear), drag at 2 f_l (-10 dB intensity: x 0.32), lift intensity ~ u^6
  *             (amplitude u^3), wake noise intensity ~ u^8 (amplitude u^4) falling -12 dB/oct above f_l.
@@ -167,7 +167,8 @@ TX_AUDIO_CODE static void aeol_render(void *st, int32_t *mix, unsigned n)
         int32_t a = 0, boost = 32768, qq = (int32_t)q;
         uint32_t ft = fl;
         if (!g->alive && !g->v.a1 && !g->v.a2 && !g->v.a3) continue;
-        g->env += held ? (32768 - g->env) >> 3 : -(g->env >> 4);   /* ~46 ms on, ~0.1-0.3 s off */
+        g->env += held ? (32768 - g->env) >> 3 : -((g->env >> 6) + 1);   /* ~46 ms on; the gust dies over ~1.5 s
+                                                              * (tau 0.37 s; session 5: no hard stop) */
         if (!held && g->env < 64) { g->env = 0; g->alive = 0; g->em = 0xFF; }
         nlive += g->alive;
         if (fl && s->lock) {                                 /* lock-in: a partial n f1 in 0.63 .. 1.0 f_l */
@@ -211,7 +212,7 @@ TX_AUDIO_CODE static void aeol_render(void *st, int32_t *mix, unsigned n)
     tx_noise_roar_add(&s->wake, s->wake.target, buf, n);
     {   /* the wind bed: broadband low roar (references: 50-250 Hz at about the tone's level, the tones 10-20 dB over
          * it in their own band), ~ u^3, gusting with u and a faster flutter (ours) */
-        int32_t tgt = nlive ? 32768 : 0, g;
+        int32_t tgt = wake > 32768 ? 32768 : wake, g;        /* (the strings' envelopes: the wind dies with them) */
         uint32_t al = tx_exp2(3 * (wl2 > (1 << 16) ? (1 << 16) : wl2) + (16 << 16));
         s->benv += (tgt - s->benv) >> 4;
         if (!nlive && s->benv < 64) s->benv = 0;

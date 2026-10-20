@@ -73,7 +73,8 @@ typedef struct {
     int32_t gain;                  /* Q15 */
     int32_t tf;                    /* own period factor, Q15 */
     int32_t pc;                    /* samples to the next pulse of the chirp (from the block start) */
-    uint8_t pl, slot, em, note, alive, stop, pad[2];
+    uint8_t pl, slot, em, note, alive, stop;
+    uint16_t linger;               /* released: blocks it keeps calling (0 = not yet counted) */
 } cricket_t;
 
 typedef struct {
@@ -210,7 +211,7 @@ static void spawn(crickets_t *s, const tx_event_t *e)
         if (k) f_l2 += (tx_gauss_q12(r) * 2789) >> 12;       /* companions: carrier CV 3 % (N1: 4.8-5.3 kHz) */
         c->inc = (uint32_t)(((uint64_t)sp->f0 * 97391u * tx_exp2(f_l2 + (16 << 16))) >> 16);
         c->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);    /* own period: CV 5 % (ours) */
-        c->alive = 1; c->stop = 0; c->em = e->emitter; c->note = e->note; c->pl = 0;
+        c->alive = 1; c->stop = 0; c->em = e->emitter; c->note = e->note; c->pl = 0; c->linger = 0;
         tx_chorus_start(&s->ch, ci, call_T(s, c->tf), k ? tx_rand_below(r, 65535u) % (uint32_t)call_T(s, c->tf) : 0);
     }
 }
@@ -238,8 +239,11 @@ TX_AUDIO_CODE static void crickets_render_raw(void *st, int32_t *mix, unsigned n
         int held;
         if (!c->alive && !c->tone[0].on && !c->tone[1].on) continue;
         held = c->alive && c->em < TX_CLOUD_EMITTERS && s->cloud.em[c->em].held && s->cloud.em[c->em].note == c->note;
-        if (c->alive && !held && !c->stop) { c->stop = 1; tx_chorus_stop(&s->ch, i); }
-        held_any |= held;
+        if (c->alive && !held && !c->stop) {                 /* released: each caller goes on for 0-3 s, then stops */
+            if (!c->linger) c->linger = (uint16_t)(2u + tx_rand_below(&s->cloud.rng, 516u));   /* after its call */
+            else if (--c->linger == 1u) { c->stop = 1; tx_chorus_stop(&s->ch, i); }            /* (session 5: no */
+        }                                                                                        /* hard stop) */
+        held_any |= c->alive && !c->stop;
         while (c->pl && c->pc < (int32_t)n) {
             /* each pulse its own: level SD ~3 dB, length CV 8 %, spacing 5 % (the recordings: 2.4-4.8 dB, 0.1) */
             int32_t g = (int32_t)(((int64_t)c->gain * s->level) >> 15), jv;

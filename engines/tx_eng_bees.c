@@ -47,7 +47,7 @@ static const tx_param_t PARAMS[NP] = {
 #define R_REF 300                  /* the level reference distance, mm */
 #define G_REF 4000                 /* gain at R_REF (Q15; calibrated by render) */
 #define R_MIN 60                   /* the level law stops at 6 cm (the insect's own size) */
-#define FADE_BLK 258u              /* fly-off fade, blocks (1.5 s) */
+#define FADE_BLK 430u              /* fly-off fade, blocks (2.5 s; the level as (1 - t / T)^3) */
 
 typedef struct { uint16_t f0; int8_t h[TX_WING_H]; } species_t;
 static const species_t SPECIES[NSP] = {           /* harmonic levels in dB x 2 (-128: absent) */
@@ -237,7 +237,9 @@ static void fly(bees_t *s, bug_t *b, int32_t *g1, int32_t *mix1)
     gm = (int32_t)(((int64_t)gm * s->level) >> 15);
     gm = gm > 32767 ? 32767 : gm;
     if (b->fade) {
-        gm = gm * (int32_t)(FADE_BLK - (b->fade < FADE_BLK ? b->fade : FADE_BLK)) / (int32_t)FADE_BLK;
+        int32_t q = (int32_t)((FADE_BLK - (b->fade < FADE_BLK ? b->fade : FADE_BLK)) * 32767u / FADE_BLK);   /* 1 .. 0 */
+        q = (int32_t)(((int64_t)q * q >> 15) * q >> 15);     /* cubed: it fades away, no audible end (session 5) */
+        gm = (int32_t)(((int64_t)gm * q) >> 15);
         if (b->fade < 65535u) b->fade++;
     }
     *g1 = gm > 32767 ? 32767 : gm;
