@@ -17,7 +17,13 @@
  *            a honk ~400-500 Hz; the system jumps between them, a light tap restores the groan, the static-dynamic
  *            friction difference (STICK) sets how strong it is. Here: slip pulses (raised cosine, 3 ms / 1 ms) at
  *            the regime's rate +-5 %, random switches (~0.35 /s, honk more likely at speed), a key press -> groan.
- * Velocity scales the pressure. Ours: lambda, the scratch / grind spacings, the mode gains, the slip shapes. */
+ * Velocity scales the pressure. Ours: lambda, the scratch / grind spacings, the mode gains, the slip shapes.
+ * Realism pass (stone-rubbing references, analysis only): rubbing stones are a broadband, irregular, darkish noise
+ * (100 Hz-2 kHz, -5..-12 dB / oct, rms std 3-8 dB, kurtosis 2-12) with no ringing tone; ours was the first bar mode
+ * 27 dB over the rest (a filter). So: a held stone is damped by the contact (Q <= 25 while rubbing, its own Q when it
+ * rings free), the modes 18 dB lower, the contact itself x 4 through a ~2 kHz low-pass, the pressure irregular (a
+ * ~1 Hz hand wander of ~0.6 oct, +-6 dB per block, catches +9 dB at ~2 / s), and a key press knocks the stones
+ * together first (a Hertz pulse ~0.2 ms: the user expects a percussive start). Ours, set against the references. */
 #include "tx_engine.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
@@ -37,11 +43,12 @@ static const tx_param_t PARAMS[NP] = {
 
 #define NV 6u
 #define NM 5u
-#define G_REF 6000                 /* contact force at the reference (5 N, 0.1 m/s, v100), Q15 (calibrated by render) */
+#define G_REF 12000                /* contact force at the reference (5 N, 0.1 m/s, v100), Q15 (calibrated by render) */
 
 TX_AUDIO_DATA static const uint16_t STONE_Q[8] = { 55, 65, 150, 150, 150, 175, 300, 1000 };
 TX_AUDIO_DATA static const uint16_t BAR_R[NM] = { 1024, 2823, 5534, 9147, 13665 };   /* bar ratios, Q10 */
-TX_AUDIO_DATA static const uint16_t MODE_G[NM] = { 2048, 1638, 1229, 922, 717 };     /* mode gains, Q11 (ours) */
+TX_AUDIO_DATA static const uint16_t MODE_G[NM] = { 256, 205, 154, 115, 90 };          /* mode gains, Q11 (ours; -18 dB
+                                                              * in the realism pass: the body sat 27 dB over the rub) */
 
 typedef struct {
     tx_scrape_t sc;
@@ -50,6 +57,9 @@ typedef struct {
     int32_t f[NM], gin[NM], g[NM];
     int32_t gain, target;          /* contact force gain now / wanted (Q15): lift and press ramps */
     uint32_t ph, sinc;             /* stick-slip phase and its step per sample */
+    int32_t dlp;                   /* the direct contact's low-pass (~2 kHz: stone on stone is dark, references) */
+    int32_t wander;                /* the hand's slow pressure wander (Q15, ~1 Hz; sd ~0.6 oct) */
+    int32_t bq;                    /* the body's damping now: held = damped by the contact, free = the mineral's Q */
     uint8_t em, note, vel, alive, honk, nm, pad[2];
 } voice_t;
 
@@ -157,6 +167,12 @@ static void press(mineral_t *s, const tx_event_t *e)
     }
     v->em = e->emitter; v->note = e->note; v->vel = e->vel;
     v->honk = 0;                                             /* F5: a light tap restores the groan */
+    {   /* the stones meet: a knock (a Hertz pulse ~0.2 ms, ~ velocity) before the rub (the user expects a percussive
+         * start; ours) */
+        int32_t a = (int32_t)e->vel * e->vel;                /* Q15 x 1/2 */
+        a = (int32_t)(((int64_t)a * s->level) >> 15);
+        tx_pulse_start(&v->slip, TX_PULSE_SHAPE_HERTZ, 9u, (tx_rand(&s->cloud.rng) & 1u) ? a : -a, e->offset);
+    }
 }
 
 /* per block: the stone's modes and the contact from the knobs, the stick-slip regime */
@@ -171,7 +187,7 @@ static void control(mineral_t *s, voice_t *v)
         uint32_t hz = (uint32_t)(((uint64_t)tx_exp2(f1) * BAR_R[i]) >> 10);
         if (hz > 7300u) break;
         v->f[i] = tx_svf_coef(hz);
-        v->gin[i] = (int32_t)tx_svf_gin_noise(hz, (uint32_t)s->qx16);
+        v->gin[i] = (int32_t)tx_svf_gin_noise(hz, held && s->qx16 > 400 ? 400u : (uint32_t)s->qx16);   /* at the Q in use */
         v->g[i] = MODE_G[i];
         v->nm = (uint8_t)(i + 1u);
     }
@@ -179,10 +195,17 @@ static void control(mineral_t *s, voice_t *v)
     pl2 = s->press_l2 + ((int32_t)v->vel - 100) * 1638;      /* +-1 octave of force per 40 velocity */
     vl2 = s->speed_l2;
     a_l2 = (pl2 + vl2) / 2;                                  /* force ~ sqrt(v F_N) against the reference */
+    {   /* a hand rubs unevenly (references: rms std 3-8 dB, kurtosis 2-12): the pressure wanders (+-0.5 oct, ~1 Hz),
+         * jitters per block (+-6 dB) and catches (+9 dB, ~2 / s) (ours, set against the references) */
+        v->wander += (tx_rand_s15(r) - v->wander) >> 5;
+        a_l2 += v->wander * 16 + (tx_rand_s15(r) + tx_rand_s15(r));
+        if ((tx_rand(r) >> 16) < 762u) a_l2 += 98304;      /* p = 0.0116 per block */
+    }
     a_l2 = a_l2 > (3 << 16) ? (3 << 16) : a_l2 < -(7 << 16) ? -(7 << 16) : a_l2;
     v->target = held ? (int32_t)(((uint64_t)tx_exp2(a_l2 + (16 << 16)) * G_REF) >> 16) : 0;
     v->target = (int32_t)(((uint32_t)(v->target > 32767 ? 32767 : v->target) * (uint32_t)s->level) >> 15);
-    v->gain += (v->target - v->gain) >> 2;                   /* ~20 ms press / lift */
+    v->gain += (v->target - v->gain) >> 1;                   /* ~10 ms press / lift (follows the jitter) */
+    v->bq = held && s->q < 655 ? 655 : s->q;                 /* held: the contact damps the stone to Q <= 25 (ours) */
     if (!held && v->gain < 16) v->gain = 0;
     fc = (uint32_t)(((uint64_t)tx_exp2(vl2 + (16 << 16)) * 1000u) >> 16);   /* v / 0.1 mm: 1000 Hz at 0.1 m/s */
     tx_scrape_cutoff(&v->sc, fc);
@@ -248,9 +271,13 @@ TX_AUDIO_CODE static void mineral_render(void *st, int32_t *mix, unsigned n)
             v->ph = ph;
         }
         tx_pulses_add(&v->slip, tmp, n);
-        for (j = 0; j < n; j++) buf[j] += tmp[j] >> 2;      /* a little of the contact noise itself */
-        if (v->nm) tx_svf_bank_add_g(v->body, v->f, s->q, v->gin, v->g, v->nm, tmp, buf, n);
-        if (!v->gain && tx_scrape_quiet(&v->sc) && !tx_pulses_active(&v->slip) && tx_svf_bank_quiet(v->body, NM)) {
+        {   /* the contact noise itself (the rub is mostly this), low-passed at ~2 kHz (references: -5..-12 dB / oct) */
+            int32_t d = v->dlp;
+            for (j = 0; j < n; j++) { d += ((tmp[j] - d) >> 3) * 2 + ((tmp[j] - d) >> 5); buf[j] += d; }   /* a 0.28 */
+            v->dlp = (d > -16 && d < 16) ? 0 : d;
+        }
+        if (v->nm) tx_svf_bank_add_g(v->body, v->f, v->bq ? v->bq : s->q, v->gin, v->g, v->nm, tmp, buf, n);
+        if (!v->gain && !v->dlp && tx_scrape_quiet(&v->sc) && !tx_pulses_active(&v->slip) && tx_svf_bank_quiet(v->body, NM)) {
             v->alive = 0; v->em = 0xFF;
         }
     }
