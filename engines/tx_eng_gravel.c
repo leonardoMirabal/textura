@@ -16,6 +16,7 @@
 #include "tx_engine.h"
 #include "tx_core_cloud.h"
 #include "tx_core_shaker.h"
+#include "tx_core_noise.h"
 
 enum { P_SIZE, P_AMOUNT, P_SHAKE, P_RATE, P_SPREAD, P_GROUND, NP };
 
@@ -48,7 +49,8 @@ typedef struct {
     voice_t v[NV];
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t buf[TX_BLOCK];
-    int32_t glow[NG], gband[NG], gf[NG], gq, gwet;
+    tx_svf_t ground[NG];
+    int32_t gf[NG], gq, gwet;
     uint8_t p[NP], limit, quiet;
     int32_t level;                 /* Q15 */
     int32_t size_l2;               /* log2(d at C4 / 1 mm), Q16 */
@@ -162,7 +164,7 @@ TX_AUDIO_CODE static void gravel_render(void *st, int32_t *mix, unsigned n)
 {
     gravel_t *s = (gravel_t *)st;
     unsigned k, i, j;
-    int32_t *buf = s->buf, any = 0;
+    int32_t *buf = s->buf;
     uint16_t d0 = s->dropped;
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) buf[j] = 0;
@@ -174,33 +176,20 @@ TX_AUDIO_CODE static void gravel_render(void *st, int32_t *mix, unsigned n)
         tx_shaker_add(&v->sh, buf, n);
         if (tx_shaker_quiet(&v->sh)) { v->alive = 0; v->em = 0xFF; }
     }
-    /* ground / box modes on the sum */
-    for (j = 0; j < n; j++) any |= buf[j];
-    for (i = 0; i < NG; i++) any |= s->glow[i] | s->gband[i];
-    if (any && s->gwet) {
-        int32_t q = s->gq, w = s->gwet >> 4;
-        for (i = 0; i < NG; i++) {
-            int32_t lo = s->glow[i], bd = s->gband[i], f = s->gf[i], h;
-            for (j = 0; j < n; j++) {
-                int32_t v = buf[j] > (1 << 25) ? (1 << 25) : buf[j] < -(1 << 25) ? -(1 << 25) : buf[j];
-                int32_t x = ((v >> 10) * q) >> 14;           /* Q13, unit-peak input gain 1 / Q */
-                lo += (f * bd) >> 14;
-                h = x - lo - ((q * bd) >> 14);
-                bd += (f * h) >> 14;
-                buf[j] += (bd * w) >> 1;                     /* Q13 x Q11 >> 1 -> Q23 */
-            }
-            if (bd > -2 && bd < 2 && lo > -64 && lo < 64) lo = bd = 0;
-            s->glow[i] = lo; s->gband[i] = bd;
-        }
+    /* ground / box modes on the sum (shared bank helper, unit-peak modes) */
+    if (s->gwet) {
+        int32_t g[NG];
+        for (i = 0; i < NG; i++) g[i] = s->gwet >> 4;        /* Q11 */
+        tx_svf_bank_add(s->ground, s->gf, s->gq, g, NG, buf, buf, n);
     } else
-        for (i = 0; i < NG; i++) s->glow[i] = s->gband[i] = 0;
+        for (i = 0; i < NG; i++) s->ground[i].low = s->ground[i].band = 0;
     tx_declick_run(&s->dc, buf, n);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
         int32_t z = s->dc.v | s->hp.x1 | s->hp.y1;
         for (i = 0; i < NV; i++) z |= s->v[i].alive;
-        for (i = 0; i < NG; i++) z |= s->glow[i] | s->gband[i];
+        z |= !tx_svf_bank_quiet(s->ground, NG);
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }
 }

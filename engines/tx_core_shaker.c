@@ -91,6 +91,16 @@ void tx_shaker_res(tx_shaker_t *s, unsigned i, uint32_t f_hz, int32_t r_q14)
     r->r = r_q14 < 0 ? 0 : r_q14 > 16370 ? 16370 : r_q14;
     coefs(r, r->inc);
     if (i >= s->nres) s->nres = (uint8_t)(i + 1u);
+    {   /* ring-out bound: a ring from the +-4.0 limit (2^16 LSB) falls under 1 LSB in ln(2^16) / (1 - r) ~ 12 / (1 - r)
+         * samples; past that only a zero-input limit cycle of the rounding is left (direct form, r near 1) */
+        unsigned k;
+        uint32_t m = 0;
+        for (k = 0; k < s->nres; k++) {
+            uint32_t t = (12u << 14) / (uint32_t)(16384 - s->res[k].r);
+            if (t > m) m = t;
+        }
+        s->tail_max = m;
+    }
 }
 
 void tx_shaker_objects(tx_shaker_t *s, uint32_t n_q4, int32_t base_q11)
@@ -183,8 +193,12 @@ TX_AUDIO_CODE void tx_shaker_add_exc(tx_shaker_t *s, int32_t *out, int32_t *exc,
         }
         e = e1;
     }
+    if (e) s->tail = 0;
+    else if (s->tail < s->tail_max) s->tail += n;
     if (!e) {                                                /* rung out: exact zero (integer limit cycles) */
         int32_t z = 0;
+        if (s->tail >= s->tail_max)
+            for (i = 0; i < nres; i++) y1[i] = y2[i] = 0;
         for (i = 0; i < nres; i++) {
             if (y1[i] > -4 && y1[i] < 4 && y2[i] > -4 && y2[i] < 4) y1[i] = y2[i] = 0;
             z |= y1[i] | y2[i];

@@ -20,6 +20,7 @@
  * so a small tick stays audible), distance at its full law. */
 #include "tx_engine.h"
 #include "tx_core_cloud.h"
+#include "tx_core_noise.h"
 
 enum { P_GAP, P_RATE, P_BURST, P_DIST, P_CORONA, P_BODY, NP };
 
@@ -45,7 +46,7 @@ typedef struct {
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t tick[TX_BLOCK + KLEN];  /* the sparks of this block (+ the tail carried into the next) */
     int32_t buf[TX_BLOCK];
-    int32_t low[NB], band[NB];     /* body bank (Q13 signal) */
+    tx_svf_t body[NB];             /* body bank */
     int32_t f[NB], q;              /* Q14 SVF coefficients (q = 1 / Q, also the input gain) */
     int32_t wet;                   /* Q15 */
     int32_t corona, cor_g;         /* corona target and current gain, Q15 */
@@ -167,28 +168,13 @@ TX_AUDIO_CODE static void sparks_render(void *st, int32_t *mix, unsigned n)
         spark(s, &s->ev[i]);
     }
     for (j = 0; j < n; j++) any |= t[j];
-    /* body: the ticks through the bank (Q13), mixed with the dry ticks */
-    for (i = 0; i < NB; i++) any |= s->low[i] | s->band[i];
-    if (any) {
-        int32_t q = s->q, wet = s->wet, dry = 32768 - (wet >> 1);
+    /* body: the ticks through the shared bank helper (unit-peak modes), mixed with the dry ticks */
+    if (any || !tx_svf_bank_quiet(s->body, NB)) {
+        int32_t wet = s->wet, dry = 32768 - (wet >> 1), g[NB];
         for (j = 0; j < n; j++) buf[j] = (t[j] >> 15) * dry + (((t[j] & 0x7FFF) * dry) >> 15);
-        if (wet) {
-            for (i = 0; i < NB; i++) {
-                int32_t lo = s->low[i], bd = s->band[i], f = s->f[i], h;
-                for (j = 0; j < n; j++) {
-                    int32_t v = t[j] > (1 << 25) ? (1 << 25) : t[j] < -(1 << 25) ? -(1 << 25) : t[j];   /* +-4 FS */
-                    int32_t x = ((v >> 10) * q) >> 14;      /* Q13; input gain 1 / Q: unit peak */
-                    lo += (f * bd) >> 14;
-                    h = x - lo - ((q * bd) >> 14);
-                    bd += (f * h) >> 14;
-                    buf[j] += (bd * (wet >> 4)) >> 1;        /* Q13 x Q11 >> 1 -> Q23 */
-                }
-                if (bd > -2 && bd < 2 && lo > -16 && lo < 16) lo = bd = 0;   /* rung out (band -72 dBFS; low can */
-                                                                              /* stall at |lo f| < 2^14): zero */
-                s->low[i] = lo; s->band[i] = bd;
-            }
-        } else
-            for (i = 0; i < NB; i++) s->low[i] = s->band[i] = 0;
+        for (i = 0; i < NB; i++) g[i] = wet >> 4;            /* Q11 */
+        if (wet) tx_svf_bank_add(s->body, s->f, s->q, g, NB, t, buf, n);
+        else for (i = 0; i < NB; i++) s->body[i].low = s->body[i].band = 0;
     } else
         for (j = 0; j < n; j++) buf[j] = 0;
     for (j = 0; j < KLEN; j++) { t[j] = t[n + j]; t[n + j] = 0; }   /* carry the kernels' tails */
@@ -225,7 +211,7 @@ TX_AUDIO_CODE static void sparks_render(void *st, int32_t *mix, unsigned n)
     {
         int32_t z = 0;
         for (j = 0; j < KLEN; j++) z |= t[j];
-        for (i = 0; i < NB; i++) z |= s->low[i] | s->band[i];
+        z |= !tx_svf_bank_quiet(s->body, NB);
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z && !s->cor_g && !s->hp.x1 && !s->hp.y1);
     }
 }

@@ -39,6 +39,7 @@ typedef struct {
     int32_t eq1, eq2;              /* equaliser taps 1 and 2 (-1, 0 or +1; tap 0 is +1) */
     int32_t h1, h2;                /* equaliser history */
     int32_t last;                  /* last output (Q14; for a declick when the voice is cut) */
+    uint32_t tail, tail_max;       /* samples since the energy ran out; then the resonators are forced to zero */
     uint8_t nres, vcnt, pad[2];
     tx_shaker_res_t res[TX_SHAKER_RES];
 } tx_shaker_t;

@@ -9,6 +9,7 @@
  *   state     state_bytes <= TX_STATE_MAX; particles_def within 1..particles_max
  *   idle      a fresh instance renders exact zeros for 2 s and says quiet
  *   tail      after a tap the output reaches exact zero (quiet) within 30 s and stays zero
+ *   quiet     each own parameter at 0 / 64 / 90 / 127 (2 seeds, v100 / v127): a tap is quiet within 20 s
  *   overflow  the worst-case scene runs without signed overflow (UBSan) and peaks under 2^27 (16x full scale, so 4
  *             layers stay 4x inside int32); the chord scene at the default level stays under full scale
  *   cap       in the cap and max scenes the sounding particles never exceed the PARTICLES limit in force
@@ -133,6 +134,36 @@ static void check_engine(const tx_engine_t *e, FILE *update)
         }
         snprintf(msg, sizeof msg, "quiet after %.2f s, %u nonzero samples after", quiet_at * 256.0 / 44100.0, nz);
         verdict(n, "tail", quiet_at && !nz, msg, 0);
+        free(st);
+    }
+    {   /* quiet sweep: each own parameter at 0 / 64 / 90 / 127 (the others at default), a tap: quiet within 20 s.
+         * Catches states that never reach exact zero (e.g. a resonator frozen by rounding) in non-default corners. */
+        static const uint8_t VALS[4] = {0, 64, 90, 127};
+        void *st = tx_state_new(e);
+        int32_t mix[TX_BLOCK];
+        unsigned p, k, bad = 0, worst_b = 0;
+        char where[80] = "";
+        for (p = 0; p < e->n_params; p++)
+            for (k = 0; k < 8; k++) {                        /* 4 values x (seed 3 v100, seed 7 v127) */
+                uint32_t b, j, quiet_at = 0;
+                tx_stats_t s;
+                uint8_t v = VALS[k & 3] > e->params[p].max ? e->params[p].max : VALS[k & 3];
+                e->init(st, k < 4 ? 3 : 7);
+                e->param(st, (uint8_t)p, v);
+                e->key(st, 60, k < 4 ? 100 : 127, 1);
+                for (b = 0; b < 3446u && !quiet_at; b++) {       /* 20 s */
+                    for (j = 0; j < TX_BLOCK; j++) mix[j] = 0;
+                    if (b == 26) e->key(st, 60, 0, 0);
+                    e->render(st, mix, TX_BLOCK);
+                    e->stats(st, &s);
+                    if (b > 26 && s.quiet) quiet_at = b;
+                }
+                if (!quiet_at) { if (!bad++) snprintf(where, sizeof where, " (first: %s %u)", e->params[p].name, v); }
+                else if (quiet_at > worst_b) worst_b = quiet_at;
+            }
+        snprintf(msg, sizeof msg, "every parameter at 0/64/90/127, 2 seeds: a tap is quiet within 20 s (%u never; slowest %.1f s)%s",
+                 bad, worst_b * 256.0 / 44100.0, where);
+        verdict(n, "quiet", !bad, msg, 0);
         free(st);
     }
     if (!run_scene(e, "max", &a, hex)) {
