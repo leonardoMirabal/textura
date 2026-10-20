@@ -14,8 +14,12 @@
  *   sum      the flames' noises are independent Gaussian sources with the same spectrum, so their sum is one noise
  *            whose variance is the sum of the squared gains: one band, gain sqrt(sum g_i^2) per block. The cost does
  *            not grow with the number of flames.
- *   sputter  wick / wax micro-bursts (ours, no measurement): Poisson ticks per flame, power-law sizes (b 1.4, as
- *            fracture E33), a bigger one when a flame is lit. */
+ *   crackle  wick / wax micro-bursts: Poisson events per flame (~6 / s at the default, as the wood-wick references'
+ *            7-12 onsets / s), power-law sizes (b 1.4, as fracture E33), each a burst of 2-6 sharp clicks over 1-6 ms;
+ *            a bigger one when a flame is lit.
+ * Realism pass (reference recordings, analysis only): a candle is quiet, broadband (-2 dB / oct) and crackly, its
+ * level wandering slowly (0.5-1.3 Hz, 1.5-3 dB): so the still-air flicker no longer modulates the roar (a 12 Hz
+ * tremolo read as synthetic), the roar is broader (Q 0.5) and lower (from 120 Hz), and quieter at the default. */
 #include "tx_engine.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
@@ -25,11 +29,11 @@ enum { P_SIZE, P_FLOW, P_SLOPE, P_SPACING, P_DRAUGHT, P_SPUTTER, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"SIZE", 127, 33, "flame size D at C4: 5 mm .. 1 m (log) -> flicker 0.52 sqrt(g/D) = 23 .. 1.6 Hz (keys: lower = bigger)"},
-    {"FLOW", 127, 40, "gas flow / burn rate: roar level -30 .. 0 dB and peak 250 .. 700 Hz"},
+    {"FLOW", 127, 15, "gas flow / burn rate: roar level -30 .. 0 dB and peak 120 .. 700 Hz"},
     {"SLOPE", 127, 89, "roar fall-off above the peak: alpha 2.1 (bright) .. 3.4 (dark), -6.3 .. -10 dB/oct"},
     {"SPACING", 127, 30, "distance between flames: touching = flicker in phase, apart = counter-phase, far = independent"},
-    {"DRAUGHT", 127, 20, "air movement: still (steady flame) .. windy (deep, irregular flicker and gusts)"},
-    {"SPUTTER", 127, 40, "wick sputter ticks per flame: off .. 6 /s (log)"},
+    {"DRAUGHT", 127, 10, "air movement: still (steady flame) .. windy (deep, irregular flicker and gusts)"},
+    {"SPUTTER", 127, 100, "wick crackle per flame: off .. 20 /s (log); each a cluster of 1-3 sharp clicks"},
 };
 
 #define NFL 8u                     /* flames: one per cloud emitter */
@@ -75,10 +79,11 @@ static uint32_t isqrt32(uint32_t x)
 
 static void set_roar(candle_t *s)
 {
-    uint32_t fv = s->p[P_FLOW], fpk = tx_knob_exp(fv, 250u, 97355);   /* 250 .. 700 Hz (1.49 octaves) */
+    uint32_t fv = s->p[P_FLOW], fpk = tx_knob_exp(fv, 120u, 166730);   /* 120 .. 700 Hz (2.54 octaves): a candle's
+                                                              * roar peaks 100-250 Hz (references), burners 300-600 (E11) */
     uint32_t k = (uint32_t)(127u - s->p[P_SLOPE]) * 13u / 8u + 98u;    /* octaves above f_pk, Q6: 2.5 (4 - alpha) */
     uint32_t fc = (uint32_t)(((uint64_t)fpk * tx_exp2((int32_t)(k << 10) + (16 << 16))) >> 16);
-    tx_noise_band(&s->roar, fpk, 12, TX_NOISE_BAND);
+    tx_noise_band(&s->roar, fpk, 8, TX_NOISE_BAND);      /* Q 0.5: broad */
     tx_noise_tilt(&s->roar, fc);
     s->flow_g = (int32_t)tx_exp2((15 << 16) - (int32_t)((127u - fv) * 2580u));   /* 2^(-5 (1 - v/127)): -30 dB */
 }
@@ -97,7 +102,7 @@ static void set_param(candle_t *s, unsigned id, unsigned v)
         else { s->lag = 0; s->kappa = 0; }
         break;
     case P_DRAUGHT: s->draught = (int32_t)v * 258; break;
-    case P_SPUTTER: tx_cloud_rate(&s->cloud, v ? tx_knob_exp(v - 1u, 13u, 451540) : 0u); break;   /* 0.05 .. 6 /s */
+    case P_SPUTTER: tx_cloud_rate(&s->cloud, v ? tx_knob_exp(v - 1u, 26u, 500700) : 0u); break;   /* 0.1 .. 20 /s */
     default: break;
     }
 }
@@ -175,7 +180,7 @@ static int32_t flames(candle_t *s)
     }
     if (!n) return 0;
     s->gust += (tx_rand_s15(r) - s->gust) >> 4;              /* slow random gain (~1 Hz) */
-    depth = 6554 + (int32_t)(((uint32_t)s->draught * 19661u) >> 15) + (int32_t)(n - 1u) * 2621;
+    depth = (int32_t)(((uint32_t)s->draught * 19661u) >> 15) + (int32_t)(n - 1u) * 2621;   /* still air: steady */
     if (depth > 31130) depth = 31130;
     for (i = 0; i < NFL; i++) {
         flame_t *f = &s->fl[i];
@@ -191,7 +196,8 @@ static int32_t flames(candle_t *s)
         f->th += f->w + (uint32_t)((int32_t)(f->w >> 15) * jit) + (uint32_t)c;
         m = 32768 + ((tx_sin_q15(f->th) * depth) >> 15);
         {
-            int32_t gm = (s->gust * (s->draught >> 3)) >> 10;  /* gust x 4 x draught */
+            int32_t gm = (s->gust * ((s->draught >> 3) + 2400)) >> 10;   /* gust x 4 x draught, + a slow wander in still
+                                                              * air (references: rms std 1.5-3 dB at 0.5-1.3 Hz) */
             gm = gm > 24576 ? 24576 : gm < -24576 ? -24576 : gm;
             m = (m >> 1) * ((32768 + gm) >> 1) >> 13;
         }
@@ -213,11 +219,22 @@ TX_AUDIO_CODE static void candle_render(void *st, int32_t *mix, unsigned n)
     k = tx_cloud_block(&s->cloud, s->ev, n);
     for (i = 0; i < k; i++) {                                /* sputter ticks (a bigger one at lighting) */
         const tx_event_t *e = &s->ev[i];
-        int32_t l2 = (8 << 16) + e->size_l2 * 8 + (e->kind == TX_EV_MAIN ? (1 << 16) : 0);   /* -42 dBFS .. */
-        uint32_t a = tx_exp2(l2 > (13 << 16) ? (13 << 16) : l2);                            /* .. -12 dBFS */
+        int32_t l2 = (13 << 16) + e->size_l2 * 8 + (e->kind == TX_EV_MAIN ? (1 << 16) : 0);   /* -12 dBFS .. */
+        uint32_t a = tx_exp2(l2 > (14 << 16) + 32768 ? (14 << 16) + 32768 : l2);        /* .. -3 dBFS */
         a = (a * e->vel) >> 7;
         a = (uint32_t)(((uint64_t)a * (uint32_t)s->level) >> 15);
-        tx_pulse_start(&s->ticks, TX_PULSE_SHAPE_NWAVE, 6u + tx_rand_below(&s->cloud.rng, 9u), (int32_t)a, e->offset);
+        {   /* a crackle: 2-6 sharp clicks within ~1-6 ms (a burst), random signs, each weaker (references: attack 1.5-6 ms,
+             * crest 13-19 dB, broadband to 16 kHz; a single wide N-wave read as a soft synthetic tick) */
+            tx_rng_t *r = &s->cloud.rng;
+            unsigned c, nc = 2u + tx_rand_below(r, 5u), off = e->offset;
+            int32_t amp = (int32_t)a;
+            for (c = 0; c < nc; c++) {
+                tx_pulse_start(&s->ticks, TX_PULSE_SHAPE_CLICK, 3u + tx_rand_below(r, 10u), (tx_rand(r) & 1u) ? amp : -amp,
+                               off > 255u ? 255u : off);
+                off += 4u + tx_rand_below(r, 56u);
+                amp = (amp >> 8) * (int32_t)(110u + tx_rand_below(r, 130u));
+            }
+        }
     }
     g = flames(s);
     g = (int32_t)(((uint32_t)g * (uint32_t)(s->flow_g >> 3)) >> 12);        /* Q15 x Q12 */
