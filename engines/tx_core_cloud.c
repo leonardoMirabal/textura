@@ -15,9 +15,21 @@ uint32_t tx_cloud_exp_q8(tx_cloud_t *c, uint32_t mean_q8)
     return d > 0x7FFFFFFFu ? 0x7FFFFFFFu : (uint32_t)d;
 }
 
+/* a truncated power law by inversion: u is drawn in (2^(-max (a-1)), 1], so log2(E/E_min) = -log2(u)/(a-1) falls in
+ * [0, max] by itself. (It used to be clamped: the share over the top, ~2-10 %, piled up at exactly E_max, every one
+ * the same size: a stream's largest bubble rang the same note again and again, a stationary line on the spectrogram;
+ * session 5.) One draw, as before. */
 int32_t tx_cloud_pareto(tx_cloud_t *c, int32_t inv_q12, int32_t max_l2)
 {
-    int64_t x = ((int64_t)tx_neglog2_q12(tx_rand(&c->rng)) * inv_q12) >> 12;   /* log2(E/E_min) = -log2(u)/(a-1) */
+    uint32_t u = tx_rand(&c->rng), cut;
+    int64_t x;
+    if (inv_q12 <= 0 || max_l2 <= 0) return 0;
+    {   /* the share kept: 1 - 2^(-max / inv), Q16 */
+        uint32_t r = ((uint32_t)max_l2 << 4) / (uint32_t)inv_q12;   /* max / inv, Q4 (max_l2 < 2^27) */
+        cut = r >= (16u << 4) ? 65535u : 65536u - tx_exp2((16 << 16) - (int32_t)(r << 12));
+    }
+    u = 0xFFFFFFFFu - (u >> 16) * cut;                       /* uniform in (2^32 (1 - share), 2^32) */
+    x = ((int64_t)tx_neglog2_q12(u) * inv_q12) >> 12;        /* log2(E/E_min) = -log2(u)/(a-1) */
     return x > max_l2 ? max_l2 : (int32_t)x;
 }
 

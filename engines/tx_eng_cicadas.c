@@ -17,11 +17,12 @@
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_vary.h"
+#include "tx_core_radiate.h"
 #include "tx_core_cloud.h"
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
 
-#define OUT_TRIM 5200               /* output gain, Q12 (+2.7 dB): integrated (a key held 10 s): -29.8 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 6324               /* output gain, Q12 (+1.7 dB with the spectrogram fixes, session 5; +2.7 dB): integrated (a key held 10 s): -29.8 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 1.1 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS) */
 
@@ -73,6 +74,7 @@ typedef struct {
     int32_t level, rate_l2, car_l2, q_x16, jit, dist_l2;
     uint16_t dropped;
     tx_vary_t vy;
+    tx_rad_t rad;                  /* the body radiates its lows poorly (tx_core_radiate.h) */
 } cicadas_t;
 
 static void tune(cicadas_t *s, cicada_t *c)
@@ -278,6 +280,8 @@ TX_AUDIO_CODE static void cicadas_render(void *st, int32_t *mix, unsigned n)
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) b[j] = 0;
     cicadas_render_raw(st, b, n);
+    tx_rad_hp(&((cicadas_t *)st)->rad, b, n, 3);   /* a cicada radiates under ~1 kHz poorly: -12 dB / oct */
+    if (!tx_rad_quiet(&((cicadas_t *)st)->rad)) ((cicadas_t *)st)->quiet = 0;
     tx_vary_block(&((cicadas_t *)st)->vy, b, n);
     if (((cicadas_t *)st)->vy.lp) ((cicadas_t *)st)->quiet = 0;          /* the split still settling */
     tx_trim_add(b, mix, n, OUT_TRIM);

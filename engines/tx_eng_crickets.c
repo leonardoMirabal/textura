@@ -20,12 +20,13 @@
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_vary.h"
+#include "tx_core_radiate.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
 
-#define OUT_TRIM 9276               /* output gain, Q12 (+5.8 dB): integrated (a key held 10 s): -31.8 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 11152               /* output gain, Q12 (+1.6 dB with the spectrogram fixes, session 5; +5.8 dB): integrated (a key held 10 s): -31.8 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -93,6 +94,7 @@ typedef struct {
     int32_t dist_l2;
     uint16_t dropped;
     tx_vary_t vy;
+    tx_rad_t rad;                  /* the body radiates its lows poorly (tx_core_radiate.h) */
 } crickets_t;
 
 static const species_t *sp_of(const crickets_t *s) { return &SPECIES[(s->p[P_SPECIES] * NSP) >> 7]; }
@@ -293,6 +295,8 @@ TX_AUDIO_CODE static void crickets_render(void *st, int32_t *mix, unsigned n)
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) b[j] = 0;
     crickets_render_raw(st, b, n);
+    tx_rad_hp(&((crickets_t *)st)->rad, b, n, 3);   /* a cricket radiates under ~1 kHz poorly: -12 dB / oct */
+    if (!tx_rad_quiet(&((crickets_t *)st)->rad)) ((crickets_t *)st)->quiet = 0;
     tx_vary_block(&((crickets_t *)st)->vy, b, n);
     if (((crickets_t *)st)->vy.lp) ((crickets_t *)st)->quiet = 0;          /* the split still settling */
     tx_trim_add(b, mix, n, OUT_TRIM);

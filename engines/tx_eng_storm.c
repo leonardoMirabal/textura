@@ -21,7 +21,7 @@
 #include "tx_core_noise.h"
 #include "tx_core_thunder.h"
 
-#define OUT_TRIM 3254               /* output gain, Q12 (-0.6 dB; -1.4 dB with the thunder's rolling tail, session 5): integrated (a key held 10 s): -25.4 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 3072               /* output gain, Q12 (-0.5 dB with the spectrogram fixes, session 5; -0.6 dB; -1.4 dB with the thunder's rolling tail, session 5): integrated (a key held 10 s): -25.4 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 extern const tx_engine_t tx_eng_rainwater;

@@ -19,7 +19,7 @@
 #include "tx_core_pulse.h"
 #include "tx_core_chirp.h"
 
-#define OUT_TRIM 19831               /* output gain, Q12 (+10.8 dB): max momentary (one velocity-100 press): -37.8 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 23033               /* output gain, Q12 (+1.3 dB with the spectrogram fixes, session 5; +10.8 dB): max momentary (one velocity-100 press): -37.8 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 7.0 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS,
                                     * the limiter under ~8 dB in the chord) */
@@ -47,7 +47,7 @@ static const tx_param_t PARAMS[NP] = {
 #define NAIR 16u
 #define CHIRP_L2 (13 << 16)        /* chirp start amplitude at 50 m, median crack: 2^13 Q15 = -12 dBFS (calibrated) */
 
-typedef struct { uint32_t due; int32_t amp; uint16_t dur; } air_t;
+typedef struct { uint32_t due; int32_t amp, hl2; uint16_t dur; } air_t;   /* hl2: the crack's local thickness */
 
 typedef struct {
     tx_cloud_t cloud;
@@ -66,6 +66,21 @@ typedef struct {
     tx_vary_t vy;
 } ice_t;
 
+/* the singing tone for ice of thickness 2^hl2 mm: f = (f h) / h, f h 31 .. 48 Hz m. Its Q: the ice's, at most 20:
+ * the sheet radiates the coupled wave into the air (that is the tone), which damps it (session 5: the former Q 60-500
+ * held one pure ~400 Hz line through every event; ours). Set again by each crack's air wave, through ice of that
+ * crack's own local thickness: no two cracks ring the same note, and a ringing tone glides to the next */
+static void tone_set(ice_t *s, int32_t hl2)
+{
+    uint32_t fh = 31000u + (uint32_t)s->p[P_ICE] * 134u;     /* Hz mm */
+    uint32_t h = tx_exp2(hl2), f = fh / (h ? h : 1u);
+    int32_t q = s->q > 20 ? 20 : s->q;
+    s->tf = tx_svf_coef(f);
+    s->tq = (int32_t)(16384u / (uint32_t)(q > 2 ? q : 2));
+    s->tg = (int32_t)tx_svf_gin_noise(f, (uint32_t)q * 16u);
+    s->tmax = (uint32_t)q * 291060u / (f ? f : 1u);          /* 3 T60 = 6.6 Q / f s, in samples */
+}
+
 static void set_param(ice_t *s, unsigned id, unsigned v)
 {
     if (id >= NP) return;
@@ -78,14 +93,7 @@ static void set_param(ice_t *s, unsigned id, unsigned v)
     case P_COLD: s->q = (int32_t)tx_knob_exp(v, 60u, 200540); break;      /* Q 60 .. 500 (3.06 oct) */
     default: break;
     }
-    {   /* the singing tone: f = (f h) / h, f h 31 .. 48 Hz m; its Q = the ice's */
-        uint32_t fh = 31000u + (uint32_t)s->p[P_ICE] * 134u;   /* Hz mm */
-        uint32_t h = tx_exp2(s->h_l2), f = fh / (h ? h : 1u);
-        s->tf = tx_svf_coef(f);
-        s->tq = (int32_t)(16384u / (uint32_t)(s->q > 2 ? s->q : 2));
-        s->tg = (int32_t)tx_svf_gin_noise(f, (uint32_t)s->q * 16u);
-        s->tmax = (uint32_t)s->q * 291060u / (f ? f : 1u);   /* 3 T60 = 6.6 Q / f s, in samples */
-    }
+    tone_set(s, s->h_l2);
 }
 
 static void ice_init(void *st, uint32_t seed)
@@ -152,6 +160,7 @@ static void crack(ice_t *s, const tx_event_t *e)
         int32_t aa = (int32_t)tx_exp2(CHIRP_L2 - (1 << 16) + size - lx);
         s->air[i].amp = (int32_t)(((int64_t)(aa > 32767 ? 32767 : aa) * s->level) >> 15);
         s->air[i].due = s->now + e->offset + tx_chirp_air(x);
+        s->air[i].hl2 = hl2;
         s->air[i].dur = (uint16_t)(3u + (x >> 9));           /* duller far away: ~ x (ours) */
         if (s->air[i].dur > 200u) s->air[i].dur = 200u;
     } else
@@ -183,6 +192,7 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
         if (d < (int32_t)n) {
             unsigned off = d < 0 ? 0u : (unsigned)d;
             tx_pulse_start(&s->clicks, TX_PULSE_SHAPE_NWAVE, w->dur, w->amp, off);
+            tone_set(s, w->hl2);
             ex[off] += w->amp * 2048;                        /* rings the sheet's tone (calibrated by render) */
             w->amp = 0;
         }

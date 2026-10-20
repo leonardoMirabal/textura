@@ -188,7 +188,9 @@ TX_AUDIO_CODE static void aeol_render(void *st, int32_t *mix, unsigned n)
         }
         if (ft) {
             uint32_t inc = ft * 97391u, al;
-            g->v.inc = g->v.inc ? g->v.inc + (uint32_t)(((int32_t)(inc - g->v.inc)) >> 3) : inc;   /* glide */
+            g->v.inc = g->v.inc ? g->v.inc + (uint32_t)(((int32_t)(inc - g->v.inc)) >> 6) : inc;   /* glide (~0.37 s: the
+                                                              * vortices re-lock to the next partial gradually; at
+                                                              * >> 3 it moved in hard steps, a staircase: session 5) */
             tx_aeol_width(&g->v, ft, (uint32_t)qq);
             al = tx_exp2(3 * (wl2 > (1 << 16) ? (1 << 16) : wl2) + (16 << 16));   /* (u / 10)^3, Q16, <= 8 */
             a = (int32_t)(((uint64_t)al * A_REF * (uint32_t)boost >> 31) * (uint32_t)g->env >> 15);

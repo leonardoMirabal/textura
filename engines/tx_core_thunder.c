@@ -70,7 +70,11 @@ static void grow(tx_flash_t *f, tx_rng_t *r)
         uint32_t ad = (uint32_t)(dot < 0 ? -dot : dot), rq = (rr >> 7) ? (rr >> 7) : 1u;
         m = ((ad >> 2) * 2057u) / (rq * 32u);                /* 2057 samples x |cos a| (16 m at 343 m/s); 32-bit to 30 km */
     }
-    m = m < 1u ? 1u : m > TX_TH_SMEAR ? TX_TH_SMEAR : m;
+    /* a segment is no straight rod: its own kinks and width spread the arrival +-25 % (ours); and the long end-on
+     * smears, capped at TX_TH_SMEAR, take a random width under the cap (0.6 .. 1): a run of equal boxes made a comb of
+     * stationary lines at fs / SMEAR and its harmonics (~170 / 340 / 520 Hz; session 5's spectrogram review) */
+    m = m + (uint32_t)(((int32_t)m * (tx_rand_s15(r) >> 2)) >> 15);
+    m = m < 1u ? 1u : m > TX_TH_SMEAR ? (TX_TH_SMEAR * 3u) / 5u + tx_rand_below(r, (TX_TH_SMEAR * 2u) / 5u) : m;
     {   /* area: 1 / r to 3.6 km, 1 / r^2 beyond */
         uint32_t rm = rr / 100u;
         a = (uint32_t)f->area0 * 1000u / (rm ? rm : 1u);

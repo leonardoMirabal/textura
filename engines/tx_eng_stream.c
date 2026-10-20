@@ -31,7 +31,7 @@
 #include "tx_core_noise.h"
 #include "tx_core_pulse.h"
 
-#define OUT_TRIM 10822              /* output gain, Q12 (+2.4 dB): integrated (a key held 10 s) at -26 LUFS, LEVEL 100
+#define OUT_TRIM 12569              /* output gain, Q12 (+1.3 dB with the spectrogram fixes, session 5; +2.4 dB): integrated (a key held 10 s) at -26 LUFS, LEVEL 100
                                     * (LOUDNESS.md; re-set with the water-only default, session 2) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT

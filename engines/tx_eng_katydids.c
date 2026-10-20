@@ -21,11 +21,12 @@
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_vary.h"
+#include "tx_core_radiate.h"
 #include "tx_core_cloud.h"
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
 
-#define OUT_TRIM 14202               /* output gain, Q12 (+8.5 dB): integrated (a key held 10 s): -34.5 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 17075               /* output gain, Q12 (+1.6 dB with the spectrogram fixes, session 5; +8.5 dB): integrated (a key held 10 s): -34.5 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -101,6 +102,7 @@ typedef struct {
     int32_t level, q15, jit, peg_l2, dist_l2;
     uint16_t dropped;
     tx_vary_t vy;
+    tx_rad_t rad;                  /* the body radiates its lows poorly (tx_core_radiate.h) */
 } katy_t;
 
 static const species_t *sp_of(const katy_t *s) { return &SPECIES[(s->p[P_SPECIES] * NSP) >> 7]; }
@@ -338,6 +340,8 @@ TX_AUDIO_CODE static void katy_render(void *st, int32_t *mix, unsigned n)
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) b[j] = 0;
     katy_render_raw(st, b, n);
+    tx_rad_hp(&((katy_t *)st)->rad, b, n, 3);   /* a katydid or grasshopper radiates under ~1 kHz poorly: -12 dB / oct */
+    if (!tx_rad_quiet(&((katy_t *)st)->rad)) ((katy_t *)st)->quiet = 0;
     tx_vary_block(&((katy_t *)st)->vy, b, n);
     if (((katy_t *)st)->vy.lp) ((katy_t *)st)->quiet = 0;          /* the split still settling */
     tx_trim_add(b, mix, n, OUT_TRIM);

@@ -19,7 +19,7 @@
 #include "tx_core_cloud.h"
 #include "tx_core_wingbeat.h"
 
-#define OUT_TRIM 8859               /* output gain, Q12 (+4.1 dB): integrated (a key held 10 s): -30.1 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 7540               /* output gain, Q12 (-1.4 dB with the spectrogram fixes, session 5; +4.1 dB): integrated (a key held 10 s): -30.1 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -66,6 +66,7 @@ typedef struct {
     uint32_t inc0;                 /* own f0 as a phase increment (before Doppler) */
     int32_t speed, home;           /* mm/s, mm */
     int32_t wob;                   /* amplitude wander, Q15 around 1 */
+    int32_t fw1, fw2;              /* the wingbeat's own wander (slow, ~1 Hz) and flutter (~6 Hz), Q15 */
     uint16_t fade;                 /* blocks into the fly-off (0 = still around) */
     uint8_t em, note, alive, pad;
 } bug_t;
@@ -225,6 +226,14 @@ static void fly(bees_t *s, bug_t *b, int32_t *g1, int32_t *mix1)
     /* Doppler: v_r = p . v / r (mm/s), f' = f c / (c + v_r) */
     vr = (((b->px >> 4) * (b->vx >> 4) + (b->py >> 4) * (b->vy >> 4)) * 16) / (rr >> 4 ? rr >> 4 : 1);   /* p . v / r */
     ratio = (int32_t)((C_MM * 4096u) / (uint32_t)(C_MM + vr));        /* Q12 */
+    {   /* the wingbeat is no oscillator: it wanders with the insect's effort (sd ~5 %, ~1 Hz) and flutters stroke to
+         * stroke (+-2 %, ~6 Hz) (ours; session 5: "a tonal oscillator", flat harmonics on the spectrogram) */
+        int32_t w;
+        b->fw1 += (tx_rand_s15(r) - b->fw1) >> 7;
+        b->fw2 += (tx_rand_s15(r) - b->fw2) >> 4;
+        w = 32768 + ((b->fw1 * 3) >> 1) + ((b->fw2 * 3) >> 4);   /* sd ~5 % (peaks ~+-10 %); fw2 ~+-2 % */
+        ratio = (int32_t)(((int64_t)ratio * w) >> 15);
+    }
     b->bz.inc = (b->inc0 >> 12) * (uint32_t)ratio;
     /* angle: |sin| between heading and the line of sight -> side mix */
     cross = (((b->px >> 4) * (b->vy >> 4) - (b->py >> 4) * (b->vx >> 4)) * 16) / (rr >> 4 ? rr >> 4 : 1);   /* |v| sin */

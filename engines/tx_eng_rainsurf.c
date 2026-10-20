@@ -11,8 +11,8 @@
  *            louder and darker (corner V / (2 pi 0.3 D)). Sparse classes are explicit pulses (PARTICLES per block);
  *            dense classes and the overflow become noise of the same power (Campbell), low-passed at the class corner.
  *   surface  a roof or a window is modally dense: a log grid of 12 bands (150 Hz .. 7 kHz, half-octave) driven at unit
- *            noise power, Q from the material (I6: rubber 9, wood 10, glass 395, steel 1400; the bands capped at
- *            Q 40, ours), plus 6 low panel modes (60-400 Hz) at the material's own Q for glass and metal (note 03).
+ *            noise power, at Q 3 (they overlap into one smooth response; ours), plus 6 low panel modes (60-400 Hz) at
+ *            the material's own Q (I6: rubber 9, wood 10, glass 395, steel 1400) for glass and metal (note 03).
  *   leaves   a water-repellent leaf gets a second, weaker push from the rebounding jet at 0.44 tau_g,
  *            tau_g = sqrt(rho D^3 / gamma) (gain 0.2, measured < 0.37 when splashing).
  *   inside   heard from under the roof: a low-pass (~600 Hz .. open) (ours).
@@ -27,7 +27,7 @@
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 
-#define OUT_TRIM 7540               /* output gain, Q12 (+0.8 dB): integrated (a key held 10 s): -26.8 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 6059               /* output gain, Q12 (-1.9 dB with the spectrogram fixes, session 5; +0.8 dB): integrated (a key held 10 s): -26.8 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -108,7 +108,12 @@ static void build_table(rain_t *s)
 static void surface(rain_t *s)
 {
     unsigned i, m = (s->p[P_SURFACE] * 5u) >> 7;
-    uint32_t q = SURF_Q[m], qb = q > 40u ? 40u : q;
+    uint32_t q = SURF_Q[m], qb = q > 3u ? 3u : q;          /* the bands at Q <= 3: half-octave bands that overlap
+                                                              * into one even surface response (at Q 10-40 the 12
+                                                              * bands rang as a comb of steady tones: session 5's
+                                                              * spectrogram review; a roof's modes are dense, not a
+                                                              * grid). Glass and metal keep their ring in the panel
+                                                              * modes. */
     s->surf = (uint8_t)m;
     s->bq = (int32_t)(16384u / qb);
     for (i = 0; i < NB; i++) {

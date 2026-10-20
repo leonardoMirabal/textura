@@ -20,13 +20,17 @@
  * slowly; the clapper's angle sets how the strike shares out between the planes, so every strike beats differently
  * (ours, the standard degenerate-pair picture of bells and bars). And a struck tube swings away on its string and
  * twists: what reaches the listener swells and fades at the pendulum's ~0.6-1.2 Hz, by 15-50 % from the blow, dying
- * in a few seconds (ours). */
+ * in a few seconds (ours).
+ * Spectrogram review (session 5: "pure sine lines, no strike transient"): each strike now also clicks: the clapper
+ * meets the tube for ~0.1-0.4 ms (a Hertz pulse, harder = shorter and brighter), ~-14 dB under the ring's peak (ours),
+ * so the strike has the broadband body a struck tube has before its modes take over. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_plate.h"
+#include "tx_core_pulse.h"
 
 #define OUT_TRIM 11412               /* output gain, Q12 (+4.5 dB): integrated (a key held 10 s): -30.5 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
@@ -59,18 +63,20 @@ static const int32_t L2_RATIO[NM] = { 0, 96004, 161761, 207036 };   /* log2 of t
 
 typedef struct {
     tx_pmode_t m[2u * NM];         /* the free modes, two planes (m[i], m[nm + i]): PLATE core oscillators */
+    int32_t ge[2u * NM];           /* their envelopes with 8 more bits (g << 8): the decay stays exponential to the end */
     uint32_t f1;                   /* Hz */
     uint32_t silent, tmax;         /* samples since the last strike; 3 T60 */
     uint32_t bdue[2];              /* the clapper's bounces: samples to go (0 = none) */
     uint32_t sw_ph, sw_inc;        /* the swing: phase, step per block */
     int32_t sw_d;                  /* its depth (Q15), dying */
     int32_t bforce[2];             /* their force (Q15), signed */
-    uint8_t em, note, alive, nm;
+    uint8_t em, note, alive, nm, ak, pad[3];
 } tube_t;
 
 typedef struct {
     tx_cloud_t cloud;
     tx_dcblock_t hp;
+    tx_pulses_t clicks;            /* the clapper's contact clicks */
     tube_t t[NT];
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t buf[TX_BLOCK];
@@ -100,6 +106,7 @@ static void chimes_init(void *st, uint32_t seed)
     tx_cloud_burst(&s->cloud, 1, 0);
     tx_cloud_rate(&s->cloud, 0);
     for (i = 0; i < NT; i++) s->t[i].em = 0xFF;
+    tx_pulses_init(&s->clicks);
     s->limit = 6;
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
@@ -177,7 +184,9 @@ static void strike(chimes_t *s, tube_t *t, int32_t force_q15, int bounce)
     unsigned i;
     int32_t tilt = s->tilt + ((tx_rand_s15(r) * 33) >> 5) - (tx_vary_tone(&s->vy) >> 1), pt = 4915 + (int32_t)tx_rand_below(r, 11469u);   /* 0.15 .. 0.5 */
     int32_t sg = bounce ? (force_q15 < 0 ? -1 : 1) : ((tx_rand(r) & 1u) ? 1 : -1);
-    uint32_t ang = tx_rand(r);                               /* the clapper's angle to the planes */
+    uint32_t ang;                                            /* the clapper's angle to the planes: the next blow lands */
+    t->ak = (uint8_t)(t->ak + 3u + tx_rand_below(r, 3u));   /* 3-5 eighths of a turn round from the last (the clapper */
+    ang = ((uint32_t)(t->ak & 7u) << 29) + (tx_rand(r) >> 3);   /* swings back from the other side; ours) */
     int32_t ca = tx_sin_q15(ang + 0x40000000u), sa = tx_sin_q15(ang);
     if (force_q15 < 0) force_q15 = -force_q15;
     if (!bounce) force_q15 = (int32_t)(((int64_t)force_q15 * tx_exp2((tx_rand_s15(r) * 26) / 32 + (16 << 16))) >> 16);   /* +-0.4 oct */
@@ -192,6 +201,11 @@ static void strike(chimes_t *s, tube_t *t, int32_t force_q15, int bounce)
         kick_mode(&t->m[t->nm + i], (int32_t)(((int64_t)sg * a * sa) >> 15));
     }
     t->silent = 0;
+    {   /* the clapper's click: a Hertz pulse of 4-18 samples (harder clapper = shorter), ~ the force (ours) */
+        int32_t ca = (int32_t)(((int64_t)force_q15 * A_STRIKE >> 15) * s->level >> 15) >> 1;
+        uint32_t dur = 4u + (uint32_t)(tilt >> 13) + tx_rand_below(r, 4u);
+        tx_pulse_start(&s->clicks, TX_PULSE_SHAPE_HERTZ, dur, ca > 32767 ? 32767 : ca, 0);
+    }
     if (!bounce) {                                           /* the blow sets the tube swinging */
         t->sw_inc = 14984956u + (tx_rand(r) >> 16) * 228u;   /* 0.6 .. 1.2 Hz at 172.3 blocks / s */
         t->sw_ph = tx_rand(r);
@@ -295,18 +309,23 @@ TX_AUDIO_CODE static void chimes_render(void *st, int32_t *mix, unsigned n)
         tx_pmode_add(t->m, 2u * t->nm, 32767 - t->sw_d + ((t->sw_d * tx_sin_q15(t->sw_ph)) >> 15),
                      buf, n);                                /* the envelope ramps to g x the swing over the block */
         for (q = 0; q < 2u * t->nm; q++) {                   /* then decays one block */
-            t->m[q].g = (int32_t)(((uint32_t)t->m[q].g * t->m[q].dec) >> 16);
-            if (t->m[q].g < 8) t->m[q].g = 0;
+            int32_t e = t->ge[q];
+            if ((e >> 8) != t->m[q].g) e = t->m[q].g << 8;   /* (struck since: from the mode's amplitude) */
+            e = (int32_t)(((int64_t)e * t->m[q].dec) >> 16);   /* (per block: 64-bit is fine) */
+            if (e < 256) e = 0;                              /* (g: rounding made the decay linear at the end, */
+            t->ge[q] = e;                                    /* a visible stop at ~-55 dB; session 5) */
+            t->m[q].g = e >> 8;
         }
         t->silent += n;
         if (t->silent > t->tmax) quiet_tube(t);              /* 3 T60: a bound */
     }
+    tx_pulses_add(&s->clicks, buf, n);
     tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
-        int32_t z = s->hp.x1 | s->hp.y1;
+        int32_t z = s->hp.x1 | s->hp.y1 | (int32_t)tx_pulses_active(&s->clicks);
         for (i = 0; i < NT; i++) z |= s->t[i].alive | !tube_quiet(&s->t[i]);
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }

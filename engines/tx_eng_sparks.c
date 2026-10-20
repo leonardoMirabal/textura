@@ -25,7 +25,7 @@
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 
-#define OUT_TRIM 7460               /* output gain, Q12 (+11.7 dB): max momentary (one velocity-100 press): -54.2 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 6100               /* output gain, Q12 (-1.7 dB with the session-5 fixes: the chord's limiter under ~8 dB; +11.7 dB): max momentary (one velocity-100 press): -54.2 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 12.4 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS,
                                     * the limiter under ~8 dB in the chord) */

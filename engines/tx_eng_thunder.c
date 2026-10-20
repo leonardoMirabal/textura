@@ -13,7 +13,7 @@
 #include "tx_core_cloud.h"
 #include "tx_core_thunder.h"
 
-#define OUT_TRIM 55254               /* output gain, Q12 (+21.1 dB): max momentary (one velocity-100 press): -41.1 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 53378               /* output gain, Q12 (-0.3 dB with the spectrogram fixes, session 5; +21.1 dB): max momentary (one velocity-100 press): -41.1 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT

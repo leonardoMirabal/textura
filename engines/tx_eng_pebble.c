@@ -25,7 +25,7 @@
 #include "tx_core_noise.h"
 #include "tx_core_scrape.h"
 
-#define OUT_TRIM 7627               /* output gain, Q12 (+5.2 dB): integrated (a key held 10 s): -31.2 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 11813               /* output gain, Q12 (+3.8 dB with the spectrogram fixes, session 5; +5.2 dB): integrated (a key held 10 s): -31.2 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -75,6 +75,7 @@ typedef struct {
     voice_t v[NV];
     tx_svf_t surf[NM];
     int32_t sf[NM], sgin[NM], sg[NM], sq;
+    uint32_t kph[NM], mph[NM];     /* each mode's spatial frequency (phase per mm Q8) and its phase at the contact */
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t force[TX_BLOCK], buf[TX_BLOCK];
     uint8_t p[NP], limit, quiet;
@@ -104,6 +105,7 @@ static void set_surface(pebble_t *s)
         s->sf[i] = tx_svf_coef(hz);
         s->sgin[i] = (int32_t)tx_svf_gin_noise(hz, q * 16u);
         s->sg[i] = SURF_G[i];
+        s->kph[i] = 83886u * isqrt32(hz * 109u) / 256u;     /* 2^24 / lambda, lambda = 200 mm sqrt(600 Hz / f) */
     }
 }
 
@@ -262,6 +264,20 @@ TX_AUDIO_CODE static void pebble_render(void *st, int32_t *mix, unsigned n)
         roll(s, v);
         tx_scrape_add(&v->sc, force, n);
         if (!v->v && tx_scrape_quiet(&v->sc)) { v->alive = 0; v->em = 0xFF; }
+    }
+    {   /* the surface's modes as the pebble rolls across them: a mode is excited ~ its shape at the contact point, so
+         * each comes and goes as the contact passes its nodes (bending waves, lambda ~ 200 mm at 600 Hz, ~ f^-1/2;
+         * ours). Session 5: the modes were steady lines for the whole hold; the references' come and go. */
+        uint32_t vs = 0, m;
+        for (i = 0; i < NV; i++) if (s->v[i].alive) vs += s->v[i].v;
+        vs = (vs > 4000000u ? 4000000u : vs) * 3u >> 11;      /* mm per block, Q8 */
+        for (m = 0; m < NM; m++) {
+            int32_t sh;
+            s->mph[m] += vs * s->kph[m];
+            sh = tx_sin_q15(s->mph[m]);
+            sh = (sh * sh) >> 15;                            /* the shape's power at the contact: 0 at a node */
+            s->sg[m] = (int32_t)((SURF_G[m] * (uint32_t)(983 + ((sh * 31785) >> 15))) >> 15);   /* 0.03 .. 1 */
+        }
     }
     for (j = 0; j < n; j++) buf[j] = force[j] >> 1;         /* the contact itself (the clicks' edge) */
     tx_svf_bank_add_g(s->surf, s->sf, s->sq, s->sgin, s->sg, NM, force, buf, n);   /* the surface */
