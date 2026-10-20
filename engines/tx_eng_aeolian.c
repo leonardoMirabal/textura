@@ -11,7 +11,12 @@
  *             ours); the harp sings the partial nearest V ~ 1 and jumps to another as the wind changes (glide ~46 ms).
  *             Outside the window the bare wire's own tone at f_l remains.
  *   gusts     a slow random walk of u (~0.3 Hz, sd GUST x 40 %, ours: gust spectra were not researched); a key
- *             press adds a gust (velocity). */
+ *             press adds a gust (velocity).
+ * Realism pass (aeolian-harp and singing-wire references, analysis only): a harp is heard inside the wind: every
+ * reference carries a broadband low roar (50-250 Hz) at about the tones' level, the tones 10-20 dB over it in their own
+ * band, crest ~10 dB, weak upper partials. Ours was bare tones (crest 3.8 dB, nothing under 600 Hz). So: a wind bed
+ * (NOISE roar path, 110 Hz, Q 0.5, tilted above 250 Hz, ~u^3, gusting with u plus a ~10 Hz flutter: ours, set
+ * against the references), and the 3 f lift partial 0.25 -> 0.08 (by ear before; the references show it weaker). */
 #include "tx_engine.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
@@ -28,6 +33,7 @@ static const tx_param_t PARAMS[NP] = {
 };
 
 #define NS 8u
+#define BED_REF 180000            /* the wind bed's gain at 10 m/s (Q15; calibrated against the references) */
 #define A_REF 1500                 /* lift amplitude at 10 m/s, d 1 mm, unlocked (Q15; calibrated by render) */
 
 typedef struct {
@@ -39,13 +45,13 @@ typedef struct {
 
 typedef struct {
     tx_cloud_t cloud;
-    tx_noise_t wake;
+    tx_noise_t wake, bed;          /* the wire's wake; the wind itself (the bed the harp sings in) */
     tx_dcblock_t hp;
     string_t s[NS];
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t buf[TX_BLOCK];
     uint8_t p[NP], limit, quiet;
-    int32_t level, wind_l2, gust, gsd, d_l2, lock, sinA, cosA;
+    int32_t level, wind_l2, gust, gsd, d_l2, lock, sinA, cosA, benv, bfl;
     uint16_t dropped;
 } aeol_t;
 
@@ -78,6 +84,9 @@ static void aeol_init(void *st, uint32_t seed)
     tx_cloud_burst(&s->cloud, 1, 0);
     tx_cloud_rate(&s->cloud, 0);
     tx_noise_init(&s->wake, seed ^ 0xAE01u);
+    tx_noise_init(&s->bed, seed ^ 0xBED5u);
+    tx_noise_band(&s->bed, 110, 8, TX_NOISE_BAND);          /* Q 0.5 */
+    tx_noise_tilt(&s->bed, 250);
     for (i = 0; i < NS; i++) { s->s[i].em = 0xFF; tx_rng_seed(&s->s[i].v.rng, seed * 7u + i * 131u + 1u); }
     s->limit = 4;
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
@@ -168,7 +177,7 @@ TX_AUDIO_CODE static void aeol_render(void *st, int32_t *mix, unsigned n)
             a = (int32_t)(((int64_t)a * s->level) >> 15);
             a = a > 32767 ? 32767 : a;
         }
-        tx_aeol_add(&g->v, (a * s->sinA) >> 15, (((a * 10486) >> 15) * s->cosA) >> 15, (((a * 8192) >> 15) * s->sinA) >> 15,
+        tx_aeol_add(&g->v, (a * s->sinA) >> 15, (((a * 10486) >> 15) * s->cosA) >> 15, (((a * 2600) >> 15) * s->sinA) >> 15,
                     buf, n);
         wake += g->env;
     }
@@ -183,11 +192,24 @@ TX_AUDIO_CODE static void aeol_render(void *st, int32_t *mix, unsigned n)
     } else
         tx_noise_level(&s->wake, 0);
     tx_noise_roar_add(&s->wake, s->wake.target, buf, n);
+    {   /* the wind bed: broadband low roar (references: 50-250 Hz at about the tone's level, the tones 10-20 dB over
+         * it in their own band), ~ u^3, gusting with u and a faster flutter (ours) */
+        int32_t tgt = nlive ? 32768 : 0, g;
+        uint32_t al = tx_exp2(3 * (wl2 > (1 << 16) ? (1 << 16) : wl2) + (16 << 16));
+        s->benv += (tgt - s->benv) >> 4;
+        if (!nlive && s->benv < 64) s->benv = 0;
+        s->bfl += (tx_rand_s15(&s->cloud.rng) - s->bfl) >> 2;   /* ~10 Hz flutter */
+        g = (int32_t)(((uint64_t)al * BED_REF) >> 16);
+        g = (int32_t)(((int64_t)g * (32768 + (s->bfl >> 1))) >> 15);
+        g = (int32_t)(((int64_t)g * s->benv) >> 15);
+        g = (int32_t)(((int64_t)g * s->level) >> 15);
+        tx_noise_roar_add(&s->bed, s->benv ? g : 0, buf, n);
+    }
     tx_dcblock_add(&s->hp, buf, mix, n);
     (void)nlive;
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
-        int32_t z = s->hp.x1 | s->hp.y1 | s->wake.gain;
+        int32_t z = s->hp.x1 | s->hp.y1 | s->wake.gain | s->bed.gain | s->benv;
         for (i = 0; i < NS; i++) z |= s->s[i].alive | s->s[i].v.a1 | s->s[i].v.a2 | s->s[i].v.a3;
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }
