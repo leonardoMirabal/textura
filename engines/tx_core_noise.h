@@ -26,7 +26,9 @@ typedef struct {
 } tx_noise_t;
 
 void tx_noise_init(tx_noise_t *z, uint32_t seed);
-void tx_noise_band(tx_noise_t *z, uint32_t fc_hz, uint32_t q_x16, uint8_t mode);   /* q_x16: Q * 16 (8 .. 128) */
+/* q_x16: Q * 16 (8 .. 128). fc is clamped below fs/6 and, at low Q, to 85 % of the Chamberlin stability limit
+ * f < sqrt(q^2 + 4) - q: the filter is stable for any input (txtest "noise stable"). */
+void tx_noise_band(tx_noise_t *z, uint32_t fc_hz, uint32_t q_x16, uint8_t mode);
 static inline void tx_noise_level(tx_noise_t *z, int32_t target_q15) { z->target = target_q15; }
 static inline void tx_noise_flicker(tx_noise_t *z, int32_t depth_q15) { z->flick_depth = depth_q15; }
 TX_AUDIO_CODE void tx_noise_add(tx_noise_t *z, int32_t *out, unsigned n);

@@ -17,6 +17,7 @@
  *   determinism  each standard scene twice from scratch: same sha256; and equal to the committed baseline
  * CHAMBER: idle zero, a quiet sweep (each knob at 0/64/90/127 after a drip tap), overflow (test max at its loudest),
  *          determinism + baseline (drip hold / max, gravel tap, test chord through the chamber at its defaults).
+ * NOISE: the band filter at every corner (20 Hz .. 20 kHz, Q 0.5 .. 8, both paths, full gain) stays bounded.
  * Sources: no float / double / floating literal in engines/ (comments and strings stripped). */
 #include <dirent.h>
 #include <math.h>
@@ -25,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "tx_host.h"
+#include "tx_core_noise.h"
 
 #define BASELINE "bench/baselines/renders.sha256"
 static int fails;
@@ -308,6 +310,39 @@ static void check_chamber(FILE *update)
     free(ch);
 }
 
+/* ---- NOISE core: the band filter (Chamberlin) driven at every corner (centre 20 Hz .. 20 kHz, Q 0.5 .. 8, both
+ * paths at full gain for 1 s): its states must stay bounded (|band|, |low| < 2^17, so f x band < 2^31). An unstable
+ * corner grows without bound (Aeolian's wake reached +48 dBFS before the clamp in tx_noise_band). */
+static void check_noise_core(void)
+{
+    static const uint32_t FC[] = {20, 1000, 5000, 7350, 12000, 20000}, QX[] = {8, 11, 16, 32, 128};
+    unsigned a, b, j, k, bad = 0;
+    int32_t worst = 0, out[TX_BLOCK];
+    char msg[200], where[64] = "";
+    for (a = 0; a < sizeof FC / sizeof FC[0]; a++)
+        for (b = 0; b < sizeof QX / sizeof QX[0]; b++)
+            for (k = 0; k < 2u; k++) {                      /* k 0: the roar path (+ tilt), k 1: the classic band path */
+                tx_noise_t z;
+                int32_t m = 0;
+                tx_noise_init(&z, 99u + a * 7u + b);
+                tx_noise_band(&z, FC[a], QX[b], TX_NOISE_BAND);
+                if (!k) tx_noise_tilt(&z, FC[a]);
+                tx_noise_level(&z, 32767);
+                for (j = 0; j < 172u; j++) {
+                    unsigned i;
+                    for (i = 0; i < TX_BLOCK; i++) out[i] = 0;
+                    if (!k) tx_noise_roar_add(&z, 524288, out, TX_BLOCK); else tx_noise_add(&z, out, TX_BLOCK);
+                    if ((z.band < 0 ? -z.band : z.band) > m) m = z.band < 0 ? -z.band : z.band;
+                    if ((z.low < 0 ? -z.low : z.low) > m) m = z.low < 0 ? -z.low : z.low;
+                    if (m >= (1 << 17)) break;
+                }
+                if (m > worst) worst = m;
+                if (m >= (1 << 17) && !bad++) snprintf(where, sizeof where, " (first: %u Hz, Q x16 %u, %s)", FC[a], QX[b], k ? "band" : "roar");
+            }
+    snprintf(msg, sizeof msg, "band filter at every corner: states bounded (largest %d, limit 131072; %u unbounded)%s", worst, bad, where);
+    verdict("noise", "stable", !bad, msg, 0);
+}
+
 /* ---- the source check: no float in engines/ */
 static void strip(char *t)                                   /* comments, strings, chars -> spaces */
 {
@@ -379,6 +414,7 @@ int main(int argc, char **argv)
     check_sources("engines");
     for (k = 0; tx_engines[k]; k++) check_engine(tx_engines[k], update);
     check_chamber(update);
+    check_noise_core();
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }
     printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);
     return fails ? 1 : 0;

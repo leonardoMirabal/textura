@@ -24,6 +24,15 @@ void tx_noise_band(tx_noise_t *z, uint32_t fc_hz, uint32_t q_x16, uint8_t mode)
                                                              /* 2^32 / 44100 = 97391.5 */
     z->f = tx_sin_q15(ph);                                   /* sin in Q15 = 2 sin in Q14 */
     z->q = (int32_t)((16u << 14) / q_x16);
+    {   /* Chamberlin stability: f^2 + 2 q f < 4, i.e. f < sqrt(q^2 + 4) - q (Q14); keep it at 85 % of that, for every
+         * centre and Q (at Q 0.7 near fs/6 the filter was on the edge: Aeolian's wake reached +48 dBFS) */
+        uint32_t qq = (uint32_t)z->q, x = qq * qq + (1u << 30), r = 0, bit = 1u << 30;   /* q^2 + 4 in Q28 */
+        int32_t fmax;
+        while (bit > x) bit >>= 2;
+        while (bit) { if (x >= r + bit) { x -= r + bit; r = (r >> 1) + bit; } else r >>= 1; bit >>= 2; }
+        fmax = (int32_t)((((int32_t)r - (int32_t)qq) * 27853) >> 15);
+        if (z->f > fmax) z->f = fmax;
+    }
     z->mode = mode;
 }
 
