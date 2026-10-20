@@ -11,26 +11,30 @@
  *   bed        the bubbles that are too quiet or too many for the heroes become a noise band at the size centre of the
  *              same power (Campbell: sum A^2 / 4d).
  *   roar       a dense bubble cloud has collective low modes, ~ f0 / N^(1/3) (L8): a low band (100-600 Hz, Q 1.5, ours)
- *              ~ sqrt(rate) (L32: the flow raises mainly 125 Hz-2 kHz).
+ *              ~ sqrt(rate) (L32: the flow raises mainly 125 Hz-2 kHz); ROAR, off by default.
  *   eddies     the flow is not steady: the bubble rate wanders with the eddies (two random processes, ~0.5 and ~4 Hz,
- *              depth EDDY; ours, set against the references' 1-2.4 dB rms swings). */
+ *              depth EDDY; ours, set against the references' 1-2.4 dB rms swings).
+ * Listening session 2 ("good water, but a wind sound mixed in"): the wind was the roar band, so ROAR defaults to 0
+ * (water only; up for a big rushing stream). The water's own continuity now comes from the bubbles: FLOW 105 (~5 k / s),
+ * sizes over 5 octaves (centre / 4 .. x 8) and amplitude ~ a^1/4 (the brook references: flat 0.5-5 kHz). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_cloud.h"
 #include "tx_core_bubble.h"
 #include "tx_core_noise.h"
 
-#define OUT_TRIM 5098               /* output gain, Q12 (+1.9 dB): integrated (a key held 10 s): -27.9 LUFS at LEVEL 100 -> target -26 LUFS
-                                    * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
+#define OUT_TRIM 5400               /* output gain, Q12 (+2.4 dB): integrated (a key held 10 s) at -26 LUFS, LEVEL 100
+                                    * (LOUDNESS.md; re-set with the water-only default, session 2) */
 
-enum { P_FLOW, P_SIZE, P_SPREAD, P_NEAR, P_EDDY, NP };
+enum { P_FLOW, P_SIZE, P_SPREAD, P_NEAR, P_EDDY, P_ROAR, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"FLOW", 127, 70, "bubbles per second per plunge: 30 .. 30 000 (log): a trickle .. a rushing riffle"},
+    {"FLOW", 127, 105, "bubbles per second per plunge: 30 .. 30 000 (log): a trickle .. a rushing riffle"},
     {"SIZE", 127, 30, "bubble size at C4: radius 0.6 .. 8 mm (log): pitch centre 5.5 kHz .. 400 Hz (keys: a semitone)"},
     {"SPREAD", 127, 64, "size law gamma: 0.5 (many big bubbles: gulping) .. 2.3 (mostly small: fizzing)"},
     {"NEAR", 127, 64, "how near the surface they burst: deep (quiet, steady) .. near (loud, rising plinks: babble)"},
     {"EDDY", 127, 30, "eddies: a steady flow .. gurgling (the rate wanders, ~0.5 and ~4 Hz)"},
+    {"ROAR", 127, 0, "the bubble cloud's low roar (100-600 Hz): off (water only) .. a big rushing stream"},
 };
 
 #define NH TX_POOL_MAX
@@ -72,7 +76,7 @@ static void set_param(stream_t *s, unsigned id, unsigned v)
     case P_FLOW: s->rate_q8 = tx_knob_exp(v, 30u << 8, 653057); break;     /* 30 .. 30 000 /s (9.97 oct) */
     case P_SIZE: s->size_l2 = -48300 + (int32_t)(v * 1934u); break;        /* log2(0.6 mm) + v log2(13.3) / 127 */
     case P_SPREAD:                                            /* alpha = gamma + 1, gamma 0.5 .. 2.3, over 4 oct */
-        tx_cloud_sizes(&s->cloud, 6144u + v * 58u, 3u << 12);
+        tx_cloud_sizes(&s->cloud, 6144u + v * 58u, 5u << 12);   /* over 5 octaves */
         break;
     case P_NEAR: s->beta_q8 = (int32_t)(20 * 256) - (int32_t)v * 35; break;   /* beta 20 .. 2.6 */
     case P_EDDY: s->eddy_d = (int32_t)v * 180; break;                      /* depth 0 .. 0.7 (Q15) */
@@ -123,10 +127,12 @@ static void bubble(stream_t *s, const tx_event_t *e)
 {
     tx_rng_t *r = &s->cloud.rng;
     int32_t c_l2 = s->size_l2 - ((int32_t)e->note - 60) * 5461;   /* the key's centre radius (log2 mm, Q16) */
-    int32_t a_l2 = c_l2 - (3 << 15) + e->size_l2 * 16;       /* from centre / 2.8 upward (power law: big ones rarer) */
+    int32_t a_l2 = c_l2 - (2 << 16) + e->size_l2 * 16;       /* from centre / 4 upward (power law: big ones rarer) */
     int32_t d_l2 = -(int32_t)(((int64_t)tx_neglog2_q12(tx_rand(r)) * s->beta_q8) >> 4);   /* log2 D = beta log2 u, Q16 */
-    int32_t l = (a_l2 - c_l2) + d_l2 + ((int32_t)e->vel - 100) * 1000;   /* x (a / a_c) x D, velocity (L2's a^1.5
-                                                              * made the big ones boom over the references, ours) */
+    int32_t l = (a_l2 - c_l2) / 4 + d_l2 + ((int32_t)e->vel - 100) * 1000;   /* x (a / a_c)^1/4 x D, velocity: with the
+                                                              * small ones the common ones and a big one ringing longer, this
+                                                              * keeps the brook references' flat 0.5-5 kHz (ours: L2's a^1.5,
+                                                              * then a^1, boomed; a^-1/2 hissed) */
     uint32_t env, stolen;
     int slot;
     if (e->kind != TX_EV_STREAM) l += 65536;                 /* a stone tipped in: louder */
@@ -190,6 +196,7 @@ TX_AUDIO_CODE static void stream_render(void *st, int32_t *mix, unsigned n)
         uint32_t g = isqrt_s(s->rate_q8 >> 8) * (uint32_t)held;
         fl = fl < 100u ? 100u : fl > 600u ? 600u : fl;
         g = (uint32_t)(((uint64_t)g * 220u * (uint32_t)s->flow_on) >> 15);
+        g = (uint32_t)(((uint64_t)g * s->p[P_ROAR]) >> 6);    /* ROAR: 0 .. 2 (64 = the former default level) */
         g = (uint32_t)(((uint64_t)g * (uint32_t)s->level) >> 15);
         tx_noise_band(&s->roar, fl, 24, TX_NOISE_BAND);
         tx_noise_roar_add(&s->roar, (int32_t)(g > 500000u ? 500000u : g), buf, n);
