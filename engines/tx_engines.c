@@ -22,6 +22,7 @@ extern const tx_engine_t tx_eng_rainsurf;
 extern const tx_engine_t tx_eng_rockfall;
 extern const tx_engine_t tx_eng_plate;
 extern const tx_engine_t tx_eng_rainwater;
+extern const tx_engine_t tx_eng_stream;
 extern const tx_engine_t tx_eng_crickets;
 extern const tx_engine_t tx_eng_cicadas;
 extern const tx_engine_t tx_eng_katydids;
@@ -55,6 +56,7 @@ const tx_engine_t *const tx_engines[] = {
     &tx_eng_rockfall,
     &tx_eng_plate,
     &tx_eng_rainwater,
+    &tx_eng_stream,
     &tx_eng_crickets,
     &tx_eng_cicadas,
     &tx_eng_katydids,
