@@ -32,6 +32,14 @@ static uint32_t omori_t(tx_cloud_t *c)                       /* t = c (2^(-log2(
     return t > TX_OMORI_MAX_T ? TX_OMORI_MAX_T : (uint32_t)t;
 }
 
+/* the next stream gap, Q8 samples: Poisson by default, or partly periodic (tx_cloud_regular) */
+static uint32_t stream_gap(tx_cloud_t *c)
+{
+    uint32_t x = tx_cloud_exp_q8(c, c->period_q8);
+    if (c->jitter_q8 >= 256u) return x;
+    return (uint32_t)(((uint64_t)c->period_q8 * (256u - c->jitter_q8) + (uint64_t)x * c->jitter_q8) >> 8);
+}
+
 /* ---- configuration */
 void tx_cloud_init(tx_cloud_t *c, uint32_t seed)
 {
@@ -40,6 +48,7 @@ void tx_cloud_init(tx_cloud_t *c, uint32_t seed)
     for (i = 0; i < sizeof *c; i++) p[i] = 0;
     tx_rng_seed(&c->rng, seed);
     tx_cloud_rate(c, 10u << 8);
+    c->jitter_q8 = 256;
     tx_cloud_burst(c, 4, 30);
     tx_cloud_sizes(c, 6144, 8u << 12);                       /* alpha 1.5 over 8 octaves of energy */
     tx_cloud_omori(c, 0, 6881, 70, 7168);                    /* off; p 1.68, c 70 ms, gap 1.75 decades (5.8 oct) */
@@ -49,6 +58,8 @@ void tx_cloud_rate(tx_cloud_t *c, uint32_t rate_q8)
 {
     c->period_q8 = rate_q8 ? (TX_FS << 16) / rate_q8 : 0;   /* fs / rate, Q8 */
 }
+
+void tx_cloud_regular(tx_cloud_t *c, uint32_t jitter_q8) { c->jitter_q8 = (uint16_t)(jitter_q8 > 256u ? 256u : jitter_q8); }
 
 void tx_cloud_burst(tx_cloud_t *c, uint32_t n, uint32_t spread_ms)
 {
@@ -112,7 +123,7 @@ void tx_cloud_key(tx_cloud_t *c, uint8_t note, uint8_t vel, uint8_t on)
     if (pick == TX_CLOUD_EMITTERS) pick = c->em_rr++ % TX_CLOUD_EMITTERS;   /* all held: take the next in turn */
     e = &c->em[pick];
     e->note = note; e->vel = vel ? vel : 1u; e->held = 1;
-    e->next_q8 = c->period_q8 ? tx_cloud_exp_q8(c, c->period_q8) : 0;
+    e->next_q8 = c->period_q8 ? stream_gap(c) : 0;
     {
         uint32_t acc = 0;                                    /* the burst: MAIN at once, then Poisson spaced */
         for (i = 0; i < c->burst_n; i++) {
@@ -154,7 +165,7 @@ TX_AUDIO_CODE unsigned tx_cloud_block(tx_cloud_t *c, tx_event_t *ev, unsigned n)
         while ((e->next_q8 >> 8) < n && guard++ < TX_STREAM_GUARD) {
             emit(c, ev, &k, &drop, e->next_q8 >> 8, tx_cloud_pareto(c, c->size_inv_q12, c->size_max_l2),
                  e->note, e->vel, TX_EV_STREAM, (uint8_t)i);
-            e->next_q8 += tx_cloud_exp_q8(c, c->period_q8) + 1u;
+            e->next_q8 += stream_gap(c) + 1u;
         }
         e->next_q8 = (e->next_q8 >> 8) >= n ? e->next_q8 - (n << 8) : 0;
     }

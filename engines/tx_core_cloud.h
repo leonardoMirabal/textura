@@ -62,6 +62,8 @@ typedef struct {
     uint8_t after_n;               /* mean aftershocks per MAIN event (0 = off: the Omori hook is idle) */
     uint8_t after_stream;          /* 1: stream events trigger aftershocks too */
     uint8_t npend;
+    uint16_t jitter_q8;            /* stream spacing: 256 = Poisson (exponential gaps, the default), 0 = periodic; */
+                                   /* between: gap = mean (1 - j) + exponential draw x j */
     /* state */
     tx_rng_t rng;
     uint32_t now;                  /* sample clock (wraps; compared by signed difference) */
@@ -93,6 +95,7 @@ TX_AUDIO_CODE unsigned tx_cloud_block(tx_cloud_t *c, tx_event_t *ev, unsigned n)
 unsigned tx_cloud_held(const tx_cloud_t *c);                   /* keys held now */
 int tx_cloud_idle(const tx_cloud_t *c);                         /* nothing held, nothing pending */
 void tx_cloud_rate(tx_cloud_t *c, uint32_t rate_q8);           /* stream rate per held key, events/s Q8 (0 = off) */
+void tx_cloud_regular(tx_cloud_t *c, uint32_t jitter_q8);      /* 256 = Poisson stream (default) .. 0 = periodic */
 void tx_cloud_burst(tx_cloud_t *c, uint32_t n, uint32_t spread_ms);   /* n events per press over ~spread_ms */
 void tx_cloud_sizes(tx_cloud_t *c, uint32_t alpha_q12, uint32_t range_l2_q12);   /* alpha > 1, E_max / E_min */
 void tx_cloud_omori(tx_cloud_t *c, uint32_t n, uint32_t p_q12, uint32_t c_ms, uint32_t gap_l2_q12);

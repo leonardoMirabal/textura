@@ -3,9 +3,11 @@
 #include "tx_engine.h"
 
 extern const tx_engine_t tx_eng_test;
+extern const tx_engine_t tx_eng_drip;
 
 const tx_engine_t *const tx_engines[] = {
     &tx_eng_test,
+    &tx_eng_drip,
     0,
 };
 
