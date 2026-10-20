@@ -86,6 +86,7 @@ async function init() {
   window.txTest.route = n => [0, 1, 2, 3].filter(k => layers[k].eng >= 0 && (keyMode === "shared" || (n >= layers[k].lo && n <= layers[k].hi)));
   window.txTest.zone = (k, lo, hi) => { layers[k].lo = lo; layers[k].hi = hi; showLayers(); };
   window.txTest.chSha = i => S(M._txw_ch_max_sha(i));
+  window.txTest.ratings = () => JSON.parse(JSON.stringify(ratings));
   window.txTest.ab = () => ({ loaded: !!ab, buttons: document.querySelectorAll("#ab-buttons button").length,
                               playing: abNow ? abNow.label : null, ours: $("ab-ours").currentSrc, ref: $("ab-ref").currentSrc });
   window.txTest.abPlay = k => { const b = document.querySelectorAll("#ab-buttons button")[k]; if (b) b.click(); };
@@ -190,9 +191,89 @@ async function abPlay(url, gainDb, btn, label) {
     src.start();
   } catch (e) { btn.classList.remove("on"); status("A/B: could not play " + url + " (" + e + ")"); }
 }
+// ---- ratings (step 5): a 1-5 rating, a note and the kept reference candidates per engine, kept in this browser and
+// sent to the local server (audition/serve.py writes .local/ratings.json); "export" downloads the same JSON
+const RKEY = "textura.ratings";
+let ratings = {};
+try { ratings = JSON.parse(localStorage.getItem(RKEY) || "{}") || {}; } catch (e) { ratings = {}; }
+function ratingsJson() {
+  const entries = Object.keys(ratings).sort().map(n => Object.assign({ engine: n }, ratings[n]));
+  return { exported: new Date().toISOString(), app: "textura-player", entries };
+}
+let postTimer = 0;
+function saveRatings() {
+  try { localStorage.setItem(RKEY, JSON.stringify(ratings)); } catch (e) { }
+  clearTimeout(postTimer);
+  postTimer = setTimeout(() => {                         // (debounced: typing a note does not post every key)
+    fetch("ratings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ratingsJson()) })
+      .then(r => { $("rate-status").textContent = r.ok ? "saved (.local/ratings.json)" : "saved in this browser"; })
+      .catch(() => { $("rate-status").textContent = "saved in this browser (export to share)"; });
+  }, 400);
+  $("rate-status").textContent = "saved in this browser";
+}
+function rateEntry(name, num) {
+  if (!ratings[name]) ratings[name] = { num, rating: 0, note: "", kept: [], updated: "" };
+  return ratings[name];
+}
+function showRating() {
+  const i = layers[ed].eng, box = $("rate-stars");
+  box.textContent = "";
+  if (i < 0) { $("rate-what").textContent = "Rate (this layer is off)"; $("rate-note").value = ""; $("rate-note").disabled = true; return; }
+  const name = S(M._txw_name(i)), cur = ratings[name] || { rating: 0, note: "" };
+  $("rate-what").textContent = `Rate #${i + 1} ${name}`;
+  $("rate-note").disabled = false;
+  $("rate-note").value = cur.note || "";
+  for (let v = 1; v <= 5; v++) {
+    const b = document.createElement("button");
+    b.textContent = v; b.title = ["", "1: bad", "2: poor", "3: fair", "4: good", "5: real"][v];
+    b.classList.toggle("on", cur.rating === v);
+    b.onclick = () => {
+      const r = rateEntry(name, i + 1);
+      r.rating = r.rating === v ? 0 : v; r.updated = new Date().toISOString();
+      saveRatings(); showRating();
+    };
+    box.appendChild(b);
+  }
+}
+$("rate-note").oninput = () => {
+  const i = layers[ed].eng;
+  if (i < 0) return;
+  const r = rateEntry(S(M._txw_name(i)), i + 1);
+  r.note = $("rate-note").value; r.updated = new Date().toISOString();
+  saveRatings();
+};
+$("rate-export").onclick = () => {
+  const a = document.createElement("a"), stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(ratingsJson(), null, 1)], { type: "application/json" }));
+  a.download = `textura-ratings-${stamp}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  $("rate-status").textContent = "exported " + a.download;
+};
+function showKeep(name, num, e) {                     // the reference candidates kept for this engine (1-2)
+  const box = $("ab-keep");
+  box.textContent = "";
+  if (!e || !e.refs.length) return;
+  const lab = document.createElement("span"); lab.className = "small"; lab.textContent = "keep:"; box.appendChild(lab);
+  const r = ratings[name], kept = r ? r.kept : [];
+  e.refs.forEach((ref, k) => {
+    const b = document.createElement("button"), on = kept.some(x => x.name === ref.name);
+    b.textContent = (on ? "★ " : "☆ ") + "ref " + (k + 1); b.className = "small" + (on ? " on" : "");
+    b.title = (on ? "kept: " : "keep this reference: ") + ref.name;
+    b.onclick = () => {
+      const en = rateEntry(name, num), at = en.kept.findIndex(x => x.name === ref.name);
+      if (at >= 0) en.kept.splice(at, 1); else en.kept.push({ name: ref.name, url: ref.url || "", licence: ref.licence || "", wav: ref.wav });
+      en.updated = new Date().toISOString();
+      saveRatings(); showKeep(name, num, e);
+    };
+    box.appendChild(b);
+  });
+}
+
 function showAB() {
   const box = $("ab-buttons"), i = layers[ed].eng;
-  box.textContent = ""; $("ab-info").textContent = "";
+  box.textContent = ""; $("ab-info").textContent = ""; $("ab-keep").textContent = "";
+  showRating();
   const imgs = [$("ab-ours"), $("ab-ref")];
   const hide = () => { imgs.forEach(im => { im.removeAttribute("src"); im.style.display = "none"; }); $("ab-ours-cap").textContent = $("ab-ref-cap").textContent = ""; };
   if (!ab) { hide(); $("ab-note").textContent = "(no A/B data: run make tx-ab; the references stay in .local, local only)"; return; }
@@ -212,6 +293,7 @@ function showAB() {
     if (k === abSel) b.classList.add("sel");
   });
   add("■ stop", "stop the A/B playback", () => abStop());
+  showKeep(name, e.num, e);
   imgs.forEach(im => { im.style.display = ""; });
   $("ab-ours").src = e.ours.png;
   $("ab-ours-cap").textContent = `ours: ${e.ours.kind}, ${e.ours.lufs} LUFS, seed 1`;
@@ -364,6 +446,7 @@ function velStep(d) {                                 // C / V: the next lower /
 // at document level, in the capture phase: a focused slider, select or button never swallows a playing key
 document.addEventListener("keydown", e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.tagName === "INPUT" && e.target.type === "text") return;   // typing a note: the letters are text
   const c = e.code;
   if (c === "KeyZ" || c === "KeyX") { e.preventDefault(); if (!e.repeat) octave(c === "KeyZ" ? -1 : 1); return; }
   if (c === "KeyC" || c === "KeyV") { e.preventDefault(); if (!e.repeat) velStep(c === "KeyC" ? -1 : 1); return; }

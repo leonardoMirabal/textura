@@ -53,6 +53,10 @@ git clone https://github.com/emscripten-core/emsdk.git .local/emsdk
   beds or unwanted tonal lines show at a glance. The data comes from `make tx-ab` (`audition/ab_prepare.py`) into
   `build/audition/ab/`: the recordings are read from `.local/reference/` and stay local (never committed, never
   played by an engine); without it the panel says so.
+- **Rating** (on the A/B panel): 1-5 for the edited layer's engine (click again to clear), a short note, and `☆ ref k`
+  to keep the reference candidates that sound right (1-2 per engine). Kept in this browser (localStorage) and, when
+  served with `audition/serve.py`, also written to `.local/ratings.json` (localhost only, never committed);
+  **export** downloads the same JSON (engine, rating, note, kept references, time). Typing a note never plays keys.
 - **Record 10 s**: downloads the next 10 s of the output as a 24-bit stereo WAV.
 
 ## Checking it

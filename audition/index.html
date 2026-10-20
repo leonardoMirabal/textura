@@ -72,6 +72,13 @@
   .ab-specs img { width: 100%; height: auto; display: block; border: 1px solid var(--line); border-radius: 6px; background: #000; }
   .ab-specs figcaption { font-size: 12px; color: var(--dim); margin-top: 3px; overflow-wrap: anywhere; }
   #ab-info a { color: var(--accent); overflow-wrap: anywhere; }
+  #rate-row { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-bottom: 10px; }
+  #rate-stars button { min-width: 34px; padding: 4px 8px; }
+  #rate-stars button.on { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+  #rate-note { flex: 1; min-width: 160px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+               border-radius: 6px; padding: 5px 8px; }
+  #ab-keep { margin-top: 6px; }
+  #ab-keep button.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
   @media (max-width: 700px) { .ab-specs { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
@@ -113,7 +120,15 @@
 
   <section class="panel" id="ab-panel">
     <h2>A/B: references <span class="small" id="ab-note"></span></h2>
+    <div id="rate-row">
+      <span class="small" id="rate-what">Rate</span>
+      <span id="rate-stars"></span>
+      <input type="text" id="rate-note" placeholder="a short note (what is wrong, what is right)" maxlength="300">
+      <button id="rate-export" title="download every rating as JSON">export</button>
+      <span class="small" id="rate-status"></span>
+    </div>
     <div class="row" id="ab-buttons"></div>
+    <div class="row" id="ab-keep"></div>
     <div class="ab-specs">
       <figure><img id="ab-ours" alt="spectrogram of ours"><figcaption id="ab-ours-cap"></figcaption></figure>
       <figure><img id="ab-ref" alt="spectrogram of the reference"><figcaption id="ab-ref-cap"></figcaption></figure>

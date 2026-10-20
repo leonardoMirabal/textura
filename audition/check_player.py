@@ -9,6 +9,7 @@ records 10 s to a downloaded stereo WAV, and takes screenshots (desktop and phon
 Outputs in build/audition-check/. Exit 1 on any failure. Web MIDI with a real keyboard and the sound itself are not
 checked here (no MIDI device, no ears)."""
 import functools
+import json
 import http.server
 import os
 import re
@@ -32,7 +33,9 @@ def check(ok, what):
 
 def serve(isolated=True):
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from serve import Handler                         # audition/serve.py: COOP / COEP (fine timer)
+    from serve import Handler                         # audition/serve.py: COOP / COEP (fine timer), POST /ratings
+    Handler.ratings_path = os.path.join(OUT, "ratings-check.json")   # (never the user's .local/ratings.json)
+    Handler.log_message = lambda *a: None
     h = functools.partial(Handler if isolated else http.server.SimpleHTTPRequestHandler, directory=SITE)
     h.log_message = lambda *a: None
     s = http.server.ThreadingHTTPServer(("127.0.0.1", 0), h)
@@ -261,6 +264,37 @@ def main():
             page.screenshot(path=os.path.join(OUT, "ab.png"), full_page=True)
             page.evaluate("window.txTest.abPlay(document.querySelectorAll('#ab-buttons button').length - 1)")   # stop
             check(page.evaluate("window.txTest.ab()")["playing"] is None, "A/B: stop")
+            # ratings (step 5): a 4, a note typed without playing notes, a kept reference, saved and exported
+            rp = os.path.join(OUT, "ratings-check.json")
+            if os.path.exists(rp):
+                os.remove(rp)
+            page.click("#rate-stars button:nth-child(4)")
+            page.fill("#rate-note", "")
+            page.click("#rate-note")
+            page.keyboard.type("too even, ask")      # (A, S, K are note keys: in the note they must stay text)
+            held = page.evaluate("window.txTest.held()")
+            page.click("#ab-keep button:nth-of-type(1)")
+            time.sleep(1.0)
+            rt = page.evaluate("window.txTest.ratings()").get("stream", {})
+            check(rt.get("rating") == 4 and rt.get("note") == "too even, ask" and len(rt.get("kept", [])) == 1 and held == [],
+                  f"rating: stream 4, the note typed (no keys played: {held}), one reference kept ({rt.get('kept', [{}])[0].get('name', '?') if rt.get('kept') else '-'})")
+            saved = None
+            try:
+                saved = json.load(open(rp))
+            except Exception:
+                pass
+            ent = [x for x in (saved or {}).get("entries", []) if x.get("engine") == "stream"]
+            check(bool(ent) and ent[0].get("rating") == 4 and ent[0].get("kept"), f"ratings posted to the local server ({rp})")
+            with page.expect_download() as dl:
+                page.click("#rate-export")
+            dp = os.path.join(OUT, dl.value.suggested_filename)
+            dl.value.save_as(dp)
+            ex = json.load(open(dp))
+            check(any(x.get("engine") == "stream" and x.get("rating") == 4 for x in ex.get("entries", [])),
+                  f"ratings export: {dl.value.suggested_filename}")
+            page.reload()
+            page.wait_for_function("window.txTest && window.txTest.ready", timeout=20000)
+            check(page.evaluate("window.txTest.ratings()").get("stream", {}).get("rating") == 4, "ratings kept in this browser (after a reload)")
         else:
             check("make tx-ab" in page.text_content("#ab-note"), "A/B: no data here (make tx-ab), the panel says so")
         plain = serve(isolated=False)                   # the README's plain python3 -m http.server case, phone width
