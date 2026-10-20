@@ -86,7 +86,7 @@ typedef struct {
     int32_t res, res_x1;
     tx_mallet_t mal;
     uint8_t p[NP], limit, quiet;
-    int32_t level, size_l2;
+    int32_t level, size_l2, fe;    /* fe: the fizz's envelope (Q15) */
     uint32_t q_x16, fizz;
     uint16_t dropped;
     tx_vary_t vy;
@@ -278,9 +278,13 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
     }
     tx_modal_run(s->thud, 2, s->buf, 0, n);
     any |= s->thud[0].amp | s->thud[1].amp;
-    if (s->fizz && (cubes(s) ? tx_cloud_held(&s->cloud) : any)) {   /* the melt fizz: sparse tiny pops */
+    s->fe += (((cubes(s) ? tx_cloud_held(&s->cloud) != 0 : any != 0) ? 32767 : 0) - s->fe) >> 5;   /* the fizz dies away
+                                                              * over ~0.5 s with the ice's ring (it stopped dead at
+                                                              * -45 dBFS: session 5's tails) */
+    if (s->fe < 32) s->fe = 0;
+    if (s->fizz && s->fe) {                                  /* the melt fizz: sparse tiny pops */
         uint32_t t = tx_rand_below(r, 200u);
-        int32_t lvl = (int32_t)(((int64_t)s->fizz * s->level) >> 13);
+        int32_t lvl = (int32_t)(((((int64_t)s->fizz * s->level) >> 13) * s->fe) >> 15);
         while (t < n && nf < 64u) {
             int32_t x = (int32_t)(((int64_t)tx_neglog2_q12(tx_rand(r)) * 8192) >> 12);   /* alpha 1.5 */
             s->fo[nf] = (uint16_t)t;
@@ -315,7 +319,7 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
     tx_trim(s->buf, n, OUT_TRIM);                            /* the loudness target */
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
-    s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !any && !(s->hp.x1 | s->hp.y1));
+    s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !any && !s->fe && !(s->hp.x1 | s->hp.y1));
 }
 
 static void ice_stats(const void *st, tx_stats_t *o)

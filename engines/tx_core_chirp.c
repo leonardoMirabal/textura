@@ -24,7 +24,9 @@ void tx_chirp_start(tx_chirp_t *c, uint32_t x_cm, uint32_t h_mm, uint32_t q, int
     T0 = lt0 < (1 << 16) ? 2u : tx_exp2(lt0);
     Tlow = lte > (24 << 16) ? 0xFFFFFFu : tx_exp2(lte);
     Tair = tx_chirp_air(x_cm);
-    c->Tend = Tair < Tlow ? Tair : Tlow;
+    c->Tend = Tlow < 4u * Tair ? Tlow : 4u * Tair;          /* the flexural chirp runs on past the air wave's arrival
+                                                              * (ending it there cut a ring at ~-60 dBFS: session 5's
+                                                              * tails), to 40 Hz, at most 4 x the air delay */
     if (T0 + 64u >= c->Tend) return;                         /* too close: the chirp is over before it starts */
     c->T = 0;
     c->wait = T0;
@@ -67,7 +69,10 @@ TX_AUDIO_CODE void tx_chirp_add(tx_chirp_t *c, int32_t *out, unsigned n)
     is = (int32_t)(inc1 - inc) / (int32_t)(n - j);
     for (; j < n; j++) {
         ph += inc;
-        out[j] += tx_sin_q15(ph) * (g >> 7);                 /* Q15 x Q8 -> Q23 */
+        {
+            int32_t sv = tx_sin_q15(ph);
+            out[j] += sv * (g >> 7) + ((sv * (g & 127)) >> 7);   /* Q15 x Q15 -> Q23: a quiet chirp fades smoothly */
+        }
         inc += (uint32_t)is;
         g += gs;
     }

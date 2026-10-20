@@ -50,12 +50,13 @@ static const tx_param_t PARAMS[NP] = {
 #define NBANK 16u                  /* bands on the SVF bank; band 16 is the high-pass noise */
 #define E_REF 24000                 /* energy per Hz (Q30) of a full strike on the 0.5 mm plate (calibrated) */
 #define THR (1u << 17)             /* chaos threshold: the modes' energy (Q30, -39 dB) */
-#define W_CUT 64u                  /* a band under -72 dB stops */
+#define W_CUT 2u                   /* a band under -87 dB stops (at -72 dB its stop was audible: session 5) */
 
 typedef struct {
     tx_cloud_t cloud;
     tx_event_t ev[TX_CLOUD_EV_MAX];
     tx_pmode_t m[TX_PLATE_MODES];
+    int32_t ge[TX_PLATE_MODES];    /* the modes' envelopes with 8 more bits (g << 8): their decay exponential to the end */
     uint8_t mm[TX_PLATE_MODES], mn[TX_PLATE_MODES];   /* mode numbers */
     tx_svf_t sv[NBANK];
     int32_t f[NBANK], gin[NBANK], gb[NBANK];
@@ -281,8 +282,14 @@ TX_AUDIO_CODE static void plate_render_raw(void *st, int32_t *mix, unsigned n)
                 s->W[p->band] = w > (1u << 30) ? (1u << 30) : w;
                 p->g = (int32_t)tx_isqrt32((e - lost) * 2u);
             }
-            p->g = (int32_t)(((uint32_t)p->g * p->dec) >> 16);
-            if (p->g < 8) p->g = 0;
+            {   /* (at g < 8 -> 0 with floor rounding the decay went linear and stopped audibly near -65 dBFS) */
+                int32_t ge = s->ge[i];
+                if ((ge >> 8) != p->g) ge = p->g << 8;       /* (struck or fed since: from the mode's amplitude) */
+                ge = (int32_t)(((int64_t)ge * p->dec) >> 16);
+                if (ge < 256) ge = 0;
+                s->ge[i] = ge;
+                p->g = ge >> 8;
+            }
             p->e = p->e0 + (int32_t)(((int64_t)p->e0 * (int32_t)d) >> 16);
         }
     }
@@ -297,7 +304,7 @@ TX_AUDIO_CODE static void plate_render_raw(void *st, int32_t *mix, unsigned n)
         int32_t any = 0, gh = (int32_t)((tx_isqrt32(s->W[NB - 1]) * 138400u >> 16) * (uint32_t)s->level >> 15);
         for (i = 0; i < NBANK; i++) {
             uint32_t a = tx_isqrt32(s->W[i]);                /* Q15 rms */
-            s->gb[i] = (int32_t)(((a * 14196u) >> 16) * (uint32_t)s->level >> 15);
+            s->gb[i] = (int32_t)(((uint64_t)a * 14196u * (uint32_t)s->level) >> 31);   /* (per block: one rounding) */
             any |= s->gb[i];
         }
         if (any || gh || s->gh) {

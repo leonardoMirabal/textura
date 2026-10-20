@@ -238,6 +238,8 @@ static void fly(bees_t *s, bug_t *b, int32_t *g1, int32_t *mix1)
         b->fw2 += (tx_rand_s15(r) - b->fw2) >> 4;
         w = 32768 + ((b->fw1 * 3) >> 1) + ((b->fw2 * 3) >> 4);   /* sd ~5 % (peaks ~+-10 %); fw2 ~+-2 % */
         ratio = (int32_t)(((int64_t)ratio * w) >> 15);
+        ratio = (int32_t)(((int64_t)ratio * (27853 + ((b->lg * 4915) >> 15))) >> 15);   /* landing: the wings slow
+                                                              * (-15 %) as the buzz dies, and speed up taking off */
     }
     b->bz.inc = (b->inc0 >> 12) * (uint32_t)ratio;
     /* angle: |sin| between heading and the line of sight -> side mix */
@@ -251,13 +253,13 @@ static void fly(bees_t *s, bug_t *b, int32_t *g1, int32_t *mix1)
     gm = (int32_t)(((int64_t)gm * s->level) >> 15);
     gm = gm > 32767 ? 32767 : gm;
     {   /* at the flowers: now and then it lands (every ~3 s on average) for 0.3 .. 1.7 s, the buzz stopping and
-         * starting again over ~50 ms (ours; the references: a bumblebee at work comes and goes, with gaps) */
+         * starting again over ~0.1 s, the wingbeat slowing as it lands (ours; the references: a bumblebee at work comes and goes, with gaps) */
         if (held && !b->fade) {
             if (b->land) b->land--;
             else if ((tx_rand(r) >> 16) < 127u) b->land = (uint16_t)(52u + tx_rand_below(r, 240u));
         } else
             b->land = 0;
-        b->lg += ((b->land ? 0 : 32767) - b->lg) >> 3;
+        b->lg += ((b->land ? 0 : 32767) - b->lg) >> 4;       /* (~0.1 s: the buzz winds down, not off) */
         gm = (int32_t)(((int64_t)gm * b->lg) >> 15);
     }
     if (b->fade) {
