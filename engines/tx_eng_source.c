@@ -55,14 +55,14 @@
 
 enum { P_PRESET, P_MORPHTO, P_MORPH, P_INTENS, P_ACT, P_SPACING, P_SIZE, P_SPREAD, P_TONE, P_HARD, P_DIST, P_DEPTH,
        P_LIFE, P_TIME, P_LOCK, P_DIV, P_GRID, NP };
-enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_DROPS, NPRE };
+enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_DROPS, PR_WIND, PR_STREAM, NPRE };
 enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER };
 
 static const tx_param_t PARAMS[NP] = {
-    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops"},
-    {"MORPHTO", NPRE - 1, 1, "the preset MORPH moves toward: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops"},
-    {"MORPH", 127, 0, "PRESET .. MORPHTO, particle by particle: at the middle half the drops are stones (or half the callers)"},
-    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water drops 1 per 30 s .. 245 /s (a drop, drips, a trickle, a stream)"},
+    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops | 4 wind | 5 stream"},
+    {"MORPHTO", NPRE - 1, 1, "the preset MORPH moves toward: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops | 4 wind | 5 stream"},
+    {"MORPH", 127, 0, "PRESET .. MORPHTO, particle by particle (presets 0-3): at the middle half the drops are stones (or half the callers)"},
+    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water drops 1 per 30 s .. 245 /s (a drop, drips, a trickle, a stream), wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), stream 30 .. 30 000 bubbles/s (a trickle .. a roaring torrent)"},
     {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. the preset's own (64; Poisson for rain) .. even"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
@@ -86,7 +86,7 @@ static const tx_param_t PARAMS[NP] = {
 #define RATE_CAP 5000u              /* explicit events per second at most: above, each stands for several (rain) */
 
 typedef struct {
-    uint8_t kind;                   /* 0 events, 1 callers */
+    uint8_t kind;                   /* 0 events, 1 callers, 2 an engine hosted whole (HOST[act_lo]) */
     int32_t act_lo, act_oct;        /* INTENSITY's scale: log2 of the 0 % value, its range (Q16) */
     int32_t reg;                    /* natural spacing: -64 clumped .. 0 Poisson .. 63 even */
     int32_t trim;                   /* the preset's level, Q12 */
@@ -98,6 +98,25 @@ static const preset_t PRE[NPRE] = {
     {0, -152170, 739752, 10, 40960, 8}, /* stones: 0.2 .. 500 knocks/s */
     {1, 0, 321577, 0, 9170, 0},     /* cicadas: 1 .. 30 callers */
     {0, -325438, 845573, -6, 38600, 8},   /* water drops: 1 per 30 s .. 245 /s (a trickle, a small stream) */
+    {2, 0, 0, 0, 4096, 0},          /* wind: the aeolian engine hosted */
+    {2, 1, 0, 0, 4096, 0},          /* stream: the stream engine hosted */
+};
+
+/* HOSTED presets: an existing engine run whole inside the source (its own physics and defaults: at INTENSITY 64 it is
+ * that engine at its defaults), INTENSITY moving its parameters along the preset's path through its transition: each
+ * curve a parameter's value at INTENSITY 0, 64 and 127 (linear between); the first curve follows ACTIVITY too. The
+ * level is kept playable with a gain at 0 / 64 / 127 (tenths of a dB, linear between: ours, by render). Hosted
+ * presets do not morph (one engine fits the arena). */
+#define HOST_NC 5u
+#define HOST_BYTES 12544u           /* the largest hosted engine's state (sand 12 464 B) */
+typedef struct { const char *name; uint8_t v0, v64, v127; } curve_t;
+typedef struct { const char *eng; int16_t g0, g64, g127; curve_t c[HOST_NC]; } host_t;
+static const host_t HOST[] = {
+    /* wind: a breath (1.6 m/s) .. a gale (20 m/s); gusts deepen; at the top the strings lock in and whistle */
+    {"aeolian", 180, 0, -100, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}},
+    /* stream: a trickle of plinks .. a babbling brook .. a torrent: bigger gulping bubbles, eddies, the low roar */
+    {"stream", 60, 0, -60, {{"FLOW", 10, 70, 127}, {"ROAR", 0, 0, 100}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
+                            {"SPREAD", 80, 64, 45}}},
 };
 
 typedef struct {
@@ -138,9 +157,16 @@ typedef struct {
     tx_pool_t pool;
     tx_declick_t dc;
     tx_dcblock_t hp;
-    voice_t v[NV];
-    member_t m[NM];
-    child_t ch[NCH];
+    union {                         /* the particle presets' pools, or a hosted engine's whole state */
+        struct { voice_t v[NV]; member_t m[NM]; child_t ch[NCH]; };
+        uint64_t host[HOST_BYTES / 8];
+    };
+    const tx_engine_t *hst;         /* the hosted engine now (0: the particle presets) */
+    const host_t *hd;
+    int8_t hid[HOST_NC];            /* its curves' parameter ids */
+    uint8_t hval[HOST_NC];          /* the values last sent */
+    uint8_t lvl_v, part_v;          /* LEVEL and PARTICLES as last set (0: not set) */
+    int32_t hgain, last_out;        /* the hosted output gain (Q12, ramped), the last sample out (for a switch) */
     int32_t buf[TX_BLOCK], ck[TX_BLOCK];
     uint8_t p[NP], limit, quiet, held, nch;
     uint8_t note, vel, pad[2];
@@ -185,7 +211,11 @@ static uint32_t isqrt(uint32_t x)
 static int32_t dist_l2(const src_t *s) { return -113738 + (int32_t)s->p[P_DIST] * 5148 + s->life_d; }   /* 0.3 .. 300 m */
 static int32_t depth_l2(const src_t *s) { return (int32_t)s->p[P_DEPTH] * 1548; }   /* 0 .. 3 octaves */
 /* the morph weight of B (Q15) */
-static int32_t morph(const src_t *s) { return s->p[P_PRESET] == s->p[P_MORPHTO] ? 0 : (int32_t)s->p[P_MORPH] * 258; }
+static int32_t morph(const src_t *s)
+{
+    if (s->p[P_PRESET] == s->p[P_MORPHTO] || PRE[s->p[P_PRESET]].kind == 2 || PRE[s->p[P_MORPHTO]].kind == 2) return 0;
+    return (int32_t)s->p[P_MORPH] * 258;
+}
 
 /* the effective intensity of a preset's rate (Q8 knob units, 0 .. 127 << 8), with ACTIVITY's trim */
 static int32_t act_idx(const src_t *s) { return clampi(s->i_eff + knob(s, P_ACT) * 256, 0, 127 << 8); }
@@ -692,6 +722,100 @@ static void event(src_t *s, unsigned off, unsigned n, unsigned pre, int near, in
     else if (pre == PR_DROPS) wdrop(s, off, n, near, vel, pre, trim);
 }
 
+/* ---- hosted presets */
+static int32_t curve_at(const curve_t *c, int32_t i_q8)     /* the curve's value at intensity i (Q8 knob units) */
+{
+    int32_t a = c->v0, b = c->v64, x = i_q8;
+    if (x >= (64 << 8)) { a = c->v64; b = c->v127; x -= 64 << 8; return a + ((b - a) * x + (63 << 7)) / (63 << 8); }
+    return a + ((b - a) * x + (64 << 7)) / (64 << 8);
+}
+
+static void host_apply(src_t *s, int force)               /* the curves at the intensity now (only changed values sent) */
+{
+    unsigned i;
+    for (i = 0; i < HOST_NC; i++) {
+        int32_t v;
+        if (!s->hd->c[i].name || s->hid[i] < 0) continue;
+        v = clampi(curve_at(&s->hd->c[i], i ? s->i_eff : act_idx(s)), 0, 127);
+        if (force || v != s->hval[i]) { s->hval[i] = (uint8_t)v; s->hst->param(s->host, (uint8_t)s->hid[i], (uint8_t)v); }
+    }
+}
+
+/* the preset changed: start its hosted engine (or bring the particle pools back); the old sound's last sample decays */
+static void host_switch(src_t *s, unsigned pre)
+{
+    const host_t *hd = PRE[pre].kind == 2 ? &HOST[PRE[pre].act_lo] : 0;
+    const tx_engine_t *ne = hd ? tx_engine_find(hd->eng) : 0;
+    unsigned i;
+    if (ne == s->hst) return;
+    tx_declick_add(&s->dc, s->last_out);
+    s->last_out = 0;
+    { uint8_t *b = (uint8_t *)s->host; for (i = 0; i < sizeof s->host; i++) b[i] = 0; }
+    s->hst = ne; s->hd = hd;
+    /* the particle presets' beds and filters start from silence (their last output went to the declick) */
+    s->bed1_p = s->bed2_p = s->acc1 = s->acc2 = s->cbed_p = 0;
+    s->b1x1 = s->b1x2 = s->b2x1 = s->b2lp = s->res = s->res_x1 = s->clp = s->cbed_f = s->cbed_mod = 0;
+    { uint8_t *b = (uint8_t *)&s->cres; for (i = 0; i < sizeof s->cres; i++) b[i] = 0; }
+    s->hp.x1 = s->hp.y1 = 0; s->vy.lp = 0; s->run = 0; s->next_q8 = 0; s->hgain = 0;
+    for (i = 0; i < TX_BLOCK; i++) s->buf[i] = s->ck[i] = 0;
+    if (ne && ne->state_bytes <= HOST_BYTES) {
+        ne->init(s->host, tx_rand(&s->rng));
+        for (i = 0; i < HOST_NC; i++) s->hid[i] = (int8_t)(hd->c[i].name ? tx_param_find(ne, hd->c[i].name) : -1);
+        if (s->lvl_v) ne->param(s->host, TX_PID_LEVEL, s->lvl_v);
+        if (s->part_v) ne->param(s->host, TX_PID_PARTICLES, s->part_v);
+        host_apply(s, 1);
+        if (s->held) ne->key(s->host, s->note, s->vel, 1);
+        s->quiet = 0;
+    } else {                                                 /* the particle presets: fresh pools */
+        s->hst = 0; s->hd = 0;
+        tx_pool_init(&s->pool, NV, s->limit);
+        for (i = 0; i < NM; i++) s->m[i].voice = 0xFF;
+        s->nch = 0;
+    }
+}
+
+/* LIFE, once per block: the intensity's glide and walk, the size and distance walks */
+static void life_block(src_t *s)
+{
+    int32_t tau = 482152 + (int32_t)s->p[P_TIME] * 4258;       /* log2 blocks: 1 s (172) .. 300 s (51680) */
+    int32_t depth = (int32_t)s->p[P_LIFE];
+    int32_t a = tx_life_step(&s->la, tau), sz = tx_life_step(&s->ls, tau), dd = tx_life_step(&s->ld, tau + 65536);
+    s->i_glide += ((int32_t)s->p[P_INTENS] * 256 - s->i_glide) >> 6;   /* a fader move glides in (~1 s to 95 %) */
+    s->i_eff = clampi(s->i_glide + (((a * depth) >> 7) * 5 >> 4), 0, 127 << 8);   /* LIFE: +-40 at 127 */
+    s->life_s = (sz * depth) >> 8;                           /* +-0.25 octave at LIFE 127 */
+    s->life_d = (dd * depth) >> 6;                           /* +-1 octave of distance */
+}
+
+/* the hosted engine's block: LIFE and the curves, its render, the preset's gain, out */
+TX_AUDIO_CODE static void host_render(src_t *s, int32_t *mix, unsigned n)
+{
+    tx_stats_t st;
+    unsigned j;
+    int32_t g0 = s->hgain, g1, d, gdb;
+    life_block(s);
+    host_apply(s, 0);
+    for (j = 0; j < n; j++) s->buf[j] = 0;
+    s->hst->render(s->host, s->buf, n);
+    {   /* the gain (tenths of a dB at 0 / 64 / 127, linear between), ramped over the block */
+        int32_t x = s->i_eff, a = s->hd->g0, b = s->hd->g64;
+        if (x >= (64 << 8)) { a = s->hd->g64; b = s->hd->g127; x -= 64 << 8; gdb = a + ((b - a) * x) / (63 << 8); }
+        else gdb = a + ((b - a) * x) / (64 << 8);
+        g1 = (int32_t)tx_exp2((12 << 16) + TX_DB10(gdb));
+        if (g1 > 32767) g1 = 32767;
+    }
+    if (!g0) g0 = g1;
+    d = (g1 - g0) / (int32_t)n;
+    for (j = 0; j < n; j++) { s->buf[j] = tx_trim1(s->buf[j], g0 + d * (int32_t)j); }
+    s->hgain = g1;
+    tx_declick_run(&s->dc, s->buf, n);
+    for (j = 0; j < n; j++) mix[j] += s->buf[j];
+    s->last_out = s->buf[n - 1];
+    for (j = 0; j < n; j++) s->buf[j] = 0;
+    s->now += n;
+    s->hst->stats(s->host, &st);
+    s->quiet = (uint8_t)(st.quiet && !s->dc.v && !s->held);
+}
+
 /* ---- the engine */
 static void src_init(void *st, uint32_t seed)
 {
@@ -722,6 +846,12 @@ static void src_init(void *st, uint32_t seed)
 static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
     src_t *s = (src_t *)st;
+    if (s->hst) {                                            /* a hosted engine: its own keys */
+        if (on && vel) { s->held++; s->note = note; s->vel = vel; s->quiet = 0; }
+        else if (s->held) s->held--;
+        s->hst->key(s->host, note, vel, on);
+        return;
+    }
     if (on && vel) {
         unsigned pre = s->p[P_PRESET];
         if (morph(s) && (tx_rand(&s->rng) >> 17) < (uint32_t)morph(s)) pre = s->p[P_MORPHTO];
@@ -744,7 +874,11 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void src_param(void *st, uint8_t id, uint8_t val)
 {
     src_t *s = (src_t *)st;
-    if (id == TX_PID_PARTICLES) {
+    if (s->hst && (id == TX_PID_PARTICLES || id == TX_PID_LEVEL)) s->hst->param(s->host, id, val);
+    if (id == TX_PID_PARTICLES) s->part_v = val;
+    if (id == TX_PID_LEVEL) s->lvl_v = val ? val : 1u;
+    if (id == TX_PID_PARTICLES && s->hst) s->limit = (uint8_t)(val < 1u ? 1u : val > NV ? NV : val);
+    else if (id == TX_PID_PARTICLES) {
         uint32_t cut, i;
         s->limit = (uint8_t)(val < 1u ? 1u : val > NV ? NV : val);
         cut = tx_pool_set_limit(&s->pool, s->limit);
@@ -753,6 +887,7 @@ static void src_param(void *st, uint8_t id, uint8_t val)
         s->level = tx_level_q15(val > 127u ? 127u : val);
     else if (id < NP) {
         s->p[id] = (uint8_t)(val > PARAMS[id].max ? PARAMS[id].max : val);
+        if (id == P_PRESET) host_switch(s, s->p[id]);
         if (id == P_HARD) {                                  /* stones: stone on stone .. soft ground above 64 */
             tx_mallet_mix(&s->mallet, clampi(knob(s, P_HARD), 0, 63) * 520);
             s->mallet.lm -= 217706;
@@ -777,22 +912,14 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     int32_t w = morph(s), any = 0;
     if (n > TX_BLOCK) n = TX_BLOCK;
     if (s->quiet && !s->held) return;
+    if (s->hst) { host_render(s, mix, n); return; }
     /* (buf and ck are cleared after each block, not here: a key's press may already have put its click in them) */
     s->events = 0;
     /* the source on / off: in ~0.2 s, out over ~1.5 s */
     if (s->held) s->run += (32767 - s->run) >> 3;
     else s->run -= (s->run >> 7) + 1;
     if (s->run < 0) s->run = 0;
-    /* LIFE */
-    {
-        int32_t tau = 482152 + (int32_t)s->p[P_TIME] * 4258;   /* log2 blocks: 1 s (172) .. 300 s (51680) */
-        int32_t depth = (int32_t)s->p[P_LIFE];
-        int32_t a = tx_life_step(&s->la, tau), sz = tx_life_step(&s->ls, tau), dd = tx_life_step(&s->ld, tau + 65536);
-        s->i_glide += ((int32_t)s->p[P_INTENS] * 256 - s->i_glide) >> 6;   /* a fader move glides in (~1 s to 95 %) */
-        s->i_eff = clampi(s->i_glide + (((a * depth) >> 7) * 5 >> 4), 0, 127 << 8);   /* LIFE: +-40 at 127 */
-        s->life_s = (sz * depth) >> 8;                       /* +-0.25 octave at LIFE 127 */
-        s->life_d = (dd * depth) >> 6;                       /* +-1 octave of distance */
-    }
+    life_block(s);
     /* stage 1: events (rain, stones; mixed by MORPH) */
     if (s->run) {
         int ea = PRE[pa].kind == 0, eb = PRE[pb].kind == 0 && w;
@@ -946,6 +1073,7 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     tx_vary_block(&s->vy, s->buf, n);
     tx_trim(s->buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
+    s->last_out = s->hp.y1;                                  /* (the dcblock's last output: for a switch's declick) */
     for (j = 0; j < TX_BLOCK; j++) s->buf[j] = s->ck[j] = 0;
     s->now += n;
     {
@@ -960,6 +1088,7 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
 static void src_stats(const void *st, tx_stats_t *o)
 {
     const src_t *s = (const src_t *)st;
+    if (s->hst) { s->hst->stats(s->host, o); o->quiet = s->quiet; return; }
     o->particles = (uint16_t)tx_pool_count(&s->pool);
     o->limit = s->limit;
     o->events = s->events;
@@ -974,7 +1103,7 @@ static const char SCENE_MAX[] =
     "0 particles 16\n0 param INTENSITY 127\n0 param DIST 0\n0 param PRESET 2\n0 on 60 127\n"
     "1000 param PRESET 1\n1000 param MORPHTO 0\n1000 param MORPH 64\n2000 param MORPH 0\n2000 param PRESET 0\n"
     "3000 param PRESET 2\n3000 param MORPHTO 1\n3000 param MORPH 64\n4000 param PRESET 3\n4000 param MORPH 0\n"
-    "5000 off 60\n6000 end\n";
+    "5000 param PRESET 4\n6000 param PRESET 5\n7000 off 60\n8000 end\n";
 
 const tx_engine_t tx_eng_source = {
     "source", "SOURCE (prototype)", NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,

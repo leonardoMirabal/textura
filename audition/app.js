@@ -425,7 +425,7 @@ function setSlider(id, val) {                         // from MIDI CC (the edite
 // ---- SOURCE (engine "source"): its preset, morph and INTENSITY in a panel of their own; and LANE MODE, the keyboard
 // as planned for the FM-1: C4 .. C6, the black keys pick a lane (any engine: the source, or an old engine through
 // QUICK below), the 15 white keys are that lane's activity, the keys light up as the bar.
-const SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];
+let SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];   // (read from the PRESET help line)
 const LANE_PRESETS = [0, 2, 3, 1];                   // a new lane's preset: rain, cicadas, water drops, stones
 const BLACKS = [], WHITES = [];
 const LANE_LO = 60, LANE_HI = 84;                  // lane mode: C4 .. C6 (15 white keys: the fader; 10 black: the lanes)
@@ -437,6 +437,10 @@ function srcFindIds(k) {                              // the source's parameter 
   M._txw_slot(k);
   srcIds = {};
   for (let p = 0; p < M._txw_nparams(); p++) srcIds[S(M._txw_pname(p))] = p;
+  const help = S(M._txw_phelp(srcIds.PRESET));           // "the source: 0 rain on water | 1 stone cloud | ..."
+  const names = help.slice(help.indexOf(":") + 1).split("|").map(t => t.trim().replace(/^\d+\s+/, ""));
+  if (names.length > 1) SRC_PRESETS = names;
+  for (const id of ["src-pre", "src-to"]) { $(id).textContent = ""; SRC_PRESETS.forEach((t, i) => $(id).add(new Option(`${i} ${t}`, i))); }
   M._txw_slot(ed);
 }
 function srcGet(k, name) {
@@ -622,7 +626,6 @@ function setLaneMode(on) {
 function srcInit() {
   for (let i = 0; i < M._txw_count(); i++) if (S(M._txw_name(i)) === "source") srcEng = i;
   if (srcEng < 0) return;
-  for (const id of ["src-pre", "src-to"]) SRC_PRESETS.forEach((t, i) => $(id).add(new Option(`${i} ${t}`, i)));
   $("src-pre").onchange = () => { srcSet(ed, "PRESET", +$("src-pre").value); showSource(); };
   $("src-to").onchange = () => { srcSet(ed, "MORPHTO", +$("src-to").value); showSource(); };
   $("src-intens").oninput = () => { $("src-intens-v").textContent = $("src-intens").value; srcSet(ed, "INTENSITY", +$("src-intens").value); };
