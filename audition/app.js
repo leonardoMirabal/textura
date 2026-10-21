@@ -422,7 +422,7 @@ function setSlider(id, val) {                         // from MIDI CC (the edite
   inp.oninput();
 }
 
-// ---- SOURCE (engine "source"): its preset, morph and INTENSITY in a panel of their own; and LANE MODE, the keyboard
+// ---- SOURCE (engine "source"): its preset, INTENSITY and PROXIMITY in a panel of their own; and LANE MODE, the keyboard
 // as planned for the FM-1: C4 .. C6, the black keys pick a lane (any engine: the source, or an old engine through
 // QUICK below), the 15 white keys are that lane's activity, the keys light up as the bar.
 let SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];   // (read from the PRESET help line)
@@ -440,7 +440,7 @@ function srcFindIds(k) {                              // the source's parameter 
   const help = S(M._txw_phelp(srcIds.PRESET));           // "the source: 0 rain on water | 1 stone cloud | ..."
   const names = help.slice(help.indexOf(":") + 1).split("|").map(t => t.trim().replace(/^\d+\s+/, ""));
   if (names.length > 1) SRC_PRESETS = names;
-  for (const id of ["src-pre", "src-to"]) { $(id).textContent = ""; SRC_PRESETS.forEach((t, i) => $(id).add(new Option(`${i} ${t}`, i))); }
+  $("src-pre").textContent = ""; SRC_PRESETS.forEach((t, i) => $("src-pre").add(new Option(`${i} ${t}`, i)));
   M._txw_slot(ed);
 }
 function srcGet(k, name) {
@@ -475,10 +475,9 @@ function showSource() {
   srcFindIds(ed);
   $("src-layer").textContent = `(layer ${ed + 1})`;
   $("src-pre").value = srcGet(ed, "PRESET");
-  $("src-to").value = srcGet(ed, "MORPHTO");
-  const it = srcGet(ed, "INTENSITY"), mo = srcGet(ed, "MORPH");
+  const it = srcGet(ed, "INTENSITY"), pr = srcGet(ed, "PROXIMITY");
   $("src-intens").value = it; $("src-intens-v").textContent = it;
-  $("src-morph").value = mo; $("src-morph-v").textContent = mo;
+  $("src-prox").value = pr; $("src-prox-v").textContent = pr;
   $("src-run").classList.toggle("primary", srcHeld[ed]);
   showLanes();
 }
@@ -627,9 +626,8 @@ function srcInit() {
   for (let i = 0; i < M._txw_count(); i++) if (S(M._txw_name(i)) === "source") srcEng = i;
   if (srcEng < 0) return;
   $("src-pre").onchange = () => { srcSet(ed, "PRESET", +$("src-pre").value); showSource(); };
-  $("src-to").onchange = () => { srcSet(ed, "MORPHTO", +$("src-to").value); showSource(); };
   $("src-intens").oninput = () => { $("src-intens-v").textContent = $("src-intens").value; srcSet(ed, "INTENSITY", +$("src-intens").value); };
-  $("src-morph").oninput = () => { $("src-morph-v").textContent = $("src-morph").value; srcSet(ed, "MORPH", +$("src-morph").value); };
+  $("src-prox").oninput = () => { $("src-prox-v").textContent = $("src-prox").value; srcSet(ed, "PROXIMITY", +$("src-prox").value); };
   $("src-run").onclick = () => { if (!ctx) startAudio(); srcHold(ed, !srcHeld[ed]); if (laneMode) laneRun[ed] = srcHeld[ed]; showSource(); };
   $("lanes").onchange = () => { if (!ctx) startAudio(); setLaneMode($("lanes").checked); };
   showSource();

@@ -32,8 +32,9 @@ git clone https://github.com/emscripten-core/emsdk.git .local/emsdk
 - **Engine**: a slider and `◀` `▶` step through the engines (`[` / `]` or `←` / `→` from the keyboard) with the
   number and name shown large. A switch is instant and click-free: the old engine fades out over 23 ms while the new
   one starts, and the keys held on that layer carry over to the new engine.
-- **SOURCE** (shown when the edited layer runs engine 35, `source`): its preset and the preset it morphs toward, a
-  `Run` switch (the source keeps going without a held key), INTENSITY and MORPH as large sliders. `Lane mode`: the keyboard shows C4 to C6; the 15 white keys are the selected
+- **SOURCE** (shown when the edited layer runs engine 35, `source`): its preset (named from the engine), a `Run`
+  switch (the source keeps going without a held key), INTENSITY and PROXIMITY (far .. close; 64 = the preset's own
+  distance) as large sliders: each lane's own, as the panel follows the selected lane. `Lane mode`: the keyboard shows C4 to C6; the 15 white keys are the selected
   lane's activity fader (C4 the least, still sounding, C6 massive; a move glides in over ~1 s), the black keys C#4 to
   A#5 pick a lane (the first four; or the number keys `1`-`4`), and tapping the selected lane's black key again starts
   or stops it. A running lane generates on its own (no key held). The white keys light up as the bar, the chosen lane's

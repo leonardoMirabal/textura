@@ -53,23 +53,21 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 1
 
-enum { P_PRESET, P_MORPHTO, P_MORPH, P_INTENS, P_ACT, P_SPACING, P_SIZE, P_SPREAD, P_TONE, P_HARD, P_DIST, P_DEPTH,
+enum { P_PRESET, P_INTENS, P_ACT, P_SPACING, P_SIZE, P_SPREAD, P_TONE, P_HARD, P_PROX, P_DEPTH,
        P_LIFE, P_TIME, P_LOCK, P_DIV, P_GRID, NP };
-enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_DROPS, PR_WIND, PR_STREAM, PR_FIRE, PR_CRICKETS, NPRE };
+enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_DROPS, PR_WIND, PR_STREAM, PR_FIRE, PR_CRICKETS, PR_SAND, PR_GRAVEL, NPRE };
 enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER };
 
 static const tx_param_t PARAMS[NP] = {
-    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops | 4 wind | 5 stream | 6 fire | 7 crickets"},
-    {"MORPHTO", NPRE - 1, 1, "the preset MORPH moves toward: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops | 4 wind | 5 stream | 6 fire | 7 crickets"},
-    {"MORPH", 127, 0, "PRESET .. MORPHTO, particle by particle (presets 0-3): at the middle half the drops are stones (or half the callers)"},
-    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water drops 1 per 30 s .. 245 /s (a drop, drips, a trickle, a stream), wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), stream 30 .. 30 000 bubbles/s (a trickle .. a roaring torrent), fire 1 .. 30 crackles/s per log (embers .. a blaze), crickets 1 .. 16 (one .. a chorus falling into step)"},
+    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops | 4 wind | 5 stream | 6 fire | 7 crickets | 8 sand | 9 gravel"},
+    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water drops 1 per 30 s .. 245 /s (a drop, drips, a trickle, a stream), wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), stream 30 .. 30 000 bubbles/s (a trickle .. a roaring torrent), fire 1 .. 30 crackles/s per log (embers .. a blaze), crickets 1 .. 16 (one .. a chorus falling into step), sand a trickle .. a pour, gravel a few stones .. a slide"},
     {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. the preset's own (64; Poisson for rain) .. even"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
     {"SPREAD", 127, 64, "how mixed the sizes are: alike .. the preset's (64) .. twice as mixed"},
     {"TONE", 127, 64, "the body: 64 = the preset's; the stones' Q x/ 4 (mineral), the cicadas' tymbal Q; rain: the bubbles' depth"},
     {"HARD", 127, 64, "the strike: 64 = the preset's; stones: softer ground above; cicadas: buzzier above; rain: the clicks' level"},
-    {"DIST", 127, 42, "distance: 0.3 .. 300 m (log): level 1 / r, the air takes the highs (3 m at 42)"},
+    {"PROXIMITY", 127, 64, "far .. close: 64 = the preset's own distance (3 m; 16 steps = twice as near: +6 dB, sharper, all the highs, down to 0.5 m; far: 1 / r, the air takes the highs, up to 3 km)"},
     {"DEPTH", 127, 40, "the population's spread in distance: all at DIST .. x/ 8 (near and far at once)"},
     {"LIFE", 127, 50, "organic modulation depth (walks, swells and lulls; never a sine): still .. alive"},
     {"TIME", 127, 64, "LIFE's time scale: 1 s .. 5 min (log)"},
@@ -90,41 +88,49 @@ typedef struct {
     int32_t act_lo, act_oct;        /* INTENSITY's scale: log2 of the 0 % value, its range (Q16) */
     int32_t reg;                    /* natural spacing: -64 clumped .. 0 Poisson .. 63 even */
     int32_t trim;                   /* the preset's level, Q12 */
-    int32_t law;                    /* the fader law: amplitude ~ amount^(-law / 32) (8: a quarter; callers 0) */
+    int32_t law;                    /* a fader law: amplitude ~ amount^(-law / 32) (0 for all: nature's law, more = louder) */
 } preset_t;
 
 static const preset_t PRE[NPRE] = {
-    {0, 490986, 614782, 0, 29000, 8},   /* rain: 30 .. 20000 drops/s per m^2 (drizzle .. downpour), over ~6 m^2 heard (ours) */
-    {0, -152170, 739752, 10, 40960, 8}, /* stones: 0.2 .. 500 knocks/s */
-    {1, 0, 321577, 0, 9170, 0},     /* cicadas: 1 .. 30 callers */
-    {0, -325438, 845573, -6, 38600, 8},   /* water drops: 1 per 30 s .. 245 /s (a trickle, a small stream) */
+    {0, 490986, 614782, 0, 23500, 0},   /* rain: 30 .. 20000 drops/s per m^2 (drizzle .. downpour), over ~6 m^2 heard (ours) */
+    {0, -152170, 739752, 10, 27000, 0}, /* stones: 0.2 .. 500 knocks/s */
+    {1, 0, 321577, 0, 5160, 0},     /* cicadas: 1 .. 30 callers */
+    {0, -325438, 845573, -6, 19800, 0},   /* water drops: 1 per 30 s .. 245 /s (a trickle, a small stream) */
     {2, 0, 0, 0, 4096, 0},          /* wind: the aeolian engine hosted */
     {2, 1, 0, 0, 4096, 0},          /* stream: the stream engine hosted */
     {2, 2, 0, 0, 4096, 0},          /* fire */
     {2, 3, 0, 0, 4096, 0},          /* crickets */
+    {2, 4, 0, 0, 4096, 0},          /* sand */
+    {2, 5, 0, 0, 4096, 0},          /* gravel */
 };
 
 /* HOSTED presets: an existing engine run whole inside the source (its own physics and defaults: at INTENSITY 64 it is
  * that engine at its defaults), INTENSITY moving its parameters along the preset's path through its transition: each
  * curve a parameter's value at INTENSITY 0, 64 and 127 (linear between); the first curve follows ACTIVITY too. The
- * level is kept playable with a gain at 0 / 64 / 127 (tenths of a dB, linear between: ours, by render). Hosted
+ * level is set with a gain at 0 / 64 / 127 (tenths of a dB, linear between: ours, by render: every preset at INTENSITY 64
+ * about -27 LUFS, a key held 20 s, the mean of 3 seeds, so lanes sit together in a landscape). Hosted
  * presets do not morph (one engine fits the arena). */
 #define HOST_NC 5u
 #define HOST_BYTES 12544u           /* the largest hosted engine's state (sand 12 464 B) */
 typedef struct { const char *name; uint8_t v0, v64, v127; } curve_t;
-typedef struct { const char *eng; int16_t g0, g64, g127; curve_t c[HOST_NC]; } host_t;
+typedef struct { const char *eng; int16_t g0, g64, g127; curve_t c[HOST_NC]; } host_t;   /* (g: one calibration, flat:
+                                                     * more activity is louder by the engine's own physics) */
 static const host_t HOST[] = {
     /* wind: a breath (1.6 m/s) .. a gale (20 m/s); gusts deepen; at the top the strings lock in and whistle */
-    {"aeolian", 180, 0, -100, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}},
+    {"aeolian", -78, -78, -78, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}},
     /* stream: a trickle of plinks .. a babbling brook .. a torrent: bigger gulping bubbles, eddies, the low roar */
-    {"stream", 60, 0, -60, {{"FLOW", 10, 70, 127}, {"ROAR", 0, 0, 100}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
+    {"stream", -42, -42, -42, {{"FLOW", 10, 70, 127}, {"ROAR", 0, 0, 100}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
                             {"SPREAD", 80, 64, 45}}},
     /* fire: embers (a rare crackle, a faint roar) .. a campfire .. a blaze (a big fire, dense crackles in bursts, roar, gusts) */
-    {"fire", 0, 0, 60, {{"MOIST", 25, 72, 127}, {"SIZE", 20, 50, 100}, {"ROAR", 20, 80, 127}, {"DRAUGHT", 10, 30, 70},
+    {"fire", 150, 150, 150, {{"MOIST", 25, 72, 127}, {"SIZE", 20, 50, 100}, {"ROAR", 20, 80, 127}, {"DRAUGHT", 10, 30, 70},
                           {"BURSTY", 8, 24, 60}}},
     /* crickets: one caller .. a few .. a chorus falling into step, with the distant field behind (warmer: a little faster) */
-    {"crickets", -40, 0, 30, {{"CHORUS", 0, 16, 127}, {"SYNC", 30, 64, 110}, {"FIELD", 0, 0, 90}, {"TEMP", 70, 76, 84},
+    {"crickets", -12, -12, -12, {{"CHORUS", 0, 16, 127}, {"SYNC", 30, 64, 110}, {"FIELD", 0, 0, 90}, {"TEMP", 70, 76, 84},
                              {0, 0, 0, 0}}},
+    /* sand: a trickle of grains through a narrow neck .. a pour .. a heavy pour from higher, pulsing */
+    {"sand", -37, -37, -37, {{"ORIFICE", 20, 50, 115}, {"HEIGHT", 30, 50, 90}, {"PULSE", 0, 0, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}}},
+    /* gravel: a few stones now and then .. footsteps on gravel .. a slide (many stones, long rattles) */
+    {"gravel", 16, 16, 16, {{"AMOUNT", 20, 64, 120}, {"RATE", 20, 59, 110}, {"SHAKE", 20, 30, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}}},
 };
 
 typedef struct {
@@ -174,7 +180,7 @@ typedef struct {
     int8_t hid[HOST_NC];            /* its curves' parameter ids */
     uint8_t hval[HOST_NC];          /* the values last sent */
     uint8_t lvl_v, part_v;          /* LEVEL and PARTICLES as last set (0: not set) */
-    int32_t hgain, last_out;        /* the hosted output gain (Q12, ramped), the last sample out (for a switch) */
+    int32_t hgain, last_out, hlp;        /* the hosted output gain (Q12, ramped), the last sample out (for a switch) */
     int32_t buf[TX_BLOCK], ck[TX_BLOCK];
     uint8_t p[NP], limit, quiet, held, nch;
     uint8_t note, vel, pad[2];
@@ -216,14 +222,19 @@ static uint32_t isqrt(uint32_t x)
     while (bit) { if (x >= r + bit) { x -= r + bit; r = (r >> 1) + bit; } else r >>= 1; bit >>= 2; }
     return r;
 }
-static int32_t dist_l2(const src_t *s) { return -113738 + (int32_t)s->p[P_DIST] * 5148 + s->life_d; }   /* 0.3 .. 300 m */
+/* the distance: the preset's own (3 m: the particle presets' levels are set there) halved every 16 steps of PROXIMITY */
+static int32_t dist_l2(const src_t *s)                    /* (at most 0.5 m: arm's length, the peaks' headroom) */
+{
+    int32_t d = 103872 - ((int32_t)s->p[P_PROX] - 64) * 4096 + s->life_d;
+    return d < -65536 ? -65536 : d;
+}
 static int32_t depth_l2(const src_t *s) { return (int32_t)s->p[P_DEPTH] * 1548; }   /* 0 .. 3 octaves */
 /* the morph weight of B (Q15) */
 static int32_t morph(const src_t *s)
 {
-    if (s->p[P_PRESET] == s->p[P_MORPHTO] || PRE[s->p[P_PRESET]].kind == 2 || PRE[s->p[P_MORPHTO]].kind == 2) return 0;
-    return (int32_t)s->p[P_MORPH] * 258;
-}
+    (void)s;                                                 /* no morphing (the user: the activity fader is the change */
+    return 0;                                                /* within one nature of sound); the particle-level mixing */
+}                                                            /* stays below, inert, for a family's stages later */
 
 /* the effective intensity of a preset's rate (Q8 knob units, 0 .. 127 << 8), with ACTIVITY's trim */
 static int32_t act_idx(const src_t *s) { return clampi(s->i_eff + knob(s, P_ACT) * 256, 0, 127 << 8); }
@@ -804,12 +815,19 @@ TX_AUDIO_CODE static void host_render(src_t *s, int32_t *mix, unsigned n)
     host_apply(s, 0);
     for (j = 0; j < n; j++) s->buf[j] = 0;
     s->hst->render(s->host, s->buf, n);
-    {   /* the gain (tenths of a dB at 0 / 64 / 127, linear between), ramped over the block */
+    {   /* the gain (tenths of a dB at 0 / 64 / 127, linear between) x PROXIMITY's 1 / r re 3 m, ramped over the block */
         int32_t x = s->i_eff, a = s->hd->g0, b = s->hd->g64;
         if (x >= (64 << 8)) { a = s->hd->g64; b = s->hd->g127; x -= 64 << 8; gdb = a + ((b - a) * x) / (63 << 8); }
         else gdb = a + ((b - a) * x) / (64 << 8);
-        g1 = (int32_t)tx_exp2((12 << 16) + TX_DB10(gdb));
+        g1 = (int32_t)tx_exp2((12 << 16) + TX_DB10(gdb) + 103872 - clampi(dist_l2(s), TX_PLACE_R_MIN, 14 << 16));
         if (g1 > 32767) g1 = 32767;
+    }
+    {   /* the air between: a one-pole whose corner falls with the distance (no change closer than ~10 m) */
+        int32_t lp = s->hlp, al = tx_place_lp_q15(dist_l2(s));
+        if (al < 32000) {
+            for (j = 0; j < n; j++) { int32_t dd = s->buf[j] - lp; lp += ((dd >> 15) * al) + (((dd & 0x7FFF) * al) >> 15); s->buf[j] = lp; }
+            s->hlp = lp;
+        } else s->hlp = s->buf[n - 1];
     }
     if (!g0) g0 = g1;
     d = (g1 - g0) / (int32_t)n;
@@ -862,7 +880,6 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
     }
     if (on && vel) {
         unsigned pre = s->p[P_PRESET];
-        if (morph(s) && (tx_rand(&s->rng) >> 17) < (uint32_t)morph(s)) pre = s->p[P_MORPHTO];
         tx_vary_press(&s->vy);
         s->held++;
         s->note = note; s->vel = vel;
@@ -916,7 +933,7 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
 {
     src_t *s = (src_t *)st;
     tx_rng_t *r = &s->rng;
-    unsigned i, j, pa = s->p[P_PRESET], pb = s->p[P_MORPHTO];
+    unsigned i, j, pa = s->p[P_PRESET], pb = pa;
     int32_t w = morph(s), any = 0;
     if (n > TX_BLOCK) n = TX_BLOCK;
     if (s->quiet && !s->held) return;
@@ -1108,10 +1125,10 @@ static void src_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: each preset at full intensity near, the morph in the middle, every hero busy */
 static const char SCENE_MAX[] =
-    "0 particles 16\n0 param INTENSITY 127\n0 param DIST 0\n0 param PRESET 2\n0 on 60 127\n"
-    "1000 param PRESET 1\n1000 param MORPHTO 0\n1000 param MORPH 64\n2000 param MORPH 0\n2000 param PRESET 0\n"
-    "3000 param PRESET 2\n3000 param MORPHTO 1\n3000 param MORPH 64\n4000 param PRESET 3\n4000 param MORPH 0\n"
-    "5000 param PRESET 4\n6000 param PRESET 5\n7000 param PRESET 6\n8000 param PRESET 7\n9000 off 60\n10000 end\n";
+    "0 particles 16\n0 param INTENSITY 127\n0 param PROXIMITY 127\n0 param PRESET 2\n0 on 60 127\n"
+    "1000 param PRESET 1\n2000 param PRESET 0\n3000 param PRESET 2\n4000 param PRESET 3\n"
+    "5000 param PRESET 4\n6000 param PRESET 5\n7000 param PRESET 6\n8000 param PRESET 7\n"
+    "9000 param PRESET 8\n10000 param PRESET 9\n11000 off 60\n12000 end\n";
 
 const tx_engine_t tx_eng_source = {
     "source", "SOURCE (prototype)", NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,

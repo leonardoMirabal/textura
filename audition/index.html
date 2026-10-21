@@ -131,7 +131,6 @@
     <h2>SOURCE <span class="small" id="src-layer"></span></h2>
     <div class="row">
       <label>Preset <select id="src-pre"></select></label>
-      <label>Morph to <select id="src-to"></select></label>
       <button id="src-run" title="keep the source going without holding a key">Run</button>
       <label><input type="checkbox" id="lanes"> Lane mode</label>
     </div>
@@ -141,9 +140,9 @@
       <span class="src-big" id="src-intens-v">64</span>
     </div>
     <div class="row" style="margin-top:4px">
-      <span class="small" style="min-width:80px">MORPH</span>
-      <input type="range" id="src-morph" min="0" max="127" value="0" aria-label="morph" style="flex:1; accent-color: var(--accent)">
-      <span class="src-big" id="src-morph-v">0</span>
+      <span class="small" style="min-width:80px" title="far .. close: 64 = the preset's own distance; closer = louder, cleaner, sharper">PROXIMITY</span>
+      <input type="range" id="src-prox" min="0" max="127" value="64" aria-label="proximity" style="flex:1; accent-color: var(--accent)">
+      <span class="src-big" id="src-prox-v">64</span>
     </div>
     <div id="lanes-box"></div>
     <div class="hint">Lane mode: the keyboard shows C4 … C6. The 15 <b>white keys</b> are the selected lane's activity fader

@@ -256,6 +256,8 @@ def main():
             opts = page.eval_on_selector_all("#src-pre option", "o => o.map(x => x.textContent)")
             check(len(opts) >= 6 and any("wind" in o for o in opts) and any("stream" in o for o in opts),
                   f"SOURCE preset menu, named from the engine: {opts}")
+            check(page.eval_on_selector_all("#src-to, #src-morph", "x => x.length") == 0 and page.query_selector("#src-prox") is not None,
+                  "SOURCE panel: no morph controls, a PROXIMITY slider")
             page.click("#lanes")
             key = lambda n: page.click(f'#kb .key[data-n="{n}"]')
             kr = page.eval_on_selector_all("#kb .key", "k => [Math.min(...k.map(x => +x.dataset.n)), Math.max(...k.map(x => +x.dataset.n))]")
