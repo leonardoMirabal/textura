@@ -62,7 +62,7 @@ static const tx_param_t PARAMS[NP] = {
     {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops"},
     {"MORPHTO", NPRE - 1, 1, "the preset MORPH moves toward: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops"},
     {"MORPH", 127, 0, "PRESET .. MORPHTO, particle by particle: at the middle half the drops are stones (or half the callers)"},
-    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water drops 1 per 20 s .. 245 /s (a drop, drips, a trickle, a stream)"},
+    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water drops 1 per 30 s .. 245 /s (a drop, drips, a trickle, a stream)"},
     {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. the preset's own (64; Poisson for rain) .. even"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
@@ -97,7 +97,7 @@ static const preset_t PRE[NPRE] = {
     {0, 490986, 614782, 0, 29000, 8},   /* rain: 30 .. 20000 drops/s per m^2 (drizzle .. downpour), over ~6 m^2 heard (ours) */
     {0, -152170, 739752, 10, 40960, 8}, /* stones: 0.2 .. 500 knocks/s */
     {1, 0, 321577, 0, 9170, 0},     /* cicadas: 1 .. 30 callers */
-    {0, -283242, 803377, -15, 32500, 8},   /* water drops: 1 per 20 s .. 245 /s (a trickle, a small stream) */
+    {0, -325438, 845573, -6, 38600, 8},   /* water drops: 1 per 30 s .. 245 /s (a trickle, a small stream) */
 };
 
 typedef struct {
@@ -328,11 +328,11 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
 
 /* ---- water drops (as the drip engine's physics, note 02): an impact click, then the bubble the drop traps */
 #define WD_AMP_L2 (28 << 16)        /* a bubble of the reference radius at U_REF: 2^28 Q30 */
-#define WD_A_L2 (-4000)             /* the reference radius: ~0.96 mm (Minnaert ~3.4 kHz: the references' median) */
-#define WD_CLICK 2000               /* the impact at U_REF, Q15 (the references: the first 2 ms ~ -24 dB of a plop) */
+#define WD_A_L2 18000              /* the reference radius: ~1.2 mm (Minnaert ~2.7 kHz: between the references' medians) */
+#define WD_CLICK 4000               /* the impact at U_REF, Q15 (the references: the first 2 ms ~ -24 dB of a plop) */
 
 /* one drop: its fall height (speed), size, the click now, the bubble after the crater closes */
-static void wdrop(src_t *s, unsigned off, int near, int32_t vel, unsigned pre, int32_t trim)
+static void wdrop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsigned pre, int32_t trim)
 {
     tx_rng_t *r = &s->rng;
     int32_t r_l2 = near ? dist_l2(s) - 65536 : tx_place_draw(r, dist_l2(s), depth_l2(s));
@@ -348,21 +348,27 @@ static void wdrop(src_t *s, unsigned off, int near, int32_t vel, unsigned pre, i
     c = (int32_t)(((int64_t)c * (32768 + knob(s, P_HARD) * 400)) >> 15);
     c = (int32_t)(((int64_t)c * (int32_t)tx_exp2(2 * lu + (15 << 16) - (2 << 16))) >> 15);   /* x (U/Uref)^2 / 4 */
     c = clampi(c, 0, 65535);
-    s->ck[off] += (WD_CLICK * c) >> 15;
+    {   /* the impact: a sharp zero-mean doublet straight into the block (broadband to 20 kHz, as the references' */
+        int32_t a = ((WD_CLICK * c) >> 15) * 256;           /* vertical lines at each drop) */
+        s->buf[off] += a;
+        if (off + 1u < n) s->buf[off + 1u] -= a - a / 4;
+        if (off + 2u < n) s->buf[off + 2u] -= a / 4;
+    }
     /* the bubble: P ~0.9 above 1 m/s, falling to 0.2 at 0.3 m/s */
-    p_bub = u_q8 >= 256u ? 58982u : u_q8 <= 77u ? 13107u : 13107u + (u_q8 - 77u) * 256u;
+    p_bub = u_q8 >= 256u ? 62259u : u_q8 <= 77u ? 39321u : 39321u + (u_q8 - 77u) * 128u;   /* (drips: 0.6 .. 0.95) */
     if ((tx_rand(r) >> 16) >= p_bub) return;
-    sp = (85197 * (int32_t)s->p[P_SPREAD]) / 64;            /* +-SD 1.3 octave (references 1.1 .. 9 kHz) */
+    sp = (65536 * (int32_t)s->p[P_SPREAD]) / 64;            /* +-SD 1 octave (references 1.1 .. 9 kHz, level sd 6-11 dB) */
     a_l2 = WD_A_L2 - knob(s, P_SIZE) * 2048 - ((int32_t)s->note - 60) * 5461 + s->life_s
            + (int32_t)(((int64_t)gauss(s) * sp) >> 12) + hi;   /* a stream: bigger bubbles too (lower) */
     rel = a_l2 - WD_A_L2;
     rel = clampi(rel + rel / 2, -(3 << 16), 3 << 16);       /* amplitude ~ a^1.5 */
     amp = WD_AMP_L2 + rel + clampi(lu, -(6 << 16), 5 << 15) + knob(s, P_TONE) * 1024;
-    {   /* crater collapse: 25 ms x (1.4 / U)^1.75, +-25 %, 4 .. 45 ms */
-        int32_t l = 662300 + (7 * (tx_place_log2(358u) - tx_place_log2(u_q8))) / 4;
+    {   /* crater collapse: 25 ms x (1.4 / U)^1.75 for a deep pool (note 02), here x 0.25 (ours: drips into a shallow
+         * pool or a basin, the references: click and plop together within a few ms), +-25 %, 1 .. 12 ms */
+        int32_t l = 662300 - 131072 + (7 * (tx_place_log2(358u) - tx_place_log2(u_q8))) / 4;
         wait = tx_exp2(l);
         wait = wait + (uint32_t)(((int32_t)wait * (tx_rand_s15(r) / 4)) >> 15);
-        wait = wait < 176u ? 176u : wait > 1984u ? 1984u : wait;
+        wait = wait < 44u ? 44u : wait > 529u ? 529u : wait;
         wait += off;
     }
     /* most rise (xi 0.05 .. 0.15: the rising chirp), a third pinch off deeper (no glide, half as loud) */
@@ -682,7 +688,7 @@ static void event(src_t *s, unsigned off, unsigned n, unsigned pre, int near, in
     int32_t trim = pre_trim(s, pre);
     if (pre == PR_RAIN) drop(s, off, n, near, vel, pre, trim, w_q8);
     else if (pre == PR_STONES) stone(s, off, near, vel, pre, trim);
-    else if (pre == PR_DROPS) wdrop(s, off, near, vel, pre, trim);
+    else if (pre == PR_DROPS) wdrop(s, off, n, near, vel, pre, trim);
 }
 
 /* ---- the engine */
@@ -770,7 +776,7 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     int32_t w = morph(s), any = 0;
     if (n > TX_BLOCK) n = TX_BLOCK;
     if (s->quiet && !s->held) return;
-    for (j = 0; j < n; j++) s->buf[j] = s->ck[j] = 0;
+    /* (buf and ck are cleared after each block, not here: a key's press may already have put its click in them) */
     s->events = 0;
     /* the source on / off: in ~0.2 s, out over ~1.5 s */
     if (s->held) s->run += (32767 - s->run) >> 3;
@@ -938,6 +944,7 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     tx_vary_block(&s->vy, s->buf, n);
     tx_trim(s->buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
+    for (j = 0; j < TX_BLOCK; j++) s->buf[j] = s->ck[j] = 0;
     s->now += n;
     {
         int32_t z = any | s->run | s->clp | s->b1x1 | s->b1x2 | s->b2x1 | s->b2lp | (int32_t)s->bed1_p | (int32_t)s->bed2_p
@@ -964,7 +971,8 @@ static void src_stats(const void *st, tx_stats_t *o)
 static const char SCENE_MAX[] =
     "0 particles 16\n0 param INTENSITY 127\n0 param DIST 0\n0 param PRESET 2\n0 on 60 127\n"
     "1000 param PRESET 1\n1000 param MORPHTO 0\n1000 param MORPH 64\n2000 param MORPH 0\n2000 param PRESET 0\n"
-    "3000 param PRESET 2\n3000 param MORPHTO 1\n3000 param MORPH 64\n4000 off 60\n5000 end\n";
+    "3000 param PRESET 2\n3000 param MORPHTO 1\n3000 param MORPH 64\n4000 param PRESET 3\n4000 param MORPH 0\n"
+    "5000 off 60\n6000 end\n";
 
 const tx_engine_t tx_eng_source = {
     "source", "SOURCE (prototype)", NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,
