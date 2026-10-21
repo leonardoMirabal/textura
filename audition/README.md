@@ -33,11 +33,12 @@ git clone https://github.com/emscripten-core/emsdk.git .local/emsdk
   number and name shown large. A switch is instant and click-free: the old engine fades out over 23 ms while the new
   one starts, and the keys held on that layer carry over to the new engine.
 - **SOURCE** (shown when the edited layer runs engine 35, `source`): its preset and the preset it morphs toward, a
-  `Run` switch (the source keeps going without a held key), INTENSITY and MORPH as large sliders. `Lane mode`, as
-  planned for the FM-1: the black keys pick a lane (the first four, or the number keys `1`-`4`; a lane is a layer
-  running the source: rain, cicadas, water drops, stones), the 16 white keys F3 to G5 are that lane's INTENSITY in
-  16 steps (the lowest stops it). The white keys light up as the bar, the chosen lane's black key is lit, the other
-  running lanes' black keys glow. Turning lane mode off stops every lane.
+  `Run` switch (the source keeps going without a held key), INTENSITY and MORPH as large sliders. `Lane mode`: the keyboard shows C4 to C6; the 15 white keys are the selected
+  lane's activity fader (C4 the least, still sounding, C6 massive; a move glides in over ~1 s), the black keys C#4 to
+  A#5 pick a lane (the first four; or the number keys `1`-`4`), and tapping the selected lane's black key again starts
+  or stops it. A running lane generates on its own (no key held). The white keys light up as the bar, the chosen lane's
+  black key is lit, the other running lanes' black keys glow. Computer letters, the on-screen keys and a MIDI keyboard
+  (notes 60-84) play it alike. Turning lane mode off stops every lane.
 - **Layers** (stage S3): four engines at once. Click a layer to edit it; the engine stepper sets the edited layer's
   engine, `off` empties a layer. Each layer has its own parameters (PARTICLES, the hero-pool limit, and
   LEVEL are shared by all engines), a pan (constant power) and a key zone. Keys: `shared` sends every key to every

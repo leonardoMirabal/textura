@@ -255,21 +255,26 @@ def main():
             check(page.evaluate("window.txTest.src()")["panel"], "SOURCE panel shown for the source engine")
             page.click("#lanes")
             key = lambda n: page.click(f'#kb .key[data-n="{n}"]')
-            key(54); key(67)                                 # F#3: lane 1; G4 (white step 8): INTENSITY 64, running
+            kr = page.eval_on_selector_all("#kb .key", "k => [Math.min(...k.map(x => +x.dataset.n)), Math.max(...k.map(x => +x.dataset.n))]")
+            check(kr == [60, 84], f"lane mode: the keyboard shows C4 .. C6 ({kr})")
+            key(61); key(74)                                 # C#4: lane 1; D5 (white step 9 of 15): INTENSITY 73, running
             st = page.evaluate("window.txTest.src()")
-            check(st["laneMode"] and st["lane"] == 0 and st["run"][0] and st["step"][0] == 8 and st["intens"][0] == 64
-                  and st["lit"] == 8 and st["sel"] == [54], f"lane mode: lane 1 at step 8 = INTENSITY {st['intens'][0]}, {st['lit']} keys lit, selected {st['sel']}")
-            key(56); key(69)                                 # G#3: lane 2; A4: step 9; lane 1 keeps running and glows
+            check(st["laneMode"] and st["lane"] == 0 and st["run"][0] and st["held"][0] and st["step"][0] == 8 and st["intens"][0] == 73
+                  and st["lit"] == 9 and st["sel"] == [61], f"lane mode: lane 1 at step 9 = INTENSITY {st['intens'][0]}, {st['lit']} keys lit, selected {st['sel']}")
+            key(63); key(76)                                 # D#4: lane 2; E5: step 10; lane 1 keeps running and glows
             st = page.evaluate("window.txTest.src()")
-            check(st["lane"] == 1 and st["run"][0] and st["run"][1] and st["glow"] == [54] and st["sel"] == [56],
-                  f"lane mode: lane 2 running beside lane 1 (selected {st['sel']}, glowing {st['glow']})")
+            check(st["lane"] == 1 and st["run"][0] and st["run"][1] and st["glow"] == [61] and st["sel"] == [63] and st["lit"] == 10,
+                  f"lane mode: lane 2 running beside lane 1 (selected {st['sel']}, glowing {st['glow']}, its own bar {st['lit']})")
             time.sleep(1.0)
             pk = page.evaluate("window.txTest.render(64)")
             check(pk > 0, f"lane mode: two lanes sound (peak {pk})")
             page.screenshot(path=os.path.join(OUT, "lanes.png"), full_page=True)
-            key(53)                                          # F3: step 0 stops lane 2
+            key(61)                                          # C#4: lane 1 selected again, its own bar shown
             st = page.evaluate("window.txTest.src()")
-            check(not st["run"][1] and st["run"][0] and st["lit"] == 0 and st["held"][1] is False, "lane mode: the lowest white key stops the lane")
+            check(st["lane"] == 0 and st["lit"] == 9 and st["run"][0], f"lane mode: back to lane 1, its bar ({st['lit']} keys)")
+            key(61)                                          # tapped again while selected: lane 1 stops
+            st = page.evaluate("window.txTest.src()")
+            check(not st["run"][0] and not st["held"][0] and st["run"][1], "lane mode: a selected lane's black key tapped again stops it")
             page.click("#lanes")
             st = page.evaluate("window.txTest.src()")
             check(not st["laneMode"] and not any(st["run"]) and not any(st["held"]), "lane mode off: every lane stopped")

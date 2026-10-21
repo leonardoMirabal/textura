@@ -149,6 +149,7 @@ typedef struct {
     uint32_t now;                   /* sample clock */
     uint32_t next_q8;               /* samples to the next event, Q8 */
     int32_t i_eff;                  /* INTENSITY with LIFE, Q8 knob units */
+    int32_t i_glide;                /* INTENSITY gliding to the fader, Q8 */
     int32_t trim_c;                 /* the callers' level now (pre_trim), Q12 */
     tx_life_t la, ls, ld;           /* LIFE: intensity, size, distance */
     int32_t life_s, life_d;         /* their offsets now (Q16 log2) */
@@ -711,7 +712,7 @@ static void src_init(void *st, uint32_t seed)
     s->quiet = 1;
     s->x32 = seed * 2654435761u + 77u;
     if (!s->x32) s->x32 = 1;
-    s->i_eff = 64 << 8;
+    s->i_eff = s->i_glide = 64 << 8;
     tx_life_init(&s->la, seed * 3u + 1u);
     tx_life_init(&s->ls, seed * 5u + 2u);
     tx_life_init(&s->ld, seed * 7u + 3u);
@@ -787,7 +788,8 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
         int32_t tau = 482152 + (int32_t)s->p[P_TIME] * 4258;   /* log2 blocks: 1 s (172) .. 300 s (51680) */
         int32_t depth = (int32_t)s->p[P_LIFE];
         int32_t a = tx_life_step(&s->la, tau), sz = tx_life_step(&s->ls, tau), dd = tx_life_step(&s->ld, tau + 65536);
-        s->i_eff = clampi((int32_t)s->p[P_INTENS] * 256 + (((a * depth) >> 7) * 5 >> 4), 0, 127 << 8);   /* +-40 at 127 */
+        s->i_glide += ((int32_t)s->p[P_INTENS] * 256 - s->i_glide) >> 6;   /* a fader move glides in (~1 s to 95 %) */
+        s->i_eff = clampi(s->i_glide + (((a * depth) >> 7) * 5 >> 4), 0, 127 << 8);   /* LIFE: +-40 at 127 */
         s->life_s = (sz * depth) >> 8;                       /* +-0.25 octave at LIFE 127 */
         s->life_d = (dd * depth) >> 6;                       /* +-1 octave of distance */
     }

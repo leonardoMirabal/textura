@@ -90,7 +90,7 @@ async function init() {
   window.txTest.ratings = () => JSON.parse(JSON.stringify(ratings));
   window.txTest.ab = () => ({ loaded: !!ab, buttons: document.querySelectorAll("#ab-buttons button").length,
                               playing: abNow ? abNow.label : null, ours: $("ab-ours").currentSrc, ref: $("ab-ref").currentSrc });
-  window.txTest.src = () => ({ eng: srcEng, panel: !$("src-panel").hidden, laneMode, lane, run: [...laneRun], step: [...laneStep],
+  window.txTest.src = () => ({ eng: srcEng, panel: !$("src-panel").hidden, laneMode, lane, run: [...laneRun], step: [0, 1, 2, 3].map(laneStepOf),
                                held: [...srcHeld], intens: [0, 1, 2, 3].map(k => layers[k].eng === srcEng && srcIds ? srcGet(k, "INTENSITY") : -1),
                                lit: [...document.querySelectorAll("#kb .key.lane-bar")].length,
                                sel: [...document.querySelectorAll("#kb .key.lane-sel")].map(k => +k.dataset.n),
@@ -425,9 +425,10 @@ function setSlider(id, val) {                         // from MIDI CC (the edite
 const SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];
 const LANE_PRESETS = [0, 2, 3, 1];                   // a new lane's preset: rain, cicadas, water drops, stones
 const BLACKS = [], WHITES = [];
-for (let n = KEY_LO; n <= KEY_HI; n++) ([1, 3, 6, 8, 10].includes(n % 12) ? BLACKS : WHITES).push(n);
+const LANE_LO = 60, LANE_HI = 84;                  // lane mode: C4 .. C6 (15 white keys: the fader; 10 black: the lanes)
+for (let n = LANE_LO; n <= LANE_HI; n++) ([1, 3, 6, 8, 10].includes(n % 12) ? BLACKS : WHITES).push(n);
 let srcEng = -1, srcIds = null, laneMode = false, lane = 0;
-const laneRun = [false, false, false, false], laneStep = [0, 0, 0, 0], srcHeld = [false, false, false, false];
+const laneRun = [false, false, false, false], srcHeld = [false, false, false, false];
 function srcFindIds(k) {                              // the source's parameter ids by name (read through layer k)
   if (srcIds) return;
   M._txw_slot(k);
@@ -475,25 +476,26 @@ function showSource() {
   showLanes();
 }
 function laneSelect(i) {
-  if (i < 0 || i > 3) return;
+  if (i < 0 || i > 3) return;                        // (10 black keys; 4 lanes in the prototype)
   lane = i;
   srcLayer(i, layers[i].eng === srcEng ? undefined : LANE_PRESETS[i]);
   editLayer(i);
   showLanes();
 }
-function laneKey(n) {
-  const b = BLACKS.indexOf(n), w = WHITES.indexOf(n);
-  if (b >= 0) { laneSelect(b); return; }
+function laneKey(n) {                                // a black key: pick its lane (tapped again: start / stop it); a white
+  const b = BLACKS.indexOf(n), w = WHITES.indexOf(n);   // key: the selected lane's activity, C4 least .. C6 massive
+  if (b >= 0) {
+    if (b > 3) return;
+    if (b === lane && layers[b].eng === srcEng) { laneRun[b] = !laneRun[b]; srcHold(b, laneRun[b]); showSource(); return; }
+    laneSelect(b); return;
+  }
   if (w < 0) return;
   srcLayer(lane, layers[lane].eng === srcEng ? undefined : LANE_PRESETS[lane]);
-  laneStep[lane] = w;
-  if (w === 0) { laneRun[lane] = false; srcHold(lane, false); }
-  else {
-    srcSet(lane, "INTENSITY", Math.round((w - 1) * 127 / 14));
-    laneRun[lane] = true; srcHold(lane, true);
-  }
+  srcSet(lane, "INTENSITY", Math.round(w * 127 / 14));
+  laneRun[lane] = true; srcHold(lane, true);
   showSource();
 }
+function laneStepOf(i) { return layers[i].eng === srcEng && srcIds ? Math.round(srcGet(i, "INTENSITY") * 14 / 127) : 0; }
 function showLanes() {                                // the LEDs: the bar on the white keys, the lanes on the black ones
   document.querySelectorAll("#kb .key").forEach(k => k.classList.remove("lane-sel", "lane-glow", "lane-bar"));
   const box = $("lanes-box");
@@ -505,11 +507,11 @@ function showLanes() {                                // the LEDs: the bar on th
     const d = document.createElement("span");
     d.className = "lane" + (i === lane ? " sel" : "") + (laneRun[i] ? " run" : "");
     const pre = layers[i].eng === srcEng && srcIds ? SRC_PRESETS[srcGet(i, "PRESET")] : "–";
-    d.textContent = `Lane ${i + 1}: ${pre}${laneRun[i] ? ` · ${laneStep[i]}/15` : " · stopped"}`;
+    d.textContent = `Lane ${i + 1}: ${pre} · ${laneStepOf(i) + 1}/15${laneRun[i] ? "" : " · stopped"}`;
     d.onclick = () => laneSelect(i);
     box.appendChild(d);
   }
-  if (laneRun[lane]) for (let w = 1; w <= laneStep[lane]; w++) {
+  for (let w = 0, top = laneStepOf(lane); w <= top; w++) {   // the selected lane's bar (shown also while stopped)
     const kw = document.querySelector(`#kb .key[data-n="${WHITES[w]}"]`);
     if (kw) kw.classList.add("lane-bar");
   }
@@ -517,6 +519,7 @@ function showLanes() {                                // the LEDs: the bar on th
 function setLaneMode(on) {
   allOff();
   laneMode = on;
+  buildKeyboard();                                   // lane mode shows C4 .. C6, otherwise the FM-1's F3 .. G5
   $("lanes").checked = on;
   if (on) { for (let i = 2; i >= 0; i--) srcLayer(i, layers[i].eng === srcEng ? undefined : LANE_PRESETS[i]); laneSelect(lane); }
   else for (let i = 0; i < 4; i++) { if (laneRun[i]) { laneRun[i] = false; srcHold(i, false); } }
@@ -538,7 +541,7 @@ function srcInit() {
 // ---- notes (several sources may hold the same note)
 function noteOn(n, vel) {                            // to every layer on (shared) or whose zone holds the note
   if (!M || n < 0 || n > 127) return;
-  if (laneMode) { if (n >= KEY_LO && n <= KEY_HI) laneKey(n); return; }   // lane mode: the keys are the lanes' faders
+  if (laneMode) { if (n >= LANE_LO && n <= LANE_HI) laneKey(n); return; }   // lane mode: the keys are the lanes' faders
   const h = down.get(n) || { c: 0, to: [], vel: 100 };
   h.vel = Math.max(1, Math.min(127, vel));
   if (!h.c) h.to = [0, 1, 2, 3].filter(k => layers[k].eng >= 0 && (keyMode === "shared" || (n >= layers[k].lo && n <= layers[k].hi)));
@@ -608,10 +611,11 @@ $("octup").onclick = () => octave(1);
 
 // ---- the on-screen keys: F3 .. G5 as on the FM-1
 function buildKeyboard() {
-  const kb = $("kb"), whites = [];
-  for (let n = KEY_LO; n <= KEY_HI; n++) if (![1, 3, 6, 8, 10].includes(n % 12)) whites.push(n);
+  const kb = $("kb"), whites = [], lo = laneMode ? LANE_LO : KEY_LO, hi = laneMode ? LANE_HI : KEY_HI;
+  kb.textContent = "";
+  for (let n = lo; n <= hi; n++) if (![1, 3, 6, 8, 10].includes(n % 12)) whites.push(n);
   const w = 100 / whites.length;
-  for (let n = KEY_LO; n <= KEY_HI; n++) {
+  for (let n = lo; n <= hi; n++) {
     const black = [1, 3, 6, 8, 10].includes(n % 12), k = document.createElement("div");
     k.className = "key " + (black ? "b" : "w");
     k.dataset.n = n;
