@@ -11,6 +11,7 @@
 #include "tx_core_limit.h"
 #include "tx_core_mix.h"
 #include "tx_core_gen.h"
+#include "tx_core_gov.h"
 
 static uint8_t arenas[TX_MIX_SLOTS][2][TX_STATE_MAX] __attribute__((aligned(64)));   /* the four layers, two each: a
                                                                 * new engine starts in one while the old fades in the other */
@@ -38,6 +39,12 @@ static int lim_db10;                                    /* the output limiter's 
 static tx_gen_t gens[TX_MIX_SLOTS];
 static int gen_on[TX_MIX_SLOTS], gen_ready[TX_MIX_SLOTS];
 static int32_t gen_stat[8];
+/* the CPU governor across the layers (tx_core_gov): each layer's render time per block, scaled to the FM-1 by the
+ * player's calibration (gov_factor: FM-1 us per host us, x 1000), against the sources' budget (55 %: 3193 us) */
+static tx_gov_t gov;
+static int gov_on = 1, gov_ready;
+static uint32_t gov_factor = 90000u, gov_cost[TX_MIX_SLOTS], gov_lvl[TX_MIX_SLOTS];
+static void gov_init(void) { if (!gov_ready) { tx_gov_init(&gov, TX_MIX_SLOTS, 3193u); gov_ready = 1; } }
 
 static void ready(void)                                 /* the mixer, once, before any call that uses it */
 {
@@ -79,6 +86,7 @@ EMSCRIPTEN_KEEPALIVE int txw_select(int i, unsigned seed)
     memset(arenas[ed][side[ed]], 0, TX_STATE_MAX);
     tx_mix_set(&mixer, (unsigned)ed, eng(i), arenas[ed][side[ed]], seed);
     cur = eng(i); arena = arenas[ed][side[ed]];
+    gov_init(); gov.cur[ed] = 0; tx_gov_user(&gov, (unsigned)ed, eng(i)->particles_def);
     return 0;
 }
 EMSCRIPTEN_KEEPALIVE void txw_pan(int k, int v) { ready(); tx_mix_pan(&mixer, (unsigned)k, (unsigned)(v < 0 ? 0 : v)); }
@@ -119,6 +127,7 @@ EMSCRIPTEN_KEEPALIVE void txw_param(int id, int v)
 {
     if (!cur) return;
     cur->param(arena, (uint8_t)(id == -1 ? TX_PID_PARTICLES : id == -2 ? TX_PID_LEVEL : id), (uint8_t)v);
+    if (id == -1) { gov_init(); gov.cur[ed] = 0; tx_gov_user(&gov, (unsigned)ed, (unsigned)v); }
 }
 
 EMSCRIPTEN_KEEPALIVE void txw_key(int note, int vel, int on)
@@ -149,6 +158,11 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
                 for (q = 0; q < ne; q++) mixer.e[k]->key(mixer.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
             }
             tx_mix_slot_render(&mixer, k, TX_BLOCK);
+            {   /* the governor's cost: this layer's block on the FM-1 (us) */
+                double us = (emscripten_get_now() - t0) * 1000.0 * gov_factor / 1000.0;
+                gov_cost[k] = us > 1e6 ? 1000000u : (uint32_t)us;
+                gov_lvl[k] = (uint32_t)mixer.slot_peak[k];
+            }
             if (ret_g[k] || dc[k]) {                         /* the switched-out engine's fade, the decaying step */
                 int32_t g = ret_g[k], d = dc[k], last = 0;
                 for (j = 0; j < (int)TX_BLOCK; j++) tmp[j] = 0;
@@ -166,6 +180,14 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
                 tx_mix_add(&mixer, k, tmp, TX_BLOCK);
             }
             slot_ms[k] += emscripten_get_now() - t0;
+        }
+        if (gov_on) {                                        /* the governor: one lane's heroes, the quietest lane first */
+            uint8_t on[TX_MIX_SLOTS];
+            int pk;
+            gov_init();
+            for (k = 0; k < TX_MIX_SLOTS; k++) on[k] = mixer.e[k] != 0;
+            pk = tx_gov_block(&gov, gov_cost, gov_lvl, on);
+            if (pk >= 0 && mixer.e[pk]) mixer.e[pk]->param(mixer.st[pk], TX_PID_PARTICLES, gov.cur[pk]);
         }
         mixer.ch_on = ch_on;
         tx_mix_end(&mixer, outL, outR, TX_BLOCK);
@@ -318,3 +340,18 @@ EMSCRIPTEN_KEEPALIVE int32_t *txw_gen_state(int k)
     gen_stat[3] = (gens[k].g * 1000) >> 15; gen_stat[4] = gen_on[k];
     return gen_stat;
 }
+
+/* ---- the CPU governor: on / off, its budget (us per block), the calibration (FM-1 us per host us x 1000), a layer's
+ * heroes now (PARTICLES as the governor allows) */
+EMSCRIPTEN_KEEPALIVE void txw_gov_on(int on)
+{
+    unsigned k;
+    gov_init();
+    gov_on = on != 0;
+    if (!gov_on) for (k = 0; k < TX_MIX_SLOTS; k++)          /* off: every layer back to its own setting */
+        if (mixer.e[k] && gov.user[k] && gov.cur[k] != gov.user[k]) { gov.cur[k] = gov.user[k]; mixer.e[k]->param(mixer.st[k], TX_PID_PARTICLES, gov.user[k]); }
+}
+EMSCRIPTEN_KEEPALIVE void txw_gov_budget(int us) { gov_init(); gov.budget = (uint32_t)(us < 1 ? 1 : us); }
+EMSCRIPTEN_KEEPALIVE void txw_gov_factor(int x1000) { if (x1000 > 0) gov_factor = (uint32_t)x1000; }
+EMSCRIPTEN_KEEPALIVE int txw_gov_cur(int k) { gov_init(); return k >= 0 && k < (int)TX_MIX_SLOTS ? gov.cur[k] : 0; }
+EMSCRIPTEN_KEEPALIVE int txw_gov_user(int k) { gov_init(); return k >= 0 && k < (int)TX_MIX_SLOTS ? gov.user[k] : 0; }

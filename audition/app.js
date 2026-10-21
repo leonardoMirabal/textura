@@ -97,6 +97,7 @@ async function init() {
                                sel: [...document.querySelectorAll("#kb .key.lane-sel")].map(k => +k.dataset.n),
                                glow: [...document.querySelectorAll("#kb .key.lane-glow")].map(k => +k.dataset.n) });
   window.txTest.setLaneMode = setLaneMode;
+  window.txTest.gov = (budget) => { if (budget) M._txw_gov_budget(budget); return [0, 1, 2, 3].map(k => [M._txw_gov_cur(k), M._txw_gov_user(k)]); };
   window.txTest.gen = k => ({ on: gen[k].on, state: genState(k), step: gen[k].step });
   window.txTest.abPlay = k => { const b = document.querySelectorAll("#ab-buttons button")[k]; if (b) b.click(); };
   status("Ready. Press Start sound, then play.");
@@ -121,6 +122,7 @@ async function loadCalib() {
   }
   const toNative = calib.ref_native_run_us / best;
   fm1PerUs = toNative * calib.factor;
+  M._txw_gov_factor(Math.max(1, Math.round(fm1PerUs * 1000)));   // the governor reads the layers' cost as FM-1 us
   window.txTest.calib = { wasmRefUs: best, toNative, fm1PerUs };
   $("cpu-note").textContent =
     `FM-1 estimate: each audio callback also renders one block of a reference scene (${calib.ref_engine} ${calib.ref_scene}, ` +
@@ -665,6 +667,9 @@ function genReadout() {
   $("gen-now").textContent = gen[lane].on && laneRun[lane]
     ? `lane ${lane + 1}: activity now ${st[0]} (fader ${Math.round(gen[lane].step * 127 / 14)}), pitch centre +${(st[1] / 10).toFixed(1)}, ${st[2]} notes${st[3] > 50 ? `, recalling (${(st[3] / 10).toFixed(0)} %)` : ""}`
     : `lane ${lane + 1}: ${laneRun[lane] ? "notes off" : "stopped"}`;
+  const cut = [0, 1, 2, 3].filter(k => laneRun[k] && M._txw_gov_cur(k) < M._txw_gov_user(k))
+    .map(k => `lane ${k + 1} ${M._txw_gov_cur(k)}/${M._txw_gov_user(k)}`);
+  $("gen-now").textContent += cut.length ? ` · CPU governor: heroes ${cut.join(", ")}` : "";
 }
 setInterval(genReadout, 250);
 function srcInit() {

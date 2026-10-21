@@ -1131,6 +1131,40 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
     } else if (s->held) s->held--;
 }
 
+/* before the hero pool shrinks to lim: the louder heroes move below lim, so the ones cut are the quietest (the
+ * farthest of a population are its quietest); the members follow their voices */
+static void voice_moved(src_t *s, unsigned to)
+{
+    voice_t *v = &s->v[to];
+    if (v->kind == V_CALLER && v->u.c.member < NM) s->m[v->u.c.member].voice = (uint8_t)to;
+    if (v->kind == V_BIRD && v->pad[0] < NB) s->bm[v->pad[0]].voice = (uint8_t)to;
+}
+static void keep_loudest(src_t *s, unsigned lim)
+{
+    tx_pool_t *p = &s->pool;
+    unsigned hi, lo;
+    for (hi = lim; hi < p->max; hi++) {
+        unsigned q = p->max;
+        uint32_t ql = 0xFFFFFFFFu;
+        if (!(p->alive >> hi & 1u)) continue;
+        for (lo = 0; lo < lim; lo++) {                        /* the quietest below the limit (a free slot first) */
+            uint32_t l = (p->alive >> lo & 1u) ? p->level[lo] : 0u;
+            if (l < ql) { ql = l; q = lo; }
+        }
+        if (q < p->max && ql < p->level[hi]) {
+            voice_t t = s->v[q];
+            uint32_t bit_q = p->alive >> q & 1u, yq = p->young >> q & 1u, y2q = p->young2 >> q & 1u, lq = p->level[q];
+            s->v[q] = s->v[hi]; s->v[hi] = t;
+            p->level[q] = p->level[hi]; p->level[hi] = lq;
+            p->alive = (p->alive & ~(1u << q)) | (1u << q); p->alive = (p->alive & ~(1u << hi)) | (bit_q << hi);
+            p->young = (p->young & ~((1u << q) | (1u << hi))) | ((p->young >> hi & 1u) << q) | (yq << hi);
+            p->young2 = (p->young2 & ~((1u << q) | (1u << hi))) | ((p->young2 >> hi & 1u) << q) | (y2q << hi);
+            voice_moved(s, q);
+            if (bit_q) voice_moved(s, hi); else s->v[hi].kind = V_NONE;
+        }
+    }
+}
+
 static void src_param(void *st, uint8_t id, uint8_t val)
 {
     src_t *s = (src_t *)st;
@@ -1142,6 +1176,7 @@ static void src_param(void *st, uint8_t id, uint8_t val)
     else if (id == TX_PID_PARTICLES) {
         uint32_t cut, i;
         s->limit = (uint8_t)(val < 1u ? 1u : val > NV ? NV : val);
+        keep_loudest(s, s->limit);                           /* (a lower limit lets the quietest go: the governor) */
         cut = tx_pool_set_limit(&s->pool, s->limit);
         for (i = 0; i < s->pool.max; i++) if (cut & (1u << i)) voice_cut(s, i);
     } else if (id == TX_PID_LEVEL)

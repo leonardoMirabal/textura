@@ -30,6 +30,7 @@
 #include "tx_core_limit.h"
 #include "tx_core_mix.h"
 #include "tx_core_gen.h"
+#include "tx_core_gov.h"
 
 #define BASELINE "bench/baselines/renders.sha256"
 static int fails;
@@ -613,6 +614,55 @@ static void check_gen(void)
     }
 }
 
+/* ---- GOV: the CPU governor. Three lanes over budget: it takes heroes from the quietest lane first, one every 8
+ * blocks, never below 2; back under 3/4 of the budget it gives one back a second, the loudest lane first, up to each
+ * lane's own setting; and a source asked for fewer heroes keeps its loudest (the quietest go: tx_eng_source) */
+static void check_gov(void)
+{
+    tx_gov_t g;
+    uint32_t cost[3] = {1500, 1500, 1500}, lvl[3] = {300, 100, 200}, b, cuts = 0, first = 9;
+    uint8_t on[3] = {1, 1, 1};
+    char msg[220];
+    int ok = 1;
+    tx_gov_init(&g, 3, 3193);
+    tx_gov_user(&g, 0, 6); tx_gov_user(&g, 1, 6); tx_gov_user(&g, 2, 6);
+    for (b = 0; b < 200; b++) {                              /* 4500 us: over */
+        int k = tx_gov_block(&g, cost, lvl, on);
+        if (k >= 0) { cuts++; if (first == 9) first = (uint32_t)k; }
+    }
+    ok = first == 1 && g.cur[1] == TX_GOV_MIN && g.cur[0] >= g.cur[2] && g.cur[2] >= TX_GOV_MIN;
+    cost[0] = cost[1] = cost[2] = 500;                       /* 1500 us: well under */
+    for (b = 0; b < 172u * 30u; b++) tx_gov_block(&g, cost, lvl, on);
+    ok = ok && g.cur[0] == 6 && g.cur[1] == 6 && g.cur[2] == 6;
+    snprintf(msg, sizeof msg, "over budget: %u cuts, the quietest lane first (lane %u), none under %u; under: all back to 6 (%u %u %u)",
+             cuts, first + 1u, TX_GOV_MIN, g.cur[0], g.cur[1], g.cur[2]);
+    verdict("gov", "lanes", ok, msg, 0);
+    {   /* the source keeps its loudest heroes when the pool shrinks */
+        const tx_engine_t *e = tx_engine_find("source");
+        if (e) {
+            void *st = tx_state_new(e);
+            int32_t mix[TX_BLOCK];
+            tx_stats_t s1, s2;
+            unsigned j;
+            e->init(st, 4);
+            e->param(st, TX_PID_PARTICLES, 16);
+            e->param(st, (uint8_t)tx_param_find(e, "PRESET"), 1);
+            e->param(st, (uint8_t)tx_param_find(e, "INTENSITY"), 120);
+            e->key(st, 60, 127, 1);
+            for (b = 0; b < 200; b++) { for (j = 0; j < TX_BLOCK; j++) mix[j] = 0; e->render(st, mix, TX_BLOCK); }
+            e->stats(st, &s1);
+            e->param(st, TX_PID_PARTICLES, 3);
+            for (j = 0; j < TX_BLOCK; j++) mix[j] = 0;
+            e->render(st, mix, TX_BLOCK);
+            e->stats(st, &s2);
+            snprintf(msg, sizeof msg, "the source's stone cloud 16 -> 3 heroes: %u sounding before, %u after (<= 3), still sounding",
+                     s1.particles, s2.particles);
+            verdict("gov", "source", s2.particles <= 3 && s2.particles > 0 && !s2.quiet, msg, 0);
+            free(st);
+        }
+    }
+}
+
 /* ---- the source check: no float in engines/ */
 static void strip(char *t)                                   /* comments, strings, chars -> spaces */
 {
@@ -767,7 +817,7 @@ int main(int argc, char **argv)
     check_chamber(update);
     check_layers(update);
     check_noise_core();
-    if (!update) check_gen();
+    if (!update) { check_gen(); check_gov(); }
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }
     printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);
     return fails ? 1 : 0;

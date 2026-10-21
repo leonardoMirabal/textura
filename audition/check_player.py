@@ -274,6 +274,16 @@ def main():
             time.sleep(1.0)
             pk = page.evaluate("window.txTest.render(64)")
             check(pk > 0, f"lane mode: two lanes sound (peak {pk})")
+            gv = page.evaluate("window.txTest.gov(60)")      # the CPU governor: a tiny budget makes it take heroes
+            time.sleep(1.5)
+            gv = page.evaluate("window.txTest.gov(0)")
+            pk2 = page.evaluate("window.txTest.render(64)")
+            cut = [k for k in (0, 1) if gv[k][0] < gv[k][1]]
+            page.evaluate("window.txTest.gov(100000)")       # plenty of budget: the heroes come back, one a second
+            time.sleep(3.5)
+            gv2 = page.evaluate("window.txTest.gov(0)")
+            check(cut and pk2 > 0 and any(gv2[k][0] > gv[k][0] for k in cut),
+                  f"CPU governor: over budget it took heroes ({gv[:2]}, still sounding: peak {pk2}), back under it gave them back ({gv2[:2]})")
             ng = page.eval_on_selector_all("#gen-sliders input", "x => x.length")
             key(84)                                          # C6: the generator at its most: notes come
             time.sleep(2.0)
