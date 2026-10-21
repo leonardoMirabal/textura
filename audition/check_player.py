@@ -289,6 +289,14 @@ def main():
             page.screenshot(path=os.path.join(OUT, "ab.png"), full_page=True)
             page.evaluate("window.txTest.abPlay(document.querySelectorAll('#ab-buttons button').length - 1)")   # stop
             check(page.evaluate("window.txTest.ab()")["playing"] is None, "A/B: stop")
+            if "source" in names:                            # the bird candidates on the source engine's page (picks by ear)
+                page.evaluate(f"window.txTest.selectEngine({names.index('source')})")
+                time.sleep(0.5)
+                nb = page.evaluate("window.txTest.ab()")["buttons"] - 2
+                keeps = page.eval_on_selector_all("#ab-keep button", "b => b.length")
+                check(nb >= 10 and keeps == nb, f"A/B: the bird candidates on the source page: {nb} references, {keeps} keep buttons")
+                page.evaluate(f"window.txTest.selectEngine({names.index('stream')})")
+                time.sleep(0.3)
             # ratings (step 5): a 4, a note typed without playing notes, a kept reference, saved and exported
             rp = os.path.join(OUT, "ratings-check.json")
             if os.path.exists(rp):

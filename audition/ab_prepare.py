@@ -49,6 +49,9 @@ REFDIRS = {
     # step 4: candidates (cand_*.wav) for the user to choose from by ear
     "drip": ["drip"], "sparks": ["sparks"], "gravel": ["gravel"], "rainstick": ["rainstick"], "thunder": ["thunder"],
     "lakeice": ["lakeice"], "spring": ["spring"], "chimes": ["chimes"], "rockfall": ["rockfall"], "plate": ["plate"],
+    # the BIRD candidates, shown on the source engine's page until a bird source exists (no ours to compare: the user
+    # listens and keeps (star) the ones to model; birds/weak/ holds the ones judged unusable, not shown)
+    "source": ["birds"],
 }
 
 
