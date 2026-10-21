@@ -55,12 +55,12 @@
 
 enum { P_PRESET, P_INTENS, P_ACT, P_SPACING, P_SIZE, P_SPREAD, P_TONE, P_HARD, P_PROX, P_DEPTH,
        P_LIFE, P_TIME, P_LOCK, P_DIV, P_GRID, NP };
-enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_WATER, PR_WIND, PR_FIRE, PR_CRICKETS, PR_SAND, PR_GRAVEL, PR_KATYDIDS, PR_BEES, NPRE };
+enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_WATER, PR_WIND, PR_FIRE, PR_CRICKETS, PR_SAND, PR_GRAVEL, PR_KATYDIDS, PR_BEES, PR_ICE, PR_WOOD, PR_MINERALS, PR_GLASS, NPRE };
 enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER };
 
 static const tx_param_t PARAMS[NP] = {
-    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees"},
-    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water a single drop per 30 s .. dripping (2.8 /s) .. a trickle .. a stream .. a river, wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), fire 1 .. 30 crackles/s per log (embers .. a blaze), crickets 1 .. 16 (one .. a chorus falling into step), sand a trickle .. a pour, gravel a few stones .. a slide, katydids one in the cold .. a warm chorus of 8 in step, bees one far bee .. a swarm close by"},
+    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees | 11 ice | 12 wood | 13 minerals | 14 glass"},
+    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water a single drop per 30 s .. dripping (2.8 /s) .. a trickle .. a stream .. a river, wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), fire 1 .. 30 crackles/s per log (embers .. a blaze), crickets 1 .. 16 (one .. a chorus falling into step), sand a trickle .. a pour, gravel a few stones .. a slide, katydids one in the cold .. a warm chorus of 8 in step, bees one far bee .. a swarm close by, ice an icicle per 30 s .. one every 1.5 s, wood a creak per 30 s .. snaps every 2 s, minerals a knock per 10 s .. 7 /s, glass a crack per 40 s .. a smash every 2 s"},
     {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. the preset's own (64; Poisson for rain) .. even"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
@@ -104,6 +104,10 @@ static const preset_t PRE[NPRE] = {
     {2, 5, 0, 0, 4096, 0},          /* gravel */
     {2, 6, 0, 0, 4096, 0},          /* katydids */
     {2, 7, 0, 0, 4096, 0},          /* bees */
+    {2, 8, 0, 0, 4096, 0},          /* ice */
+    {2, 9, 0, 0, 4096, 0},          /* wood */
+    {2, 10, 0, 0, 4096, 0},         /* minerals */
+    {2, 11, 0, 0, 4096, 0},         /* glass */
 };
 
 /* HOSTED presets: an existing engine run whole inside the source (its own physics and defaults: at INTENSITY 64 it is
@@ -118,28 +122,44 @@ static const preset_t PRE[NPRE] = {
 #define HOST_NC 5u
 #define HOST_BYTES 12544u           /* the largest hosted engine's state (sand 12 464 B) */
 typedef struct { const char *name; uint8_t v0, v64, v127; } curve_t;
-typedef struct { const char *eng; int16_t g0, g64, g127; curve_t c[HOST_NC]; uint8_t k0, k64, k127; } host_t;   /* (g: one calibration, flat:
+typedef struct {
+    const char *eng; int16_t g0, g64, g127; curve_t c[HOST_NC]; uint8_t k0, k64, k127;
+    uint16_t e0, e64, e127;         /* event engines: the mean time between presses (0.1 s; log between; 0 = none) */
+    uint8_t oneshot;                /* 1: each press released after 150 ms (a strike); 0: the held key pressed afresh */
+} host_t;   /* (g: one calibration, flat:
                                                      * more activity is louder by the engine's own physics) */
 static const host_t HOST[] = {
     /* wind: a breath (1.6 m/s) .. a gale (20 m/s); gusts deepen; at the top the strings lock in and whistle */
-    {"aeolian", -78, -78, -78, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0},
+    {"aeolian", -78, -78, -78, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* stream: a trickle of plinks .. a babbling brook .. a torrent: bigger gulping bubbles, eddies, the low roar */
     {"stream", -42, -42, -42, {{"FLOW", 10, 70, 127}, {"ROAR", 0, 0, 100}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
-                            {"SPREAD", 80, 64, 45}}, 0, 0, 0},
+                            {"SPREAD", 80, 64, 45}}, 0, 0, 0, 0, 0, 0, 0},
     /* fire: embers (a rare crackle, a faint roar) .. a campfire .. a blaze (a big fire, dense crackles in bursts, roar, gusts) */
     {"fire", 150, 150, 150, {{"MOIST", 25, 72, 127}, {"SIZE", 20, 50, 100}, {"ROAR", 20, 80, 127}, {"DRAUGHT", 10, 30, 70},
-                          {"BURSTY", 8, 24, 60}}, 0, 0, 0},
+                          {"BURSTY", 8, 24, 60}}, 0, 0, 0, 0, 0, 0, 0},
     /* crickets: one caller .. a few .. a chorus falling into step, with the distant field behind (warmer: a little faster) */
     {"crickets", -12, -12, -12, {{"CHORUS", 0, 16, 127}, {"SYNC", 30, 64, 110}, {"FIELD", 0, 0, 90}, {"TEMP", 70, 76, 84},
-                             {0, 0, 0, 0}}, 0, 0, 0},
+                             {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* sand: a trickle of grains through a narrow neck .. a pour .. a heavy pour from higher, pulsing */
-    {"sand", -37, -37, -37, {{"ORIFICE", 20, 50, 115}, {"HEIGHT", 30, 50, 90}, {"PULSE", 0, 0, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0},
+    {"sand", -37, -37, -37, {{"ORIFICE", 20, 50, 115}, {"HEIGHT", 30, 50, 90}, {"PULSE", 0, 0, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* gravel: a few stones now and then .. footsteps on gravel .. a slide (many stones, long rattles) */
-    {"gravel", 16, 16, 16, {{"AMOUNT", 20, 64, 120}, {"RATE", 20, 59, 110}, {"SHAKE", 20, 30, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0},
+    {"gravel", 16, 16, 16, {{"AMOUNT", 20, 64, 120}, {"RATE", 20, 59, 110}, {"SHAKE", 20, 30, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* katydids: one singer on a cold night (slow calls) .. one at its ease .. a warm chorus of 8, falling into step */
-    {"katydids", 0, 0, 0, {{"CHORUS", 0, 0, 50}, {"TEMP", 40, 76, 90}, {"SYNC", 40, 64, 110}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 1, 1, 2},
+    {"katydids", 0, 0, 0, {{"CHORUS", 0, 0, 50}, {"TEMP", 40, 76, 90}, {"SYNC", 40, 64, 110}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 1, 1, 2, 0, 0, 0, 0},
     /* bees: one bee wandering farther off, slower .. one at its ease .. a swarm of 8 close by */
-    {"bees", -45, -45, -45, {{"SWARM", 0, 0, 64}, {"DIST", 90, 50, 30}, {"SPEED", 40, 64, 80}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 1, 1, 2},
+    {"bees", -45, -45, -45, {{"SWARM", 0, 0, 64}, {"DIST", 90, 50, 30}, {"SPEED", 40, 64, 80}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 1, 1, 2, 0, 0, 0, 0},
+    /* ice: an icicle breaking off now and then .. icicles falling every few seconds, more chunks each */
+    {"ice", 175, 175, 175, {{"AMOUNT", 20, 64, 127}, {"FIZZ", 10, 20, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+     300, 70, 15, 1},
+    /* wood: a branch taken and bent now and then, creaking .. load building faster, snapping every few seconds */
+    {"wood", -35, -35, -35, {{"LOAD", 110, 40, 15}, {"CREAK", 15, 25, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+     300, 80, 20, 0},
+    /* minerals: a knock on a stone now and then .. knocking and clinking, quicker */
+    {"minerals", -40, -40, -40, {{"HOLD", 50, 36, 30}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+     100, 12, 2, 1},
+    /* glass: a pane cracking now and then .. smashing every few seconds, harder */
+    {"glass", 0, 0, 0, {{"ENERGY", 60, 100, 127}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+     400, 90, 20, 1},
 };
 
 typedef struct {
@@ -194,7 +214,9 @@ typedef struct {
     uint8_t hval[HOST_NC];          /* the values last sent */
     uint8_t lvl_v, part_v;          /* LEVEL and PARTICLES as last set (0: not set) */
     uint8_t hkeys, hbase, hcycle, hpad;
-    uint16_t hrenew;                /* blocks to the next renewed key */         /* keys the source holds on the hosted engine (k curves; the first is the player's) */
+    uint16_t hrenew;                /* blocks to the next renewed key */
+    uint32_t hnext;                 /* event engines: blocks to the next press */
+    uint8_t hoff, hpn, hpad2[2];    /* blocks to its release, its note */         /* keys the source holds on the hosted engine (k curves; the first is the player's) */
     int32_t hgain, last_out, hlp;        /* the hosted output gain (Q12, ramped), the last sample out (for a switch) */
     int32_t buf[TX_BLOCK], ck[TX_BLOCK];
     uint8_t p[NP], limit, quiet, held, nch;
@@ -789,9 +811,32 @@ static int32_t curve_at(const curve_t *c, int32_t i_q8)     /* the curve's value
 }
 
 static const int8_t HOST_KEYS[4] = { 0, -3, 4, -7 };      /* the extra keys, semitones from the played one */
+/* an event engine's next gap (blocks): exponential around the mean at the intensity now (log between e0, e64, e127) */
+static uint32_t host_gap(src_t *s)
+{
+    const host_t *h = s->hd;
+    int32_t a = act_idx(s), l0 = tx_place_log2(h->e0), l1 = tx_place_log2(h->e64), l2 = tx_place_log2(h->e127), l, m;
+    l = a < (64 << 8) ? l0 + (((l1 - l0) * (a >> 6)) >> 8) : l1 + (((l2 - l1) * (((a - (64 << 8)) << 8) / (63 << 8))) >> 8);
+    m = (int32_t)tx_exp2(l + 265519);                        /* x 17.23 blocks per 0.1 s (log2 17.23 = 4.106) */
+    m = (int32_t)(((int64_t)m * (int32_t)((tx_neglog2_q12(tx_rand(&s->rng)) * 2839u) >> 12)) >> 12);   /* x Exp(1) */
+    return (uint32_t)(m < 26 ? 26 : m);
+}
+
 static void host_apply(src_t *s, int force)               /* the curves at the intensity now (only changed values sent) */
 {
     unsigned i;
+    if (s->hd->e64) {                                        /* an event engine: pressed at its rate while it runs */
+        if (s->hoff && !--s->hoff) s->hst->key(s->host, s->hpn, 0, 0);
+        if (s->held && !s->hoff) {
+            if (!s->hnext) s->hnext = host_gap(s);
+            if (!--s->hnext) {
+                s->hpn = s->note;
+                if (s->hd->oneshot) { s->hst->key(s->host, s->hpn, s->vel, 1); s->hoff = 26; }
+                else { s->hst->key(s->host, s->hpn, 0, 0); s->hst->key(s->host, s->hpn, s->vel, 1); }
+                s->hnext = host_gap(s);
+            }
+        }
+    }
     if (s->hd->k127) {                                       /* the keys held: more singers */
         curve_t kc = { 0, s->hd->k0, s->hd->k64, s->hd->k127 };
         unsigned want = s->held ? (unsigned)clampi(curve_at(&kc, act_idx(s)), 1, 4) : 0u;
@@ -841,7 +886,7 @@ static void host_switch(src_t *s, unsigned pre)
         if (s->lvl_v) ne->param(s->host, TX_PID_LEVEL, s->lvl_v);
         if (s->part_v) ne->param(s->host, TX_PID_PARTICLES, s->part_v);
         host_apply(s, 1);
-        s->hkeys = 0; s->hrenew = 258;                       /* (the first renewal after 1.5 s: past the fader's glide) */
+        s->hkeys = 0; s->hrenew = 258; s->hnext = 0; s->hoff = 0;                       /* (the first renewal after 1.5 s: past the fader's glide) */
         if (s->held) { ne->key(s->host, s->note, s->vel, 1); s->hkeys = 1; }
         s->quiet = 0;
     } else {                                                 /* the particle presets: fresh pools */
@@ -1231,7 +1276,8 @@ static const char SCENE_MAX[] =
     "0 particles 16\n0 param INTENSITY 127\n0 param PROXIMITY 127\n0 param PRESET 2\n0 on 60 127\n"
     "1000 param PRESET 1\n2000 param PRESET 0\n3000 param PRESET 2\n4000 param PRESET 3\n"
     "5000 param PRESET 4\n6000 param PRESET 5\n7000 param PRESET 6\n8000 param PRESET 7\n"
-    "9000 param PRESET 8\n10000 param PRESET 3\n11000 param PRESET 9\n12000 param PRESET 10\n13000 off 60\n14000 end\n";
+    "9000 param PRESET 8\n10000 param PRESET 3\n11000 param PRESET 9\n12000 param PRESET 10\n"
+    "13000 param PRESET 11\n14000 param PRESET 12\n15000 param PRESET 13\n16000 param PRESET 14\n17000 off 60\n18000 end\n";
 
 const tx_engine_t tx_eng_source = {
     "source", "SOURCE (prototype)", NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,
