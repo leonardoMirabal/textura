@@ -96,8 +96,8 @@ typedef struct {
 static const preset_t PRE[NPRE] = {
     {0, 490986, 614782, 0, 29000, 8},   /* rain: 30 .. 20000 drops/s per m^2 (drizzle .. downpour), over ~6 m^2 heard (ours) */
     {0, -152170, 739752, 10, 40960, 8}, /* stones: 0.2 .. 500 knocks/s */
-    {1, 0, 321577, 0, 9170, 0},  
-    {0, -283242, 803377, -15, 4096, 8},  /* water drops: 1 per 20 s .. 245 /s (a trickle, a small stream) */        /* cicadas: 1 .. 30 callers */
+    {1, 0, 321577, 0, 9170, 0},     /* cicadas: 1 .. 30 callers */
+    {0, -283242, 803377, -15, 32500, 8},   /* water drops: 1 per 20 s .. 245 /s (a trickle, a small stream) */
 };
 
 typedef struct {
@@ -300,7 +300,10 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
         int32_t a = (CLICK_M * c) >> 15;
         uint32_t k = w_q8 > 256u ? (w_q8 + (tx_rand(r) >> 24)) >> 8 : 1u;
         s->ck[off] += (tx_rand(r) & 1u) ? a : -a;
-        while (--k) s->ck[tx_rand_below(r, n)] += (tx_rand(r) & 1u) ? a : -a;
+        while (--k) {                                        /* (one draw per statement: C leaves the order of */
+            unsigned at = tx_rand_below(r, n);               /* two draws in one expression open, and wasm and */
+            s->ck[at] += (tx_rand(r) & 1u) ? a : -a;         /* native builds then differ) */
+        }
         return;
     }
     {                                                        /* large, very large */
@@ -309,11 +312,15 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
         s->ck[off] += (tx_rand(r) & 1u) ? a : -a;
         a_l2 = -104858 + (int32_t)(444u * (tx_rand(r) >> 24));   /* 0.33 .. 1.1 mm */
         l = A_II_L2 + a_l2 / 2 - (int32_t)(tx_rand(r) >> 16) + knob(s, P_TONE) * 1024;
-        bubble(s, a_l2, l, off + 2205u + tx_rand_below(r, 1323u), (tx_rand(r) & 1u) ? 6554u : 0u, r_l2, trim, pre, 0);
+        {
+            uint32_t at = off + 2205u + tx_rand_below(r, 1323u);
+            bubble(s, a_l2, l, at, (tx_rand(r) & 1u) ? 6554u : 0u, r_l2, trim, pre, 0);
+        }
         if (vl) {
             a_l2 = -170000 + (int32_t)tx_rand_below(r, 60000u);
             l = A_II_L2 - 65536 + a_l2 / 2 - (int32_t)(tx_rand(r) >> 16);
-            bubble(s, a_l2, l, off + 4410u + tx_rand_below(r, 6615u), (tx_rand(r) & 1u) ? 6554u : 0u, r_l2, trim, pre, 0);
+            uint32_t at = off + 4410u + tx_rand_below(r, 6615u);
+            bubble(s, a_l2, l, at, (tx_rand(r) & 1u) ? 6554u : 0u, r_l2, trim, pre, 0);
         }
         if (w_q8 > 256u && (tx_rand(r) >> 24) < ((w_q8 - 256u) & 255u)) drop(s, tx_rand_below(r, n), n, 0, vel, pre, trim, w_q8 - 256u);
     }
@@ -322,7 +329,7 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
 /* ---- water drops (as the drip engine's physics, note 02): an impact click, then the bubble the drop traps */
 #define WD_AMP_L2 (28 << 16)        /* a bubble of the reference radius at U_REF: 2^28 Q30 */
 #define WD_A_L2 (-4000)             /* the reference radius: ~0.96 mm (Minnaert ~3.4 kHz: the references' median) */
-#define WD_CLICK 1400               /* the impact at U_REF, Q15 (the references: the first 2 ms ~ -24 dB of a plop) */
+#define WD_CLICK 2000               /* the impact at U_REF, Q15 (the references: the first 2 ms ~ -24 dB of a plop) */
 
 /* one drop: its fall height (speed), size, the click now, the bubble after the crater closes */
 static void wdrop(src_t *s, unsigned off, int near, int32_t vel, unsigned pre, int32_t trim)
@@ -345,7 +352,7 @@ static void wdrop(src_t *s, unsigned off, int near, int32_t vel, unsigned pre, i
     /* the bubble: P ~0.9 above 1 m/s, falling to 0.2 at 0.3 m/s */
     p_bub = u_q8 >= 256u ? 58982u : u_q8 <= 77u ? 13107u : 13107u + (u_q8 - 77u) * 256u;
     if ((tx_rand(r) >> 16) >= p_bub) return;
-    sp = (55705 * (int32_t)s->p[P_SPREAD]) / 64;            /* +-SD 0.85 octave (references 1.1 .. 9 kHz) */
+    sp = (85197 * (int32_t)s->p[P_SPREAD]) / 64;            /* +-SD 1.3 octave (references 1.1 .. 9 kHz) */
     a_l2 = WD_A_L2 - knob(s, P_SIZE) * 2048 - ((int32_t)s->note - 60) * 5461 + s->life_s
            + (int32_t)(((int64_t)gauss(s) * sp) >> 12) + hi;   /* a stream: bigger bubbles too (lower) */
     rel = a_l2 - WD_A_L2;
@@ -410,8 +417,8 @@ static void knock(src_t *s, unsigned off, int32_t lv, int32_t size_l2, unsigned 
             uint32_t u = (tx_rand(r) >> 16) | 1u;            /* Omori p 1.5, c 30 ms: t = c (u^-2 - 1) */
             uint32_t x = tx_neglog2_q12(u << 16) << 5;       /* -log2 u, Q17 = 2 x Q16 */
             uint32_t dt = x > (5u << 16) ? 132300u : (uint32_t)(((uint64_t)1323u * (tx_exp2((int32_t)x + (16 << 16)) - 65536u)) >> 16);
-            child(s, s->now + off + 441u + dt, lv - (int32_t)(tx_rand(r) >> 17), size_l2 + (int32_t)(tx_rand(r) >> 18) - 8192,
-                  pre, gen + 1);
+            int32_t dl = (int32_t)(tx_rand(r) >> 17), ds = (int32_t)(tx_rand(r) >> 18) - 8192;   /* (one draw each) */
+            child(s, s->now + off + 441u + dt, lv - dl, size_l2 + ds, pre, gen + 1);
         }
     }
     lvl = (uint32_t)a;
