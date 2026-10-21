@@ -663,6 +663,53 @@ static void check_gov(void)
     }
 }
 
+/* ---- SWITCH: the source switched between its presets every 40 blocks (400 times, a lane's generator pressing its
+ * notes, PARTICLES moved now and then), under UBSan: no undefined behaviour, the output bounded, quiet at the end */
+static void check_switch(void)
+{
+    const tx_engine_t *e = tx_engine_find("source");
+    tx_gen_t *g = malloc(sizeof *g);
+    void *st;
+    int32_t mix[TX_BLOCK], peak = 0;
+    unsigned it, b, j, seed = 1, np;
+    int pp, pi;
+    char msg[160];
+    if (!e || !g) { free(g); return; }
+    st = tx_state_new(e);
+    pp = tx_param_find(e, "PRESET"); pi = tx_param_find(e, "INTENSITY");
+    np = e->params[pp].max + 1u;
+    tx_gen_init(g, 3);
+    e->init(st, 3);
+    e->key(st, 60, 100, 1);
+    for (it = 0; it < 400; it++) {
+        seed = seed * 1103515245u + 12345u;
+        e->param(st, (uint8_t)pp, (uint8_t)((seed >> 16) % np));
+        e->param(st, (uint8_t)pi, (uint8_t)((seed >> 8) & 127u));
+        if (!((seed >> 4) & 7u)) e->param(st, TX_PID_PARTICLES, (uint8_t)(1u + (seed >> 12) % 16u));
+        for (b = 0; b < 40; b++) {
+            tx_gen_ev_t ev[TX_GEN_EV_MAX];
+            uint8_t in;
+            unsigned ne = tx_gen_block(g, TX_BLOCK, ev, TX_GEN_EV_MAX, &in), k;
+            for (k = 0; k < ne; k++) e->key(st, ev[k].note, ev[k].vel, ev[k].vel != 0);
+            for (j = 0; j < TX_BLOCK; j++) mix[j] = 0;
+            e->render(st, mix, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) { int32_t v = mix[j] < 0 ? -mix[j] : mix[j]; if (v > peak) peak = v; }
+        }
+    }
+    {   /* released: quiet within 30 s */
+        tx_gen_ev_t ev[TX_GEN_OFFS];
+        unsigned ne = tx_gen_stop(g, ev, TX_GEN_OFFS), k;
+        tx_stats_t sx;
+        for (k = 0; k < ne; k++) e->key(st, ev[k].note, 0, 0);
+        e->key(st, 60, 0, 0);
+        for (b = 0; b < 5168u; b++) { for (j = 0; j < TX_BLOCK; j++) mix[j] = 0; e->render(st, mix, TX_BLOCK); e->stats(st, &sx); if (sx.quiet) break; }
+        snprintf(msg, sizeof msg, "400 preset switches with a lane's notes: peak %.1f dBFS, quiet %.1f s after the release",
+                 peak ? 20.0 * log10(peak / 8388608.0) : -999.0, b * 256.0 / 44100.0);
+        verdict("source", "switch", peak < (1 << 27) && sx.quiet, msg, 0);
+    }
+    free(st); free(g);
+}
+
 /* ---- the source check: no float in engines/ */
 static void strip(char *t)                                   /* comments, strings, chars -> spaces */
 {
@@ -817,7 +864,7 @@ int main(int argc, char **argv)
     check_chamber(update);
     check_layers(update);
     check_noise_core();
-    if (!update) { check_gen(); check_gov(); }
+    if (!update) { check_gen(); check_gov(); check_switch(); }
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }
     printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);
     return fails ? 1 : 0;

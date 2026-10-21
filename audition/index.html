@@ -49,7 +49,18 @@
   #src-panel[hidden] { display: none; }
   #src-intens { width: 100%; accent-color: var(--accent); height: 28px; }
   .src-big { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  #lanes-box .lane { display: inline-block; min-width: 150px; margin: 4px 10px 0 0; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; }
+  #lanes-box .lane { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 4px 12px; align-items: center;
+                     margin: 6px 0 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
+  #lanes-box .lane .lab { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #lanes-box .abar { position: relative; display: grid; grid-template-columns: repeat(15, 1fr); gap: 2px; height: 18px; cursor: pointer; touch-action: none; }
+  #lanes-box .abar b { background: var(--bg); border: 1px solid var(--line); border-radius: 2px; }
+  #lanes-box .abar b.on { background: var(--lit); border-color: var(--lit); }
+  #lanes-box .abar .mk { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--warn); pointer-events: none; }
+  #src-grid .grp { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-top: 4px; }
+  #src-grid .grp .small { min-width: 64px; }
+  #src-grid button { padding: 3px 9px; font-size: 13px; }
+  #src-grid button.on { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+  @media (max-width: 700px) { #lanes-box .lane { grid-template-columns: minmax(0, 1fr); } }
   #lanes-box .lane.sel { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
   #lanes-box .lane.run { color: var(--accent); font-weight: 600; }
   .key span { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 10px; color: #777; }
@@ -116,21 +127,14 @@
       A USB MIDI keyboard plays with velocity (Web MIDI: Chrome / Edge / Firefox); CC 20–27 move the first eight parameters, CC 7 the level.</div>
   </section>
 
-  <section class="panel" id="eng-panel">
-    <h2>Engine <span class="small" id="eng-layer">(layer 1)</span></h2>
-    <div class="eng-step">
-      <button id="eng-prev" title="previous engine ([ or ←)">◀</button>
-      <input type="range" id="engine" min="0" max="0" value="0" aria-label="engine">
-      <button id="eng-next" title="next engine (] or →)">▶</button>
+  <section class="panel" id="src-panel">
+    <h2>Landscape <span class="small" id="src-layer"></span></h2>
+    <div class="row" style="margin-bottom:8px">
+      <button id="landscape" class="primary" title="water, crickets and wind, each in its own lane, playing on their own">Start a landscape</button>
+      <span class="small"><b>How to:</b> the black keys pick a lane (or <kbd>1</kbd>–<kbd>4</kbd>), the white keys C4 … C6 set its activity
+        (C4 a little, C6 massive); tap a lane's black key again to start or stop it.</span>
     </div>
-    <div class="eng-big"><span id="eng-num">1</span><span id="eng-name">–</span></div>
-    <div class="small" id="eng-title"></div>
-  </section>
-
-  <section class="panel" id="src-panel" hidden>
-    <h2>SOURCE <span class="small" id="src-layer"></span></h2>
     <div class="row">
-      <label>Preset <select id="src-pre"></select></label>
       <button id="src-run" title="keep the source going without holding a key">Run</button>
       <label><input type="checkbox" id="lanes"> Lane mode</label>
     </div>
@@ -144,6 +148,7 @@
       <input type="range" id="src-prox" min="0" max="127" value="64" aria-label="proximity" style="flex:1; accent-color: var(--accent)">
       <span class="src-big" id="src-prox-v">64</span>
     </div>
+    <div id="src-grid"></div>
     <div id="lanes-box"></div>
     <div class="row" style="margin-top:8px">
       <label title="the lane's generator: pitched notes, a wandering, remembering activity around the fader"><input type="checkbox" id="gen-on" checked> Notes (the lane's generator)</label>
@@ -156,6 +161,34 @@
       stops it. A running lane generates on its own (no key held). The white keys light up as the bar, the chosen lane's black
       key is lit, the other running lanes' black keys glow. Computer letters (<kbd>Z</kbd> <kbd>X</kbd> octave) and a MIDI
       keyboard (notes 60–84) play the same keys.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Meters</h2>
+    <div class="meters">
+      <div class="meter"><div class="lab"><span>CPU here (this browser)</span><span class="val" id="cpu-host">–</span></div>
+        <div class="bar"><i id="cpu-host-bar"></i></div></div>
+      <div class="meter"><div class="lab"><span>FM-1 estimate, all layers (of 5805 µs)</span><span class="val" id="cpu-fm1">–</span></div>
+        <div class="bar" id="cpu-fm1-box"><i id="cpu-fm1-bar"></i><b style="left:75%" title="75 %: the gate for four layers"></b></div></div>
+      <div class="meter"><div class="lab"><span>Level (peak)</span><span class="val" id="lvl">–</span></div>
+        <div class="bar" id="lvl-box"><i id="lvl-bar"></i></div></div>
+      <div class="meter"><div class="lab"><span>Particles (edited layer)</span><span class="val" id="parts">–</span></div>
+        <div class="bar"><i id="parts-bar"></i></div></div>
+    </div>
+    <div class="small" id="cpu-note" style="margin-top:8px"></div>
+  </section>
+
+  <h2 style="margin:28px 0 0; font-size:16px; letter-spacing:.02em">Engines (classic) <span class="small" style="font-weight:400">one engine at a time, its own keys and parameters; the A/B references</span></h2>
+
+  <section class="panel" id="eng-panel">
+    <h2>Engine <span class="small" id="eng-layer">(layer 1)</span></h2>
+    <div class="eng-step">
+      <button id="eng-prev" title="previous engine ([ or ←)">◀</button>
+      <input type="range" id="engine" min="0" max="0" value="0" aria-label="engine">
+      <button id="eng-next" title="next engine (] or →)">▶</button>
+    </div>
+    <div class="eng-big"><span id="eng-num">1</span><span id="eng-name">–</span></div>
+    <div class="small" id="eng-title"></div>
   </section>
 
   <section class="panel" id="ab-panel">
@@ -183,21 +216,6 @@
         <option value="zones">zones: each layer only in its own range</option></select></label>
     </div>
     <div id="layers"></div>
-  </section>
-
-  <section class="panel">
-    <h2>Meters</h2>
-    <div class="meters">
-      <div class="meter"><div class="lab"><span>CPU here (this browser)</span><span class="val" id="cpu-host">–</span></div>
-        <div class="bar"><i id="cpu-host-bar"></i></div></div>
-      <div class="meter"><div class="lab"><span>FM-1 estimate, all layers (of 5805 µs)</span><span class="val" id="cpu-fm1">–</span></div>
-        <div class="bar" id="cpu-fm1-box"><i id="cpu-fm1-bar"></i><b style="left:75%" title="75 %: the gate for four layers"></b></div></div>
-      <div class="meter"><div class="lab"><span>Level (peak)</span><span class="val" id="lvl">–</span></div>
-        <div class="bar" id="lvl-box"><i id="lvl-bar"></i></div></div>
-      <div class="meter"><div class="lab"><span>Particles (edited layer)</span><span class="val" id="parts">–</span></div>
-        <div class="bar"><i id="parts-bar"></i></div></div>
-    </div>
-    <div class="small" id="cpu-note" style="margin-top:8px"></div>
   </section>
 
   <section class="panel">

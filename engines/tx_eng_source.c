@@ -1114,14 +1114,14 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
             birdm_t *b;
             if (s->bm[0].voice != 0xFF) for (q = 1; q < NB; q++) if (s->bm[q].active && s->bm[q].voice == 0xFF) { bi = q; break; }
             b = &s->bm[bi];
-            if (b->voice != 0xFF) { voice_cut(s, b->voice); tx_pool_free(&s->pool, b->voice); b->voice = 0xFF; }
+            if (b->voice != 0xFF) { unsigned vi = b->voice; voice_cut(s, vi); tx_pool_free(&s->pool, vi); b->voice = 0xFF; }
             if (!bi) bird_draw(s, b, 1);
             b->active = 1;
             bird_sing(s, bi, (unsigned)PRE[pre].act_lo, 1, ((int32_t)note - 60) * 5461);
         } else if (PRE[pre].kind == 1) {                     /* a cicada close by, at the key's pitch */
             member_t *m = &s->m[0];
             member_new(s, m, 1);
-            if (m->voice != 0xFF) { voice_cut(s, m->voice); tx_pool_free(&s->pool, m->voice); m->voice = 0xFF; }
+            if (m->voice != 0xFF) { unsigned vi = m->voice; voice_cut(s, vi); tx_pool_free(&s->pool, vi); m->voice = 0xFF; }
             m->calling = 0; m->fresh = 1;
         } else {
             s->events = 0;
@@ -1416,6 +1416,6 @@ static const char SCENE_MAX[] =
     "22000 off 60\n23000 end\n";
 
 const tx_engine_t tx_eng_source = {
-    "source", "SOURCE (prototype)", NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,
+    "source", "Landscape", NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,
     src_init, src_key, src_param, src_render, src_stats,
 };

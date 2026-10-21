@@ -61,6 +61,32 @@ def main():
         page.goto(url)
         page.wait_for_function("window.txTest && window.txTest.ready", timeout=20000)
         check(page.evaluate("window.crossOriginIsolated"), "served cross-origin isolated (audition/serve.py)")
+        # the page opens on the landscape: the source on layer 1, lane mode on, the LANDSCAPE section first; one click
+        # starts three lanes (water, crickets, wind) that play on their own
+        st = page.evaluate("window.txTest.src()")
+        yl = page.evaluate("""() => ['kb', 'src-panel', 'eng-panel'].map(i => document.getElementById(i).getBoundingClientRect().top)""")
+        bars = page.eval_on_selector_all("#lanes-box .abar", "x => x.length")
+        check(st["laneMode"] and st["eng"][0] == "source" and yl == sorted(yl) and bars == 4,
+              f"opens on the landscape: lane mode {st['laneMode']}, layer 1 {st['eng'][0]}, keys / Landscape / classic order {[round(y) for y in yl]}, {bars} activity bars")
+        page.click("#landscape")
+        time.sleep(1.5)
+        st = page.evaluate("window.txTest.src()")
+        pk = page.evaluate("window.txTest.render(64)")
+        names_l = page.evaluate("[0, 1, 2].map(k => document.querySelector(`#lanes-box .lane[data-k='${k}'] .lab`).textContent)")
+        check(all(st["run"][:3]) and st["step"][:3] == [5, 7, 4] and pk > 0 and "water" in names_l[0] and "crickets" in names_l[1]
+              and "wind" in names_l[2], f"Start a landscape: three lanes running ({names_l}), sounding (peak {pk})")
+        bx = page.locator("#lanes-box .lane[data-k='1'] .abar").bounding_box()
+        page.mouse.click(bx["x"] + bx["width"] * 0.95, bx["y"] + bx["height"] / 2)   # the bar as a fader: the top step
+        st = page.evaluate("window.txTest.src()")
+        check(st["lane"] == 1 and st["step"][1] == 14, f"an activity bar clicked: lane 2 at step {st['step'][1] + 1} of 15")
+        page.evaluate("window.txTest.sound(1, 'owl')")
+        g = page.eval_on_selector_all("#src-grid button.on", "b => b.map(x => x.textContent)")
+        check(g == ["owl"], f"a sound picked from the grid for the selected lane: {g}")
+        page.evaluate("window.txTest.setLaneMode(false)")   # (the classic checks below: lane mode off, layers 2-4 off)
+        for k in (1, 2, 3):
+            page.evaluate(f"window.txTest.layerOff({k})")
+        page.evaluate("window.txTest.editLayer(0)")
+        time.sleep(1.0)
         n = page.evaluate("Module._txw_count()")
         mx = page.eval_on_selector("#engine", "s => +s.max")
         check(n >= 1 and mx == n - 1, f"engine slider spans {n} engine(s)")
@@ -139,7 +165,11 @@ def main():
         check(cal is not None, f"calibration loaded: {cal}")
         if page.is_enabled("#start"):                   # (a letter played above may have started it already)
             page.click("#start")
-        page.wait_for_function("document.getElementById('status').textContent.startsWith('Sound on')", timeout=5000)
+        try:
+            page.wait_for_function("document.getElementById('status').textContent.startsWith('Sound on')", timeout=5000)
+        except Exception:
+            print("status:", page.text_content("#status"), errors[:3])
+            raise
         check(True, "sound started: " + page.text_content("#status"))
         page.keyboard.down("KeyD")                      # E4 and B4 from the letters; then the on-screen C4 key
         page.keyboard.down("KeyJ")
@@ -253,9 +283,9 @@ def main():
         if "source" in names:
             page.evaluate(f"(() => {{ window.txTest.editLayer(0); window.txTest.selectEngine({names.index('source')}); }})()")
             check(page.evaluate("window.txTest.src()")["panel"], "SOURCE panel shown for the source engine")
-            opts = page.eval_on_selector_all("#src-pre option", "o => o.map(x => x.textContent)")
-            check(len(opts) >= 6 and any("wind" in o for o in opts) and any("water" in o for o in opts),
-                  f"SOURCE preset menu, named from the engine: {opts}")
+            opts = page.eval_on_selector_all("#src-grid button", "o => o.map(x => x.textContent)")
+            check(len(opts) >= 22 and all(o in opts for o in ("wind", "water", "songbird", "gull", "thunder", "surf")),
+                  f"the sounds as a grid of buttons, grouped: {len(opts)}")
             check(page.eval_on_selector_all("#src-to, #src-morph", "x => x.length") == 0 and page.query_selector("#src-prox") is not None,
                   "SOURCE panel: no morph controls, a PROXIMITY slider")
             page.click("#lanes")
@@ -336,10 +366,14 @@ def main():
             check(page.evaluate("window.txTest.ab()")["playing"] is None, "A/B: stop")
             if "source" in names:                            # the bird candidates on the source engine's page (picks by ear)
                 page.evaluate(f"window.txTest.selectEngine({names.index('source')})")
+                time.sleep(0.3)
+                nb0 = page.evaluate("window.txTest.ab()")["buttons"] - 2
+                page.evaluate("window.txTest.sound(0, 'crow')")
                 time.sleep(0.5)
                 nb = page.evaluate("window.txTest.ab()")["buttons"] - 2
                 keeps = page.eval_on_selector_all("#ab-keep button", "b => b.length")
-                check(nb >= 10 and keeps == nb, f"A/B: the bird candidates on the source page: {nb} references, {keeps} keep buttons")
+                check(nb0 == 0 and nb >= 10 and keeps == nb,
+                      f"A/B: the bird candidates shown for a bird preset ({nb} references, {keeps} keep buttons; {nb0} for the rain)")
                 page.evaluate(f"window.txTest.selectEngine({names.index('stream')})")
                 time.sleep(0.3)
             # ratings (step 5): a 4, a note typed without playing notes, a kept reference, saved and exported

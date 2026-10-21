@@ -32,6 +32,12 @@ git clone https://github.com/emscripten-core/emsdk.git .local/emsdk
 - **Engine**: a slider and `◀` `▶` step through the engines (`[` / `]` or `←` / `→` from the keyboard) with the
   number and name shown large. A switch is instant and click-free: the old engine fades out over 23 ms while the new
   one starts, and the keys held on that layer carry over to the new engine.
+- **Landscape** (the page opens here: engine 35, `source`, on layer 1, lane mode on): `Start a landscape` starts three
+  lanes at once (water, crickets, wind). The sounds are a grid of buttons grouped by nature (water, earth, air, fire,
+  insects, birds; thunder and surf as classic engines in a lane): a click sets the selected lane's sound. Each lane
+  has a row with its sound, its activity step, running or stopped, the CPU governor's state, and an activity bar
+  (15 steps, C4 .. C6: click or drag it like the white keys; a thin marker shows the generator's live activity).
+  The classic per-engine sections (engine stepper, A/B, layers, parameters, CHAMBER) follow under "Engines (classic)".
 - **SOURCE** (shown when the edited layer runs engine 35, `source`): its preset (named from the engine), a `Run`
   switch (the source keeps going without a held key), INTENSITY and PROXIMITY (far .. close; 64 = the preset's own
   distance) as large sliders: each lane's own, as the panel follows the selected lane. `Lane mode`: the keyboard shows C4 to C6; the 15 white keys are the selected

@@ -16,6 +16,7 @@
 static uint8_t arenas[TX_MIX_SLOTS][2][TX_STATE_MAX] __attribute__((aligned(64)));   /* the four layers, two each: a
                                                                 * new engine starts in one while the old fades in the other */
 static uint8_t arena2[TX_STATE_MAX] __attribute__((aligned(64)));   /* the reference render (CPU ratio, hash) */
+static int ref_dirty;                                   /* arena2 was used for a hash: the CPU reference restarts */
 static tx_mix_t mixer;                                  /* S3: four layers -> pan -> stereo -> CHAMBER -> limiter */
 static int ed;                                          /* the layer the txw_* parameter / key calls act on */
 static const tx_engine_t *cur;                          /* = mixer.e[ed] */
@@ -43,7 +44,7 @@ static int32_t gen_stat[8];
  * player's calibration (gov_factor: FM-1 us per host us, x 1000), against the sources' budget (55 %: 3193 us) */
 static tx_gov_t gov;
 static int gov_on = 1, gov_ready;
-static uint32_t gov_factor = 90000u, gov_cost[TX_MIX_SLOTS], gov_lvl[TX_MIX_SLOTS];
+static uint32_t gov_factor = 0u, gov_cost[TX_MIX_SLOTS], gov_lvl[TX_MIX_SLOTS];
 static void gov_init(void) { if (!gov_ready) { tx_gov_init(&gov, TX_MIX_SLOTS, 3193u); gov_ready = 1; } }
 
 static void ready(void)                                 /* the mixer, once, before any call that uses it */
@@ -181,7 +182,7 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
             }
             slot_ms[k] += emscripten_get_now() - t0;
         }
-        if (gov_on) {                                        /* the governor: one lane's heroes, the quietest lane first */
+        if (gov_on && gov_factor) {                          /* the governor (once calibrated): the quietest lane first */
             uint8_t on[TX_MIX_SLOTS];
             int pk;
             gov_init();
@@ -249,6 +250,7 @@ EMSCRIPTEN_KEEPALIVE void txw_ref_step(void)
     static unsigned next;
     const tx_engine_t *e = tx_engines[0];
     if (!ref.blocks) { txw_ref(); blk = 0; }
+    if (ref_dirty) { blk = 0; ref_dirty = 0; }               /* (a hash render used arena2 in between) */
     if (blk == 0) { e->init(arena2, ref.seed); e->param(arena2, TX_PID_PARTICLES, e->particles_def); next = 0; }
     tx_script_step(e, arena2, &ref, blk, &next, mix);
     if (++blk >= ref.blocks) blk = 0;
@@ -263,6 +265,7 @@ EMSCRIPTEN_KEEPALIVE const char *txw_max_sha(int i)
     unsigned next = 0;
     uint32_t b;
     if (!e || tx_script_parse(&s, e, e->scene_max)) return "";
+    ref_dirty = 1;
     tx_sha256_init(&h);
     e->init(arena2, s.seed);
     for (b = 0; b < s.blocks; b++) { tx_script_step(e, arena2, &s, b, &next, mix); tx_sha256_q23(&h, mix, TX_BLOCK); }
@@ -301,6 +304,7 @@ EMSCRIPTEN_KEEPALIVE const char *txw_ch_max_sha(int i)
     unsigned next = 0;
     uint32_t b;
     if (!e || tx_script_parse(&s, e, e->scene_max)) return "";
+    ref_dirty = 1;
     tx_sha256_init(&h);
     e->init(arena2, s.seed);
     tx_chamber_init(&chamber2);

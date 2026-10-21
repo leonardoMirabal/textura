@@ -69,6 +69,11 @@ async function init() {
   buildKeyboard();
   octave(0);
   srcInit();
+  if (srcEng >= 0) {                                  // the page opens on the landscape: the source on layer 1, lane mode on
+    editLayer(0); selectEngine(srcEng);
+    srcFindIds(0);
+    setLaneMode(true);
+  }
   $("velv").textContent = $("vel").value;
   await loadCalib();
   await loadAB();
@@ -97,6 +102,8 @@ async function init() {
                                sel: [...document.querySelectorAll("#kb .key.lane-sel")].map(k => +k.dataset.n),
                                glow: [...document.querySelectorAll("#kb .key.lane-glow")].map(k => +k.dataset.n) });
   window.txTest.setLaneMode = setLaneMode;
+  window.txTest.landscape = startLandscape;
+  window.txTest.sound = laneSound;
   window.txTest.gov = (budget) => { if (budget) M._txw_gov_budget(budget); return [0, 1, 2, 3].map(k => [M._txw_gov_cur(k), M._txw_gov_user(k)]); };
   window.txTest.gen = k => ({ on: gen[k].on, state: genState(k), step: gen[k].step });
   window.txTest.abPlay = k => { const b = document.querySelectorAll("#ab-buttons button")[k]; if (b) b.click(); };
@@ -291,8 +298,14 @@ function showAB() {
   const hide = () => { imgs.forEach(im => { im.removeAttribute("src"); im.style.display = "none"; }); $("ab-ours-cap").textContent = $("ab-ref-cap").textContent = ""; };
   if (!ab) { hide(); $("ab-note").textContent = "(no A/B data: run make tx-ab; the references stay in .local, local only)"; return; }
   if (i < 0) { hide(); $("ab-note").textContent = "(this layer is off)"; return; }
-  const name = S(M._txw_name(i)), e = ab.engines[name];
+  const name = S(M._txw_name(i));
+  let e = ab.engines[name];
   if (!e) { hide(); $("ab-note").textContent = "(not in the A/B data: run make tx-ab again)"; return; }
+  if (name === "source") {                            // the source's page holds the bird candidates: shown for the birds only
+    const pre = srcIds ? srcGet(i === layers[ed].eng ? ed : ed, "PRESET") : 0, pn = SRC_PRESETS[pre] || "";
+    const bird = ["songbird", "chirper", "crow", "owl", "gull"].some(b => pn.includes(b));
+    if (!bird) e = { ...e, refs: [] };
+  }
   if (abSel >= e.refs.length) abSel = 0;
   $("ab-note").textContent = e.refs.length ? `#${e.num} ${name}: ${e.refs.length} reference${e.refs.length > 1 ? "s" : ""}, loudness-matched to ours`
                                            : `#${e.num} ${name}: no reference recordings yet (step 4 brings candidates)`;
@@ -443,7 +456,7 @@ function srcFindIds(k) {                              // the source's parameter 
   const help = S(M._txw_phelp(srcIds.PRESET));           // "the source: 0 rain on water | 1 stone cloud | ..."
   const names = help.slice(help.indexOf(":") + 1).split("|").map(t => t.trim().replace(/^\d+\s+/, ""));
   if (names.length > 1) SRC_PRESETS = names;
-  $("src-pre").textContent = ""; SRC_PRESETS.forEach((t, i) => $("src-pre").add(new Option(`${i} ${t}`, i)));
+  setTimeout(presetGrid, 0);
   M._txw_slot(ed);
 }
 function srcGet(k, name) {
@@ -477,9 +490,10 @@ function showSource() {
   if (!on) { $("src-layer").textContent = laneMode ? `(layer ${ed + 1} is not a source)` : ""; showLanes(); return; }
   srcFindIds(ed);
   $("src-layer").textContent = `(layer ${ed + 1})`;
-  $("src-pre").value = srcGet(ed, "PRESET");
+  gridMark();
   const it = srcGet(ed, "INTENSITY"), pr = srcGet(ed, "PROXIMITY");
   $("src-intens").value = it; $("src-intens-v").textContent = it;
+  $("src-intens").parentElement.style.display = laneMode ? "none" : "";   // (in lane mode the lanes' bars are the fader)
   $("src-prox").value = pr; $("src-prox-v").textContent = pr;
   $("src-run").classList.toggle("primary", srcHeld[ed]);
   showLanes();
@@ -596,6 +610,7 @@ function laneSelect(i) {
   editLayer(i);
   showLanes();
   genPanel();
+  gridMark();
 }
 function laneKey(n) {                                // a black key: pick its lane (tapped again: start / stop it); a white
   const b = BLACKS.indexOf(n), w = WHITES.indexOf(n);   // key: the selected lane's activity, C4 least .. C6 massive
@@ -605,6 +620,10 @@ function laneKey(n) {                                // a black key: pick its la
     laneSelect(b); return;
   }
   if (w < 0) return;
+  laneStep(lane, w);
+}
+function laneStep(k, w) {                             // a lane's activity step (the white keys, the bar)
+  const lane_ = lane; lane = k;
   if (layers[lane].eng < 0) srcLayer(lane, LANE_PRESETS[lane]);
   gen[lane].step = w;
   if (gen[lane].on) genSet(lane, "ACTIVITY", Math.round(w * 127 / 14));
@@ -612,6 +631,7 @@ function laneKey(n) {                                // a black key: pick its la
   else quick[lane].step = w;
   if (!laneRun[lane]) laneStart(lane, true);
   else if (layers[lane].eng !== srcEng) quickTick();
+  lane = lane_;
   showSource();
 }
 function laneStepOf(i) {                              // the fader's setting (with Notes on, the activity wanders around it)
@@ -627,13 +647,23 @@ function showLanes() {                                // the LEDs: the bar on th
   for (let i = 0; i < 4; i++) {
     const kb = document.querySelector(`#kb .key[data-n="${BLACKS[i]}"]`);
     if (kb) { kb.classList.toggle("lane-sel", i === lane); kb.classList.toggle("lane-glow", laneRun[i] && i !== lane); }
-    const d = document.createElement("span");
+    const d = document.createElement("div");
     d.className = "lane" + (i === lane ? " sel" : "") + (laneRun[i] ? " run" : "");
-    const pre = layers[i].eng < 0 ? "–" : layers[i].eng === srcEng && srcIds ? SRC_PRESETS[srcGet(i, "PRESET")]
-      : engName(i) + (QUICK[engName(i)] ? "" : " (no activity map)");
-    d.textContent = `Lane ${i + 1}: ${pre} · ${laneStepOf(i) + 1}/15${laneRun[i] ? "" : " · stopped"}`;
-    d.onclick = () => laneSelect(i);
+    d.dataset.k = i;
+    d.innerHTML = `<span class="lab"></span><span class="abar" title="activity: click or drag (C4 .. C6)"><i class="mk"></i></span>`;
+    const bar = d.querySelector(".abar");
+    for (let w = 0; w < 15; w++) bar.insertAdjacentHTML("beforeend", `<b data-w="${w}"></b>`);
+    d.querySelector(".lab").textContent = laneLabel(i);
+    d.querySelector(".lab").onclick = () => laneSelect(i);
+    const set = ev => {                               // the bar as a fader: the same as the white keys
+      const r = bar.getBoundingClientRect(), w = Math.max(0, Math.min(14, Math.floor((ev.clientX - r.left) / r.width * 15)));
+      if (lane !== i) laneSelect(i);
+      laneStep(i, w);
+    };
+    bar.addEventListener("pointerdown", ev => { ev.preventDefault(); if (!ctx) startAudio(); bar.setPointerCapture(ev.pointerId); set(ev); });
+    bar.addEventListener("pointermove", ev => { if (ev.buttons & 1) set(ev); });
     box.appendChild(d);
+    laneBar(i);
   }
   for (let w = 0, top = laneStepOf(lane); w <= top; w++) {   // the selected lane's bar (shown also while stopped)
     const kw = document.querySelector(`#kb .key[data-n="${WHITES[w]}"]`);
@@ -644,6 +674,7 @@ function setLaneMode(on) {
   allOff();
   laneMode = on;
   buildKeyboard();                                   // lane mode shows C4 .. C6, otherwise the FM-1's F3 .. G5
+  keyLabels();
   $("lanes").checked = on;
   if (on) { for (let i = 2; i >= 0; i--) if (layers[i].eng < 0) srcLayer(i, LANE_PRESETS[i]); laneSelect(lane); }
   else for (let i = 0; i < 4; i++) { if (laneRun[i] || srcHeld[i]) laneStart(i, false); M._txw_gen_on(i, 0, 1); }
@@ -661,8 +692,25 @@ function genPanel() {                                // the selected lane's gene
     slider(box, nm, S(M._txw_gen_phelp(i)), 0, M._txw_gen_pmax(i), genGet(lane, nm), v => genSet(lane, nm, v), false, "gen" + i);
   }
 }
+function laneBar(i) {                                // a lane's activity bar: the set step lit, the generator's activity as a marker
+  const d = document.querySelector(`#lanes-box .lane[data-k="${i}"]`);
+  if (!d) return;
+  const top = laneStepOf(i);
+  d.querySelectorAll(".abar b").forEach(b => b.classList.toggle("on", +b.dataset.w <= top));
+  const mk = d.querySelector(".mk"), a = gen[i].on && laneRun[i] ? genState(i)[0] : -1;
+  mk.style.display = a < 0 ? "none" : "";
+  if (a >= 0) mk.style.left = `${(a / 127) * 100}%`;
+}
+function laneLabel(i) {                              // a lane's row: preset, activity step, running, the governor
+  const pre = layers[i].eng < 0 ? "–" : layers[i].eng === srcEng && srcIds ? SRC_PRESETS[srcGet(i, "PRESET")]
+    : engName(i) + (QUICK[engName(i)] ? "" : " (no activity map)");
+  const gc = M._txw_gov_cur(i), gu = M._txw_gov_user(i);
+  return `Lane ${i + 1}: ${pre} · ${laneStepOf(i) + 1}/15${laneRun[i] ? " · running" : " · stopped"}` +
+    (laneRun[i] && gc < gu ? ` · CPU: ${gc}/${gu} voices` : "");
+}
 function genReadout() {
   if (!laneMode || !$("gen-now")) return;
+  document.querySelectorAll("#lanes-box .lane").forEach(d => { const k = +d.dataset.k; d.querySelector(".lab").textContent = laneLabel(k); d.classList.toggle("run", laneRun[k]); laneBar(k); });
   const st = genState(lane);
   $("gen-now").textContent = gen[lane].on && laneRun[lane]
     ? `lane ${lane + 1}: activity now ${st[0]} (fader ${Math.round(gen[lane].step * 127 / 14)}), pitch centre +${(st[1] / 10).toFixed(1)}, ${st[2]} notes${st[3] > 50 ? `, recalling (${(st[3] / 10).toFixed(0)} %)` : ""}`
@@ -672,14 +720,73 @@ function genReadout() {
   $("gen-now").textContent += cut.length ? ` · CPU governor: heroes ${cut.join(", ")}` : "";
 }
 setInterval(genReadout, 250);
+// the sounds as a grid, grouped by nature: a click sets the selected lane's sound (a SOURCE preset, or a classic engine)
+const GROUPS = [["Water", ["rain on water", "water"]], ["Earth", ["stone cloud", "sand", "gravel", "minerals", "glass", "ice", "wood"]],
+                ["Air", ["wind"]], ["Fire", ["fire"]], ["Insects", ["crickets", "cicadas", "katydids", "bees"]],
+                ["Birds", ["songbird", "chirper", "crow", "owl", "gull"]], ["Classic", ["#thunder", "#surf"]]];
+function presetGrid() {
+  const box = $("src-grid");
+  if (!box || !srcIds) return;
+  box.textContent = "";
+  for (const [g, names] of GROUPS) {
+    const row = document.createElement("div");
+    row.className = "grp";
+    row.insertAdjacentHTML("beforeend", `<span class="small">${g}</span>`);
+    for (const nm of names) {
+      const b = document.createElement("button");
+      b.textContent = nm.replace("#", ""); b.dataset.nm = nm;
+      b.onclick = () => laneSound(lane, nm);
+      row.appendChild(b);
+    }
+    box.appendChild(row);
+  }
+  gridMark();
+}
+function gridMark() {                                  // the selected lane's sound lit
+  const e = layers[lane].eng, cur = e === srcEng && srcIds ? SRC_PRESETS[srcGet(lane, "PRESET")] : e >= 0 ? "#" + engName(lane) : "";
+  document.querySelectorAll("#src-grid button").forEach(b => b.classList.toggle("on", b.dataset.nm === cur));
+}
+function laneSound(k, nm) {
+  if (!ctx) startAudio();
+  if (nm.startsWith("#")) {                            // a classic engine in the lane (a quick lane)
+    let i = -1;
+    for (let q = 0; q < M._txw_count(); q++) if (S(M._txw_name(q)) === nm.slice(1)) i = q;
+    if (i < 0) return;
+    const e = ed; editLayer(k); selectEngine(i); editLayer(e);
+  } else {
+    srcLayer(k);
+    const p = SRC_PRESETS.indexOf(nm);
+    if (p >= 0) srcSet(k, "PRESET", p);
+  }
+  if (laneMode && !laneRun[k]) laneStart(k, true);
+  laneSelect(k);
+  showSource();
+}
+function startLandscape() {                         // three lanes at once: water (step 6), crickets (8), wind (5)
+  if (!ctx) startAudio();
+  if (!laneMode) setLaneMode(true);
+  const plan = [[0, "water", 6], [1, "crickets", 8], [2, "wind", 5]];
+  for (const [k, name, step] of plan) {
+    srcLayer(k);
+    const pre = SRC_PRESETS.findIndex(t => t === name);
+    if (pre >= 0) srcSet(k, "PRESET", pre);
+    gen[k].step = step - 1;
+    genSet(k, "ACTIVITY", Math.round((step - 1) * 127 / 14));
+    srcSet(k, "INTENSITY", Math.round((step - 1) * 127 / 14));
+    if (laneRun[k]) laneStart(k, false);
+    laneStart(k, true);
+  }
+  laneSelect(0);
+  showSource();
+}
 function srcInit() {
   for (let i = 0; i < M._txw_count(); i++) if (S(M._txw_name(i)) === "source") srcEng = i;
   if (srcEng < 0) return;
-  $("src-pre").onchange = () => { srcSet(ed, "PRESET", +$("src-pre").value); showSource(); };
   $("src-intens").oninput = () => { $("src-intens-v").textContent = $("src-intens").value; srcSet(ed, "INTENSITY", +$("src-intens").value); };
   $("src-prox").oninput = () => { $("src-prox-v").textContent = $("src-prox").value; srcSet(ed, "PROXIMITY", +$("src-prox").value); };
   $("src-run").onclick = () => { if (!ctx) startAudio(); srcHold(ed, !srcHeld[ed]); if (laneMode) laneRun[ed] = srcHeld[ed]; showSource(); };
   $("lanes").onchange = () => { if (!ctx) startAudio(); setLaneMode($("lanes").checked); };
+  $("landscape").onclick = startLandscape;
   $("gen-on").onchange = () => { gen[lane].on = $("gen-on").checked; genRun(lane); showSource(); };
   showSource();
 }
