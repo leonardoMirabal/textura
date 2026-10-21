@@ -125,6 +125,8 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
         pw += (int32_t)(((int64_t)(pr - pw) * g->g) >> 15);
     }
     g->a = clamp32(aw, 0, 127 << 8);
+    if (pw < 0) pw = -pw;                                    /* a soft edge: the centre reflects, never sticks */
+    if (pw > (span << 8)) pw = 2 * (span << 8) - pw;
     g->pc = clamp32(pw, 0, span << 8);
     *intensity = g->intensity = (uint8_t)(g->a >> 8);
     /* once a second: record; at decision times, perhaps recall */

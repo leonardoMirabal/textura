@@ -283,8 +283,8 @@ static int32_t act_idx(const src_t *s) { return clampi(s->i_eff + knob(s, P_ACT)
 #define WATER_ON (36 << 8)
 #define WATER_OFF ((8u * sizeof(voice_t) + 63u) & ~63u)   /* the stream's state, after the drops' 8 heroes */
 static const int32_t WATER_AT[4] = { 36 << 8, 64 << 8, 100 << 8, 127 << 8 };
-static const int32_t WATER_G[4] = { -360, -100, -60, -40 };
-static const int32_t WATER_C[HOST_NC][4] = { {0, 30, 100, 127}, {0, 0, 40, 110}, {20, 30, 45, 60}, {80, 64, 55, 50},
+static const int32_t WATER_G[4] = { -360, -100, -100, -150 };
+static const int32_t WATER_C[HOST_NC][4] = { {0, 30, 100, 127}, {0, 0, 40, 80}, {20, 30, 45, 60}, {80, 64, 55, 50},
                                              {80, 64, 55, 45} };
 /* piecewise linear over the points at[0..3] (32-bit: the fraction first, Q8) */
 static int32_t pw4(const int32_t *at, const int32_t *y, int32_t x)
@@ -446,12 +446,12 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
 static void wdrop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsigned pre, int32_t trim)
 {
     tx_rng_t *r = &s->rng;
-    int32_t r_l2 = near ? dist_l2(s) - 65536 : tx_place_draw(r, dist_l2(s), depth_l2(s));
+    int32_t r_l2 = near ? dist_l2(s) : tx_place_draw(r, dist_l2(s), depth_l2(s));   /* (a press, or a lane's note: at the place) */
     int32_t g = (int32_t)(((int64_t)tx_place_gain_q12(r_l2) * trim) >> 12), lu, a_l2, rel, amp, sp, c;
     uint32_t wait, u_q8, p_bub;
     int32_t hi = clampi(s->i_eff - (64 << 8), 0, 63 << 8);  /* above the middle: a trickle, then a stream */
     /* the fall: U / U_ref log-normal, sd ~0.6 octave (the references' level spread 6-11 dB), velocity for a press */
-    lu = near ? ((vel - 100) * 1638) : (int32_t)(((int64_t)gauss(s) * 39322) >> 12);
+    lu = near ? ((vel - 100) * 1024) + (int32_t)(((int64_t)gauss(s) * 13107) >> 12) : (int32_t)(((int64_t)gauss(s) * 39322) >> 12);
     lu = clampi(lu, -(3 << 16), 3 << 16);
     u_q8 = tx_exp2(lu + 549325);                            /* U_ref 1.29 m/s: log2(330) = 8.366 Q16 */
     /* the click: level ~ U^2, a soft impact (one-pole) */
