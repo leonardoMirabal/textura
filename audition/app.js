@@ -68,6 +68,7 @@ async function init() {
   buildChamber();
   buildKeyboard();
   octave(0);
+  srcInit();
   $("velv").textContent = $("vel").value;
   await loadCalib();
   await loadAB();
@@ -89,6 +90,12 @@ async function init() {
   window.txTest.ratings = () => JSON.parse(JSON.stringify(ratings));
   window.txTest.ab = () => ({ loaded: !!ab, buttons: document.querySelectorAll("#ab-buttons button").length,
                               playing: abNow ? abNow.label : null, ours: $("ab-ours").currentSrc, ref: $("ab-ref").currentSrc });
+  window.txTest.src = () => ({ eng: srcEng, panel: !$("src-panel").hidden, laneMode, lane, run: [...laneRun], step: [...laneStep],
+                               held: [...srcHeld], intens: [0, 1, 2, 3].map(k => layers[k].eng === srcEng && srcIds ? srcGet(k, "INTENSITY") : -1),
+                               lit: [...document.querySelectorAll("#kb .key.lane-bar")].length,
+                               sel: [...document.querySelectorAll("#kb .key.lane-sel")].map(k => +k.dataset.n),
+                               glow: [...document.querySelectorAll("#kb .key.lane-glow")].map(k => +k.dataset.n) });
+  window.txTest.setLaneMode = setLaneMode;
   window.txTest.abPlay = k => { const b = document.querySelectorAll("#ab-buttons button")[k]; if (b) b.click(); };
   status("Ready. Press Start sound, then play.");
   requestAnimationFrame(meters);
@@ -329,15 +336,17 @@ function editLayer(k) {
 function buildSliders() {                            // the edited layer's sliders, at the values it has now
   const box = $("sliders"), L = layers[ed], i = L.eng;
   box.textContent = "";
-  if (i < 0) { $("params-title").textContent = `Parameters: layer ${ed + 1} is off (pick an engine above)`; return; }
+  if (i < 0) { $("params-title").textContent = `Parameters: layer ${ed + 1} is off (pick an engine above)`; if (srcEng >= 0) showSource(); return; }
   $("params-title").textContent = `Parameters: layer ${ed + 1}, ${S(M._txw_name(i))} (state ${M._txw_state_bytes(i)} B)`;
   const v = (id, d) => (id in L.vals ? L.vals[id] : d);
   const set = (id, f) => x => { L.vals[id] = x; f(x); };
   for (let p = 0; p < M._txw_nparams(); p++)
-    slider(box, S(M._txw_pname(p)), S(M._txw_phelp(p)), 0, M._txw_pmax(p), v(p, M._txw_pdef(p)), set(p, x => M._txw_param(p, x)), false, p);
+    slider(box, S(M._txw_pname(p)), S(M._txw_phelp(p)), 0, M._txw_pmax(p), v(p, M._txw_pdef(p)),
+           set(p, x => { M._txw_param(p, x); if (i === srcEng) showSource(); }), false, p);
   slider(box, "PARTICLES", "shared: the hero-pool limit (density against CPU)", 1, M._txw_particles_max(),
          v(-1, M._txw_particles_def()), set(-1, x => M._txw_param(-1, x)), true, -1);
   slider(box, "LEVEL", "shared: this layer's level, 100 = unity", 0, 127, v(-2, 100), set(-2, x => M._txw_param(-2, x)), true, -2);
+  if (srcEng >= 0) showSource();
 }
 
 // ---- the four layer rows: name, engine, pan, key zone, CPU share and level
@@ -410,9 +419,126 @@ function setSlider(id, val) {                         // from MIDI CC (the edite
   inp.oninput();
 }
 
+// ---- SOURCE (engine "source"): its preset, morph and INTENSITY in a panel of their own; and LANE MODE, the keyboard
+// as planned for the FM-1: the black keys pick a lane (a layer running the source), the 16 white keys F3 .. G5 are
+// that lane's INTENSITY fader (the lowest stops it), the keys light up as the bar.
+const SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];
+const LANE_PRESETS = [0, 2, 3, 1];                   // a new lane's preset: rain, cicadas, water drops, stones
+const BLACKS = [], WHITES = [];
+for (let n = KEY_LO; n <= KEY_HI; n++) ([1, 3, 6, 8, 10].includes(n % 12) ? BLACKS : WHITES).push(n);
+let srcEng = -1, srcIds = null, laneMode = false, lane = 0;
+const laneRun = [false, false, false, false], laneStep = [0, 0, 0, 0], srcHeld = [false, false, false, false];
+function srcFindIds(k) {                              // the source's parameter ids by name (read through layer k)
+  if (srcIds) return;
+  M._txw_slot(k);
+  srcIds = {};
+  for (let p = 0; p < M._txw_nparams(); p++) srcIds[S(M._txw_pname(p))] = p;
+  M._txw_slot(ed);
+}
+function srcGet(k, name) {
+  const id = srcIds[name], L = layers[k];
+  if (id in L.vals) return L.vals[id];
+  M._txw_slot(k); const d = M._txw_pdef(id); M._txw_slot(ed);
+  return d;
+}
+function srcSet(k, name, v) {                         // a source parameter of layer k, the sliders kept in step
+  const id = srcIds[name];
+  M._txw_slot(k); M._txw_param(id, v); M._txw_slot(ed);
+  layers[k].vals[id] = v;
+  if (k === ed) {
+    const inp = document.querySelector(`#sliders input[data-id="${id}"]`);
+    if (inp) { inp.value = v; inp.previousElementSibling.querySelector("span:last-child").textContent = v; }
+  }
+}
+function srcHold(k, on) {                             // the source running without a held key (Run, a lane)
+  if (srcHeld[k] === on) return;
+  srcHeld[k] = on;
+  M._txw_key_slot(k, 60, on ? 100 : 0, on ? 1 : 0);
+}
+function srcLayer(k, preset) {                        // put the source on layer k (if it is not there yet)
+  if (layers[k].eng !== srcEng) { const e = ed; editLayer(k); selectEngine(srcEng); srcHeld[k] = false; editLayer(e); }
+  srcFindIds(k);
+  if (preset !== undefined) srcSet(k, "PRESET", preset);
+}
+function showSource() {
+  const on = layers[ed].eng === srcEng;
+  $("src-panel").hidden = !on && !laneMode;
+  if (!on) { $("src-layer").textContent = laneMode ? `(layer ${ed + 1} is not a source)` : ""; showLanes(); return; }
+  srcFindIds(ed);
+  $("src-layer").textContent = `(layer ${ed + 1})`;
+  $("src-pre").value = srcGet(ed, "PRESET");
+  $("src-to").value = srcGet(ed, "MORPHTO");
+  const it = srcGet(ed, "INTENSITY"), mo = srcGet(ed, "MORPH");
+  $("src-intens").value = it; $("src-intens-v").textContent = it;
+  $("src-morph").value = mo; $("src-morph-v").textContent = mo;
+  $("src-run").classList.toggle("primary", srcHeld[ed]);
+  showLanes();
+}
+function laneSelect(i) {
+  if (i < 0 || i > 3) return;
+  lane = i;
+  srcLayer(i, layers[i].eng === srcEng ? undefined : LANE_PRESETS[i]);
+  editLayer(i);
+  showLanes();
+}
+function laneKey(n) {
+  const b = BLACKS.indexOf(n), w = WHITES.indexOf(n);
+  if (b >= 0) { laneSelect(b); return; }
+  if (w < 0) return;
+  srcLayer(lane, layers[lane].eng === srcEng ? undefined : LANE_PRESETS[lane]);
+  laneStep[lane] = w;
+  if (w === 0) { laneRun[lane] = false; srcHold(lane, false); }
+  else {
+    srcSet(lane, "INTENSITY", Math.round((w - 1) * 127 / 14));
+    laneRun[lane] = true; srcHold(lane, true);
+  }
+  showSource();
+}
+function showLanes() {                                // the LEDs: the bar on the white keys, the lanes on the black ones
+  document.querySelectorAll("#kb .key").forEach(k => k.classList.remove("lane-sel", "lane-glow", "lane-bar"));
+  const box = $("lanes-box");
+  box.textContent = "";
+  if (!laneMode) return;
+  for (let i = 0; i < 4; i++) {
+    const kb = document.querySelector(`#kb .key[data-n="${BLACKS[i]}"]`);
+    if (kb) { kb.classList.toggle("lane-sel", i === lane); kb.classList.toggle("lane-glow", laneRun[i] && i !== lane); }
+    const d = document.createElement("span");
+    d.className = "lane" + (i === lane ? " sel" : "") + (laneRun[i] ? " run" : "");
+    const pre = layers[i].eng === srcEng && srcIds ? SRC_PRESETS[srcGet(i, "PRESET")] : "–";
+    d.textContent = `Lane ${i + 1}: ${pre}${laneRun[i] ? ` · ${laneStep[i]}/15` : " · stopped"}`;
+    d.onclick = () => laneSelect(i);
+    box.appendChild(d);
+  }
+  if (laneRun[lane]) for (let w = 1; w <= laneStep[lane]; w++) {
+    const kw = document.querySelector(`#kb .key[data-n="${WHITES[w]}"]`);
+    if (kw) kw.classList.add("lane-bar");
+  }
+}
+function setLaneMode(on) {
+  allOff();
+  laneMode = on;
+  $("lanes").checked = on;
+  if (on) { for (let i = 2; i >= 0; i--) srcLayer(i, layers[i].eng === srcEng ? undefined : LANE_PRESETS[i]); laneSelect(lane); }
+  else for (let i = 0; i < 4; i++) { if (laneRun[i]) { laneRun[i] = false; srcHold(i, false); } }
+  showSource();
+}
+function srcInit() {
+  for (let i = 0; i < M._txw_count(); i++) if (S(M._txw_name(i)) === "source") srcEng = i;
+  if (srcEng < 0) return;
+  for (const id of ["src-pre", "src-to"]) SRC_PRESETS.forEach((t, i) => $(id).add(new Option(`${i} ${t}`, i)));
+  $("src-pre").onchange = () => { srcSet(ed, "PRESET", +$("src-pre").value); showSource(); };
+  $("src-to").onchange = () => { srcSet(ed, "MORPHTO", +$("src-to").value); showSource(); };
+  $("src-intens").oninput = () => { $("src-intens-v").textContent = $("src-intens").value; srcSet(ed, "INTENSITY", +$("src-intens").value); };
+  $("src-morph").oninput = () => { $("src-morph-v").textContent = $("src-morph").value; srcSet(ed, "MORPH", +$("src-morph").value); };
+  $("src-run").onclick = () => { if (!ctx) startAudio(); srcHold(ed, !srcHeld[ed]); if (laneMode) laneRun[ed] = srcHeld[ed]; showSource(); };
+  $("lanes").onchange = () => { if (!ctx) startAudio(); setLaneMode($("lanes").checked); };
+  showSource();
+}
+
 // ---- notes (several sources may hold the same note)
 function noteOn(n, vel) {                            // to every layer on (shared) or whose zone holds the note
   if (!M || n < 0 || n > 127) return;
+  if (laneMode) { if (n >= KEY_LO && n <= KEY_HI) laneKey(n); return; }   // lane mode: the keys are the lanes' faders
   const h = down.get(n) || { c: 0, to: [], vel: 100 };
   h.vel = Math.max(1, Math.min(127, vel));
   if (!h.c) h.to = [0, 1, 2, 3].filter(k => layers[k].eng >= 0 && (keyMode === "shared" || (n >= layers[k].lo && n <= layers[k].hi)));
@@ -422,6 +548,7 @@ function noteOn(n, vel) {                            // to every layer on (share
   lightKey(n, true);
 }
 function noteOff(n) {
+  if (laneMode && !down.has(n)) return;
   const h = down.get(n);
   if (!h) return;
   if (h.c > 1) { h.c--; return; }
@@ -456,6 +583,7 @@ document.addEventListener("keydown", e => {
     if (!e.repeat || c.startsWith("Arrow")) stepEngine(c === "BracketLeft" || c === "Minus" || c === "ArrowLeft" ? -1 : 1);
     return;
   }
+  if (laneMode && /^Digit[1-4]$/.test(c)) { e.preventDefault(); if (!e.repeat) laneSelect(+c.slice(5) - 1); return; }
   const n = codeNote(c);
   if (n < 0) return;
   e.preventDefault();                                 // also stops a focused select's type-ahead

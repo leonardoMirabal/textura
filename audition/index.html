@@ -43,6 +43,15 @@
   .key.w { background: var(--key); height: 118px; z-index: 1; }
   .key.b { background: var(--keyb); height: 72px; z-index: 2; border-color: var(--keyb); }
   .key.on { background: var(--lit) !important; }
+  .key.lane-sel { background: var(--accent) !important; border-color: var(--accent); }
+  .key.lane-glow { box-shadow: inset 0 0 0 3px var(--lit); }
+  .key.w.lane-bar { background: var(--lit); }
+  #src-panel[hidden] { display: none; }
+  #src-intens { width: 100%; accent-color: var(--accent); height: 28px; }
+  .src-big { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  #lanes-box .lane { display: inline-block; min-width: 150px; margin: 4px 10px 0 0; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; }
+  #lanes-box .lane.sel { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  #lanes-box .lane.run { color: var(--accent); font-weight: 600; }
   .key span { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 10px; color: #777; }
   .key .lt { position: absolute; left: 0; right: 0; text-align: center; font-style: normal; font-weight: 700; font-size: 13px; }
   .key.w .lt { bottom: 20px; color: #444; } .key.b .lt { bottom: 6px; color: #ddd; }
@@ -116,6 +125,31 @@
     </div>
     <div class="eng-big"><span id="eng-num">1</span><span id="eng-name">–</span></div>
     <div class="small" id="eng-title"></div>
+  </section>
+
+  <section class="panel" id="src-panel" hidden>
+    <h2>SOURCE <span class="small" id="src-layer"></span></h2>
+    <div class="row">
+      <label>Preset <select id="src-pre"></select></label>
+      <label>Morph to <select id="src-to"></select></label>
+      <button id="src-run" title="keep the source going without holding a key">Run</button>
+      <label><input type="checkbox" id="lanes"> Lane mode</label>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <span class="small" style="min-width:80px">INTENSITY</span>
+      <input type="range" id="src-intens" min="0" max="127" value="64" aria-label="intensity" style="flex:1">
+      <span class="src-big" id="src-intens-v">64</span>
+    </div>
+    <div class="row" style="margin-top:4px">
+      <span class="small" style="min-width:80px">MORPH</span>
+      <input type="range" id="src-morph" min="0" max="127" value="0" aria-label="morph" style="flex:1; accent-color: var(--accent)">
+      <span class="src-big" id="src-morph-v">0</span>
+    </div>
+    <div id="lanes-box"></div>
+    <div class="hint">Lane mode, as planned for the FM-1: the <b>black keys</b> pick a lane (here the first four; or the number keys <kbd>1</kbd>–<kbd>4</kbd>),
+      the <b>white keys</b> F3 … G5 are the lane's INTENSITY fader in 16 steps (the lowest stops it); the keys light up as the
+      bar, the chosen lane's black key is lit and the running lanes' black keys glow. The computer letters play the keys under
+      them (<kbd>Z</kbd> <kbd>X</kbd> shift the octave to reach F3 … G5).</div>
   </section>
 
   <section class="panel" id="ab-panel">

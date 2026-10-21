@@ -248,6 +248,31 @@ def main():
         time.sleep(0.5)
         lit = page.eval_on_selector_all("#kb .key.on", "k => k.length")
         check(lit == 0, "all keys released")
+        # SOURCE: its panel, and lane mode (black keys pick a lane, white keys F3 .. G5 its INTENSITY, the keys lit)
+        names = page.evaluate("() => [...Array(Module._txw_count()).keys()].map(i => Module.UTF8ToString(Module._txw_name(i)))")
+        if "source" in names:
+            page.evaluate(f"(() => {{ window.txTest.editLayer(0); window.txTest.selectEngine({names.index('source')}); }})()")
+            check(page.evaluate("window.txTest.src()")["panel"], "SOURCE panel shown for the source engine")
+            page.click("#lanes")
+            key = lambda n: page.click(f'#kb .key[data-n="{n}"]')
+            key(54); key(67)                                 # F#3: lane 1; G4 (white step 8): INTENSITY 64, running
+            st = page.evaluate("window.txTest.src()")
+            check(st["laneMode"] and st["lane"] == 0 and st["run"][0] and st["step"][0] == 8 and st["intens"][0] == 64
+                  and st["lit"] == 8 and st["sel"] == [54], f"lane mode: lane 1 at step 8 = INTENSITY {st['intens'][0]}, {st['lit']} keys lit, selected {st['sel']}")
+            key(56); key(69)                                 # G#3: lane 2; A4: step 9; lane 1 keeps running and glows
+            st = page.evaluate("window.txTest.src()")
+            check(st["lane"] == 1 and st["run"][0] and st["run"][1] and st["glow"] == [54] and st["sel"] == [56],
+                  f"lane mode: lane 2 running beside lane 1 (selected {st['sel']}, glowing {st['glow']})")
+            time.sleep(1.0)
+            pk = page.evaluate("window.txTest.render(64)")
+            check(pk > 0, f"lane mode: two lanes sound (peak {pk})")
+            page.screenshot(path=os.path.join(OUT, "lanes.png"), full_page=True)
+            key(53)                                          # F3: step 0 stops lane 2
+            st = page.evaluate("window.txTest.src()")
+            check(not st["run"][1] and st["run"][0] and st["lit"] == 0 and st["held"][1] is False, "lane mode: the lowest white key stops the lane")
+            page.click("#lanes")
+            st = page.evaluate("window.txTest.src()")
+            check(not st["laneMode"] and not any(st["run"]) and not any(st["held"]), "lane mode off: every lane stopped")
         if os.path.exists(os.path.join(SITE, "ab", "manifest.json")):   # A/B (make tx-ab: local data, references)
             names = page.evaluate("() => [...Array(Module._txw_count()).keys()].map(i => Module.UTF8ToString(Module._txw_name(i)))")
             page.evaluate("window.txTest.editLayer(0)")
