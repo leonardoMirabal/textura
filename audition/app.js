@@ -97,6 +97,7 @@ async function init() {
                                sel: [...document.querySelectorAll("#kb .key.lane-sel")].map(k => +k.dataset.n),
                                glow: [...document.querySelectorAll("#kb .key.lane-glow")].map(k => +k.dataset.n) });
   window.txTest.setLaneMode = setLaneMode;
+  window.txTest.gen = k => ({ on: gen[k].on, state: genState(k), step: gen[k].step });
   window.txTest.abPlay = k => { const b = document.querySelectorAll("#ab-buttons button")[k]; if (b) b.click(); };
   status("Ready. Press Start sound, then play.");
   requestAnimationFrame(meters);
@@ -538,6 +539,7 @@ function quickTargets(k) {                            // the parameter values fo
 function quickTick() {                                // ~20 / s: the running quick lanes glide toward their step (~1 s)
   for (let k = 0; k < 4; k++) {
     if (!laneMode || !laneRun[k] || layers[k].eng < 0 || layers[k].eng === srcEng) continue;
+    if (gen[k].on) quick[k].step = genState(k)[0] * 14 / 127;   // the generator's wandering activity
     const t = quickTargets(k), c = quick[k].cur;
     for (const name in t) {
       const now = name in c ? c[name] : t[name], nx = Math.abs(t[name] - now) < 0.5 ? t[name] : now + (t[name] - now) * 0.15;
@@ -558,9 +560,28 @@ function quickPress(k) {                              // a one-shot engine's nex
   const [a, b] = q.every, mean = a * Math.pow(b / a, quick[k].step / 14);
   quick[k].timer = setTimeout(() => quickPress(k), Math.max(150, -Math.log(1 - Math.random()) * mean * 1000));
 }
+// THE LANE GENERATOR (tx_core_gen, in tx_web.c): when a lane's Notes are on, it sets the source's INTENSITY along a
+// wandering, remembering trajectory around the fader and presses pitched notes; for an old engine the quick mapping
+// follows its activity. The fader (the white keys) is its ACTIVITY.
+const gen = [0, 1, 2, 3].map(() => ({ on: true, step: 7, vals: {} }));
+let genIds = null;
+function genFindIds() {
+  if (genIds) return;
+  genIds = {};
+  for (let i = 0; i < M._txw_gen_n(); i++) genIds[S(M._txw_gen_pname(i))] = i;
+}
+function genSet(k, name, v) { genFindIds(); gen[k].vals[name] = v; M._txw_gen_param(k, genIds[name], v); }
+function genGet(k, name) { genFindIds(); return name in gen[k].vals ? gen[k].vals[name] : M._txw_gen_pdef(genIds[name]); }
+function genState(k) { const p = M._txw_gen_state(k) >> 2; return Array.from(M.HEAP32.subarray(p, p + 5)); }
+function genRun(k) {                                  // the generator follows the lane: on while it runs with Notes on
+  const seed = new Uint32Array(1); crypto.getRandomValues(seed);
+  genSet(k, "ACTIVITY", Math.round(gen[k].step * 127 / 14));
+  M._txw_gen_on(k, laneMode && laneRun[k] && gen[k].on ? 1 : 0, seed[0] || 1);
+}
 function laneStart(k, on) {                           // a lane plays on its own: the source or a held engine held, a one-shot re-pressed
   clearTimeout(quick[k].timer); quick[k].timer = 0;
   laneRun[k] = on;
+  genRun(k);
   const q = QUICK[engName(k)];
   if (q && q.every && layers[k].eng !== srcEng) { srcHold(k, false); if (on) quickPress(k); }
   else srcHold(k, on);
@@ -572,6 +593,7 @@ function laneSelect(i) {
   if (layers[i].eng < 0) srcLayer(i, LANE_PRESETS[i]);   // an empty lane gets the source; any engine can be put there
   editLayer(i);
   showLanes();
+  genPanel();
 }
 function laneKey(n) {                                // a black key: pick its lane (tapped again: start / stop it); a white
   const b = BLACKS.indexOf(n), w = WHITES.indexOf(n);   // key: the selected lane's activity, C4 least .. C6 massive
@@ -582,13 +604,16 @@ function laneKey(n) {                                // a black key: pick its la
   }
   if (w < 0) return;
   if (layers[lane].eng < 0) srcLayer(lane, LANE_PRESETS[lane]);
-  if (layers[lane].eng === srcEng) { srcFindIds(lane); srcSet(lane, "INTENSITY", Math.round(w * 127 / 14)); }
+  gen[lane].step = w;
+  if (gen[lane].on) genSet(lane, "ACTIVITY", Math.round(w * 127 / 14));
+  if (layers[lane].eng === srcEng) { srcFindIds(lane); if (!gen[lane].on) srcSet(lane, "INTENSITY", Math.round(w * 127 / 14)); }
   else quick[lane].step = w;
   if (!laneRun[lane]) laneStart(lane, true);
   else if (layers[lane].eng !== srcEng) quickTick();
   showSource();
 }
-function laneStepOf(i) {
+function laneStepOf(i) {                              // the fader's setting (with Notes on, the activity wanders around it)
+  if (gen[i].on) return gen[i].step;
   if (layers[i].eng === srcEng) return srcIds ? Math.round(srcGet(i, "INTENSITY") * 14 / 127) : 0;
   return quick[i].step;
 }
@@ -619,9 +644,29 @@ function setLaneMode(on) {
   buildKeyboard();                                   // lane mode shows C4 .. C6, otherwise the FM-1's F3 .. G5
   $("lanes").checked = on;
   if (on) { for (let i = 2; i >= 0; i--) if (layers[i].eng < 0) srcLayer(i, LANE_PRESETS[i]); laneSelect(lane); }
-  else for (let i = 0; i < 4; i++) { if (laneRun[i] || srcHeld[i]) laneStart(i, false); }
+  else for (let i = 0; i < 4; i++) { if (laneRun[i] || srcHeld[i]) laneStart(i, false); M._txw_gen_on(i, 0, 1); }
   showSource();
 }
+function genPanel() {                                // the selected lane's generator: Notes on / off, its knobs, a live readout
+  const box = $("gen-sliders");
+  if (!box) return;
+  genFindIds();
+  box.textContent = "";
+  $("gen-on").checked = gen[lane].on;
+  for (let i = 0; i < M._txw_gen_n(); i++) {
+    const nm = S(M._txw_gen_pname(i));
+    if (nm === "ACTIVITY") continue;                 // (the fader)
+    slider(box, nm, S(M._txw_gen_phelp(i)), 0, M._txw_gen_pmax(i), genGet(lane, nm), v => genSet(lane, nm, v), false, "gen" + i);
+  }
+}
+function genReadout() {
+  if (!laneMode || !$("gen-now")) return;
+  const st = genState(lane);
+  $("gen-now").textContent = gen[lane].on && laneRun[lane]
+    ? `lane ${lane + 1}: activity now ${st[0]} (fader ${Math.round(gen[lane].step * 127 / 14)}), pitch centre +${(st[1] / 10).toFixed(1)}, ${st[2]} notes${st[3] > 50 ? `, recalling (${(st[3] / 10).toFixed(0)} %)` : ""}`
+    : `lane ${lane + 1}: ${laneRun[lane] ? "notes off" : "stopped"}`;
+}
+setInterval(genReadout, 250);
 function srcInit() {
   for (let i = 0; i < M._txw_count(); i++) if (S(M._txw_name(i)) === "source") srcEng = i;
   if (srcEng < 0) return;
@@ -630,6 +675,7 @@ function srcInit() {
   $("src-prox").oninput = () => { $("src-prox-v").textContent = $("src-prox").value; srcSet(ed, "PROXIMITY", +$("src-prox").value); };
   $("src-run").onclick = () => { if (!ctx) startAudio(); srcHold(ed, !srcHeld[ed]); if (laneMode) laneRun[ed] = srcHeld[ed]; showSource(); };
   $("lanes").onchange = () => { if (!ctx) startAudio(); setLaneMode($("lanes").checked); };
+  $("gen-on").onchange = () => { gen[lane].on = $("gen-on").checked; genRun(lane); showSource(); };
   showSource();
 }
 

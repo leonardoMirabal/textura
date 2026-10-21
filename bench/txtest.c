@@ -29,6 +29,7 @@
 #include "tx_core_noise.h"
 #include "tx_core_limit.h"
 #include "tx_core_mix.h"
+#include "tx_core_gen.h"
 
 #define BASELINE "bench/baselines/renders.sha256"
 static int fails;
@@ -555,6 +556,63 @@ static void check_noise_core(void)
     verdict("noise", "stable", !bad, msg, 0);
 }
 
+/* ---- GEN: the lane generator, 10 minutes alone at EVOLVE 2 h and at 10 s, twice each: deterministic, the activity
+ * inside 0 .. 127 and wandering (every minute moves), notes bounded (at most 40 in a second), pitches inside the span,
+ * sounding notes released (txgen runs the long version through a source) */
+static void check_gen(void)
+{
+    static const uint8_t EV[2] = {127, 0};
+    unsigned c;
+    for (c = 0; c < 2; c++) {
+        tx_sha256_t h[2];
+        char hx[2][65], msg[220];
+        uint32_t still = 0, maxn = 0, bad_pitch = 0, notes = 0, on = 0, mute = 0, worst_mute = 0;
+        int32_t amin = 1 << 30, amax = -1;
+        unsigned run;
+        for (run = 0; run < 2; run++) {
+            tx_gen_t *g = malloc(sizeof *g);
+            uint32_t b, nb = 600u * TX_FS / TX_BLOCK, secn = 0, sample = 0;
+            int32_t mlo = 1 << 30, mhi = -1;
+            tx_sha256_init(&h[run]);
+            tx_gen_init(g, 9);
+            tx_gen_param(g, TX_GEN_EVOLVE, EV[c]);
+            tx_gen_param(g, TX_GEN_RANDOM, 100);
+            for (b = 0; b < nb; b++) {
+                tx_gen_ev_t ev[TX_GEN_EV_MAX];
+                uint8_t in;
+                unsigned ne = tx_gen_block(g, TX_BLOCK, ev, TX_GEN_EV_MAX, &in), k;
+                tx_sha256_add(&h[run], ev, ne * sizeof ev[0]);
+                tx_sha256_add(&h[run], &in, 1);
+                for (k = 0; k < ne; k++) {
+                    if (ev[k].vel) { secn++; notes++; on++; if (ev[k].note < 60 || ev[k].note > 72) bad_pitch++; }
+                    else if (on) on--;
+                }
+                if (!run) {
+                    if (in < amin) amin = in;
+                    if (in > amax) amax = in;
+                    if (in < mlo) mlo = in;
+                    if (in > mhi) mhi = in;
+                }
+                sample += TX_BLOCK;
+                if (sample >= TX_FS) {
+                    sample -= TX_FS;
+                    if (secn > maxn) maxn = secn;
+                    if (!run) { if (!secn && in >= 40) { if (++mute > worst_mute) worst_mute = mute; } else if (secn) mute = 0; }
+                    secn = 0;
+                }
+                if (!run && b % (60u * TX_FS / TX_BLOCK) == 60u * TX_FS / TX_BLOCK - 1u) { if (mhi - mlo < 2) still++; mlo = 1 << 30; mhi = -1; }
+            }
+            tx_sha256_hex(&h[run], hx[run]);
+            free(g);
+        }
+        snprintf(msg, sizeof msg, "EVOLVE %u, 10 min: activity %d .. %d, %u still minutes, up to %u notes/s, %u notes (%u off the span),"
+                 " at most %u s without a note (activity >= 40), deterministic %s",
+                 EV[c], amin, amax, still, maxn, notes / 2u, bad_pitch, worst_mute, strcmp(hx[0], hx[1]) ? "NO" : "yes");
+        verdict("gen", "longrun", !strcmp(hx[0], hx[1]) && amin >= 0 && amax <= 127 && amax - amin >= 8 && !still && maxn <= 40
+                && !bad_pitch && worst_mute <= 60, msg, 0);
+    }
+}
+
 /* ---- the source check: no float in engines/ */
 static void strip(char *t)                                   /* comments, strings, chars -> spaces */
 {
@@ -709,6 +767,7 @@ int main(int argc, char **argv)
     check_chamber(update);
     check_layers(update);
     check_noise_core();
+    if (!update) check_gen();
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }
     printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);
     return fails ? 1 : 0;

@@ -10,6 +10,7 @@
 #include "tx_core_chamber.h"
 #include "tx_core_limit.h"
 #include "tx_core_mix.h"
+#include "tx_core_gen.h"
 
 static uint8_t arenas[TX_MIX_SLOTS][2][TX_STATE_MAX] __attribute__((aligned(64)));   /* the four layers, two each: a
                                                                 * new engine starts in one while the old fades in the other */
@@ -32,6 +33,11 @@ static tx_chamber_t chamber, chamber2;                 /* the live CHAMBER (afte
 static int ch_on;
 static uint8_t ch_p[TX_CH_NP];
 static int lim_db10;                                    /* the output limiter's deepest reduction since the last take */
+/* the lanes' generators (tx_core_gen: SOURCE-DESIGN 4f), one per layer: when on, it sets the source's INTENSITY (or,
+ * for an old engine, the player reads its activity) and presses its notes into the layer's engine */
+static tx_gen_t gens[TX_MIX_SLOTS];
+static int gen_on[TX_MIX_SLOTS], gen_ready[TX_MIX_SLOTS];
+static int32_t gen_stat[8];
 
 static void ready(void)                                 /* the mixer, once, before any call that uses it */
 {
@@ -134,6 +140,14 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
             double t0;
             if (!mixer.e[k] && !ret_g[k] && !dc[k]) continue;
             t0 = emscripten_get_now();
+            if (gen_on[k] && mixer.e[k]) {                   /* the lane's generator: its activity and notes */
+                tx_gen_ev_t ev[TX_GEN_EV_MAX];
+                uint8_t in;
+                unsigned ne = tx_gen_block(&gens[k], TX_BLOCK, ev, TX_GEN_EV_MAX, &in), q;
+                int ip = tx_param_find(mixer.e[k], "INTENSITY");
+                if (ip >= 0 && !strcmp(mixer.e[k]->name, "source")) mixer.e[k]->param(mixer.st[k], (uint8_t)ip, in);
+                for (q = 0; q < ne; q++) mixer.e[k]->key(mixer.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
+            }
             tx_mix_slot_render(&mixer, k, TX_BLOCK);
             if (ret_g[k] || dc[k]) {                         /* the switched-out engine's fade, the decaying step */
                 int32_t g = ret_g[k], d = dc[k], last = 0;
@@ -271,4 +285,36 @@ EMSCRIPTEN_KEEPALIVE const char *txw_ch_max_sha(int i)
     for (b = 0; b < s.blocks; b++) { tx_script_step_ch(e, arena2, &chamber2, &s, b, &next, mix); tx_sha256_q23(&h, mix, TX_BLOCK); }
     tx_sha256_hex(&h, hex);
     return hex;
+}
+
+/* ---- the lanes' generators: on / off (off releases its notes), parameters, a live readout */
+EMSCRIPTEN_KEEPALIVE void txw_gen_on(int k, int on, unsigned seed)
+{
+    if (k < 0 || k >= (int)TX_MIX_SLOTS) return;
+    if (!gen_ready[k]) { tx_gen_init(&gens[k], seed ? seed : 1u); gen_ready[k] = 1; }
+    if (!on && gen_on[k] && mixer.e[k]) {
+        tx_gen_ev_t ev[TX_GEN_OFFS];
+        unsigned ne = tx_gen_stop(&gens[k], ev, TX_GEN_OFFS), q;
+        for (q = 0; q < ne; q++) mixer.e[k]->key(mixer.st[k], ev[q].note, 0, 0);
+    }
+    gen_on[k] = on != 0;
+}
+EMSCRIPTEN_KEEPALIVE int txw_gen_n(void) { return TX_GEN_NP; }
+EMSCRIPTEN_KEEPALIVE const char *txw_gen_pname(int i) { return i >= 0 && i < (int)TX_GEN_NP ? tx_gen_params[i].name : ""; }
+EMSCRIPTEN_KEEPALIVE const char *txw_gen_phelp(int i) { return i >= 0 && i < (int)TX_GEN_NP ? tx_gen_params[i].help : ""; }
+EMSCRIPTEN_KEEPALIVE int txw_gen_pmax(int i) { return i >= 0 && i < (int)TX_GEN_NP ? tx_gen_params[i].max : 0; }
+EMSCRIPTEN_KEEPALIVE int txw_gen_pdef(int i) { return i >= 0 && i < (int)TX_GEN_NP ? tx_gen_params[i].def : 0; }
+EMSCRIPTEN_KEEPALIVE void txw_gen_param(int k, int i, int v)
+{
+    if (k < 0 || k >= (int)TX_MIX_SLOTS) return;
+    if (!gen_ready[k]) { tx_gen_init(&gens[k], 1u + (unsigned)k); gen_ready[k] = 1; }
+    tx_gen_param(&gens[k], (unsigned)i, (unsigned)(v < 0 ? 0 : v));
+}
+/* activity now (knob), pitch centre (semitones x 10), notes since start, recall weight (x 1000), on */
+EMSCRIPTEN_KEEPALIVE int32_t *txw_gen_state(int k)
+{
+    if (k < 0 || k >= (int)TX_MIX_SLOTS) return gen_stat;
+    gen_stat[0] = gens[k].a >> 8; gen_stat[1] = (gens[k].pc * 10) >> 8; gen_stat[2] = (int32_t)gens[k].notes;
+    gen_stat[3] = (gens[k].g * 1000) >> 15; gen_stat[4] = gen_on[k];
+    return gen_stat;
 }

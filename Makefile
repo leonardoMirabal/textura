@@ -12,6 +12,8 @@
 #   make tx-ab         the player's A/B data: ours vs the local reference recordings (.local/reference), loudness-
 #                      matched, with spectrograms -> build/audition/ab/ (local only, never committed)
 #   make tx-baseline   rewrite bench/baselines/renders.sha256 (after a reviewed sound change)
+#   make tx-gen        the lane generator's long run: 30 min (MIN=...) of the water lane at EVOLVE 2 h, fast, with its
+#                      checks (no stuck state, no runaway) -> build/gen/longrun.csv and a plot build/gen/longrun.png
 #   make tx-tables     regenerate engines/tx_tables.[ch]
 #   make tx-size       code size of each engines/ object (host arm64 -Os, a rough proxy for the device)
 CC       ?= cc
@@ -27,7 +29,7 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-.PHONY: tx-test tx-render tx-bench tx-calib tx-player tx-player-check tx-ab tx-baseline tx-tables tx-size tx-libcalls tx-clean
+.PHONY: tx-gen tx-test tx-render tx-bench tx-calib tx-player tx-player-check tx-ab tx-baseline tx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -40,6 +42,14 @@ $(B)/txtest: bench/txtest.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 $(B)/txbench: bench/txbench.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
 	$(CC) $(CSTD) -O2 -o $@ bench/txbench.c $(HOST_SRC) $(ENG_SRC) -lm
+
+$(B)/txgen: bench/txgen.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
+	@mkdir -p $(B)
+	$(CC) $(CSTD) -O2 -o $@ bench/txgen.c $(HOST_SRC) $(ENG_SRC) -lm
+
+tx-gen: $(B)/txgen
+	$(B)/txgen $(or $(MIN),30) 3 127 -o build/gen/longrun.csv
+	.local/venv/bin/python bench/txgen_plot.py build/gen/longrun.csv build/gen/longrun.png
 
 $(B)/gen_tables: bench/gen_tables.c
 	@mkdir -p $(B)

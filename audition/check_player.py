@@ -264,8 +264,9 @@ def main():
             check(kr == [60, 84], f"lane mode: the keyboard shows C4 .. C6 ({kr})")
             key(61); key(74)                                 # C#4: lane 1; D5 (white step 9 of 15): INTENSITY 73, running
             st = page.evaluate("window.txTest.src()")
-            check(st["laneMode"] and st["lane"] == 0 and st["run"][0] and st["held"][0] and st["step"][0] == 8 and st["intens"][0] == 73
-                  and st["lit"] == 9 and st["sel"] == [61], f"lane mode: lane 1 at step 9 = INTENSITY {st['intens'][0]}, {st['lit']} keys lit, selected {st['sel']}")
+            g0 = page.evaluate("window.txTest.gen(0)")
+            check(st["laneMode"] and st["lane"] == 0 and st["run"][0] and st["held"][0] and st["step"][0] == 8 and g0["on"]
+                  and st["lit"] == 9 and st["sel"] == [61], f"lane mode: lane 1 at step 9, its generator on ({g0}), {st['lit']} keys lit, selected {st['sel']}")
             key(63); key(76)                                 # D#4: lane 2; E5: step 10; lane 1 keeps running and glows
             st = page.evaluate("window.txTest.src()")
             check(st["lane"] == 1 and st["run"][0] and st["run"][1] and st["glow"] == [61] and st["sel"] == [63] and st["lit"] == 10,
@@ -273,6 +274,12 @@ def main():
             time.sleep(1.0)
             pk = page.evaluate("window.txTest.render(64)")
             check(pk > 0, f"lane mode: two lanes sound (peak {pk})")
+            ng = page.eval_on_selector_all("#gen-sliders input", "x => x.length")
+            key(84)                                          # C6: the generator at its most: notes come
+            time.sleep(2.0)
+            g1 = page.evaluate("window.txTest.gen(1)")
+            check(ng == 7 and g1["on"] and g1["state"][4] == 1 and g1["state"][2] > 3 and g1["state"][0] > 60,
+                  f"the lane generator: 7 knobs, notes {g1['state'][2]} in 2 s, activity now {g1['state'][0]}")
             page.screenshot(path=os.path.join(OUT, "lanes.png"), full_page=True)
             key(61)                                          # C#4: lane 1 selected again, its own bar shown
             st = page.evaluate("window.txTest.src()")
@@ -287,8 +294,8 @@ def main():
             time.sleep(1.6)
             st = page.evaluate("window.txTest.src()")
             fl = st["quick"][2]["cur"].get("FLOW", -1)
-            check(st["eng"][2] == "stream" and st["run"][2] and st["held"][2] and abs(fl - (10 + 117 * 7 / 14)) < 2 and st["lit"] == 8,
-                  f"quick lane: stream at step 8 holds itself, FLOW glided to {fl:.1f}, {st['lit']} keys lit")
+            check(st["eng"][2] == "stream" and st["run"][2] and st["held"][2] and abs(fl - (10 + 117 * 7 / 14)) < 30 and st["lit"] == 8,
+                  f"quick lane: stream at step 8 holds itself, FLOW {fl:.1f} (68.5 at the fader, the generator wandering around it), {st['lit']} keys lit")
             key(68)                                          # G#4: lane 4; thunder (one-shot: re-pressed at its rate)
             page.evaluate(f"window.txTest.selectEngine({names.index('thunder')})")
             key(84)                                          # C6: the most
