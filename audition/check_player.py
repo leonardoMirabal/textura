@@ -254,7 +254,7 @@ def main():
             page.evaluate(f"(() => {{ window.txTest.editLayer(0); window.txTest.selectEngine({names.index('source')}); }})()")
             check(page.evaluate("window.txTest.src()")["panel"], "SOURCE panel shown for the source engine")
             opts = page.eval_on_selector_all("#src-pre option", "o => o.map(x => x.textContent)")
-            check(len(opts) >= 6 and any("wind" in o for o in opts) and any("stream" in o for o in opts),
+            check(len(opts) >= 6 and any("wind" in o for o in opts) and any("water" in o for o in opts),
                   f"SOURCE preset menu, named from the engine: {opts}")
             check(page.eval_on_selector_all("#src-to, #src-morph", "x => x.length") == 0 and page.query_selector("#src-prox") is not None,
                   "SOURCE panel: no morph controls, a PROXIMITY slider")

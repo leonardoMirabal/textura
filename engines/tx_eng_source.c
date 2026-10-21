@@ -55,12 +55,12 @@
 
 enum { P_PRESET, P_INTENS, P_ACT, P_SPACING, P_SIZE, P_SPREAD, P_TONE, P_HARD, P_PROX, P_DEPTH,
        P_LIFE, P_TIME, P_LOCK, P_DIV, P_GRID, NP };
-enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_DROPS, PR_WIND, PR_STREAM, PR_FIRE, PR_CRICKETS, PR_SAND, PR_GRAVEL, NPRE };
+enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_WATER, PR_WIND, PR_FIRE, PR_CRICKETS, PR_SAND, PR_GRAVEL, NPRE };
 enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER };
 
 static const tx_param_t PARAMS[NP] = {
-    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops | 4 wind | 5 stream | 6 fire | 7 crickets | 8 sand | 9 gravel"},
-    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water drops 1 per 30 s .. 245 /s (a drop, drips, a trickle, a stream), wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), stream 30 .. 30 000 bubbles/s (a trickle .. a roaring torrent), fire 1 .. 30 crackles/s per log (embers .. a blaze), crickets 1 .. 16 (one .. a chorus falling into step), sand a trickle .. a pour, gravel a few stones .. a slide"},
+    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel"},
+    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water a single drop per 30 s .. dripping (2.8 /s) .. a trickle .. a stream .. a river, wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), fire 1 .. 30 crackles/s per log (embers .. a blaze), crickets 1 .. 16 (one .. a chorus falling into step), sand a trickle .. a pour, gravel a few stones .. a slide"},
     {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. the preset's own (64; Poisson for rain) .. even"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
@@ -84,7 +84,8 @@ static const tx_param_t PARAMS[NP] = {
 #define RATE_CAP 5000u              /* explicit events per second at most: above, each stands for several (rain) */
 
 typedef struct {
-    uint8_t kind;                   /* 0 events, 1 callers, 2 an engine hosted whole (HOST[act_lo]) */
+    uint8_t kind;                   /* 0 events, 1 callers, 2 an engine hosted whole (HOST[act_lo]), 3 water: events
+                                     * (drops) and an engine (HOST[act_lo]: the stream) together */
     int32_t act_lo, act_oct;        /* INTENSITY's scale: log2 of the 0 % value, its range (Q16) */
     int32_t reg;                    /* natural spacing: -64 clumped .. 0 Poisson .. 63 even */
     int32_t trim;                   /* the preset's level, Q12 */
@@ -95,9 +96,8 @@ static const preset_t PRE[NPRE] = {
     {0, 490986, 614782, 0, 23500, 0},   /* rain: 30 .. 20000 drops/s per m^2 (drizzle .. downpour), over ~6 m^2 heard (ours) */
     {0, -152170, 739752, 10, 27000, 0}, /* stones: 0.2 .. 500 knocks/s */
     {1, 0, 321577, 0, 5160, 0},     /* cicadas: 1 .. 30 callers */
-    {0, -325438, 845573, -6, 19800, 0},   /* water drops: 1 per 30 s .. 245 /s (a trickle, a small stream) */
+    {3, 1, 0, -6, 19800, 0},        /* water: drops (WATER_RATE) + the stream engine (HOST[1]) fading in */
     {2, 0, 0, 0, 4096, 0},          /* wind: the aeolian engine hosted */
-    {2, 1, 0, 0, 4096, 0},          /* stream: the stream engine hosted */
     {2, 2, 0, 0, 4096, 0},          /* fire */
     {2, 3, 0, 0, 4096, 0},          /* crickets */
     {2, 4, 0, 0, 4096, 0},          /* sand */
@@ -176,6 +176,10 @@ typedef struct {
         uint64_t host[HOST_BYTES / 8];
     };
     const tx_engine_t *hst;         /* the hosted engine now (0: the particle presets) */
+    const tx_engine_t *wst;         /* water: the stream engine under the drops (its state at host + WATER_OFF) */
+    const void *hcur;               /* what the arena holds now (a host, the water, or 0) */
+    int8_t wid[HOST_NC];            /* the water stream's parameter ids */
+    uint8_t wval[HOST_NC], wheld, wpad;
     const host_t *hd;
     int8_t hid[HOST_NC];            /* its curves' parameter ids */
     uint8_t hval[HOST_NC];          /* the values last sent */
@@ -239,10 +243,34 @@ static int32_t morph(const src_t *s)
 /* the effective intensity of a preset's rate (Q8 knob units, 0 .. 127 << 8), with ACTIVITY's trim */
 static int32_t act_idx(const src_t *s) { return clampi(s->i_eff + knob(s, P_ACT) * 256, 0, 127 << 8); }
 /* the preset's rate (events/s Q8) or callers (Q8) at the effective intensity */
+/* water: the drops' rate along the fader (log2 /s at INTENSITY 0, 40, 90, 127: one per 30 s .. 2.8 /s (dripping: the
+ * user's references 3 and 4) .. 60 /s (a trickle of drops) .. 40 /s as the flow takes over) */
+/* the stream inside the water, along the fader: its gain (tenths of a dB; off below 36) and FLOW, ROAR, EDDY, NEAR,
+ * SPREAD at INTENSITY 36, 64, 100, 127: a trickle under the drops .. a brook .. a river with its roar */
+#define WATER_ON (36 << 8)
+#define WATER_OFF ((8u * sizeof(voice_t) + 63u) & ~63u)   /* the stream's state, after the drops' 8 heroes */
+static const int32_t WATER_AT[4] = { 36 << 8, 64 << 8, 100 << 8, 127 << 8 };
+static const int32_t WATER_G[4] = { -360, -100, -60, -40 };
+static const int32_t WATER_C[HOST_NC][4] = { {0, 30, 100, 127}, {0, 0, 40, 110}, {20, 30, 45, 60}, {80, 64, 55, 50},
+                                             {80, 64, 55, 45} };
+/* piecewise linear over the points at[0..3] (32-bit: the fraction first, Q8) */
+static int32_t pw4(const int32_t *at, const int32_t *y, int32_t x)
+{
+    int k = 0;
+    if (x <= at[0]) return y[0];
+    if (x >= at[3]) return y[3];
+    while (k < 2 && x > at[k + 1]) k++;
+    return y[k] + (((y[k + 1] - y[k]) * (((x - at[k]) << 8) / (at[k + 1] - at[k]))) >> 8);
+}
+
 static uint32_t pre_amount(const src_t *s, unsigned pre)
 {
     const preset_t *q = &PRE[pre];
     int32_t a = act_idx(s);
+    if (q->kind == 3) {
+        static const int32_t AT[4] = { 0, 40 << 8, 90 << 8, 127 << 8 }, Y[4] = { -321577, 97352, 387088, 348787 };
+        return tx_exp2(pw4(AT, Y, a) + (8 << 16));
+    }
     int32_t l = q->act_lo + (((q->act_oct >> 5) * a) / (127 << 8)) * 32;   /* 32-bit: < 2^30 */
     return tx_exp2(l + (8 << 16));
 }
@@ -737,8 +765,8 @@ static void event(src_t *s, unsigned off, unsigned n, unsigned pre, int near, in
 {
     int32_t trim = pre_trim(s, pre);
     if (pre == PR_RAIN) drop(s, off, n, near, vel, pre, trim, w_q8);
+    else if (pre == PR_WATER) wdrop(s, off, n, near, vel, pre, trim);
     else if (pre == PR_STONES) stone(s, off, near, vel, pre, trim);
-    else if (pre == PR_DROPS) wdrop(s, off, n, near, vel, pre, trim);
 }
 
 /* ---- hosted presets */
@@ -765,8 +793,11 @@ static void host_switch(src_t *s, unsigned pre)
 {
     const host_t *hd = PRE[pre].kind == 2 ? &HOST[PRE[pre].act_lo] : 0;
     const tx_engine_t *ne = hd ? tx_engine_find(hd->eng) : 0;
+    const void *want = hd ? (const void *)hd : PRE[pre].kind == 3 ? (const void *)&PRE[pre] : 0;
     unsigned i;
-    if (ne == s->hst) return;
+    if (want == s->hcur) return;
+    s->hcur = want;
+    s->wst = 0; s->wheld = 0;
     tx_declick_add(&s->dc, s->last_out);
     s->last_out = 0;
     { uint8_t *b = (uint8_t *)s->host; for (i = 0; i < sizeof s->host; i++) b[i] = 0; }
@@ -790,6 +821,21 @@ static void host_switch(src_t *s, unsigned pre)
         tx_pool_init(&s->pool, NV, s->limit);
         for (i = 0; i < NM; i++) s->m[i].voice = 0xFF;
         s->nch = 0;
+        if (PRE[pre].kind == 3) {                            /* water: 8 heroes for the drops, the stream after them */
+            const tx_engine_t *we = tx_engine_find(HOST[PRE[pre].act_lo].eng);
+            tx_pool_init(&s->pool, 8, s->limit > 8 ? 8 : s->limit);
+            if (we && we->state_bytes <= HOST_BYTES - WATER_OFF) {
+                void *ws = (uint8_t *)s->host + WATER_OFF;
+                s->wst = we;
+                we->init(ws, tx_rand(&s->rng));
+                for (i = 0; i < HOST_NC; i++) {
+                    const char *nm = HOST[PRE[pre].act_lo].c[i].name;
+                    s->wid[i] = (int8_t)(nm ? tx_param_find(we, nm) : -1);
+                    s->wval[i] = 0xFF;
+                }
+                if (s->lvl_v) we->param(ws, TX_PID_LEVEL, s->lvl_v);
+            }
+        }
     }
 }
 
@@ -806,22 +852,16 @@ static void life_block(src_t *s)
 }
 
 /* the hosted engine's block: LIFE and the curves, its render, the preset's gain, out */
-TX_AUDIO_CODE static void host_render(src_t *s, int32_t *mix, unsigned n)
+/* a hosted engine's block out: its render, the gain gdb (tenths of a dB) x PROXIMITY's 1 / r re 3 m (ramped over the
+ * block), the air's one-pole, the declick, into the mix */
+TX_AUDIO_CODE static void hosted_out(src_t *s, const tx_engine_t *e, void *st, int32_t *mix, unsigned n, int32_t gdb)
 {
-    tx_stats_t st;
     unsigned j;
-    int32_t g0 = s->hgain, g1, d, gdb;
-    life_block(s);
-    host_apply(s, 0);
+    int32_t g0 = s->hgain, g1, d;
     for (j = 0; j < n; j++) s->buf[j] = 0;
-    s->hst->render(s->host, s->buf, n);
-    {   /* the gain (tenths of a dB at 0 / 64 / 127, linear between) x PROXIMITY's 1 / r re 3 m, ramped over the block */
-        int32_t x = s->i_eff, a = s->hd->g0, b = s->hd->g64;
-        if (x >= (64 << 8)) { a = s->hd->g64; b = s->hd->g127; x -= 64 << 8; gdb = a + ((b - a) * x) / (63 << 8); }
-        else gdb = a + ((b - a) * x) / (64 << 8);
-        g1 = (int32_t)tx_exp2((12 << 16) + TX_DB10(gdb) + 103872 - clampi(dist_l2(s), TX_PLACE_R_MIN, 14 << 16));
-        if (g1 > 32767) g1 = 32767;
-    }
+    e->render(st, s->buf, n);
+    g1 = (int32_t)tx_exp2((12 << 16) + TX_DB10(gdb) + 103872 - clampi(dist_l2(s), TX_PLACE_R_MIN, 14 << 16));
+    if (g1 > 32767) g1 = 32767;
     {   /* the air between: a one-pole whose corner falls with the distance (no change closer than ~10 m) */
         int32_t lp = s->hlp, al = tx_place_lp_q15(dist_l2(s));
         if (al < 32000) {
@@ -837,9 +877,42 @@ TX_AUDIO_CODE static void host_render(src_t *s, int32_t *mix, unsigned n)
     for (j = 0; j < n; j++) mix[j] += s->buf[j];
     s->last_out = s->buf[n - 1];
     for (j = 0; j < n; j++) s->buf[j] = 0;
+}
+
+TX_AUDIO_CODE static void host_render(src_t *s, int32_t *mix, unsigned n)
+{
+    tx_stats_t st;
+    int32_t gdb, x = s->i_eff, a = s->hd->g0, b = s->hd->g64;
+    life_block(s);
+    host_apply(s, 0);
+    if (x >= (64 << 8)) { a = s->hd->g64; b = s->hd->g127; x -= 64 << 8; gdb = a + ((b - a) * x) / (63 << 8); }
+    else gdb = a + ((b - a) * x) / (64 << 8);
+    hosted_out(s, s->hst, s->host, mix, n, gdb);
     s->now += n;
     s->hst->stats(s->host, &st);
     s->quiet = (uint8_t)(st.quiet && !s->dc.v && !s->held);
+}
+
+/* water: the stream under the drops, fading in above WATER_ON with its own path (held while the water runs); returns
+ * 1 while it still sounds */
+TX_AUDIO_CODE static int water_stream(src_t *s, int32_t *mix, unsigned n)
+{
+    void *ws = (uint8_t *)s->host + WATER_OFF;
+    tx_stats_t st;
+    unsigned i;
+    int on = s->run > 4096 && s->i_eff > WATER_ON;
+    if (!s->wst) return 0;
+    if (on != s->wheld) { s->wheld = (uint8_t)on; s->wst->key(ws, s->note, on ? 100 : 0, (uint8_t)on); }
+    for (i = 0; i < HOST_NC; i++) {
+        int32_t v;
+        if (s->wid[i] < 0) continue;
+        v = clampi(pw4(WATER_AT, WATER_C[i], s->i_eff), 0, 127);
+        if (v != s->wval[i]) { s->wval[i] = (uint8_t)v; s->wst->param(ws, (uint8_t)s->wid[i], (uint8_t)v); }
+    }
+    s->wst->stats(ws, &st);
+    if (st.quiet && !on) return 0;
+    hosted_out(s, s->wst, ws, mix, n, pw4(WATER_AT, WATER_G, s->i_eff));
+    return 1;
 }
 
 /* ---- the engine */
@@ -900,6 +973,7 @@ static void src_param(void *st, uint8_t id, uint8_t val)
 {
     src_t *s = (src_t *)st;
     if (s->hst && (id == TX_PID_PARTICLES || id == TX_PID_LEVEL)) s->hst->param(s->host, id, val);
+    if (s->wst && id == TX_PID_LEVEL) s->wst->param((uint8_t *)s->host + WATER_OFF, id, val);
     if (id == TX_PID_PARTICLES) s->part_v = val;
     if (id == TX_PID_LEVEL) s->lvl_v = val ? val : 1u;
     if (id == TX_PID_PARTICLES && s->hst) s->limit = (uint8_t)(val < 1u ? 1u : val > NV ? NV : val);
@@ -907,7 +981,7 @@ static void src_param(void *st, uint8_t id, uint8_t val)
         uint32_t cut, i;
         s->limit = (uint8_t)(val < 1u ? 1u : val > NV ? NV : val);
         cut = tx_pool_set_limit(&s->pool, s->limit);
-        for (i = 0; i < NV; i++) if (cut & (1u << i)) voice_cut(s, i);
+        for (i = 0; i < s->pool.max; i++) if (cut & (1u << i)) voice_cut(s, i);
     } else if (id == TX_PID_LEVEL)
         s->level = tx_level_q15(val > 127u ? 127u : val);
     else if (id < NP) {
@@ -947,7 +1021,7 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     life_block(s);
     /* stage 1: events (rain, stones; mixed by MORPH) */
     if (s->run) {
-        int ea = PRE[pa].kind == 0, eb = PRE[pb].kind == 0 && w;
+        int ea = PRE[pa].kind == 0 || PRE[pa].kind == 3, eb = PRE[pb].kind == 0 && w;
         uint32_t rate = 0;
         if (ea && eb) {
             int32_t la = tx_place_log2(pre_amount(s, pa)), lb = tx_place_log2(pre_amount(s, pb));
@@ -989,10 +1063,10 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
         if (s->held && want < 256u && (PRE[pa].kind == 1 || (PRE[pb].kind == 1 && w))) want = 256u;   /* a press: at least one */
         if (s->run < 4096 && !s->held) want = 0;
         s->trim_c = pre_trim(s, PR_CICADAS);
-        callers_block(s, want);
+        if (PRE[pa].kind != 3) callers_block(s, want);       /* (water: the members' memory holds the stream) */
     }
     /* the heroes */
-    for (i = 0; i < NV; i++) {
+    for (i = 0; i < s->pool.max; i++) {
         voice_t *v = &s->v[i];
         if (v->kind == V_NONE) continue;
         if (v->kind == V_BUBBLE) { tx_bubble_render(&v->u.b, s->buf, n); v->last = v->u.b.last; s->pool.level[i] = v->u.b.env; }
@@ -1100,12 +1174,13 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->last_out = s->hp.y1;                                  /* (the dcblock's last output: for a switch's declick) */
     for (j = 0; j < TX_BLOCK; j++) s->buf[j] = s->ck[j] = 0;
+    if (s->wst) any |= water_stream(s, mix, n);              /* water: the stream under the drops */
     s->now += n;
     {
         int32_t z = any | s->run | s->clp | s->b1x1 | s->b1x2 | s->b2x1 | s->b2lp | (int32_t)s->bed1_p | (int32_t)s->bed2_p
                     | s->res | (int32_t)s->cbed_p | !tx_ireso_quiet(&s->cres) | s->dc.v | s->hp.x1 | s->hp.y1 | s->nch
                     | s->vy.lp | s->held;
-        for (i = 0; i < NM; i++) z |= s->m[i].env;
+        if (PRE[pa].kind != 3) for (i = 0; i < NM; i++) z |= s->m[i].env;
         s->quiet = (uint8_t)!z;
     }
 }
@@ -1128,7 +1203,7 @@ static const char SCENE_MAX[] =
     "0 particles 16\n0 param INTENSITY 127\n0 param PROXIMITY 127\n0 param PRESET 2\n0 on 60 127\n"
     "1000 param PRESET 1\n2000 param PRESET 0\n3000 param PRESET 2\n4000 param PRESET 3\n"
     "5000 param PRESET 4\n6000 param PRESET 5\n7000 param PRESET 6\n8000 param PRESET 7\n"
-    "9000 param PRESET 8\n10000 param PRESET 9\n11000 off 60\n12000 end\n";
+    "9000 param PRESET 8\n10000 param PRESET 3\n11000 off 60\n12000 end\n";
 
 const tx_engine_t tx_eng_source = {
     "source", "SOURCE (prototype)", NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,
