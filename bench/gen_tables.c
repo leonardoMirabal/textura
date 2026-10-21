@@ -70,6 +70,29 @@ int main(int argc, char **argv)
     fprintf(hdr, "\n/* log2 of the phase increment (2^32 / fs) of A4 = 440 Hz, Q16 */\n#define TX_LOG2_INC_A4 %ld\n\n",
             lround((32.0 + log2(440.0 / 44100.0)) * 65536.0));
     fprintf(hdr, "/* ln 2 in Q12 */\n#define TX_LN2_Q12 %ld\n\n", lround(log(2.0) * 4096.0));
+    /* the syrinx's wave shapes (the BIRD core): the labia's oscillation from its onset at a Hopf bifurcation (a sine)
+     * to one born on an invariant circle (SNIC: pulse-like, rich). The SNIC side is the theta model's cycle,
+     * theta' = 1 - k cos theta, sampled uniformly in time: theta = 2 atan(sqrt((1 + k) / (1 - k)) tan(phi / 2)); the
+     * wave is sin theta (zero mean), k = 0 (Hopf: a sine) .. 0.97 (near the saddle-node: a sharp double swing).
+     * TX_SYRINX_SHAPES shapes x (TX_SYRINX_N + 1) points, Q15, peak 0.9 */
+    {
+        static const double K[8] = { 0.0, 0.3, 0.5, 0.65, 0.78, 0.87, 0.93, 0.97 };
+        long sv[8 * 257];
+        int k, j;
+        fprintf(hdr, "#define TX_SYRINX_SHAPES 8\n#define TX_SYRINX_N 256              /* points per shape (+1 guard point) */\n");
+        for (k = 0; k < 8; k++) {
+            double r = sqrt((1.0 + K[k]) / (1.0 - K[k])), pk = 0, y[257];
+            for (j = 0; j <= 256; j++) {
+                double ph = 2.0 * M_PI * j / 256.0, th = 2.0 * atan(r * tan(ph / 2.0));
+                if (j == 128) th = M_PI;             /* tan(pi / 2) */
+                y[j] = sin(th);
+                if (fabs(y[j]) > pk) pk = fabs(y[j]);
+            }
+            for (j = 0; j <= 256; j++) sv[k * 257 + j] = lround(y[j] / pk * 0.9 * lim);
+        }
+        fprintf(f, "/* the syrinx's wave shapes: Hopf (a sine) .. SNIC (the theta model, k 0.97), 8 x 257, Q15 */\n");
+        row(f, "int16_t", "TX_SYRINX", sv, 8 * 257, 12);
+    }
     fprintf(hdr, "#endif\n");
     fclose(f);
     fclose(hdr);

@@ -44,6 +44,7 @@
 #include "tx_core_insect.h"
 #include "tx_core_place.h"
 #include "tx_core_life.h"
+#include "tx_core_bird.h"
 
 #define OUT_TRIM 4096               /* output gain, Q12 (the presets' own levels are in PRE[].trim) */
 
@@ -55,12 +56,13 @@
 
 enum { P_PRESET, P_INTENS, P_ACT, P_SPACING, P_SIZE, P_SPREAD, P_TONE, P_HARD, P_PROX, P_DEPTH,
        P_LIFE, P_TIME, P_LOCK, P_DIV, P_GRID, NP };
-enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_WATER, PR_WIND, PR_FIRE, PR_CRICKETS, PR_SAND, PR_GRAVEL, PR_KATYDIDS, PR_BEES, PR_ICE, PR_WOOD, PR_MINERALS, PR_GLASS, NPRE };
-enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER };
+enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_WATER, PR_WIND, PR_FIRE, PR_CRICKETS, PR_SAND, PR_GRAVEL, PR_KATYDIDS, PR_BEES, PR_ICE, PR_WOOD, PR_MINERALS, PR_GLASS, PR_SONGBIRD, PR_CHIRPER, PR_CROW, PR_OWL,
+       PR_GULL, NPRE };
+enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER, V_BIRD };
 
 static const tx_param_t PARAMS[NP] = {
-    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees | 11 ice | 12 wood | 13 minerals | 14 glass"},
-    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water a single drop per 30 s .. dripping (2.8 /s) .. a trickle .. a stream .. a river, wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), fire 1 .. 30 crackles/s per log (embers .. a blaze), crickets 1 .. 16 (one .. a chorus falling into step), sand a trickle .. a pour, gravel a few stones .. a slide, katydids one in the cold .. a warm chorus of 8 in step, bees one far bee .. a swarm close by, ice an icicle per 30 s .. one every 1.5 s, wood a creak per 30 s .. snaps every 2 s, minerals a knock per 10 s .. 7 /s, glass a crack per 40 s .. a smash every 2 s"},
+    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees | 11 ice | 12 wood | 13 minerals | 14 glass | 15 songbird | 16 chirper | 17 crow | 18 owl | 19 gull"},
+    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water a single drop per 30 s .. dripping (2.8 /s) .. a trickle .. a stream .. a river, wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), fire 1 .. 30 crackles/s per log (embers .. a blaze), crickets 1 .. 16 (one .. a chorus falling into step), sand a trickle .. a pour, gravel a few stones .. a slide, katydids one in the cold .. a warm chorus of 8 in step, bees one far bee .. a swarm close by, ice an icicle per 30 s .. one every 1.5 s, wood a creak per 30 s .. snaps every 2 s, minerals a knock per 10 s .. 7 /s, glass a crack per 40 s .. a smash every 2 s, birds one bird singing now and then .. countersinging .. a dawn chorus of 12"},
     {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. the preset's own (64; Poisson for rain) .. even"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
@@ -84,7 +86,8 @@ static const tx_param_t PARAMS[NP] = {
 #define RATE_CAP 5000u              /* explicit events per second at most: above, each stands for several (rain) */
 
 typedef struct {
-    uint8_t kind;                   /* 0 events, 1 callers, 2 an engine hosted whole (HOST[act_lo]), 3 water: events
+    uint8_t kind;                   /* 0 events, 1 callers, 2 an engine hosted whole (HOST[act_lo]), 4 birds (type act_lo),
+                                     * 3 water: events
                                      * (drops) and an engine (HOST[act_lo]: the stream) together */
     int32_t act_lo, act_oct;        /* INTENSITY's scale: log2 of the 0 % value, its range (Q16) */
     int32_t reg;                    /* natural spacing: -64 clumped .. 0 Poisson .. 63 even */
@@ -108,6 +111,11 @@ static const preset_t PRE[NPRE] = {
     {2, 9, 0, 0, 4096, 0},          /* wood */
     {2, 10, 0, 0, 4096, 0},         /* minerals */
     {2, 11, 0, 0, 4096, 0},         /* glass */
+    {4, 0, 0, 0, 410, 0},          /* birds (tx_core_bird type act_lo): songbird (blackbird, thrush) */
+    {4, 1, 0, 0, 410, 0},          /* chirper (chaffinch, sparrow) */
+    {4, 2, 0, 0, 1630, 0},          /* crow */
+    {4, 3, 0, 0, 130, 0},          /* owl (tawny, eagle owl) */
+    {4, 4, 0, 0, 860, 0},          /* gull */
 };
 
 /* HOSTED presets: an existing engine run whole inside the source (its own physics and defaults: at INTENSITY 64 it is
@@ -177,6 +185,7 @@ typedef struct {
         tx_bubble_t b;
         struct { tx_mode_t m[4]; } s;
         caller_t c;
+        tx_bird_voice_t bv;
     } u;
 } voice_t;
 
@@ -188,6 +197,13 @@ typedef struct {                    /* a caller of the population */
     int32_t pmod;                   /* the phrase gain now, Q15 */
     uint8_t calling, voice, fresh, pad;
 } member_t;
+
+#define NB 16u                      /* birds in a lane at most (12 sing at the top) */
+typedef struct {                    /* a bird of the population: persistent, its own voice and songs */
+    int32_t f_off, r_l2, gain;      /* its pitch (log2 Q16 re its type), distance (log2 m Q16), gain (Q12) */
+    uint32_t seed, wait;            /* its songs' seed; samples to its next song */
+    uint8_t voice, songs, active, near;
+} birdm_t;
 
 typedef struct {                    /* an avalanche's child knock waiting for its time */
     uint32_t t;
@@ -201,7 +217,10 @@ typedef struct {
     tx_declick_t dc;
     tx_dcblock_t hp;
     union {                         /* the particle presets' pools, or a hosted engine's whole state */
-        struct { voice_t v[NV]; member_t m[NM]; child_t ch[NCH]; };
+        struct {
+            voice_t v[NV];
+            union { struct { member_t m[NM]; child_t ch[NCH]; }; birdm_t bm[NB]; };
+        };
         uint64_t host[HOST_BYTES / 8];
     };
     const tx_engine_t *hst;         /* the hosted engine now (0: the particle presets) */
@@ -324,6 +343,7 @@ static void voice_cut(src_t *s, unsigned i)
     tx_declick_add(&s->dc, v->last);
     v->last = 0;
     if (v->kind == V_CALLER && v->u.c.member < NM) s->m[v->u.c.member].voice = 0xFF;
+    if (v->kind == V_BIRD && v->pad[0] < NB && s->bm[v->pad[0]].voice == i) s->bm[v->pad[0]].voice = 0xFF;
     v->kind = V_NONE;
 }
 
@@ -779,6 +799,62 @@ static void callers_block(src_t *s, uint32_t want_q8)
     }
 }
 
+/* ---- birds: the population sings by turns, more and more often, then all at once (a dawn chorus) */
+static void bird_draw(src_t *s, birdm_t *b, int near)
+{
+    int32_t sp = (9830 * (int32_t)s->p[P_SPREAD]) / 64;      /* +-0.15 octave between birds */
+    b->f_off = knob(s, P_SIZE) * -2048 + (int32_t)(((int64_t)gauss(s) * sp) >> 12) + s->life_s / 4;
+    b->r_l2 = near ? dist_l2(s) : tx_place_draw(&s->rng, dist_l2(s), depth_l2(s));
+    b->seed = tx_rand(&s->rng);
+    b->songs = (uint8_t)(2u + tx_rand_below(&s->rng, 3u));
+    b->voice = 0xFF; b->near = (uint8_t)near;
+}
+
+static uint32_t bird_pause(src_t *s, unsigned type)           /* samples to a bird's next song: busier as activity rises */
+{
+    int32_t l = tx_place_log2(TX_BIRD_PAUSE[type]) - (act_idx(s) - (64 << 8)) * 8;   /* +-2 octaves */
+    uint32_t mean = tx_exp2(l + 793350);                     /* 0.1 s -> samples (x 4410: log2 = 12.106) */
+    return 2205u + (uint32_t)(((uint64_t)mean * ((tx_neglog2_q12(tx_rand(&s->rng)) * 2839u) >> 8)) >> 16);
+}
+
+static void bird_sing(src_t *s, unsigned bi, unsigned type, int steal, int32_t key_l2)
+{
+    birdm_t *b = &s->bm[bi];
+    uint32_t f = tx_exp2(TX_BIRD_F0[type] + b->f_off), lv;
+    int32_t g = (int32_t)(((int64_t)tx_place_gain_q12(b->r_l2) * tx_place_air_q15(f, b->r_l2)) >> 15);
+    int k;
+    g = (int32_t)(((int64_t)g * pre_trim(s, s->p[P_PRESET])) >> 12);
+    g = (int32_t)(((int64_t)g * s->level) >> 15);
+    lv = (uint32_t)(g < 1 ? 1 : g) << 14;
+    if (!steal && tx_pool_count(&s->pool) >= s->limit) return;
+    if ((k = take(s, lv)) < 0) return;
+    s->v[k].kind = V_BIRD; s->v[k].pre = (uint8_t)s->p[P_PRESET]; s->v[k].pad[0] = (uint8_t)bi; s->v[k].last = 0;
+    tx_bird_song(&s->v[k].u.bv, type, b->seed, tx_rand_below(&s->rng, b->songs), tx_rand(&s->rng), b->f_off + key_l2,
+                 g);
+    b->voice = (uint8_t)k;
+    s->events++;
+}
+
+static void birds_block(src_t *s, unsigned n)
+{
+    unsigned type = (unsigned)PRE[s->p[P_PRESET]].act_lo, i, want, singing = 0, allowed;
+    int32_t a = act_idx(s);
+    want = (tx_exp2(((a >> 4) * 1828) / 16 + (8 << 16)) + 128u) >> 8;   /* 1 .. 12 birds (log2 12 = 3.585: x 18284 / 127 / 256) */
+    if (want > 12u) want = 12u;
+    if (want < 1u) want = 1u;
+    allowed = 1u + (unsigned)(clampi(s->i_eff - (40 << 8), 0, 87 << 8) / (14 << 8));   /* turns .. overlap (7 at the top) */
+    for (i = 0; i < NB; i++) if (s->bm[i].voice != 0xFF && s->bm[i].active) singing++;
+    for (i = 0; i < NB; i++) {
+        birdm_t *b = &s->bm[i];
+        if (i < want && !b->active && s->run > 4096) { bird_draw(s, b, 0); b->active = 1; b->wait = tx_rand_below(&s->rng, 65535u) * 2u; }
+        if (!b->active || b->voice != 0xFF) continue;
+        if (i >= want || s->run < 4096) { b->active = 0; continue; }   /* (a bird leaves after its song) */
+        if (b->wait > n) { b->wait -= n; continue; }
+        if (singing < allowed) { bird_sing(s, i, type, 0, 0); if (b->voice != 0xFF) { singing++; continue; } }
+        b->wait = 13230u + tx_rand_below(&s->rng, 39690u);   /* the other one sings: wait 0.3 .. 1.2 s (countersinging) */
+    }
+}
+
 /* ---- stage 1: the event clock (events presets) */
 static uint32_t gap_q8(src_t *s, uint32_t rate_q8)
 {
@@ -865,7 +941,7 @@ static void host_switch(src_t *s, unsigned pre)
 {
     const host_t *hd = PRE[pre].kind == 2 ? &HOST[PRE[pre].act_lo] : 0;
     const tx_engine_t *ne = hd ? tx_engine_find(hd->eng) : 0;
-    const void *want = hd ? (const void *)hd : PRE[pre].kind == 3 ? (const void *)&PRE[pre] : 0;
+    const void *want = hd ? (const void *)hd : PRE[pre].kind >= 3 ? (const void *)&PRE[pre] : 0;
     unsigned i;
     if (want == s->hcur) return;
     s->hcur = want;
@@ -894,6 +970,10 @@ static void host_switch(src_t *s, unsigned pre)
         tx_pool_init(&s->pool, NV, s->limit);
         for (i = 0; i < NM; i++) s->m[i].voice = 0xFF;
         s->nch = 0;
+        if (PRE[pre].kind == 4) {                            /* birds: their members fresh (over the callers' memory) */
+            { uint8_t *b = (uint8_t *)s->bm; for (i = 0; i < sizeof s->bm; i++) b[i] = 0; }
+            for (i = 0; i < NB; i++) s->bm[i].voice = 0xFF;
+        }
         if (PRE[pre].kind == 3) {                            /* water: 8 heroes for the drops, the stream after them */
             const tx_engine_t *we = tx_engine_find(HOST[PRE[pre].act_lo].eng);
             tx_pool_init(&s->pool, 8, s->limit > 8 ? 8 : s->limit);
@@ -1029,7 +1109,16 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
         tx_vary_press(&s->vy);
         s->held++;
         s->note = note; s->vel = vel;
-        if (PRE[pre].kind == 1) {                            /* a cicada close by, at the key's pitch */
+        if (PRE[pre].kind == 4) {                            /* a bird sings now, at the key's pitch: the one close by, */
+            unsigned bi = 0, q;                              /* or (it is singing) another one that is free */
+            birdm_t *b;
+            if (s->bm[0].voice != 0xFF) for (q = 1; q < NB; q++) if (s->bm[q].active && s->bm[q].voice == 0xFF) { bi = q; break; }
+            b = &s->bm[bi];
+            if (b->voice != 0xFF) { voice_cut(s, b->voice); tx_pool_free(&s->pool, b->voice); b->voice = 0xFF; }
+            if (!bi) bird_draw(s, b, 1);
+            b->active = 1;
+            bird_sing(s, bi, (unsigned)PRE[pre].act_lo, 1, ((int32_t)note - 60) * 5461);
+        } else if (PRE[pre].kind == 1) {                     /* a cicada close by, at the key's pitch */
             member_t *m = &s->m[0];
             member_new(s, m, 1);
             if (m->voice != 0xFF) { voice_cut(s, m->voice); tx_pool_free(&s->pool, m->voice); m->voice = 0xFF; }
@@ -1072,7 +1161,7 @@ static int voice_live(const voice_t *v)
     unsigned k;
     if (v->kind == V_BUBBLE) return v->u.b.env >= TX_BUBBLE_FLOOR;
     if (v->kind == V_STONE) { for (k = 0; k < NMO; k++) if (v->u.s.m[k].amp) return 1; return 0; }
-    if (v->kind == V_CALLER) return 1;
+    if (v->kind == V_CALLER || v->kind == V_BIRD) return 1;
     return 0;
 }
 
@@ -1136,7 +1225,8 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
         if (s->held && want < 256u && (PRE[pa].kind == 1 || (PRE[pb].kind == 1 && w))) want = 256u;   /* a press: at least one */
         if (s->run < 4096 && !s->held) want = 0;
         s->trim_c = pre_trim(s, PR_CICADAS);
-        if (PRE[pa].kind != 3) callers_block(s, want);       /* (water: the members' memory holds the stream) */
+        if (PRE[pa].kind == 4) birds_block(s, n);            /* birds (their members share that memory) */
+        else if (PRE[pa].kind != 3) callers_block(s, want);  /* (water: the members' memory holds the stream) */
     }
     /* the heroes */
     for (i = 0; i < s->pool.max; i++) {
@@ -1150,6 +1240,15 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
             for (k = 0; k < NMO; k++) l += v->u.s.m[k].amp >> 1;
             s->pool.level[i] = (uint32_t)l;
             v->last = 0;
+        } else if (v->kind == V_BIRD) {
+            birdm_t *b = &s->bm[v->pad[0] < NB ? v->pad[0] : 0];
+            s->pool.level[i] = (uint32_t)v->u.bv.gain << 14;
+            if (!tx_bird_render(&v->u.bv, s->buf, n)) {      /* the song is over: the bird rests */
+                tx_declick_add(&s->dc, v->u.bv.last);
+                v->kind = V_NONE;
+                if (b->voice == i) { b->voice = 0xFF; b->wait = bird_pause(s, (unsigned)PRE[s->p[P_PRESET]].act_lo); }
+            }
+            v->last = v->u.bv.last;
         } else if (v->kind == V_CALLER) {
             member_t *m = &s->m[v->u.c.member];
             caller_render(s, v, n);
@@ -1253,7 +1352,7 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
         int32_t z = any | s->run | s->clp | s->b1x1 | s->b1x2 | s->b2x1 | s->b2lp | (int32_t)s->bed1_p | (int32_t)s->bed2_p
                     | s->res | (int32_t)s->cbed_p | !tx_ireso_quiet(&s->cres) | s->dc.v | s->hp.x1 | s->hp.y1 | s->nch
                     | s->vy.lp | s->held;
-        if (PRE[pa].kind != 3) for (i = 0; i < NM; i++) z |= s->m[i].env;
+        if (PRE[pa].kind != 3 && PRE[pa].kind != 4) for (i = 0; i < NM; i++) z |= s->m[i].env;
         s->quiet = (uint8_t)!z;
     }
 }
@@ -1277,7 +1376,9 @@ static const char SCENE_MAX[] =
     "1000 param PRESET 1\n2000 param PRESET 0\n3000 param PRESET 2\n4000 param PRESET 3\n"
     "5000 param PRESET 4\n6000 param PRESET 5\n7000 param PRESET 6\n8000 param PRESET 7\n"
     "9000 param PRESET 8\n10000 param PRESET 3\n11000 param PRESET 9\n12000 param PRESET 10\n"
-    "13000 param PRESET 11\n14000 param PRESET 12\n15000 param PRESET 13\n16000 param PRESET 14\n17000 off 60\n18000 end\n";
+    "13000 param PRESET 11\n14000 param PRESET 12\n15000 param PRESET 13\n16000 param PRESET 14\n"
+    "17000 param PRESET 15\n18000 param PRESET 16\n19000 param PRESET 17\n20000 param PRESET 18\n21000 param PRESET 19\n"
+    "22000 off 60\n23000 end\n";
 
 const tx_engine_t tx_eng_source = {
     "source", "SOURCE (prototype)", NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,

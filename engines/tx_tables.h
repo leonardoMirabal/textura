@@ -19,4 +19,7 @@ extern const int16_t TX_PULSE_CLICK[65];
 /* ln 2 in Q12 */
 #define TX_LN2_Q12 2839
 
+#define TX_SYRINX_SHAPES 8
+#define TX_SYRINX_N 256              /* points per shape (+1 guard point) */
+extern const int16_t TX_SYRINX[2056];
 #endif
