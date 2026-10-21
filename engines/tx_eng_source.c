@@ -55,14 +55,14 @@
 
 enum { P_PRESET, P_MORPHTO, P_MORPH, P_INTENS, P_ACT, P_SPACING, P_SIZE, P_SPREAD, P_TONE, P_HARD, P_DIST, P_DEPTH,
        P_LIFE, P_TIME, P_LOCK, P_DIV, P_GRID, NP };
-enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_DROPS, PR_WIND, PR_STREAM, NPRE };
+enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_DROPS, PR_WIND, PR_STREAM, PR_FIRE, PR_CRICKETS, NPRE };
 enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER };
 
 static const tx_param_t PARAMS[NP] = {
-    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops | 4 wind | 5 stream"},
-    {"MORPHTO", NPRE - 1, 1, "the preset MORPH moves toward: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops | 4 wind | 5 stream"},
+    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops | 4 wind | 5 stream | 6 fire | 7 crickets"},
+    {"MORPHTO", NPRE - 1, 1, "the preset MORPH moves toward: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water drops | 4 wind | 5 stream | 6 fire | 7 crickets"},
     {"MORPH", 127, 0, "PRESET .. MORPHTO, particle by particle (presets 0-3): at the middle half the drops are stones (or half the callers)"},
-    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water drops 1 per 30 s .. 245 /s (a drop, drips, a trickle, a stream), wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), stream 30 .. 30 000 bubbles/s (a trickle .. a roaring torrent)"},
+    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water drops 1 per 30 s .. 245 /s (a drop, drips, a trickle, a stream), wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), stream 30 .. 30 000 bubbles/s (a trickle .. a roaring torrent), fire 1 .. 30 crackles/s per log (embers .. a blaze), crickets 1 .. 16 (one .. a chorus falling into step)"},
     {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. the preset's own (64; Poisson for rain) .. even"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
@@ -100,6 +100,8 @@ static const preset_t PRE[NPRE] = {
     {0, -325438, 845573, -6, 38600, 8},   /* water drops: 1 per 30 s .. 245 /s (a trickle, a small stream) */
     {2, 0, 0, 0, 4096, 0},          /* wind: the aeolian engine hosted */
     {2, 1, 0, 0, 4096, 0},          /* stream: the stream engine hosted */
+    {2, 2, 0, 0, 4096, 0},          /* fire */
+    {2, 3, 0, 0, 4096, 0},          /* crickets */
 };
 
 /* HOSTED presets: an existing engine run whole inside the source (its own physics and defaults: at INTENSITY 64 it is
@@ -117,6 +119,12 @@ static const host_t HOST[] = {
     /* stream: a trickle of plinks .. a babbling brook .. a torrent: bigger gulping bubbles, eddies, the low roar */
     {"stream", 60, 0, -60, {{"FLOW", 10, 70, 127}, {"ROAR", 0, 0, 100}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
                             {"SPREAD", 80, 64, 45}}},
+    /* fire: embers (a rare crackle, a faint roar) .. a campfire .. a blaze (a big fire, dense crackles in bursts, roar, gusts) */
+    {"fire", 0, 0, 60, {{"MOIST", 25, 72, 127}, {"SIZE", 20, 50, 100}, {"ROAR", 20, 80, 127}, {"DRAUGHT", 10, 30, 70},
+                          {"BURSTY", 8, 24, 60}}},
+    /* crickets: one caller .. a few .. a chorus falling into step, with the distant field behind (warmer: a little faster) */
+    {"crickets", -40, 0, 30, {{"CHORUS", 0, 16, 127}, {"SYNC", 30, 64, 110}, {"FIELD", 0, 0, 90}, {"TEMP", 70, 76, 84},
+                             {0, 0, 0, 0}}},
 };
 
 typedef struct {
@@ -1103,7 +1111,7 @@ static const char SCENE_MAX[] =
     "0 particles 16\n0 param INTENSITY 127\n0 param DIST 0\n0 param PRESET 2\n0 on 60 127\n"
     "1000 param PRESET 1\n1000 param MORPHTO 0\n1000 param MORPH 64\n2000 param MORPH 0\n2000 param PRESET 0\n"
     "3000 param PRESET 2\n3000 param MORPHTO 1\n3000 param MORPH 64\n4000 param PRESET 3\n4000 param MORPH 0\n"
-    "5000 param PRESET 4\n6000 param PRESET 5\n7000 off 60\n8000 end\n";
+    "5000 param PRESET 4\n6000 param PRESET 5\n7000 param PRESET 6\n8000 param PRESET 7\n9000 off 60\n10000 end\n";
 
 const tx_engine_t tx_eng_source = {
     "source", "SOURCE (prototype)", NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,
