@@ -55,12 +55,12 @@
 
 enum { P_PRESET, P_INTENS, P_ACT, P_SPACING, P_SIZE, P_SPREAD, P_TONE, P_HARD, P_PROX, P_DEPTH,
        P_LIFE, P_TIME, P_LOCK, P_DIV, P_GRID, NP };
-enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_WATER, PR_WIND, PR_FIRE, PR_CRICKETS, PR_SAND, PR_GRAVEL, NPRE };
+enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_WATER, PR_WIND, PR_FIRE, PR_CRICKETS, PR_SAND, PR_GRAVEL, PR_KATYDIDS, PR_BEES, NPRE };
 enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER };
 
 static const tx_param_t PARAMS[NP] = {
-    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel"},
-    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water a single drop per 30 s .. dripping (2.8 /s) .. a trickle .. a stream .. a river, wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), fire 1 .. 30 crackles/s per log (embers .. a blaze), crickets 1 .. 16 (one .. a chorus falling into step), sand a trickle .. a pour, gravel a few stones .. a slide"},
+    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees"},
+    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water a single drop per 30 s .. dripping (2.8 /s) .. a trickle .. a stream .. a river, wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), fire 1 .. 30 crackles/s per log (embers .. a blaze), crickets 1 .. 16 (one .. a chorus falling into step), sand a trickle .. a pour, gravel a few stones .. a slide, katydids one in the cold .. a warm chorus of 8 in step, bees one far bee .. a swarm close by"},
     {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. the preset's own (64; Poisson for rain) .. even"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
@@ -102,6 +102,8 @@ static const preset_t PRE[NPRE] = {
     {2, 3, 0, 0, 4096, 0},          /* crickets */
     {2, 4, 0, 0, 4096, 0},          /* sand */
     {2, 5, 0, 0, 4096, 0},          /* gravel */
+    {2, 6, 0, 0, 4096, 0},          /* katydids */
+    {2, 7, 0, 0, 4096, 0},          /* bees */
 };
 
 /* HOSTED presets: an existing engine run whole inside the source (its own physics and defaults: at INTENSITY 64 it is
@@ -109,28 +111,35 @@ static const preset_t PRE[NPRE] = {
  * curve a parameter's value at INTENSITY 0, 64 and 127 (linear between); the first curve follows ACTIVITY too. The
  * level is set with a gain at 0 / 64 / 127 (tenths of a dB, linear between: ours, by render: every preset at INTENSITY 64
  * about -27 LUFS, a key held 20 s, the mean of 3 seeds, so lanes sit together in a landscape). Hosted
- * presets do not morph (one engine fits the arena). */
+ * presets do not morph (one engine fits the arena). Where an engine spawns its singers per key press (katydids, bees),
+ * k0 / k64 / k127 is how many keys the source holds down (1 .. 4, a few semitones apart): more keys, more of them;
+ * and one held key at a time is pressed afresh every 6 .. 16 s: singers leave and new ones come with the
+ * parameters of now (these engines read them at a press). */
 #define HOST_NC 5u
 #define HOST_BYTES 12544u           /* the largest hosted engine's state (sand 12 464 B) */
 typedef struct { const char *name; uint8_t v0, v64, v127; } curve_t;
-typedef struct { const char *eng; int16_t g0, g64, g127; curve_t c[HOST_NC]; } host_t;   /* (g: one calibration, flat:
+typedef struct { const char *eng; int16_t g0, g64, g127; curve_t c[HOST_NC]; uint8_t k0, k64, k127; } host_t;   /* (g: one calibration, flat:
                                                      * more activity is louder by the engine's own physics) */
 static const host_t HOST[] = {
     /* wind: a breath (1.6 m/s) .. a gale (20 m/s); gusts deepen; at the top the strings lock in and whistle */
-    {"aeolian", -78, -78, -78, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}},
+    {"aeolian", -78, -78, -78, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0},
     /* stream: a trickle of plinks .. a babbling brook .. a torrent: bigger gulping bubbles, eddies, the low roar */
     {"stream", -42, -42, -42, {{"FLOW", 10, 70, 127}, {"ROAR", 0, 0, 100}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
-                            {"SPREAD", 80, 64, 45}}},
+                            {"SPREAD", 80, 64, 45}}, 0, 0, 0},
     /* fire: embers (a rare crackle, a faint roar) .. a campfire .. a blaze (a big fire, dense crackles in bursts, roar, gusts) */
     {"fire", 150, 150, 150, {{"MOIST", 25, 72, 127}, {"SIZE", 20, 50, 100}, {"ROAR", 20, 80, 127}, {"DRAUGHT", 10, 30, 70},
-                          {"BURSTY", 8, 24, 60}}},
+                          {"BURSTY", 8, 24, 60}}, 0, 0, 0},
     /* crickets: one caller .. a few .. a chorus falling into step, with the distant field behind (warmer: a little faster) */
     {"crickets", -12, -12, -12, {{"CHORUS", 0, 16, 127}, {"SYNC", 30, 64, 110}, {"FIELD", 0, 0, 90}, {"TEMP", 70, 76, 84},
-                             {0, 0, 0, 0}}},
+                             {0, 0, 0, 0}}, 0, 0, 0},
     /* sand: a trickle of grains through a narrow neck .. a pour .. a heavy pour from higher, pulsing */
-    {"sand", -37, -37, -37, {{"ORIFICE", 20, 50, 115}, {"HEIGHT", 30, 50, 90}, {"PULSE", 0, 0, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}}},
+    {"sand", -37, -37, -37, {{"ORIFICE", 20, 50, 115}, {"HEIGHT", 30, 50, 90}, {"PULSE", 0, 0, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0},
     /* gravel: a few stones now and then .. footsteps on gravel .. a slide (many stones, long rattles) */
-    {"gravel", 16, 16, 16, {{"AMOUNT", 20, 64, 120}, {"RATE", 20, 59, 110}, {"SHAKE", 20, 30, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}}},
+    {"gravel", 16, 16, 16, {{"AMOUNT", 20, 64, 120}, {"RATE", 20, 59, 110}, {"SHAKE", 20, 30, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0},
+    /* katydids: one singer on a cold night (slow calls) .. one at its ease .. a warm chorus of 8, falling into step */
+    {"katydids", 0, 0, 0, {{"CHORUS", 0, 0, 50}, {"TEMP", 40, 76, 90}, {"SYNC", 40, 64, 110}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 1, 1, 2},
+    /* bees: one bee wandering farther off, slower .. one at its ease .. a swarm of 8 close by */
+    {"bees", -45, -45, -45, {{"SWARM", 0, 0, 64}, {"DIST", 90, 50, 30}, {"SPEED", 40, 64, 80}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 1, 1, 2},
 };
 
 typedef struct {
@@ -184,6 +193,8 @@ typedef struct {
     int8_t hid[HOST_NC];            /* its curves' parameter ids */
     uint8_t hval[HOST_NC];          /* the values last sent */
     uint8_t lvl_v, part_v;          /* LEVEL and PARTICLES as last set (0: not set) */
+    uint8_t hkeys, hbase, hcycle, hpad;
+    uint16_t hrenew;                /* blocks to the next renewed key */         /* keys the source holds on the hosted engine (k curves; the first is the player's) */
     int32_t hgain, last_out, hlp;        /* the hosted output gain (Q12, ramped), the last sample out (for a switch) */
     int32_t buf[TX_BLOCK], ck[TX_BLOCK];
     uint8_t p[NP], limit, quiet, held, nch;
@@ -777,9 +788,25 @@ static int32_t curve_at(const curve_t *c, int32_t i_q8)     /* the curve's value
     return a + ((b - a) * x + (64 << 7)) / (64 << 8);
 }
 
+static const int8_t HOST_KEYS[4] = { 0, -3, 4, -7 };      /* the extra keys, semitones from the played one */
 static void host_apply(src_t *s, int force)               /* the curves at the intensity now (only changed values sent) */
 {
     unsigned i;
+    if (s->hd->k127) {                                       /* the keys held: more singers */
+        curve_t kc = { 0, s->hd->k0, s->hd->k64, s->hd->k127 };
+        unsigned want = s->held ? (unsigned)clampi(curve_at(&kc, act_idx(s)), 1, 4) : 0u;
+        if (s->hkeys <= 1) s->hbase = s->note;               /* (the extras keep the note they were pressed from) */
+        while (s->hkeys && s->hkeys < want) { s->hst->key(s->host, (uint8_t)(s->hbase + HOST_KEYS[s->hkeys]), s->vel, 1); s->hkeys++; }
+        while (s->hkeys > want && s->hkeys > 1) { s->hkeys--; s->hst->key(s->host, (uint8_t)(s->hbase + HOST_KEYS[s->hkeys]), 0, 0); }
+        if (!want) s->hkeys = 0;
+        if (s->hkeys && !s->hrenew--) {                      /* renew one key: a singer leaves, a new one comes */
+            unsigned k = s->hcycle++ % s->hkeys;
+            uint8_t nt = (uint8_t)(k ? s->hbase + HOST_KEYS[k] : s->note);
+            s->hst->key(s->host, nt, 0, 0);
+            s->hst->key(s->host, nt, s->vel, 1);
+            s->hrenew = 1033u + tx_rand_below(&s->rng, 1723u);   /* 6 .. 16 s in blocks */
+        }
+    }
     for (i = 0; i < HOST_NC; i++) {
         int32_t v;
         if (!s->hd->c[i].name || s->hid[i] < 0) continue;
@@ -814,7 +841,8 @@ static void host_switch(src_t *s, unsigned pre)
         if (s->lvl_v) ne->param(s->host, TX_PID_LEVEL, s->lvl_v);
         if (s->part_v) ne->param(s->host, TX_PID_PARTICLES, s->part_v);
         host_apply(s, 1);
-        if (s->held) ne->key(s->host, s->note, s->vel, 1);
+        s->hkeys = 0; s->hrenew = 258;                       /* (the first renewal after 1.5 s: past the fader's glide) */
+        if (s->held) { ne->key(s->host, s->note, s->vel, 1); s->hkeys = 1; }
         s->quiet = 0;
     } else {                                                 /* the particle presets: fresh pools */
         s->hst = 0; s->hd = 0;
@@ -946,7 +974,7 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
     src_t *s = (src_t *)st;
     if (s->hst) {                                            /* a hosted engine: its own keys */
-        if (on && vel) { s->held++; s->note = note; s->vel = vel; s->quiet = 0; }
+        if (on && vel) { s->held++; s->note = note; s->vel = vel; s->quiet = 0; if (!s->hkeys) s->hkeys = 1; }
         else if (s->held) s->held--;
         s->hst->key(s->host, note, vel, on);
         return;
@@ -1203,7 +1231,7 @@ static const char SCENE_MAX[] =
     "0 particles 16\n0 param INTENSITY 127\n0 param PROXIMITY 127\n0 param PRESET 2\n0 on 60 127\n"
     "1000 param PRESET 1\n2000 param PRESET 0\n3000 param PRESET 2\n4000 param PRESET 3\n"
     "5000 param PRESET 4\n6000 param PRESET 5\n7000 param PRESET 6\n8000 param PRESET 7\n"
-    "9000 param PRESET 8\n10000 param PRESET 3\n11000 off 60\n12000 end\n";
+    "9000 param PRESET 8\n10000 param PRESET 3\n11000 param PRESET 9\n12000 param PRESET 10\n13000 off 60\n14000 end\n";
 
 const tx_engine_t tx_eng_source = {
     "source", "SOURCE (prototype)", NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,
