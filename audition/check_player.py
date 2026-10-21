@@ -275,6 +275,24 @@ def main():
             key(61)                                          # tapped again while selected: lane 1 stops
             st = page.evaluate("window.txTest.src()")
             check(not st["run"][0] and not st["held"][0] and st["run"][1], "lane mode: a selected lane's black key tapped again stops it")
+            # quick lanes: an old engine in a lane, its own parameters on the fader (stream: FLOW), and a one-shot one
+            key(66)                                          # F#4: lane 3; put the stream there; C5 = step 8
+            page.evaluate(f"window.txTest.selectEngine({names.index('stream')})")
+            key(72)
+            time.sleep(1.6)
+            st = page.evaluate("window.txTest.src()")
+            fl = st["quick"][2]["cur"].get("FLOW", -1)
+            check(st["eng"][2] == "stream" and st["run"][2] and st["held"][2] and abs(fl - (10 + 117 * 7 / 14)) < 2 and st["lit"] == 8,
+                  f"quick lane: stream at step 8 holds itself, FLOW glided to {fl:.1f}, {st['lit']} keys lit")
+            key(68)                                          # G#4: lane 4; thunder (one-shot: re-pressed at its rate)
+            page.evaluate(f"window.txTest.selectEngine({names.index('thunder')})")
+            key(84)                                          # C6: the most
+            time.sleep(0.5)
+            st = page.evaluate("window.txTest.src()")
+            check(st["eng"][3] == "thunder" and st["run"][3] and not st["held"][3], "quick lane: thunder runs on re-pressed flashes (no held key)")
+            pk = page.evaluate("window.txTest.render(64)")
+            check(pk > 0, f"quick lanes sound (peak {pk})")
+            page.screenshot(path=os.path.join(OUT, "quick-lanes.png"), full_page=True)
             page.click("#lanes")
             st = page.evaluate("window.txTest.src()")
             check(not st["laneMode"] and not any(st["run"]) and not any(st["held"]), "lane mode off: every lane stopped")

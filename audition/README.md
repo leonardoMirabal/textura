@@ -39,6 +39,10 @@ git clone https://github.com/emscripten-core/emsdk.git .local/emsdk
   or stops it. A running lane generates on its own (no key held). The white keys light up as the bar, the chosen lane's
   black key is lit, the other running lanes' black keys glow. Computer letters, the on-screen keys and a MIDI keyboard
   (notes 60-84) play it alike. Turning lane mode off stops every lane.
+  **Quick lanes**: any engine can sit in a lane (pick the lane, then the engine with the stepper): the player keeps it
+  going on its own (a held note, or for the one-shot engines - thunder, rockfall, glass, ice, wood, plate, spring,
+  stone drum, minerals - presses re-triggered at the step's rate) and the 15 steps move its own density / rate / amount
+  parameters (the `QUICK` table in `app.js`), gliding over ~1 s. The source's presets add the character transitions.
 - **Layers** (stage S3): four engines at once. Click a layer to edit it; the engine stepper sets the edited layer's
   engine, `off` empties a layer. Each layer has its own parameters (PARTICLES, the hero-pool limit, and
   LEVEL are shared by all engines), a pan (constant power) and a key zone. Keys: `shared` sends every key to every

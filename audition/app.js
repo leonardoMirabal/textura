@@ -93,6 +93,7 @@ async function init() {
   window.txTest.src = () => ({ eng: srcEng, panel: !$("src-panel").hidden, laneMode, lane, run: [...laneRun], step: [0, 1, 2, 3].map(laneStepOf),
                                held: [...srcHeld], intens: [0, 1, 2, 3].map(k => layers[k].eng === srcEng && srcIds ? srcGet(k, "INTENSITY") : -1),
                                lit: [...document.querySelectorAll("#kb .key.lane-bar")].length,
+                               quick: quick.map(q => ({ step: q.step, cur: { ...q.cur } })), eng: [0, 1, 2, 3].map(engName),
                                sel: [...document.querySelectorAll("#kb .key.lane-sel")].map(k => +k.dataset.n),
                                glow: [...document.querySelectorAll("#kb .key.lane-glow")].map(k => +k.dataset.n) });
   window.txTest.setLaneMode = setLaneMode;
@@ -143,6 +144,8 @@ function selectEngine(i) {
   M._txw_select(i, seed[0] || 1);
   layers[k].eng = i; layers[k].vals = {};
   for (const [n, h] of held) M._txw_key_slot(k, n, h.vel, 1);
+  srcHeld[k] = false; quick[k].cur = {};               // a lane: its new engine starts as the old one stops (no held key)
+  if (laneMode && laneRun[k]) setTimeout(() => laneStart(k, true), 0);
   buildSliders();
   showLayers();
   showEngine();
@@ -420,8 +423,8 @@ function setSlider(id, val) {                         // from MIDI CC (the edite
 }
 
 // ---- SOURCE (engine "source"): its preset, morph and INTENSITY in a panel of their own; and LANE MODE, the keyboard
-// as planned for the FM-1: the black keys pick a lane (a layer running the source), the 16 white keys F3 .. G5 are
-// that lane's INTENSITY fader (the lowest stops it), the keys light up as the bar.
+// as planned for the FM-1: C4 .. C6, the black keys pick a lane (any engine: the source, or an old engine through
+// QUICK below), the 15 white keys are that lane's activity, the keys light up as the bar.
 const SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];
 const LANE_PRESETS = [0, 2, 3, 1];                   // a new lane's preset: rain, cicadas, water drops, stones
 const BLACKS = [], WHITES = [];
@@ -475,10 +478,95 @@ function showSource() {
   $("src-run").classList.toggle("primary", srcHeld[ed]);
   showLanes();
 }
+// QUICK LANES: any of the old engines in a lane. The player keeps it sounding on its own (a held note, or presses
+// re-triggered at the step's rate for the one-shot engines) and the 15 steps move the engine's own density / rate /
+// amount parameters: each [name, value at C4, value at C6], linear in the knob (the knobs are log in their units), gliding
+// over ~1 s. "every": seconds between presses at C4 and at C6 (log, exponential gaps): the one-shot engines.
+const QUICK = {
+  test: { p: [["RATE", 10, 120]] },
+  drip: { p: [["RATE", 20, 127]] },
+  candle: { p: [["SPUTTER", 40, 127], ["FLOW", 5, 60]] },
+  sparks: { p: [["RATE", 10, 120], ["BURST", 20, 80]] },
+  gravel: { p: [["AMOUNT", 20, 120], ["RATE", 30, 110]] },
+  rainstick: { p: [["SEEDS", 10, 127]] },
+  mineral: { p: [["SPEED", 20, 110], ["PRESSURE", 30, 100]] },
+  pebble: { p: [["SPEED", 20, 115]] },
+  thunder: { p: [["DIST", 110, 25], ["ENERGY", 40, 100]], every: [600, 10] },
+  bees: { p: [["SWARM", 0, 127]] },
+  sandsong: { p: [["FLOW", 40, 127]] },
+  aeolian: { p: [["WIND", 20, 127], ["GUST", 20, 80]] },
+  sand: { p: [["ORIFICE", 25, 110]] },
+  lakeice: { p: [["RATE", 0, 110]] },
+  spring: { p: [], every: [20, 0.25] },
+  chimes: { p: [["WIND", 10, 127], ["GUST", 30, 90]] },
+  rainsurf: { p: [["RATE", 10, 127], ["AREA", 30, 100]] },
+  rockfall: { p: [["VOLUME", 30, 110]], every: [120, 6] },
+  plate: { p: [["CRASH", 40, 127]], every: [20, 0.35] },
+  rainwater: { p: [["RATE", 10, 127], ["AREA", 60, 120]] },
+  stream: { p: [["FLOW", 10, 127], ["ROAR", 0, 90]] },
+  surf: { p: [["HEIGHT", 10, 127], ["CHOP", 30, 90]] },
+  storm: { p: [["INTENSITY", 0, 127]] },
+  crickets: { p: [["CHORUS", 0, 127], ["FIELD", 0, 90]] },
+  cicadas: { p: [["CHORUS", 0, 127]] },
+  katydids: { p: [["CHORUS", 0, 127]] },
+  crumple: { p: [["RATE", 10, 120]] },
+  fire: { p: [["MOIST", 20, 120], ["SIZE", 20, 100], ["ROAR", 30, 120]] },
+  stonedrum: { p: [], every: [12, 0.12] },
+  stonecloud: { p: [["DENSITY", 10, 127]] },
+  minerals: { p: [], every: [10, 0.15] },
+  glass: { p: [["ENERGY", 60, 127]], every: [40, 2] },
+  wood: { p: [["LOAD", 110, 15], ["CREAK", 15, 70]], every: [30, 2] },
+  ice: { p: [["AMOUNT", 20, 127]], every: [30, 1.5] },
+};
+const quick = [0, 1, 2, 3].map(() => ({ step: 7, cur: {}, timer: 0 }));
+function engName(k) { return layers[k].eng >= 0 ? S(M._txw_name(layers[k].eng)) : ""; }
+function pidOf(k, name) {                             // a parameter id of layer k's engine, by name (-1: none)
+  M._txw_slot(k);
+  let id = -1;
+  for (let p = 0; p < M._txw_nparams(); p++) if (S(M._txw_pname(p)) === name) id = p;
+  M._txw_slot(ed);
+  return id;
+}
+function quickTargets(k) {                            // the parameter values for layer k's step
+  const q = QUICK[engName(k)], t = {};
+  if (q) for (const [name, lo, hi] of q.p) t[name] = lo + (hi - lo) * quick[k].step / 14;
+  return t;
+}
+function quickTick() {                                // ~20 / s: the running quick lanes glide toward their step (~1 s)
+  for (let k = 0; k < 4; k++) {
+    if (!laneMode || !laneRun[k] || layers[k].eng < 0 || layers[k].eng === srcEng) continue;
+    const t = quickTargets(k), c = quick[k].cur;
+    for (const name in t) {
+      const now = name in c ? c[name] : t[name], nx = Math.abs(t[name] - now) < 0.5 ? t[name] : now + (t[name] - now) * 0.15;
+      if (Math.round(nx) !== Math.round(now) || !(name in c)) {
+        const id = pidOf(k, name);
+        if (id >= 0) { M._txw_slot(k); M._txw_param(id, Math.round(nx)); M._txw_slot(ed); layers[k].vals[id] = Math.round(nx); }
+      }
+      c[name] = nx;
+    }
+  }
+}
+setInterval(quickTick, 50);
+function quickPress(k) {                              // a one-shot engine's next press, at the step's rate
+  const q = QUICK[engName(k)];
+  if (!q || !q.every || !laneRun[k]) return;
+  M._txw_key_slot(k, 60, 100, 1);
+  setTimeout(() => M._txw_key_slot(k, 60, 0, 0), 150);
+  const [a, b] = q.every, mean = a * Math.pow(b / a, quick[k].step / 14);
+  quick[k].timer = setTimeout(() => quickPress(k), Math.max(150, -Math.log(1 - Math.random()) * mean * 1000));
+}
+function laneStart(k, on) {                           // a lane plays on its own: the source or a held engine held, a one-shot re-pressed
+  clearTimeout(quick[k].timer); quick[k].timer = 0;
+  laneRun[k] = on;
+  const q = QUICK[engName(k)];
+  if (q && q.every && layers[k].eng !== srcEng) { srcHold(k, false); if (on) quickPress(k); }
+  else srcHold(k, on);
+  if (on) quickTick();
+}
 function laneSelect(i) {
   if (i < 0 || i > 3) return;                        // (10 black keys; 4 lanes in the prototype)
   lane = i;
-  srcLayer(i, layers[i].eng === srcEng ? undefined : LANE_PRESETS[i]);
+  if (layers[i].eng < 0) srcLayer(i, LANE_PRESETS[i]);   // an empty lane gets the source; any engine can be put there
   editLayer(i);
   showLanes();
 }
@@ -486,16 +574,21 @@ function laneKey(n) {                                // a black key: pick its la
   const b = BLACKS.indexOf(n), w = WHITES.indexOf(n);   // key: the selected lane's activity, C4 least .. C6 massive
   if (b >= 0) {
     if (b > 3) return;
-    if (b === lane && layers[b].eng === srcEng) { laneRun[b] = !laneRun[b]; srcHold(b, laneRun[b]); showSource(); return; }
+    if (b === lane && layers[b].eng >= 0) { laneStart(b, !laneRun[b]); showSource(); return; }
     laneSelect(b); return;
   }
   if (w < 0) return;
-  srcLayer(lane, layers[lane].eng === srcEng ? undefined : LANE_PRESETS[lane]);
-  srcSet(lane, "INTENSITY", Math.round(w * 127 / 14));
-  laneRun[lane] = true; srcHold(lane, true);
+  if (layers[lane].eng < 0) srcLayer(lane, LANE_PRESETS[lane]);
+  if (layers[lane].eng === srcEng) { srcFindIds(lane); srcSet(lane, "INTENSITY", Math.round(w * 127 / 14)); }
+  else quick[lane].step = w;
+  if (!laneRun[lane]) laneStart(lane, true);
+  else if (layers[lane].eng !== srcEng) quickTick();
   showSource();
 }
-function laneStepOf(i) { return layers[i].eng === srcEng && srcIds ? Math.round(srcGet(i, "INTENSITY") * 14 / 127) : 0; }
+function laneStepOf(i) {
+  if (layers[i].eng === srcEng) return srcIds ? Math.round(srcGet(i, "INTENSITY") * 14 / 127) : 0;
+  return quick[i].step;
+}
 function showLanes() {                                // the LEDs: the bar on the white keys, the lanes on the black ones
   document.querySelectorAll("#kb .key").forEach(k => k.classList.remove("lane-sel", "lane-glow", "lane-bar"));
   const box = $("lanes-box");
@@ -506,7 +599,8 @@ function showLanes() {                                // the LEDs: the bar on th
     if (kb) { kb.classList.toggle("lane-sel", i === lane); kb.classList.toggle("lane-glow", laneRun[i] && i !== lane); }
     const d = document.createElement("span");
     d.className = "lane" + (i === lane ? " sel" : "") + (laneRun[i] ? " run" : "");
-    const pre = layers[i].eng === srcEng && srcIds ? SRC_PRESETS[srcGet(i, "PRESET")] : "–";
+    const pre = layers[i].eng < 0 ? "–" : layers[i].eng === srcEng && srcIds ? SRC_PRESETS[srcGet(i, "PRESET")]
+      : engName(i) + (QUICK[engName(i)] ? "" : " (no activity map)");
     d.textContent = `Lane ${i + 1}: ${pre} · ${laneStepOf(i) + 1}/15${laneRun[i] ? "" : " · stopped"}`;
     d.onclick = () => laneSelect(i);
     box.appendChild(d);
@@ -521,8 +615,8 @@ function setLaneMode(on) {
   laneMode = on;
   buildKeyboard();                                   // lane mode shows C4 .. C6, otherwise the FM-1's F3 .. G5
   $("lanes").checked = on;
-  if (on) { for (let i = 2; i >= 0; i--) srcLayer(i, layers[i].eng === srcEng ? undefined : LANE_PRESETS[i]); laneSelect(lane); }
-  else for (let i = 0; i < 4; i++) { if (laneRun[i]) { laneRun[i] = false; srcHold(i, false); } }
+  if (on) { for (let i = 2; i >= 0; i--) if (layers[i].eng < 0) srcLayer(i, LANE_PRESETS[i]); laneSelect(lane); }
+  else for (let i = 0; i < 4; i++) { if (laneRun[i] || srcHeld[i]) laneStart(i, false); }
   showSource();
 }
 function srcInit() {
