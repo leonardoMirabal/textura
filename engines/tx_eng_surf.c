@@ -13,7 +13,10 @@
  *             ~1.5 ms clumps of random gain, plus bubble heroes for the fizz); decays over ~1-3 s with the wave's size;
  *   backwash  the water draining back: a high hiss (2-5 kHz) rising ~1.5 s after the plunge, decaying over ~3 s.
  * Waves vary +-10 dB in level (L37: CHOP). Larger waves have relatively more energy under 100 Hz (L38). DIST: the
- * air's high-cut and 1 / r (ours). */
+ * air's high-cut and 1 / r (ours). FLOOR: the far surf along the shore, a steady roar under the waves while the sea is
+ * on (ours: -12 dB; 0 for a beach heard alone). STRIKE 0: a press sends no breaker; the sea it holds starts partway
+ * into a wave period (its first breaker 0.1 .. 0.6 periods on). COUNT: wave trains along the shore, each with
+ * its own timing (random phase, the same period and jitter) and size (farther: -1 .. -7 dB): more breakers. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_vary.h"
@@ -33,7 +36,7 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 2
 
-enum { P_PERIOD, P_HEIGHT, P_CHOP, P_BACKWASH, P_DIST, NP };
+enum { P_PERIOD, P_HEIGHT, P_CHOP, P_BACKWASH, P_DIST, P_FLOOR, P_STRIKE, P_COUNT, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"PERIOD", 127, 70, "wave period: 6 .. 15 s (+-20 % wave to wave)"},
@@ -41,9 +44,14 @@ static const tx_param_t PARAMS[NP] = {
     {"CHOP", 127, 64, "wave-to-wave variety: regular .. +-10 dB (L37) and +-40 % timing"},
     {"BACKWASH", 127, 64, "backwash hiss after each wave: none .. strong (water draining through sand or shingle)"},
     {"DIST", 127, 64, "distance: on the shore .. 300 m away (high-cut, quieter)"},
+    {"FLOOR", 127, 64, "the far surf along the shore under the waves while the sea is on: none .. -12 dB (64) .. -6 dB"},
+    {"STRIKE", 1, 1, "a press: 1 = a breaker now; 0 = presses only hold the sea, which starts partway into a wave period"},
+    {"COUNT", 8, 1, "wave trains along the shore, each its own timing and size (farther ones smaller): 1 .. 8, more breakers"},
 };
 
-#define NBRK 3u                    /* breakers sounding at once */
+#define NBRK 3u                    /* breakers sounding at once (one wave train) */
+#define NBRK_MAX 10u               /* .. with more trains (COUNT): 3 + 1 a train past the first */
+#define NTR 8u                     /* wave trains at most (COUNT) */
 #define NB 8u                      /* roar bands */
 #define NH 16u                     /* bubble heroes */
 #define ROAR_REF 4000              /* roar band gain for a 1 m wave at its peak (Q11 units; calibrated by render) */
@@ -65,13 +73,16 @@ typedef struct {
     tx_declick_t dc;
     tx_dcblock_t hp;
     tx_bubble_t b[TX_POOL_MAX];
-    brk_t br[NBRK];
+    brk_t br[NBRK_MAX];
     tx_svf_t roar[NB], pipe[4];
     int32_t rf[NB], rgin[NB], rg[NB], pf[4], pgin[4], pg[4];
     tx_noise_t back;
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t nz[TX_BLOCK], pin[TX_BLOCK], buf[TX_BLOCK];
     uint32_t next;                 /* samples to the next breaker while the sea is on */
+    uint32_t tnext[NTR];           /* the other trains' next breakers (0: not running) */
+    uint32_t launched;             /* breakers so far (stats) */
+    uint8_t tvel[NTR];             /* the trains' sizes (velocity) */
     uint32_t x32, burst;           /* noise; samples of the whoomph burst left */
     int32_t burst_a, olp, olpa, ga, h_l2, floor;
     uint8_t p[NP], limit, quiet, sea;
@@ -172,11 +183,13 @@ static void launch(surf_t *s, uint32_t vel)
 {
     tx_rng_t *r = &s->cloud.rng;
     brk_t *b = 0;
-    unsigned i;
+    unsigned i, nb = NBRK + (s->p[P_COUNT] > 1u ? s->p[P_COUNT] - 1u : 0u);
     uint32_t oldest = 0;
     int32_t db;
-    for (i = 0; i < NBRK; i++) if (!s->br[i].alive) { b = &s->br[i]; break; }
-    if (!b) for (i = 0; i < NBRK; i++) if (s->br[i].t >= oldest) { oldest = s->br[i].t; b = &s->br[i]; }
+    if (nb > NBRK_MAX) nb = NBRK_MAX;
+    s->launched++;
+    for (i = 0; i < nb; i++) if (!s->br[i].alive) { b = &s->br[i]; break; }
+    if (!b) for (i = 0; i < nb; i++) if (s->br[i].t >= oldest) { oldest = s->br[i].t; b = &s->br[i]; }
     db = (int32_t)(((int64_t)tx_rand_s15(r) * s->p[P_CHOP]) >> 15) * 10 / 127;   /* +-10 dB */
     b->a = db_q15(db) * (int32_t)vel / 100;                  /* <= 2^17 x 127: 32-bit */
     b->t = 0;
@@ -226,22 +239,39 @@ TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
     k = tx_cloud_block(&s->cloud, s->ev, n);
     if (!k && s->quiet) return;                              /* silent and nothing new */
     for (j = 0; j < n; j++) buf[j] = pin[j] = 0;
-    for (i = 0; i < k; i++) launch(s, s->ev[i].vel);         /* a press: a breaker now */
+    for (i = 0; i < k; i++) {                                /* a press: a breaker now */
+        if (s->p[P_STRIKE]) launch(s, s->ev[i].vel);         /* (STRIKE 0: presses hold the sea only) */
+    }
     {   /* the sea: breakers every PERIOD while a key is held */
         unsigned held = tx_cloud_held(&s->cloud);
-        if (held && !s->sea) s->next = 6u * 44100u;          /* the press already sent one */
+        uint32_t T = 6u * 44100u + s->p[P_PERIOD] * 3125u;   /* 6 .. 15 s */
+        if (held && !s->sea)                                 /* the press already sent one; or (STRIKE 0) the sea */
+            s->next = s->p[P_STRIKE] ? 6u * 44100u : T / 10u + tx_rand_below(r, T / 2u);   /* is partway into a period */
         s->sea = (uint8_t)(held != 0);
         if (s->sea) {
             if (s->next > n) s->next -= n;
             else {
-                uint32_t T = 6u * 44100u + s->p[P_PERIOD] * 3125u;   /* 6 .. 15 s */
                 int32_t jit = (int32_t)(((int64_t)tx_rand_s15(r) * (6554 + s->p[P_CHOP] * 52)) >> 15);   /* +-20 .. 40 % */
                 launch(s, 100u);
                 s->next = (uint32_t)((int64_t)T * (32768 + jit) >> 15);
             }
-        }
+            for (i = 1; i < NTR; i++) {                      /* the other trains (COUNT): along the shore, each its */
+                if (i >= s->p[P_COUNT]) { s->tnext[i] = 0; continue; }   /* own timing, farther ones smaller */
+                if (!s->tnext[i]) {                          /* joining: partway into its period */
+                    s->tnext[i] = 1u + tx_rand_below(r, T);
+                    s->tvel[i] = (uint8_t)(45u + tx_rand_below(r, 46u));   /* 45 .. 90: -7 .. -1 dB */
+                }
+                if (s->tnext[i] > n) s->tnext[i] -= n;
+                else {
+                    int32_t jit = (int32_t)(((int64_t)tx_rand_s15(r) * (6554 + s->p[P_CHOP] * 52)) >> 15);
+                    launch(s, s->tvel[i]);
+                    s->tnext[i] = (uint32_t)((int64_t)T * (32768 + jit) >> 15);
+                    if (!s->tnext[i]) s->tnext[i] = 1u;
+                }
+            }
+        } else for (i = 1; i < NTR; i++) s->tnext[i] = 0;
     }
-    for (i = 0; i < NBRK; i++) {
+    for (i = 0; i < NBRK_MAX; i++) {
         brk_t *b = &s->br[i];
         int32_t er, eb;
         if (!b->alive) continue;
@@ -262,7 +292,7 @@ TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
         int32_t g = (int32_t)(((uint64_t)e * (uint32_t)s->level) >> 15), any = 0;
         int32_t gb[NB];
         if (s->sea || s->floor) {                             /* the far surf along the shore: a floor at -12 dB (ours) */
-            s->floor += s->sea ? (8192 - s->floor) >> 6 : -(s->floor >> 6);
+            s->floor += s->sea ? ((int32_t)s->p[P_FLOOR] * 128 - s->floor) >> 6 : -(s->floor >> 6);   /* (FLOOR 64: 8192) */
             if (!s->sea && s->floor < 64) s->floor = 0;
             pr += (uint64_t)((int64_t)s->floor * s->floor);
             e = (uint32_t)tx_exp2((int32_t)((32 << 16) - (int32_t)(tx_neglog2_q12((uint32_t)(pr > 0xFFFFFFFFull ? 0xFFFFFFFFull : pr)) << 4)) / 2);
@@ -355,7 +385,7 @@ static void surf_stats(const void *st, tx_stats_t *o)
     o->events = s->cloud.last_events;
     o->dropped = s->cloud.last_dropped;
     o->steals = s->pool.steals;
-    o->total = s->cloud.total;
+    o->total = s->launched;                                  /* (the breakers: the presses' and the sea's) */
     o->quiet = s->quiet;
 }
 

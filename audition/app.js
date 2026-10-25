@@ -105,7 +105,7 @@ async function init() {
   window.txTest.src = () => ({ eng: srcEng, panel: !$("src-panel").hidden, laneMode, lane, run: [...laneRun], step: [0, 1, 2, 3].map(laneStepOf), cnt: [0, 1, 2, 3].map(laneCntOf),
                                held: [...srcHeld], intens: [0, 1, 2, 3].map(k => layers[k].eng === srcEng && srcIds ? srcGet(k, "INTENSITY") : -1),
                                lit: [...document.querySelectorAll("#kb .key.lane-bar")].length,
-                               quick: quick.map(q => ({ step: q.step, cur: { ...q.cur } })), eng: [0, 1, 2, 3].map(engName),
+                               quick: quick.map(q => ({ step: q.step, cur: { ...q.cur } })), eng: [0, 1, 2, 3].map(engName), snd: [...laneSnd],
                                sel: [...document.querySelectorAll("#kb .key.lane-sel")].map(k => +k.dataset.n),
                                glow: [...document.querySelectorAll("#kb .key.lane-glow")].map(k => +k.dataset.n),
                                blink: [...document.querySelectorAll("#kb .key.lane-blink")].map(k => [+k.dataset.n, k.style.getPropertyValue("--blink")]) });
@@ -478,7 +478,7 @@ let SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];   
 const FAMILIES = [
   ["Water", [["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 50], ["water drops", "water", 0],
     ["cave drips", "water", 16], ["eaves dripping", "water", 32], ["brook", "water", 48], ["bubbling spring", "water", 64],
-    ["waterfall", "water", 80], ["#surf"]]],
+    ["waterfall", "water", 80], ["waves on sand", "water", 96], ["waves on shingle", "water", 112]]],
   ["Stones & sand", [["stones", "stone cloud", 0], ["rockfall", "stone cloud", 32], ["ringing rocks", "stone cloud", 96],
     ["gravel", "gravel", 0], ["marbles", "gravel", 96], ["sand", "sand", 0], ["singing dune", "sand", 96],
     ["minerals", "minerals", 0], ["stone friction", "minerals", 96]]],

@@ -185,11 +185,12 @@ static const clu_pre_t CLU[NPRE] = {
  * apart): more keys, more of them, coming one at a time; COUNT past them moves the first curve k64 knob units a
  * doubling (a fire: its logs burn livelier; with no keys, or an event engine, about COUNT 8 = the curves as written, fewer
  * less; k0 & 8: the curve falls with more, from 8). k0 & 2: held in bouts below INTENSITY 64 (host_gate). k0 & 4: each
- * key a crack of its own: the extras come at an engine's own pace (exponential, mean 2 s), not ~0.2 s apart. With k0 & 1, a
+ * key a crack of its own: the extras come at an engine's own pace (exponential, mean 2 s), not ~0.2 s apart. k0 & 16 (an
+ * event engine): each press goes to one of COUNT distinct keys (up to 8), at random: COUNT pebbles. With k0 & 1, a
  * held key, picked at random, is pressed afresh after
  * 3 s + an exponential wait (mean 7 s; no clock): a singer leaves and a new one comes with the parameters of now (these engines read them at a press; a
  * fire's logs just burn: a press there would throw a new log on, its burst louder than the fire it lands in). */
-#define HOST_NC 5u
+#define HOST_NC 6u
 #define HOST_NK 5u                  /* character maps per hosted engine (HMAP) */
 #define GATE_ON 120u                /* a bout held, mean blocks (0.7 s) */
 #define HOST_HEROES 12u             /* an engine counting its own individuals: heroes at most (CPU: half the pool) */
@@ -243,8 +244,9 @@ static const host_t HOST[] = {
     {"rainsurf", -10, -10, -10, {{"RATE", -20, 60, 120}, {"DROPS", 40, 64, 110}, {"AREA", -20, 50, 50}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 16, 4, 0, 0, 0, 0},
     /* lake ice (ice): a crack now and then .. a lake singing and booming */
     {"lakeice", -30, -30, -30, {{"RATE", 8, 34, 90}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 4, 16, 4, 0, 0, 0, 0},
-    /* rolling balls and marbles (gravel): a ball pushed now and then .. marbles rolling about */
-    {"pebble", -5, -5, -5, {{"SPEED", 40, 64, 96}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 0, 0,
+    /* rolling balls and marbles (gravel): a ball pushed now and then .. marbles rolling about (COUNT: the marbles,
+     * each its own key, up to 8) */
+    {"pebble", -105, -105, -105, {{"SPEED", 40, 64, 96}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 18, 0, 0,
      60, 20, 6, 0},
     /* a flame without crackle (fire): a candle .. a gas burner roaring in a draught */
     {"candle", 30, 30, 30, {{"FLOW", 5, 15, 90}, {"DRAUGHT", 5, 20, 70}, {"SPUTTER", 30, 100, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 8, 8, 0, 0, 0, 0},
@@ -281,12 +283,13 @@ static const host_t HOST[] = {
     /* a waterfall (water): a thin fall now and then .. pouring .. a big fall's roar from farther off */
     {"stream", -120, -120, -120, {{"FLOW", 30, 90, 110}, {"ROAR", 20, 60, 90}, {"SIZE", 45, 45, 50}, {"NEAR", 40, 30, 20},
                              {"EDDY", 30, 40, 50}}, 2, 6, 2, 0, 0, 0, 0},
-    /* waves on a sandy beach (water): a small wave every 15 s .. breakers every 6 s, higher (COUNT: bigger waves) */
-    {"surf", 0, 0, 0, {{"HEIGHT", 0, 64, 110}, {"PERIOD", 127, 70, 30}, {"BACKWASH", 40, 50, 60}, {"DIST", 70, 64, 50},
-                     {0, 0, 0, 0}}, 0, 14, 0, 0, 0, 0, 0},
+    /* waves on a sandy beach (water): a small wave every 15 s .. breakers every 6 s, higher (COUNT: the engine's wave
+     * trains along the shore, up to 8; past them higher); no far-surf floor, the sea starts partway into a period */
+    {"surf", -25, -25, -25, {{"HEIGHT", 0, 64, 110}, {"PERIOD", 127, 70, 30}, {"BACKWASH", 40, 50, 60}, {"DIST", 70, 64, 50},
+                     {"FLOOR", 0, 0, 0}, {"STRIKE", 0, 0, 0}}, 0, 10, 0, 0, 0, 0, 0},
     /* waves on shingle (water): the same sea on a stony beach close by: the backwash draining loud through the stones */
-    {"surf", 0, 0, 0, {{"HEIGHT", 0, 50, 100}, {"PERIOD", 127, 80, 40}, {"BACKWASH", 110, 115, 120}, {"DIST", 40, 40, 40},
-                     {0, 0, 0, 0}}, 0, 14, 0, 0, 0, 0, 0},
+    {"surf", -55, -55, -55, {{"HEIGHT", 0, 50, 100}, {"PERIOD", 127, 80, 40}, {"BACKWASH", 110, 115, 120}, {"DIST", 40, 40, 40},
+                     {"FLOOR", 0, 0, 0}, {"STRIKE", 0, 0, 0}}, 0, 10, 0, 0, 0, 0, 0},
 };
 #define H_MEMBER 12u                 /* the first member row */
 
@@ -1413,7 +1416,15 @@ static void host_clock(src_t *s)
         int32_t v = (int32_t)(((int64_t)s->vel * tx_exp2(clampi(lv / 2, -(3 << 16), 1 << 16) + (16 << 16))) >> 16);
         v = clampi(v, 16, 127);
         if (s->hoff) { s->hst->key(s->host, s->hpn, 0, 0); s->hoff = 0; }
-        s->hpn = s->note;
+        if (!(s->hd->k0 & 16u)) s->hpn = s->note;
+        else {                                               /* (COUNT distinct keys: one of them pushed) */
+            unsigned nk = count_n(s);
+            uint8_t nt;
+            if (nk > 8u) nk = 8u;
+            nt = (uint8_t)(nk > 1u ? s->note + HOST_KEYS[tx_rand_below(&s->rng, nk)] : s->note);
+            if (!s->hd->oneshot && nt != s->hpn) s->hst->key(s->host, s->hpn, 0, 0);   /* (the last one coasts on) */
+            s->hpn = nt;
+        }
         if (s->hd->oneshot) { s->hst->key(s->host, s->hpn, (uint8_t)v, 1); s->hoff = 26; }
         else { s->hst->key(s->host, s->hpn, 0, 0); s->hst->key(s->host, s->hpn, (uint8_t)v, 1); }
     }

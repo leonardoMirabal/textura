@@ -375,9 +375,10 @@ def main():
             key(63); key(60)                                 # C4: the selected sound off
             st = page.evaluate("window.txTest.src()")
             check(not st["run"][1] and st["lit"] == 0 and st["cnt"][1] == 0, "lane mode: C4 (how many: off) turns the selected sound off")
-            key(80); key(72)                                 # G#5 (the 9th black key): Water's surf, in a free lane; C5 rare
+            key(80); key(72)                                 # G#5 (the 9th black key): Water's waves on sand (hosted surf), in a free lane; C5 rare
             st = page.evaluate("window.txTest.src()")
-            check(any(e == "surf" and r for e, r in zip(st["eng"], st["run"])), f"lane mode: a black key past the fourth plays its sound ({st['eng']})")
+            check(any(s == 8 and r and e == "source" for s, r, e in zip(st["snd"], st["run"], st["eng"])),
+                  f"lane mode: a black key past the fourth plays its sound ({st['eng']}, {st['snd']})")
             # quick lanes: an old engine in a lane, its own parameters on the fader (stream: FLOW), and a one-shot one
             key(66)                                          # F#4: sound 3 (water drops); put the stream there; F5 = how active 4 (step 7)
             page.evaluate(f"window.txTest.selectEngine({names.index('stream')})")
