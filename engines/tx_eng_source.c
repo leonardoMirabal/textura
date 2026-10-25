@@ -295,7 +295,7 @@ typedef struct {
     union {                         /* the particle presets' pools, or a hosted engine's whole state */
         struct {
             voice_t v[NV];
-            union { member_t m[NM]; birdm_t bm[NB]; tx_grains_t gr; };   /* (gr: rain, stones) */
+            union { struct { member_t m[NM]; tx_grains_t cg; }; birdm_t bm[NB]; tx_grains_t gr; };   /* (gr: rain, stones; cg: the far callers) */
         };
         uint64_t host[HOST_BYTES / 8];
     };
@@ -330,10 +330,6 @@ typedef struct {
     int32_t life_s, life_d;         /* their offsets now (Q16 log2) */
     /* the beds: rain's two bands, stones' residue, the callers' chorus */
     int32_t res, res_x1;            /* the stones' attack residue */
-    uint32_t cbed_p;                /* the callers' bed power (Q30) */
-    int32_t cbed_f;                 /* its carrier, Hz */
-    tx_ireso_t cres;                /* its resonance */
-    int32_t cbed_mod;               /* its phrase, Q15 */
     int32_t clp;                    /* click low-pass */
     uint16_t dropped, events;
     uint32_t total, steals;
@@ -509,6 +505,13 @@ static int32_t ev_dist(src_t *s, unsigned pre)
 /* the far events' grains (tx_core_grains.h): rain's bubbles and splashes, the stones' far knocks */
 static void grains_setup(src_t *s, unsigned pre)
 {
+    if (PRE[pre].kind == 1) {                                /* far callers: a click rings the body at its carrier (Q 12) */
+        static const uint16_t E[7] = { 800, 1600, 3000, 5000, 7500, 10500, 15000 };
+        unsigned i;
+        tx_gr_init(&s->cg);
+        for (i = 0; i < 6; i++) tx_gr_band(&s->cg, i, E[i], E[i + 1], 192, 256);
+        return;
+    }
     tx_gr_init(&s->gr);
     if (pre == PR_STONES) {                                  /* a far knock: its piece rings a moment (Q 20) */
         tx_gr_band(&s->gr, 0, 300, 1200, 320, 256);
@@ -811,7 +814,20 @@ static void stone(src_t *s, unsigned off, int near, int32_t vel, unsigned pre, i
 
 /* ---- cicadas */
 #define RIB_AMP 3000
-#define CBED_SH 16                  /* the callers' bed: a voiced cicada's mean power ~ (g x 0.08)^2 (calibrated by render) */
+#define CGR_A 2600                  /* a far caller's click grain re its gain (calibrated by render against a hero) */
+
+/* the species (TYPE: 0 the preset's own; 1-42, 43-84, 85-127; note 16: the references are a close-up singing at
+ * 11 kHz in pulse trains, a chorus at ~5 kHz, a low one at ~2 kHz): carrier, click rate (log2 Hz, Q16), the phrase (its
+ * cycle per block, Q32 / 2^16; the pulse groups come twice per cycle), its floor (0 = full depth: a pulse train) and
+ * shape (1: sharper pulses), the calls (song and pause medians, log2 blocks Q16), the tymbal's Q (TONE units) */
+typedef struct { int32_t f_l2, rate_l2; uint32_t pinc; int32_t floor; uint8_t sharp; int32_t song_l2, pause_l2; int8_t q; int16_t g; } cic_t;
+static const cic_t CIC[4] = {   /* (g: its level, tenths of a dB, by render: each kind about -26 LUFS at INTENSITY 64) */
+    {788474, 449072, 2100, 18022, 0, 683500, 639000, 0, 0},       /* the preset's own: ~4.2 kHz, a pulsing buzz, songs ~8 s */
+    {870900, 498000, 1150, 0, 1, 470000, 600000, 14, 125},       /* a small cicada close by: ~10 kHz, pulse trains (~6 /s), short calls ~2 s, pauses ~4 s */
+    {801700, 449072, 900, 6000, 0, 750000, 600000, -4, -15},    /* a chorus singer: ~4.8 kHz, throbbing (~5 /s), long songs ~14 s */
+    {718600, 400000, 400, 16000, 0, 600000, 580000, -10, 0},     /* a low singer: ~2 kHz, slow throbs (~2 /s), calls ~4 s */
+};
+static unsigned cic_kind(const src_t *s) { unsigned t = s->p[P_TYPE]; return t == 0 ? 0u : t < 43 ? 1u : t < 85 ? 2u : 3u; }
 #define G_CALL 5000                 /* a caller's gain at 1 m, Q12 (as the cicadas engine's G_REF) */
 
 static void caller_tune(src_t *s, caller_t *c)
@@ -828,13 +844,17 @@ static void caller_tune(src_t *s, caller_t *c)
     c->dur = (int32_t)(15u * TX_FS / f);
     c->ty.da1 = (int32_t)((uint32_t)(a1e - c->a1s > 0 ? a1e - c->a1s : 0) * 256u / (uint32_t)(c->dur + 1));
     c->jit = clampi(27 + knob(s, P_HARD), 0, 127) * 258;
+    if (s->m[c->member < NM ? c->member : 0].pad == 1u) {   /* a small cicada: one clean ring, no glide (the close-up */
+        c->a1s = c->a1o = c->ty.a1_end = c->ty.a1;          /* reference: a pure 11 kHz line, nothing under 4 kHz) */
+        c->ty.da1 = 0;
+    }
 }
 
 /* a calling bout (song) or a pause, in blocks: log-normal (note 14: the references' callers enter and leave in steps of
  * 5-15 dB lasting seconds, a song may end in a long decrescendo): songs median 8 s (sd 0.8 octave), pauses 5 s (sd 1) */
-static uint16_t bout_len(src_t *s, int song)
+static uint16_t bout_len(src_t *s, int song, unsigned sp)
 {
-    int32_t l = (song ? 683500 : 639000) + (int32_t)(((int64_t)gauss(s) * (song ? 52429 : 65536)) >> 12);   /* log2 blocks */
+    int32_t l = (song ? CIC[sp].song_l2 : CIC[sp].pause_l2) + (int32_t)(((int64_t)gauss(s) * (song ? 52429 : 65536)) >> 12);   /* log2 blocks */
     uint32_t b = tx_exp2(clampi(l, 5 << 16, 16 << 16));
     return (uint16_t)(b > 65535u ? 65535u : b < 32u ? 32u : b);
 }
@@ -843,15 +863,16 @@ static uint16_t bout_len(src_t *s, int song)
 static void member_new(src_t *s, member_t *m, int near)
 {
     int32_t sp = (int32_t)s->p[P_SPREAD];
-    m->f_l2 = 788474 + knob(s, P_SIZE) * -1024 - ((int32_t)s->note - 60) * -2731 + s->life_s / 4
+    const cic_t *c = &CIC[m->pad = (uint8_t)cic_kind(s)];   /* (pad: its species) */
+    m->f_l2 = c->f_l2 + knob(s, P_SIZE) * -1536 - ((int32_t)s->note - 60) * -2731 + s->life_s / 4   /* SIZE: +-1.5 oct */
               + (int32_t)((((int64_t)gauss(s) * 3718 * sp) >> 6) >> 12) + (tx_vary_tone(&s->vy) >> 3);
-    m->rate_l2 = 449072 + (int32_t)(((int64_t)gauss(s) * 4648) >> 12);
+    m->rate_l2 = c->rate_l2 + (int32_t)(((int64_t)gauss(s) * 4648) >> 12);
     m->r_l2 = near ? dist_l2(s) - 65536 : ev_dist(s, PR_CICADAS);   /* most far, a few near (note 14) */
-    m->q_off = (int8_t)clampi((gauss(s) * 12) >> 12, -40, 40);   /* its own tymbal (timbre): sd 0.28 octave of Q */
+    m->q_off = (int8_t)clampi(c->q + ((gauss(s) * 12) >> 12), -40, 40);   /* its own tymbal (timbre): sd 0.28 octave of Q */
     m->song = 1; m->fade = 6;
-    m->bout = bout_len(s, 1);
+    m->bout = bout_len(s, 1, m->pad);
     m->pph = tx_rand(&s->rng);
-    m->pinc = (uint32_t)(((uint64_t)70u * 1963000u * (60000u + tx_rand_below(&s->rng, 11000u))) >> 16);
+    m->pinc = (uint32_t)(((uint64_t)c->pinc * 65536u * (60000u + tx_rand_below(&s->rng, 11000u))) >> 16);
     m->env = 0;
     m->fresh = 1;
 }
@@ -860,8 +881,9 @@ static void member_gain(src_t *s, member_t *m)
 {
     uint32_t f = tx_exp2(m->f_l2);
     int32_t g = (int32_t)(((int64_t)tx_place_gain_q12(m->r_l2) * G_CALL) >> 12);
-    g = (int32_t)(((int64_t)g * tx_place_air_q15(f > 8000u ? 8000u : f, m->r_l2)) >> 15);
+    g = (int32_t)(((int64_t)g * tx_place_air_q15(f > 14000u ? 14000u : f, m->r_l2)) >> 15);
     g = (int32_t)(((int64_t)g * s->trim_c) >> 12);
+    if (CIC[m->pad & 3u].g) g = (int32_t)(((int64_t)g * (int32_t)tx_exp2(TX_DB10(CIC[m->pad & 3u].g) + (12 << 16))) >> 12);
     m->gain = g;
 }
 
@@ -880,8 +902,8 @@ static void caller_start(src_t *s, unsigned mi, int steal)
     { uint8_t *b = (uint8_t *)c; unsigned i; for (i = 0; i < sizeof *c; i++) b[i] = 0; }
     c->member = (uint8_t)mi;
     c->f = tx_exp2(m->f_l2);
-    if (c->f > 8000u) c->f = 8000u;
-    if (c->f < 500u) c->f = 500u;
+    if (c->f > 14000u) c->f = 14000u;
+    if (c->f < 800u) c->f = 800u;
     caller_tune(s, c);
     c->per_q8 = (TX_FS << 7) / tx_exp2(m->rate_l2);
     c->next_q8 = tx_rand_below(&s->rng, 65535u) % (c->per_q8 * 2u);
@@ -941,7 +963,7 @@ static void caller_render(src_t *s, voice_t *v, unsigned n)
         c->ty.g = g > 6000 ? 6000 : g;
     }
     for (q = 0; q < mcount; q++) {
-        int32_t d = (c->pend[q].amp * c->ty.g) >> 4;
+        int32_t d = ((c->pend[q].amp * c->ty.g) >> 4) >> (m->pad == 1u ? 2 : 0);   /* (a small cicada: a cleaner tone) */
         s->buf[c->pend[q].off] += d;
         if (c->pend[q].off + 1u < n) s->buf[c->pend[q].off + 1u] -= d;
     }
@@ -961,9 +983,6 @@ static void callers_block(src_t *s, uint32_t want_q8)
      * block per singer, over the callers) */
     kc = (unsigned)(clampi(s->i_eff - (20 << 8), 0, 107 << 8) * 2 / 107) ;      /* Q8: 0 .. 512 */
     if (want) sing_l = (sing_l * 256u) / want;              /* the singing share, Q8 */
-    uint64_t bed = 0;
-    int32_t bf = 0;
-    uint32_t bw = 0;
     if (want > NM) want = NM;
     /* members 0 .. want-1 call; the others fall silent (a member that stops is a new cicada when it calls again) */
     for (i = 0; i < NM; i++) {
@@ -976,7 +995,7 @@ static void callers_block(src_t *s, uint32_t want_q8)
             if (m->bout > dec) m->bout = (uint16_t)(m->bout - dec);
             else {
                 m->song ^= 1u;
-                m->bout = bout_len(s, m->song);
+                m->bout = bout_len(s, m->song, m->pad);
                 if (!m->song) m->fade = (uint8_t)(6u + tx_rand_below(&s->rng, 5u));   /* ends: 0.4 .. 6 s */
             }
         }
@@ -1000,30 +1019,22 @@ static void callers_block(src_t *s, uint32_t want_q8)
         t = clampi(t, -32767, 32767);
         m->pph += m->pinc + (uint32_t)(int32_t)(((int64_t)(int32_t)(m->pinc >> 2) * t * kpull) >> 23);
         sn = tx_sin_q15(m->pph);
-        m->pmod = 18022 + (int32_t)(((int64_t)sn * sn * 14745) >> 30);
+        {   /* the phrase: pulse groups over the species' floor (0: a pulse train at full depth) */
+            int32_t b2 = (int32_t)(((int64_t)sn * sn) >> 15), fl = CIC[m->pad & 3u].floor;   /* 0 .. 32767 */
+            if (CIC[m->pad & 3u].sharp) b2 = (b2 * b2) >> 15;
+            m->pmod = fl + (int32_t)(((int64_t)b2 * (32767 - fl)) >> 15);
+        }
         /* a hero: the swelling member takes one (stealing the quietest), the others wait for a free one */
         if (m->voice == 0xFF && m->env > 0 && m->calling && m->song) caller_start(s, i, m->env < 2048);
-        if (m->voice == 0xFF && m->env > 0) {               /* in the bed */
-            uint32_t g = (uint32_t)m->gain, e = (uint32_t)m->env;
-            bed += ((uint64_t)g * g * ((e * e) >> 15)) >> CBED_SH;   /* Q30 FS^2 */
-            bf += m->f_l2 >> 4;
-            bw++;
-        }
-    }
-    /* the bed's power: a voiced cicada's mean power is ~ (g x 0.08)^2 of FS^2 (calibrated by render, ours) */
-    {
-        uint32_t pp = bed > 0x3FFFFFFFu ? 0x3FFFFFFFu : (uint32_t)bed;
-        pp = (pp >> 3) * 5u;                                 /* -2 dB: matched by render (1 vs 16 heroes) */
-        s->cbed_p += (uint32_t)(((int32_t)pp - (int32_t)s->cbed_p) >> 3);
-        if (bw) {
-            int32_t fl = (bf / (int32_t)bw) << 4;
-            uint32_t f = tx_exp2(fl);
-            f = f > 8000u ? 8000u : f < 500u ? 500u : f;
-            if ((int32_t)f != s->cbed_f) { s->cbed_f = (int32_t)f; tx_ireso_set(&s->cres, f, 64u); }
-        }
-        {   /* the bed's phrase: the mean phase's pulse (in step = deep, out of step = smooth) */
-            int32_t rr = calling ? (int32_t)(isqrt((uint32_t)(((int64_t)sx * sx + (int64_t)sy * sy) >> 4)) * 128u / calling) : 0;
-            s->cbed_mod = clampi(rr, 0, 32767);
+        if (m->voice == 0xFF && m->env > 0) {               /* no hero: its clicks as grains at its carrier (never */
+            uint32_t acc = m->pad3 + tx_exp2(m->rate_l2) * 380u;   /* a noise bed); clicks per block, Q16 */
+            int32_t a = (int32_t)(((int64_t)m->gain * CGR_A) >> 12);
+            uint32_t f = tx_exp2(m->f_l2);
+            a = (int32_t)(((int64_t)a * m->env) >> 15);
+            a = (int32_t)(((int64_t)a * m->pmod) >> 15);
+            f = f > 14000u ? 14000u : f < 800u ? 800u : f;
+            while (acc >= 65536u) { acc -= 65536u; tx_gr_add(&s->cg, &s->rng, tx_rand_below(&s->rng, TX_BLOCK), f, (tx_rand(&s->rng) & 1u) ? a : -a); }
+            m->pad3 = (uint16_t)acc;
         }
     }
 }
@@ -1239,9 +1250,7 @@ static void host_switch(src_t *s, unsigned pre)
     { uint8_t *b = (uint8_t *)s->host; for (i = 0; i < sizeof s->host; i++) b[i] = 0; }
     s->hst = ne; s->hd = hd;
     /* the particle presets' beds and filters start from silence (their last output went to the declick) */
-    s->cbed_p = 0;
-    s->res = s->res_x1 = s->clp = s->cbed_f = s->cbed_mod = 0;
-    { uint8_t *b = (uint8_t *)&s->cres; for (i = 0; i < sizeof s->cres; i++) b[i] = 0; }
+    s->res = s->res_x1 = s->clp = 0;
     s->hp.x1 = s->hp.y1 = 0; s->vy.lp = 0; s->run = 0; s->hgain = 0;
     for (i = 0; i < TX_BLOCK; i++) s->buf[i] = s->ck[i] = 0;
     if (ne && ne->state_bytes <= HOST_BYTES) {
@@ -1267,7 +1276,10 @@ static void host_switch(src_t *s, unsigned pre)
         s->hst = 0; s->hd = 0;
         tx_pool_init(&s->pool, NV, s->limit);
         if (PRE[pre].kind == 0) grains_setup(s, pre);       /* (the members' memory: the grains) */
-        else for (i = 0; i < NM; i++) s->m[i].voice = 0xFF;
+        else {
+            for (i = 0; i < NM; i++) s->m[i].voice = 0xFF;
+            if (PRE[pre].kind == 1) grains_setup(s, pre);   /* the far callers' click grains */
+        }
         tx_clu_init(&s->clu);
         if (PRE[pre].kind == 4) {                            /* birds: their members fresh (over the callers' memory) */
             { uint8_t *b = (uint8_t *)s->bm; for (i = 0; i < sizeof s->bm; i++) b[i] = 0; }
@@ -1620,25 +1632,8 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
         }
         s->res = en; s->res_x1 = en ? x1 : 0;
     }
-    /* the callers' bed: noise through a two-pole at their mean carrier, pulsed by their phrase */
-    if (s->cbed_p || !tx_ireso_quiet(&s->cres)) {
-        int32_t sd = (int32_t)isqrt(s->cbed_p);               /* Q15 */
-        int16_t imp[TX_BLOCK / 4];
-        uint16_t off[TX_BLOCK / 4];
-        unsigned k = 0;
-        sd = (int32_t)(((int64_t)sd * (32768 - (s->cbed_mod >> 1))) >> 15);
-        if (sd > 32767) sd = 32767;
-        for (j = 0; j < n && sd; j += 4) {                   /* sparse impulses every 4 samples (cheap) */
-            uint32_t x32 = s->x32;
-            x32 ^= x32 << 13; x32 ^= x32 >> 17; x32 ^= x32 << 5;
-            s->x32 = x32;
-            off[k] = (uint16_t)j;
-            imp[k++] = (int16_t)(((((int32_t)(x32 >> 17) - 16384) * sd) >> 14));
-        }
-        s->cres.g = 256;
-        tx_ireso_add(&s->cres, off, imp, k, s->buf, n);
-        if (!sd && tx_ireso_quiet(&s->cres)) s->cbed_f = 0;
-    }
+    /* the far callers' clicks (grains at their carriers) */
+    if (PRE[pa].kind == 1) tx_gr_render(&s->cg, r, s->buf, n);
     tx_declick_run(&s->dc, s->buf, n);
     tx_vary_block(&s->vy, s->buf, n);
     tx_trim(s->buf, n, OUT_TRIM);
@@ -1649,7 +1644,7 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     s->now += n;
     {
         int32_t z = any | s->run | s->clp | (PRE[pa].kind == 0 && !tx_gr_quiet(&s->gr))
-                    | s->res | (int32_t)s->cbed_p | !tx_ireso_quiet(&s->cres) | s->dc.v | s->hp.x1 | s->hp.y1 | s->clu.nk
+                    | s->res | (PRE[pa].kind == 1 && !tx_gr_quiet(&s->cg)) | s->dc.v | s->hp.x1 | s->hp.y1 | s->clu.nk
                     | s->vy.lp | s->held;
         if (PRE[pa].kind == 1) for (i = 0; i < NM; i++) z |= s->m[i].env;
         s->quiet = (uint8_t)!z;

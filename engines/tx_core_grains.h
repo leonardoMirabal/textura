@@ -21,7 +21,7 @@
 #include "tx_core_math.h"
 #include "tx_core_insect.h"
 
-#define TX_GR_BANKS 4u
+#define TX_GR_BANKS 6u
 #define TX_GR_MAX 96u
 #define TX_GR_SLOTS 32u           /* a block's time slots (8 samples, 0.18 ms: a far grain's onset is placed in its slot) */
 #define TX_GR_PITCH 16u           /* pitches per band (coefficients made once: a grain picks one) */
