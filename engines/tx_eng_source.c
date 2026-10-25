@@ -1580,6 +1580,7 @@ TX_AUDIO_CODE static void host_render(src_t *s, int32_t *mix, unsigned n)
         if (on && !s->hon) {
             s->hon = 1;
             if (!s->hkeys) s->hkeys = 1;
+            host_apply(s, 1);                                /* (the engine reads them at the press) */
             if (!s->hd->oneshot) s->hst->key(s->host, s->note, s->vel, 1);
         }
     }
@@ -1655,6 +1656,17 @@ static void indiv_act(src_t *s)
     s->total++;
 }
 
+/* an event engine's individual acts now: its clock's next press, queued as stage 1's (host_clock: at the lane's
+ * velocity, its level step none) */
+static void host_act(src_t *s)
+{
+    tx_clu_kid_t *k;
+    if (s->clu.nk >= TX_CLU_Q) return;
+    k = &s->clu.k[s->clu.nk++];
+    k->t = s->clu.now; k->lv = 0; k->gen = 0; k->tag = 0;
+    s->total++;
+}
+
 static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
     src_t *s = (src_t *)st;
@@ -1667,9 +1679,9 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
             if (on && vel) {                                 /* press is one of them acting afresh (a log thrown on, */
                 unsigned k = tx_rand_below(&s->rng, s->hkeys);   /* a singer starting again), never a new key: the */
                 uint8_t nt = (uint8_t)(k ? s->hbase + HOST_KEYS[k] : s->note);   /* engine's keys stay theirs */
-                s->held++; s->vel = vel; s->quiet = 0;
+                s->held++; s->quiet = 0;                     /* (at its own velocity: the lane's, not the note's) */
                 s->hst->key(s->host, nt, 0, 0);
-                s->hst->key(s->host, nt, vel, 1);
+                s->hst->key(s->host, nt, s->vel, 1);
                 return;
             }
             if (s->held && --s->held) return;
@@ -1679,9 +1691,18 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
             s->hkeys = 0;
             return;
         }
+        if (on && vel && s->held && s->hd) {                 /* a press while held: */
+            s->held++;                                       /* one of them acts at its own level (an event engine: its */
+            if (s->hd->e64) host_act(s);                     /* clock's next press now); a held engine's population */
+            return;                                          /* sings on by itself (no new key at the note's pitch) */
+        }
         if (on && vel) {
             s->held++; s->note = note; s->vel = vel; s->quiet = 0;
             if (!s->p[P_COUNT]) return;                      /* (COUNT 0: none; host_render presses it when COUNT rises) */
+            if (s->hd && s->hd->e64) { if (!s->hkeys) s->hkeys = 1; s->hon = 1; return; }   /* an event engine: the
+                                                             * first press starts its clock, no strike of its own */
+            if (s->hd) return;                               /* a held engine: host_render presses it, its parameters
+                                                             * at the fader first (never the engine's defaults) */
             if (!s->hkeys) s->hkeys = 1;
             s->hon = 1;
         } else if (s->held) s->held--;
@@ -1697,25 +1718,24 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
         s->held++;
         s->note = note; s->vel = vel;
         if (!s->p[P_COUNT]) { s->quiet = 0; return; }        /* (COUNT 0: none) */
-        if (PRE[pre].kind == 4) {                            /* a bird sings now, at the key's pitch: the one close by, */
-            unsigned bi = 0, q;                              /* or (it is singing) another one that is free; all of */
-            birdm_t *b;                                      /* them singing: none (a song is never cut by a press) */
-            if (s->bm[0].voice != 0xFF) for (bi = NB, q = 1; q < NB; q++) if (s->bm[q].active && s->bm[q].voice == 0xFF) { bi = q; break; }
-            if (bi < NB) {
-                b = &s->bm[bi];
-                if (!bi) bird_draw(s, b, 1);
-                b->active = 1;
-                bird_sing(s, bi, (unsigned)PRE[pre].act_lo, 1, ((int32_t)note - 60) * 5461);
+        /* the first press only starts the population (no strike); a press while held: one of them acts, where it is
+         * and as loud as it is: a quiet bird sings at its next turn (its own song; none quiet: none, a song is never
+         * cut), a cicada in its pause begins its song (one singing sings on), a drop or a stone falls (indiv_act) */
+        if (s->held > 1 && PRE[pre].kind == 4) {
+            unsigned q, c = 0, pick;
+            for (q = 0; q < NB; q++) c += s->bm[q].active && s->bm[q].voice == 0xFF;
+            if (c) {
+                pick = tx_rand_below(&s->rng, c);
+                for (q = 0; q < NB; q++) if (s->bm[q].active && s->bm[q].voice == 0xFF && !pick--) { s->bm[q].wait = 0; break; }
             }
-        } else if (PRE[pre].kind == 1) {                     /* a cicada close by, at the key's pitch (one singing */
-            member_t *m = &s->m[0];                          /* sings on: a press does not cut its song) */
-            if (!(m->calling && m->song)) {
-                member_new(s, m, 1);
-                if (m->voice != 0xFF) { unsigned vi = m->voice; voice_cut(s, vi); tx_pool_free(&s->pool, vi); m->voice = 0xFF; }
-                m->calling = 0; m->fresh = 1;
+        } else if (s->held > 1 && PRE[pre].kind == 1) {
+            unsigned q, c = 0, pick;
+            for (q = 0; q < NM; q++) c += s->m[q].calling && !s->m[q].song;
+            if (c) {
+                pick = tx_rand_below(&s->rng, c);
+                for (q = 0; q < NM; q++) if (s->m[q].calling && !s->m[q].song && !pick--) { s->m[q].bout = 1; break; }
             }
-        } else if (s->held > 1) indiv_act(s);               /* a press while the key is held: one of them acts now
-                                                             * (the first press only starts the population: no strike) */
+        } else if (s->held > 1) indiv_act(s);
         s->quiet = 0;
     } else if (s->held && !--s->held && s->run < 30000 && (PRE[s->p[P_PRESET]].kind == 0 || PRE[s->p[P_PRESET]].kind == 3)
                && s->p[P_COUNT]) indiv_act(s);              /* a tap (up before the population is going): one acts */

@@ -647,6 +647,11 @@ function quickPress(k) {                              // a one-shot engine's nex
   if (!q || !q.every || !laneRun[k]) return;
   M._txw_key_slot(k, 60, 100, 1);
   setTimeout(() => M._txw_key_slot(k, 60, 0, 0), 150);
+  quickNext(k);
+}
+function quickNext(k) {                               // the next press after a random (exponential) gap at the step's rate
+  const q = QUICK[engName(k)];
+  if (!q || !q.every) return;
   const [a, b] = q.every, mean = a * Math.pow(b / a, quickPos(k));
   quick[k].timer = setTimeout(() => quickPress(k), Math.max(150, -Math.log(1 - Math.random()) * mean * 1000));
 }
@@ -674,9 +679,9 @@ function laneStart(k, on) {                           // a lane plays on its own
   laneRun[k] = on;
   genRun(k);
   const q = QUICK[engName(k)];
-  if (q && q.every && layers[k].eng !== srcEng) { srcHold(k, false); if (on) quickPress(k); }
+  if (on && layers[k].eng !== srcEng) { quick[k].cur = {}; quickTick(); }   // a classic engine: its settings first, no glide
+  if (q && q.every && layers[k].eng !== srcEng) { srcHold(k, false); if (on) quickNext(k); }   // (its first strike after a gap)
   else srcHold(k, on);
-  if (on) quickTick();
 }
 function laneSelect(i) {
   if (i < 0 || i > 3) return;                        // (4 lanes: 4 sounds at once)

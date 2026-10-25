@@ -27,8 +27,9 @@
  *
  * With -o, the lane's start instead (no 5 s warm-up): a sound switched on must not open louder than it goes on. Per run,
  * momentary loudness (BS.1770, 400 ms every 100 ms): the loudest in the first second against, over the rest of the
- * run, the 95th percentile of all moments and of the sounding ones (over -60 LUFS) and the loudest; LOUD when a seed's
- * first second is over 1 dB above the 95th percentile of its sounding moments (a strike at the press), else ok.
+ * run, the 95th percentile of all moments and of the sounding ones (over -60 LUFS) and the loudest; LOUD when the seeds'
+ * median first second is over 1 dB above the 95th percentile of its sounding moments (a strike at the press: every
+ * start; one natural event early in one seed is not), else ok.
  *
  *   txactivity [-o] [-s SECS] [-n SEEDS] [-c N,N,..] [-a A,B,..] [-f SUBSTRING] [-p PARTICLES]
  *            (defaults 30 s, 3 seeds, COUNT 1,8,64, ACTIVITY 0,9,64,127, every sound; -c: COUNT in individuals, 0 = none;
@@ -364,9 +365,9 @@ int main(int argc, char **argv)
     if (onset) {                                          /* the lane's start against what follows */
         printf("txactivity -o: each sound's lane started (key down, the generator on), its first second against the %u s after it;\n"
                "momentary loudness (400 ms, every 100 ms), %u seeds: the first second's loudest, after it the 95th percentile\n"
-               "(all moments / the sounding ones, over -60 LUFS) and the loudest; LOUD when a seed's first second is over 1 dB\n"
-               "above the 95th percentile of its sounding moments\n", secs - 1u, seeds);
-        printf("%-15s %4s %4s | %7s %7s %7s %7s | %6s | %s\n", "sound", "CNT", "ACT", "first", "p95", "p95snd", "max", "rise", "verdict");
+               "(all moments / the sounding ones, over -60 LUFS) and the loudest (means over the seeds); rise: the first second over\n"
+               "that 95th percentile of sounding moments, the median of the seeds (worst: their most); LOUD when the median is over 1 dB\n", secs - 1u, seeds);
+        printf("%-15s %4s %4s | %7s %7s %7s %7s | %6s %6s | %s\n", "sound", "CNT", "ACT", "first", "p95", "p95snd", "max", "rise", "worst", "verdict");
         for (si = 0; si < NSND; si++) {
             int classic = SND[si].pre[0] == '#';
             if (filt && !strstr(SND[si].name, filt)) continue;
@@ -374,17 +375,23 @@ int main(int argc, char **argv)
                 if (classic && ci) continue;
                 count_knob = count_of(cnts[ci]);
                 for (ai = 0; ai < na; ai++) {
-                    double m1 = 0, p95 = 0, pa = 0, mx = 0, rise = -1e9;
+                    double m1 = 0, p95 = 0, pa = 0, mx = 0, rise = -1e9, rs[64];
+                    unsigned nr = 0;
                     char c[8];
                     for (sd = 0; sd < seeds; sd++) {
                         res_t x;
                         if (run(&SND[si], acts[ai], 0x9E3779B9u * (sd + 1u) + si, secs, &x)) { printf("%s: failed\n", SND[si].name); return 1; }
                         m1 += x.m1 / seeds; p95 += x.mp95 / seeds; pa += x.mpa / seeds; mx += x.mmax / seeds;
-                        if (x.m1 > -100 && x.m1 - x.mpa > rise) rise = x.m1 - x.mpa;
+                        {
+                            double d = x.m1 > -100 ? x.m1 - x.mpa : -99;
+                            if (d > rise) rise = d;
+                            if (nr < 64) rs[nr++] = d;
+                        }
                     }
                     if (classic) snprintf(c, sizeof c, "-"); else snprintf(c, sizeof c, "%u", cnts[ci]);
-                    printf("%-15s %4s %4u | %7.1f %7.1f %7.1f %7.1f | %6.1f | %s\n", SND[si].name, c, acts[ai], m1, p95, pa, mx,
-                           rise < -99 ? 0.0 : rise, rise > 1.0 ? "LOUD" : "ok");
+                    qsort(rs, nr, sizeof *rs, cmpd);
+                    printf("%-15s %4s %4u | %7.1f %7.1f %7.1f %7.1f | %6.1f %6.1f | %s\n", SND[si].name, c, acts[ai], m1, p95, pa, mx,
+                           rs[nr / 2] < -98 ? -99.0 : rs[nr / 2], rise < -98 ? -99.0 : rise, rs[nr / 2] > 1.0 ? "LOUD" : "ok");
                 }
             }
         }
