@@ -65,7 +65,7 @@ enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER, V_BIRD };
 
 static const tx_param_t PARAMS[NP] = {
     {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees | 11 ice | 12 wood | 13 minerals | 14 glass | 15 songbird | 16 chirper | 17 crow | 18 gull | 19 blackbird | 20 song thrush | 21 nightingale | 22 robin | 23 wren | 24 hermit thrush | 25 skylark | 26 wood thrush | 27 reed warbler | 28 curlew | 29 oystercatcher | 30 cuckoo | 31 woodpecker | 32 wood pigeon | 33 nightjar | 34 bittern"},
-    {"INTENSITY", 127, 64, "how active each individual is (COUNT says how many), on the preset's own scale and through its transition: a rain patch 0.2 .. 1500 drops/s (a stray drop .. a downpour on it), a stone 0.05 .. 30 knocks/s, a drip point one per 40 s .. 8 /s, a cicada rare short calls .. singing on, a bird singing now and then .. often; hosted engines: their own path (wind 1.6 .. 20 m/s, fire embers .. a blaze, ...)"},
+    {"INTENSITY", 127, 64, "how active each individual is (COUNT says how many), on the preset's own scale and through its transition: a rain patch 0.2 .. 1500 drops/s (a stray drop .. a downpour on it), a stone 0.05 .. 30 knocks/s, a drip point one per 40 s .. 8 /s, a cicada rare short calls .. singing on, a bird singing now and then .. often; hosted engines: their own path (wind a calm .. 28 m/s, fire embers .. a blaze, ...)"},
     {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. the preset's own (64; Poisson for rain) .. even"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
@@ -104,7 +104,7 @@ static const preset_t PRE[NPRE] = {
     {0, -152170, 739752, 10, 39470, 0}, /* stones: 0.2 .. 500 knocks/s (+3.3 dB: most knocks now far, note 14) */
     {1, 0, 321577, 0, 6800, 0},     /* cicadas: 1 .. 30 callers (+2.4 dB: their pauses, most far) */
     {3, 1, 0, -6, 19800, 0},        /* water: drops (WATER_RATE) + the stream engine (HOST[1]) fading in */
-    {2, 0, 0, 0, 4096, 0},          /* wind: the aeolian engine hosted */
+    {2, 0, 0, 0, 4096, 0},          /* wind: the wind engine hosted (TYPE 64 up: whistling wires) */
     {2, 2, 0, 0, 4096, 0},          /* fire */
     {2, 3, 0, 0, 4096, 0},          /* crickets */
     {2, 4, 0, 0, 4096, 0},          /* sand */
@@ -193,8 +193,10 @@ typedef struct {
 } host_t;   /* (g: one calibration, flat:
                                                      * more activity is louder by the engine's own physics) */
 static const host_t HOST[] = {
-    /* wind: a breath (1.6 m/s) .. a gale (20 m/s); gusts deepen; at the top the strings lock in and whistle */
-    {"aeolian", -78, -78, -78, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    /* wind: a calm (silence) .. a breath now and then .. a breeze .. a storm: gustier, more gusts passing, more
+     * buffeting; an edge tone only now and then in the strong gusts */
+    {"wind", 100, -73, -120, {{"WIND", 0, 64, 127}, {"GUST", 40, 70, 110}, {"WHOOSH", 30, 64, 90}, {"BUFFET", 30, 48, 80},
+                    {"EDGE", 0, 12, 28}}, 0, 0, 0, 0, 0, 0, 0},
     /* stream: a trickle of plinks .. a babbling brook .. a torrent: bigger gulping bubbles, eddies, the low roar */
     {"stream", -42, -42, -42, {{"FLOW", 10, 70, 127}, {"ROAR", 0, 0, 100}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
                             {"SPREAD", 80, 64, 45}}, 0, 0, 0, 0, 0, 0, 0},
@@ -246,6 +248,8 @@ static const host_t HOST[] = {
     /* ringing rocks (stones): a boulder struck now and then .. struck quickly */
     {"stonedrum", -50, -50, -50, {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
      60, 12, 3, 1},
+    /* whistling wires (wind): a breath (1.6 m/s) .. a gale (20 m/s); gusts deepen; at the top the strings lock in */
+    {"aeolian", -78, -78, -78, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
 };
 #define H_MEMBER 12u                 /* the first member row */
 
@@ -453,8 +457,8 @@ static int32_t pre_trim(const src_t *s, unsigned pre)
  * Indexed as HOST[]. */
 typedef struct { const char *name; uint8_t knob; int8_t depth; } kmap_t;   /* depth 0 with P_TYPE: the value itself */
 static const kmap_t HMAP[][HOST_NK] = {
-    /* wind: thicker wires lower, locking harder, gustier */
-    {{"WIRE", P_SIZE, 64}, {"LOCK", P_TONE, 48}, {"GUST", P_HARD, 48}, {0, 0, 0}, {0, 0, 0}},
+    /* wind: bigger obstacles lower, leafier, gustier, more gusts passing */
+    {{"SCALE", P_SIZE, -64}, {"FOLIAGE", P_TONE, 64}, {"GUST", P_HARD, 48}, {"WHOOSH", P_SPREAD, 48}, {0, 0, 0}},
     {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},                       /* (stream: inside the water) */
     /* fire: a bigger fire, drier wood, burstier crackle, a draught */
     {{"SIZE", P_SIZE, 64}, {"WOOD", P_TONE, 64}, {"BURSTY", P_HARD, 64}, {"DRAUGHT", P_SPREAD, 48}, {0, 0, 0}},
@@ -492,6 +496,8 @@ static const kmap_t HMAP[][HOST_NK] = {
     {{"VOLUME", P_SIZE, 64}, {"GROUND", P_HARD, 64}, {"FRAG", P_SPREAD, 64}, {"HEIGHT", P_TONE, 64}, {0, 0, 0}},
     /* ringing rocks: material, its tuning (bigger = lower), mallet, a hand on it, where struck */
     {{"MATERIAL", P_TYPE, 0}, {"TUNE", P_SIZE, -64}, {"MALLET", P_HARD, -64}, {"DAMP", P_TONE, -64}, {"POS", P_SPREAD, 64}},
+    /* whistling wires: thicker wires lower, locking harder, gustier */
+    {{"WIRE", P_SIZE, 64}, {"LOCK", P_TONE, 48}, {"GUST", P_HARD, 48}, {0, 0, 0}, {0, 0, 0}},
 };
 
 /* the family members TYPE reaches (note 16: every family had members no knob could reach): TYPE from lo up to the
@@ -507,6 +513,7 @@ static const fam_t FAM[] = {
     {PR_MINERALS, 64, H_MEMBER + 5, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},
     {PR_STONES, 1, H_MEMBER + 6, {{80, 80, 80}, 50, {20, 30, 40}, 0, 2, 1500, -5, 5, {0, 0}, {0, 0}, 0}},
     {PR_STONES, 64, H_MEMBER + 7, {{60, 60, 60}, 30, {20, 30, 40}, 1, 3, 200, -5, 10, {0, 0}, {0, 0}, 0}},
+    {PR_WIND, 64, H_MEMBER + 8, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},
 };
 #define NFAM (sizeof FAM / sizeof FAM[0])
 

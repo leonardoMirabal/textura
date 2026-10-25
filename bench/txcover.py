@@ -54,7 +54,7 @@ PRESETS = {
     "stones": (1, ["stone", "krint", "rockfall"], False),
     "cicadas": (2, ["cicadas"], False),
     "water": (3, ["drip", "stream"], False),
-    "wind": (4, ["aeolian"], True),
+    "wind": (4, ["wind", "aeolian"], True),
     "fire": (5, ["fire", "candle"], True),
     "crickets": (6, ["crickets"], True),
     "sand": (7, ["sand", "sandsong"], True),
