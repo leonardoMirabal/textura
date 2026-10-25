@@ -515,6 +515,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
                 if (!s->hk || c >= 2u || (y & 3u) == 0u) splash(s, y, off, (ad * fg) >> 8);   /* (ice: the big ones shatter) */
             }
             lp = s->flp[c];
+            if (!far && !lp) continue;                       /* (no far drop and the corner at rest: nothing to add) */
             for (j = 0; j < n; j++) {                        /* the far drops through their class's corner */
                 int32_t d = buf[j] - lp;
                 lp += MUL15(d, fa);
@@ -568,30 +569,28 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
     tx_svf_bank_add_g(s->band, s->bf, s->bq, s->bgin, s->bg, NB, ex, buf, n);
     tx_svf_bank_add_g(s->panel, s->pf, s->pq, s->pgin, s->pg, NPANEL, ex, buf, n);
     {   /* a shelf: up to +24 dB over ~2 kHz (x + k (x - lp)), so the bands' own gains stay in their range (the surfaces'
-         * upper octaves are 20-50 dB over a raindrop's force spectrum there) */
-        int32_t lp = s->shlp, k = s->shk;
-        for (j = 0; j < n; j++) { lp += MUL15(buf[j] - lp, 8960); buf[j] += k * (buf[j] - lp); }
-        if (!any && lp > -64 && lp < 64) lp = 0;
-        s->shlp = lp;
-    }
-    {
+         * upper octaves are 20-50 dB over a raindrop's force spectrum there); the splash's droplets in the air (d/dt: bright,
+         * then the corner, 2 poles); the top's damping / inside (2 poles, 32-bit split products): one pass */
+        int32_t sl = s->shlp, k = s->shk;
         int32_t x1 = s->sx1, lp = s->slp, lp2 = s->slp2, a = s->spa, g = s->airg;   /* (the air re the splash, Q15) */
-        for (j = 0; j < n; j++) {                            /* d/dt (the crown's droplets: bright), then the corner (2 poles) */
-            int32_t d = fb[j] - x1;
+        int32_t ol = s->olp, ol2 = s->olp2, oa = s->olpa, anyx = 0;
+        for (j = 0; j < n; j++) {
+            int32_t v = buf[j], d = fb[j] - x1;
+            sl += MUL15(v - sl, 8960); v += k * (v - sl);
             x1 = fb[j];
             lp += MUL15(d - lp, a);
             lp2 += MUL15(lp - lp2, a);
-            buf[j] += MUL15(lp2, g);
-            any |= x1;
+            v += MUL15(lp2, g);
+            anyx |= x1;
+            ol += MUL15(v - ol, oa); ol2 += MUL15(ol - ol2, oa); buf[j] = ol2;
         }
+        if (!any && sl > -64 && sl < 64) sl = 0;
+        s->shlp = sl;
+        any |= anyx;
         if (!any && lp > -64 && lp < 64 && lp2 > -64 && lp2 < 64) lp = lp2 = 0;
         s->sx1 = x1; s->slp = lp; s->slp2 = lp2;
-    }
-    {   /* the top's damping / inside: 2 poles (32-bit split products) */
-        int32_t lp = s->olp, lp2 = s->olp2, a = s->olpa;
-        for (j = 0; j < n; j++) { lp += MUL15(buf[j] - lp, a); lp2 += MUL15(lp - lp2, a); buf[j] = lp2; }
-        if (lp > -64 && lp < 64 && lp2 > -64 && lp2 < 64 && !any) lp = lp2 = 0;
-        s->olp = lp; s->olp2 = lp2;
+        if (ol > -64 && ol < 64 && ol2 > -64 && ol2 < 64 && !any) ol = ol2 = 0;
+        s->olp = ol; s->olp2 = ol2;
     }
     for (j = 0; j < CARRY; j++) { ex[j] = ex[n + j]; ex[n + j] = 0; }   /* the pulses' tails */
     for (j = CARRY; j < n; j++) ex[j] = 0;
