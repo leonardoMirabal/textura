@@ -1707,7 +1707,8 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
             s->hon = 1;
         } else if (s->held) s->held--;
         if (!s->held) s->hon = 0;
-        s->hst->key(s->host, note, vel, on);
+        if (s->hd) { if (!s->held) s->hst->key(s->host, s->note, 0, 0); }   /* (a hosted engine has the first key only) */
+        else s->hst->key(s->host, note, vel, on);
         if (!s->held && s->hd && !s->hd->oneshot && s->hpn != note) s->hst->key(s->host, s->hpn, 0, 0);   /* the last key up: the
                                                                      * one the clock pressed afresh is released too */
         return;
