@@ -110,9 +110,9 @@ def main():
             sha = page.evaluate(f"window.txTest.sha({i})")
             want = base.get(f"{name}-max")
             check(want is not None and sha == want, f"{name}: wasm render of the max scene = native baseline ({sha[:16]})")
-        nfx = [page.evaluate(f"Module._txw_fx_n({g})") for g in range(3)]
-        nsl = [page.eval_on_selector_all(f"#{b} input", "x => x.length") for b in ("fx-dr", "fx-fl", "fx-rv")]
-        check(nfx == nsl and nfx == [3, 6, 8], f"EFFECTS: drive / filter / reverb sliders {nsl} = their parameters {nfx}")
+        nfx = [page.evaluate(f"Module._txw_fx_n({g})") for g in range(4)]
+        nsl = [page.eval_on_selector_all(f"#{b} input", "x => x.length") for b in ("fx-dr", "fx-fl", "fx-rv", "fx-gd")]
+        check(nfx == nsl and nfx == [3, 6, 10, 12], f"EFFECTS: drive / filter / reverb / grain delay sliders {nsl} = their parameters {nfx}")
         idrip = next((i for i in range(n) if page.evaluate(f"Module.UTF8ToString(Module._txw_name({i}))") == "drip"), None)
         if idrip is not None:
             sha = page.evaluate(f"window.txTest.chSha({idrip})")
@@ -226,6 +226,16 @@ def main():
             st = page.evaluate("window.txTest.fx(2, 0, 1, 90)")
             check(lv > 0 and st["running"] and (st["frozen"] == 2 if t == 3 else True),
                   f"REVERB TYPE {t}: sounds (peak {lv}), running {st['running']}, frozen {st['frozen']}")
+        page.evaluate("window.txTest.fx(2, 0, 8, 100)")  # SHIMMER on the frozen-free hall below
+        page.evaluate("window.txTest.fx(2, 0, 0, 2)")
+        page.evaluate("window.txTest.fx(3, 0, 0, 100)")  # the GRAIN DELAY on, 16 grains asked
+        page.evaluate("window.txTest.fx(3, 0, 3, 15)")
+        page.evaluate("window.txTest.render(64)")
+        lv = page.evaluate("window.txTest.render(16)")
+        st = page.evaluate("window.txTest.fx(3, 0, 6, 71)")
+        check(lv > 0 and 0 < st["grains"] <= st["cap"] <= 16, f"GRAIN DELAY on (16 asked) + HALL with SHIMMER: sounds (peak {lv}), {st['grains']} grains sounding, cap {st['cap']}")
+        page.evaluate("window.txTest.fx(3, 0, 0, 0)")
+        page.evaluate("window.txTest.fx(2, 0, 8, 0)")
         page.evaluate("window.txTest.fx(2, 0, 2, 64)")
         page.evaluate("window.txTest.fx(0, 0, 0, 90)")  # layer 1's DRIVE and FILTER on: still sounds
         page.evaluate("window.txTest.fx(1, 0, 0, 2)")

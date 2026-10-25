@@ -79,7 +79,9 @@ typedef struct {
     int16_t y[HL_NC][HL_NL];
 } tx_hall_t;
 void tx_hall_start(tx_hall_t *h);
-void tx_hall_run(tx_hall_t *h, const int32_t *send, int32_t size, int32_t damp, int32_t md, int32_t *mid, int32_t *side);
+/* add: HL_NC half-rate samples added to the decimated input (the shimmer), or 0 */
+void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t *add, int32_t size, int32_t damp, int32_t md, int32_t *mid,
+                 int32_t *side);
 
 /* INFINITE (tx_fx_inf.c: Frodhes' infinite tank, the LITE build; DARK as its variant) */
 #define RI_NL 8u

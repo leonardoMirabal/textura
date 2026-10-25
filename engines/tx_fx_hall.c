@@ -82,14 +82,15 @@ void tx_hall_start(tx_hall_t *h)                           /* the lines cleared 
 }
 
 /* one control block (CTL frames of the send in, HL_NC half-rate samples out): mid, side */
-TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, int32_t size, int32_t damp, int32_t md, int32_t *ol,
-                               int32_t *or)
+TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t *add, int32_t size, int32_t damp, int32_t md,
+                               int32_t *ol, int32_t *or)
 {
     int16_t *a = h->ap, *o, *y;
     uint32_t i, k, s, m, d, w = h->w;
     int32_t kd = HL_KD(damp);
     if (h->sz != size + 1) hall_gains(h, size);
     tx_rev_down(send, &h->hp, &h->he, h->bx);
+    if (add) for (i = 0; i < HL_NC; i++) h->bx[i] += add[i];   /* (Textura: the shimmer, into the lines' input) */
     for (k = 0; k < HL_NAP; k++) {
         d = h->d[k];
         HL_RUNS(d, HL_AP[k], m, s, hall_ap(a + d, HL_APG[k], h->bx + s, m));

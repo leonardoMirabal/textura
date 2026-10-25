@@ -52,6 +52,16 @@ int main(int argc, char **argv)
     row("uint32_t", "TX_FX_FL_G", v, 258, 8, "the filter's g = tan(pi fc / fs), Q24, fc 30 Hz .. 16 kHz (log, 256 steps + guards)");
     for (i = 0; i < 128; i++) v[i] = lround(16777216.0 / (0.7071 * pow(20 / 0.7071, i / 127.0)));
     row("uint32_t", "TX_FX_FL_K", v, 128, 8, "the filter's damping k = 1 / Q, Q24: Q 0.707 .. 20 (exponential)");
+    for (i = 0; i < 1025; i++) v[i] = lround(32767 * 0.5 * (1 - cos(2 * M_PI * i / 1024)));
+    row("int16_t", "TX_FX_HANN", v, 1025, 16, "Q15 Hann window over one grain (+ guard): exact zeros at both ends");
+    for (i = 0; i < 128; i++) v[i] = lround(0.020 * pow(70.0, i / 127.0) * FS);
+    row("uint32_t", "TX_FX_GD_TIME", v, 128, 8, "the grain delay's TIME in samples: 20 ms .. 1.4 s (exponential)");
+    for (i = 0; i < 128; i++) v[i] = lround(4294967296.0 / (0.020 * pow(25.0, i / 127.0) * FS));
+    row("uint32_t", "TX_FX_GD_SIZE", v, 128, 8, "the grains' clock, Q32 phase a sample: a grain 20 .. 500 ms long (exponential)");
+    for (i = 0; i < 25; i++) v[i] = lround(65536.0 * pow(2.0, (i - 12) / 12.0));
+    row("uint32_t", "TX_FX_GD_PITCH", v, 25, 8, "the grains' rate, Q16, for -12 .. +12 semitones");
+    for (i = 0; i < 128; i++) v[i] = lround(32768.0 * (1 - exp(-2 * M_PI * 400 * pow(40.0, i / 127.0) / FS)));
+    row("uint16_t", "TX_FX_GD_TONE", v, 128, 12, "the feedback's one-pole low-pass, Q15: 400 Hz .. 16 kHz (exponential)");
     fprintf(hdr, "\n#endif\n");
     fclose(hdr); fclose(src);
     return 0;

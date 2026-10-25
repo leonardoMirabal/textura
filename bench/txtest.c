@@ -973,6 +973,8 @@ static void check_fx(FILE *update)
         tx_fx_reverb_init(&fx->rev);
         tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, t); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 127);
         tx_fx_reverb_param(&fx->rev, TX_RV_PREDELAY, 60); tx_fx_reverb_param(&fx->rev, TX_RV_LOWCUT, 40);
+        tx_fx_reverb_param(&fx->rev, TX_RV_SHIMMER, 100);
+        tx_fx_grain_param(&fx->gd, TX_GD_MIX, 100); tx_fx_grain_param(&fx->gd, TX_GD_PITCH, 75);
         for (b = 0; b < 400u; b++) {
             for (j = 0; j < TX_BLOCK; j++) y[j] = L[j] = R[j] = 0;
             tx_fx_lane(fx, 0, y, TX_BLOCK);
@@ -980,7 +982,7 @@ static void check_fx(FILE *update)
             for (j = 0; j < TX_BLOCK; j++) nz += y[j] != 0 || L[j] != 0 || R[j] != 0;
         }
     }
-    snprintf(msg, sizeof msg, "zeros in, drive + filter (LP18, LFO) + every reverb TYPE: %u nonzero samples out", nz);
+    snprintf(msg, sizeof msg, "zeros in, drive + filter (LP18, LFO) + grain delay + every reverb TYPE with shimmer: %u nonzero samples out", nz);
     verdict("fx", "silence", !nz, msg, 0);
     /* each TYPE: the burst, its tail ends in exact zeros; renders against the baselines */
     for (t = TX_RVT_ROOM; t < TX_RVT_N; t++) {
@@ -1012,6 +1014,100 @@ static void check_fx(FILE *update)
         /* (the held level settles over the first minute as the top fades: the least damping, by design; then it
          * holds) never silent, within 3 dB over 3 minutes, 2 dB once settled (its slow beating), bounded */
         verdict("fx", "freeze", lo > 0 && hi / lo < 1.413 && hi2 / lo2 < 1.259 && pk < (1 << 23), msg, 0);
+    }
+    /* SHIMMER: a HALL with it ends in exact zeros; an INFINITE SUSTAIN with it at its top stays bounded for a minute */
+    for (t = 0; t < 2; t++) {
+        tx_fx_reverb_t *r = &fx->rev;
+        uint32_t last = 0, rngs = 7u;
+        int32_t pk3 = 0;
+        double a3 = 0;
+        tx_fx_init(fx);
+        tx_fx_reverb_param(r, TX_RV_TYPE, t ? TX_RVT_INF : TX_RVT_HALL); tx_fx_reverb_param(r, TX_RV_MIX, 90);
+        tx_fx_reverb_param(r, TX_RV_DECAY, t ? 124 : 64); tx_fx_reverb_param(r, TX_RV_SHIMMER, t ? 127 : 100);
+        for (b = 0; b < 172u * 60u; b++) {
+            unsigned z = 0;
+            for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = fx_in(b * TX_BLOCK + j, &rngs);
+            tx_fx_bus(fx, L, R, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) { int32_t a = L[j] < 0 ? -L[j] : L[j]; z |= L[j] | R[j]; if (a > pk3) pk3 = a; if (b >= 172u * 50u) a3 += (double)L[j] * L[j]; }
+            if (z) last = b;
+        }
+        if (!t) {
+            snprintf(msg, sizeof msg, "HALL + SHIMMER 100: the tail ends in exact zeros after %.1f s, peak %.1f dBFS", last * 256.0 / 44100.0,
+                     20 * log10((pk3 + 1) / 8388608.0));
+            verdict("fx", "shimmer", last < 172u * 55u && pk3 < (1 << 23), msg, 0);
+        } else {
+            double rm = sqrt(a3 / (1720.0 * 256));
+            snprintf(msg, sizeof msg, "INFINITE SUSTAIN + SHIMMER 127 for 60 s: peak %.1f dBFS, the last 10 s %.1f dBFS (bounded, sounding)",
+                     20 * log10((pk3 + 1) / 8388608.0), 20 * log10(rm / 8388608.0 + 1e-12));
+            verdict("fx", "shimmer", pk3 < (1 << 23) && rm > 0, msg, 0);
+        }
+    }
+    /* the GRAIN DELAY: the echo exact at TIME; a grained tail (FEEDBACK 90, pitched, some reversed) ends in exact zeros;
+     * FREEZE holds its loop; the dynamic cap under the reverb; a render against the baseline */
+    {
+        uint32_t tm = TX_FX_GD_TIME[tx_fx_grain_params[TX_GD_TIME].def], at = 0, last = 0, maxact = 0;
+        int32_t got = 0;
+        double rms[12] = {0}, acc = 0, lo = 1e30, hi = 0;
+        unsigned k;
+        tx_sha256_t h;
+        const char *bl;
+        tx_fx_init(fx);
+        tx_fx_grain_param(&fx->gd, TX_GD_MIX, 127); tx_fx_grain_param(&fx->gd, TX_GD_GRAIN, 0);
+        tx_fx_grain_param(&fx->gd, TX_GD_FEEDBACK, 0);
+        for (b = 0; b < 200u; b++) {
+            for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = (b == 2u && j == 10u) ? 4194304 : 0;
+            tx_fx_bus(fx, L, R, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) if (!at && L[j] && !(b == 2u && j == 10u)) { at = b * TX_BLOCK + j; got = L[j]; }
+        }
+        snprintf(msg, sizeof msg, "grain delay, GRAIN 0: an impulse back after %u samples (TIME %u), level %d / 4194304", at - 522u, tm, got);
+        verdict("fx", "echo", at - 522u == tm && got > 4190000 && got <= 4194304, msg, 0);
+        for (t = 0; t < 2; t++) {                              /* 0: the tail; 1: FREEZE at 1 s, held */
+            tx_fx_init(fx);
+            tx_fx_grain_param(&fx->gd, TX_GD_MIX, 100); tx_fx_grain_param(&fx->gd, TX_GD_FEEDBACK, 90);
+            tx_fx_grain_param(&fx->gd, TX_GD_PITCH, 71); tx_fx_grain_param(&fx->gd, TX_GD_REVERSE, 40);
+            tx_fx_grain_param(&fx->gd, TX_GD_SPRAY, 40);
+            rng = 7u; last = 0; acc = 0;
+            if (!t) tx_sha256_init(&h);
+            for (b = 0; b < (t ? 172u * 121u : 172u * 60u); b++) {
+                unsigned z = 0;
+                if (t && b == 172u) tx_fx_grain_param(&fx->gd, TX_GD_FREEZE, 1);
+                for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = fx_in(b * TX_BLOCK + j, &rng);
+                tx_fx_bus(fx, L, R, TX_BLOCK);
+                for (j = 0; j < TX_BLOCK; j++) { z |= L[j] | R[j]; acc += (double)L[j] * L[j]; }
+                if (z) last = b;
+                if (!t && b < 1723u) fx_hash(&h, L, TX_BLOCK), fx_hash(&h, R, TX_BLOCK);
+                if (t && (b + 1) % 1720u == 0 && (b + 1) / 1720u - 1 < 12u) { rms[(b + 1) / 1720u - 1] = sqrt(acc / (1720.0 * 256)); acc = 0; }
+                else if ((b + 1) % 1720u == 0) acc = 0;
+            }
+            if (!t) {
+                snprintf(msg, sizeof msg, "grain delay, FEEDBACK 90, +7 semitones, 30 %% reversed: the tail ends in exact zeros after %.1f s", last * 256.0 / 44100.0);
+                verdict("fx", "tail", last < 172u * 50u, msg, 0);
+                tx_sha256_hex(&h, hex);
+                if (update) fprintf(update, "%s  %s\n", hex, "fx-graindelay");
+                else {
+                    bl = baseline_get("fx-graindelay");
+                    snprintf(msg, sizeof msg, "fx-graindelay %.16s", hex);
+                    verdict("fx", "determinism", bl && !strcmp(bl, hex), msg,
+                            !bl ? " (no baseline: make tx-baseline)" : strcmp(bl, hex) ? " != baseline (a change moved the sound)" : " = baseline");
+                }
+            } else {
+                for (k = 1; k < 12; k++) { if (rms[k] < lo) lo = rms[k]; if (rms[k] > hi) hi = rms[k]; }
+                snprintf(msg, sizeof msg, "grain delay FREEZE: 10 .. 120 s %.1f .. %.1f dBFS (%.2f dB apart)",
+                         20 * log10(lo / 8388608.0 + 1e-12), 20 * log10(hi / 8388608.0 + 1e-12), 20 * log10(hi / (lo + 1e-9)));
+                verdict("fx", "freeze", lo > 0 && hi / lo < 1.189, msg, 0);
+            }
+        }
+        tx_fx_init(fx);                                    /* the cap: 16 grains asked, INFINITE on */
+        tx_fx_grain_param(&fx->gd, TX_GD_MIX, 100); tx_fx_grain_param(&fx->gd, TX_GD_GRAINS, 15);
+        tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, TX_RVT_INF); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 60);
+        rng = 7u;
+        for (b = 0; b < 400u; b++) {
+            for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = fx_in((b % 100u) * TX_BLOCK + j, &rng);
+            tx_fx_bus(fx, L, R, TX_BLOCK);
+            if (b > 100u && fx->gd.act > maxact) maxact = fx->gd.act;
+        }
+        snprintf(msg, sizeof msg, "grain delay, 16 grains asked with INFINITE on: at most %u sounding (cap %u)", maxact, fx->gd.cap);
+        verdict("fx", "cap", maxact <= fx->gd.cap && fx->gd.cap < 16u && maxact > 0, msg, 0);
     }
     /* the lane inserts: renders against the baselines (a drive at 90 / TONE 100 / MIX 100; LP18 with its LFO) */
     for (t = 0; t < 2; t++) {

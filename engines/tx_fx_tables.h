@@ -10,5 +10,10 @@ extern const uint32_t TX_FX_LFO_INC[128];   /* the LFO's Q32 phase step a sample
 extern const uint16_t TX_FX_DRV_LVL[128];   /* the drive's make-up trim (Q15): level-neutral over AMOUNT */
 extern const uint32_t TX_FX_FL_G[258];   /* the filter's g = tan(pi fc / fs), Q24, fc 30 Hz .. 16 kHz (log, 256 steps + guards) */
 extern const uint32_t TX_FX_FL_K[128];   /* the filter's damping k = 1 / Q, Q24: Q 0.707 .. 20 (exponential) */
+extern const int16_t TX_FX_HANN[1025];   /* Q15 Hann window over one grain (+ guard): exact zeros at both ends */
+extern const uint32_t TX_FX_GD_TIME[128];   /* the grain delay's TIME in samples: 20 ms .. 1.4 s (exponential) */
+extern const uint32_t TX_FX_GD_SIZE[128];   /* the grains' clock, Q32 phase a sample: a grain 20 .. 500 ms long (exponential) */
+extern const uint32_t TX_FX_GD_PITCH[25];   /* the grains' rate, Q16, for -12 .. +12 semitones */
+extern const uint16_t TX_FX_GD_TONE[128];   /* the feedback's one-pole low-pass, Q15: 400 Hz .. 16 kHz (exponential) */
 
 #endif

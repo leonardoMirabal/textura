@@ -3,8 +3,9 @@
  *
  *   per lane, a mono insert on the lane's own signal before it is panned (the lanes are mono): DRIVE, then FILTER
  *     (their cost is the lane's: the governor's pool). Off (DRIVE AMOUNT 0, FILTER TYPE OFF) = the lane untouched.
- *   on the stereo mix, before the limiter: the REVERB (a mono send of the mid, a stereo return):
- *     TYPE  OFF | ROOM (the CHAMBER: the room's body modes and its short tail) | HALL | INFINITE | DARK
+ *   on the stereo mix, before the limiter: the GRAIN DELAY (a delay whose repeats are grained), then the REVERB (a mono
+ *   send of the mid, a stereo return):
+ *     TYPE  OFF | ROOM (the CHAMBER's body modes + a short hall tail) | HALL | INFINITE | DARK
  *     (one TYPE runs at a time; their states share one memory union).
  *
  * The dry path stays Q23. Only the wet signals pass through the effects' precision (Frodhes' Q15 with headroom: a
@@ -44,8 +45,47 @@ void tx_fx_drive_init(tx_fx_drive_t *d);
 void tx_fx_drive_param(tx_fx_drive_t *d, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x, unsigned n);     /* mono Q23, in place */
 
+/* ---- GRAIN DELAY (on the mix, before the reverb; tx_fx_grain.c): a delay whose repeats are grained */
+enum { TX_GD_MIX, TX_GD_TIME, TX_GD_FEEDBACK, TX_GD_GRAINS, TX_GD_SIZE, TX_GD_SPRAY, TX_GD_PITCH, TX_GD_REVERSE,
+       TX_GD_SPREAD, TX_GD_TONE, TX_GD_GRAIN, TX_GD_FREEZE, TX_GD_NP };
+extern const tx_param_t tx_fx_grain_params[TX_GD_NP];
+#define TX_GD_N 64000u             /* the line: 1.451 s, block float (12-bit mantissas, a 4-bit shift per 16 samples) */
+#define TX_GD_MAXG 16u
+typedef struct {
+    uint32_t pos;                  /* the read position, whole samples (0 .. TX_GD_N - 1) */
+    uint32_t frac;                 /* its fraction, Q16 */
+    int32_t rate;                  /* Q16 a sample (negative: reversed) */
+    int16_t gl, gr;                /* pan, Q15 */
+    uint8_t on;                    /* sounding (its window not ended) */
+} tx_gd_grain_t;
+typedef struct {
+    uint8_t p[TX_GD_NP];
+    uint8_t pk[TX_GD_N / 2u * 3u];               /* the mantissas: 2 samples in 3 bytes */
+    uint8_t ex[TX_GD_N / 32u];                   /* the shifts: 2 blocks of 16 in a byte */
+    int32_t stg[16], stpk;                       /* the block being gathered (Q22), its peak */
+    uint32_t w;                                  /* the write index */
+    uint32_t zrun;                               /* zeros written in a row (>= TX_GD_N: the line is silent) */
+    uint32_t ph;                                 /* the grains' clock (Q32) */
+    uint32_t rng;
+    uint32_t tap, tap0, tx;                      /* the echo's delay, the old one, the crossfade (0 = none) */
+    int32_t lp, dcy, lpe, dce;                   /* the feedback: its low-pass, its DC block, their remainders */
+    int32_t wg;                                  /* the write's gain (Q15: FREEZE fades it to 0) */
+    int32_t gn;                                  /* the grains' level (Q15, glides: 2 / sounding) */
+    uint8_t cap;                                 /* grains allowed to start now (the chain's dynamic cap) */
+    uint8_t act;                                 /* grains sounding in the last block (on average) */
+    uint8_t on;                                  /* running (MIX up, or its fade out) */
+    uint32_t fill;                               /* samples written since it came on (older reads are 0) */
+    int32_t mix;                                 /* MIX, gliding (Q15) */
+    tx_gd_grain_t g[TX_GD_MAXG];
+} tx_fx_grain_t;
+void tx_fx_grain_init(tx_fx_grain_t *d);
+void tx_fx_grain_param(tx_fx_grain_t *d, unsigned id, unsigned v);
+TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n);   /* Q23, adds */
+int tx_fx_grain_quiet(const tx_fx_grain_t *d);
+
 /* ---- REVERB (on the mix) */
-enum { TX_RV_TYPE, TX_RV_MIX, TX_RV_DECAY, TX_RV_TONE, TX_RV_PREDELAY, TX_RV_SIZE, TX_RV_MOD, TX_RV_LOWCUT, TX_RV_NP };
+enum { TX_RV_TYPE, TX_RV_MIX, TX_RV_DECAY, TX_RV_TONE, TX_RV_PREDELAY, TX_RV_SIZE, TX_RV_MOD, TX_RV_LOWCUT, TX_RV_SHIMMER,
+       TX_RV_SHIFT, TX_RV_NP };
 enum { TX_RVT_OFF, TX_RVT_ROOM, TX_RVT_HALL, TX_RVT_INF, TX_RVT_DARK, TX_RVT_N };
 extern const tx_param_t tx_fx_reverb_params[TX_RV_NP];
 #define TX_PD_LEN 4096u            /* the pre-delay's line: 92.9 ms (int32: the send has headroom) */
@@ -58,12 +98,16 @@ typedef struct {
     uint32_t pd_w, pd_d, pd_d0, pd_x, pd_fill;
     int32_t inb[RV_DZ + CTL];                    /* the send: the 2:1 down's history, the block */
     int32_t x[HL_NC];
+    int32_t shb[2048];                           /* SHIMMER: the tank's mid at half rate (46 ms window x 2) */
+    uint32_t shw, shph;                          /* its write index, the two heads' phase (Q32) */
+    int32_t shlp, she, shpk, shg;                /* its input low-pass and remainder, the block's peak, its guard gain */
+    int32_t sh[HL_NC];                           /* the shifted mid, into the next control block's input */
     int32_t m[TX_RV_QZ + HL_NC], s[TX_RV_QZ + HL_NC];   /* the TYPE's mid / side (history, then the block) */
     int32_t rm[TX_BLOCK];                        /* ROOM: the send at full rate, gathered over the block */
     uint32_t r0, rn;                             /* ROOM: the gathered run's start and length */
     uint8_t rf[TX_BLOCK / CTL];                  /* ROOM: each control block's fade (0: none) */
     int32_t pd[TX_PD_LEN];
-    union { tx_hall_t h; tx_inf_t i; tx_chamber_t c; } u;
+    union { tx_hall_t h; tx_inf_t i; struct { tx_chamber_t c; tx_hall_t h; } rm; } u;   /* (ROOM: the body + a short hall) */
 } tx_fx_reverb_t;
 void tx_fx_reverb_init(tx_fx_reverb_t *r);
 void tx_fx_reverb_param(tx_fx_reverb_t *r, unsigned id, unsigned v);
@@ -73,10 +117,13 @@ int tx_fx_reverb_frozen(const tx_fx_reverb_t *r);   /* holding its tail (SUSTAIN
 
 /* ---- the chain: TX_FX_LANES lane inserts and the reverb; the mix calls it through tx_mix_t's hooks */
 #define TX_FX_LANES 4u
+#define TX_FX_RESERVE_US 880u     /* the effects' share of the block (CPU-BUDGET.md: 500 + the CHAMBER's, now a TYPE) */
 typedef struct {
     tx_fx_drive_t drive[TX_FX_LANES];
     tx_fx_filter_t filter[TX_FX_LANES];
+    tx_fx_grain_t gd;
     tx_fx_reverb_t rev;
+    uint32_t reserve_us;           /* the effects reserve (TX_FX_RESERVE_US): the grain delay gets what the reverb leaves */
 } tx_fx_t;
 void tx_fx_init(tx_fx_t *fx);
 TX_AUDIO_CODE void tx_fx_lane(void *fx, unsigned k, int32_t *x, unsigned n);          /* tx_mix_t.ins */

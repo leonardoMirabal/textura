@@ -225,7 +225,8 @@ static const mixdef_t MIXES[] = {
 };
 
 /* ---- the effects (tx_fx.h): one effect on a busy input (noise at -12 dBFS, all the time), its block's cost on the
- * FM-1 (the per-block minimum over runs, then the 99th percentile: the cost is flat). kind 0 drive, 1 filter, 2 reverb */
+ * FM-1 (the per-block minimum over runs, then the 75th percentile: the cost is flat, the host is not). kind 0 drive, 1
+ * filter, 2 reverb, 3 grain delay */
 static int fxc_cmp(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
 static double fx_cost(int kind, unsigned type, unsigned decay)
 {
@@ -244,13 +245,18 @@ static double fx_cost(int kind, unsigned type, unsigned decay)
                          tx_fx_filter_param(&fx.filter[0], TX_FL_LFO, 90); tx_fx_filter_param(&fx.filter[0], TX_FL_FREQ, 70); }
         if (kind == 2) { tx_fx_reverb_param(&fx.rev, TX_RV_TYPE, type); tx_fx_reverb_param(&fx.rev, TX_RV_MIX, 90);
                          tx_fx_reverb_param(&fx.rev, TX_RV_DECAY, decay < 127 ? decay : 100);
-                         tx_fx_reverb_param(&fx.rev, TX_RV_PREDELAY, 40); tx_fx_reverb_param(&fx.rev, TX_RV_LOWCUT, 30); }
+                         tx_fx_reverb_param(&fx.rev, TX_RV_PREDELAY, 40); tx_fx_reverb_param(&fx.rev, TX_RV_LOWCUT, 30);
+                         if (decay == 1) tx_fx_reverb_param(&fx.rev, TX_RV_DECAY, 64), tx_fx_reverb_param(&fx.rev, TX_RV_SHIMMER, 127); }
+        if (kind == 3) { fx.reserve_us = 100000u;                       /* (no cap: the cost of every grain asked) */
+                         tx_fx_grain_param(&fx.gd, TX_GD_MIX, 100); tx_fx_grain_param(&fx.gd, TX_GD_GRAINS, type - 1u);
+                         tx_fx_grain_param(&fx.gd, TX_GD_PITCH, decay ? 71 : 64); tx_fx_grain_param(&fx.gd, TX_GD_FEEDBACK, 70);
+                         tx_fx_grain_param(&fx.gd, TX_GD_SPRAY, 30); }
         for (b = 0; b < nb; b++) {
             uint64_t t0;
             if (b == 200u && decay == 127) tx_fx_reverb_param(&fx.rev, TX_RV_DECAY, 127);
             for (j = 0; j < TX_BLOCK; j++) { rng = rng * 1664525u + 1013904223u; L[j] = R[j] = (int32_t)(rng >> 10) - (1 << 21); }
             t0 = tx_now_ns();
-            if (kind == 2) tx_fx_bus(&fx, L, R, TX_BLOCK); else tx_fx_lane(&fx, 0, L, TX_BLOCK);
+            if (kind >= 2) tx_fx_bus(&fx, L, R, TX_BLOCK); else tx_fx_lane(&fx, 0, L, TX_BLOCK);
             if (r) t[r - 1][b] = tx_now_ns() - t0;
         }
     }
@@ -260,7 +266,7 @@ static double fx_cost(int kind, unsigned type, unsigned decay)
         v[nv++] = m / 1000.0 * factor;
     }
     qsort(v, nv, sizeof v[0], fxc_cmp);
-    return v[nv * 99 / 100];
+    return v[nv * 3 / 4];                                /* (flat costs: the 75th percentile, robust to the host's bursts) */
 }
 
 int main(int argc, char **argv)
@@ -409,7 +415,7 @@ int main(int argc, char **argv)
         static const char *const RT[TX_RVT_N] = {"off", "ROOM (the CHAMBER)", "HALL", "INFINITE", "DARK"};
         double dr = fx_cost(0, 0, 0), fl = fx_cost(1, 0, 0), rv[TX_RVT_N], fz = fx_cost(2, TX_RVT_INF, 127), worst = 0;
         unsigned t;
-        printf("\n4. effects (FM-1 us a block, p99 on a busy input; tx_fx.h)\n");
+        printf("\n4. effects (FM-1 us a block on a busy input, the 75th percentile of the per-block minima; tx_fx.h)\n");
         printf("   DRIVE (a lane, AMOUNT 90, TONE 100, MIX 100)            %5.0f us  (%4.1f %%)  per lane, from the lanes' pool\n", dr, 100 * dr / BLOCK_US);
         printf("   FILTER (a lane, LP18, RESO 90, LFO 90)                  %5.0f us  (%4.1f %%)  per lane, from the lanes' pool\n", fl, 100 * fl / BLOCK_US);
         for (t = TX_RVT_ROOM; t < TX_RVT_N; t++) {
@@ -418,7 +424,19 @@ int main(int argc, char **argv)
             printf("   REVERB %-22s (MIX 90, PREDELAY, LOWCUT) %5.0f us  (%4.1f %%)\n", RT[t], rv[t], 100 * rv[t] / BLOCK_US);
         }
         if (fz > worst) worst = fz;
+        {
+            double shh = fx_cost(2, TX_RVT_HALL, 1), shi = fx_cost(2, TX_RVT_INF, 1);
+            printf("   REVERB HALL / INFINITE + SHIMMER 127                %5.0f / %5.0f us  (+%.0f / +%.0f)\n", shh, shi, shh - rv[TX_RVT_HALL], shi - rv[TX_RVT_INF]);
+            if (shi > worst) worst = shi;
+        }
         printf("   REVERB INFINITE frozen (DECAY 127)                  %5.0f us  (%4.1f %%)\n", fz, 100 * fz / BLOCK_US);
+        {
+            static const unsigned NG[4] = {1, 4, 8, 16};
+            unsigned q;
+            for (q = 0; q < 4; q++)
+                printf("   GRAIN DELAY, %2u grains sounding (rate 1 / pitched)         %5.0f / %5.0f us  (%4.1f %%)\n", NG[q],
+                       fx_cost(3, NG[q], 0), fx_cost(3, NG[q], 1), 100 * fx_cost(3, NG[q], 1) / BLOCK_US);
+        }
         printf("   the reverb's worst TYPE %.0f us of the effects reserve (%.0f us, CHAMBER's %.0f folded in: it is a TYPE now)\n",
                worst, FX_RESERVE_US + chamber, chamber);
     }
