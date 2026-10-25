@@ -493,10 +493,11 @@ const FAMILIES = [
 let fam = 0;
 const laneSnd = [-1, -1, -1, -1];                    // each lane's sound in the family (-1: none)
 // the two faders: the lower octave's 7 white keys HOW MANY (off, 1, 2, 4, 8, 16, 32: the source's COUNT knob), the upper
-// octave's 8 HOW ACTIVE each one is (rare .. busy: the generator's ACTIVITY, 9 .. 127, kept as a step on the 0 .. 14 scale)
+// octave's 8 HOW ACTIVE each one is (rare .. busy: the generator's ACTIVITY, 0 .. 127, kept as a step on the 0 .. 14 scale)
 const COUNT_V = [0, 1, 22, 43, 64, 85, 106], NCNT = 7, NACT = 8;
 const laneCnt = [0, 0, 0, 0];
 function actStep(a) { return 1 + Math.round(a * 13 / (NACT - 1)); }        // HOW ACTIVE 0 .. 7 -> step 1 .. 14
+function actVal(step) { return step <= 0 ? 0 : Math.round((step - 1) * 127 / 13); }   // step 1 .. 14 -> ACTIVITY 0 .. 127
 function actOf(step) { return Math.max(0, Math.round((step - 1) * (NACT - 1) / 13)); }
 const BLACKS = [], WHITES = [];
 const LANE_LO = 60, LANE_HI = 84;                  // lane mode: C4 .. C6 (15 white keys: the fader; 10 black: the lanes)
@@ -646,7 +647,7 @@ function genGet(k, name) { genFindIds(); return name in gen[k].vals ? gen[k].val
 function genState(k) { const p = M._txw_gen_state(k) >> 2; return Array.from(M.HEAP32.subarray(p, p + 5)); }
 function genRun(k) {                                  // the generator follows the lane: on while it runs with Notes on
   const seed = new Uint32Array(1); crypto.getRandomValues(seed);
-  genSet(k, "ACTIVITY", Math.round(gen[k].step * 127 / 14));
+  genSet(k, "ACTIVITY", actVal(gen[k].step));
   M._txw_gen_mute(k, layers[k].eng !== srcEng ? 1 : 0);   // a classic engine: its activity through QUICK, no notes
   M._txw_gen_on(k, laneMode && laneRun[k] && gen[k].on ? 1 : 0, seed[0] || 1);
 }
@@ -741,7 +742,7 @@ function laneCount(k, c) {                            // HOW MANY: 0 off (new ev
   laneCnt[k] = c;
   if (layers[k].eng === srcEng && srcIds && srcIds.COUNT !== undefined) srcSet(k, "COUNT", COUNT_V[c]);
   if (c <= 0) { if (laneRun[k]) laneStart(k, false); showSource(); return; }
-  if (!laneRun[k]) laneStep(k, gen[k].step || actStep(0));   // (started: the activity as it was, or rare)
+  if (!laneRun[k]) laneStep(k, actStep(0));         // (started from off: rare, so the first key is 1 on both)
   else showSource();
 }
 function laneCntOf(i) { return laneRun[i] ? laneCnt[i] : 0; }
@@ -754,8 +755,8 @@ function laneStep(k, w) {                             // HOW ACTIVE, as a step o
   const lane_ = lane; lane = k;
   if (layers[lane].eng < 0) srcLayer(lane, 0);
   gen[lane].step = w;
-  if (gen[lane].on) genSet(lane, "ACTIVITY", Math.round(w * 127 / 14));
-  if (layers[lane].eng === srcEng) { srcFindIds(lane); if (!gen[lane].on) srcSet(lane, "INTENSITY", Math.round(w * 127 / 14)); }
+  if (gen[lane].on) genSet(lane, "ACTIVITY", actVal(w));
+  if (layers[lane].eng === srcEng) { srcFindIds(lane); if (!gen[lane].on) srcSet(lane, "INTENSITY", actVal(w)); }
   else quick[lane].step = w;
   if (!laneRun[lane]) laneStart(lane, true);
   else if (layers[lane].eng !== srcEng) quickTick();
@@ -765,7 +766,7 @@ function laneStep(k, w) {                             // HOW ACTIVE, as a step o
 function laneStepOf(i) {                              // the fader's setting (with Notes on, the activity wanders around it)
   if (!laneRun[i]) return 0;                         // (stopped: nothing)
   if (gen[i].on) return gen[i].step;
-  if (layers[i].eng === srcEng) return srcIds ? Math.round(srcGet(i, "INTENSITY") * 14 / 127) : 0;
+  if (layers[i].eng === srcEng) return srcIds ? 1 + Math.round(srcGet(i, "INTENSITY") * 13 / 127) : 0;
   return quick[i].step;
 }
 function showLanes() {                                // the LEDs: the bar on the white keys, the lanes on the black ones
@@ -838,7 +839,7 @@ function laneBar(i) {                                // a lane's activity bar: t
   bar.querySelectorAll("b").forEach(b => b.classList.toggle("on", +b.dataset.w <= a));
   const mk = d.querySelector(".mk"), g = gen[i].on && laneRun[i] ? genState(i)[0] : -1;   // the generator's wander
   mk.style.display = g < 0 ? "none" : "";
-  if (g >= 0) mk.style.left = `${Math.max(0, (g - 9) / 118) * 100}%`;
+  if (g >= 0) mk.style.left = `${(g / 127) * 100}%`;
 }
 function laneLabel(i) {                              // a lane's row: preset, activity step, running, the governor
   const pre = layers[i].eng < 0 ? "–" : laneSnd[i] >= 0 ? soundName(laneSnd[i]) : layers[i].eng === srcEng && srcIds ? SRC_PRESETS[srcGet(i, "PRESET")]
@@ -852,7 +853,7 @@ function genReadout() {
   document.querySelectorAll("#lanes-box .lane").forEach(d => { const k = +d.dataset.k; d.querySelector(".lab").textContent = laneLabel(k); d.classList.toggle("run", laneRun[k]); laneBar(k); });
   const st = genState(lane);
   $("gen-now").textContent = gen[lane].on && laneRun[lane]
-    ? `lane ${lane + 1}: activity now ${st[0]} (fader ${Math.round(gen[lane].step * 127 / 14)}), pitch centre +${(st[1] / 10).toFixed(1)}, ${st[2]} notes${st[3] > 50 ? `, recalling (${(st[3] / 10).toFixed(0)} %)` : ""}`
+    ? `lane ${lane + 1}: activity now ${st[0]} (fader ${actVal(gen[lane].step)}), pitch centre +${(st[1] / 10).toFixed(1)}, ${st[2]} notes${st[3] > 50 ? `, recalling (${(st[3] / 10).toFixed(0)} %)` : ""}`
     : `lane ${lane + 1}: ${laneRun[lane] ? "notes off" : "stopped"}`;
   const cut = [0, 1, 2, 3].filter(k => laneRun[k] && M._txw_gov_cur(k) < M._txw_gov_user(k))
     .map(k => `lane ${k + 1} ${M._txw_gov_cur(k)}/${M._txw_gov_user(k)}`);
