@@ -127,7 +127,9 @@ fw-test: $(FW)/lanes_test $(FW)/textura-host
 	$(FW)/lanes_test || exit 1; \
 	fail=0; for s in tests/scripts/*.txt; do n=$$(basename $$s .txt); \
 	  if $(FW)/textura-host $(FW)/$$n $$s > $(FW)/$$n.log 2>&1; then echo "ok    host $$n"; \
-	  else echo "FAIL  host $$n ($(FW)/$$n.log)"; fail=1; fi; done; exit $$fail
+	  else echo "FAIL  host $$n ($(FW)/$$n.log)"; fail=1; fi; done; \
+	python3 -I tests/clock_check.py > $(FW)/clock.log 2>&1 && echo "ok    clock (tests/clock_check.py)" || { echo "FAIL  clock ($(FW)/clock.log)"; fail=1; }; \
+	exit $$fail
 
 fw-web:
 	sh web/build.sh $(if $(REL),--release $(REL),)

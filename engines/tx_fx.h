@@ -86,9 +86,11 @@ typedef struct {
     uint32_t fill;                               /* samples written since it came on (older reads are 0) */
     int32_t mix;                                 /* MIX, gliding (Q15) */
     tx_gd_grain_t g[TX_GD_MAXG];
+    uint32_t sync;                               /* the echo's delay from the tempo, samples (0: TIME's) */
 } tx_fx_grain_t;
 void tx_fx_grain_init(tx_fx_grain_t *d);
 void tx_fx_grain_param(tx_fx_grain_t *d, unsigned id, unsigned v);
+void tx_fx_grain_sync(tx_fx_grain_t *d, unsigned samples);   /* the echo on the tempo (0: TIME again; at most TIME's top) */
 TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n);   /* Q23, adds */
 int tx_fx_grain_quiet(const tx_fx_grain_t *d);
 

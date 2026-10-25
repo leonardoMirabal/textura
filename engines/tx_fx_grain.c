@@ -50,6 +50,10 @@ void tx_fx_grain_init(tx_fx_grain_t *d)
     d->wg = 32768;
     d->cap = TX_GD_MAXG;
 }
+void tx_fx_grain_sync(tx_fx_grain_t *d, unsigned samples)
+{
+    d->sync = samples > TX_FX_GD_TIME[127] ? TX_FX_GD_TIME[127] : samples;   /* (a new delay crossfades as TIME's) */
+}
 void tx_fx_grain_param(tx_fx_grain_t *d, unsigned id, unsigned v)
 {
     if (id < TX_GD_NP) d->p[id] = (uint8_t)(v > tx_fx_grain_params[id].max ? tx_fx_grain_params[id].max : v);
@@ -218,7 +222,7 @@ TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int32_t *R,
     int32_t mv = d->p[TX_GD_MIX], mixt = mv * 258, gb = d->p[TX_GD_GRAIN] * 258, fbk = d->p[TX_GD_FEEDBACK] * 258;
     int32_t ta = TX_FX_GD_TONE[d->p[TX_GD_TONE]], wgt = d->p[TX_GD_FREEZE] ? 0 : 32768;
     uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, inc = TX_FX_GD_SIZE[d->p[TX_GD_SIZE]];
-    uint32_t len = 0xFFFFFFFFu / inc, step = 0xFFFFFFFFu / G + 1u, tgt = TX_FX_GD_TIME[d->p[TX_GD_TIME]], j, k, w0;
+    uint32_t len = 0xFFFFFFFFu / inc, step = 0xFFFFFFFFu / G + 1u, tgt = d->sync ? d->sync : TX_FX_GD_TIME[d->p[TX_GD_TIME]], j, k, w0;
     int32_t gnt = cap ? (int32_t)(65536u / (cap < 2u ? 2u : cap)) : 0;   /* the grains' level: 2 / sounding (Q15) */
     int32_t e[TX_BLOCK], sl[TX_BLOCK], sr[TX_BLOCK];
     unsigned act = 0;

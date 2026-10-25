@@ -26,7 +26,7 @@
  * tests) the governor never acts, as the player's before its calibration */
 
 enum { LN_EV_KEY, LN_EV_PARAM, LN_EV_PAN, LN_EV_SWAP, LN_EV_OFF, LN_EV_FX, LN_EV_GEN_ON, LN_EV_GEN_PARAM,
-       LN_EV_GEN_MUTE, LN_EV_HOST };
+       LN_EV_GEN_MUTE, LN_EV_HOST, LN_EV_GSYNC };
 
 /* the source's hosted engine (tx_eng_source.c): its own parameters, set over the source's curves until the sound
  * (PRESET or TYPE) changes */
@@ -119,6 +119,8 @@ static int ln_gen_param(uint32_t k, uint32_t id, uint32_t v) { return ln_q(LN_EV
 static int ln_gen_mute(uint32_t k, uint32_t m) { return ln_q(LN_EV_GEN_MUTE, k, m != 0, 0, 0); }
 /* the lane's source: its hosted engine's parameter id set to v (rel: released, back to the source's own) */
 static int ln_host(uint32_t k, uint32_t id, uint32_t v, uint32_t rel) { return ln_q(LN_EV_HOST, k, id, v, rel != 0); }
+static int ln_gsync(uint32_t smp) { return ln_q(LN_EV_GSYNC, 0, 0, smp & 0xFFu, smp >> 8 & 0xFFu); }   /* the grain delay's
+                                                         * echo on the tempo, samples (< 65536; 0: its TIME) */
 /* the hosted engine's value now (main loop: a read of the interrupt's state, for the screen only), or -1 */
 /* the engine the lane's source hosts now (0: none, or not a source): a read of the interrupt's state, one pointer */
 static const tx_engine_t *ln_hosted(uint32_t k)
@@ -188,6 +190,7 @@ static void ln_event(const ln_ev_t *v)
     case LN_EV_GEN_MUTE:
         if (k < LN_N) ln.gen_mute[k] = v->a;
         break;
+    case LN_EV_GSYNC: tx_fx_grain_sync(&ln.fx.gd, (uint32_t)v->b | (uint32_t)v->c << 8); break;
     case LN_EV_HOST:
         if (k < LN_N && ln.mix.e[k] && ln.int_id[k] >= 0) tx_source_host_param(ln.mix.st[k], v->a, v->c ? 256u : v->b);
         break;

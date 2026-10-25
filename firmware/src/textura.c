@@ -66,15 +66,20 @@ static uint32_t tx_palette_index(const char *name)
 #include "scape.c"
 #include "notes.c"
 #include "params.c"
+#include "tempo.c"
 #include "ui.c"
 
 /* ---- MIDI: notes on channel 1 play the selected lane, pitched; control changes reach the params table (a lane's on
- * channel 1 + lane, the effects on the mix on channel 5: params.c) */
+ * channel 1 + lane, the effects on the mix on channel 5: params.c); the clock and the transport go to tempo.c */
 static void tx_midi_poll(void)
 {
     uint8_t st, d1, d2;
-    while (midi_get(&st, &d1, &d2)) {
+    int src;
+    while ((src = midi_get(&st, &d1, &d2)) != 0) {
         uint32_t t = st & 0xF0u, ch = st & 0x0Fu;
+        if (st >= 0xF8u) { (void)tempo_clock(st, (uint32_t)d1 | (uint32_t)d2 << 8, src); continue; }   /* (d1 d2: the
+                                                 * arrival and the pulse count, as platform.c stamps them) */
+        if (st == 0xF2u) { tempo_spp((uint32_t)(d1 & 127u) | (uint32_t)(d2 & 127u) << 7, src); continue; }
         if (t == 0xB0u) { (void)p_cc(ch, d1, d2); continue; }
         if (ch != 0u) continue;
         if (t == 0x90u) ln_key(sc.sel, d1, d2 ? d2 : 0u, d2 != 0u);
@@ -88,6 +93,7 @@ static void app_main(void)
     ln_init();
     sc_init();
     p_init();
+    tempo_sync_publish();
     ui_splash();
     for (;;) {
         uint32_t rel, b;
@@ -98,6 +104,7 @@ static void app_main(void)
         tx_midi_poll();
         sc_poll();
         p_poll();
+        tempo_poll();
         ui_draw();
         nt_leds(ui_btn_leds());
     }
@@ -125,6 +132,7 @@ static int host_sound_check(char *msg, unsigned n)   /* 0 if every lane runs the
     }
     for (k = 0; k < TX_GD_NP; k++)
         if (ln.fx.gd.p[k] != pv_glob[PG_GRAIN0 + k]) { snprintf(msg, n, "grain %u: %u, not %u", k, ln.fx.gd.p[k], pv_glob[PG_GRAIN0 + k]); return 1; }
+    if (ln.fx.gd.sync != tm.gsync_smp) { snprintf(msg, n, "grain sync %u, not %u", ln.fx.gd.sync, tm.gsync_smp); return 1; }
     for (k = 0; k < TX_RV_NP; k++)
         if (ln.fx.rev.p[k] != pv_glob[PG_REVERB0 + k]) { snprintf(msg, n, "reverb %u: %u, not %u", k, ln.fx.rev.p[k], pv_glob[PG_REVERB0 + k]); return 1; }
     return 0;
@@ -151,6 +159,15 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (sscanf(key, "vol%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc_vol_of(k));
     else if (sscanf(key, "pan%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.pan[k]);
     else if (sscanf(key, "gen%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", ln.gen_on[k]);
+    else if (!strcmp(key, "bpm10")) snprintf(v, n, "%u", tempo_bpm10());          /* the tempo shown (tempo.c) */
+    else if (!strcmp(key, "beatsmp")) snprintf(v, n, "%u", beat_smp);
+    else if (!strcmp(key, "clklock")) snprintf(v, n, "%d", clk_follows());
+    else if (!strcmp(key, "clksrc")) snprintf(v, n, "%u", clk_src);
+    else if (!strcmp(key, "pubs")) snprintf(v, n, "%u", tempo_pubs);
+    else if (!strcmp(key, "running")) snprintf(v, n, "%d", tm_running());
+    else if (!strcmp(key, "songpos")) snprintf(v, n, "%u", clk_sp);
+    else if (!strcmp(key, "gsync")) snprintf(v, n, "%u", tm.gsync_smp);          /* the grain delay's echo, samples */
+    else if (!strcmp(key, "gdsync")) snprintf(v, n, "%u", ln.fx.gd.sync);         /* as the chain has it */
     else if (sscanf(key, "lab%u%c", &k, &c) == 1 && k < 4u) snprintf(v, n, "%s", ui_row_id(k) != NOID ? p_lab(ui_row_id(k)) : "-");
     else if (sscanf(key, "card%u%c", &k, &c) == 1 && k < 4u) {   /* the value as the card writes it */
         char t[24];
@@ -166,7 +183,8 @@ static int host_state(const char *key, char *v, unsigned n)
 }
 static void host_dump(void)
 {
-    static const char *const K[] = {"app", "palette", "splash", "page", "landscape", "sel", "mode", "oct", "dropped"};
+    static const char *const K[] = {"app", "palette", "splash", "page", "landscape", "sel", "mode", "oct", "dropped",
+                                    "bpm10", "beatsmp", "clklock", "clksrc", "pubs", "running", "songpos", "gsync", "gdsync"};
     static const char *const L[] = {"lane", "snd", "cnt", "act", "run", "vol", "pan", "gen"};
     char v[48], key[12];
     uint32_t i, k;

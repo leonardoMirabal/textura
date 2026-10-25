@@ -69,16 +69,17 @@
 # FX: GRAIN 1/3; ALGORITHM: FREEZE
 3600 btn 2
 3620 expect state page GRAIN_1/3
-3620 expect state lab3 GRAINS
+3620 expect state lab2 SYNC
+3620 expect state lab3 FEEDBACK
 3700 turn 1 1
 3720 expect state p40B 1
 3720 expect state msg FREEZE_ON
 3800 turn 1 -1
 3820 expect state p40B 0
 3900 turn 0 1
-3920 expect state lab2 PITCH
-3950 turn 4 7
-3970 expect state card2 +1_st
+3920 expect state lab3 PITCH
+3950 turn 5 7
+3970 expect state card3 +1_st
 4000 shot
 # FX again: REVERB 1/3; ALGORITHM: the type
 4100 btn 2

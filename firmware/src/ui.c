@@ -9,14 +9,16 @@
  * element's content and marks the ones that differ.
  *
  *   SELECT     the pages, in order: LANDSCAPE, MIXER 1/2 (levels) 2/2 (pans), SOUND 1..n (the selected lane's sound:
- *              its cards, four a page), DRIVE, FILTER 1/2 2/2, GRAIN 1/3 .. 3/3, REVERB 1/3 .. 3/3
+ *              its cards, four a page), DRIVE, FILTER 1/2 2/2, GRAIN 1/3 .. 3/3, REVERB 1/3 .. 3/3, TEMPO, MIDI
  *   ALGORITHM  LANDSCAPE: the landscape (loaded 300 ms after the last detent); SOUND: the lane's sound; DRIVE: its
  *              type; FILTER: its type; GRAIN: FREEZE (up on, down off); REVERB: its type
  *   K1..K4     LANDSCAPE: the selected lane's SOUND, HOW MANY, HOW ACTIVE, VOLUME; MIXER: lanes 1..4; else the cards
  *   HOME       LANDSCAPE (again: MIXER)        EDIT  SOUND (again: DRIVE)        FX  GRAIN (again: REVERB)
+ *   GLO        TEMPO (again: MIDI)
  *   SEL        key mode: LANDSCAPE / PLAY      OCT- OCT+  LANDSCAPE mode: the lane; PLAY mode: the octave
  *   REC        LANDSCAPE mode: all lanes stop (remembered) / start again
- *   PLAY       (TX_BTN_TAP: tap tempo, held: transport; the tempo comes with piece 5)
+ *   PLAY       (TX_BTN_TAP) a tap: TAP TEMPO (on the press); held 600 ms: the transport starts / stops (and that
+ *              press's tap is taken back); its light: the beat
  * The cards' values are the params table's (params.c): the same ids MIDI reaches. */
 #ifdef DINGHY_HOST
 #define POOL
@@ -28,23 +30,26 @@
 #define TX_BTN_TAP BTN_PLAY                     /* TAP TEMPO is the PLAY button, as in Frodhes (the user, 2026-10-25) */
 
 /* the pages: a group (SELECT walks through each group's sub-pages, then the next group) */
-enum { G_LAND, G_MIX, G_SOUND, G_DRIVE, G_FILTER, G_GRAIN, G_REVERB, G_N };
-static const char *const G_TITLE[G_N] = {"LANDSCAPE", "MIXER", "SOUND", "DRIVE", "FILTER", "GRAIN", "REVERB"};
-static const uint8_t G_NSUB[G_N] = {1, 2, 0, 1, 2, 3, 3};   /* (SOUND: as many as its cards need) */
+enum { G_LAND, G_MIX, G_SOUND, G_DRIVE, G_FILTER, G_GRAIN, G_REVERB, G_TEMPO, G_MIDI, G_N };
+static const char *const G_TITLE[G_N] = {"LANDSCAPE", "MIXER", "SOUND", "DRIVE", "FILTER", "GRAIN", "REVERB", "TEMPO",
+                                         "MIDI"};
+static const uint8_t G_NSUB[G_N] = {1, 2, 0, 1, 2, 3, 3, 1, 1};   /* (SOUND: as many as its cards need) */
 #define LA P_LANE_ANY
 #define NOID 0xFFFFu
 /* the effects' pages: a parameter per knob, the selected lane's (LA) or a global */
-static const uint8_t G_FX0[G_N] = {0, 0, 0, 0, 1, 3, 6};
-static const uint16_t FX_IDS[9][4] = {
+static const uint8_t G_FX0[G_N] = {0, 0, 0, 0, 1, 3, 6, 9, 10};
+static const uint16_t FX_IDS[11][4] = {
     {PID(LA, PL_DRIVE0 + TX_DR_AMOUNT), PID(LA, PL_DRIVE0 + TX_DR_TONE), PID(LA, PL_DRIVE0 + TX_DR_MIX), PID(LA, PL_DRIVE0 + TX_DR_TYPE)},
     {PID(LA, PL_FILTER0 + TX_FL_TYPE), PID(LA, PL_FILTER0 + TX_FL_FREQ), PID(LA, PL_FILTER0 + TX_FL_RESO), PID(LA, PL_FILTER0 + TX_FL_LFO)},
     {PID(LA, PL_FILTER0 + TX_FL_RATE), PID(LA, PL_FILTER0 + TX_FL_SHAPE), NOID, NOID},
-    {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_MIX), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_TIME), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_FEEDBACK), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_GRAINS)},
-    {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_SIZE), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_SPRAY), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_PITCH), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_REVERSE)},
-    {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_SPREAD), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_TONE), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_GRAIN), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_FREEZE)},
+    {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_MIX), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_TIME), PID(P_GLOBAL, PG_GSYNC), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_FEEDBACK)},
+    {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_GRAINS), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_SIZE), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_SPRAY), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_PITCH)},
+    {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_REVERSE), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_SPREAD), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_TONE), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_GRAIN)},
     {PID(P_GLOBAL, PG_REVERB0 + TX_RV_TYPE), PID(P_GLOBAL, PG_REVERB0 + TX_RV_MIX), PID(P_GLOBAL, PG_REVERB0 + TX_RV_DECAY), PID(P_GLOBAL, PG_REVERB0 + TX_RV_TONE)},
     {PID(P_GLOBAL, PG_REVERB0 + TX_RV_PREDELAY), PID(P_GLOBAL, PG_REVERB0 + TX_RV_SIZE), PID(P_GLOBAL, PG_REVERB0 + TX_RV_MOD), PID(P_GLOBAL, PG_REVERB0 + TX_RV_LOWCUT)},
     {PID(P_GLOBAL, PG_REVERB0 + TX_RV_SHIMMER), PID(P_GLOBAL, PG_REVERB0 + TX_RV_SHIFT), NOID, NOID},
+    {PID(P_GLOBAL, PG_BPM), PID(P_GLOBAL, PG_FINE), PID(P_GLOBAL, PG_STATUS), PID(P_GLOBAL, PG_RUN)},
+    {PID(P_GLOBAL, PG_CLOCK), PID(P_GLOBAL, PG_INUSB), PID(P_GLOBAL, PG_INTRS), PID(P_GLOBAL, PG_OUT)},
 };
 /* what ALGORITHM turns on an effect's page */
 #define ALG_DRIVE PID(LA, PL_DRIVE0 + TX_DR_TYPE)
@@ -255,7 +260,7 @@ static void draw_strip(uint32_t k)
  * will not fit), its unit in a column of its own. Its look: an amount fills the row from the left (LK_MID: from the
  * middle, a pan or a pitch) to the fraction with a 2 px bright edge that stops clear of the text; a choice is a row
  * of segments under the label, the chosen one lit; a toggle is a light by the value */
-enum { LK_FILL, LK_MID, LK_SEG, LK_LED };
+enum { LK_FILL, LK_MID, LK_SEG, LK_LED, LK_TEXT };   /* (LK_TEXT: read only, the value alone) */
 #define CD_PAD 6
 #define CD_PAD_R 12
 #define CD_UNIT_W 22
@@ -336,6 +341,7 @@ static void ui_mix_label(uint32_t k, char *l)   /* "1 RAIN ON WATER" */
 static uint32_t ui_look(uint32_t id)
 {
     uint32_t f = p_fmt(id), kd = p_kind(id);
+    if (p_hi(id) == 0) return LK_TEXT;
     if (kd == PK_TOGGLE) return LK_LED;
     if (kd == PK_SELECT) return LK_SEG;
     return f == F_PAN || f == F_SEMI ? LK_MID : LK_FILL;
@@ -362,7 +368,8 @@ static void draw_row(uint32_t k)
 static void draw_footer(void)
 {
     static const char *const HINT[G_N] = {"", "", "ALGORITHM: THE SOUND", "ALGORITHM: THE DRIVE'S TYPE",
-                                          "ALGORITHM: THE FILTER'S TYPE", "ALGORITHM: FREEZE", "ALGORITHM: THE REVERB'S TYPE"};
+                                          "ALGORITHM: THE FILTER'S TYPE", "ALGORITHM: FREEZE", "ALGORITHM: THE REVERB'S TYPE",
+                                          "PLAY: TAP, HOLD: START / STOP", "CLOCK OUT: OVER USB, LATER"};
     cv_begin(240, FT_H, FC_BG);
     if (ui_msg_t && fm1_ms - ui_msg_t < MSG_MS) ft_c(15, ui_msg, FC_VAL);
     else if (ui_g == G_LAND) {
@@ -400,6 +407,8 @@ static uint32_t ui_sig_of(uint32_t e)
             uint32_t id = ui_row_id(k);
             h = sig_mix(h, id);
             if (id != NOID) h = sig_mix(h, (uint32_t)p_get(id));
+            if (ui_g == G_GRAIN) { h = sig_mix(h, tm.gsync); h = sig_mix(h, tm.gsync_half); }   /* (TIME: the division) */
+            if (ui_g >= G_TEMPO) { h = sig_mix(h, tempo_bpm10()); h = sig_mix(h, (uint32_t)clk_follows()); h = sig_mix(h, clk_src); }
         }
     }
     return h;
@@ -498,13 +507,12 @@ static void ui_lane_step(int32_t d)
     sc_select((uint32_t)clampi(k, 0, (int32_t)SC_N - 1));
     ui_say_n("LANE", sc.sel + 1);
 }
-/* a parameter turned by d detents: an amount by d, a choice by one, a toggle on (up) / off (down) */
+/* a parameter turned by d detents: an amount or a choice by d, a toggle on (up) / off (down) */
 static void ui_turn(uint32_t id, int32_t d)
 {
     uint32_t kd = p_kind(id);
     int32_t v = p_get(id);
     if (kd == PK_TOGGLE) v = d > 0;
-    else if (kd == PK_SELECT) v += d > 0 ? 1 : -1;
     else v += d;
     p_set(id, clampi(v, 0, p_hi(id)));
 }
@@ -566,16 +574,41 @@ static void ui_algorithm(int32_t d)
         ui_say(t);
     }
 }
+/* PLAY: a tap on the press (its time exact); held 600 ms, the transport instead, and the press's tap taken back */
+#define TAP_HOLD_MS 600u
+static uint32_t ui_play_t;
+static uint8_t ui_play_down, ui_play_held;
+static void ui_play(uint32_t press, uint32_t release)
+{
+    if (press) {
+        ui_play_t = fm1_ms; ui_play_down = 1; ui_play_held = 0;
+        if (tm.clock == CLK_FOLLOW || clk_follows()) ui_say("EXT CLOCK");
+        else if (tempo_tap()) {
+            char t[16], n[8], d[2] = {(char)('0' + tempo_bpm10() % 10u), 0};
+            p_strcpy(t, "TEMPO ", 6); p_fmt_int(n, (int32_t)(tempo_bpm10() / 10u)); p_cat(t, n, 15);
+            p_cat(t, ".", 15); p_cat(t, d, 15);
+            ui_say(t);
+        }
+    }
+    if (release) ui_play_down = 0;
+    if (ui_play_down && !ui_play_held && fm1_ms - ui_play_t >= TAP_HOLD_MS) {
+        ui_play_held = 1;
+        tempo_tap_undo();
+        if (tempo_transport(!tm_running())) ui_say(tm_running() ? "TRANSPORT: RUNNING" : "TRANSPORT: STOPPED");
+        else ui_say("EXT CLOCK");
+    }
+}
 static void ui_input(uint32_t b, uint32_t rel)
 {
     int32_t d[7];
     uint32_t i;
-    (void)rel;
     for (i = 0; i < 7u; i++) d[i] = fm1_enc_take(i);
     if (ui_splash_on) for (i = 0; i < 7u; i++) if (d[i] || b) ui_splash_t = fm1_ms - UI_SPLASH_MS;
     if (b >> BTN_HOME & 1u) ui_goto(ui_g == G_LAND ? G_MIX : G_LAND, 0);
     if (b >> BTN_EDIT & 1u) ui_goto(ui_g == G_SOUND ? G_DRIVE : G_SOUND, 0);
     if (b >> BTN_FX & 1u) ui_goto(ui_g == G_GRAIN ? G_REVERB : G_GRAIN, 0);
+    if (b >> BTN_GLO & 1u) ui_goto(ui_g == G_TEMPO ? G_MIDI : G_TEMPO, 0);
+    ui_play(b >> TX_BTN_TAP & 1u, rel >> TX_BTN_TAP & 1u);
     if (b >> BTN_SEL & 1u) { nt_mode_set(nt.mode == NT_PLAY ? NT_LANDSCAPE : NT_PLAY); ui_say(nt.mode == NT_PLAY ? "KEYS: PLAY" : "KEYS: LANDSCAPE"); }
     if (b >> BTN_OCT_DOWN & 1u) { if (nt.mode == NT_PLAY) nt_oct_step(-1); else ui_lane_step(-1); }
     if (b >> BTN_OCT_UP & 1u) { if (nt.mode == NT_PLAY) nt_oct_step(1); else ui_lane_step(1); }
@@ -584,14 +617,16 @@ static void ui_input(uint32_t b, uint32_t rel)
     if (d[ENC_ALGORITHM]) ui_algorithm(d[ENC_ALGORITHM]);
     for (i = 0; i < 4u; i++) if (d[ENC_KNOB1 + i]) ui_knob(i, d[ENC_KNOB1 + i]);
 }
-/* the buttons' LEDs: HOME, EDIT or FX on their pages, SEL in PLAY mode, REC while anything plays, OCT where it can
+/* the buttons' LEDs: HOME, EDIT, FX or GLO on their pages, PLAY the beat, SEL in PLAY mode, REC while anything plays, OCT where it can
  * still go */
 static uint32_t ui_btn_leds(void)
 {
     uint32_t b = 0;
     if (ui_g <= G_MIX) b |= 1u << BTN_HOME;
     else if (ui_g <= G_FILTER) b |= 1u << BTN_EDIT;
-    else b |= 1u << BTN_FX;
+    else if (ui_g <= G_REVERB) b |= 1u << BTN_FX;
+    else b |= 1u << BTN_GLO;
+    if (tempo_beat_led()) b |= 1u << TX_BTN_TAP;
     if (nt.mode == NT_PLAY) b |= 1u << BTN_SEL;
     if (sc_any_run()) b |= 1u << BTN_REC;
     if (nt.mode == NT_PLAY ? nt.oct < 0 : sc.sel > 0) b |= 1u << BTN_OCT_DOWN;

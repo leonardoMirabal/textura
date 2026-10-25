@@ -133,11 +133,11 @@ $("start").onclick = startAudio;
 const KNOBS = [["MASTER", -1, 50, 22, "VOLUME"], ["SELECT", 0, 200, 22, "PAGES"], ["PRESETS", 6, 50, 152, "SCENES"],
                ["ALGORITHM", 1, 200, 152, "LANDSCAPE·TYPE"], ["KNOB 1", 2, 685, 22, "CARD 1"], ["KNOB 2", 3, 800, 22, "CARD 2"],
                ["KNOB 3", 4, 915, 22, "CARD 3"], ["KNOB 4", 5, 1030, 22, "CARD 4"]];
-// the buttons' captions (the ones still to come are blank: the tempo, modulation and scenes pieces)
-const HINT = { FX: "EFFECTS", SEL: "KEY MODE", ENV: "", LFO: "", EDIT: "SOUND", GLO: "", HOME: "LANDSCAPE", SAVE: "", ARP: "",
-               SEQ: "", PLAY: "TAP TEMPO", REC: "ALL ON·OFF", "OCT−": "LANE", "OCT+": "LANE" };
+// the buttons' captions (the ones still to come are blank: the modulation and scenes pieces)
+const HINT = { FX: "EFFECTS", SEL: "KEY MODE", ENV: "", LFO: "", EDIT: "SOUND", GLO: "TEMPO", HOME: "LANDSCAPE", SAVE: "", ARP: "",
+               SEQ: "", PLAY: "TAP · HOLD: RUN", REC: "ALL ON·OFF", "OCT−": "LANE", "OCT+": "LANE" };
 const HINT_ON = {                                    // what a button does on a given page (else HINT)
-  LANDSCAPE: { HOME: "MIXER" }, MIXER: { HOME: "LANDSCAPE" }, SOUND: { EDIT: "DRIVE" }, GRAIN: { FX: "REVERB" },
+  LANDSCAPE: { HOME: "MIXER" }, MIXER: { HOME: "LANDSCAPE" }, SOUND: { EDIT: "DRIVE" }, GRAIN: { FX: "REVERB" }, TEMPO: { GLO: "MIDI" },
 };
 let shownPage = "";
 function captions() {                                // the page on the screen: the buttons' captions
@@ -276,7 +276,10 @@ async function setupMidi() {
     sel.onchange = () => {
       for (const inp of acc.inputs.values()) inp.onmidimessage = null;
       const inp = acc.inputs.get(sel.value);
-      if (inp) inp.onmidimessage = m => { const [st, d1 = 0, d2 = 0] = m.data; if (M && st < 0xF8) { startAudio(); M._web_midi(st, d1, d2); } };
+      if (inp) inp.onmidimessage = m => {         // notes and CCs; the clock and its transport (F8 FA FB FC) too
+        const [st, d1 = 0, d2 = 0] = m.data;
+        if (M && st < 0xF8) { startAudio(); M._web_midi(st, d1, d2); } else if (M && st <= 0xFC && st !== 0xF9) M._web_midi(st, d1, d2);
+      };
     };
   } catch (e) { $("midi").disabled = true; }
 }
