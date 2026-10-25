@@ -7,7 +7,7 @@
 #define L2_1K 653118                /* log2(1000), Q16 */
 
 /* mean pause between bouts at the middle of the fader (0.1 s), base pitches (log2 Hz Q16) */
-const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES] = { 60, 80, 150, 200, 250, 50, 90, 70, 50, 60, 80, 150 };
+const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES] = { 60, 80, 220, 200, 1100, 50, 90, 70, 50, 60, 80, 150 };
 const int32_t TX_BIRD_F0[TX_BIRD_TYPES] = { 731868, 771564, 596593, 641031, 666332,   /* 2.3, 3.5, 0.55, 0.88, 1.15 kHz */
                                             731868, 784190, 750467, 788803, 805288, 781796, 779340 };
                                             /* 2.3, 4.0, 2.8, 4.2, 5.0, 3.9, 3.8 kHz */
@@ -125,7 +125,7 @@ static void syl_make(tx_bird_voice_t *v)
         arch = rs(&r, -800, 800); k0 = rs(&r, 0, S->kmax / 4); k1 = rs(&r, 0, S->kmax / 4); amp = lvl(&r, 12);
         break;
     case C_CAW:
-        len_ms = rb(&r, 220, 420); rel = rs(&r, -812, 812); df = rs(&r, -1200, -600); arch = rs(&r, 200, 600);
+        len_ms = rb(&r, 180, 320); rel = rs(&r, -812, 812); df = rs(&r, -1200, -600); arch = rs(&r, 200, 600);
         k0 = rs(&r, 190, 224); k1 = rs(&r, 200, 224); amp = 255;
         break;
     case C_HOOT:                                             /* a tawny's first hoot, or an eagle owl's (1.5 octaves lower) */
@@ -316,7 +316,7 @@ static void phrase_start(tx_bird_voice_t *v)
         break;
     case ST_CROW:
         v->plev = 0;
-        seg(v, SYL(C_CAW, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 2, 6), rb(&v->rng, 250, 500), 255, 255, 0);
+        seg(v, SYL(C_CAW, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 2, 6), rb(&v->rng, 120, 320), 255, 255, 0);
         break;
     case ST_OWL:                                             /* a tawny's hoot, a pause, the tremolo; or an eagle owl */
         v->plev = 0;
@@ -324,10 +324,14 @@ static void phrase_start(tx_bird_voice_t *v)
         else if (v->nph > 1u) seg(v, SYL(C_HOOT, rb(&v->rng, 0, 3)), 1, 0, 255, 255, 0);
         else seg(v, SYL(C_TREM, 0), 1, 0, 255, 255, 0);
         break;
-    default:                                                 /* gull: the long call */
+    default:                                                 /* gull: mostly short calls; now and then the long call */
         v->plev = 0;
-        seg(v, SYL(C_GLONG, 0), 2, 120, 255, 255, 0);
-        seg(v, SYL(C_KYOW, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 6, 12), rb(&v->rng, 50, 110), 255, 255, 0);
+        if (tx_rand_below(&v->rng, 10u) < 7u)
+            seg(v, SYL(C_KYOW, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 1, 3), rb(&v->rng, 100, 300), lvl(&v->rng, 8), 255, 0);
+        else {
+            seg(v, SYL(C_GLONG, 0), 2, 120, 255, 255, 0);
+            seg(v, SYL(C_KYOW, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 6, 12), rb(&v->rng, 50, 110), 255, 255, 0);
+        }
         break;
     }
     v->plev = (int16_t)(v->plev + rs(&v->rng, -60, 60));
@@ -395,6 +399,103 @@ void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigne
     gain = (int32_t)(((uint32_t)(gain < 0 ? 0 : gain) * TRIM[sp]) >> 6);   /* the type's level (Q6) */
     v->gain = gain > 16383 ? 16383 : gain;
     v->sub = 0;
+}
+
+/* ---- the flock (note 15: the dawn choruses hold 1.2-1.5 tonal voices at once, 17-25 % of the time none, 7-13 % of
+ * the syllables within 6 dB of the loudest and 37-54 % more than 20 dB under it, onsets clumped (Fano 1.8-2.7); a gull
+ * colony calls ~1.3 /s in bursts (61 % of its gaps < 0.6 s, Fano 1.9, its 10 s level swinging 15 dB); crows caw in
+ * series ~0.47 s apart, answering each other) */
+static const struct {
+    uint8_t nmax;                   /* birds present at the top */
+    uint8_t ov_lo, ov_hi;           /* singing at once: up to INTENSITY 40 .. at the top */
+    uint8_t yield;                  /* 1: neighbours in a band take turns */
+    uint8_t ans_mid, ans_top;       /* answers a call sets off (Q8: the branching ratio), at the middle, the top */
+    uint16_t ans_lo, ans_hi;        /* its delay, ms */
+    uint8_t span;                   /* the distances' spread added to DEPTH's (octaves Q4) */
+} FL[TX_BIRD_TYPES] = {
+    {12, 1, 4, 1, 60, 140, 1500, 5000, 8},   /* woodland mix */
+    {10, 1, 5, 1, 60, 140, 800, 4000, 8},   /* chirper */
+    {8, 1, 3, 0, 120, 200, 300, 1500, 8},   /* crow: answers, in series */
+    {3, 1, 3, 1, 100, 150, 1000, 4000, 8},  /* owl: a duet */
+    {10, 1, 4, 0, 150, 225, 100, 600, 16},   /* gull: excitement spreads */
+    {6, 1, 4, 1, 60, 120, 1500, 5000, 8},   /* blackbird */
+    {4, 1, 3, 1, 50, 100, 1500, 5000, 8},   /* song thrush */
+    {4, 1, 3, 1, 80, 150, 1000, 4000, 8},   /* nightingale: countersinging */
+    {6, 1, 4, 1, 60, 120, 1500, 5000, 8},   /* robin */
+    {6, 1, 4, 1, 80, 150, 1000, 4000, 8},   /* wren */
+    {4, 1, 3, 1, 50, 100, 1500, 5000, 8},   /* hermit thrush */
+    {6, 1, 4, 0, 40, 100, 1500, 5000, 12},   /* skylark: overhead, they overlap */
+};
+
+unsigned tx_bird_want(unsigned type, int32_t act)
+{
+    int32_t lg;
+    unsigned w;
+    if (type >= TX_BIRD_TYPES) type = 0;
+    act = act < 0 ? 0 : act > (127 << 8) ? 127 << 8 : act;
+    lg = (32 << 16) - (int32_t)(tx_neglog2_q12(FL[type].nmax) << 4);   /* log2 nmax, Q16 */
+    w = (tx_exp2(((lg >> 8) * act) / 127 + (8 << 16)) + 128u) >> 8;   /* 1 .. nmax, log (32-bit: < 2^25) */
+    return w < 1u ? 1u : w > FL[type].nmax ? FL[type].nmax : w;
+}
+
+unsigned tx_bird_overlap(unsigned type, int32_t act)
+{
+    int32_t x = act - (40 << 8);
+    if (type >= TX_BIRD_TYPES) type = 0;
+    if (x <= 0) return FL[type].ov_lo;
+    return FL[type].ov_lo + (unsigned)((x * (FL[type].ov_hi - FL[type].ov_lo) + (43 << 8)) / (87 << 8));
+}
+
+int32_t tx_bird_band(unsigned type, uint32_t seed, int32_t f_off)
+{
+    tx_rng_t br;
+    unsigned sp = type;
+    if (type >= TX_BIRD_TYPES) type = sp = 0;
+    tx_rng_seed(&br, mix(seed, 0xB1u));                      /* as tx_bird_song draws the individual */
+    if (!type) { unsigned c = tx_rand_below(&br, 100u); sp = c < 30u ? 5u : c < 50u ? 6u : c < 75u ? 8u : c < 90u ? 9u : 1u; }
+    return TX_BIRD_F0[sp] + f_off + (SP[sp].flo + SP[sp].fhi) * 8;   /* the middle of its range (Q12 -> Q16 / 2) */
+}
+
+/* over the ground around (p(r) ~ r between the nearest and nearest x 2^span): most birds far, a few near. The denser
+ * the birds (the more of them), the smaller their territories: the nearest ones come in as 1 / sqrt(density) (from
+ * ~1.3 octaves farther than the preset's distance with one bird to half an octave nearer with all), so a growing
+ * chorus is louder and a few of its birds are close */
+int32_t tx_bird_dist(tx_rng_t *r, unsigned type, int32_t near_l2, int32_t depth_l2, int32_t act)
+{
+    int32_t span, ks, lg;
+    uint32_t K, x;
+    if (type >= TX_BIRD_TYPES) type = 0;
+    act = act < 0 ? 0 : act > (127 << 8) ? 127 << 8 : act;
+    span = depth_l2 + FL[type].span * 4096;                  /* Q4 octaves -> Q16 */
+    lg = (32 << 16) - (int32_t)(tx_neglog2_q12(FL[type].nmax) << 4);   /* log2 nmax, Q16 */
+    near_l2 += (((lg >> 8) * ((127 << 8) - act) / 127) >> 1) - 32768;   /* (log2 nmax - log2 want) / 2, - 0.5 oct */
+    if (span <= 0) return near_l2;
+    ks = span * 2;
+    if (ks > (15 << 16)) ks = 15 << 16;
+    K = tx_exp2(ks);
+    x = 65536u + (tx_rand(r) >> 16) * (K - 1u);
+    return near_l2 + ((32 << 16) - (int32_t)(tx_neglog2_q12(x) << 4) - (16 << 16)) / 2;
+}
+
+int tx_bird_yield(unsigned type, int32_t band, int32_t r_l2, int32_t band_o, int32_t r_o)
+{
+    int32_t d = band - band_o;
+    if (type >= TX_BIRD_TYPES || !FL[type].yield) return 0;
+    return (d < 0 ? -d : d) < 22938 && r_o < r_l2 + 65536;  /* within 0.35 oct, not much farther than itself */
+}
+
+uint32_t tx_bird_answer(tx_rng_t *r, unsigned type, int32_t act, uint32_t wait, unsigned nidle)
+{
+    int32_t p;
+    uint32_t d;
+    if (type >= TX_BIRD_TYPES) type = 0;
+    if (act < (32 << 8)) return wait;                        /* one or two birds: no answering yet */
+    p = act < (64 << 8) ? FL[type].ans_mid * (act - (32 << 8)) / (32 << 8)
+                        : FL[type].ans_mid + (FL[type].ans_top - FL[type].ans_mid) * (act - (64 << 8)) / (63 << 8);
+    if (nidle > 1u) p /= (int32_t)nidle;                    /* the branching ratio p / 256 shared */
+    if ((int32_t)(tx_rand(r) >> 24) >= p) return wait;
+    d = rb(r, FL[type].ans_lo, FL[type].ans_hi) * 441u / 10u;
+    return d < wait ? d : wait;
 }
 
 void tx_bird_stop(tx_bird_voice_t *v)

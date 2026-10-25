@@ -75,6 +75,19 @@ extern const int32_t TX_BIRD_F0[TX_BIRD_TYPES];       /* the type's base pitch, 
  * species that keep a few (wren, chaffinch), var_seed this rendition's draws; pitch offset f_off (log2 Q16), gain (Q12) */
 void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigned song, uint32_t var_seed, int32_t f_off,
                   int32_t gain);
+/* ---- the flock: how a type's birds share time and space (the engine keeps the members and asks these; act is the
+ * activity 0 .. 127 << 8). A few birds near and distinct over many farther, quieter ones; neighbours in one band take
+ * turns (countersinging); crows answer crows, gulls set each other off (bursts and lulls); more birds as it rises. */
+unsigned tx_bird_want(unsigned type, int32_t act);           /* birds present */
+unsigned tx_bird_overlap(unsigned type, int32_t act);        /* how many may sing at once */
+int32_t tx_bird_band(unsigned type, uint32_t seed, int32_t f_off);   /* a bird's pitch centre, log2 Hz Q16 */
+int32_t tx_bird_dist(tx_rng_t *r, unsigned type, int32_t near_l2, int32_t depth_l2, int32_t act);   /* log2 m Q16 */
+/* 1: a bird (band, distance) waits while this other one sings (a neighbour in its band, near enough to matter) */
+int tx_bird_yield(unsigned type, int32_t band, int32_t r_l2, int32_t band_o, int32_t r_o);
+/* another bird has just started: an idle one's new wait (samples): it answers sooner, or keeps its own; nidle = the idle
+ * birds that might (a call sets off n of them on average, n < 1: bursts that die out, never a runaway) */
+uint32_t tx_bird_answer(tx_rng_t *r, unsigned type, int32_t act, uint32_t wait, unsigned nidle);
+
 /* end the song after the phrase it is singing (the bird is leaving: the lane released or fewer birds wanted) */
 void tx_bird_stop(tx_bird_voice_t *v);
 /* sing n samples into out (added); returns 1 while the song goes on */

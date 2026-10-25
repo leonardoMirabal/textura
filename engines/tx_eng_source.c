@@ -926,23 +926,38 @@ static void bird_sing(src_t *s, unsigned bi, unsigned type, int steal, int32_t k
 }
 
 static void birds_block(src_t *s, unsigned n)
-{
-    unsigned type = (unsigned)PRE[s->p[P_PRESET]].act_lo, i, want, singing = 0, allowed;
+{   /* the flock (tx_core_bird): who is here, how far, who sings now; neighbours in a band take turns, others answer */
+    unsigned type = (unsigned)PRE[s->p[P_PRESET]].act_lo, i, j, want, singing = 0, allowed;
     int32_t a = act_idx(s);
-    want = (tx_exp2(((a >> 4) * 1828) / 16 + (8 << 16)) + 128u) >> 8;   /* 1 .. 12 birds (log2 12 = 3.585: x 18284 / 127 / 256) */
-    if (want > 12u) want = 12u;
-    if (want < 1u) want = 1u;
-    allowed = 1u + (unsigned)(clampi(s->i_eff - (40 << 8), 0, 87 << 8) / (14 << 8));   /* turns .. overlap (7 at the top) */
+    want = tx_bird_want(type, a);
+    allowed = tx_bird_overlap(type, a);
     for (i = 0; i < NB; i++) if (s->bm[i].voice != 0xFF && s->bm[i].active) singing++;
     for (i = 0; i < NB; i++) {
         birdm_t *b = &s->bm[i];
-        if (i < want && !b->active && s->run > 4096) { bird_draw(s, b, 0); b->active = 1; b->wait = tx_rand_below(&s->rng, 65535u) * 2u; }
+        if (i < want && !b->active && s->run > 4096) {
+            bird_draw(s, b, 0);
+            b->r_l2 = tx_bird_dist(&s->rng, type, dist_l2(s), depth_l2(s), a);   /* most far, a few near */
+            b->gain = tx_bird_band(type, b->seed, b->f_off);  /* (birds keep their band here) */
+            b->active = 1; b->wait = tx_rand_below(&s->rng, 65535u) * 2u;
+        }
         if (b->active && b->voice < NV && s->v[b->voice].kind == V_BIRD && (i >= want || s->run < 4096))
             tx_bird_stop(&s->v[b->voice].u.bv);              /* leaving: it ends the phrase it is singing */
         if (!b->active || b->voice != 0xFF) continue;
         if (i >= want || s->run < 4096) { b->active = 0; continue; }   /* (a bird leaves after its song) */
         if (b->wait > n) { b->wait -= n; continue; }
-        if (singing < allowed) { bird_sing(s, i, type, 0, 0); if (b->voice != 0xFF) { singing++; continue; } }
+        for (j = 0; j < NB; j++)                             /* a neighbour in its band sings: it waits its turn */
+            if (j != i && s->bm[j].active && s->bm[j].voice != 0xFF && tx_bird_yield(type, b->gain, b->r_l2, s->bm[j].gain, s->bm[j].r_l2)) break;
+        if ((singing < allowed || b->near) && j >= NB) {     /* (the bird close by is not held back by far ones) */
+            bird_sing(s, i, type, 0, 0);
+            if (b->voice != 0xFF) {
+                singing++;
+                unsigned idle = 0;
+                for (j = 0; j < NB; j++) idle += j != i && s->bm[j].active && s->bm[j].voice == 0xFF;
+                for (j = 0; j < NB; j++)                     /* the others may answer */
+                    if (j != i && s->bm[j].active && s->bm[j].voice == 0xFF) s->bm[j].wait = tx_bird_answer(&s->rng, type, a, s->bm[j].wait, idle);
+                continue;
+            }
+        }
         b->wait = 13230u + tx_rand_below(&s->rng, 39690u);   /* the other one sings: wait 0.3 .. 1.2 s (countersinging) */
     }
 }
