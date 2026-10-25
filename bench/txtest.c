@@ -1097,8 +1097,9 @@ static void check_fx(FILE *update)
                 verdict("fx", "freeze", lo > 0 && hi / lo < 1.189, msg, 0);
             }
         }
-        tx_fx_init(fx);                                    /* the cap: 16 grains asked, INFINITE on */
+        tx_fx_init(fx);                                    /* the cap: 16 pitched grains asked, INFINITE on */
         tx_fx_grain_param(&fx->gd, TX_GD_MIX, 100); tx_fx_grain_param(&fx->gd, TX_GD_GRAINS, 15);
+        tx_fx_grain_param(&fx->gd, TX_GD_PITCH, 76);
         tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, TX_RVT_INF); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 60);
         rng = 7u;
         for (b = 0; b < 400u; b++) {
@@ -1106,7 +1107,7 @@ static void check_fx(FILE *update)
             tx_fx_bus(fx, L, R, TX_BLOCK);
             if (b > 100u && fx->gd.act > maxact) maxact = fx->gd.act;
         }
-        snprintf(msg, sizeof msg, "grain delay, 16 grains asked with INFINITE on: at most %u sounding (cap %u)", maxact, fx->gd.cap);
+        snprintf(msg, sizeof msg, "grain delay, 16 pitched grains asked with INFINITE on: at most %u sounding (cap %u)", maxact, fx->gd.cap);
         verdict("fx", "cap", maxact <= fx->gd.cap && fx->gd.cap < 16u && maxact > 0, msg, 0);
     }
     /* the lane inserts: renders against the baselines (a drive at 90 / TONE 100 / MIX 100; LP18 with its LFO) */

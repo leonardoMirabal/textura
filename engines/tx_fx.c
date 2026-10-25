@@ -263,9 +263,9 @@ TX_AUDIO_CODE void tx_fx_lane(void *u, unsigned k, int32_t *x, unsigned n)
 }
 /* the grain delay's dynamic cap: the grains the effects reserve leaves after the reverb's TYPE (FM-1 us a block,
  * CPU-BUDGET.md section 8: the reverb's worst per TYPE, the delay's line + echo, a sounding grain) */
-#define FX_US_GD_BASE 240u         /* the line, the echo, the feedback (make tx-budget section 4, 2026-10-25) */
-#define FX_US_GD_GRAIN1 45u        /* a grain at rate 1 (whole samples) */
-#define FX_US_GD_GRAINP 82u        /* a pitched or reversed grain (two reads and the interpolation) */
+#define FX_US_GD_BASE 220u         /* the line, the echo, the feedback (make tx-budget section 4, 2026-10-25) */
+#define FX_US_GD_GRAIN1 14u        /* a grain at rate 1 (whole samples: a run decoded, one read a sample) */
+#define FX_US_GD_GRAINP 42u        /* a pitched or reversed grain (its run decoded, the interpolation) */
 #define FX_US_SHIMMER 75u          /* the shimmer on top of its reverb */
 static const uint16_t FX_US_REV[TX_RVT_N] = {0, 390, 210, 280, 280};
 TX_AUDIO_CODE void tx_fx_bus(void *u, int32_t *L, int32_t *R, unsigned n)
