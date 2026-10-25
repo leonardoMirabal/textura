@@ -342,6 +342,8 @@ def main():
             check(st["cnt"][0] == 4 and st["step"][0] == 3 and st["lit"] == 6, f"lane mode: G4 sets how many (8: count step {st['cnt'][0]}), the activity kept, {st['lit']} keys lit")
             key(63); key(76)                                 # D#4: sound 2; E5: how active 3; sound 1 keeps running and glows
             st = page.evaluate("window.txTest.src()")
+            bl = dict(st["blink"])
+            check(set(bl) == {61, 63} and float(bl[61][:-1]) > float(bl[63][:-1]), f"lane mode: the playing sounds' black keys blink, faster when busier ({bl})")
             check(st["lane"] == 1 and st["run"][0] and st["run"][1] and st["glow"] == [61] and st["sel"] == [63] and st["lit"] == 4,
                   f"lane mode: sound 2 running beside sound 1 (selected {st['sel']}, glowing {st['glow']}, its own bar {st['lit']})")
             time.sleep(1.0)

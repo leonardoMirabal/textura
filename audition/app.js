@@ -107,7 +107,8 @@ async function init() {
                                lit: [...document.querySelectorAll("#kb .key.lane-bar")].length,
                                quick: quick.map(q => ({ step: q.step, cur: { ...q.cur } })), eng: [0, 1, 2, 3].map(engName),
                                sel: [...document.querySelectorAll("#kb .key.lane-sel")].map(k => +k.dataset.n),
-                               glow: [...document.querySelectorAll("#kb .key.lane-glow")].map(k => +k.dataset.n) });
+                               glow: [...document.querySelectorAll("#kb .key.lane-glow")].map(k => +k.dataset.n),
+                               blink: [...document.querySelectorAll("#kb .key.lane-blink")].map(k => [+k.dataset.n, k.style.getPropertyValue("--blink")]) });
   window.txTest.setLaneMode = setLaneMode;
   window.txTest.landscape = startLandscape;
   window.txTest.sound = laneSound;
@@ -795,7 +796,7 @@ function laneStepOf(i) {                              // the fader's setting (wi
   return quick[i].step;
 }
 function showLanes() {                                // the LEDs: the bar on the white keys, the lanes on the black ones
-  document.querySelectorAll("#kb .key").forEach(k => k.classList.remove("lane-sel", "lane-glow", "lane-bar"));
+  document.querySelectorAll("#kb .key").forEach(k => k.classList.remove("lane-sel", "lane-glow", "lane-bar", "lane-blink"));
   const box = $("lanes-box");
   box.textContent = "";
   famBar();
@@ -803,7 +804,11 @@ function showLanes() {                                // the LEDs: the bar on th
   if (!laneMode) return;
   for (let i = 0; i < 4; i++) {
     const kb = laneSnd[i] >= 0 ? document.querySelector(`#kb .key[data-n="${BLACKS[laneSnd[i]]}"]`) : null;
-    if (kb) { kb.classList.toggle("lane-sel", i === lane); kb.classList.toggle("lane-glow", laneRun[i] && i !== lane); }
+    if (kb) {
+      kb.classList.toggle("lane-sel", i === lane); kb.classList.toggle("lane-glow", laneRun[i] && i !== lane);
+      kb.classList.toggle("lane-blink", laneRun[i]);   // a playing sound's key blinks: 1.6 s (rare) .. 0.12 s (busy)
+      if (laneRun[i]) kb.style.setProperty("--blink", `${(1.6 * Math.pow(0.12 / 1.6, actOf(laneStepOf(i)) / (NACT - 1))).toFixed(2)}s`);
+    }
     const d = document.createElement("div");
     d.className = "lane" + (i === lane ? " sel" : "") + (laneRun[i] ? " run" : "");
     d.dataset.k = i;
