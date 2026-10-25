@@ -12,6 +12,7 @@
 #   make tx-budget     the CPU budget of the whole audio interrupt on the FM-1: the platform's costs (Frodhes'
 #                      measurements), the mix / CHAMBER, the effects reserve, the sources' pool, every SOURCE preset's
 #                      cost curve and the mixes (build/bench/budget.txt, budget.csv): a report, nothing changed
+#   make tx-grain      a granular-delay prototype's cost on the FM-1 and its buffer formats' noise (costing only)
 #   make tx-player     the browser player -> build/audition/ (Emscripten from .local/emsdk)
 #   make tx-player-check   the player in headless Chromium (Playwright in .local/venv, browsers in .local/playwright)
 #   make tx-ab         the player's A/B data: ours vs the local reference recordings (.local/reference), loudness-
@@ -39,7 +40,7 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-.PHONY: tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-size tx-libcalls tx-clean
+.PHONY: tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -138,6 +139,16 @@ tx-budget: $(B)/txbudget build/calib/frodhes
 _tx-budget-run:
 	@[ -f build/calib/run/w1.txt ] || $(MAKE) -s _tx-calib-run
 	$(B)/txbudget | tee $(B)/budget.txt
+
+# a granular-delay prototype, for costing only (.private): FM-1 us per block per option, the buffer
+# formats' noise
+$(B)/txgrain: bench/txgrain.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
+	@mkdir -p $(B)
+	$(CC) $(CSTD) -O2 -o $@ bench/txgrain.c $(HOST_SRC) $(ENG_SRC) -lm
+
+tx-grain: $(B)/txgrain build/calib/frodhes
+	@[ -f build/calib/run/w1.txt ] || $(MAKE) -s tx-calib
+	@$(HEAVY) $(B)/txgrain
 
 tx-player:
 	sh audition/build.sh
