@@ -220,7 +220,7 @@ static int run(const snd_t *s, unsigned act, uint32_t seed, unsigned secs, res_t
         if (ti >= 0) e->param(arena, (uint8_t)ti, (uint8_t)s->type);
         ti = tx_param_find(e, "COUNT");
         if (ti >= 0) e->param(arena, (uint8_t)ti, (uint8_t)count_knob);
-        iid = tx_param_find(e, "INTENSITY");
+        iid = tx_param_find(e, "ACTIVITY");
     } else
         for (k = 0; k < q->np; k++) pid[k] = tx_param_find(e, q->p[k].name);
     tx_gen_init(&gen, seed);

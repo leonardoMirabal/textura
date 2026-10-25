@@ -160,7 +160,7 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
                 tx_gen_ev_t ev[TX_GEN_EV_MAX];
                 uint8_t in;
                 unsigned ne = tx_gen_block(&gens[k], TX_BLOCK, ev, TX_GEN_EV_MAX, &in), q;
-                int ip = tx_param_find(mixer.e[k], "INTENSITY");
+                int ip = tx_param_find(mixer.e[k], "ACTIVITY");
                 if (ip >= 0 && !strcmp(mixer.e[k]->name, "source")) mixer.e[k]->param(mixer.st[k], (uint8_t)ip, in);
                 for (q = 0; q < ne && !gen_mute[k]; q++) mixer.e[k]->key(mixer.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
             }

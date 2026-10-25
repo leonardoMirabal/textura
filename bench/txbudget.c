@@ -20,7 +20,7 @@
  * Code from flash (cache misses) is not modelled at all: the 300 us margin is kept for it.
  *
  * Each SOURCE preset's cost curve: worst block, the worst 8-block mean (what the governor sees, ~46 ms) and the
- * mean, over INTENSITY 0..127, PARTICLES 2 / 6 (default) / 16, PROXIMITY, and every timbre knob at its extremes;
+ * mean, over ACTIVITY 0..127, PARTICLES 2 / 6 (default) / 16, PROXIMITY, and every timbre knob at its extremes;
  * the fastest of RUNS runs per block (host noise out). */
 #include <dirent.h>
 #include <stdio.h>
@@ -152,18 +152,18 @@ static int calib(const char *dir)
 static const unsigned INT_V[NI] = {0, 32, 64, 96, 127};
 typedef struct {
     char name[24];
-    cost_t def;                    /* INTENSITY 64, PARTICLES 6, PROXIMITY 64: the preset as it comes */
-    cost_t lo;                     /* INTENSITY 16 (drips, embers, one caller) */
-    cost_t in[NI];                 /* INTENSITY sweep, PARTICLES 6, PROXIMITY 127 (the closest: the most heroes heard) */
-    cost_t p2, p16;                /* INTENSITY 127, PROXIMITY 127, PARTICLES 2 / 16 */
-    cost_t knob;                   /* the worst of the timbre knobs' extremes (INTENSITY 127, PARTICLES 6) */
+    cost_t def;                    /* ACTIVITY 64, PARTICLES 6, PROXIMITY 64: the preset as it comes */
+    cost_t lo;                     /* ACTIVITY 16 (drips, embers, one caller) */
+    cost_t in[NI];                 /* ACTIVITY sweep, PARTICLES 6, PROXIMITY 127 (the closest: the most heroes heard) */
+    cost_t p2, p16;                /* ACTIVITY 127, PROXIMITY 127, PARTICLES 2 / 16 */
+    cost_t knob;                   /* the worst of the timbre knobs' extremes (ACTIVITY 127, PARTICLES 6) */
     char knob_by[24];
     double worst6, worst8_6;       /* the worst over every PARTICLES 6 configuration */
     char worst_by[24];             /* the configuration of that worst block */
 } preset_cost_t;
 
 static const char *const KNOBS[][2] = {
-    {"ACTIVITY", "127"}, {"ACTIVITY", "0"}, {"SPACING", "0"}, {"SPACING", "127"}, {"SIZE", "0"}, {"SIZE", "127"},
+    {"EXTRA", "127"}, {"EXTRA", "0"}, {"SPACING", "0"}, {"SPACING", "127"}, {"SIZE", "0"}, {"SIZE", "127"},
     {"SPREAD", "127"}, {"TONE", "127"}, {"HARD", "127"}, {"DEPTH", "127"}, {"LIFE", "127"}, {"TYPE", "40"},
     {"TYPE", "80"}, {"TYPE", "127"},
 };
@@ -173,7 +173,7 @@ static int src_run(const tx_engine_t *e, unsigned pre, unsigned in, unsigned pro
                    const char *kn, const char *kv, cost_t *c)
 {
     char text[400];
-    int n = snprintf(text, sizeof text, "0 particles %u\n0 param PRESET %u\n0 param INTENSITY %u\n0 param PROXIMITY %u\n",
+    int n = snprintf(text, sizeof text, "0 particles %u\n0 param PRESET %u\n0 param ACTIVITY %u\n0 param PROXIMITY %u\n",
                      part, pre, in, prox);
     if (kn) n += snprintf(text + n, sizeof text - (size_t)n, "0 param %s %s\n", kn, kv);
     snprintf(text + n, sizeof text - (size_t)n, "0 on 60 127\n%u end\n", SECS * 1000u);
@@ -306,10 +306,10 @@ int main(int argc, char **argv)
         else snprintf(p->name, sizeof p->name, "preset %u", i);
         for (k = 0; p->name[k]; k++) if (p->name[k] == ' ') p->name[k] = '_';
         src_run(src, i, 64, 64, 6, 0, 0, &p->def); keep6(p, &p->def, "defaults");
-        src_run(src, i, 16, 64, 6, 0, 0, &p->lo); keep6(p, &p->lo, "INTENSITY 16");
+        src_run(src, i, 16, 64, 6, 0, 0, &p->lo); keep6(p, &p->lo, "ACTIVITY 16");
         for (k = 0; k < NI; k++) {
             char by[24];
-            snprintf(by, sizeof by, "INTENSITY %u", INT_V[k]);
+            snprintf(by, sizeof by, "ACTIVITY %u", INT_V[k]);
             src_run(src, i, INT_V[k], 127, 6, 0, 0, &p->in[k]);
             keep6(p, &p->in[k], by);
         }
@@ -371,8 +371,8 @@ int main(int argc, char **argv)
            pool11d, 100 * pool11d / BLOCK_US, pool11p, 100 * pool11p / BLOCK_US);
 
     printf("2. each SOURCE preset (FM-1 us): typical = mean at its defaults; worst / w8 = the worst block / the worst"
-           " 8-block mean over every PARTICLES 6 configuration (INTENSITY 0..127, PROXIMITY, knob extremes)\n");
-    printf("   %-14s %7s %7s %7s %-15s | INTENSITY 0 32 64 96 127 (w8, PARTICLES 6) | P2 / P16 worst | per hero | sanity\n",
+           " 8-block mean over every PARTICLES 6 configuration (ACTIVITY 0..127, PROXIMITY, knob extremes)\n");
+    printf("   %-14s %7s %7s %7s %-15s | ACTIVITY 0 32 64 96 127 (w8, PARTICLES 6) | P2 / P16 worst | per hero | sanity\n",
            "preset", "typical", "worst", "w8", "(worst at)");
     csv = fopen("build/bench/budget.csv", "w");
     if (csv) fprintf(csv, "preset,typical_us,lo16_mean_us,worst6_us,worst8_6_us,int0_w8,int32_w8,int64_w8,int96_w8,int127_w8,p2_worst,p16_worst,knob_worst,knob,p2_mean,p16_mean,worst_at\n");
@@ -390,11 +390,11 @@ int main(int argc, char **argv)
                          p->p2.mean, p->p16.mean, p->worst_by);
     }
     if (csv) fclose(csv);
-    printf("   per hero = (mean at PARTICLES 16 - at 2) / 14 at INTENSITY 127: what one hero more costs (host noise: +-5 us)\n"
+    printf("   per hero = (mean at PARTICLES 16 - at 2) / 14 at ACTIVITY 127: what one hero more costs (host noise: +-5 us)\n"
            "   sanity (a limit, not the rule): no block of a lane alone over the planned pool, at its default or at PARTICLES"
            " 16; flagged above half of it\n\n");
 
-    printf("3. mixes (4 lanes; typical = the means at the lane's INTENSITY, worst = every lane at its w8 at once)\n");
+    printf("3. mixes (4 lanes; typical = the means at the lane's ACTIVITY, worst = every lane at its w8 at once)\n");
     for (k = 0; k < sizeof MIXES / sizeof MIXES[0]; k++) {
         const mixdef_t *mx = &MIXES[k];
         double typ = 0, w8 = 0, cmin = 1e30;

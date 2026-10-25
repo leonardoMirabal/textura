@@ -3,7 +3,7 @@
 to one sample, not all of them").
 
 For every reference recording of a preset's family (local only, .local/reference; never committed) and for renders
-of the preset swept over its controls (INTENSITY, PROXIMITY, SIZE, TONE, HARD, LIFE), the same small feature vector:
+of the preset swept over its controls (ACTIVITY, PROXIMITY, SIZE, TONE, HARD, LIFE), the same small feature vector:
 
   cent    log2 of the spectral centroid, 100 Hz .. 16 kHz    flat    spectral flatness (noise 1 .. tone 0), median
   slope   1/3-octave level slope, 100 Hz .. 16 kHz (dB/oct)  low     share of the power at 100-500 Hz (dB)
@@ -48,7 +48,7 @@ TOL = {"cent": 0.5, "slope": 1.5, "low": 4.0, "flat": 0.08, "rate": 0.15, "ioicv
        "modlo": 3.0, "modhi": 3.0, "kurt": 0.3, "dyn": 3.0}
 FEATS = ["cent", "slope", "low", "flat", "rate", "ioicv", "lvlsd", "decay", "modlo", "modhi", "kurt", "dyn"]
 
-# each SOURCE preset: its index, its reference folders (the family), hosted (only INTENSITY and PROXIMITY reach it)
+# each SOURCE preset: its index, its reference folders (the family), hosted (only ACTIVITY and PROXIMITY reach it)
 PRESETS = {
     "rain": (0, ["rainwater", "rainsurf", "storm"], False),
     "stones": (1, ["stone", "krint", "rockfall"], False),
@@ -249,23 +249,23 @@ def has_type(exe):
 
 
 def sweep(hosted, typed=False):
-    """the controls swept: INTENSITY x PROXIMITY x the character knobs x LIFE, and TYPE where the source has it"""
+    """the controls swept: ACTIVITY x PROXIMITY x the character knobs x LIFE, and TYPE where the source has it"""
     out = []
     for i in (0, 32, 64, 96, 127):
         for p in (24, 64, 110):
             chars = [{}, {"SIZE": 20}, {"SIZE": 110}, {"TONE": 20, "HARD": 20}, {"TONE": 110, "HARD": 110},
                      {"TONE": 20, "HARD": 110}, {"TONE": 110, "HARD": 20}, {"SPREAD": 0}, {"SPACING": 0}, {"SPACING": 127}]
             for c in chars:
-                k = {"INTENSITY": i, "PROXIMITY": p}; k.update(c)
+                k = {"ACTIVITY": i, "PROXIMITY": p}; k.update(c)
                 out.append(k)
     for i in (32, 96):                                   # LIFE still and alive
-        out.append({"INTENSITY": i, "PROXIMITY": 64, "LIFE": 0})
-        out.append({"INTENSITY": i, "PROXIMITY": 64, "LIFE": 127, "TIME": 0})
+        out.append({"ACTIVITY": i, "PROXIMITY": 64, "LIFE": 0})
+        out.append({"ACTIVITY": i, "PROXIMITY": 64, "LIFE": 127, "TIME": 0})
     if typed:                                            # the family's members (TYPE 0 = the preset's own)
         for t in (12, 36, 60, 84, 108, 127):
             for i in (0, 64, 127):
                 for c in ({}, {"SIZE": 20}, {"SIZE": 110}, {"TONE": 20, "HARD": 20}, {"TONE": 110, "HARD": 110}):
-                    k = {"INTENSITY": i, "PROXIMITY": 64, "TYPE": t}; k.update(c)
+                    k = {"ACTIVITY": i, "PROXIMITY": 64, "TYPE": t}; k.update(c)
                     out.append(k)
     return out
 
@@ -345,11 +345,11 @@ def plot(nm, refs, pts, knobs, scale, plots):
     r2 = (R - mu) @ Vt[:2].T; p2 = (P - mu) @ Vt[:2].T
     fig = plt.figure(figsize=(14, 6))
     ax = fig.add_subplot(1, 2, 1)
-    sc = ax.scatter(p2[:, 0], p2[:, 1], c=[k["INTENSITY"] for k in knobs], cmap="viridis", s=14, alpha=0.7, label="engine sweep")
+    sc = ax.scatter(p2[:, 0], p2[:, 1], c=[k["ACTIVITY"] for k in knobs], cmap="viridis", s=14, alpha=0.7, label="engine sweep")
     ax.scatter(r2[:, 0], r2[:, 1], c="C3", marker="*", s=160, label="references")
     for (lab, _, _), (a, b) in zip(refs, r2):
         ax.annotate(lab[:28], (a, b), fontsize=7, color="C3", xytext=(3, 3), textcoords="offset points")
-    plt.colorbar(sc, ax=ax, label="INTENSITY")
+    plt.colorbar(sc, ax=ax, label="ACTIVITY")
     top = lambda v: ", ".join(f"{FEATS[i]} {v[i]:+.2f}" for i in np.argsort(-np.abs(v))[:3])
     ax.set_xlabel("PC1: " + top(Vt[0])); ax.set_ylabel("PC2: " + top(Vt[1]))
     ax.set_title(f"{nm}: references vs the engine's reach (feature space, PCA)"); ax.legend(fontsize=8)

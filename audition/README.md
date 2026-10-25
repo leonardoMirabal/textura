@@ -29,7 +29,7 @@ git clone https://github.com/emscripten-core/emsdk.git .local/emsdk
   the octave, `C` / `V` the velocity. A held letter holds the note (no repeats). The keys are read at page level, so a
   focused slider or select never swallows them. A key pressed fires a burst, held keeps the cloud going, released lets
   it ring out. A MIDI keyboard plays with its velocity; CC 20-27 move the first eight parameters, CC 7 the level,
-  CC 64 (sustain) holds the released notes, the mod wheel (CC 1) moves INTENSITY and the pitch wheel PROXIMITY (its
+  CC 64 (sustain) holds the released notes, the mod wheel (CC 1) moves ACTIVITY and the pitch wheel PROXIMITY (its
   centre is the preset's own distance). **MIDI learn** maps any CC or the pitch wheel onto any slider of the edited
   layer, by the parameter's name (click it, click the slider, move the control; kept in this browser, "Forget the
   MIDI map" clears it): an SMK-37 on its stock firmware is a controller this way. **Keyboard**: the FM-1's 27 keys
@@ -44,7 +44,7 @@ git clone https://github.com/emscripten-core/emsdk.git .local/emsdk
   (15 steps, C4 .. C6: click or drag it like the white keys; a thin marker shows the generator's live activity).
   The classic per-engine sections (engine stepper, A/B, layers, parameters, CHAMBER) follow under "Engines (classic)".
 - **SOURCE** (shown when the edited layer runs engine 35, `source`): its preset (named from the engine), a `Run`
-  switch (the source keeps going without a held key), INTENSITY and PROXIMITY (far .. close; 64 = the preset's own
+  switch (the source keeps going without a held key), ACTIVITY and PROXIMITY (far .. close; 64 = the preset's own
   distance) as large sliders: each lane's own, as the panel follows the selected lane. `Lane mode`: the keyboard shows C4 to C6; the 15 white keys are the selected
   lane's activity fader (C4 the least, still sounding, C6 massive; a move glides in over ~1 s), the black keys C#4 to
   A#5 pick a lane (the first four; or the number keys `1`-`4`), and tapping the selected lane's black key again starts

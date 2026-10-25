@@ -103,7 +103,7 @@ async function init() {
   window.txTest.ab = () => ({ loaded: !!ab, buttons: document.querySelectorAll("#ab-buttons button").length,
                               playing: abNow ? abNow.label : null, ours: $("ab-ours").currentSrc, ref: $("ab-ref").currentSrc });
   window.txTest.src = () => ({ eng: srcEng, panel: !$("src-panel").hidden, laneMode, lane, run: [...laneRun], step: [0, 1, 2, 3].map(laneStepOf), cnt: [0, 1, 2, 3].map(laneCntOf),
-                               held: [...srcHeld], intens: [0, 1, 2, 3].map(k => layers[k].eng === srcEng && srcIds ? srcGet(k, "INTENSITY") : -1),
+                               held: [...srcHeld], intens: [0, 1, 2, 3].map(k => layers[k].eng === srcEng && srcIds ? srcGet(k, "ACTIVITY") : -1),
                                lit: [...document.querySelectorAll("#kb .key.lane-bar")].length,
                                quick: quick.map(q => ({ step: q.step, cur: { ...q.cur } })), eng: [0, 1, 2, 3].map(engName), snd: [...laneSnd],
                                sel: [...document.querySelectorAll("#kb .key.lane-sel")].map(k => +k.dataset.n),
@@ -470,7 +470,7 @@ function setSlider(id, val) {                         // from MIDI CC (the edite
   inp.oninput();
 }
 
-// ---- SOURCE (engine "source"): its preset, INTENSITY and PROXIMITY in a panel of their own; and LANE MODE, the keyboard
+// ---- SOURCE (engine "source"): its preset, ACTIVITY and PROXIMITY in a panel of their own; and LANE MODE, the keyboard
 // as planned for the FM-1: C4 .. C6. A landscape is one family of sounds: the black keys are its sounds (up to 10;
 // up to 4 play at once, one per lane), the 15 white keys the selected sound's activity, C4 off .. C6 a full cloud.
 let SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];   // (read from the PRESET help line)
@@ -569,7 +569,7 @@ function showSource() {
   srcFindIds(ed);
   $("src-layer").textContent = `(layer ${ed + 1})`;
   gridMark();
-  const it = srcGet(ed, "INTENSITY"), pr = srcGet(ed, "PROXIMITY");
+  const it = srcGet(ed, "ACTIVITY"), pr = srcGet(ed, "PROXIMITY");
   $("src-intens").value = it; $("src-intens-v").textContent = it;
   $("src-intens").parentElement.style.display = laneMode ? "none" : "";   // (in lane mode the lanes' bars are the fader)
   $("src-prox").value = pr; $("src-prox-v").textContent = pr;
@@ -664,7 +664,7 @@ function quickNext(k) {                               // the next press after a 
   const [a, b] = q.every, mean = a * Math.pow(b / a, quickPos(k));
   quick[k].timer = setTimeout(() => quickPress(k), Math.max(150, -Math.log(1 - Math.random()) * mean * 1000));
 }
-// THE LANE GENERATOR (tx_core_gen, in tx_web.c): when a lane's Notes are on, it sets the source's INTENSITY along a
+// THE LANE GENERATOR (tx_core_gen, in tx_web.c): when a lane's Notes are on, it sets the source's ACTIVITY along a
 // wandering, remembering trajectory around the fader and presses pitched notes; for an old engine the quick mapping
 // follows its activity. The fader (the white keys) is its ACTIVITY.
 const gen = [0, 1, 2, 3].map(() => ({ on: true, step: 7, vals: {} }));
@@ -790,7 +790,7 @@ function laneStep(k, w) {                             // HOW ACTIVE, as a step o
   if (layers[lane].eng < 0) srcLayer(lane, 0);
   gen[lane].step = w;
   if (gen[lane].on) genSet(lane, "ACTIVITY", actVal(w));
-  if (layers[lane].eng === srcEng) { srcFindIds(lane); if (!gen[lane].on) srcSet(lane, "INTENSITY", actVal(w)); }
+  if (layers[lane].eng === srcEng) { srcFindIds(lane); if (!gen[lane].on) srcSet(lane, "ACTIVITY", actVal(w)); }
   else quick[lane].step = w;
   if (!laneRun[lane]) laneStart(lane, true);
   else if (layers[lane].eng !== srcEng) quickTick();
@@ -800,7 +800,7 @@ function laneStep(k, w) {                             // HOW ACTIVE, as a step o
 function laneStepOf(i) {                              // the fader's setting (with Notes on, the activity wanders around it)
   if (!laneRun[i]) return 0;                         // (stopped: nothing)
   if (gen[i].on) return gen[i].step;
-  if (layers[i].eng === srcEng) return srcIds ? 1 + Math.round(srcGet(i, "INTENSITY") * 13 / 127) : 0;
+  if (layers[i].eng === srcEng) return srcIds ? 1 + Math.round(srcGet(i, "ACTIVITY") * 13 / 127) : 0;
   return quick[i].step;
 }
 function showLanes() {                                // the LEDs: the bar on the white keys, the lanes on the black ones
@@ -957,7 +957,7 @@ function startLandscape() {                         // the landscape's first thr
 function srcInit() {
   for (let i = 0; i < M._txw_count(); i++) if (S(M._txw_name(i)) === "source") srcEng = i;
   if (srcEng < 0) return;
-  $("src-intens").oninput = () => { $("src-intens-v").textContent = $("src-intens").value; srcSet(ed, "INTENSITY", +$("src-intens").value); };
+  $("src-intens").oninput = () => { $("src-intens-v").textContent = $("src-intens").value; srcSet(ed, "ACTIVITY", +$("src-intens").value); };
   $("src-prox").oninput = () => { $("src-prox-v").textContent = $("src-prox").value; srcSet(ed, "PROXIMITY", +$("src-prox").value); };
   $("src-run").onclick = () => { if (!ctx) startAudio(); srcHold(ed, !srcHeld[ed]); if (laneMode) laneRun[ed] = srcHeld[ed]; showSource(); };
   $("lanes").onchange = () => { if (!ctx) startAudio(); setLaneMode($("lanes").checked); };
@@ -1071,11 +1071,11 @@ function keyLabels() {                               // the computer letter of e
 function lightKey(n, on) { const k = document.querySelector(`#kb .key[data-n="${n}"]`); if (k) k.classList.toggle("on", on); }
 
 // ---- Web MIDI: notes with velocity, CC 20-27 -> the first eight parameters, CC 7 -> level, CC 64 sustain (the notes
-// released under the pedal sound on until it lifts), the mod wheel (CC 1) -> INTENSITY and the pitch wheel -> PROXIMITY
+// released under the pedal sound on until it lifts), the mod wheel (CC 1) -> ACTIVITY and the pitch wheel -> PROXIMITY
 // when the edited layer's engine has them (the wheel's centre, 64, is the preset's own distance), and MIDI LEARN: any CC
 // or the pitch wheel onto any slider of the edited layer, by the parameter's name (so a map survives an engine change
 // when the new engine has that parameter); kept in this browser (localStorage textura.midimap).
-const MAP_KEY = "textura.midimap", MIDI_DEF = { cc1: "INTENSITY", pb: "PROXIMITY" };
+const MAP_KEY = "textura.midimap", MIDI_DEF = { cc1: "ACTIVITY", pb: "PROXIMITY" };
 let midiMap = {}, learn = null, sustain = false;     // learn: null, "armed" (pick a slider), or a parameter name
 const sustained = new Set();                          // notes released while the pedal was down
 try { midiMap = JSON.parse(localStorage.getItem(MAP_KEY) || "{}") || {}; } catch (e) { midiMap = {}; }

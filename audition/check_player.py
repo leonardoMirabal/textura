@@ -318,7 +318,7 @@ def main():
         time.sleep(0.5)
         lit = page.eval_on_selector_all("#kb .key.on", "k => k.length")
         check(lit == 0, "all keys released")
-        # SOURCE: its panel, and lane mode (black keys pick a lane, white keys F3 .. G5 its INTENSITY, the keys lit)
+        # SOURCE: its panel, and lane mode (black keys pick a lane, white keys F3 .. G5 its ACTIVITY, the keys lit)
         names = page.evaluate("() => [...Array(Module._txw_count()).keys()].map(i => Module.UTF8ToString(Module._txw_name(i)))")
         if "source" in names:
             page.evaluate(f"(() => {{ window.txTest.editLayer(0); window.txTest.selectEngine({names.index('source')}); }})()")
@@ -482,8 +482,8 @@ def main():
             page.evaluate("window.txTest.midi(0xE0, 0, 100); window.txTest.midi(0xB0, 1, 20)")
             got = page.evaluate("""() => { const v = n => { for (const i of document.querySelectorAll('#sliders input'))
                 if (i.closest('.sl').querySelector('label span').textContent === n) return +i.value; return null; };
-                return [v('PROXIMITY'), v('INTENSITY')]; }""")
-            check(got == [100, 20], f"the pitch wheel moves PROXIMITY, the mod wheel INTENSITY (source): {got}")
+                return [v('PROXIMITY'), v('ACTIVITY')]; }""")
+            check(got == [100, 20], f"the pitch wheel moves PROXIMITY, the mod wheel ACTIVITY (source): {got}")
         page.click("#learn")
         page.click('#sliders input[data-id="0"]')
         tgt = page.evaluate("window.txTest.midiMap().learn")

@@ -3,9 +3,9 @@
  * it is), the first prototype with three presets (rain on water, a stone cloud, cicadas) and a particle-level MORPH
  * between any two of them. The engines it grew from (rainwater, stonecloud, cicadas) stay as they are.
  *
- * Playing: a held key keeps the source going (it fades in over ~0.2 s; released, or at INTENSITY 0, no new event
+ * Playing: a held key keeps the source going (it fades in over ~0.2 s; released, or at ACTIVITY 0, no new event
  * starts at once: only tails ring); the key moves the size (a semitone per key from C4, as the presets' own engines
- * do) and a press adds one near event (a big drop, a thrown stone, a cicada close by). How much happens is INTENSITY: one fader, on each preset's own scale and
+ * do) and a press adds one near event (a big drop, a thrown stone, a cicada close by). How much happens is ACTIVITY: one fader, on each preset's own scale and
  * through its natural transition (stage 1):
  *   rain     30 .. 20000 drops/s per m^2 over the ~6 m^2 heard (ours; drizzle .. downpour); the rain rate behind it
  *            (Marshall-Palmer's flux ~ 415 R^0.65 per m^2, from note 02's table, ours: R ~ 0.01 .. 50 mm/h) moves the
@@ -22,15 +22,15 @@
  *            the stones grow and are thrown harder; knocks beyond the heroes leave their attack residue (a slide).
  *   cicadas  1 .. 30 callers, each a tymbal voice as the cicadas engine's (ribs, glide, air sac), persistent members
  *            with their own carrier, rate, phrase and distance. The transition: falling into step. Above a third
- *            the callers' pulse groups couple (Kuramoto, the pull rising with INTENSITY), so a big chorus pulses
+ *            the callers' pulse groups couple (Kuramoto, the pull rising with ACTIVITY), so a big chorus pulses
  *            together. Callers beyond the heroes (the farthest, quietest first) join a bed: noise through a two-pole
  *            at their mean carrier, pulsed by their mean phrase, of the same power.
- * Loudness: each preset's trim puts INTENSITY 64 at -26 LUFS (a key held 10 s at 3 m); a fader law (amplitude ~
+ * Loudness: each preset's trim puts ACTIVITY 64 at -26 LUFS (a key held 10 s at 3 m); a fader law (amplitude ~
  * amount^-1/4 around the middle, events only: ours) keeps the ends playable: rain -37 .. -20, stones -21 .. -15
  * (sparse knocks are loud ones), cicadas -29 .. -22 LUFS.
- * ACTIVITY trims the rate (or the callers) alone, without the coupled physics; SPACING moves the timing between
+ * ACTIVITY is the one rate knob (the old rate-only trim merged in); EXTRA is the sound's own extra card knob; SPACING moves the timing between
  * clumped (bursts), the preset's own (Poisson rain) and even. LIFE and TIME: organic modulation (tx_core_life.h: OU
- * walks, 1/f, swells and lulls) of INTENSITY (full depth), SIZE and DIST (a quarter). DIST and DEPTH: where (tx_core_
+ * walks, 1/f, swells and lulls) of ACTIVITY (full depth), SIZE and DIST (a quarter). DIST and DEPTH: where (tx_core_
  * place.h): every particle carries 1 / r and the air's loss at its own frequency; beds take the air as a one-pole.
  * LOCK, DIV and GRID are the MIDI clock's hooks (stored, no effect yet). Every knob is a parameter (a sequencer or a
  * modulator can reach any of them later). */
@@ -56,7 +56,7 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 1
 
-enum { P_PRESET, P_INTENS, P_ACT, P_SPACING, P_SIZE, P_SPREAD, P_TONE, P_HARD, P_PROX, P_DEPTH,
+enum { P_PRESET, P_INTENS, P_EXTRA, P_SPACING, P_SIZE, P_SPREAD, P_TONE, P_HARD, P_PROX, P_DEPTH,
        P_LIFE, P_TIME, P_LOCK, P_DIV, P_GRID, P_TYPE, P_COUNT, NP };
 enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_WATER, PR_WIND, PR_FIRE, PR_CRICKETS, PR_SAND, PR_GRAVEL, PR_KATYDIDS, PR_BEES, PR_ICE, PR_WOOD, PR_MINERALS, PR_GLASS, PR_SONGBIRD, PR_CHIRPER, PR_CROW,
        PR_GULL, PR_BLACKBIRD, PR_THRUSH, PR_NIGHTINGALE, PR_ROBIN, PR_WREN, PR_HERMIT, PR_SKYLARK,
@@ -65,8 +65,8 @@ enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER, V_BIRD };
 
 static const tx_param_t PARAMS[NP] = {
     {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees | 11 ice | 12 wood | 13 minerals | 14 glass | 15 songbird | 16 chirper | 17 crow | 18 gull | 19 blackbird | 20 song thrush | 21 nightingale | 22 robin | 23 wren | 24 hermit thrush | 25 skylark | 26 wood thrush | 27 reed warbler | 28 curlew | 29 oystercatcher | 30 cuckoo | 31 woodpecker | 32 wood pigeon | 33 nightjar | 34 bittern"},
-    {"INTENSITY", 127, 64, "how active each individual is (COUNT says how many), on the preset's own scale and through its transition: a rain patch 0.2 .. 1500 drops/s (a stray drop .. a downpour on it), a stone 0.05 .. 60 knocks/s, a drip point one per 40 s .. 8 /s, a cicada rare short calls .. singing on, a bird singing now and then .. often; hosted engines: their own path (wind a calm .. 28 m/s, fire embers .. a blaze, ...)"},
-    {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
+    {"ACTIVITY", 127, 64, "how active each individual is (COUNT says how many), on the preset's own scale and through its transition: a rain patch 0.2 .. 1500 drops/s (a stray drop .. a downpour on it), a stone 0.05 .. 60 knocks/s, a drip point one per 40 s .. 8 /s, a cicada rare short calls .. singing on, a bird singing now and then .. often; hosted engines: their own path (wind a calm .. 28 m/s, fire embers .. a blaze, ...)"},
+    {"EXTRA", 127, 64, "the sound's own extra parameter (its card names it; 64 = the sound's own value)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. Poisson (64 up: the preset's own, never an even beat)"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
     {"SPREAD", 127, 64, "how mixed the sizes are: alike .. the preset's (64) .. twice as mixed"},
@@ -93,7 +93,7 @@ typedef struct {
     uint8_t kind;                   /* 0 events, 1 callers, 2 an engine hosted whole (HOST[act_lo]), 4 birds (type act_lo),
                                      * 3 water: events
                                      * (drops) and an engine (HOST[act_lo]: the stream) together */
-    int32_t act_lo, act_oct;        /* INTENSITY's scale: log2 of the 0 % value, its range (Q16) */
+    int32_t act_lo, act_oct;        /* ACTIVITY's scale: log2 of the 0 % value, its range (Q16) */
     int32_t reg;                    /* natural spacing: -64 clumped .. 0 Poisson (never more even: no regular beat) */
     int32_t trim;                   /* the preset's level, Q12 */
     int32_t law;                    /* a fader law: amplitude ~ amount^(-law / 32) (0 for all: nature's law, more = louder) */
@@ -138,12 +138,12 @@ static const preset_t PRE[NPRE] = {
 };
 
 /* stage 1's character per preset (tx_core_cluster.h; note 14, measured against the references), three values at
- * INTENSITY 0 / 64 / 127 (linear between): sparse individuals .. bunched .. a fused cloud.
+ * ACTIVITY 0 / 64 / 127 (linear between): sparse individuals .. bunched .. a fused cloud.
  *   cox     the rate's slow walk (gusts, runs, quiet spells): its sd, 1/100 octave; ctau its time constant, 0.1 s
  *   br      self-excitation: the branching ratio (1/100), children after an exponential delay (mean tau_ms) or an
  *           Omori one (c = tau_ms, p 1.5), at most gens generations, each a level step child (sd csd), 1/10 octave
  *   near, span, dim   salience: an event's distance over the ground (dim 2) or a volume (3) from DIST + near out to
- *           span farther (both in DEPTH's spread x 1/10: DEPTH 0 puts all at DIST), at INTENSITY 0 and 127: sparse
+ *           span farther (both in DEPTH's spread x 1/10: DEPTH 0 puts all at DIST), at ACTIVITY 0 and 127: sparse
  *           individuals are heard where they are, a dense cloud spreads over the ground (most of it far); dim 0: the
  *           plain draw */
 typedef struct {
@@ -173,10 +173,10 @@ static const clu_pre_t CLU[NPRE] = {
     {{60, 60, 60}, 50, {20, 30, 40}, 0, 3, 800, -5, 5, {0, 0}, {0, 0}, 0},
 };
 
-/* HOSTED presets: an existing engine run whole inside the source (its own physics and defaults: at INTENSITY 64 it is
- * that engine at its defaults), INTENSITY moving its parameters along the preset's path through its transition: each
- * curve a parameter's value at INTENSITY 0, 64 and 127 (linear between); the first curve follows ACTIVITY too. The
- * level is set with a gain at 0 / 64 / 127 (tenths of a dB, linear between: ours, by render: every preset at INTENSITY 64
+/* HOSTED presets: an existing engine run whole inside the source (its own physics and defaults: at ACTIVITY 64 it is
+ * that engine at its defaults), ACTIVITY moving its parameters along the preset's path through its transition: each
+ * curve a parameter's value at ACTIVITY 0, 64 and 127 (linear between); (the first curve once followed the old ACTIVITY trim too: merged). The
+ * level is set with a gain at 0 / 64 / 127 (tenths of a dB, linear between: ours, by render: every preset at ACTIVITY 64
  * about -27 LUFS, a key held 20 s, the mean of 3 seeds, so lanes sit together in a landscape). Hosted
  * presets do not morph (one engine fits the arena). An engine with its own COUNT (crickets, katydids) is sent the
  * source's (at most its own maximum), its heroes the lane's PARTICLES (the governor's) up to HOST_HEROES; the
@@ -184,7 +184,7 @@ static const clu_pre_t CLU[NPRE] = {
  * fire: a log), the source holds down one key per individual COUNT asks for, at most k127 (<= 8, a few semitones
  * apart): more keys, more of them, coming one at a time; COUNT past them moves the first curve k64 knob units a
  * doubling (a fire: its logs burn livelier; with no keys, or an event engine, about COUNT 8 = the curves as written, fewer
- * less; k0 & 8: the curve falls with more, from 8). k0 & 2: held in bouts below INTENSITY 64 (host_gate). k0 & 4: each
+ * less; k0 & 8: the curve falls with more, from 8). k0 & 2: held in bouts below ACTIVITY 64 (host_gate). k0 & 4: each
  * key a crack of its own: the extras come at an engine's own pace (exponential, mean 2 s), not ~0.2 s apart. k0 & 16 (an
  * event engine): each press goes to one of COUNT distinct keys (up to 8), at random: COUNT pebbles. With k0 & 1, a
  * held key, picked at random, is pressed afresh after
@@ -204,7 +204,7 @@ typedef struct {
                                                      * more activity is louder by the engine's own physics) */
 static const host_t HOST[] = {
     /* wind: a lone gust now and then (never a dead calm: COUNT 0 is the silence) .. a breeze .. a storm: gustier, more
-     * gusts passing, more buffeting; an edge tone only now and then in the strong gusts. In bouts below INTENSITY 64
+     * gusts passing, more buffeting; an edge tone only now and then in the strong gusts. In bouts below ACTIVITY 64
      * (k0 2): light air comes in puffs with lulls between */
     {"wind", 100, -73, -120, {{"WIND", 20, 64, 127}, {"GUST", 40, 70, 110}, {"WHOOSH", 30, 64, 90}, {"BUFFET", 30, 48, 80},
                     {"EDGE", 0, 12, 28}}, 3, 1, 4, 0, 0, 0, 0},
@@ -371,7 +371,7 @@ typedef struct {
     int8_t hcid, hfid;              /* the engine's own COUNT (its individuals) and FIELD (its far callers), -1: none */
     uint8_t hcnt, hpart, hfld, hgate;   /* the COUNT, PARTICLES and FIELD last sent to it; the bout gate open */
     uint16_t hgt;                   /* blocks to the gate's next turn */
-    uint8_t start, hpad4;           /* start: a first press (the population starts: INTENSITY at the fader) */
+    uint8_t start, hpad4;           /* start: a first press (the population starts: ACTIVITY at the fader) */
     uint16_t hrenew;                /* blocks to the next renewed key */
     uint8_t hoff, hpn, hpad2[2];    /* blocks to its release, its note */         /* keys the source holds on the hosted engine (k curves; the first is the player's) */
     int32_t hgain, last_out, hlp;        /* the hosted output gain (Q12, ramped), the last sample out (for a switch) */
@@ -381,8 +381,8 @@ typedef struct {
     int32_t level;
     int32_t run;                    /* the source on (Q15 ramp) */
     uint32_t now;                   /* sample clock */
-    int32_t i_eff;                  /* INTENSITY with LIFE, Q8 knob units */
-    int32_t i_glide;                /* INTENSITY gliding to the fader, Q8 */
+    int32_t i_eff;                  /* ACTIVITY with LIFE, Q8 knob units */
+    int32_t i_glide;                /* ACTIVITY gliding to the fader, Q8 */
     int32_t trim_c;                 /* the callers' level now (pre_trim), Q12 */
     tx_life_t la, ls, ld;           /* LIFE: intensity, size, distance */
     int32_t life_s, life_d;         /* their offsets now (Q16 log2) */
@@ -427,13 +427,13 @@ static int32_t morph(const src_t *s)
     return 0;                                                /* within one nature of sound); the particle-level mixing */
 }                                                            /* stays below, inert, for a family's stages later */
 
-/* the effective intensity of a preset's rate (Q8 knob units, 0 .. 127 << 8), with ACTIVITY's trim */
-static int32_t act_idx(const src_t *s) { return clampi(s->i_eff + knob(s, P_ACT) * 256, 0, 127 << 8); }
+/* the effective activity of a preset's rate (Q8 knob units, 0 .. 127 << 8) */
+static int32_t act_idx(const src_t *s) { return s->i_eff; }   /* (ACTIVITY is the one rate knob: the old trim merged in) */
 /* the preset's rate (events/s Q8) or callers (Q8) at the effective intensity */
-/* water: the drops' rate along the fader (log2 /s at INTENSITY 0, 40, 90, 127: one per 30 s .. 2.8 /s (dripping: the
+/* water: the drops' rate along the fader (log2 /s at ACTIVITY 0, 40, 90, 127: one per 30 s .. 2.8 /s (dripping: the
  * user's references 3 and 4) .. 60 /s (a trickle of drops) .. 40 /s as the flow takes over) */
 /* the stream inside the water, along the fader: its gain (tenths of a dB; off below 36) and FLOW, ROAR, EDDY, NEAR,
- * SPREAD at INTENSITY 36, 64, 100, 127: a trickle under the drops .. a brook .. a river with its roar */
+ * SPREAD at ACTIVITY 36, 64, 100, 127: a trickle under the drops .. a brook .. a river with its roar */
 #define WATER_ON (36 << 8)
 #define WATER_OFF ((8u * sizeof(voice_t) + 63u) & ~63u)   /* the stream's state, after the drops' 8 heroes */
 #define WATER_HEROES 8u             /* the stream's bubble heroes at most (CPU: its 16 cost ~500 us at the top) */
@@ -463,9 +463,9 @@ static unsigned count_n(const src_t *s)
     return c > NI ? NI : c ? c : s->p[P_COUNT] ? 1u : 0u;
 }
 
-/* each individual's events at INTENSITY 0, 9, 64, 127 (log2 /s, Q16): a rain patch 0.2, 0.3, 500, 1500 (a stray drop ..
+/* each individual's events at ACTIVITY 0, 9, 64, 127 (log2 /s, Q16): a rain patch 0.2, 0.3, 500, 1500 (a stray drop ..
  * a downpour on it); a stone (rolling, or a pouring point) 0.05, 0.1, 1.25, 60 (the top a steady slide); a drip point 1 / 40 s, 1 / 15 s, 1.5,
- * 8 /s (ours: COUNT 64 = 8 of them at INTENSITY 64 as the old one-fader scale there) */
+ * 8 /s (ours: COUNT 64 = 8 of them at ACTIVITY 64 as the old one-fader scale there) */
 static const int32_t IND_AT[4] = { 0, 9 << 8, 64 << 8, 127 << 8 };
 static const int32_t IND_Y[3][4] = {
     { -152170, -110500, 587500, 691400 },    /* rain */
@@ -499,7 +499,7 @@ static int32_t pre_trim(const src_t *s, unsigned pre)
 }
 
 /* the hosted engines' character: the SOURCE's SIZE, TONE, HARD, SPREAD (centred at 64: the engine's own value or its
- * INTENSITY curve, +-depth over the knob's range) and TYPE (0: the engine's own; above, its value directly) reach each
+ * ACTIVITY curve, +-depth over the knob's range) and TYPE (0: the engine's own; above, its value directly) reach each
  * engine's own parameters, so a hosted preset covers its family's sizes, species, materials and surfaces (note 16).
  * Indexed as HOST[]. */
 typedef struct { const char *name; uint8_t knob; int8_t depth; } kmap_t;   /* depth 0 with P_TYPE: the value itself */
@@ -767,12 +767,12 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
     int32_t lam_l2, d_q12, c;
     int32_t g = (int32_t)(((int64_t)tx_place_gain_q12(r_l2) * tx_place_air_q15(5000u, r_l2)) >> 15);   /* clicks */
     g = (int32_t)(((int64_t)g * trim) >> 12);
-    /* the rain rate behind INTENSITY's flux F (drops / m^2 / s): Marshall-Palmer's flux ~ 415 R^0.65 (note 02's table, ours),
+    /* the rain rate behind ACTIVITY's flux F (drops / m^2 / s): Marshall-Palmer's flux ~ 415 R^0.65 (note 02's table, ours),
      * so log2 R = 1.54 (log2 F - log2 415); Lambda = 4.1 R^-0.21 / mm; SIZE +-2 octaves of the sizes */
     {
         int32_t lf = 321577 + (((PRE[PR_RAIN].act_oct >> 5) * s->i_eff) / (127 << 8)) * 32;   /* log2 30 + ... */
         int32_t lr = clampi(((lf - 569967) * 197) >> 7, RAIN_RMIN, 472000);   /* R 3 .. 150 mm/h (the sizes) */
-        int32_t sp = (40 << 8) - s->i_eff;                   /* sparse (INTENSITY under 40): the big scattered drops a
+        int32_t sp = (40 << 8) - s->i_eff;                   /* sparse (ACTIVITY under 40): the big scattered drops a
                                                              * shower begins with (convective: R's sizes up to 60 mm/h at
                                                              * 0), not a drizzle's 15 kHz ticks */
         if (sp > 0) lr += (int32_t)(((int64_t)sp * (RAIN_RTOP - RAIN_RMIN)) / (40 << 8));
@@ -997,7 +997,7 @@ static void stone(src_t *s, unsigned off, int near, int32_t vel, unsigned pre, i
  * shape (1: sharper pulses; 2: a steady tone with short dips; 3: every second pulse group weaker), the calls (song
  * and pause medians, log2 blocks Q16), the tymbal's Q (TONE units) */
 typedef struct { int32_t f_l2, rate_l2; uint32_t pinc; int32_t floor; uint8_t sharp; int32_t song_l2, pause_l2; int8_t q; int16_t g; } cic_t;
-static const cic_t CIC[4] = {   /* (g: its level, tenths of a dB, by render: each kind about -26 LUFS at INTENSITY 64, the small one close by -25) */
+static const cic_t CIC[4] = {   /* (g: its level, tenths of a dB, by render: each kind about -26 LUFS at ACTIVITY 64, the small one close by -25) */
     {788474, 449072, 2100, 18022, 0, 683500, 639000, 0, 0},       /* the preset's own: ~4.2 kHz, a pulsing buzz, songs ~8 s */
     {907100, 498000, 2475, 3277, 2, 694700, 683500, 40, 40},   /* a small cicada close by: ~13.5 kHz (and a broad ~6 kHz band), pulses ~13 /s with
                                                                    * short dips, calls ~9 s sinking ~15 dB, pauses ~8 s */
@@ -1032,7 +1032,7 @@ static void caller_tune(src_t *s, caller_t *c)
  * 5-15 dB lasting seconds, a song may end in a long decrescendo): songs median 8 s (sd 0.8 octave), pauses 5 s (sd 1) */
 static uint16_t bout_len(src_t *s, int song, unsigned sp)
 {
-    int32_t a = (act_idx(s) >> 8) - 64;                     /* INTENSITY: how active a cicada is (songs x/ 2, pauses x/ 4; */
+    int32_t a = (act_idx(s) >> 8) - 64;                     /* ACTIVITY: how active a cicada is (songs x/ 2, pauses x/ 4; */
     int32_t k = a < 0 ? 3 : 2;                               /* down to rare short calls: songs / 9, ~1 s, pauses x 6.5, */
     int32_t l = (song ? CIC[sp].song_l2 + a * 512 * (a < 0 ? 5 : 2) : CIC[sp].pause_l2 - a * 1024 * k)   /* ~40 s) */
                 + (int32_t)(((int64_t)gauss(s) * (song ? 52429 : 65536)) >> 12);   /* log2 blocks */
@@ -1183,7 +1183,7 @@ static void caller_render(src_t *s, voice_t *v, unsigned n)
     v->last = s->buf[n - 1];
 }
 
-/* the population per block: how many call (INTENSITY), who swells in or fades, who has a hero, the bed, the sync */
+/* the population per block: how many call (ACTIVITY), who swells in or fades, who has a hero, the bed, the sync */
 static void callers_block(src_t *s, uint32_t want_q8)
 {
     unsigned i, want = (want_q8 + 128u) >> 8, calling = 0, sing_l = 0, kc, nheroes = 0;
@@ -1238,7 +1238,7 @@ static void callers_block(src_t *s, uint32_t want_q8)
             calling++;
         }
     }
-    /* falling into step: the pull rises above a third of INTENSITY (0 .. ~0.6 of the phrase rate per block) */
+    /* falling into step: the pull rises above a third of ACTIVITY (0 .. ~0.6 of the phrase rate per block) */
     kpull = clampi(s->i_eff - (42 << 8), 0, 85 << 8) / 85;   /* Q8: 0 .. 256 */
     for (i = 0; i < NM; i++) nheroes += s->m[i].voice != 0xFF;
     for (i = 0; i < NM; i++) {
@@ -1331,7 +1331,7 @@ static void birds_block(src_t *s, unsigned n)
 {   /* the flock (tx_core_bird): who is here, how far, who sings now; neighbours in a band take turns, others answer */
     unsigned type = (unsigned)PRE[s->p[P_PRESET]].act_lo, i, j, want, singing = 0, allowed;
     int32_t a = act_idx(s);
-    want = count_n(s);                                       /* COUNT: the birds here (INTENSITY: how often each sings) */
+    want = count_n(s);                                       /* COUNT: the birds here (ACTIVITY: how often each sings) */
     if (want > NB) want = NB;
     allowed = tx_bird_overlap(type, a) * ((count_n(s) + 7u) >> 3);   /* (the flock's rule within a neighbourhood of ~8;
                                                                      * more birds: more neighbourhoods singing at once) */
@@ -1348,7 +1348,7 @@ static void birds_block(src_t *s, unsigned n)
         if (b->active && b->voice < NV && s->v[b->voice].kind == V_BIRD && (i >= want || s->run < 4096))
             tx_bird_stop(&s->v[b->voice].u.bv);              /* leaving: it ends the phrase it is singing */
         if (b->voice < NV && s->v[b->voice].kind == V_BIRD && a < (32 << 8)) {   /* singing rarely: a phrase or */
-            uint32_t lim = 66150u << ((unsigned)(a >> 8) >> 3);   /* two (1.5 s at INTENSITY 0, x 2 every 8) */
+            uint32_t lim = 66150u << ((unsigned)(a >> 8) >> 3);   /* two (1.5 s at ACTIVITY 0, x 2 every 8) */
             b->sung += n;
             if (b->sung > lim) tx_bird_stop(&s->v[b->voice].u.bv);
         }
@@ -1524,7 +1524,7 @@ static const host_t *host_for(const src_t *s, unsigned pre, const fam_t **fm, un
 
 /* the preset (or TYPE) changed: start its hosted engine (or bring the particle pools back); the old sound's last
  * sample decays */
-/* a held engine in bouts (k0 & 2): one individual held all the time is a bed at the bottom; so below INTENSITY 64
+/* a held engine in bouts (k0 & 2): one individual held all the time is a bed at the bottom; so below ACTIVITY 64
  * it is held in bouts (~0.7 s, an exponential), off between them for on x (1 - p) / p, p its share on: 0.03 at 0 ..
  * 1 at 64, rising as the square (a pour, a squeak, a flare, a bee passing now and then .. on all the time). A press while
  * held opens a bout. Switched on or first pressed, the gate is somewhere in its cycle (hgate 2: drawn at the next block,
@@ -1643,7 +1643,7 @@ static void life_block(src_t *s)
     int32_t a = tx_life_step(&s->la, tau), sz = tx_life_step(&s->ls, tau), dd = tx_life_step(&s->ld, tau + 65536);
     if (s->start) { s->start = 0; s->i_glide = (int32_t)s->p[P_INTENS] << 8; }   /* (starting: where the fader is) */
     s->i_glide += ((int32_t)s->p[P_INTENS] * 256 - s->i_glide) >> 6;   /* a fader move glides in (~1 s to 95 %) */
-    {   /* LIFE: +-40 at 127, narrowing to none at the fader's ends (INTENSITY 0 stays the least active: the walk */
+    {   /* LIFE: +-40 at 127, narrowing to none at the fader's ends (ACTIVITY 0 stays the least active: the walk */
         int32_t w = ((a * depth) >> 7) * 5 >> 4, edge = s->i_glide < (127 << 8) - s->i_glide ? s->i_glide   /* no */
                                                                                           : (127 << 8) - s->i_glide;
         if (edge < (32 << 8)) w = (int32_t)(((int64_t)w * (edge < 0 ? 0 : edge)) >> 13);   /* longer lifts it) */
@@ -1790,7 +1790,7 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
     src_t *s = (src_t *)st;
     if (on && vel && !s->held) { s->start = 1; s->clu.next_q8 = 0xFFFFFFFFu; s->ni = 0; }   /* a first press: a new
                                                              * population (drawn afresh: never the last one's) starts
-                                                             * at the fader's INTENSITY, its first event after a gap of its
+                                                             * at the fader's ACTIVITY, its first event after a gap of its
                                                              * own (stage 1 draws it), never at once */
     if (s->hst) {                                            /* a hosted engine: its own keys */
         if (on && vel && s->hd && (s->hd->k0 & 2u)) {        /* the first press: the gate's phase drawn; one while */
@@ -2121,7 +2121,7 @@ static void src_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: each preset at full intensity near, the morph in the middle, every hero busy */
 static const char SCENE_MAX[] =
-    "0 particles 16\n0 param INTENSITY 127\n0 param PROXIMITY 127\n0 param PRESET 2\n0 on 60 127\n"
+    "0 particles 16\n0 param ACTIVITY 127\n0 param PROXIMITY 127\n0 param PRESET 2\n0 on 60 127\n"
     "1000 param PRESET 1\n2000 param PRESET 0\n3000 param PRESET 2\n4000 param PRESET 3\n"
     "5000 param PRESET 4\n6000 param PRESET 5\n7000 param PRESET 6\n8000 param PRESET 7\n"
     "9000 param PRESET 8\n10000 param PRESET 3\n11000 param PRESET 9\n12000 param PRESET 10\n"

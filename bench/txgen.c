@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* txgen: the lane generator's long run. A generator (tx_core_gen) plays a SOURCE preset for a long time, fast (no
- * real time), as a lane would: it sets INTENSITY and presses its notes. One line per second goes to a CSV: the
+ * real time), as a lane would: it sets ACTIVITY and presses its notes. One line per second goes to a CSV: the
  * activity, the pitch centre, the notes that second, their mean pitch, the recall's weight, the audio's rms (dBFS).
  * Then the checks: the activity and the pitch wander (no stuck state: the spread of every 5-minute window above a
  * floor), nothing runs away (notes per second bounded, the activity inside 0 .. 127, the audio neither silent for long
@@ -37,7 +37,7 @@ int main(int argc, char **argv)
         else evolve = (unsigned)atoi(argv[i]);
     }
     if (!e || !g) { fprintf(stderr, "no source engine\n"); return 2; }
-    pid = tx_param_find(e, "PRESET"); iid = tx_param_find(e, "INTENSITY");
+    pid = tx_param_find(e, "PRESET"); iid = tx_param_find(e, "ACTIVITY");
     st = tx_state_new(e);
     e->init(st, 5);
     e->param(st, (uint8_t)pid, (uint8_t)preset);

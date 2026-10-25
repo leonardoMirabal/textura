@@ -651,7 +651,7 @@ static void check_gov(void)
             e->init(st, 4);
             e->param(st, TX_PID_PARTICLES, 16);
             e->param(st, (uint8_t)tx_param_find(e, "PRESET"), 1);
-            e->param(st, (uint8_t)tx_param_find(e, "INTENSITY"), 120);
+            e->param(st, (uint8_t)tx_param_find(e, "ACTIVITY"), 120);
             e->key(st, 60, 127, 1);
             for (b = 0; b < 200; b++) { for (j = 0; j < TX_BLOCK; j++) mix[j] = 0; e->render(st, mix, TX_BLOCK); }
             e->stats(st, &s1);
@@ -680,7 +680,7 @@ static void check_switch(void)
     char msg[160];
     if (!e || !g) { free(g); return; }
     st = tx_state_new(e);
-    pp = tx_param_find(e, "PRESET"); pi = tx_param_find(e, "INTENSITY");
+    pp = tx_param_find(e, "PRESET"); pi = tx_param_find(e, "ACTIVITY");
     np = e->params[pp].max + 1u;
     tx_gen_init(g, 3);
     e->init(st, 3);
