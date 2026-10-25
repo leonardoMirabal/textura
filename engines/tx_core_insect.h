@@ -67,11 +67,14 @@ typedef struct {
     int32_t sa1, sa2, sb0;         /* sac coefficients */
     int32_t g;                     /* output gain, Q12 (Q15 x Q12 >> 4 = Q23), <= 16383 */
     int32_t frac;                  /* the glide's fractional accumulator */
+    int32_t zin, x1, x2, d1, d2;   /* zin 1: the input passes (1 - z^-2) (no DC, no low leak: a two-pole fed directly
+                                    * passes its input's lows only ~10-30 dB under the ring); 2: twice (a high carrier's
+                                    * clean ring); the last inputs and differences */
 } tx_tymbal_t;
 
 /* coefficient helper: a1 (Q14) and a2 (Q14) and b0 (Q15) of a two-pole at f, Q */
 void tx_ireso_coefs(uint32_t f_hz, uint32_t q_x16, int32_t *a1, int32_t *a2, int32_t *b0);
 TX_AUDIO_CODE void tx_tymbal_add(tx_tymbal_t *t, const tx_tev_t *ev, unsigned nev, int32_t *out, unsigned n);
-static inline int tx_tymbal_quiet(const tx_tymbal_t *t) { return !(t->y1 | t->y2 | t->s1 | t->s2); }
+static inline int tx_tymbal_quiet(const tx_tymbal_t *t) { return !(t->y1 | t->y2 | t->s1 | t->s2 | t->x1 | t->x2 | t->d1 | t->d2); }
 
 #endif

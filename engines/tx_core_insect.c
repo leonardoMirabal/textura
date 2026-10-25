@@ -79,9 +79,30 @@ TX_AUDIO_CODE void tx_tymbal_add(tx_tymbal_t *t, const tx_tev_t *ev, unsigned ne
 {
     int32_t y1 = t->y1, y2 = t->y2, s1 = t->s1, s2 = t->s2, a1 = t->a1, a1e = t->a1_end, da1 = t->da1, fr = t->frac;
     int32_t a2 = t->a2, b0 = t->b0, sa1 = t->sa1, sa2 = t->sa2, sb0 = t->sb0, g = t->g;
-    int32_t z0 = y1 | y2 | s1 | s2;
+    int32_t z0 = y1 | y2 | s1 | s2, x1 = t->x1, x2 = t->x2, d1 = t->d1, d2 = t->d2, zz = t->zin > 1;
     unsigned j, k = 0;
-    if (!nev && !z0) return;
+    if (!nev && !(z0 | x1 | x2 | d1 | d2)) return;
+    if (t->zin) {                                            /* the input through (1 - z^-2) (once or twice): every */
+        for (j = 0; j < n; j++) {                            /* impulse also pulls back two samples later */
+            int32_t y, s, x = 0, d;
+            while (k < nev && ev[k].off == j) {
+                if (ev[k].a1) { a1 = ev[k].a1; fr = 0; }
+                x += (ev[k].amp * b0) >> 15;
+                k++;
+            }
+            d = x - x2; x2 = x1; x1 = x;
+            if (zz) { int32_t e = d - d2; d2 = d1; d1 = d; d = e; }
+            y1 += d;
+            y = ((a1 * y1) >> 14) - ((a2 * y2) >> 14);
+            y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
+            y2 = y1; y1 = y;
+            s = ((sa1 * s1) >> 14) - ((sa2 * s2) >> 14) + ((y * sb0) >> 15);
+            s = s > 65535 ? 65535 : s < -65535 ? -65535 : s;
+            s2 = s1; s1 = s;
+            out[j] += (s * g) >> 4;
+            if (a1 < a1e) { fr += da1; a1 += fr >> 8; fr &= 0xFF; if (a1 > a1e) a1 = a1e; }
+        }
+    } else
     for (j = 0; j < n; j++) {
         int32_t y, s;
         while (k < nev && ev[k].off == j) {
@@ -98,11 +119,11 @@ TX_AUDIO_CODE void tx_tymbal_add(tx_tymbal_t *t, const tx_tev_t *ev, unsigned ne
         out[j] += (s * g) >> 4;
         if (a1 < a1e) { fr += da1; a1 += fr >> 8; fr &= 0xFF; if (a1 > a1e) a1 = a1e; }   /* the glide (pitch down) */
     }
-    if (!nev) {                                              /* silent input: small or frozen -> exact zero */
+    if (!nev && !(x1 | x2 | d1 | d2)) {                    /* silent input: small or frozen -> exact zero */
         int32_t m = (y1 < 0 ? -y1 : y1) | (y2 < 0 ? -y2 : y2) | (s1 < 0 ? -s1 : s1) | (s2 < 0 ? -s2 : s2);
         if (m < 8 || (y1 == t->y1 && y2 == t->y2 && s1 == t->s1 && s2 == t->s2)) y1 = y2 = s1 = s2 = 0;
     }
-    t->y1 = y1; t->y2 = y2; t->s1 = s1; t->s2 = s2; t->a1 = a1; t->frac = fr;
+    t->y1 = y1; t->y2 = y2; t->s1 = s1; t->s2 = s2; t->a1 = a1; t->frac = fr; t->x1 = x1; t->x2 = x2; t->d1 = d1; t->d2 = d2;
 }
 
 TX_AUDIO_CODE void tx_ireso_add(tx_ireso_t *r, const uint16_t *off, const int16_t *imp, unsigned nimp, int32_t *out,
