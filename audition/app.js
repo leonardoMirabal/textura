@@ -482,7 +482,11 @@ const FAMILIES = [
     ["gravel", "gravel", 0], ["marbles", "gravel", 96], ["sand", "sand", 0], ["singing dune", "sand", 96],
     ["minerals", "minerals", 0], ["stone friction", "minerals", 96]]],
   ["Ice & glass", [["icicles", "ice", 16], ["ice in a glass", "ice", 48], ["lake ice", "ice", 96], ["glass", "glass", 0], ["#chimes"]]],
-  ["Fire & wood", [["fire", "fire", 0], ["flame", "fire", 96], ["#sparks"], ["dry wood", "wood", 16], ["green branch", "wood", 112]]],
+  ["Fire", [["campfire", "fire", 0], ["bonfire", "fire", 12], ["fireplace", "fire", 20], ["embers", "fire", 28],
+    ["kindling", "fire", 36], ["pine fire", "fire", 44], ["leaves, paper", "fire", 52], ["torch", "fire", 60], ["flame", "fire", 96],
+    ["#sparks"]]],
+  ["Wood", [["spruce", "wood", 9], ["pine", "wood", 27], ["maple", "wood", 46], ["oak", "wood", 64], ["green branch", "wood", 82],
+    ["tree trunk", "wood", 100], ["twigs underfoot", "wood", 118]]],
   ["Wind", [["wind", "wind", 0], ["breeze in grass", "wind", 9], ["wind in pines", "wind", 16], ["leafy trees", "wind", 22],
     ["open moor", "wind", 28], ["sea wind", "wind", 35], ["ridge gale", "wind", 41], ["gusty autumn", "wind", 48],
     ["winter storm", "wind", 54], ["desert wind", "wind", 61]]],
@@ -1007,7 +1011,7 @@ document.addEventListener("keydown", e => {
     if (!e.repeat || c.startsWith("Arrow")) stepEngine(c === "BracketLeft" || c === "Minus" || c === "ArrowLeft" ? -1 : 1);
     return;
   }
-  if (laneMode && /^Digit[1-9]$/.test(c)) { e.preventDefault(); if (!e.repeat) setFamily(+c.slice(5) - 1); return; }
+  if (laneMode && /^Digit[0-9]$/.test(c)) { e.preventDefault(); if (!e.repeat) setFamily((+c.slice(5) + 9) % 10); return; }
   const n = codeNote(c);
   if (n < 0) return;
   e.preventDefault();                                 // also stops a focused select's type-ahead

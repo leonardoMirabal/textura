@@ -479,7 +479,7 @@ static const kmap_t HMAP[][HOST_NK] = {
     {{"SCALE", P_SIZE, -64}, {"FOLIAGE", P_TONE, 64}, {"GUST", P_HARD, 48}, {"WHOOSH", P_SPREAD, 48}, {"KIND", P_TYPE, 0}},
     {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},                       /* (stream: inside the water) */
     /* fire: a bigger fire, drier wood, burstier crackle, a draught */
-    {{"SIZE", P_SIZE, 64}, {"WOOD", P_TONE, 64}, {"BURSTY", P_HARD, 64}, {"DRAUGHT", P_SPREAD, 48}, {0, 0, 0}},
+    {{"SIZE", P_SIZE, 64}, {"WOOD", P_TONE, 64}, {"BURSTY", P_HARD, 64}, {"DRAUGHT", P_SPREAD, 48}, {"KIND", P_TYPE, 0}},
     /* crickets: species, warmer (faster), less in step */
     {{"SPECIES", P_TYPE, 0}, {"TEMP", P_TONE, 24}, {"SYNC", P_SPREAD, -64}, {0, 0, 0}, {0, 0, 0}},
     /* sand: grain, landing surface, container, fall height, pulsing */

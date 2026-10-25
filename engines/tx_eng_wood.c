@@ -42,7 +42,8 @@ enum { P_LOAD, P_WOOD, P_MOIST, P_CREAK, P_PITCH, P_SIZE, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"LOAD", 127, 40, "time to the snap while held: 0.3 .. 8 s (log); 127 = never (creaks and crackles only)"},
-    {"WOOD", 127, 40, "spruce (bright, Q 160) | pine (Q 120) | maple (Q 110) | oak (dark, Q 80) | green branch (Q 40)"},
+    {"WOOD", 127, 27, "spruce (bright, Q 160) | pine (Q 120) | maple (Q 110) | oak (dark, Q 80) | green branch (Q 40) | "
+                      "tree trunk (creaking in the wind, no snap) | twigs underfoot (a step snaps a few) (18 each)"},
     {"MOIST", 127, 20, "dry .. wet: duller, fewer cracks, more damping"},
     {"CREAK", 127, 25, "stick-slip creak: off .. strong"},
     {"PITCH", 127, 70, "creak slip rate: 30 .. 800 Hz (log): ratchety .. singing (W7)"},
@@ -54,11 +55,37 @@ static const tx_param_t PARAMS[NP] = {
 #define NR 3u                      /* creak resonators */
 #define NAF 12u                    /* pending aftershocks per piece */
 #define NEVB 48u
-#define NWOOD 5u
+#define NWOOD 7u
 #define A_REF 540000000            /* a mode's amplitude for the snap at v100 (Q30; calibrated by render) */
 
-static const uint16_t W_Q[NWOOD] = {160, 120, 110, 80, 40};
-static const uint16_t W_C[NWOOD] = {5500, 4500, 4300, 4000, 3000};   /* sqrt(E' / rho), m/s (ours, typical) */
+/* the kinds (WOOD): a species of wood bent until it snaps, or a source of its own (ours, set against the kinds'
+ * reference recordings, analysis only) */
+typedef struct {
+    uint16_t q, c;                 /* loss along the grain (Q), sqrt(E' / rho) m/s (typical) */
+    int32_t size;                  /* the piece's length re SIZE's, log2 Q16 */
+    int32_t crf;                   /* the creak's body re the piece's f1, log2 Q16 */
+    int32_t pitch;                 /* the slip rate re PITCH's, log2 Q16 */
+    uint8_t snap;                  /* 0: never snaps (creaks only), 1: at LOAD, 2: a step: 20 .. 100 ms */
+    uint8_t creak;                 /* creak level re CREAK's, Q7 */
+    uint8_t slow;                  /* the creak's swells: 2^slow x longer */
+    uint8_t prec;                  /* precursor cracks re the bend's, Q7 */
+    uint8_t twigs;                 /* pieces per press (a step on twigs: each its own) */
+    uint8_t thud;                  /* 1: the hands jerk at the snap (a low thud; none for a foot on twigs) */
+    uint16_t out;                  /* its level, Q8 */
+} wkind_t;
+static const wkind_t WK[NWOOD] = {
+    {160, 5500, 0, 0, 0, 1, 128, 0, 128, 1, 1, 256},       /* spruce */
+    {120, 4500, 0, 0, 0, 1, 128, 0, 128, 1, 1, 256},       /* pine */
+    {110, 4300, 0, 0, 0, 1, 128, 0, 128, 1, 1, 256},       /* maple */
+    {80, 4000, 0, 0, 0, 1, 128, 0, 128, 1, 1, 256},        /* oak */
+    {40, 3000, 0, 0, 0, 1, 128, 0, 128, 1, 0, 256},        /* green branch */
+    /* tree trunk: a live trunk or a bough rubbing in the wind: long slow groans of stick-slip (the references: 1-3 kHz,
+     * a creak every ~2-4 s) on a big wet body, a fibre ticking now and then, never a snap */
+    {40, 3000, 131072, 114688, -65536, 0, 255, 2, 8, 1, 1, 256},
+    /* twigs underfoot: a step snaps a few short dry twigs within ~0.1 s (the references: 5-12 kHz, a step a second,
+     * ~6 snaps a second, nothing between the steps) */
+    {120, 5000, -98304, 0, 0, 2, 0, 0, 64, 3, 0, 256},
+};
 static const uint16_t BAR_R[NMW] = {1024, 2823, 5534, 9147, 13665};   /* free-free, Q10 */
 
 typedef struct {
@@ -89,6 +116,7 @@ typedef struct {
     uint8_t p[NP], limit, quiet;
     int32_t level, size_l2;
     uint32_t q_x16, c, tau_s;      /* tau in samples (0 = never) */
+    const wkind_t *k;
     uint16_t dropped;
     tx_vary_t vy;
 } wood_t;
@@ -100,8 +128,10 @@ static void set_param(wood_t *s, unsigned id, unsigned v)
     if (v > PARAMS[id].max) v = PARAMS[id].max;
     s->p[id] = (uint8_t)v;
     r = (s->p[P_WOOD] * NWOOD) >> 7;
-    s->c = W_C[r];
-    s->q_x16 = (uint32_t)W_Q[r] * 16u * (32768u - (uint32_t)s->p[P_MOIST] * 155u) >> 15;   /* wet: Q x 0.4 */
+    s->k = &WK[r];
+    s->c = s->k->c;
+    s->q_x16 = (uint32_t)s->k->q * 16u * (32768u - (uint32_t)s->p[P_MOIST] * 155u) >> 15;   /* wet: Q x 0.4 */
+    tx_cloud_burst(&s->cloud, s->k->twigs, s->k->twigs > 1u ? 100u : 0u);
     switch (id) {
     case P_LOAD: s->tau_s = v >= 127u ? 0u : (uint32_t)(((uint64_t)tx_knob_exp(v, 77u, 314000) * TX_FS) >> 8); break;   /* 0.3 .. 8 s */
     case P_SIZE: s->size_l2 = -217706 + (int32_t)(v * 1714u); break;   /* log2(0.1 m) + v log2(10) / 127 */
@@ -116,7 +146,6 @@ static void wood_init(void *st, uint32_t seed)
     unsigned i;
     for (i = 0; i < sizeof *s; i++) b[i] = 0;
     tx_cloud_init(&s->cloud, seed);
-    tx_cloud_burst(&s->cloud, 1, 0);
     tx_cloud_rate(&s->cloud, 0);
     s->limit = 3;
     s->rk = 2; s->rd = 5;
@@ -163,7 +192,8 @@ static void take(wood_t *s, const tx_event_t *e)
 {
     piece_t *p = 0;
     unsigned i, k;
-    for (i = 0; i < s->limit && !p; i++) if (s->pc[i].alive && s->pc[i].note == e->note) p = &s->pc[i];
+    if (s->k->twigs < 2u)                                    /* (twigs: each its own piece) */
+        for (i = 0; i < s->limit && !p; i++) if (s->pc[i].alive && s->pc[i].note == e->note) p = &s->pc[i];
     for (i = 0; i < s->limit && !p; i++) if (piece_quiet(&s->pc[i])) p = &s->pc[i];
     for (i = 0; i < s->limit && !p; i++) if (!s->pc[i].alive) p = &s->pc[i];
     if (!p) { s->dropped++; return; }
@@ -171,7 +201,7 @@ static void take(wood_t *s, const tx_event_t *e)
          * its own length and thickness (f1 ~ d / L^2: sd 0.8 octave; twigs, the most, +0.4 octave: ours) */
         int32_t g = (int32_t)(((int64_t)tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng)) * 52429 >> 15);
         g = g > (2 << 16) ? (2 << 16) : g < -(2 << 16) ? -(2 << 16) : g;
-        p->f1 = tx_exp2(tx_log2_q16(s->c) - 267150 - s->size_l2 + ((int32_t)e->note - 60) * 5461 + (tx_vary_tone(&s->vy) >> 2)
+        p->f1 = tx_exp2(tx_log2_q16(s->c) - 267150 - s->size_l2 - s->k->size + ((int32_t)e->note - 60) * 5461 + (tx_vary_tone(&s->vy) >> 2)
                         + g + 26214);   /* 0.059 c / L */
         if (p->f1 > 9000u) p->f1 = 9000u;
         p->rk = (uint8_t)(1u + tx_rand_below(&s->cloud.rng, 3u));   /* its fracture's edge: 9 / 3.5 / 1.7 kHz corner */
@@ -190,7 +220,7 @@ static void take(wood_t *s, const tx_event_t *e)
     {
         static const uint16_t CR[NR] = {1024, 1536, 2823};   /* creak body: f1, 1.5 f1 (ours), f2 */
         for (k = 0; k < NR; k++) {
-            uint32_t f = (p->f1 * CR[k]) >> 10;
+            uint32_t f = (uint32_t)(((uint64_t)p->f1 * CR[k] * tx_exp2(s->k->crf + (16 << 16))) >> 26);
             tx_ireso_set(&p->cr[k], f > 18000u ? 18000u : f, 192);   /* Q 12 (ours) */
             p->cr[k].g = k ? 140 : 200;
             p->cr[k].zlim = 32;
@@ -199,7 +229,8 @@ static void take(wood_t *s, const tx_event_t *e)
     p->thud.inc = (60u + tx_rand_below(&s->cloud.rng, 30u)) * 97391u;
     p->thud.m16 = tx_mode_decay(p->thud.inc / 97391u, 48u, 0u);
     p->t = 0;
-    p->tau = s->tau_s ? s->tau_s - (s->tau_s >> 2) + (uint32_t)(((uint64_t)s->tau_s * (tx_rand(&s->cloud.rng) >> 16)) >> 17) : 0u;   /* +-25 % (ours) */ p->next_q8 = 0; p->snapped = 0;
+    p->tau = s->k->snap == 2u ? 882u + tx_rand_below(&s->cloud.rng, 3529u)   /* a step: 20 .. 100 ms (ours) */
+           : s->k->snap && s->tau_s ? s->tau_s - (s->tau_s >> 2) + (uint32_t)(((uint64_t)s->tau_s * (tx_rand(&s->cloud.rng) >> 16)) >> 17) : 0u;   /* +-25 % (ours) */ p->next_q8 = 0; p->snapped = 0;
     for (k = 0; k < NAF; k++) p->af[k] = 0;
     p->cenv = 0; p->cgoal = 32767;
     p->rel = (uint8_t)(2u + tx_rand_below(&s->cloud.rng, 5u));   /* let go in ~20 .. 300 ms (ours) */
@@ -246,7 +277,7 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
         if (p->alive) {
             p->held = (uint8_t)(p->em < TX_CLOUD_EMITTERS && s->cloud.em[p->em].held && s->cloud.em[p->em].note == p->note);
             if (p->held && !p->snapped) {                    /* loading: precursors at a rate rising to the snap */
-                uint32_t per_q8, rate_q8 = 24u * (256u - s->p[P_MOIST]);  /* ~24 /s dry at the start, ~12 wet (ours) */
+                uint32_t per_q8, rate_q8 = ((24u * (256u - s->p[P_MOIST])) * s->k->prec) >> 7;  /* ~24 /s dry at the start, ~12 wet (ours) */
                 int32_t lr = 0;
                 if (p->tau) {                                /* x ((tau - t) / tau)^-1.27 (W4) */
                     uint32_t left = p->tau > p->t ? p->tau - p->t : 1u;
@@ -266,18 +297,19 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
                     unsigned o = p->tau > p->t ? p->tau - p->t : 0u, c2 = 0;
                     uint32_t bits = tx_rand(r);
                     crack(s, p, o < n ? o : n - 1u, 0, &ne);
-                    {
+                    if (s->k->thud) {
                         int32_t g = (int32_t)(((int64_t)tx_rand_s15(r) + tx_rand_s15(r) + tx_rand_s15(r)) * 65536 >> 15);
                         g = g > (1 << 16) ? (1 << 16) : g;
                         tx_mode_strike(&p->thud, (int32_t)(((int64_t)(A_REF / 3) * (int32_t)tx_exp2(g - 98304 + (15 << 16)) >> 15) * s->level >> 15));
                     }
                     for (a = 0; a < 16; a++) c2 += bits >> a & 1u;   /* binomial(16, 1/2): mean 8 */
+                    if (s->k->snap == 2u) c2 >>= 2;                  /* (a thin twig: ~2, within 0.5 s: ours) */
                     for (a = 0; a < c2 && a < NAF; a++) {
                         uint32_t l = tx_neglog2_q12(tx_rand(r)), t;
                         int64_t xx = ((int64_t)l * 6019) >> 12;      /* / (p - 1) = / 0.68, Q12 */
                         if (xx > 13 << 12) xx = 13 << 12;
                         t = (uint32_t)((((uint64_t)tx_exp2((int32_t)xx * 16 + (16 << 16)) - 65536u) * 3087u) >> 16);   /* c 70 ms */
-                        p->af[a] = 1u + (t > 441000u ? 441000u : t);
+                        p->af[a] = 1u + (t > (s->k->snap == 2u ? 22050u : 441000u) ? (s->k->snap == 2u ? 22050u : 441000u) : t);
                         p->afs[a] = 23250 + (int32_t)(((int64_t)tx_neglog2_q12(tx_rand(r)) * 5851) >> 12);   /* >= 1.75 dec */
                     }
                     p->snapped = 1;
@@ -293,9 +325,9 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
             p->t += n;
             {   /* the creak: bursts while bent (a slow envelope toward a random goal, ours) */
                 int32_t lvl;
-                if (p->held && !p->snapped && (tx_rand(r) >> 26) == 0) p->cgoal = (int32_t)(tx_rand(r) >> 17);
-                p->cenv += (p->cgoal - p->cenv) >> (p->held ? 4u : p->rel);
-                lvl = (int32_t)(((int64_t)p->cenv * s->p[P_CREAK] * (40 + p->vel)) >> 15);   /* Q15-ish slip size */
+                if (p->held && !p->snapped && (tx_rand(r) >> (26u + s->k->slow)) == 0) p->cgoal = (int32_t)(tx_rand(r) >> 17);
+                p->cenv += (p->cgoal - p->cenv) >> (p->held ? 4u + s->k->slow : p->rel);
+                lvl = (int32_t)(((int64_t)p->cenv * ((s->p[P_CREAK] * s->k->creak) >> 7) * (40 + p->vel)) >> 15);   /* Q15-ish slip size */
                 lvl = (int32_t)(((int64_t)lvl * s->level) >> 15);
                 if (p->tau && !p->snapped) {                 /* the fibres slip more as the load builds: the creak grows
                                                               * with t / tau (a quick snap creaks briefly; at the top the
@@ -304,7 +336,7 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
                     lvl = (int32_t)(((int64_t)lvl * (int32_t)fr) >> 15);
                 }
                 if (lvl > 64) {
-                    uint32_t f0 = tx_knob_exp(s->p[P_PITCH], 30u, 310000);   /* 30 .. 800 Hz */
+                    uint32_t f0 = (uint32_t)(((uint64_t)tx_knob_exp(s->p[P_PITCH], 30u, 310000) * tx_exp2(s->k->pitch + (16 << 16))) >> 16);   /* 30 .. 800 Hz */
                     unsigned nc = tx_creak_block(&p->ck, r, f0, 4915, lvl > 20000 ? 20000 : lvl, n, s->co, s->ca, NEVB), q;
                     for (q = 0; q < NR; q++) tx_ireso_add(&p->cr[q], s->co, s->ca, nc, s->buf, n);
                 } else
@@ -348,7 +380,7 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
         any |= e;
     }
     tx_vary_block(&s->vy, s->buf, n);
-    tx_trim(s->buf, n, OUT_TRIM);
+    tx_trim(s->buf, n, (OUT_TRIM * s->k->out) >> 8);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !any && !(s->hp.x1 | s->hp.y1));

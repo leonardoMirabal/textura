@@ -89,11 +89,11 @@ def main():
         page.mouse.click(bx["x"] + bx["width"] * 0.02, bx["y"] + bx["height"] / 2)   # how many: off
         st = page.evaluate("window.txTest.src()")
         check(not st["run"][1] and not st["held"][1] and st["cnt"][1] == 0, "how many at off: the sound off (silence)")
-        fm = page.evaluate("window.txTest.family(7)")
+        fm = page.evaluate("window.txTest.family(8)")
         bt = page.eval_on_selector_all("#fam-box .snd button", "b => b.map(x => x.textContent)")
         check(fm["names"][3] == "nightingale" and bt == fm["names"] and fm["snd"] == [0, 1, 2, 3] and not any(page.evaluate("window.txTest.src()")["run"]),
               f"a landscape picked (Songbirds): every sound stopped, its sounds on the black keys {bt}")
-        v = page.evaluate("[window.txTest.vol(0, 40), (window.txTest.family(1), window.txTest.family(7), window.txTest.vol(0))]")
+        v = page.evaluate("[window.txTest.vol(0, 40), (window.txTest.family(1), window.txTest.family(8), window.txTest.vol(0))]")
         nv = page.eval_on_selector_all("#lanes-box .vol", "x => x.length")
         check(v == [40, 40] and nv == 4, f"a volume per sound: set 40, kept with the sound across landscapes ({v}), {nv} volume sliders")
         page.evaluate("window.txTest.vol(0, 100)")
