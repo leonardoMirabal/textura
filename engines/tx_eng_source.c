@@ -67,7 +67,7 @@ static const tx_param_t PARAMS[NP] = {
     {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees | 11 ice | 12 wood | 13 minerals | 14 glass | 15 songbird | 16 chirper | 17 crow | 18 gull | 19 blackbird | 20 song thrush | 21 nightingale | 22 robin | 23 wren | 24 hermit thrush | 25 skylark | 26 wood thrush | 27 reed warbler | 28 curlew | 29 oystercatcher | 30 cuckoo | 31 woodpecker | 32 wood pigeon | 33 nightjar | 34 bittern"},
     {"INTENSITY", 127, 64, "how active each individual is (COUNT says how many), on the preset's own scale and through its transition: a rain patch 0.2 .. 1500 drops/s (a stray drop .. a downpour on it), a stone 0.05 .. 60 knocks/s, a drip point one per 40 s .. 8 /s, a cicada rare short calls .. singing on, a bird singing now and then .. often; hosted engines: their own path (wind a calm .. 28 m/s, fire embers .. a blaze, ...)"},
     {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
-    {"SPACING", 127, 64, "the timing: clumped bursts .. the preset's own (64; Poisson for rain) .. even"},
+    {"SPACING", 127, 64, "the timing: clumped bursts .. Poisson (64 up: the preset's own, never an even beat)"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
     {"SPREAD", 127, 64, "how mixed the sizes are: alike .. the preset's (64) .. twice as mixed"},
     {"TONE", 127, 64, "the body: 64 = the preset's; the stones' Q x/ 4 (mineral), the cicadas' tymbal Q; rain: the bubbles' depth"},
@@ -94,14 +94,14 @@ typedef struct {
                                      * 3 water: events
                                      * (drops) and an engine (HOST[act_lo]: the stream) together */
     int32_t act_lo, act_oct;        /* INTENSITY's scale: log2 of the 0 % value, its range (Q16) */
-    int32_t reg;                    /* natural spacing: -64 clumped .. 0 Poisson .. 63 even */
+    int32_t reg;                    /* natural spacing: -64 clumped .. 0 Poisson (never more even: no regular beat) */
     int32_t trim;                   /* the preset's level, Q12 */
     int32_t law;                    /* a fader law: amplitude ~ amount^(-law / 32) (0 for all: nature's law, more = louder) */
 } preset_t;
 
 static const preset_t PRE[NPRE] = {
-    {0, 490986, 614782, 0, 50000, 0},   /* rain: 30 .. 20000 drops/s per m^2 (drizzle .. downpour), over ~6 m^2 heard (ours) */
-    {0, -152170, 739752, 10, 39470, 0}, /* stones: 0.2 .. 500 knocks/s (+3.3 dB: most knocks now far, note 14) */
+    {0, 490986, 614782, 0, 22300, 0},   /* rain: 30 .. 20000 drops/s per m^2 (drizzle .. downpour), over ~6 m^2 heard (ours; -7 dB: nearer) */
+    {0, -152170, 739752, 0, 39470, 0},  /* stones: 0.2 .. 500 knocks/s (+3.3 dB: most knocks now far, note 14) */
     {1, 0, 321577, 0, 6800, 0},     /* cicadas: 1 .. 30 callers (+2.4 dB: their pauses, most far) */
     {3, 1, 0, -6, 19800, 0},        /* water: drops (WATER_RATE) + the stream engine (HOST[1]) fading in */
     {2, 0, 0, 0, 4096, 0},          /* wind: the wind engine hosted (TYPE 64 up: whistling wires) */
@@ -113,7 +113,7 @@ static const preset_t PRE[NPRE] = {
     {2, 7, 0, 0, 4096, 0},          /* bees */
     {2, 8, 0, 0, 4096, 0},          /* ice */
     {2, 9, 0, 0, 4096, 0},          /* wood */
-    {2, 10, 0, 30, 4096, 0},        /* minerals (knocked by hand: near even, note 14) */
+    {2, 10, 0, 0, 4096, 0},         /* minerals (knocked by hand; never an even beat) */
     {2, 11, 0, 0, 4096, 0},         /* glass */
     {4, 0, 0, 0, 410, 0},          /* birds (tx_core_bird type act_lo): songbirds (a woodland mix) */
     {4, 1, 0, 0, 410, 0},          /* chirper (chaffinch, sparrow) */
@@ -156,7 +156,7 @@ typedef struct {
 static const clu_pre_t CLU[NPRE] = {
     /* rain: Poisson (the refs' 2 s level sd 0.3-0.8 dB); over the ground around, most drops far (a downpour's few near
      * drops stand out of its far mass: note 16, the dense end was a flat hiss) */
-    {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {-10, -20}, {20, 75}, 2},
+    {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {-10, -20}, {20, 45}, 2},   /* (a downpour: louder than a shower, never pushed off into the distance) */
     /* stones: runs and quiet spells (fewer at the top: a slide that does not stop); a knock sets others off (Omori),
      * from a few (0.3) to an avalanche (0.85); pieces over the slope around, most far: a few near knocks stand out */
     {{90, 90, 40}, 30, {30, 45, 85}, 1, 12, 30, -5, 10, {-10, -21}, {20, 42}, 2},
@@ -184,8 +184,8 @@ static const clu_pre_t CLU[NPRE] = {
  * fire: a log), the source holds down one key per individual COUNT asks for, at most k127 (<= 8, a few semitones
  * apart): more keys, more of them, coming one at a time; COUNT past them moves the first curve k64 knob units a
  * doubling (a fire: its logs burn livelier). k0 & 2: held in bouts below INTENSITY 64 (host_gate). With k0 & 1, a
- * held key, picked at random, is pressed afresh every
- * 6 .. 16 s: a singer leaves and a new one comes with the parameters of now (these engines read them at a press; a
+ * held key, picked at random, is pressed afresh after
+ * 3 s + an exponential wait (mean 7 s; no clock): a singer leaves and a new one comes with the parameters of now (these engines read them at a press; a
  * fire's logs just burn: a press there would throw a new log on, its burst louder than the fire it lands in). */
 #define HOST_NC 5u
 #define HOST_NK 5u                  /* character maps per hosted engine (HMAP) */
@@ -549,6 +549,8 @@ static unsigned host_heroes(const host_t *hd, unsigned v)
 
 typedef char hmap_rows_ok[(sizeof HMAP / sizeof HMAP[0]) == (sizeof HOST / sizeof HOST[0]) ? 1 : -1];
 
+static uint32_t gate_draw(src_t *s, uint32_t mean);
+
 /* stage 1's character now (once per block) */
 static void clu_cfg_row(src_t *s, const clu_pre_t *c, int32_t reg)
 {
@@ -560,7 +562,7 @@ static void clu_cfg_row(src_t *s, const clu_pre_t *c, int32_t reg)
     f->tau = (int32_t)c->tau_ms * 441 / 10;
     f->child_l2 = c->child * 6554;
     f->child_sd = c->csd * 6554;
-    f->reg = clampi(reg + knob(s, P_SPACING), -64, 63);
+    f->reg = clampi(reg + knob(s, P_SPACING), -64, 0);   /* (Poisson at most: no regular beat) */
     f->omori = c->omori; f->gens = c->gens;
 }
 static void clu_cfg(src_t *s, unsigned pre) { clu_cfg_row(s, &CLU[pre], PRE[pre].reg); }
@@ -625,10 +627,16 @@ static int take(src_t *s, uint32_t lv)
 /* ---- rain */
 #define A_I_L2 ((28 << 16) + 32728)
 #define A_II_L2 ((28 << 16) + 10460)
-#define CLICK_M 4000
-#define CLICK_L 4700
+#define CLICK_M 2000                /* (the impacts 6 dB under the first model: the drop's plink leads, as the references' and the water drops') */
+#define CLICK_L 2350
 #define BED_G 160                   /* a far bubble's grain re its own amplitude, Q8 (calibrated by render) */
-#define SPLASH_G 300                /* a drop's splash grain re its click, Q8 (ours) */
+#define SPLASH_G 100                /* a drop's splash grain re its click, Q8 (ours; 300 made a dull 1 kHz wash) */
+#define RI_LV (2 << 16)             /* type I bubbles down 12 dB (in air a shimmer under the plinks: the references'
+                                     * 12-16 kHz sit 8-12 dB under their 5-10 kHz peak) */
+#define RAIN_RMIN 103872             /* log2 3 mm/h, Q16 */
+#define RAIN_RTOP 387122             /* log2 60 mm/h: the sparse drops' sizes */
+#define RM_P 39322u                 /* a medium drop's bubble: 0.6 (Q16; the references: most drops plink) */
+#define RM_LV 0                     /* its level: as a large drop's */
 
 /* a bubble of radius a_l2 (log2 mm, Q16) at amplitude l2 (Q30 log2), after wait, at distance r */
 static void bubble(src_t *s, int32_t a_l2, int32_t amp_l2, uint32_t wait, uint32_t xi_q16, int32_t r_l2, int32_t trim,
@@ -670,6 +678,30 @@ static void splash(src_t *s, unsigned off, int32_t d_q12, int32_t a)
     tx_gr_add(&s->gr, &s->rng, off, f < 120u ? 120u : f > 2499u ? 2499u : f, (int32_t)(((int64_t)a * SPLASH_G) >> 8));
 }
 
+/* a drop's impact: a sharp zero-mean doublet straight into the block (broadband, as the water drops' and the
+ * references' vertical lines at each drop; a low-passed thump read dull against them) */
+static void rclick(src_t *s, unsigned off, unsigned n, int32_t a)
+{
+    a *= 256;
+    s->buf[off] += a;
+    if (off + 1u < n) s->buf[off + 1u] -= a - a / 4;
+    if (off + 2u < n) s->buf[off + 2u] -= a / 4;
+}
+
+/* a type II bubble (as the water drops' plop): radius log-normal about RB_A (0.38 mm, ~8.6 kHz; sd 0.8 octave, 0.25 ..
+ * 1.5 mm: the references' plinks 2-11 kHz), most rising (xi 0.05 .. 0.15), a third pinched off deeper (no glide) */
+#define RB_A (-91750)               /* log2 0.38 mm (~8.6 kHz: the references' plinks peak 7-10 kHz) */
+#define RB_SD 52429                 /* 0.8 octave */
+static void rbubble(src_t *s, int32_t lv, uint32_t at, int32_t r_l2, int32_t trim, unsigned pre, uint32_t bed_q8)
+{
+    tx_rng_t *r = &s->rng;
+    int32_t a_l2 = clampi(RB_A + (int32_t)(((int64_t)gauss(s) * RB_SD) >> 12) - knob(s, P_SIZE) * 1024, -(2 << 16), 39322);
+    int32_t l = A_II_L2 + lv + a_l2 / 2 - (int32_t)(tx_rand(r) >> 16) + knob(s, P_TONE) * 1024;
+    if (bed_q8) { bubble(s, a_l2, l, at, 0, r_l2, trim, pre, bed_q8); return; }   /* (the drops one stands for) */
+    if ((tx_rand(r) >> 16) < 43690u) bubble(s, a_l2, l, at, 3277u + ((tx_rand(r) >> 16) * 6554u >> 16), r_l2, trim, pre, 0);
+    else bubble(s, a_l2, l - 65536, at, 0, r_l2, trim, pre, 0);
+}
+
 /* one drop: diameter from the size distribution, its class's sounds */
 /* one drop, or (w_q8 > 256: the rain over the explicit cap) w drops alike: the extra small ones' bubbles join the
  * bed by their energy, the extra clicks and big ones are placed at random in the block */
@@ -684,7 +716,11 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
      * so log2 R = 1.54 (log2 F - log2 415); Lambda = 4.1 R^-0.21 / mm; SIZE +-2 octaves of the sizes */
     {
         int32_t lf = 321577 + (((PRE[PR_RAIN].act_oct >> 5) * s->i_eff) / (127 << 8)) * 32;   /* log2 30 + ... */
-        int32_t lr = clampi(((lf - 569967) * 197) >> 7, -435412, 472000);   /* R 0.01 .. 150 mm/h */
+        int32_t lr = clampi(((lf - 569967) * 197) >> 7, RAIN_RMIN, 472000);   /* R 3 .. 150 mm/h (the sizes) */
+        int32_t sp = (40 << 8) - s->i_eff;                   /* sparse (INTENSITY under 40): the big scattered drops a
+                                                             * shower begins with (convective: R's sizes up to 60 mm/h at
+                                                             * 0), not a drizzle's 15 kHz ticks */
+        if (sp > 0) lr += (int32_t)(((int64_t)sp * (RAIN_RTOP - RAIN_RMIN)) / (40 << 8));
         lam_l2 = 133431 - ((lr * 215) >> 10) - knob(s, P_SIZE) * 2048 - s->life_s - (s->cur_on ? s->cur_sz : 0);
     }
     if (near) d_q12 = 10240 + (vel * 12288) / 127;           /* a press: 2.5 .. 5.5 mm, by velocity */
@@ -701,7 +737,7 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
     if (d_q12 < 4915) {                                      /* small: a type I bubble, half the time */
         if (tx_rand(r) & 1u) {
             int32_t a_l2 = -170000 + (int32_t)tx_rand_below(r, 43000u);   /* 0.17 .. 0.25 mm */
-            int32_t l = A_I_L2 + (3 * a_l2) / 2 - (int32_t)(tx_rand(r) >> 16) + knob(s, P_TONE) * 1024;
+            int32_t l = A_I_L2 - RI_LV + (3 * a_l2) / 2 - (int32_t)(tx_rand(r) >> 16) + knob(s, P_TONE) * 1024;
             bubble(s, a_l2, l, off, 0, r_l2, trim, pre, 0);
             if (w_q8 > 256u) bubble(s, a_l2, l, off, 0, r_l2, trim, pre, w_q8 - 256u);   /* (half of them: the */
         }                                                                            /* other half was the coin) */
@@ -710,7 +746,11 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
     if (d_q12 < 9830) {                                      /* medium: the click */
         int32_t a = (CLICK_M * c) >> 15;
         uint32_t k = w_q8 > 256u ? (w_q8 + (tx_rand(r) >> 24)) >> 8 : 1u;
-        s->ck[off] += (tx_rand(r) & 1u) ? a : -a;
+        rclick(s, off, n, (tx_rand(r) & 1u) ? a : -a);
+        if ((tx_rand(r) >> 16) < RM_P)                       /* now and then a bubble too (the references' plinks) */
+            rbubble(s, -RM_LV, off + 220u + tx_rand_below(r, 880u), r_l2, trim, pre, 0);
+        if (w_q8 > 256u)                                     /* the drops this one stands for: their bubbles as grains */
+            rbubble(s, -RM_LV, off, r_l2, trim, pre, (((w_q8 - 256u) * RM_P) >> 16) + 1u);
         if (k > 4u) { a = (int32_t)(((int64_t)a * (int32_t)isqrt(((k - 1u) << 16) / 3u)) >> 8); k = 4u; }   /* (3 grains */
         while (--k) {                                        /* for many, power kept; one draw per statement: C leaves the order of */
             unsigned at = tx_rand_below(r, n);               /* two draws in one expression open, and wasm and */
@@ -721,14 +761,10 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
     {                                                        /* large, very large */
         int vl = d_q12 >= 16794;
         int32_t a = ((vl ? CLICK_L * 2 : CLICK_L) * c) >> 15, a_l2, l;
-        s->ck[off] += (tx_rand(r) & 1u) ? a : -a;
+        rclick(s, off, n, (tx_rand(r) & 1u) ? a : -a);
         splash(s, off, d_q12, (tx_rand(r) & 1u) ? a : -a);  /* the crown's splash: a big drop's body */
-        a_l2 = -104858 + (int32_t)(444u * (tx_rand(r) >> 24));   /* 0.33 .. 1.1 mm */
-        l = A_II_L2 + a_l2 / 2 - (int32_t)(tx_rand(r) >> 16) + knob(s, P_TONE) * 1024;
-        {
-            uint32_t at = off + 2205u + tx_rand_below(r, 1323u);
-            bubble(s, a_l2, l, at, (tx_rand(r) & 1u) ? 6554u : 0u, r_l2, trim, pre, 0);
-        }
+        rbubble(s, 0, off + 2205u + tx_rand_below(r, 1323u), r_l2, trim, pre, 0);   /* type II, 50-80 ms on */
+        if (w_q8 > 256u) rbubble(s, 0, off, r_l2, trim, pre, w_q8 - 255u);   /* (the ones it stands for: grains) */
         if (vl) {
             a_l2 = -170000 + (int32_t)tx_rand_below(r, 60000u);
             l = A_II_L2 - 65536 + a_l2 / 2 - (int32_t)(tx_rand(r) >> 16);
@@ -1371,7 +1407,7 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
             uint8_t nt = (uint8_t)(k ? s->hbase + HOST_KEYS[k] : s->note);
             s->hst->key(s->host, nt, 0, 0);
             s->hst->key(s->host, nt, s->vel, 1);
-            s->hrenew = 1033u + tx_rand_below(&s->rng, 1723u);   /* 6 .. 16 s in blocks */
+            { uint32_t g = 516u + gate_draw(s, 1200u); s->hrenew = (uint16_t)(g > 65535u ? 65535u : g); }   /* 3 s + exponential, mean 7 s more (no clock) */
         }
     }
     for (i = 0; i < HOST_NC; i++) {
@@ -1670,7 +1706,8 @@ static void host_act(src_t *s)
 static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
     src_t *s = (src_t *)st;
-    if (on && vel && !s->held) { s->start = 1; s->clu.next_q8 = 0xFFFFFFFFu; }   /* a first press: the population starts
+    if (on && vel && !s->held) { s->start = 1; s->clu.next_q8 = 0xFFFFFFFFu; s->ni = 0; }   /* a first press: a new
+                                                             * population (drawn afresh: never the last one's) starts
                                                              * at the fader's INTENSITY, its first event after a gap of its
                                                              * own (stage 1 draws it), never at once */
     if (s->hst) {                                            /* a hosted engine: its own keys */
@@ -1693,8 +1730,10 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
         }
         if (on && vel && s->held && s->hd) {                 /* a press while held: */
             s->held++;                                       /* one of them acts at its own level (an event engine: its */
-            if (s->hd->e64) host_act(s);                     /* clock's next press now); a held engine's population */
-            return;                                          /* sings on by itself (no new key at the note's pitch) */
+            if (s->hd->e64) host_act(s);                     /* clock's next press now; an engine with its own */
+            else if (s->hcid >= 0 && s->hon) s->hst->key(s->host, s->note, s->vel, 1);   /* individuals: its key again, */
+            return;                                          /* one in a pause sings now (crickets, katydids); others */
+                                                             /* sing on by themselves: no new key at the note's pitch) */
         }
         if (on && vel) {
             s->held++; s->note = note; s->vel = vel; s->quiet = 0;
