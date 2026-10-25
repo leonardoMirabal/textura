@@ -309,7 +309,7 @@ function showAB() {
   if (!e) { hide(); $("ab-note").textContent = "(not in the A/B data: run make tx-ab again)"; return; }
   if (name === "source") {                            // the source's page holds the bird candidates: shown for the birds only
     const pre = srcIds ? srcGet(i === layers[ed].eng ? ed : ed, "PRESET") : 0, pn = SRC_PRESETS[pre] || "";
-    const bird = ["songbird", "chirper", "crow", "owl", "gull"].some(b => pn.includes(b));
+    const bird = BIRDS.includes(pn);
     if (!bird) e = { ...e, refs: [] };
   }
   if (abSel >= e.refs.length) abSel = 0;
@@ -727,9 +727,10 @@ function genReadout() {
 }
 setInterval(genReadout, 250);
 // the sounds as a grid, grouped by nature: a click sets the selected lane's sound (a SOURCE preset, or a classic engine)
+const BIRDS = ["songbird", "chirper", "crow", "gull", "blackbird", "song thrush", "nightingale", "robin", "wren", "hermit thrush", "skylark", "wood thrush", "reed warbler", "curlew", "oystercatcher", "cuckoo", "woodpecker", "wood pigeon", "nightjar", "bittern"];
 const GROUPS = [["Water", ["rain on water", "water"]], ["Earth", ["stone cloud", "sand", "gravel", "minerals", "glass", "ice", "wood"]],
                 ["Air", ["wind"]], ["Fire", ["fire"]], ["Insects", ["crickets", "cicadas", "katydids", "bees"]],
-                ["Birds", ["songbird", "chirper", "crow", "owl", "gull"]], ["Classic", ["#thunder", "#surf"]]];
+                ["Birds", BIRDS], ["Classic", ["#thunder", "#surf"]]];
 function presetGrid() {
   const box = $("src-grid");
   if (!box || !srcIds) return;

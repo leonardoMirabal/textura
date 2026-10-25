@@ -77,13 +77,15 @@ def main():
         names_l = page.evaluate("[0, 1, 2].map(k => document.querySelector(`#lanes-box .lane[data-k='${k}'] .lab`).textContent)")
         check(all(st["run"][:3]) and st["step"][:3] == [5, 7, 4] and pk > 0 and "water" in names_l[0] and "crickets" in names_l[1]
               and "wind" in names_l[2], f"Start a landscape: three lanes running ({names_l}), sounding (peak {pk})")
-        bx = page.locator("#lanes-box .lane[data-k='1'] .abar").bounding_box()
+        bar = page.locator("#lanes-box .lane[data-k='1'] .abar")
+        bar.scroll_into_view_if_needed()                     # (the grid of sounds can push it below the fold)
+        bx = bar.bounding_box()
         page.mouse.click(bx["x"] + bx["width"] * 0.95, bx["y"] + bx["height"] / 2)   # the bar as a fader: the top step
         st = page.evaluate("window.txTest.src()")
         check(st["lane"] == 1 and st["step"][1] == 14, f"an activity bar clicked: lane 2 at step {st['step'][1] + 1} of 15")
-        page.evaluate("window.txTest.sound(1, 'owl')")
+        page.evaluate("window.txTest.sound(1, 'nightingale')")
         g = page.eval_on_selector_all("#src-grid button.on", "b => b.map(x => x.textContent)")
-        check(g == ["owl"], f"a sound picked from the grid for the selected lane: {g}")
+        check(g == ["nightingale"], f"a sound picked from the grid for the selected lane: {g}")
         page.evaluate("window.txTest.setLaneMode(false)")   # (the classic checks below: lane mode off, layers 2-4 off)
         for k in (1, 2, 3):
             page.evaluate(f"window.txTest.layerOff({k})")
