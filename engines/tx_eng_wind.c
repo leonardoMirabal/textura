@@ -5,7 +5,8 @@
  * wires are the aeolian engine.
  *
  * Playing: a held key keeps the wind blowing (it rises over ~0.4 s and, released, dies over ~4 s); a press is a gust
- * (velocity: how strong) with a whoosh passing. WIND 0 is a calm: silence. */
+ * (velocity: how strong) with a whoosh passing; more keys held (up to 4), more gust sources and more canopy around
+ * (more whooshes and rustle). WIND 0 is a calm: silence. KIND picks the place: each its own spectrum and motion. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_cloud.h"
@@ -13,7 +14,7 @@
 
 #define OUT_TRIM 3250               /* output gain, Q12: a key held at the defaults is -26 LUFS */
 
-enum { P_WIND, P_GUST, P_FOLIAGE, P_BUFFET, P_WHOOSH, P_EDGE, P_SCALE, NP };
+enum { P_WIND, P_GUST, P_FOLIAGE, P_BUFFET, P_WHOOSH, P_EDGE, P_SCALE, P_KIND, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"WIND", 127, 64, "mean wind speed: 0 calm (silence) .. 28 m/s (^1.5: 0.5 m/s at 9, 10 at 64: a breath now and then .. a storm)"},
@@ -23,13 +24,46 @@ static const tx_param_t PARAMS[NP] = {
     {"WHOOSH", 127, 64, "gusts passing by: none .. often (a band sweeping down as it passes)"},
     {"EDGE", 127, 16, "edge tones: none .. now and then (faint, short, in strong gusts only)"},
     {"SCALE", 127, 64, "the obstacles' size: big trees (lower) .. fine grass (higher), +-1 octave"},
+    {"KIND", 127, 0, "the place, 13 steps each: wind | a breeze in tall grass | pines | leafy trees | an open plain or moor | "
+                     "a sea wind on the coast | a gale on a ridge | a gusty autumn day | a winter storm | a desert wind"},
+};
+
+/* the kinds (a place each: what the wind blows through and how it moves there; ours, set against the references):
+ * the speed's top (x, Q8), the turbulence (x, Q8), the level (Q12: -26 LUFS at the defaults; grass and pines a little
+ * under, the storms a little over), then the core's paths (tx_wkind_t; r2 0 = the rush's top at 6 dB / octave) */
+#define O(t) ((t) * 6554)                 /* tenths of an octave -> Q16 */
+typedef struct { int16_t us, tim, trim; tx_wkind_t k; } kind_t;   /* (the offsets need int32: see tx_wkind_t) */
+#define NK 10u
+static const kind_t KINDS[NK] = {
+    /*            gsz  grt   kr lull |  rg       ro      rbw |  lg       lr lsh  lhp       lo lut   lp |  bg |  wg   wr wq0 wq1       wo   wt |  em   fl |    r2 */
+    /* wind: ground and trees, the all-round one */
+    {256, 256, 4096, {256, 256, 256, 3, 256, O(0), O(20), 256, O(0), 7, 400, O(0), 0, 512, 256, 256, 256, 19, 40, O(0), 256, 256, 256, 0}},
+    /* a breeze in tall grass: blades swishing (fewer, longer flaps, darker), waves of wind across the field (long, broad
+     * whooshes, higher), little at the ground */
+    {180, 256, 18707, {300, 300, 200, 3, 140, O(-5), O(20), 900, O(-10), 8, 500, O(-12), 0, 512, 90, 200, 400, 12, 19, O(10), 420, 0, 300, O(10)}},
+    /* pines: the needles' smooth hiss (dense, tiny flaps, high), soughing in slow swells, sheltered under the canopy */
+    {230, 200, 15407, {220, 200, 150, 2, 110, O(-4), O(20), 520, O(30), 5, 1500, O(-5), 0, 512, 50, 140, 150, 16, 24, O(15), 420, 100, 150, O(10)}},
+    /* leafy trees: leaves rattling and flapping (bigger, mid-bright), gusts sweeping through the canopy */
+    {230, 256, 7208, {256, 256, 256, 3, 170, O(0), O(20), 460, O(0), 8, 600, O(2), 0, 512, 110, 300, 300, 16, 30, O(7), 300, 80, 350, 0}},
+    /* an open plain or moor: no trees, the low broad roar of the air over open ground, buffeting, gusts moaning past */
+    {256, 256, 4921, {256, 256, 256, 3, 300, O(-4), O(30), 70, O(-10), 6, 800, O(-5), 0, 512, 430, 260, 200, 30, 50, O(0), 300, 150, 250, O(10)}},
+    /* a sea wind on the coast: strong and steady (little turbulence, long slow swells), a broad bright roar, spray hiss */
+    {280, 128, 6276, {120, 150, 150, 1, 300, O(3), O(35), 110, O(40), 4, 2000, O(5), 0, 512, 120, 200, 60, 16, 24, O(5), 500, 20, 100, O(10)}},
+    /* a gale on a ridge: violent sudden gusts and deep lulls, a deep roar over the rock, howling gusts, buffeting */
+    {330, 480, 1500, {700, 300, 500, 7, 300, O(-9), O(25), 40, O(0), 6, 1000, O(0), 0, 512, 480, 400, 300, 48, 96, O(-5), 300, 300, 500, O(10)}},
+    /* a gusty autumn day: calm, then a gust and dry leaves crackling and skittering (sparse, big, bright, ~u^3) */
+    {230, 380, 6868, {450, 320, 350, 6, 100, O(0), O(20), 520, O(-40), 9, 1200, O(6), 0, 768, 150, 250, 250, 19, 40, O(8), 256, 80, 300, O(10)}},
+    /* a winter storm: bare branches, blowing snow hissing over 7 m/s (~u^3), howling gusts, buffeting */
+    {320, 220, 3300, {300, 300, 400, 2, 260, O(-4), O(20), 750, O(20), 6, 3000, O(10), 112, 768, 320, 400, 350, 40, 80, O(-8), 300, 250, 250, O(10)}},
+    /* a desert wind: sand lifting over 5 m/s, its grains ticking and hissing (~u^3, bright), no plants */
+    {256, 180, 7479, {200, 256, 256, 1, 120, O(0), O(20), 1600, O(30), 4, 4000, O(30), 80, 768, 100, 200, 100, 19, 30, O(5), 256, 60, 250, O(10)}},
 };
 
 typedef struct {
     tx_wind_t w;
     tx_dcblock_t hp;
     int32_t buf[TX_BLOCK];
-    uint8_t p[NP], held, quiet;
+    uint8_t p[NP], held, quiet, kind, pad;
     uint16_t dropped;
 } wind_t;
 
@@ -37,14 +71,17 @@ static void apply(wind_t *s)
 {
     tx_wind_t *w = &s->w;
     int32_t v = s->p[P_WIND], g = s->p[P_GUST];
+    const kind_t *k = &KINDS[(s->p[P_KIND] * NK) >> 7];
+    w->k = k->k;
+    s->kind = (uint8_t)((s->p[P_KIND] * NK) >> 7);
     if (!v) w->U = 0;
     else {   /* 28 (v / 127)^1.5 m/s: 0.5 m/s at 9 (calm air, a breath now and then), 10 at 64, 28 at 127 */
         int32_t l = (32 << 16) - (int32_t)(tx_neglog2_q12((uint32_t)v) << 4) - 458007;   /* log2(v / 127) */
         uint32_t p = tx_exp2((l * 3) / 2 + (16 << 16));
-        w->U = (int32_t)(((uint64_t)114688u * p) >> 16);
+        w->U = (int32_t)(((uint64_t)114688u * p * (uint32_t)k->us) >> 24);
     }
-    w->ti = 1638 + (g * g * 711) / 1000;                     /* 0.05 + 0.35 (GUST / 127)^2: 0.05 .. 0.4 */
-    w->grate = ((15 + g * 115 / 127) * (19661 + v * 206)) >> 15;   /* (0.04 .. 0.34 /s) (0.6 .. 1.4): /65536 per block */
+    w->ti = ((1638 + (g * g * 711) / 1000) * k->tim) >> 8;  /* 0.05 + 0.35 (GUST / 127)^2: 0.05 .. 0.4 (x kind) */
+    w->grate = ((((15 + g * 115 / 127) * (19661 + v * 206)) >> 15) * w->k.grt) >> 8;   /* (0.04 .. 0.34 /s) (0.6 .. 1.4): /65536 per block */
     w->gusty = g;
     w->foliage = s->p[P_FOLIAGE];
     w->buffet = s->p[P_BUFFET];
@@ -72,11 +109,13 @@ static void wind_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
     if (on && vel) {
         if (s->held < 255u) s->held++;
         s->w.held = 1;
+        s->w.nsrc = (uint8_t)(s->held > 4u ? 4u : s->held);
         tx_wind_press(&s->w, vel);
         s->quiet = 0;
     } else if (s->held) {
         s->held--;
         if (!s->held) s->w.held = 0;
+        else s->w.nsrc = (uint8_t)(s->held > 4u ? 4u : s->held);
     }
 }
 
@@ -96,7 +135,7 @@ TX_AUDIO_CODE static void wind_render(void *st, int32_t *mix, unsigned n)
     if (s->quiet) return;
     for (j = 0; j < n; j++) s->buf[j] = 0;
     tx_wind_block(&s->w, s->buf, n);
-    tx_trim(s->buf, n, OUT_TRIM);
+    tx_trim(s->buf, n, (OUT_TRIM * KINDS[s->kind].trim) >> 12);
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->quiet = (uint8_t)(!s->held && tx_wind_quiet(&s->w) && !(s->hp.x1 | s->hp.y1));
 }

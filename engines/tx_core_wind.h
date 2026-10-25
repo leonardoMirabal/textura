@@ -10,7 +10,7 @@
  *             +-0.5 octave, from its own direction; a fifth of them lulls), less their running mean (U stays the mean).
  *   rush      the air over the ground and through the canopy: white -> a high-pass at fc / 4 and a low-pass at
  *             fc = 60 u^0.75 Hz: the band widens and brightens as it blows harder; amplitude ~ u^2, fluttering
- *             +-22 .. 44 % with the small eddies (an OU walk of 40 ms).
+ *             +-22 .. 44 % with the small eddies (an OU walk of 40 ms). Open places: a second low-pass pole (by kind).
  *   rustle    leaves and grass blades flapping: white x a sparse envelope (flaps arriving as a Poisson stream, rate
  *             600 (0.3 + 1.2 FOLIAGE) (u / 5)^2 /s, each a 3 ms decay, sizes uniform squared), high-passed at 400 Hz,
  *             two low-pass poles at 1.5 kHz (u / 4)^0.7 (brighter with speed and with leaves). A few flaps a second
@@ -33,6 +33,18 @@
 #include "tx_core_math.h"
 
 #define TX_WIND_NW 4u              /* whoosh voices */
+
+/* a kind of wind (a place): how its paths are set. Gains and scales Q8 (256 = 1), offsets Q16 octaves. */
+typedef struct {
+    int16_t gsz, grt, kr, lull;    /* gust size, gust rate (x), their rise speed (x), lulls per 15 gusts */
+    int16_t rg; int32_t ro, rbw;   /* rush: gain, its corner (+oct), its width (oct between the high-pass and the corner) */
+    int16_t lg; int32_t lr; int16_t lsh, lhp;   /* rustle: gain, flap rate (+oct), flap decay (2^lsh samples), high-pass (Hz) */
+    int32_t lo; int16_t lut, lp;   /* its low-pass (+oct), threshold speed (m/s Q4: blowing snow, sand), rate ~ u^(lp/256) */
+    int16_t bg;                    /* buffet gain */
+    int16_t wg, wr, wq0, wq1; int32_t wo; int16_t wt;   /* whooshes: gain, rate, Q x 16 from .. to, centre (+oct), pulse length (x) */
+    int16_t em, fl;                /* edge tone rate (x), flutter depth (x) */
+    int32_t r2;                    /* the rush's second low-pass pole (+oct over its corner; 0: none): a steeper top */
+} tx_wkind_t;
 
 typedef struct {                   /* a two-state Chamberlin band (Q14 coefficients) */
     int32_t low, band;
@@ -71,10 +83,11 @@ typedef struct {
     int32_t gusty, foliage, buffet, whoosh, edge;   /* 0 .. 127 */
     int32_t scale;                 /* log2 of the frequency scale, Q16 (-1 .. +1 octave) */
     int32_t level;                 /* Q15 */
-    uint8_t held, limit;
+    tx_wkind_t k;                  /* the kind */
+    uint8_t held, limit, nsrc, pad0;   /* (nsrc: keys held, 1 .. 4: COUNT, the gust sources and the canopy's extent) */
     /* rush */
     tx_wsvf_t r;                   /* (low: the high-pass state, band: the low-pass) */
-    int32_t rg;                    /* gain now */
+    int32_t rg, rl2;               /* gain now, the second low-pass pole's state */
     /* rustle */
     int32_t le, lhp, llp, llp2, lg;   /* flap envelope (Q15), HP and two LP states, gain now */
     uint32_t lacc;                 /* flap arrivals: Q16 fractional count carried */

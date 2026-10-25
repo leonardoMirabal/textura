@@ -201,7 +201,7 @@ static const host_t HOST[] = {
     /* wind: a calm (silence) .. a breath now and then .. a breeze .. a storm: gustier, more gusts passing, more
      * buffeting; an edge tone only now and then in the strong gusts */
     {"wind", 100, -73, -120, {{"WIND", 0, 64, 127}, {"GUST", 40, 70, 110}, {"WHOOSH", 30, 64, 90}, {"BUFFET", 30, 48, 80},
-                    {"EDGE", 0, 12, 28}}, 0, 0, 0, 0, 0, 0, 0},
+                    {"EDGE", 0, 12, 28}}, 1, 1, 4, 0, 0, 0, 0},
     /* stream: a trickle of plinks .. a babbling brook .. a torrent: bigger gulping bubbles, eddies, the low roar */
     {"stream", -42, -42, -42, {{"FLOW", 10, 70, 127}, {"ROAR", 0, 0, 100}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
                             {"SPREAD", 80, 64, 45}}, 0, 0, 0, 0, 0, 0, 0},
@@ -465,8 +465,10 @@ static int32_t pre_trim(const src_t *s, unsigned pre)
  * Indexed as HOST[]. */
 typedef struct { const char *name; uint8_t knob; int8_t depth; } kmap_t;   /* depth 0 with P_TYPE: the value itself */
 static const kmap_t HMAP[][HOST_NK] = {
-    /* wind: bigger obstacles lower, leafier, gustier, more gusts passing */
-    {{"SCALE", P_SIZE, -64}, {"FOLIAGE", P_TONE, 64}, {"GUST", P_HARD, 48}, {"WHOOSH", P_SPREAD, 48}, {0, 0, 0}},
+    /* wind: the place (TYPE 1 .. 63: grass, pines, leafy trees, a moor, the coast, a ridge, autumn, a winter storm, a
+     * desert), bigger obstacles lower, leafier, gustier, more gusts passing; COUNT: the keys held, 1 .. 4 (more gust
+     * sources and more canopy around) */
+    {{"SCALE", P_SIZE, -64}, {"FOLIAGE", P_TONE, 64}, {"GUST", P_HARD, 48}, {"WHOOSH", P_SPREAD, 48}, {"KIND", P_TYPE, 0}},
     {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},                       /* (stream: inside the water) */
     /* fire: a bigger fire, drier wood, burstier crackle, a draught */
     {{"SIZE", P_SIZE, 64}, {"WOOD", P_TONE, 64}, {"BURSTY", P_HARD, 64}, {"DRAUGHT", P_SPREAD, 48}, {0, 0, 0}},

@@ -43,6 +43,9 @@ void tx_wind_init(tx_wind_t *w, uint32_t seed)
     for (i = 0; i < 5; i++) w->w[i] = tx_rand_s15(&w->rng);  /* the walks start somewhere */
     w->kr = 1000; w->kd = 200;
     w->limit = 3;
+    w->nsrc = 1;
+    w->k.gsz = w->k.grt = w->k.kr = w->k.rg = w->k.lg = w->k.bg = w->k.wg = w->k.wr = w->k.wt = w->k.em = w->k.fl = 256;
+    w->k.rbw = 2 << 16; w->k.lsh = 7; w->k.lhp = 400; w->k.lp = 512; w->k.wq0 = 19; w->k.wq1 = 40; w->k.lull = 3;
     w->level = 32768;
 }
 
@@ -53,11 +56,11 @@ static void whoosh_spawn(tx_wind_t *w, int32_t size_q15, int32_t lfc)
     for (i = 0; i < w->limit && i < TX_WIND_NW; i++) if (!w->wv[i].on) { v = &w->wv[i]; break; }
     if (!v || !w->whoosh) return;
     v->on = 1;
-    v->k = 65536 / (34 + (int32_t)tx_rand_below(&w->rng, 104u));   /* the pulse's pole: 0.2 .. 0.8 s */
+    v->k = 65536 / (((34 + (int32_t)tx_rand_below(&w->rng, 104u)) * w->k.wt) >> 8);   /* the pulse's pole: 0.2 .. 0.8 s (x kind) */
     v->x1 = 1 << 19; v->x2 = 0;
-    v->lf0 = lfc + (int32_t)tx_rand_below(&w->rng, 65536u) * 2;   /* 0 .. +2 octaves over the rush */
+    v->lf0 = lfc + w->k.wo + (int32_t)tx_rand_below(&w->rng, 65536u) * 2;   /* 0 .. +2 octaves over the rush (+ kind) */
     v->dep = 39322 + (int32_t)tx_rand_below(&w->rng, 65536u);  /* its sweep: 0.6 .. 1.6 octaves */
-    v->q = 262144 / (19 + (int32_t)tx_rand_below(&w->rng, 22u));   /* Q 1.2 .. 2.5 */
+    v->q = 262144 / (w->k.wq0 + (int32_t)tx_rand_below(&w->rng, (uint32_t)(w->k.wq1 - w->k.wq0 + 1)));   /* Q (kind) */
     v->amp = size_q15;
     v->g = 0;
     w->events++; w->total++;
@@ -115,7 +118,7 @@ TX_AUDIO_CODE static void svf_noise(tx_wsvf_t *s, tx_rng_t *r, int32_t f, int32_
 TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
 {
     tx_rng_t *r = &w->rng;
-    int32_t t, ti, rel, u, l2, lfr, rg, lg, bg, be, lfl;
+    int32_t t, ti, rel, u, ue, l2, l2e, lfr, rg, lg, bg, be, lfl;
     unsigned i, j;
     if (!n) return;
     w->events = 0;
@@ -145,8 +148,10 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
             int32_t e = expo(r), a = (int32_t)tx_exp2((e * 3 / 2) * 16 + (15 << 16) - 200463);   /* 0.12 x 2^(1.5 E) */
             if (a > 22938) a = 22938;
             a = (a * (24 + w->gusty)) / 151;                 /* (x 0.16 .. 1 with GUST: a steady wind's gusts are small) */
-            if (tx_rand_below(r, 5u) == 0u) a = -(a * 3 / 5);    /* a lull */
-            gust(w, a, 34 + (int32_t)tx_rand_below(r, 138u), 138 + (int32_t)tx_rand_below(r, 465u));
+            a = (a * w->k.gsz) >> 8;
+            if (a > 32768) a = 32768;
+            if ((int32_t)tx_rand_below(r, 15u) < w->k.lull) a = -(a * 3 / 5);   /* a lull (3: a fifth) */
+            gust(w, a, (((34 + (int32_t)tx_rand_below(r, 138u)) << 8) + 255) / w->k.kr, 138 + (int32_t)tx_rand_below(r, 465u));
             if (a > 6554 && (tx_rand(r) & 1u)) whoosh_spawn(w, 16384 + a, w->lfr);
         }
     }
@@ -170,13 +175,18 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
     w->u = u;
     /* ---- the paths' levels and colours */
     l2 = u > 40 ? ilog2((uint32_t)u) - (12 << 16) - 217706 : -(8 << 16);   /* log2(u / 10) */
+    ue = u - w->k.lut * 256;                                 /* over the rustle's threshold (snow, sand lift off) */
+    l2e = ue > 40 ? ilog2((uint32_t)ue) - (12 << 16) - 217706 : -(8 << 16);
     rg = lg = bg = 0;
     if (u > 40) {
         int32_t a2 = upow(l2, 8), a25 = upow(l2, 10);
         int32_t fol = 6554 + w->foliage * 206;                  /* 0.2 .. 1 */
-        rg = (int32_t)(((int64_t)RUSH_REF * a2) >> 16);
-        lg = (int32_t)(((int64_t)RUST_REF * a25) >> 16);
-        lg = gmul(lg, fol);
+        rg = (int32_t)(((int64_t)RUSH_REF * a2 * w->k.rg) >> 24);
+        if (ue > 40) {                                       /* the rustle (or the snow, the sand) over its threshold */
+            lg = (int32_t)(((int64_t)RUST_REF * upow(l2e, 10) * w->k.lg) >> 24);
+            lg = gmul(lg, fol);
+            lg = gmul(lg, (int32_t)tx_exp2((15 << 16) + (ilog2(w->nsrc) >> 1)));   /* COUNT: more canopy, + 3 dB a doubling */
+        }
         {   /* the buffeting: (fast walk + gusts)+ squared */
             int32_t b = w->fast + ((t * 3) >> 2) + 16384;
             b = b < 0 ? 0 : b > 65536 ? 65536 : b;
@@ -184,10 +194,11 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
             bg = (int32_t)(((int64_t)BUF_REF * a25) >> 16);
             bg = gmul(bg, be);
             bg = (bg * w->buffet) / 127;
+            bg = (bg * w->k.bg) >> 8;
         }
     }
     {   /* the flutter: the rush +-22 .. 44 %, the leaves +-28 .. 56 % (more with GUST) */
-        int32_t d0 = (7 * (127 + w->gusty)) / 254, d1 = (9 * (127 + w->gusty)) / 254;
+        int32_t d0 = (7 * (127 + w->gusty) * w->k.fl) / 65024, d1 = (9 * (127 + w->gusty) * w->k.fl) / 65024;
         rg = gmul(rg, clampi(32768 + ((w->fl[0] * d0) >> 4), 6554, 65536));
         lg = gmul(lg, clampi(32768 + ((w->fl[1] * d1) >> 4), 3277, 65536));
     }
@@ -196,14 +207,25 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
     bg = clampi(gmul(bg, w->level), 0, 524288);
     /* rush: white through a high-pass at fc / 4 and a low-pass at fc = 60 u^0.75 Hz (x SCALE): the band widens and
      * brightens with u; its power held to the speed's law (x sqrt(1 kHz / fc)) */
-    lfr = 387114 + ((l2 + 217706) * 3) / 4 + w->scale + w->gcol;   /* log2(60) + 0.75 log2 u, the gust's colour */
+    lfr = 387114 + ((l2 + 217706) * 3) / 4 + w->scale + w->gcol + w->k.ro;   /* log2(60) + 0.75 log2 u, the gust's colour */
     lfr = clampi(lfr, 314572 /* 28 Hz */, 750467 /* 2.8 kHz */);
     w->lfr = lfr;
     if (rg) rg = clampi((int32_t)(((int64_t)rg * tx_exp2((653124 - lfr) / 2 + (15 << 16))) >> 15), 0, 524288);
     if (rg || w->rg) {
-        int32_t al = op_coef(tx_exp2(lfr)), ah = op_coef(tx_exp2(lfr - (2 << 16)) + 20u), h1 = w->r.low, l1 = w->r.band;
+        int32_t al = op_coef(tx_exp2(lfr)), ah = op_coef(tx_exp2(lfr - w->k.rbw) + 20u), h1 = w->r.low, l1 = w->r.band;
         int32_t g = w->rg, d = (rg - w->rg) / (int32_t)n;
-        for (j = 0; j < n; j++) {
+        if (w->k.r2) {   /* a second pole: the top falls at 12 dB / octave */
+            int32_t a2 = op_coef(tx_exp2(clampi(lfr + w->k.r2, 314572, 890000))), l2s = w->rl2;
+            for (j = 0; j < n; j++) {
+                int32_t x = (int32_t)(tx_rand(&w->nr) >> 18) - 8192;
+                h1 += ((x - h1) * ah) >> 15;
+                l1 += ((x - h1 - l1) * al) >> 15;
+                l2s += ((l1 - l2s) * a2) >> 15;
+                out[j] += l2s * (g >> 5);
+                g += d;
+            }
+            w->rl2 = rg ? l2s : 0;
+        } else for (j = 0; j < n; j++) {
             int32_t x = (int32_t)(tx_rand(&w->nr) >> 18) - 8192;
             h1 += ((x - h1) * ah) >> 15;
             l1 += ((x - h1 - l1) * al) >> 15;
@@ -217,15 +239,16 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
     /* rustle: flaps at R = 600 (0.3 + 1.2 FOLIAGE) (u / 5)^2 /s, each a 3 ms decay of white; HP 400 Hz, two
      * low-pass poles at 1.5 kHz (u / 4)^0.7 (x SCALE, up to x 1.6 with FOLIAGE: leaves are brighter than grass) */
     if (lg || w->lg) {
-        int32_t lR = 604820 + ilog2((uint32_t)(77 + w->foliage * 2)) - (8 << 16) + 2 * (l2 + 65536);   /* log2 R */
-        int32_t mean_q4, norm, a400 = op_coef(400), lk, dg = (lg - w->lg) / (int32_t)n, g = w->lg;
+        int32_t lR = 604820 + ilog2((uint32_t)(77 + w->foliage * 2)) - (8 << 16) + ((w->k.lp * (l2e + 65536)) >> 8)
+                   + w->k.lr + ilog2(w->nsrc);              /* log2 R (COUNT: more canopy, more flaps) */
+        int32_t mean_q4, norm, a400 = op_coef((uint32_t)w->k.lhp), lk, sh = w->k.lsh, dg = (lg - w->lg) / (int32_t)n, g = w->lg;
         int32_t le = w->le, lhp = w->lhp, llp = w->llp, ll2 = w->llp2;
         uint32_t sb;
         lR = clampi(lR, 2 << 16, 980930 /* 20000 /s */);
         mean_q4 = (int32_t)tx_exp2(1011122 + (4 << 16) - lR);   /* 44100 / R samples, Q4 */
-        norm = (int32_t)tx_exp2((15 << 16) - (lR - 552370) / 2);   /* 1 / sqrt(R tau): tau = 2.9 ms (log2 -8.4) */
+        norm = (int32_t)tx_exp2((15 << 16) - (lR + (sh << 16) - 1011122) / 2);   /* 1 / sqrt(R tau), tau = 2^sh / fs */
         norm = clampi(norm, 0, 98304);
-        lfl = 691450 + (((l2 + 217706 - 131072) * 7) / 10) + w->scale + w->foliage * 352 + w->gcol;   /* log2(1500) + 0.7 log2(u / 4) */
+        lfl = 691450 + (((l2 + 217706 - 131072) * 7) / 10) + w->scale + w->foliage * 352 + w->gcol + w->k.lo;   /* log2(1500) + 0.7 log2(u / 4) */
         lk = op_coef(tx_exp2(clampi(lfl, 10 << 16, 890000 /* 12.3 kHz */)));
         for (sb = 0; sb < n; sb += 16u) {
             unsigned m = n - sb < 16u ? n - sb : 16u, c = 0;
@@ -243,7 +266,7 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
                 int32_t x = (int32_t)(tx_rand(&w->nl) >> 18) - 8192, h;
                 x = (x * (le >> 4)) >> 11;
                 x = clampi(x, -32767, 32767);
-                le -= le >> 7;
+                le -= le >> sh;
                 lhp += ((x - lhp) * a400) >> 15;
                 h = x - lhp;
                 llp += ((h - llp) * (lk >> 1)) >> 14;           /* (|h - llp| < 2^17: lk halved, < 2^31) */
@@ -273,7 +296,7 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
     /* the wind's own whooshes (rate ~ WHOOSH (0.1 + 0.9 min(1, u / 15)) /s), then every voice */
     if (u > 400 && w->whoosh) {
         int32_t uu = u > 61440 ? 61440 : u;
-        uint32_t pr = (uint32_t)((w->whoosh * (19661 + ((uu * 46) >> 4))) >> 16);   /* /65536 per block */
+        uint32_t pr = (uint32_t)((((w->whoosh * (19661 + ((uu * 46) >> 4))) >> 16) * w->k.wr * w->nsrc) >> 8);   /* /65536 per block (COUNT: more sources) */
         if ((tx_rand(r) >> 16) < pr) whoosh_spawn(w, 9830 + (int32_t)tx_rand_below(r, 32768u), lfr);
     }
     w->nwh = 0;
@@ -287,6 +310,7 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
         g = (int32_t)(((int64_t)WH_REF * upow(l2, 8)) >> 16);
         g = gmul(gmul(gmul(g, v->amp), pn), w->level);
         g = (g * w->whoosh) / 127;
+        g = (g * w->k.wg) >> 8;
         if (u <= 40 || i >= w->limit) g = 0;   /* (over PARTICLES: out in this block) */
         g = clampi(g, 0, 524288);
         lc = v->lf0 + (int32_t)(((int64_t)v->dep * (v->x1 >> 4)) >> 15);
@@ -297,7 +321,7 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
         else w->nwh++;
     }
     /* the edge tone: rare, in strong gusts only */
-    if (!w->eon && w->edge && u > 24576 && w->gcur > 6554 && (tx_rand(r) >> 16) < (uint32_t)((w->edge * 29) >> 6)) {
+    if (!w->eon && w->edge && u > 24576 && w->gcur > 6554 && (tx_rand(r) >> 16) < (uint32_t)((((w->edge * 29) >> 6) * w->k.em) >> 8)) {
         w->eon = 1; w->ex1 = 1 << 19; w->ex2 = 0;
         w->ek = 65536 / (17 + (int32_t)tx_rand_below(r, 44u));   /* 0.1 .. 0.35 s */
         w->ed_l2 = -549246 + (int32_t)tx_rand_below(r, 65536u) * 152 / 65;   /* d: 3 .. 15 mm (log2 m: -8.4 .. -6.1) */

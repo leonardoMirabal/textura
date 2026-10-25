@@ -482,7 +482,11 @@ const FAMILIES = [
     ["minerals", "minerals", 0], ["stone friction", "minerals", 96]]],
   ["Ice & glass", [["icicles", "ice", 16], ["ice in a glass", "ice", 48], ["lake ice", "ice", 96], ["glass", "glass", 0], ["#chimes"]]],
   ["Fire & wood", [["fire", "fire", 0], ["flame", "fire", 96], ["#sparks"], ["dry wood", "wood", 16], ["green branch", "wood", 112]]],
-  ["Wind & storm", [["wind", "wind", 0], ["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 64], ["#storm"], ["#thunder"]]],
+  ["Wind", [["wind", "wind", 0], ["breeze in grass", "wind", 9], ["wind in pines", "wind", 16], ["leafy trees", "wind", 22],
+    ["open moor", "wind", 28], ["sea wind", "wind", 35], ["ridge gale", "wind", 41], ["gusty autumn", "wind", 48],
+    ["winter storm", "wind", 54], ["desert wind", "wind", 61]]],
+  ["Storm", [["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 64], ["#storm"], ["#thunder"], ["ridge gale", "wind", 41],
+    ["winter storm", "wind", 54]]],
   ["Insects", [["field cricket", "crickets", 10], ["tree cricket", "crickets", 53], ["mole cricket", "crickets", 74],
     ["cicada", "cicadas", 0], ["small cicada", "cicadas", 20], ["cicada chorus", "cicadas", 64], ["katydid", "katydids", 16],
     ["grasshopper", "katydids", 80], ["honeybee", "bees", 10], ["bumblebee", "bees", 53]]],
@@ -992,7 +996,7 @@ document.addEventListener("keydown", e => {
     if (!e.repeat || c.startsWith("Arrow")) stepEngine(c === "BracketLeft" || c === "Minus" || c === "ArrowLeft" ? -1 : 1);
     return;
   }
-  if (laneMode && /^Digit[1-8]$/.test(c)) { e.preventDefault(); if (!e.repeat) setFamily(+c.slice(5) - 1); return; }
+  if (laneMode && /^Digit[1-9]$/.test(c)) { e.preventDefault(); if (!e.repeat) setFamily(+c.slice(5) - 1); return; }
   const n = codeNote(c);
   if (n < 0) return;
   e.preventDefault();                                 // also stops a focused select's type-ahead
