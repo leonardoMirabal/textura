@@ -102,7 +102,7 @@ async function init() {
   window.txTest.ratings = () => JSON.parse(JSON.stringify(ratings));
   window.txTest.ab = () => ({ loaded: !!ab, buttons: document.querySelectorAll("#ab-buttons button").length,
                               playing: abNow ? abNow.label : null, ours: $("ab-ours").currentSrc, ref: $("ab-ref").currentSrc });
-  window.txTest.src = () => ({ eng: srcEng, panel: !$("src-panel").hidden, laneMode, lane, run: [...laneRun], step: [0, 1, 2, 3].map(laneStepOf),
+  window.txTest.src = () => ({ eng: srcEng, panel: !$("src-panel").hidden, laneMode, lane, run: [...laneRun], step: [0, 1, 2, 3].map(laneStepOf), cnt: [0, 1, 2, 3].map(laneCntOf),
                                held: [...srcHeld], intens: [0, 1, 2, 3].map(k => layers[k].eng === srcEng && srcIds ? srcGet(k, "INTENSITY") : -1),
                                lit: [...document.querySelectorAll("#kb .key.lane-bar")].length,
                                quick: quick.map(q => ({ step: q.step, cur: { ...q.cur } })), eng: [0, 1, 2, 3].map(engName),
@@ -489,6 +489,12 @@ const FAMILIES = [
 ];
 let fam = 0;
 const laneSnd = [-1, -1, -1, -1];                    // each lane's sound in the family (-1: none)
+// the two faders: the lower octave's 7 white keys HOW MANY (off, 1, 2, 4, 8, 16, 32: the source's COUNT knob), the upper
+// octave's 8 HOW ACTIVE each one is (rare .. busy: the generator's ACTIVITY, 9 .. 127, kept as a step on the 0 .. 14 scale)
+const COUNT_V = [0, 1, 22, 43, 64, 85, 106], NCNT = 7, NACT = 8;
+const laneCnt = [0, 0, 0, 0];
+function actStep(a) { return 1 + Math.round(a * 13 / (NACT - 1)); }        // HOW ACTIVE 0 .. 7 -> step 1 .. 14
+function actOf(step) { return Math.max(0, Math.round((step - 1) * (NACT - 1) / 13)); }
 const BLACKS = [], WHITES = [];
 const LANE_LO = 60, LANE_HI = 84;                  // lane mode: C4 .. C6 (15 white keys: the fader; 10 black: the lanes)
 for (let n = LANE_LO; n <= LANE_HI; n++) ([1, 3, 6, 8, 10].includes(n % 12) ? BLACKS : WHITES).push(n);
@@ -662,7 +668,7 @@ function laneSelect(i) {
 function soundLoad(k, i) {                            // the family's sound i into lane k (stopped, at nothing)
   const [nm, pre, type] = FAMILIES[fam][1][i];
   if (laneRun[k]) laneStart(k, false);
-  gen[k].step = 0; quick[k].step = 0;
+  gen[k].step = 0; quick[k].step = 0; laneCnt[k] = 0;
   if (nm.startsWith("#")) {
     let e = -1;
     for (let q = 0; q < M._txw_count(); q++) if (S(M._txw_name(q)) === nm.slice(1)) e = q;
@@ -678,10 +684,10 @@ function soundLoad(k, i) {                            // the family's sound i in
 function soundName(i) { const s = FAMILIES[fam][1][i]; return s ? s[0].replace("#", "") : "–"; }
 function soundKey(i) {                                // the family's sound i: select its lane (loading it into a free one)
   let k = laneSnd.indexOf(i);
-  if (k >= 0 && k === lane && laneRun[k]) { laneStart(k, false); gen[k].step = 0; showSource(); return; }   // tapped again: off
-  if (k < 0) {                                        // a free lane, else the quietest playing one gives way
+  if (k >= 0 && k === lane && laneRun[k]) { laneCount(k, 0); return; }   // tapped again: off
+  if (k < 0) {                                        // a free lane, else the smallest playing one gives way
     k = [0, 1, 2, 3].find(j => !laneRun[j] && j !== lane) ?? [0, 1, 2, 3].find(j => !laneRun[j]);
-    if (k === undefined) k = [0, 1, 2, 3].reduce((a, j) => laneStepOf(j) < laneStepOf(a) ? j : a, 0);
+    if (k === undefined) k = [0, 1, 2, 3].reduce((a, j) => laneCntOf(j) * 16 + laneStepOf(j) < laneCntOf(a) * 16 + laneStepOf(a) ? j : a, 0);
     soundLoad(k, i);
   }
   laneSelect(k);
@@ -723,13 +729,25 @@ function famBar() {                                   // the landscape's familie
   box.appendChild(row2);
 }
 function laneKey(n) {                                // a black key: one of the family's sounds (tapped again: off); a white
-  const b = BLACKS.indexOf(n), w = WHITES.indexOf(n);   // key: the selected sound's activity, C4 off .. C6 a full cloud
+  const b = BLACKS.indexOf(n), w = WHITES.indexOf(n);   // key: C4 .. B4 how many (C4 off), C5 .. C6 how active
   if (b >= 0) { if (b < FAMILIES[fam][1].length) soundKey(b); return; }
   if (w < 0) return;
-  laneStep(lane, w);
+  if (w < NCNT) laneCount(lane, w); else laneStep(lane, actStep(w - NCNT));
 }
-function laneStep(k, w) {                             // a lane's activity step (the white keys, the bar): 0 off .. 14 a cloud
-  if (w <= 0) { if (laneRun[k]) laneStart(k, false); gen[k].step = 0; quick[k].step = 0; showSource(); return; }
+function laneCount(k, c) {                            // HOW MANY: 0 off (new events stop, the tails ring), 1 .. 6: 1 .. 32
+  laneCnt[k] = c;
+  if (layers[k].eng === srcEng && srcIds && srcIds.COUNT !== undefined) srcSet(k, "COUNT", COUNT_V[c]);
+  if (c <= 0) { if (laneRun[k]) laneStart(k, false); showSource(); return; }
+  if (!laneRun[k]) laneStep(k, gen[k].step || actStep(3));   // (started: the activity as it was, or the middle)
+  else showSource();
+}
+function laneCntOf(i) { return laneRun[i] ? laneCnt[i] : 0; }
+function laneStep(k, w) {                             // HOW ACTIVE, as a step on the 0 .. 14 scale (0: off)
+  if (w <= 0) { laneCount(k, 0); return; }
+  if (!laneCnt[k]) {                                 // a sound off: the activity keys start it with one
+    laneCnt[k] = 1;
+    if (layers[k].eng === srcEng && srcIds && srcIds.COUNT !== undefined) srcSet(k, "COUNT", COUNT_V[1]);
+  }
   const lane_ = lane; lane = k;
   if (layers[lane].eng < 0) srcLayer(lane, 0);
   gen[lane].step = w;
@@ -760,24 +778,31 @@ function showLanes() {                                // the LEDs: the bar on th
     const d = document.createElement("div");
     d.className = "lane" + (i === lane ? " sel" : "") + (laneRun[i] ? " run" : "");
     d.dataset.k = i;
-    d.innerHTML = `<span class="lab"></span><span class="abar" title="activity: click or drag (C4 off .. C6 a full cloud)"><i class="mk"></i></span>`;
-    const bar = d.querySelector(".abar");
-    for (let w = 0; w < 15; w++) bar.insertAdjacentHTML("beforeend", `<b data-w="${w}"></b>`);
+    d.innerHTML = `<span class="lab"></span><span class="bars"><span class="small">how many</span>` +
+      `<span class="abar cbar" title="how many: click or drag (C4 off, then 1, 2, 4, 8, 16, 32)"></span>` +
+      `<span class="small">how active</span><span class="abar" title="how active each one is: click or drag (C5 rare .. C6 busy)"><i class="mk"></i></span></span>`;
+    const [cbar, bar] = d.querySelectorAll(".abar");
+    for (let w = 0; w < NCNT; w++) cbar.insertAdjacentHTML("beforeend", `<b data-w="${w}">${w ? 1 << (w - 1) : "off"}</b>`);
+    for (let w = 0; w < NACT; w++) bar.insertAdjacentHTML("beforeend", `<b data-w="${w}"></b>`);
     d.querySelector(".lab").textContent = laneLabel(i);
     d.querySelector(".lab").onclick = () => laneSelect(i);
-    const set = ev => {                               // the bar as a fader: the same as the white keys
-      const r = bar.getBoundingClientRect(), w = Math.max(0, Math.min(14, Math.floor((ev.clientX - r.left) / r.width * 15)));
-      if (lane !== i) laneSelect(i);
-      laneStep(i, w);
+    const fader = (el, n, fn) => {                    // a bar as a fader: the same as its white keys
+      const set = ev => {
+        const r = el.getBoundingClientRect(), w = Math.max(0, Math.min(n - 1, Math.floor((ev.clientX - r.left) / r.width * n)));
+        if (lane !== i) laneSelect(i);
+        fn(w);
+      };
+      el.addEventListener("pointerdown", ev => { ev.preventDefault(); if (!ctx) startAudio(); el.setPointerCapture(ev.pointerId); set(ev); });
+      el.addEventListener("pointermove", ev => { if (ev.buttons & 1) set(ev); });
     };
-    bar.addEventListener("pointerdown", ev => { ev.preventDefault(); if (!ctx) startAudio(); bar.setPointerCapture(ev.pointerId); set(ev); });
-    bar.addEventListener("pointermove", ev => { if (ev.buttons & 1) set(ev); });
+    fader(cbar, NCNT, w => laneCount(i, w));
+    fader(bar, NACT, w => laneStep(i, actStep(w)));
     box.appendChild(d);
     laneBar(i);
   }
-  for (let w = 1, top = laneStepOf(lane); w <= top; w++) {   // the selected lane's bar (C4 off: none lit)
-    const kw = document.querySelector(`#kb .key[data-n="${WHITES[w]}"]`);
-    if (kw) kw.classList.add("lane-bar");
+  if (laneRun[lane]) {                               // the selected sound's two bars on the white keys (C4 off: none lit)
+    for (let w = 1; w <= laneCnt[lane]; w++) document.querySelector(`#kb .key[data-n="${WHITES[w]}"]`)?.classList.add("lane-bar");
+    for (let w = 0, a = actOf(laneStepOf(lane)); w <= a; w++) document.querySelector(`#kb .key[data-n="${WHITES[NCNT + w]}"]`)?.classList.add("lane-bar");
   }
 }
 function setLaneMode(on) {
@@ -805,17 +830,18 @@ function genPanel() {                                // the selected lane's gene
 function laneBar(i) {                                // a lane's activity bar: the set step lit, the generator's activity as a marker
   const d = document.querySelector(`#lanes-box .lane[data-k="${i}"]`);
   if (!d) return;
-  const top = laneStepOf(i);
-  d.querySelectorAll(".abar b").forEach(b => b.classList.toggle("on", +b.dataset.w <= top && top > 0));
-  const mk = d.querySelector(".mk"), a = gen[i].on && laneRun[i] ? genState(i)[0] : -1;
-  mk.style.display = a < 0 ? "none" : "";
-  if (a >= 0) mk.style.left = `${(a / 127) * 100}%`;
+  const [cbar, bar] = d.querySelectorAll(".abar"), c = laneCntOf(i), a = laneRun[i] ? actOf(laneStepOf(i)) : -1;
+  cbar.querySelectorAll("b").forEach(b => b.classList.toggle("on", +b.dataset.w <= c && c > 0));
+  bar.querySelectorAll("b").forEach(b => b.classList.toggle("on", +b.dataset.w <= a));
+  const mk = d.querySelector(".mk"), g = gen[i].on && laneRun[i] ? genState(i)[0] : -1;   // the generator's wander
+  mk.style.display = g < 0 ? "none" : "";
+  if (g >= 0) mk.style.left = `${Math.max(0, (g - 9) / 118) * 100}%`;
 }
 function laneLabel(i) {                              // a lane's row: preset, activity step, running, the governor
   const pre = layers[i].eng < 0 ? "–" : laneSnd[i] >= 0 ? soundName(laneSnd[i]) : layers[i].eng === srcEng && srcIds ? SRC_PRESETS[srcGet(i, "PRESET")]
     : engName(i) + (QUICK[engName(i)] ? "" : " (no activity map)");
   const gc = M._txw_gov_cur(i), gu = M._txw_gov_user(i);
-  return `${pre} · ${laneRun[i] ? `${laneStepOf(i)}/14` : "off"}` +
+  return `${pre} · ${laneRun[i] ? `${1 << (laneCnt[i] - 1)} × activity ${actOf(laneStepOf(i)) + 1}/${NACT}` : "off"}` +
     (laneRun[i] && gc < gu ? ` · CPU: ${gc}/${gu} voices` : "");
 }
 function genReadout() {
@@ -877,7 +903,7 @@ function laneSound(k, nm) {
 function startLandscape() {                         // the landscape's first three sounds at once: steps 6, 8, 5
   if (!ctx) startAudio();
   if (!laneMode) setLaneMode(true);
-  [6, 8, 5].forEach((st, k) => { if (laneSnd[k] >= 0) laneStep(k, st); });
+  [[3, 3], [4, 4], [2, 2]].forEach(([c, a], k) => { if (laneSnd[k] >= 0) { laneCount(k, c); laneStep(k, actStep(a)); } });
   laneSelect(0);
   showSource();
 }

@@ -49,10 +49,14 @@
   #src-panel[hidden] { display: none; }
   #src-intens { width: 100%; accent-color: var(--accent); height: 28px; }
   .src-big { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  #lanes-box .lane { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 4px 12px; align-items: center;
+  #lanes-box .lane { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 2fr); gap: 4px 12px; align-items: center;
                      margin: 6px 0 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
   #lanes-box .lane .lab { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #lanes-box .abar { position: relative; display: grid; grid-template-columns: repeat(15, 1fr); gap: 2px; height: 18px; cursor: pointer; touch-action: none; }
+  #lanes-box .bars { display: grid; grid-template-columns: auto minmax(0, 7fr) auto minmax(0, 8fr); gap: 6px; align-items: center; }
+  #lanes-box .abar { position: relative; display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; height: 20px; cursor: pointer; touch-action: none; }
+  #lanes-box .abar.cbar { grid-template-columns: repeat(7, 1fr); }
+  #lanes-box .abar b { font: 10px/18px system-ui, sans-serif; text-align: center; color: var(--dim); }
+  #lanes-box .abar b.on { color: var(--ink); }
   #lanes-box .abar b { background: var(--bg); border: 1px solid var(--line); border-radius: 2px; }
   #lanes-box .abar b.on { background: var(--lit); border-color: var(--lit); }
   #lanes-box .abar .mk { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--warn); pointer-events: none; }
@@ -147,7 +151,8 @@
     <div class="row" style="margin-bottom:8px">
       <button id="landscape" class="primary" title="the landscape's first three sounds, playing on their own">Start a landscape</button>
       <span class="small"><b>How to:</b> pick a landscape (or <kbd>1</kbd>–<kbd>8</kbd>); the black keys are its sounds, the white keys
-        C4 … C6 the chosen sound's activity: <b>C4 off</b>, then from a lone event to <b>C6 a full cloud</b>. Up to 4 sounds at once.</span>
+        are two faders for the chosen sound: C4 … B4 <b>how many</b> (C4 off, then 1, 2, 4, 8, 16, 32), C5 … C6 <b>how active</b> each one is
+        (rare … busy). Up to 4 sounds at once.</span>
     </div>
     <div class="row">
       <button id="src-run" title="keep the source going without holding a key">Run</button>
@@ -173,8 +178,9 @@
     <div class="sliders" id="gen-sliders" style="margin-top:6px"></div>
     <div class="hint">Lane mode: the keyboard shows C4 … C6. A <b>landscape</b> is one family of sounds (water, stones, birds …).
       The 10 <b>black keys</b> C#4 … A#5 are its sounds, in the order of the Sounds row; tapping the chosen sound's key again turns it off.
-      The 15 <b>white keys</b> are the chosen sound's activity fader: C4 off (silence), D4 a lone event now and then, up to C6 a full
-      cloud (a move glides in over ~1 s). Up to 4 sounds play at once; a fifth takes the place of the quietest. A playing sound
+      The <b>white keys</b> are two faders for the chosen sound: the lower octave C4 … B4 is <b>how many</b> (C4 off: silence; then 1,
+      2, 4, 8, 16, 32 individuals), the upper C5 … C6 <b>how active</b> each one is (C5 rare, C6 busy; a move glides in over ~1 s).
+      One alone, rarely, is a lone event now and then; 32, busy, a full cloud. Up to 4 sounds play at once; a fifth takes the place of the smallest. A playing sound
       generates on its own (no key held). The white keys light up as the bar, the chosen sound's black key is lit, the other
       playing sounds' keys glow. Computer letters (<kbd>Z</kbd> <kbd>X</kbd> octave) and a MIDI
       keyboard (notes 60–84) play the same keys.</div>
