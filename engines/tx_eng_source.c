@@ -216,7 +216,7 @@ static const host_t HOST[] = {
     {"ice", 175, 175, 100, {{"AMOUNT", 20, 64, 127}, {"FIZZ", 10, 20, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
      300, 70, 3, 1},                /* (the top: a pile of icicles shattering, 3-5 breaks/s as the references) */
     /* wood: a branch taken and bent now and then, creaking .. load building faster, snapping every few seconds */
-    {"wood", -35, -35, -35, {{"LOAD", 110, 40, 0}, {"CREAK", 15, 25, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+    {"wood", -35, -35, -35, {{"LOAD", 110, 40, 0}, {"CREAK", 15, 25, 30}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
      300, 80, 4, 0},                /* (the top: a snap every ~0.4 s, each bend 0.3 s: a press sooner cuts the bend) */
     /* minerals: a knock on a stone now and then .. knocking and clinking, quicker */
     {"minerals", -40, -40, -40, {{"HOLD", 50, 36, 30}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,

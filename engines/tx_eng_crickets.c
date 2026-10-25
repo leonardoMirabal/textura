@@ -15,7 +15,7 @@
  *             last + s d + T + eps; SYNC = s (0: free, ~0.5: alternation, 1: synchrony); CV(eps) 0.06, t 60 ms.
  *   distance  level 1 / r (each cricket placed on the plane; the propagation delays feed the chorus).
  * Keys: carrier per caller, a quarter tone per key around the species' carrier at C4 (a "tuned field"); velocity =
- * proximity (+-1 octave of distance). FIELD: the distant chorus: 8 far callers (each its own carrier +-3 % and
+ * proximity (+-1 octave of distance). FIELD: the distant chorus: 3 far callers (each its own carrier +-3 % and
  * rhythm +-10 %), their pulses pure (the air and the grass take the harmonics), FIELD loud (sounds while a key is held;
  * it was a band of noise: the user, 2026-10-25, no hiss under the engines). */
 #include "tx_engine.h"
@@ -43,7 +43,7 @@ enum { P_TEMP, P_SPECIES, P_CHORUS, P_SYNC, P_DIST, P_FIELD, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"TEMP", 127, 76, "air temperature 10 .. 35 C: chirp rate 40 .. 220 /min (Dolbear), pulses as fast"},
-    {"SPECIES", 127, 0, "field cricket 4.8 kHz | Eugryllodes 3.2 kHz | tree cricket 2.9 kHz | mole cricket 3.5 kHz trill"},
+    {"SPECIES", 127, 0, "field cricket 4.8 kHz | Eugryllodes 3.2 kHz | tree cricket 2.9 kHz | mole cricket 3.5 kHz trill | ground cricket 7.4 kHz fast trill | low cricket 2 kHz"},
     {"CHORUS", 127, 16, "companions per key: 0 .. 15 crickets farther out (carriers +-3 %)"},
     {"SYNC", 127, 64, "reset by neighbours s: 0 free .. 0.5 alternate .. 1 synchrony"},
     {"DIST", 127, 50, "distance at velocity 100: 0.3 .. 30 m (log): level 1 / r; delays between callers"},
@@ -51,11 +51,12 @@ static const tx_param_t PARAMS[NP] = {
 };
 
 #define NV 32u
-#define NSP 4u
+#define NSP 6u
 #define G_REF 4900                 /* gain at 1 m, Q15 (calibrated by render: the chord stays under full scale) */
 #define FADE 4u
-#define FAR_SH 12                  /* the far callers' pulse level: FIELD x LEVEL x 3 >> FAR_SH (Q15; by render: the FIELD
-                                    * at its old loudness) */
+#define FAR_SH 12                  /* the far callers' pulse level: FIELD x LEVEL x 4.9 >> FAR_SH (Q15; by render: the
+                                    * FIELD at its old loudness) */
+#define NFAR 3u                    /* far callers (CPU: at the top they trill all the time) */
 
 typedef struct {
     uint16_t f0;                   /* carrier, Hz */
@@ -69,6 +70,9 @@ static const species_t SPECIES[NSP] = {
     {3200, 1638, 4626, 0, 4, 794, 1323},    /* Eugryllodes: H2 -17 dB (N1) */
     {2900, 1638, 1843, 0, 7, 529, 970},     /* Dolbear's tree cricket (ours) */
     {3510, 1638, 1642, 583, 0, 617, 882},   /* mole cricket G. vineae: H2 -26, H3 -35 dB (N28), a trill */
+    {7400, 1311, 1300, 0, 0, 1500, 3392},   /* a small ground cricket's fast trill (ours, from a close single-cricket
+                                             * recording: 7.4 kHz, 13 pulses/s, steady) */
+    {2000, 1638, 2600, 0, 4, 1100, 2200},   /* a low cricket's chirps (ours, from a recording: 2 kHz, ~2 chirps/s) */
 };
 
 typedef struct {
@@ -76,6 +80,8 @@ typedef struct {
     uint32_t inc;                  /* carrier increment */
     int32_t gain;                  /* Q15 */
     int32_t tf;                    /* own period factor, Q15 */
+    int32_t lf, gl, h2f;           /* the individual: pulse length, glide and H2 factors (Q15) */
+    int8_t pk, pad3[3];            /* and its pulses per chirp re the species' */
     int32_t pc;                    /* samples to the next pulse of the chirp (from the block start) */
     uint8_t pl, slot, em, note, alive, stop;
     uint16_t linger;               /* released: blocks it keeps calling (0 = not yet counted) */
@@ -220,7 +226,17 @@ static void spawn(crickets_t *s, const tx_event_t *e)
                         (tx_sin_q15((uint32_t)ang) * (rr >> 4)) >> 11);
         c->gain = (int32_t)((uint32_t)G_REF * 1000u / (uint32_t)(rr < 300 ? 300 : rr));
         f_l2 = ((int32_t)e->note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3);   /* a quarter tone per key (2^(1/24), Q16); the character (warmer = higher, faster) */
-        if (k) f_l2 += (tx_gauss_q12(r) * 2789) >> 12;       /* companions: carrier CV 3 % (N1: 4.8-5.3 kHz) */
+        f_l2 += (tx_gauss_q12(r) * (k ? 2789 : 930)) >> 12;   /* each its own carrier: companions CV 3 % (N1: 4.8-5.3 kHz),
+                                                              * the key's own 1 % (it stays on its key) */
+        /* no two crickets alike (note 17): its own pulse length (CV 10 %), glide (CV 30 %), H2 (sd 3 dB), and a
+         * pulse more or fewer per chirp (field crickets 3-5) */
+        c->lf = 32768 + ((tx_gauss_q12(r) * 3277) >> 12);
+        c->gl = 32768 + ((tx_gauss_q12(r) * 9830) >> 12);
+        c->h2f = (int32_t)tx_exp2(((tx_gauss_q12(r) * 32660) >> 12) + (15 << 16));
+        if (c->gl < 9830) c->gl = 9830;                      /* (a glide always falls) */
+        if (c->h2f > 46341) c->h2f = 46341;                  /* (H2 at most +3 dB: the chorus's peaks) */
+        if (c->lf > 37683) c->lf = 37683;                    /* (pulses at most 15 % longer: the same) */
+        c->pk = (int8_t)((int32_t)tx_rand_below(r, 3u) - 1);
         c->inc = (uint32_t)(((uint64_t)sp->f0 * 97391u * tx_exp2(f_l2 + (16 << 16))) >> 16);
         c->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);    /* own period: CV 5 % (ours) */
         c->alive = 1; c->stop = 0; c->em = e->emitter; c->note = e->note; c->pl = 0; c->linger = 0;
@@ -243,7 +259,10 @@ TX_AUDIO_CODE static void crickets_render_raw(void *st, int32_t *mix, unsigned n
     for (i = 0; i < ncall; i++) {
         cricket_t *c = &s->c[s->who[i]];
         if (!c->alive || c->stop) continue;
-        c->pl = sp->pulses ? sp->pulses : 1u;
+        {   /* its own count; now and then a chirp one pulse longer or shorter (ours) */
+            int32_t np = sp->pulses ? (int32_t)sp->pulses + c->pk + ((tx_rand(&s->cloud.rng) >> 29) == 0 ? (int32_t)(tx_rand(&s->cloud.rng) >> 31) * 2 - 1 : 0) : 1;
+            c->pl = (uint8_t)(np < 2 && sp->pulses ? 2 : np);
+        }
         c->pc = s->off[i];
     }
     for (i = 0; i < NV; i++) {
@@ -263,9 +282,10 @@ TX_AUDIO_CODE static void crickets_render_raw(void *st, int32_t *mix, unsigned n
             g = (int32_t)(((int64_t)g * (32768 + ((tx_gauss_q12(&s->cloud.rng) * 2867) >> 10))) >> 15);
             g = g < 0 ? 0 : g;
             ln = (uint32_t)((int32_t)len + (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * (int32_t)len * 82) >> 22));
+            ln = (uint32_t)(((uint64_t)ln * (uint32_t)c->lf) >> 15);
             c->slot ^= 1u;
-            tx_itone_start(&c->tone[c->slot], tx_vary_scale(c->inc, tx_vary_drift(&s->vy) >> 3), sp->glide,   /* (the night warms, cools) */
-                           ln, g > 32767 ? 32767 : g, sp->h2, sp->h3,
+            tx_itone_start(&c->tone[c->slot], tx_vary_scale(c->inc, tx_vary_drift(&s->vy) >> 3), (sp->glide * c->gl) >> 15,   /* (the night warms, cools) */
+                           ln, g > 32767 ? 32767 : g, (int32_t)(((int64_t)sp->h2 * c->h2f) >> 15), sp->h3,
                            (unsigned)c->pc);
             c->tone[c->slot].rasp = 3300;                    /* the teeth's rasp ~-20 dB under the tone (recordings: */
             if (!c->tone[c->slot].nz) c->tone[c->slot].nz = c->inc | 1u;   /* carrier band 18-24 dB over the rest) */
@@ -280,8 +300,8 @@ TX_AUDIO_CODE static void crickets_render_raw(void *st, int32_t *mix, unsigned n
     }
     {   /* FIELD: the distant chorus, 8 far callers chirping at their own rates (each call a chirp of the species'
          * pulses, pure: the harmonics lost on the way) */
-        int32_t g = held_any ? (int32_t)(((int64_t)s->p[P_FIELD] * s->level * 3) >> FAR_SH) : 0;
-        for (i = 0; i < 8; i++) {
+        int32_t g = held_any ? (int32_t)(((int64_t)s->p[P_FIELD] * s->level * 39) >> (FAR_SH + 3)) : 0;
+        for (i = 0; i < NFAR; i++) {
             uint32_t ph = s->vph[i];
             s->vph[i] += s->vinc[i] + (s->vinc[i] >> 4) * (i & 3);   /* spread +-10 % (ours) */
             if (s->vph[i] < ph && g && !s->fpl[i]) {         /* a call */
@@ -301,7 +321,7 @@ TX_AUDIO_CODE static void crickets_render_raw(void *st, int32_t *mix, unsigned n
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
         int32_t z = 0;
-        for (i = 0; i < 8; i++) z |= s->far[i].on | s->fpl[i];
+        for (i = 0; i < NFAR; i++) z |= s->far[i].on | s->fpl[i];
         for (i = 0; i < NV; i++) z |= s->c[i].alive | s->c[i].tone[0].on | s->c[i].tone[1].on;
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }
@@ -338,7 +358,7 @@ static void crickets_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: 32 mole crickets trilling (the densest pulses) in synchrony, close, hot, the field loud */
 static const char SCENE_MAX[] =
-    "0 particles 32\n0 param SPECIES 127\n0 param CHORUS 127\n0 param SYNC 127\n0 param TEMP 127\n0 param DIST 0\n"
+    "0 particles 32\n0 param SPECIES 70\n0 param CHORUS 127\n0 param SYNC 127\n0 param TEMP 127\n0 param DIST 0\n"
     "0 param FIELD 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"

@@ -25,7 +25,8 @@
 #include "tx_core_insect.h"
 #include "tx_core_creak.h"
 
-#define OUT_TRIM 7716               /* output gain, Q12 (+3.3 dB): max momentary (one velocity-100 press): -23.3 LUFS at LEVEL 100 -> target -20 LUFS
+#define OUT_TRIM 11570              /* output gain, Q12 (+9.0 dB; +3.5 with note 17's quieter creak and thud, the
+                                    * preset's loudness kept): max momentary (one velocity-100 press): -23.3 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -71,7 +72,8 @@ typedef struct {
     int32_t afs[NAF];              /* their sizes (Q12 log2 under the main) */
     int32_t cenv, cgoal;           /* creak burst envelope, Q15 */
     uint32_t f1;
-    uint8_t em, note, vel, alive, held, snapped, rel, pad;   /* rel: how fast the hands let go (the creak's fade, 2^-rel per block) */
+    uint8_t em, note, vel, alive, held, snapped, rel, rk;    /* rel: how fast the hands let go (the creak's fade, 2^-rel per block) */
+    uint8_t rd, pad2[3];                                     /* rk, rd: its cracks' burst corner and decay shifts */
 } piece_t;
 
 typedef struct {
@@ -83,6 +85,7 @@ typedef struct {
     uint16_t eo[NEVB], co[NEVB];
     int16_t ea[NEVB], ca[NEVB];
     int32_t res, res_x1;
+    uint8_t rk, rd, pad3[2];       /* the burst's colour now */
     uint8_t p[NP], limit, quiet;
     int32_t level, size_l2;
     uint32_t q_x16, c, tau_s;      /* tau in samples (0 = never) */
@@ -116,6 +119,7 @@ static void wood_init(void *st, uint32_t seed)
     tx_cloud_burst(&s->cloud, 1, 0);
     tx_cloud_rate(&s->cloud, 0);
     s->limit = 3;
+    s->rk = 2; s->rd = 5;
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
@@ -163,7 +167,16 @@ static void take(wood_t *s, const tx_event_t *e)
     for (i = 0; i < s->limit && !p; i++) if (piece_quiet(&s->pc[i])) p = &s->pc[i];
     for (i = 0; i < s->limit && !p; i++) if (!s->pc[i].alive) p = &s->pc[i];
     if (!p) { s->dropped++; return; }
-    p->f1 = tx_exp2(tx_log2_q16(s->c) - 267150 - s->size_l2 + ((int32_t)e->note - 60) * 5461 + (tx_vary_tone(&s->vy) >> 2));   /* 0.059 c / L */
+    {   /* no two pieces alike (note 17: a branch-snapping recording's per-snap peak spreads 2.9 octaves, ours 0.2-0.9): each
+         * its own length and thickness (f1 ~ d / L^2: sd 0.8 octave; twigs, the most, +0.4 octave: ours) */
+        int32_t g = (int32_t)(((int64_t)tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng)) * 52429 >> 15);
+        g = g > (2 << 16) ? (2 << 16) : g < -(2 << 16) ? -(2 << 16) : g;
+        p->f1 = tx_exp2(tx_log2_q16(s->c) - 267150 - s->size_l2 + ((int32_t)e->note - 60) * 5461 + (tx_vary_tone(&s->vy) >> 2)
+                        + g + 26214);   /* 0.059 c / L */
+        if (p->f1 > 9000u) p->f1 = 9000u;
+        p->rk = (uint8_t)(1u + tx_rand_below(&s->cloud.rng, 3u));   /* its fracture's edge: 9 / 3.5 / 1.7 kHz corner */
+        p->rd = (uint8_t)(4u + tx_rand_below(&s->cloud.rng, 3u));   /* and length: 0.4 / 0.7 / 1.5 ms */
+    }
     {   /* no two pieces alike: the grain's loss (Q x 2^+-1) and the grip (sigma0 5 .. 80 /s) are this piece's */
         uint32_t q = tx_vary_scale(s->q_x16, tx_rand_s15(&s->cloud.rng) * 2);
         uint32_t grip = (5u + tx_rand_below(&s->cloud.rng, 76u)) * 256u;
@@ -204,13 +217,13 @@ static void crack(wood_t *s, piece_t *p, unsigned o, int32_t x, unsigned *ne)
     if (*ne < 6u) {                                          /* <= 6 mode strikes per piece per block (CPU); the rest click */
         s->eo[*ne] = (uint16_t)o; s->ea[*ne] = (int16_t)(a >> 15); (*ne)++;   /* (strikes of this block, in order) */
     }
-    s->bpush[o] += (int32_t)(((int64_t)(a >> 10) * dull) >> 15);
+    s->bpush[o] += (int32_t)(((int64_t)(a >> 9) * dull) >> 15);   /* (+6 dB: twigs snap mostly as crack, note 17) */
+    s->rk = p->rk; s->rd = p->rd;                            /* (the burst takes the latest crack's colour) */
     {   /* the fracture front itself: a 2-sample spike (fibres break in microseconds: a sharp crack, ours) */
         int32_t sp = (int32_t)(((int64_t)(a >> 7) * dull) >> 15);
         s->buf[o] += sp;
         if (o + 1u < TX_BLOCK) s->buf[o + 1u] -= sp >> 1;
     }
-    (void)p;
 }
 
 TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
@@ -253,7 +266,11 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
                     unsigned o = p->tau > p->t ? p->tau - p->t : 0u, c2 = 0;
                     uint32_t bits = tx_rand(r);
                     crack(s, p, o < n ? o : n - 1u, 0, &ne);
-                    tx_mode_strike(&p->thud, (int32_t)(((int64_t)A_REF / 3 * s->level) >> 15));
+                    {
+                        int32_t g = (int32_t)(((int64_t)tx_rand_s15(r) + tx_rand_s15(r) + tx_rand_s15(r)) * 65536 >> 15);
+                        g = g > (1 << 16) ? (1 << 16) : g;
+                        tx_mode_strike(&p->thud, (int32_t)(((int64_t)(A_REF / 3) * (int32_t)tx_exp2(g - 98304 + (15 << 16)) >> 15) * s->level >> 15));
+                    }
                     for (a = 0; a < 16; a++) c2 += bits >> a & 1u;   /* binomial(16, 1/2): mean 8 */
                     for (a = 0; a < c2 && a < NAF; a++) {
                         uint32_t l = tx_neglog2_q12(tx_rand(r)), t;
@@ -280,6 +297,12 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
                 p->cenv += (p->cgoal - p->cenv) >> (p->held ? 4u : p->rel);
                 lvl = (int32_t)(((int64_t)p->cenv * s->p[P_CREAK] * (40 + p->vel)) >> 15);   /* Q15-ish slip size */
                 lvl = (int32_t)(((int64_t)lvl * s->level) >> 15);
+                if (p->tau && !p->snapped) {                 /* the fibres slip more as the load builds: the creak grows
+                                                              * with t / tau (a quick snap creaks briefly; at the top the
+                                                              * creak hid the snaps: note 17) */
+                    uint32_t fr = p->t >= p->tau ? 32768u : (p->t << 8) / ((p->tau >> 7) | 1u);   /* (32-bit: tau < 2^19) */
+                    lvl = (int32_t)(((int64_t)lvl * (int32_t)fr) >> 15);
+                }
                 if (lvl > 64) {
                     uint32_t f0 = tx_knob_exp(s->p[P_PITCH], 30u, 310000);   /* 30 .. 800 Hz */
                     unsigned nc = tx_creak_block(&p->ck, r, f0, 4915, lvl > 20000 ? 20000 : lvl, n, s->co, s->ca, NEVB), q;
@@ -310,15 +333,15 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
         tx_modal_run(&p->thud, 1, s->buf, 0, n);
     }
     {   /* the clicks: a 1-3 sample spike and a ~1 ms burst */
-        int32_t e = s->res, x1 = s->res_x1;
+        int32_t e = s->res, x1 = s->res_x1, dry = 32767 - (int32_t)s->p[P_MOIST] * 258;
         for (j = 0; j < n; j++) {
             int32_t x;
             e += s->bpush[j];
             if (!e) continue;
             x = (int32_t)(tx_rand(r) >> 17) - 16384;
-            x1 += (x - x1) >> 2;
-            s->buf[j] += (x1 * (e >> 12)) >> 1;
-            e -= (e >> 5) + 1;
+            x1 += (x - x1) >> s->rk;                         /* a dry fracture is a bright crack (a snapping reference */
+            s->buf[j] += ((x1 + ((x - x1 - x1) * dry >> 15)) * (e >> 12)) >> 1;   /* centres ~7.5 kHz): the high part */
+            e -= (e >> s->rd) + 1;                           /* by dryness, the low-passed part when wet (ours) */
             if (e < 0) e = 0;
         }
         s->res = e; s->res_x1 = e ? x1 : 0;

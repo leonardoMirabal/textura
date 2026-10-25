@@ -26,13 +26,13 @@
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
 
-#define OUT_TRIM 12804               /* output gain, Q12 (-2.5 dB step 6, longer syllables; +1.6 dB with the spectrogram fixes, session 5; +8.5 dB): integrated (a key held 10 s): -34.5 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 6420                /* output gain, Q12 (-6 dB with note 17's steadier presses and longer syllables; -2.5 dB step 6, longer syllables; +1.6 dB with the spectrogram fixes, session 5; +8.5 dB): integrated (a key held 10 s): -34.5 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
  * (tenths of a dB), the tilt's corner VARY_SPLIT. OUT_TRIM +2.3 dB with it: the mean of 8 presses back on its
  * loudness */
-#define VARY_LO -130
+#define VARY_LO -60                 /* (was -130: a singer's level steadier, the chorus references' level sd 0.4-6 dB) */
 #define VARY_HI 15
 #define VARY_TILT 140
 #define VARY_DRIFT 60
@@ -85,7 +85,9 @@ typedef struct {
     int32_t gain;                  /* strike amplitude, Q15 */
     int32_t tf;                    /* own period factor, Q15 */
     uint32_t f1;                   /* carrier / low peak at this key, Hz */
-    uint8_t in_call, em, note, alive, stop, pad;
+    uint8_t in_call, em, note, alive, stop, npul;   /* npul: its syllables per call (katydids) */
+    uint16_t tq;                   /* its syllables' length (teeth) re the species', Q8 */
+    uint16_t jq;                   /* its teeth's unevenness re JITTER, Q8 */
     uint16_t linger;               /* released: blocks it keeps calling (0 = not yet counted) */
 } singer_t;
 
@@ -116,6 +118,16 @@ static int32_t call_T(const katy_t *s, int32_t tf)
 {
     int32_t T = ms10(s, sp_of(s)->call * 10u);
     return (int32_t)(((int64_t)T * tf) >> 15);
+}
+/* a singer's call length (v 0: the species' own) */
+static int32_t call_len_v(const katy_t *s, uint32_t f1, const singer_t *v)
+{
+    const species_t *sp = sp_of(s);
+    uint32_t tq = v ? v->tq : 256u, np = v && v->npul ? v->npul : sp->pulses;
+    uint32_t teeth = (sp->teeth * tq) >> 8;
+    if (sp->katydid == 2u) return ms10(s, (((uint32_t)sp->pspc * tq) >> 8) * (np - 1u)) + (int32_t)(teeth * TX_FS / f1);
+    if (sp->katydid) return (int32_t)(teeth * TX_FS / f1);
+    return ms10(s, (uint32_t)sp->syl * sp->nsyl);
 }
 static int32_t call_len(const katy_t *s, uint32_t f1)
 {
@@ -224,7 +236,16 @@ static void spawn(katy_t *s, const tx_event_t *e)
                         (tx_sin_q15((uint32_t)ang) * (rr >> 4)) >> 11);
         v->gain = (int32_t)((uint32_t)G_REF * 1000u / (uint32_t)(rr < 300 ? 300 : rr));
         f_l2 = ((int32_t)e->note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3);   /* the character (warmer = higher, faster) */
-        if (k) f_l2 += (tx_gauss_q12(r) * 2789) >> 12;       /* individuals: CV 3 % (ours) */
+        f_l2 += (tx_gauss_q12(r) * (k ? 2789 : 930)) >> 12;   /* individuals: CV 3 % (ours); the key's own 1 % */
+        /* no two singers alike (note 17): its syllables' length (x 1.5, x/ 1.35: the references' katydid syllables 140-320 ms),
+         * 2-4 syllables per call ("katy-did", "katy-didn't"), its teeth's unevenness (x/ 1.4: a cleaner or raspier
+         * file) */
+        v->tq = (uint16_t)(tx_exp2(((tx_gauss_q12(r) * 28000) >> 12) + (8 << 16) + 39000));
+        if (v->tq < 128u) v->tq = 128u;
+        if (v->tq > 640u) v->tq = 640u;
+        v->npul = sp->katydid == 2u ? (uint8_t)(2u + tx_rand_below(r, 3u)) : 0u;
+        v->jq = (uint16_t)(tx_exp2(((tx_gauss_q12(r) * 32000) >> 12) + (8 << 16)));
+        if (v->jq > 768u) v->jq = 768u;
         v->f1 = (uint32_t)(((uint64_t)sp->f1 * tx_exp2(f_l2 + (16 << 16))) >> 16);
         if (v->f1 > 16000u) v->f1 = 16000u;
         tune(sp, v, v->f1);
@@ -238,9 +259,10 @@ static void spawn(katy_t *s, const tx_event_t *e)
 }
 
 /* the strike interval: the period x (1 + JITTER x a normal draw), at least 1/4 of it */
-static int32_t interval_q8(katy_t *s, int32_t per_q8)
+static int32_t interval_q8(katy_t *s, int32_t per_q8, uint32_t jq)
 {
     int32_t j = sp_of(s)->katydid == 2u && s->jit < 11469 ? 11469 : s->jit;   /* a rasp: uneven teeth (SD >= 35 %) */
+    j = (int32_t)(((int64_t)j * jq) >> 8);
     int32_t d = (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * j) >> 15);   /* Q12 */
     int32_t q = per_q8 + (int32_t)(((int64_t)per_q8 * d) >> 12);
     return q < (per_q8 >> 2) ? (per_q8 >> 2) : q;
@@ -263,7 +285,7 @@ static unsigned strikes(katy_t *s, singer_t *v, unsigned n)
 {
     const species_t *sp = sp_of(s);
     int32_t g = (int32_t)(((int64_t)v->gain * s->level) >> 15);
-    int32_t len = call_len(s, v->f1);
+    int32_t len = call_len_v(s, v->f1, v);
     unsigned legs = sp->katydid ? 1u : 2u, L, cnt[2] = {0, 0}, a, b, m;
     int32_t per_q8 = sp->katydid ? (int32_t)((TX_FS << 8) / (sp->katydid == 2u ? (v->f1 * 3u) >> 2 : v->f1)) : (int32_t)((TX_FS << 8) / tx_exp2(s->peg_l2));
     for (L = 0; L < legs; L++) {
@@ -271,7 +293,7 @@ static unsigned strikes(katy_t *s, singer_t *v, unsigned n)
             int32_t o = v->next_q8[L] >> 8, ts = v->t + o, e, amp;
             if (ts >= len) { if (L + 1 == legs) v->in_call = 0; break; }
             if (sp->katydid == 2u) {                         /* syllables: each its own sweep of the file */
-                int32_t spc = ms10(s, sp->pspc), sl = (int32_t)(sp->teeth * TX_FS / v->f1), u = ts % spc;
+                int32_t spc = ms10(s, ((uint32_t)sp->pspc * v->tq) >> 8), sl = (int32_t)(((sp->teeth * v->tq) >> 8) * TX_FS / v->f1), u = ts % spc;
                 uint32_t pos = u < sl ? (uint32_t)(((uint32_t)u << 6) / (uint32_t)sl) : 64u;
                 e = s->env[pos > 64u ? 64u : pos];
             } else if (sp->katydid) {
@@ -281,7 +303,7 @@ static unsigned strikes(katy_t *s, singer_t *v, unsigned n)
                 e = leg_env(s, sp, L ? ts + (ms10(s, sp->syl) >> 1) + (ts >> 6) : ts);   /* leg 2 drifts (ours) */
             amp = (int32_t)(((int64_t)g * e) >> 15);
             if (amp) { s->eo[L][cnt[L]] = (uint16_t)o; s->ea[L][cnt[L]] = (int16_t)(amp > 32767 ? 32767 : amp); cnt[L]++; }
-            v->next_q8[L] += interval_q8(s, per_q8);
+            v->next_q8[L] += interval_q8(s, per_q8, v->jq);
         }
         v->next_q8[L] -= (int32_t)(n << 8);
         if (v->next_q8[L] < -(1 << 20)) v->next_q8[L] = 0;
