@@ -231,10 +231,15 @@
     <div class="sliders" id="sliders"></div>
   </section>
 
-  <section class="panel">
-    <h2>CHAMBER <label class="small"><input type="checkbox" id="ch-on"> on</label></h2>
-    <div class="small" style="margin-bottom:8px">A small space after the mix of the layers: its lowest modes and a short diffuse tail (mono, on the middle of the stereo pair).</div>
-    <div class="sliders" id="ch-sliders"></div>
+  <section class="panel" id="fx-panel">
+    <h2>EFFECTS <span class="small" id="fx-state"></span></h2>
+    <div class="small" style="margin-bottom:8px">REVERB on the mix (a send of its middle, a stereo return; TYPE ROOM is the old CHAMBER: the room's body modes and a short tail). DRIVE and FILTER on the edited layer's own signal, before it is panned. Off = the sound untouched.</div>
+    <h3 class="small">REVERB (the mix)</h3>
+    <div class="sliders" id="fx-rv"></div>
+    <h3 class="small" id="fx-dr-title">DRIVE (layer 1)</h3>
+    <div class="sliders" id="fx-dr"></div>
+    <h3 class="small" id="fx-fl-title">FILTER (layer 1)</h3>
+    <div class="sliders" id="fx-fl"></div>
   </section>
 
 </main>

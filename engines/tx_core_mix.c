@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura MIX core: four layers -> pan -> stereo -> CHAMBER (mid send) -> linked limiter (tx_core_mix.h). */
+/* Textura MIX core: four layers (-> their inserts) -> pan -> stereo -> CHAMBER (mid send) -> the bus effects -> linked
+ * limiter (tx_core_mix.h). */
 #include "tx_core_mix.h"
 
 void tx_mix_init(tx_mix_t *m)
@@ -57,6 +58,7 @@ TX_AUDIO_CODE void tx_mix_slot_render(tx_mix_t *m, unsigned k, unsigned n)
     if (k >= TX_MIX_SLOTS || !m->e[k]) return;
     for (j = 0; j < n; j++) m->blk[j] = 0;
     m->e[k]->render(m->st[k], m->blk, n);
+    if (m->ins) m->ins(m->fx, k, m->blk, n);                 /* the slot's inserts (drive, filter) */
     tx_mix_add(m, k, m->blk, n);
 }
 
@@ -69,6 +71,7 @@ TX_AUDIO_CODE void tx_mix_end(tx_mix_t *m, int32_t *L, int32_t *R, unsigned n)
         tx_chamber_process(m->ch, m->mid, n);
         for (j = 0; j < n; j++) { int32_t w = m->mid[j] - m->blk[j]; m->L[j] += w; m->R[j] += w; }
     }
+    if (m->bus) m->bus(m->fx, m->L, m->R, n);               /* the bus effects (the reverb) */
     for (j = 0; j < n; j++) {                                /* linked: one gain for both, from the louder */
         int32_t a = m->L[j] < 0 ? -m->L[j] : m->L[j], b = m->R[j] < 0 ? -m->R[j] : m->R[j];
         if (a > pk) pk = a;
@@ -85,5 +88,6 @@ int tx_mix_quiet(const tx_mix_t *m)
     unsigned k;
     for (k = 0; k < TX_MIX_SLOTS; k++)
         if (m->e[k]) { tx_stats_t s; m->e[k]->stats(m->st[k], &s); if (!s.quiet) return 0; }
+    if (m->busq && !m->busq(m->fx)) return 0;
     return !(m->ch && m->ch_on) || tx_chamber_quiet(m->ch);
 }

@@ -29,6 +29,7 @@
 #include "tx_host.h"
 #include "tx_core_mix.h"
 #include "tx_core_chamber.h"
+#include "tx_fx.h"
 
 #define FM1_WORST_US 3620.0        /* as txbench: Frodhes' worst block on the FM-1 at the pinned revision */
 #define FR_SKIP_BLOCKS 20u
@@ -223,6 +224,45 @@ static const mixdef_t MIXES[] = {
     {"cave",    {{"drips", 3, 16, 0}, {"minerals", 13, 64, 0}, {"water", 3, 64, 0}, {"wind", 4, 32, 0}}},
 };
 
+/* ---- the effects (tx_fx.h): one effect on a busy input (noise at -12 dBFS, all the time), its block's cost on the
+ * FM-1 (the per-block minimum over runs, then the 99th percentile: the cost is flat). kind 0 drive, 1 filter, 2 reverb */
+static int fxc_cmp(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
+static double fx_cost(int kind, unsigned type, unsigned decay)
+{
+    static tx_fx_t fx;
+    static uint64_t t[MAXR][1500];
+    static double v[1500];
+    int32_t L[TX_BLOCK], R[TX_BLOCK];
+    unsigned r, b, j, nb = 1500, nv = 0;
+    uint32_t rng;
+    for (r = 0; r <= runs; r++) {
+        rng = 99u;
+        tx_fx_init(&fx);
+        if (kind == 0) { tx_fx_drive_param(&fx.drive[0], TX_DR_AMOUNT, 90); tx_fx_drive_param(&fx.drive[0], TX_DR_TONE, 100);
+                         tx_fx_drive_param(&fx.drive[0], TX_DR_MIX, 100); }
+        if (kind == 1) { tx_fx_filter_param(&fx.filter[0], TX_FL_TYPE, 2); tx_fx_filter_param(&fx.filter[0], TX_FL_RESO, 90);
+                         tx_fx_filter_param(&fx.filter[0], TX_FL_LFO, 90); tx_fx_filter_param(&fx.filter[0], TX_FL_FREQ, 70); }
+        if (kind == 2) { tx_fx_reverb_param(&fx.rev, TX_RV_TYPE, type); tx_fx_reverb_param(&fx.rev, TX_RV_MIX, 90);
+                         tx_fx_reverb_param(&fx.rev, TX_RV_DECAY, decay < 127 ? decay : 100);
+                         tx_fx_reverb_param(&fx.rev, TX_RV_PREDELAY, 40); tx_fx_reverb_param(&fx.rev, TX_RV_LOWCUT, 30); }
+        for (b = 0; b < nb; b++) {
+            uint64_t t0;
+            if (b == 200u && decay == 127) tx_fx_reverb_param(&fx.rev, TX_RV_DECAY, 127);
+            for (j = 0; j < TX_BLOCK; j++) { rng = rng * 1664525u + 1013904223u; L[j] = R[j] = (int32_t)(rng >> 10) - (1 << 21); }
+            t0 = tx_now_ns();
+            if (kind == 2) tx_fx_bus(&fx, L, R, TX_BLOCK); else tx_fx_lane(&fx, 0, L, TX_BLOCK);
+            if (r) t[r - 1][b] = tx_now_ns() - t0;
+        }
+    }
+    for (b = 300; b < nb; b++) {
+        uint64_t m = t[0][b];
+        for (r = 1; r < runs; r++) if (t[r][b] < m) m = t[r][b];
+        v[nv++] = m / 1000.0 * factor;
+    }
+    qsort(v, nv, sizeof v[0], fxc_cmp);
+    return v[nv * 99 / 100];
+}
+
 int main(int argc, char **argv)
 {
     const tx_engine_t *src = tx_engine_find("source");
@@ -364,6 +404,23 @@ int main(int argc, char **argv)
                " %u (planned) / %u (device) (11 at most)\n           (%s)\n", mx->name, typ, w8,
                w8 <= pool4p ? "inside" : typ <= pool4p ? "typical inside, worst over" : "over", pool4p,
                (unsigned)(4.0 * pool11p / typ), (unsigned)(4.0 * pool11d / typ), names);
+    }
+    {   /* the effects: each one's cost, the chain against the effects reserve */
+        static const char *const RT[TX_RVT_N] = {"off", "ROOM (the CHAMBER)", "HALL", "INFINITE", "DARK"};
+        double dr = fx_cost(0, 0, 0), fl = fx_cost(1, 0, 0), rv[TX_RVT_N], fz = fx_cost(2, TX_RVT_INF, 127), worst = 0;
+        unsigned t;
+        printf("\n4. effects (FM-1 us a block, p99 on a busy input; tx_fx.h)\n");
+        printf("   DRIVE (a lane, AMOUNT 90, TONE 100, MIX 100)            %5.0f us  (%4.1f %%)  per lane, from the lanes' pool\n", dr, 100 * dr / BLOCK_US);
+        printf("   FILTER (a lane, LP18, RESO 90, LFO 90)                  %5.0f us  (%4.1f %%)  per lane, from the lanes' pool\n", fl, 100 * fl / BLOCK_US);
+        for (t = TX_RVT_ROOM; t < TX_RVT_N; t++) {
+            rv[t] = fx_cost(2, t, 64);
+            if (rv[t] > worst) worst = rv[t];
+            printf("   REVERB %-22s (MIX 90, PREDELAY, LOWCUT) %5.0f us  (%4.1f %%)\n", RT[t], rv[t], 100 * rv[t] / BLOCK_US);
+        }
+        if (fz > worst) worst = fz;
+        printf("   REVERB INFINITE frozen (DECAY 127)                  %5.0f us  (%4.1f %%)\n", fz, 100 * fz / BLOCK_US);
+        printf("   the reverb's worst TYPE %.0f us of the effects reserve (%.0f us, CHAMBER's %.0f folded in: it is a TYPE now)\n",
+               worst, FX_RESERVE_US + chamber, chamber);
     }
     printf("\nEstimates from host times x the calibration (+-30 %%); the FM-1 decides at the port (whole-interrupt "
            "counters, CC 116). Platform figures are Frodhes' 0.9.5 measurements; Textura's own come at S4.\n");

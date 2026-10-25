@@ -18,6 +18,8 @@
  * CHAMBER: idle zero, a quiet sweep (each knob at 0/64/90/127 after a drip tap), overflow (test max at its loudest),
  *          determinism + baseline (drip hold / max, gravel tap, test chord through the chamber at its defaults).
  * NOISE: the band filter at every corner (20 Hz .. 20 kHz, Q 0.5 .. 8, both paths, full gain) stays bounded.
+ * FX: off = untouched; silence in = exact silence out; each reverb TYPE's tail ends in exact zeros; FREEZE holds its level
+ *     for 3 minutes; renders against the baselines (fx-*).
  * Keys: every engine over the SMK-37's keybed (notes 48..84) at v1 / v127: no overflow, quiet after.
  * Sources: no float / double / floating literal in engines/ (comments and strings stripped). */
 #include <dirent.h>
@@ -32,6 +34,7 @@
 #include "tx_core_mix.h"
 #include "tx_core_gen.h"
 #include "tx_core_gov.h"
+#include "tx_fx.h"
 
 #define BASELINE "bench/baselines/renders.sha256"
 static int fails;
@@ -92,14 +95,14 @@ static int run_scene(const tx_engine_t *e, const char *scene, acc_t *a, char hex
 }
 
 /* ---- baseline file: "<sha256>  <engine>-<scene>" per line */
-static char base_names[256][48], base_hex[256][65];
+static char base_names[512][48], base_hex[512][65];
 static unsigned base_n;
 static void baseline_load(void)
 {
     FILE *f = fopen(BASELINE, "r");
     char line[256];
     if (!f) return;
-    while (base_n < 256 && fgets(line, sizeof line, f))
+    while (base_n < 512 && fgets(line, sizeof line, f))
         if (sscanf(line, "%64s %47s", base_hex[base_n], base_names[base_n]) == 2) base_n++;
     fclose(f);
 }
@@ -889,6 +892,159 @@ static void check_keyrange(void)
     }
 }
 
+/* ---- the effects (tx_fx.h): off = the signal untouched; silence in = exact silence out with every effect on; each
+ * reverb TYPE's tail ends in exact zeros (no DC left, nothing drifting); FREEZE holds its level for minutes; renders
+ * against the baselines (fx-*). Input: a deterministic burst (noise and a decaying 220 Hz tone, -12 dBFS, 0.5 s) */
+static int32_t fx_in(uint32_t i, uint32_t *rng)
+{
+    int32_t n, t;
+    if (i >= 22050u) return 0;
+    *rng = *rng * 1664525u + 1013904223u;
+    n = (int32_t)(*rng >> 9) - (1 << 22);                                  /* +-0.5 */
+    t = tx_sin_q15(i * 21426130u) * 128;                                  /* 220 Hz, 0.5 of full scale */
+    return (int32_t)(((int64_t)((n >> 1) + t) * (int32_t)(22050u - i)) / 22050) >> 1;
+}
+static void fx_hash(tx_sha256_t *h, const int32_t *x, unsigned n) { tx_sha256_q23(h, x, n); }
+/* one reverb run: TYPE t, DECAY d, MIX 90, the burst, then up to secs s; returns the block the tail ended in (0: never),
+ * the peak, the hash of the first 10 s; rms[] per 10 s window (if rms) */
+static uint32_t fx_run_rev(unsigned t, unsigned d, unsigned secs, int zero, int32_t *peak, char hex[65], double *rms,
+                           unsigned nrms)
+{
+    tx_fx_reverb_t *r = malloc(sizeof *r);
+    int32_t L[TX_BLOCK], R[TX_BLOCK];
+    uint32_t b, j, nb = secs * 44100u / TX_BLOCK, end = 0, rng = 7u;
+    double acc = 0;
+    tx_sha256_t h;
+    tx_sha256_init(&h);
+    *peak = 0;
+    tx_fx_reverb_init(r);
+    tx_fx_reverb_param(r, TX_RV_TYPE, t); tx_fx_reverb_param(r, TX_RV_MIX, 90);
+    tx_fx_reverb_param(r, TX_RV_DECAY, d < 127 ? d : 100);                 /* FREEZE: played into, then frozen at 1 s */
+    for (b = 0; b < nb; b++) {
+        if (b == 172u) tx_fx_reverb_param(r, TX_RV_DECAY, d);
+        for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = zero ? 0 : fx_in(b * TX_BLOCK + j, &rng);
+        tx_fx_reverb_process(r, L, R, TX_BLOCK);
+        for (j = 0; j < TX_BLOCK; j++) {
+            int32_t a = L[j] < 0 ? -L[j] : L[j], c = R[j] < 0 ? -R[j] : R[j];
+            if (a > *peak) *peak = a;
+            if (c > *peak) *peak = c;
+            acc += (double)L[j] * L[j] + (double)R[j] * R[j];
+        }
+        if (b < 1723u) fx_hash(&h, L, TX_BLOCK), fx_hash(&h, R, TX_BLOCK);   /* 10 s */
+        if (rms && (b + 1) % 1723u == 0 && (b + 1) / 1723u - 1 < nrms) { rms[(b + 1) / 1723u - 1] = sqrt(acc / (1723.0 * 512)); acc = 0; }
+        else if ((b + 1) % 1723u == 0) acc = 0;
+        if (!rms && b > 90u) {                                    /* the tail's end: exact zeros from here on */
+            unsigned z = 1;
+            for (j = 0; j < TX_BLOCK; j++) z &= !L[j] && !R[j];
+            if (!z) end = 0;
+            else if (!end) end = b;
+            if (end && b > end + 344u && b >= 1723u) break;     /* 2 s of exact zeros (and the 10 s hashed) */
+        }
+    }
+    tx_sha256_hex(&h, hex);
+    free(r);
+    return end;
+}
+static void check_fx(FILE *update)
+{
+    static const char *const TN[TX_RVT_N] = {"off", "room", "hall", "infinite", "dark"};
+    tx_fx_t *fx = malloc(sizeof *fx);
+    char msg[200], hex[65], hex2[65], name[48];
+    int32_t x[TX_BLOCK], y[TX_BLOCK], L[TX_BLOCK], R[TX_BLOCK], pk, pk2;
+    uint32_t b, j, rng = 7u, bad = 0, nz = 0;
+    unsigned t;
+    if (!fx) return;
+    /* off: the defaults change no sample (lanes and bus) */
+    tx_fx_init(fx);
+    for (b = 0; b < 200u; b++) {
+        for (j = 0; j < TX_BLOCK; j++) x[j] = y[j] = L[j] = fx_in(b * TX_BLOCK + j, &rng) * 3, R[j] = -L[j];
+        tx_fx_lane(fx, 0, y, TX_BLOCK);
+        tx_fx_bus(fx, L, R, TX_BLOCK);
+        for (j = 0; j < TX_BLOCK; j++) bad += y[j] != x[j] || L[j] != x[j] || R[j] != -x[j];
+    }
+    snprintf(msg, sizeof msg, "every effect at its default (off): %u samples changed", bad);
+    verdict("fx", "passthrough", !bad, msg, 0);
+    /* silence in, every effect on: exact zeros out */
+    tx_fx_init(fx);
+    tx_fx_drive_param(&fx->drive[0], TX_DR_AMOUNT, 90);
+    tx_fx_filter_param(&fx->filter[0], TX_FL_TYPE, 2); tx_fx_filter_param(&fx->filter[0], TX_FL_FREQ, 60);
+    tx_fx_filter_param(&fx->filter[0], TX_FL_RESO, 90); tx_fx_filter_param(&fx->filter[0], TX_FL_LFO, 80);
+    for (t = TX_RVT_ROOM; t < TX_RVT_N; t++) {
+        tx_fx_reverb_init(&fx->rev);
+        tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, t); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 127);
+        tx_fx_reverb_param(&fx->rev, TX_RV_PREDELAY, 60); tx_fx_reverb_param(&fx->rev, TX_RV_LOWCUT, 40);
+        for (b = 0; b < 400u; b++) {
+            for (j = 0; j < TX_BLOCK; j++) y[j] = L[j] = R[j] = 0;
+            tx_fx_lane(fx, 0, y, TX_BLOCK);
+            tx_fx_bus(fx, L, R, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) nz += y[j] != 0 || L[j] != 0 || R[j] != 0;
+        }
+    }
+    snprintf(msg, sizeof msg, "zeros in, drive + filter (LP18, LFO) + every reverb TYPE: %u nonzero samples out", nz);
+    verdict("fx", "silence", !nz, msg, 0);
+    /* each TYPE: the burst, its tail ends in exact zeros; renders against the baselines */
+    for (t = TX_RVT_ROOM; t < TX_RVT_N; t++) {
+        const char *bl;
+        uint32_t end = fx_run_rev(t, 64, 120, 0, &pk, hex, 0, 0);
+        fx_run_rev(t, 64, 11, 0, &pk2, hex2, 0, 0);
+        snprintf(msg, sizeof msg, "%s, DECAY 64: the tail ends in exact zeros after %.1f s, peak %.1f dBFS", TN[t],
+                 end * 256.0 / 44100.0, 20 * log10((pk + 1) / 8388608.0));
+        verdict("fx", "tail", end && pk < (1 << 27), msg, end ? 0 : " (never within 120 s)");
+        snprintf(name, sizeof name, "fx-%s", TN[t]);
+        if (strcmp(hex, hex2)) { verdict("fx", "determinism", 0, name, ": two renders differ"); continue; }
+        if (update) { fprintf(update, "%s  %s\n", hex, name); continue; }
+        bl = baseline_get(name);
+        snprintf(msg, sizeof msg, "%s %.16s", name, hex);
+        verdict("fx", "determinism", bl && !strcmp(bl, hex), msg,
+                !bl ? " (no baseline: make tx-baseline)" : strcmp(bl, hex) ? " != baseline (a change moved the sound)" : " = baseline");
+    }
+    /* FREEZE (DECAY 127) for 3 minutes: the held level stays within 1.5 dB, never silent, bounded */
+    for (t = TX_RVT_INF; t <= TX_RVT_DARK; t++) {
+        double rms[18] = {0}, lo = 1e30, hi = 0;
+        unsigned k;
+        fx_run_rev(t, 127, 181, 0, &pk, hex, rms, 18);            /* 18 windows of 10 s: 0 .. 180 s */
+        double lo2 = 1e30, hi2 = 0;
+        for (k = 1; k < 18; k++) { if (rms[k] < lo) lo = rms[k]; if (rms[k] > hi) hi = rms[k]; }
+        for (k = 6; k < 18; k++) { if (rms[k] < lo2) lo2 = rms[k]; if (rms[k] > hi2) hi2 = rms[k]; }
+        snprintf(msg, sizeof msg, "%s FREEZE: 10 .. 180 s %.1f .. %.1f dBFS (%.2f dB apart; settled 60 .. 180 s: %.2f dB), peak %.1f dBFS",
+                 TN[t], 20 * log10(lo / 8388608.0 + 1e-12), 20 * log10(hi / 8388608.0 + 1e-12), 20 * log10(hi / (lo + 1e-9)),
+                 20 * log10(hi2 / (lo2 + 1e-9)), 20 * log10((pk + 1) / 8388608.0));
+        /* (the held level settles over the first minute as the top fades: the least damping, by design; then it
+         * holds) never silent, within 3 dB over 3 minutes, 2 dB once settled (its slow beating), bounded */
+        verdict("fx", "freeze", lo > 0 && hi / lo < 1.413 && hi2 / lo2 < 1.259 && pk < (1 << 23), msg, 0);
+    }
+    /* the lane inserts: renders against the baselines (a drive at 90 / TONE 100 / MIX 100; LP18 with its LFO) */
+    for (t = 0; t < 2; t++) {
+        tx_sha256_t h, h2;
+        const char *bl;
+        int pass;
+        for (pass = 0; pass < 2; pass++) {
+            tx_fx_init(fx);
+            if (!t) { tx_fx_drive_param(&fx->drive[1], TX_DR_AMOUNT, 90); tx_fx_drive_param(&fx->drive[1], TX_DR_TONE, 100);
+                      tx_fx_drive_param(&fx->drive[1], TX_DR_MIX, 100); }
+            else { tx_fx_filter_param(&fx->filter[1], TX_FL_TYPE, 2); tx_fx_filter_param(&fx->filter[1], TX_FL_FREQ, 70);
+                   tx_fx_filter_param(&fx->filter[1], TX_FL_RESO, 100); tx_fx_filter_param(&fx->filter[1], TX_FL_LFO, 90); }
+            tx_sha256_init(pass ? &h2 : &h);
+            rng = 7u; pk = 0;
+            for (b = 0; b < 400u; b++) {
+                for (j = 0; j < TX_BLOCK; j++) y[j] = fx_in((b % 200u) * TX_BLOCK + j, &rng) * 4;
+                tx_fx_lane(fx, 1, y, TX_BLOCK);
+                for (j = 0; j < TX_BLOCK; j++) { int32_t a = y[j] < 0 ? -y[j] : y[j]; if (a > pk) pk = a; }
+                fx_hash(pass ? &h2 : &h, y, TX_BLOCK);
+            }
+        }
+        tx_sha256_hex(&h, hex); tx_sha256_hex(&h2, hex2);
+        snprintf(name, sizeof name, "fx-%s", t ? "filter" : "drive");
+        if (strcmp(hex, hex2)) { verdict("fx", "determinism", 0, name, ": two renders differ"); continue; }
+        if (update) { fprintf(update, "%s  %s\n", hex, name); continue; }
+        bl = baseline_get(name);
+        snprintf(msg, sizeof msg, "%s %.16s (peak %.1f dBFS)", name, hex, 20 * log10((pk + 1) / 8388608.0));
+        verdict("fx", "determinism", bl && !strcmp(bl, hex) && pk < (1 << 27), msg,
+                !bl ? " (no baseline: make tx-baseline)" : strcmp(bl, hex) ? " != baseline (a change moved the sound)" : " = baseline");
+    }
+    free(fx);
+}
+
 int main(int argc, char **argv)
 {
     unsigned k;
@@ -906,6 +1062,7 @@ int main(int argc, char **argv)
     if (!update) for (k = 0; tx_engines[k]; k++) check_variation(tx_engines[k]);
     check_chamber(update);
     check_layers(update);
+    check_fx(update);
     check_noise_core();
     if (!update) { check_gen(); check_gov(); check_switch(); check_keyrange(); }
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }

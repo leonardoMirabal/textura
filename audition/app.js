@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Textura player: the engines (WebAssembly, tx_web.c) played from the computer keys, the mouse or a MIDI keyboard,
-// four layers at once (stage S3: each its own engine, parameters, level and pan; keys shared or in zones; the CHAMBER
-// after the mix), with CPU, level and particle meters and a 10 s stereo recorder. The audio-callback shape (ScriptProcessor, a linear
+// four layers at once (stage S3: each its own engine, parameters, level and pan; keys shared or in zones; the EFFECTS:
+// each layer's drive and filter, the reverb on the mix), with CPU, level and particle meters and a 10 s stereo recorder. The audio-callback shape (ScriptProcessor, a linear
 // resampler when the browser will not open 44.1 kHz) follows Frodhes' web/app.js.
 "use strict";
 
@@ -95,6 +95,9 @@ async function init() {
   window.txTest.route = n => [0, 1, 2, 3].filter(k => layers[k].eng >= 0 && (keyMode === "shared" || (n >= layers[k].lo && n <= layers[k].hi)));
   window.txTest.zone = (k, lo, hi) => { layers[k].lo = lo; layers[k].hi = hi; showLayers(); };
   window.txTest.chSha = i => S(M._txw_ch_max_sha(i));
+  window.txTest.fx = (g, k, p, v) => { const id = `fx${g}-${p}`, box = g === 2 ? "fx-rv" : g ? "fx-fl" : "fx-dr";
+    if (g !== 2 && k !== ed) editLayer(k); const inp = document.querySelector(`#${box} input[data-id="${id}"]`);
+    if (inp) { inp.value = v; inp.oninput(); } return { running: M._txw_fx_running(), frozen: M._txw_fx_frozen() }; };
   window.txTest.ratings = () => JSON.parse(JSON.stringify(ratings));
   window.txTest.ab = () => ({ loaded: !!ab, buttons: document.querySelectorAll("#ab-buttons button").length,
                               playing: abNow ? abNow.label : null, ours: $("ab-ours").currentSrc, ref: $("ab-ref").currentSrc });
@@ -355,6 +358,7 @@ function editLayer(k) {
   ed = k;
   M._txw_slot(k);
   buildSliders();
+  if ($("fx-dr").childElementCount || $("fx-rv").childElementCount) fxLayer();
   showLayers();
   showEngine();
 }
@@ -412,17 +416,32 @@ function saveLayers() {
   try { localStorage.setItem("textura.layers", JSON.stringify({ mode: keyMode, layers: layers.map(l => ({ eng: l.eng, pan: l.pan, lo: l.lo, hi: l.hi })) })); } catch (e) { }
 }
 
-// ---- the CHAMBER after the engine: its own sliders and an on / off switch (remembered in this browser)
-function buildChamber() {
-  const box = $("ch-sliders"), on = $("ch-on");
-  for (let p = 0; p < M._txw_ch_n(); p++) {
-    slider(box, S(M._txw_ch_pname(p)), S(M._txw_ch_phelp(p)), 0, M._txw_ch_pmax(p), M._txw_ch_pdef(p),
-           v => M._txw_ch_param(p, v), false, "ch" + p);
-    M._txw_ch_param(p, M._txw_ch_pdef(p));
+// ---- EFFECTS (tx_fx.h): the REVERB on the mix (group 2; TYPE ROOM is the old CHAMBER), each layer's DRIVE (0) and FILTER
+// (1) on its own signal. The reverb's values and each layer's are kept in this browser (textura.fx)
+const fxv = { rv: {}, lane: [0, 1, 2, 3].map(() => ({ 0: {}, 1: {} })) };
+function fxSave() { try { localStorage.setItem("textura.fx", JSON.stringify(fxv)); } catch (e) { } }
+function fxBox(box, g, vals, apply) {
+  box.textContent = "";
+  for (let p = 0; p < M._txw_fx_n(g); p++) {
+    const v = p in vals ? vals[p] : M._txw_fx_pdef(g, p);
+    slider(box, S(M._txw_fx_pname(g, p)), S(M._txw_fx_phelp(g, p)), 0, M._txw_fx_pmax(g, p), v,
+           x => { vals[p] = x; apply(p, x); fxSave(); }, false, `fx${g}-${p}`);
   }
-  try { on.checked = localStorage.getItem("textura.chamber") === "1"; } catch (e) { }
-  M._txw_ch_on(on.checked ? 1 : 0);
-  on.onchange = () => { M._txw_ch_on(on.checked ? 1 : 0); try { localStorage.setItem("textura.chamber", on.checked ? "1" : "0"); } catch (e) { } };
+}
+function fxLayer() {                                   // the edited layer's DRIVE and FILTER
+  for (const g of [0, 1]) fxBox($(g ? "fx-fl" : "fx-dr"), g, fxv.lane[ed][g], (p, x) => M._txw_fx_param(g, ed, p, x));
+  $("fx-dr-title").textContent = `DRIVE (layer ${ed + 1})`;
+  $("fx-fl-title").textContent = `FILTER (layer ${ed + 1})`;
+}
+function buildChamber() {                             // (the old CHAMBER's place: now the effects)
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("textura.fx") || "null"); } catch (e) { }
+  if (saved && saved.rv && saved.lane) { Object.assign(fxv.rv, saved.rv); saved.lane.forEach((l, k) => { if (k < 4) fxv.lane[k] = { 0: l[0] || {}, 1: l[1] || {} }; }); }
+  try { if (!saved && localStorage.getItem("textura.chamber") === "1") fxv.rv = { 0: 1, 1: 127 }; } catch (e) { }   // CHAMBER on: ROOM
+  for (const p in fxv.rv) M._txw_fx_param(2, 0, +p, fxv.rv[p]);
+  fxv.lane.forEach((l, k) => { for (const g of [0, 1]) for (const p in l[g]) M._txw_fx_param(g, k, +p, l[g][p]); });
+  fxBox($("fx-rv"), 2, fxv.rv, (p, x) => M._txw_fx_param(2, 0, p, x));
+  fxLayer();
 }
 
 function slider(box, name, help, lo, hi, def, set, shared, id) {

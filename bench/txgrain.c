@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* txgrain: a granular-delay PROTOTYPE for costing only (make tx-grain): what a grain cloud on a delay line costs on
+/* txgrain: a granular-delay PROTOTYPE for costing only (make tx-grain): what grains on a delay line cost on
  * the FM-1, and what the buffer's sample format does to the noise floor. Not an effect: no parameters, no
  * smoothing, no player. Integer C as engines/ (32-bit products in the per-sample loops), timed like txbudget (the
  * fastest of several runs per block, scaled to the FM-1 by the Frodhes calibration in build/calib/run).
@@ -10,10 +10,15 @@
  * low-pass, soft clip, DC block), the scheduler (a grain started when one ends, so the worst case keeps every slot
  * busy), the output sum.
  *
- * Options measured (each at its worst: every grain slot sounding):
- *   A  4 grains, mono out, 16-bit mono line (as the cheapest designs: a few grains, fixed size)
- *   B  8 grains, scheduled (density, jitter, size, spray, pitch / detune, reverse, pan), stereo out, freeze, feedback
- *   C  16 grains as B, plus a stereo post-delay echo (two more 16-bit lines, read + write, its own feedback)
+ * The structure is a DELAY (the user, 2026-10-25: a delay, not a grain texture): one line, a clean echo tap at TIME, and N
+ * grain readers on the delayed signal around TIME (spray, pitch / detune, reverse, pan); their sum and the tap go
+ * through the feedback path (one-pole low-pass, soft clip, DC block) back into the line, so every repeat is grained
+ * again. Options measured (each at its worst: every grain reader sounding):
+ *   1 ECHO          the tap + 2 grain readers, mono out
+ *   2 GRAIN DELAY   the tap + 4 grain readers, stereo out (pan spread)
+ *   3 SCATTER       the tap + 8 grain readers, stereo out
+ * each on a 16-bit line and on a block-float line (12-bit mantissas, a 4-bit shift per 16 samples), and the tap alone
+ * (no reader sounding: the floor a grain cap returns to).
  * Noise: a -40 dBFS sine and a -70 dBFS sine stored and read back through each format (16-bit, 12-bit packed, and
  * 12-bit with a shared 4-bit exponent per 16 samples), the error against the input in dBFS. */
 #include <dirent.h>
@@ -78,6 +83,9 @@ typedef struct {
 
 typedef struct {
     int16_t buf[LEN];
+    uint8_t pk[LEN / 2u * 3u], ex[LEN / 16u];   /* block float: 12-bit mantissas, 2 in 3 bytes; an exponent per 16 */
+    int32_t stg[16], stpk;                      /* the 16 samples being gathered (Q23), their peak */
+    int bf;                                     /* the line is block float (else 16-bit) */
     int16_t echo[2][16384];        /* option C's post-delay (0.37 s stereo) */
     uint32_t w, we;
     grain_t g[16];
@@ -92,11 +100,44 @@ typedef struct {
 
 static uint32_t rnd(gd_t *s) { s->rng = s->rng * 1664525u + 1013904223u; return s->rng; }
 
+/* a line sample at the 16-bit scale: 16-bit, or block float decoded (12-bit mantissa, the block's shift) */
+static inline int32_t rd(const gd_t *s, uint32_t i)
+{
+    const uint8_t *b;
+    int32_t v;
+    if (!s->bf) return s->buf[i];
+    b = s->pk + ((i * 3u) >> 1);                                      /* the sample's 12 bits start in this byte */
+    v = (int32_t)(((uint32_t)b[0] | ((uint32_t)b[1] << 8)) >> ((i & 1u) << 2));   /* branch-free: 2 byte loads */
+    v = (int32_t)((uint32_t)v << 20) >> 20;                           /* the 12 bits, sign-extended */
+    return ((v << 12) >> s->ex[i >> 4]) >> 8;                         /* Q23 -> 16-bit scale */
+}
+
+/* write the sample at index w (Q23, saturated to 16 bits' range): 16-bit at once; block float every 16th sample */
+static inline void wr(gd_t *s, uint32_t w, int32_t x)
+{
+    if (!s->bf) { x = (x + 128) >> 8; s->buf[w] = (int16_t)(x > 32767 ? 32767 : x < -32768 ? -32768 : x); return; }
+    x = x > 8388607 ? 8388607 : x < -8388608 ? -8388608 : x;
+    s->stg[w & 15u] = x;
+    { int32_t a = x < 0 ? -x : x; if (a > s->stpk) s->stpk = a; }
+    if ((w & 15u) == 15u) {                                           /* the block: its shift, then 16 mantissas */
+        uint32_t sh = 0, k, b0 = (w - 15u);
+        uint8_t *b = s->pk + (b0 >> 1) * 3u;
+        while (sh < 11u && (s->stpk << (sh + 1u)) < (1 << 22)) sh++;
+        s->ex[b0 >> 4] = (uint8_t)sh;
+        for (k = 0; k < 16u; k += 2u, b += 3) {
+            int32_t m0 = ((s->stg[k] << sh) + 2048) >> 12, m1 = ((s->stg[k + 1u] << sh) + 2048) >> 12;
+            m0 = m0 > 2047 ? 2047 : m0; m1 = m1 > 2047 ? 2047 : m1;
+            b[0] = (uint8_t)m0; b[1] = (uint8_t)(((uint32_t)m0 >> 8 & 15u) | ((uint32_t)m1 << 4)); b[2] = (uint8_t)((uint32_t)m1 >> 4);
+        }
+        s->stpk = 0;
+    }
+}
+
 static void gd_init(gd_t *s, int ng, int stereo, int echo_on, int32_t pitch_inc)
 {
     unsigned i;
     memset(s, 0, sizeof *s);
-    s->ng = ng; s->stereo = stereo; s->echo_on = echo_on; s->pitch_inc = pitch_inc;
+    s->ng = ng; s->stereo = stereo; s->echo_on = echo_on & 3; s->pitch_inc = pitch_inc; s->bf = (echo_on & 4) != 0;
     for (i = 0; i <= 256; i++) {                     /* (4p(1-p))^2 ~ Hann, integer */
         int32_t p = (int32_t)(i << 7);               /* Q15 */
         int32_t q = (int32_t)(((int64_t)4 * p * (32768 - p)) >> 15);
@@ -104,6 +145,8 @@ static void gd_init(gd_t *s, int ng, int stereo, int echo_on, int32_t pitch_inc)
     }
     s->rng = 12345u; s->fb_q15 = 16000; s->lp_k = 12000; s->wgain = 32767;
     for (i = 0; i < LEN; i++) s->buf[i] = (int16_t)((int32_t)(rnd(s) >> 17) - 16384);   /* a busy buffer */
+    for (i = 0; i < LEN / 2u * 3u; i++) s->pk[i] = (uint8_t)(rnd(s) >> 24);
+    for (i = 0; i < LEN / 16u; i++) s->ex[i] = (uint8_t)((rnd(s) >> 24) & 3u);
 }
 
 static void spawn(gd_t *s, grain_t *g)
@@ -138,9 +181,9 @@ static void gd_block(gd_t *s, const int32_t *in, int32_t *L, int32_t *R, unsigne
             uint32_t i;
             if (!g->on) continue;
             i = (g->pos >> 15) & MSK;
-            if (g->exact) v = s->buf[i];
+            if (g->exact) v = rd(s, i);
             else {
-                int32_t a = s->buf[i], b = s->buf[(i + 1u) & MSK];
+                int32_t a = rd(s, i), b = rd(s, (i + 1u) & MSK);
                 v = a + (((b - a) * (int32_t)(g->pos & 32767u)) >> 15);
             }
             w = s->win[g->ph >> 16];                                  /* 256 steps over the grain */
@@ -150,6 +193,10 @@ static void gd_block(gd_t *s, const int32_t *in, int32_t *L, int32_t *R, unsigne
             g->pos = (g->pos + (uint32_t)g->inc) & ((MSK << 15) | 32767u);
             g->ph += g->step;
             if (g->ph >= (1u << 24)) g->on = 0;                       /* ended: the scheduler refills it */
+        }
+        if (s->echo_on & 2) {                                         /* the delay's clean echo at TIME (0.2 s) */
+            int32_t t = rd(s, (s->w - 8820u) & MSK);
+            al += t >> 1; ar += t >> 1;                               /* (a CLEAN / GRAIN blend: half each here) */
         }
         al <<= 8; ar <<= 8;                                           /* -> Q23 (16-bit << 8) */
         mono = s->stereo ? (al >> 1) + (ar >> 1) : al;
@@ -161,10 +208,9 @@ static void gd_block(gd_t *s, const int32_t *in, int32_t *L, int32_t *R, unsigne
         { int32_t y = x - s->dcx + s->dcy - (s->dcy >> 9); s->dcx = x; s->dcy = y; x = y; }
         x += in[j];
         x = (int32_t)(((int64_t)x * s->wgain) >> 15);                 /* freeze: the write fades out */
-        x = (x + 128) >> 8;
-        s->buf[s->w] = (int16_t)(x > 32767 ? 32767 : x < -32768 ? -32768 : x);
+        wr(s, s->w, x);
         s->w = (s->w + 1u) & MSK;
-        if (s->echo_on) {                                             /* C: a stereo post-delay */
+        if (s->echo_on & 1) {                                         /* a stereo post-delay */
             uint32_t r = (s->we - 12000u) & 16383u;
             int32_t el = s->echo[0][r] << 8, er2 = s->echo[1][r] << 8, t;
             t = ((al + ((el * 3) >> 2)) + 128) >> 8; s->echo[0][s->we] = (int16_t)(t > 32767 ? 32767 : t < -32768 ? -32768 : t);
@@ -233,20 +279,22 @@ static double noise_db(int fmt, double amp_db)
 int main(void)
 {
     static const struct { const char *name; int ng, stereo, echo; } OPT[] = {
-        {"A  4 grains, mono", 4, 0, 0}, {"B  8 grains, stereo", 8, 1, 0}, {"B' 12 grains, stereo", 12, 1, 0},
-        {"C  16 grains, stereo + echo", 16, 1, 1},
+        {"tap + 2 readers, mono, 16-bit", 2, 0, 2}, {"tap + 4 readers, stereo, 16-bit", 4, 1, 2},
+        {"tap + 8 readers, stereo, 16-bit", 8, 1, 2}, {"tap + 16 readers, stereo, 16-bit", 16, 1, 2},
+        {"tap + 4 readers, stereo, block float", 4, 1, 6}, {"tap + 8 readers, stereo, block float", 8, 1, 6},
+        {"tap + 16 readers, stereo, block float", 16, 1, 6}, {"tap alone, block float (0 sounding)", 0, 1, 6},
     };
     unsigned o;
     if (calib("build/calib/run")) { fprintf(stderr, "txgrain: no calibration in build/calib/run (make tx-calib)\n"); return 2; }
     tx_bench_prepare();
     printf("txgrain: granular delay prototype on the FM-1 (calibration factor %.1f, +-30 %%; fastest of %u runs per"
            " block). Every grain slot sounding.\n\n", factor, RUNS);
-    printf("%-30s %22s %22s\n", "option", "rate 1 (no interp.)", "pitched (interp.)");
-    printf("%-30s %10s %11s %10s %11s\n", "", "p99 us", "mean us", "p99 us", "mean us");
+    printf("%-38s %22s %22s\n", "granular delay", "rate 1 (no interp.)", "pitched (interp.)");
+    printf("%-38s %10s %11s %10s %11s\n", "", "p99 us", "mean us", "p99 us", "mean us");
     for (o = 0; o < sizeof OPT / sizeof OPT[0]; o++) {
         double m1, m2, w1 = bench(OPT[o].ng, OPT[o].stereo, OPT[o].echo, 32768, &m1),
                w2 = bench(OPT[o].ng, OPT[o].stereo, OPT[o].echo, 49152, &m2);
-        printf("%-30s %7.0f %5.1f%% %8.0f   %7.0f %5.1f%% %8.0f\n", OPT[o].name, w1, 100 * w1 / 5805, m1, w2,
+        printf("%-38s %7.0f %5.1f%% %8.0f   %7.0f %5.1f%% %8.0f\n", OPT[o].name, w1, 100 * w1 / 5805, m1, w2,
                100 * w2 / 5805, m2);
     }
     printf("\nbuffer format: the error of a stored sine, dBFS (the hiss it adds; Q23 full scale = 0 dBFS)\n");

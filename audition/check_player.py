@@ -94,8 +94,8 @@ def main():
         n = page.evaluate("Module._txw_count()")
         mx = page.eval_on_selector("#engine", "s => +s.max")
         check(n >= 1 and mx == n - 1, f"engine slider spans {n} engine(s)")
-        ys = page.evaluate("""() => ['kb', 'engine', 'layers', 'sliders', 'ch-sliders'].map(i => document.getElementById(i).getBoundingClientRect().top)""")
-        check(ys == sorted(ys), f"layout: keyboard, engine, layers, parameters, CHAMBER from the top ({[round(y) for y in ys]})")
+        ys = page.evaluate("""() => ['kb', 'engine', 'layers', 'sliders', 'fx-panel'].map(i => document.getElementById(i).getBoundingClientRect().top)""")
+        check(ys == sorted(ys), f"layout: keyboard, engine, layers, parameters, EFFECTS from the top ({[round(y) for y in ys]})")
         def pick(i):
             page.evaluate(f"(() => {{ const s = document.getElementById('engine'); s.value = {i}; s.oninput(); }})()")
         for i in range(n):
@@ -110,9 +110,9 @@ def main():
             sha = page.evaluate(f"window.txTest.sha({i})")
             want = base.get(f"{name}-max")
             check(want is not None and sha == want, f"{name}: wasm render of the max scene = native baseline ({sha[:16]})")
-        nch = page.evaluate("Module._txw_ch_n()")
-        ns = page.eval_on_selector_all("#ch-sliders input", "x => x.length")
-        check(nch == 4 and ns == nch, f"CHAMBER: {ns} sliders = its {nch} parameters, switch present ({page.locator('#ch-on').count()})")
+        nfx = [page.evaluate(f"Module._txw_fx_n({g})") for g in range(3)]
+        nsl = [page.eval_on_selector_all(f"#{b} input", "x => x.length") for b in ("fx-dr", "fx-fl", "fx-rv")]
+        check(nfx == nsl and nfx == [3, 6, 8], f"EFFECTS: drive / filter / reverb sliders {nsl} = their parameters {nfx}")
         idrip = next((i for i in range(n) if page.evaluate(f"Module.UTF8ToString(Module._txw_name({i}))") == "drip"), None)
         if idrip is not None:
             sha = page.evaluate(f"window.txTest.chSha({idrip})")
@@ -214,11 +214,25 @@ def main():
         page.evaluate("""() => { const s = document.querySelector('#sliders input[data-id="0"]'); s.value = 127; s.oninput(); }""")
         check(page.eval_on_selector('#sliders input[data-id="0"]', "s => s.parentElement.querySelector('label span:last-child').textContent") == "127",
               "slider RATE moved to 127")
-        page.check("#ch-on")                            # the CHAMBER on while the keys are held: still sound
+        page.evaluate("window.txTest.fx(2, 0, 0, 1)")   # the REVERB's ROOM (the old CHAMBER) on while the keys are held
         time.sleep(0.5)
         lv = page.evaluate("window.txTest.render(8)")
-        check(lv > 0, f"CHAMBER on: the output still sounds (peak {lv})")
-        page.uncheck("#ch-on")
+        check(lv > 0, f"REVERB ROOM on: the output still sounds (peak {lv})")
+        for t in (2, 3, 4):                             # HALL, INFINITE, DARK: each sounds; INFINITE frozen at DECAY 127
+            page.evaluate(f"window.txTest.fx(2, 0, 0, {t})")
+            page.evaluate("window.txTest.fx(2, 0, 2, 127)") if t == 3 else None
+            page.evaluate("window.txTest.render(64)")
+            lv = page.evaluate("window.txTest.render(16)")
+            st = page.evaluate("window.txTest.fx(2, 0, 1, 90)")
+            check(lv > 0 and st["running"] and (st["frozen"] == 2 if t == 3 else True),
+                  f"REVERB TYPE {t}: sounds (peak {lv}), running {st['running']}, frozen {st['frozen']}")
+        page.evaluate("window.txTest.fx(2, 0, 2, 64)")
+        page.evaluate("window.txTest.fx(0, 0, 0, 90)")  # layer 1's DRIVE and FILTER on: still sounds
+        page.evaluate("window.txTest.fx(1, 0, 0, 2)")
+        lv = page.evaluate("window.txTest.render(16)")
+        check(lv > 0, f"DRIVE + FILTER on layer 1: the output sounds (peak {lv})")
+        for g, p in ((0, 0), (1, 0), (2, 0), (2, 1)):  # all off again, MIX 0: no tail left (the classic checks below)
+            page.evaluate(f"window.txTest.fx({g}, 0, {p}, 0)")
         # a switch with keys held: the new engine takes them over; switching a sounding layer off fades (no click)
         page.evaluate("window.txTest.stepEngine(1)")
         time.sleep(0.6)

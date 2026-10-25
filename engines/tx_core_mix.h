@@ -22,6 +22,12 @@ typedef struct {
     int32_t slot_peak[TX_MIX_SLOTS];     /* each slot's peak since the caller last cleared it */
     tx_chamber_t *ch;                    /* optional (the caller's, ~22 KB), used while ch_on */
     int ch_on;
+    /* optional effects (tx_fx.h; 0 = none): ins on each slot's block before it is panned, bus on the stereo pair
+     * before the limiter, busq: the bus quiet; fx their state */
+    void (*ins)(void *fx, unsigned k, int32_t *x, unsigned n);
+    void (*bus)(void *fx, int32_t *L, int32_t *R, unsigned n);
+    int (*busq)(void *fx);
+    void *fx;
     tx_limit_t lim;
     int32_t raw_peak;                    /* the pair's peak before the limiter, this block */
     int32_t L[TX_BLOCK], R[TX_BLOCK], blk[TX_BLOCK], mid[TX_BLOCK], ilv[2 * TX_BLOCK];
