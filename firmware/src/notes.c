@@ -1,0 +1,123 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* The keys and their LEDs. The FM-1 has 27 keys, F3 .. G5 (key k = MIDI 53 + k). Two modes, SEL switches:
+ *
+ *   LANDSCAPE  F3 .. F5 are two octaves laid out as the audition player's C4 .. C6:
+ *                the 10 black keys   the landscape's sounds (a tap: its lane selected, loaded into a free lane first;
+ *                                    again while it plays: off);
+ *                F3 .. E4 (7 white)  HOW MANY of the selected lane: off, 1, 2, 4, 8, 16, 32;
+ *                F4 .. F5 (8 white)  HOW ACTIVE: rare .. busy;
+ *                F#5, G5             the next / the previous landscape.
+ *              LEDs: a sound's black key blinks while it plays (1.6 s rare .. 0.12 s busy) and glows when its lane is
+ *              selected but stopped; the white keys show the selected lane's two bars; F#5 and G5 glow.
+ *   PLAY       the keys play the selected lane, pitched (OCT- / OCT+ the octave); the LEDs show the held keys.
+ *
+ * Main loop only. */
+
+#define NT_VEL 100u                             /* the keys' velocity (keyvel.c later) */
+#define NT_KEY_NEXT 25u                         /* F#5 */
+#define NT_KEY_PREV 26u                         /* G5 */
+#define NT_SPAN 25u                             /* F3 .. F5: the two octaves */
+
+enum { NT_LANDSCAPE, NT_PLAY };
+static struct {
+    uint8_t mode;
+    int8_t oct;                                 /* PLAY: -2 .. +2 */
+    uint32_t down;                              /* the keys as last seen */
+    uint8_t note[TX_NKEYS], lane[TX_NKEYS];     /* PLAY: what each held key sounds */
+    uint32_t playing;                           /* PLAY: keys with a note on */
+} nt;
+
+static int nt_black(uint32_t k) { uint32_t n = (TX_KEY_F3 + k) % 12u; return n == 1u || n == 3u || n == 6u || n == 8u || n == 10u; }
+/* key k (< NT_SPAN) as the n-th black or the n-th white key of the two octaves */
+static uint32_t nt_index(uint32_t k)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < k; i++) if (nt_black(i) == nt_black(k)) n++;
+    return n;
+}
+static uint32_t nt_key_of(int black, uint32_t n)   /* the inverse: the n-th black / white key (NT_SPAN: none) */
+{
+    uint32_t k;
+    for (k = 0; k < NT_SPAN; k++) if (nt_black(k) == black && nt_index(k) == n) return k;
+    return NT_SPAN;
+}
+
+static void nt_play_off(void)                   /* PLAY: every held note released */
+{
+    uint32_t k;
+    for (k = 0; k < TX_NKEYS; k++) if (nt.playing >> k & 1u) ln_key(nt.lane[k], nt.note[k], 0, 0);
+    nt.playing = 0;
+}
+static void nt_mode_set(uint32_t m)
+{
+    if (m == nt.mode) return;
+    nt_play_off();
+    nt.mode = (uint8_t)m;
+}
+static void nt_oct_step(int32_t d) { int32_t o = nt.oct + d; nt.oct = (int8_t)(o < -2 ? -2 : o > 2 ? 2 : o); }
+
+static void nt_landscape_key(uint32_t k)
+{
+    uint32_t n;
+    if (k == NT_KEY_NEXT) { sc_family_turn(1); return; }
+    if (k == NT_KEY_PREV) { sc_family_turn(-1); return; }
+    if (k >= NT_SPAN) return;
+    n = nt_index(k);
+    if (nt_black(k)) { sc_sound_key(n); return; }
+    if (sc.snd[sc.sel] < 0) return;
+    if (n < LS_NCNT) sc_count(sc.sel, n);
+    else sc_step(sc.sel, sc_act_step(n - LS_NCNT));
+}
+static void nt_poll(void)
+{
+    uint32_t now = fm1_in.notes & ((1u << TX_NKEYS) - 1u), on = now & ~nt.down, off = nt.down & ~now, k;
+    nt.down = now;
+    for (k = 0; k < TX_NKEYS; k++) {
+        if (off >> k & 1u && nt.playing >> k & 1u) { ln_key(nt.lane[k], nt.note[k], 0, 0); nt.playing &= ~(1u << k); }
+        if (!(on >> k & 1u)) continue;
+        if (nt.mode == NT_LANDSCAPE) nt_landscape_key(k);
+        else {
+            int32_t n = (int32_t)(TX_KEY_F3 + k) + 12 * nt.oct;
+            if (n < 0 || n > 127) continue;
+            sc_play_ready(sc.sel);
+            nt.note[k] = (uint8_t)n; nt.lane[k] = sc.sel;
+            ln_key(sc.sel, (uint32_t)n, NT_VEL, 1);
+            nt.playing |= 1u << k;
+        }
+    }
+}
+
+/* ---- the LEDs: the keys (lit, and the dim glow layer) and the buttons; set only when they change */
+static void nt_leds(uint32_t btn)
+{
+    static struct { uint32_t lit, glow, btn; uint8_t done; } was;
+    uint32_t lit = 0, glow = 0, k;
+    if (nt.mode == NT_PLAY) lit = nt.down;
+    else {
+        for (k = 0; k < SC_N; k++) {            /* the sounds on the lanes: their black keys */
+            uint32_t key, p;
+            if (sc.snd[k] < 0) continue;
+            key = nt_key_of(1, (uint32_t)sc.snd[k]);
+            if (key >= NT_SPAN) continue;
+            if (sc.run[k]) {
+                p = sc_blink_ms(k);
+                if (fm1_ms % p < p / 2u) lit |= 1u << key;
+                else glow |= 1u << key;
+            } else if (k == sc.sel) glow |= 1u << key;
+        }
+        if (sc.run[sc.sel]) {                   /* the selected lane's bars (HOW MANY off: none lit) */
+            uint32_t c = sc.cnt[sc.sel], a = sc_act_of(sc.step[sc.sel]);
+            for (k = 1; k <= c && k < LS_NCNT; k++) lit |= 1u << nt_key_of(0, k);
+            for (k = 0; k <= a && k < LS_NACT; k++) lit |= 1u << nt_key_of(0, LS_NCNT + k);
+        }
+        glow |= 1u << NT_KEY_NEXT | 1u << NT_KEY_PREV;
+    }
+    if (was.done && lit == was.lit && glow == was.glow && btn == was.btn) return;
+    was.done = 1; was.lit = lit; was.glow = glow; was.btn = btn;
+    for (k = 0; k < 14u; k++) fm1_led_key(k, btn >> k & 1u);
+    for (k = 0; k < TX_NKEYS; k++) {
+        fm1_led_key(KEY_LED(k), lit >> k & 1u);
+        fm1_led_key_glow(KEY_LED(k), glow >> k & 1u && !(lit >> k & 1u));
+    }
+    fm1_led_build();
+}

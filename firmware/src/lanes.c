@@ -4,8 +4,11 @@
  * DELAY, the REVERB and the output limiter (tx_core_mix.h, tx_fx.h): the audition player's chain (audition/tx_web.c).
  *
  *   main loop   ln_select (a lane's engine: prepared in the lane's spare arena, here, never in the audio interrupt),
- *               ln_key, ln_param, ln_level, ln_pan, ln_fx: queued (ln_q), the interrupt takes them at its next block
- *   interrupt   ln_block: the queue, then one block of the four lanes and the effects, Q23 stereo
+ *               ln_key, ln_param, ln_level, ln_pan, ln_fx, ln_gen_on, ln_gen_param, ln_gen_mute: queued (ln_q), the
+ *               interrupt takes them at its next block
+ *   interrupt   ln_block: the queue, then per lane its generator (tx_core_gen: the lane playing on its own, its
+ *               activity and notes, as the player's) and one block of it, the effects, Q23 stereo; then the CPU
+ *               governor (tx_core_gov.h) when the app gives it the lanes' costs (LN_CLOCK_US, below)
  *
  * A switched-out engine fades over 4 blocks (23 ms) in its own arena while the new one starts in the other, as the
  * player does, so a switch never clicks. This file knows nothing of the FM-1: tests/lanes_test.c runs it beside the
@@ -13,11 +16,17 @@
 #include "tx_engine.h"
 #include "tx_core_mix.h"
 #include "tx_fx.h"
+#include "tx_core_gen.h"
+#include "tx_core_gov.h"
 
 #define LN_N TX_MIX_SLOTS                       /* lanes */
 #define LN_QN 128u                              /* queued events (a power of two) */
+#define LN_GOV_POOL_US 2500u                    /* the sources' CPU pool on the FM-1 (CLAUDE.md: ~2500 us a block) */
+/* LN_CLOCK_US(): the app's clock in us (the FM-1: its 24 MHz timer), for the governor's costs; without it (the host's
+ * tests) the governor never acts, as the player's before its calibration */
 
-enum { LN_EV_KEY, LN_EV_PARAM, LN_EV_PAN, LN_EV_SWAP, LN_EV_OFF, LN_EV_FX };
+enum { LN_EV_KEY, LN_EV_PARAM, LN_EV_PAN, LN_EV_SWAP, LN_EV_OFF, LN_EV_FX, LN_EV_GEN_ON, LN_EV_GEN_PARAM,
+       LN_EV_GEN_MUTE };
 enum { LN_FX_DRIVE, LN_FX_FILTER, LN_FX_REVERB, LN_FX_GRAIN };   /* ln_fx groups (as the player's txw_fx_param) */
 typedef struct { uint8_t kind, lane, a, b, c; } ln_ev_t;
 
@@ -34,6 +43,12 @@ static struct {
     volatile uint32_t qw, qr;
     uint32_t dropped;                           /* events lost to a full queue (a test reads it: must stay 0) */
     int32_t tmp[TX_BLOCK];
+    tx_gen_t gen[LN_N];                         /* the lanes' generators */
+    uint8_t gen_on[LN_N], gen_mute[LN_N];       /* mute: no notes (a classic engine: its activity map plays it) */
+    int8_t int_id[LN_N];                        /* the lane engine's ACTIVITY (the source's), -1: none */
+    uint32_t gen_seed[LN_N];                    /* set by ln_gen_on before its event */
+    tx_gov_t gov;
+    uint32_t gov_cost[LN_N], gov_lvl[LN_N];
 } ln;
 static uint8_t ln_arena[LN_N][2][TX_STATE_MAX] __attribute__((aligned(64)));
 
@@ -45,7 +60,13 @@ static void ln_init(void)
     tx_mix_init(&ln.mix);
     tx_fx_init(&ln.fx);
     ln.mix.ins = tx_fx_lane; ln.mix.bus = tx_fx_bus; ln.mix.busq = tx_fx_bus_quiet; ln.mix.fx = &ln.fx;
+    for (i = 0; i < LN_N; i++) { tx_gen_init(&ln.gen[i], 1u + i); ln.int_id[i] = -1; }   /* (the player's first
+                                                         * generator call: its parameter, seeded 1 + lane) */
+    tx_gov_init(&ln.gov, LN_N, LN_GOV_POOL_US);
 }
+
+/* the source's activity knob, which the generator drives (as the player's) */
+static int ln_act_id(const tx_engine_t *e) { return tx_param_find(e, "ACTIVITY"); }
 
 /* ---- main loop side */
 static int ln_q(uint32_t kind, uint32_t lane, uint32_t a, uint32_t b, uint32_t c)
@@ -81,6 +102,18 @@ static int ln_param(uint32_t k, uint32_t id, uint32_t v) { return ln_q(LN_EV_PAR
 static int ln_level(uint32_t k, uint32_t v) { return ln_param(k, TX_PID_LEVEL, v); }
 static int ln_pan(uint32_t k, uint32_t v) { return ln_q(LN_EV_PAN, k, v, 0, 0); }
 static int ln_fx(uint32_t g, uint32_t k, uint32_t id, uint32_t v) { return ln_q(LN_EV_FX, k, g, id, v); }
+/* the lane's generator on (a new walk from seed) or off (its notes released) */
+static int ln_gen_on(uint32_t k, uint32_t on, uint32_t seed)
+{
+    if (k >= LN_N) return -1;
+    ln.gen_seed[k] = seed;
+    return ln_q(LN_EV_GEN_ON, k, on != 0, 0, 0);
+}
+static int ln_gen_param(uint32_t k, uint32_t id, uint32_t v) { return ln_q(LN_EV_GEN_PARAM, k, id, v, 0); }
+static int ln_gen_mute(uint32_t k, uint32_t m) { return ln_q(LN_EV_GEN_MUTE, k, m != 0, 0, 0); }
+static int32_t ln_gen_activity(uint32_t k) { return k < LN_N ? ln.gen[k].a >> 8 : 0; }   /* 0..127, the walk now */
+static uint32_t ln_gov_cur(uint32_t k) { return k < LN_N ? ln.gov.cur[k] : 0u; }
+static uint32_t ln_gov_user(uint32_t k) { return k < LN_N ? ln.gov.user[k] : 0u; }
 
 /* ---- the interrupt side */
 static void ln_event(const ln_ev_t *v)
@@ -92,6 +125,7 @@ static void ln_event(const ln_ev_t *v)
         break;
     case LN_EV_PARAM:
         if (k < LN_N && ln.mix.e[k]) ln.mix.e[k]->param(ln.mix.st[k], v->a, v->b);
+        if (k < LN_N && v->a == TX_PID_PARTICLES) { ln.gov.cur[k] = 0; tx_gov_user(&ln.gov, k, v->b); }
         break;
     case LN_EV_PAN:
         if (k < LN_N) tx_mix_pan(&ln.mix, k, v->a);
@@ -107,7 +141,32 @@ static void ln_event(const ln_ev_t *v)
         ln.mix.e[k] = v->kind == LN_EV_SWAP ? ln.next_e[k] : 0;   /* (initialised by ln_select: tx_mix_set's part) */
         ln.mix.st[k] = v->kind == LN_EV_SWAP ? ln_arena[k][ln.side[k]] : 0;
         ln.mix.slot_peak[k] = 0;
+        ln.int_id[k] = -1;
+        if (ln.mix.e[k]) {
+            const tx_engine_t *e = ln.mix.e[k];
+            const char *a = e->name, *b = "source";
+            while (*a && *a == *b) { a++; b++; }
+            if (*a == *b) ln.int_id[k] = (int8_t)ln_act_id(e);   /* (the player's: the source only) */
+            ln.gov.cur[k] = 0; tx_gov_user(&ln.gov, k, e->particles_def);
+        }
         if (!ln.ret_g[k]) ln.busy[k] = 0;
+        break;
+    case LN_EV_GEN_ON:
+        if (k >= LN_N) break;
+        if (v->a && !ln.gen_on[k] && ln.gen_seed[k]) tx_rng_seed(&ln.gen[k].rng, ln.gen_seed[k] ^ 0x6E4E4E21u);   /* each
+                                                         * start a new walk (as the player's txw_gen_on) */
+        if (!v->a && ln.gen_on[k] && ln.mix.e[k]) {
+            tx_gen_ev_t ev[TX_GEN_OFFS];
+            unsigned ne = tx_gen_stop(&ln.gen[k], ev, TX_GEN_OFFS), q;
+            for (q = 0; q < ne; q++) ln.mix.e[k]->key(ln.mix.st[k], ev[q].note, 0, 0);
+        }
+        ln.gen_on[k] = v->a;
+        break;
+    case LN_EV_GEN_PARAM:
+        if (k < LN_N) tx_gen_param(&ln.gen[k], v->a, v->b);
+        break;
+    case LN_EV_GEN_MUTE:
+        if (k < LN_N) ln.gen_mute[k] = v->a;
         break;
     case LN_EV_FX:
         if (v->a == LN_FX_DRIVE && k < TX_FX_LANES) tx_fx_drive_param(&ln.fx.drive[k], v->b, v->c);
@@ -125,8 +184,22 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
     while (ln.qr != ln.qw) { ln_event(&ln.q[ln.qr % LN_QN]); ln.qr++; }
     tx_mix_begin(&ln.mix, n);
     for (k = 0; k < LN_N; k++) {
+#ifdef LN_CLOCK_US
+        uint32_t t0 = LN_CLOCK_US();
+#endif
         if (!ln.mix.e[k] && !ln.ret_g[k] && !ln.dc[k]) continue;
+        if (ln.gen_on[k] && ln.mix.e[k]) {      /* the lane's generator: its activity and notes */
+            tx_gen_ev_t ev[TX_GEN_EV_MAX];
+            uint8_t in;
+            unsigned ne = tx_gen_block(&ln.gen[k], n, ev, TX_GEN_EV_MAX, &in), q;
+            if (ln.int_id[k] >= 0) ln.mix.e[k]->param(ln.mix.st[k], (uint8_t)ln.int_id[k], in);
+            for (q = 0; q < ne && !ln.gen_mute[k]; q++) ln.mix.e[k]->key(ln.mix.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
+        }
         tx_mix_slot_render(&ln.mix, k, n);
+#ifdef LN_CLOCK_US
+        ln.gov_cost[k] = LN_CLOCK_US() - t0;    /* (the fade below is not the lane's: as the player) */
+#endif
+        ln.gov_lvl[k] = (uint32_t)ln.mix.slot_peak[k];
         if (ln.ret_g[k] || ln.dc[k]) {          /* the switched-out engine's fade, the decaying step (as the player) */
             int32_t g = ln.ret_g[k], d = ln.dc[k], last = 0;
             for (j = 0; j < n; j++) ln.tmp[j] = 0;
@@ -145,5 +218,14 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
             if (!ln.ret_g[k]) ln.busy[k] = 0;   /* the arena is free again */
         }
     }
+#ifdef LN_CLOCK_US
+    {                                           /* the governor: over the pool, the quietest lane gives a hero */
+        uint8_t on[LN_N];
+        int pk;
+        for (k = 0; k < LN_N; k++) on[k] = ln.mix.e[k] != 0;
+        pk = tx_gov_block(&ln.gov, ln.gov_cost, ln.gov_lvl, on);
+        if (pk >= 0 && ln.mix.e[pk]) ln.mix.e[pk]->param(ln.mix.st[pk], TX_PID_PARTICLES, ln.gov.cur[pk]);
+    }
+#endif
     tx_mix_end(&ln.mix, L, R, n);
 }

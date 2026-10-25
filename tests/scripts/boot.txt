@@ -1,19 +1,29 @@
-# Textura boot (UI-PLAN piece 1): the splash in RED, then lane 1 plays the SOURCE from the keys and from MIDI
+# Textura boot: the splash in RED, then the LANDSCAPE page with the first landscape loaded and silent; REC starts it
 100 expect state app TEXTURA
 100 expect state palette RED
 500 expect state splash 1
 500 shot
 600 expect rms < -90
 2000 expect state splash 0
+2000 expect state page LANDSCAPE
+2000 expect state landscape Water
 2000 expect state lane0 source
-2100 shot
-2200 keys 0x80
-5000 expect rms > -60
-5000 keys 0
+2000 expect state snd0 rain_on_water
+2000 expect state run0 0
+2000 expect rms < -90
+2100 btn 13
+2200 expect state run0 1
+2200 expect state cnt0 2
+2200 expect state act0 1
+2200 expect state cnt1 1
+2200 expect state run3 0
+5000 expect rms > -85
+5000 shot
 5100 midi 0x90 72 110
-7000 expect rms > -60
-7000 midi 0x80 72 0
-7100 expect sound
-7100 expect state dropped 0
-7200 dump
-7200 end
+5600 midi 0x80 72 0
+5700 expect sound
+5700 expect state dropped 0
+5800 btn 13
+5900 expect state run0 0
+5900 dump
+6000 end

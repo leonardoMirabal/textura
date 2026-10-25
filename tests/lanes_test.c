@@ -16,11 +16,24 @@ static int rside[TX_MIX_SLOTS];
 static const tx_engine_t *rret_e[TX_MIX_SLOTS];
 static void *rret_st[TX_MIX_SLOTS];
 static int32_t rret_g[TX_MIX_SLOTS], rret_last[TX_MIX_SLOTS], rdc[TX_MIX_SLOTS], rtmp[TX_BLOCK];
+static tx_gen_t rgen[TX_MIX_SLOTS];                 /* the lanes' generators (txw_gen_on, txw_gen_param, txw_gen_mute) */
+static int rgen_on[TX_MIX_SLOTS], rgen_mute[TX_MIX_SLOTS];
 
 static void r_init(void)
 {
     tx_mix_init(&rm);
     tx_fx_init(&rfx); rm.ins = tx_fx_lane; rm.bus = tx_fx_bus; rm.busq = tx_fx_bus_quiet; rm.fx = &rfx;
+    for (unsigned k = 0; k < TX_MIX_SLOTS; k++) tx_gen_init(&rgen[k], 1u + k);
+}
+static void r_gen_on(int k, int on, unsigned seed)
+{
+    if (on && !rgen_on[k] && seed) tx_rng_seed(&rgen[k].rng, seed ^ 0x6E4E4E21u);
+    if (!on && rgen_on[k] && rm.e[k]) {
+        tx_gen_ev_t ev[TX_GEN_OFFS];
+        unsigned ne = tx_gen_stop(&rgen[k], ev, TX_GEN_OFFS), q;
+        for (q = 0; q < ne; q++) rm.e[k]->key(rm.st[k], ev[q].note, 0, 0);
+    }
+    rgen_on[k] = on != 0;
 }
 static void r_select(int k, const tx_engine_t *e, uint32_t seed)
 {
@@ -40,6 +53,14 @@ static void r_block(int32_t *L, int32_t *R)
     tx_mix_begin(&rm, TX_BLOCK);
     for (k = 0; k < TX_MIX_SLOTS; k++) {
         if (!rm.e[k] && !rret_g[k] && !rdc[k]) continue;
+        if (rgen_on[k] && rm.e[k]) {
+            tx_gen_ev_t ev[TX_GEN_EV_MAX];
+            uint8_t in;
+            unsigned ne = tx_gen_block(&rgen[k], TX_BLOCK, ev, TX_GEN_EV_MAX, &in), q;
+            int ip = tx_param_find(rm.e[k], "ACTIVITY");
+            if (ip >= 0 && !strcmp(rm.e[k]->name, "source")) rm.e[k]->param(rm.st[k], (uint8_t)ip, in);
+            for (q = 0; q < ne && !rgen_mute[k]; q++) rm.e[k]->key(rm.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
+        }
         tx_mix_slot_render(&rm, k, TX_BLOCK);
         if (rret_g[k] || rdc[k]) {
             int32_t g = rret_g[k], d = rdc[k], last = 0;
@@ -80,9 +101,18 @@ static const step_t SCENE[] = {
     {151, 'K', 0, 0, 62, 110, 1},
     {200, 'K', 0, 0, 62, 0, 0},
     {220, 'S', 1, 0, 0, 0, 0},                  /* lane 2 off: its tail fades */
+    {230, 'S', 2, "source", 0, 0, 0},           /* lane 3: the source played by its generator */
+    {231, 'A', 2, 0, TX_GEN_ACTIVITY, 90, 0},
+    {231, 'G', 2, 0, 1, 777, 0},
+    {231, 'K', 2, 0, 60, 100, 1},
     {300, 'S', 1, "fire", 0, 0, 0},
     {300, 'K', 1, 0, 60, 100, 1},
-    {400, 0, 0, 0, 0, 0, 0},
+    {301, 'M', 1, 0, 1, 0, 0},                  /* lane 2's generator, muted (a classic engine: no notes) */
+    {301, 'G', 1, 0, 1, 4242, 0},
+    {350, 'G', 2, 0, 0, 0, 0},                  /* lane 3's generator off: its notes released */
+    {360, 'G', 2, 0, 1, 99, 0},                 /* and on again: a new walk */
+    {440, 'K', 2, 0, 60, 0, 0},
+    {450, 0, 0, 0, 0, 0, 0},
 };
 
 int main(void)
@@ -117,6 +147,18 @@ int main(void)
             case 'N':
                 ln_pan((uint32_t)t->k, (uint32_t)t->a);
                 tx_mix_pan(&rm, (unsigned)t->k, (unsigned)t->a);
+                break;
+            case 'G':
+                ln_gen_on((uint32_t)t->k, (uint32_t)t->a, (uint32_t)t->v);
+                r_gen_on(t->k, t->a, (unsigned)t->v);
+                break;
+            case 'A':
+                ln_gen_param((uint32_t)t->k, (uint32_t)t->a, (uint32_t)t->v);
+                tx_gen_param(&rgen[t->k], (unsigned)t->a, (unsigned)t->v);
+                break;
+            case 'M':
+                ln_gen_mute((uint32_t)t->k, (uint32_t)t->a);
+                rgen_mute[t->k] = t->a != 0;
                 break;
             case 'F':                           /* group k: 0 drive, 1 filter (lane c), 2 reverb, 3 grain */
                 ln_fx((uint32_t)t->k, (uint32_t)t->c, (uint32_t)t->a, (uint32_t)t->v);

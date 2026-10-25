@@ -1,0 +1,26 @@
+# SEL: PLAY mode (the keys into the selected lane, pitched; OCT = octave; LEDs = held keys); HOME: MIXER; SELECT: pans
+1700 btn 3
+1720 expect state mode PLAY
+1800 keys 0x80
+1850 expect led 21 1
+1850 expect led 3 1
+2500 expect rms > -70
+2500 keys 0
+2600 btn 1
+2620 expect state oct 1
+2700 btn 3
+2720 expect state mode LANDSCAPE
+2800 btn 8
+2820 expect state page MIXER
+2900 turn 2 -20
+2920 expect state vol0 80
+3000 shot
+3100 turn 0 1
+3120 expect state page MIXER_2
+3200 turn 3 20
+3220 expect state pan1 84
+3500 shot
+3600 btn 8
+3620 expect state page LANDSCAPE
+3700 expect sound
+3700 end

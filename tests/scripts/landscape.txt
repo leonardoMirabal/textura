@@ -1,0 +1,66 @@
+# the LANDSCAPE key mode: black keys = sounds, F3..E4 = HOW MANY, F4..F5 = HOW ACTIVE, F#5 / G5 = next / previous
+# landscape; ALGORITHM = landscape; OCT = lane; K1..K4 = sound, how many, how active, volume; key LEDs (14 + key)
+1700 btn 13
+1800 expect state run0 1
+# D#4 (key 10): the 5th sound, eaves dripping, into the free lane 4, selected and stopped
+2000 keys 0x400
+2050 keys 0
+2100 expect state sel 4
+2100 expect state snd3 eaves_dripping
+2100 expect state run3 0
+2100 expect led 24 0
+# D4 (key 9): HOW MANY 16 (starts it, rare)
+2200 keys 0x200
+2250 keys 0
+2300 expect state cnt3 5
+2300 expect state act3 1
+2300 expect state run3 1
+2300 expect led 23 1
+2300 expect led 26 1
+# F5 (key 24): HOW ACTIVE busy
+2400 keys 0x1000000
+2450 keys 0
+2500 expect state act3 8
+2500 expect led 38 1
+3500 shot
+# D#4 again (selected, playing): off
+3600 keys 0x400
+3650 keys 0
+3700 expect state run3 0
+3700 expect state cnt3 0
+# K2 / K3 on the selected lane, then K4
+3800 turn 3 2
+3820 expect state cnt3 1
+3820 expect state act3 1
+3900 turn 4 1
+3920 expect state act3 2
+4000 turn 5 -10
+4020 expect state vol3 90
+# OCT- : lane 3
+4100 btn 0
+4120 expect state sel 3
+# K1: the next sound not on another lane
+4200 turn 2 1
+4220 expect state snd2 cave_drips
+4300 expect state run2 1
+# F#5: the next landscape (after 300 ms); what played starts the new one low
+4400 keys 0x2000000
+4450 keys 0
+4600 expect state landscape Water
+4800 expect state landscape Stones_&_sand
+4800 expect state run0 1
+4800 expect state sel 1
+# ALGORITHM: three on, one landscape loaded
+5000 turn 1 1
+5050 turn 1 1
+5100 turn 1 1
+5500 expect state landscape Wood
+5500 expect state lane0 source
+# G5: back
+5600 keys 0x4000000
+5650 keys 0
+6000 expect state landscape Fire
+6000 shot
+6100 expect sound
+6100 expect state dropped 0
+6200 end

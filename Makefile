@@ -29,9 +29,16 @@
 #   make fw-host       the firmware on this computer (plans: UI-PLAN): build/fw/textura-host, a fake FM-1
 #                      (tests/host.c): build/fw/textura-host OUT [SCRIPT [FPS]] -> OUT.wav, OUT-<ms>.ppm
 #   make fw-test       the firmware's checks: tests/lanes_test.c (the lanes = the player's chain, sample for sample)
-#                      and every host script in tests/scripts/ (its expects)
-#   make fw-fonts      regenerate firmware/gen/felucca_font.h (every ASCII glyph of Terminus 8x16) with Frodhes'
-#                      tools/gen_font.py at FW_FONT_REV, read from its git (Frodhes' checkout is never changed)
+#                      and every host script in tests/scripts/ (its expects), and that firmware/src/landscapes.h is
+#                      still what audition/app.js gives (FAMILIES, QUICK)
+#   make fw-web        the firmware in a web browser -> build/web/ (web/build.sh, Emscripten from .local/emsdk;
+#                      REL=X.Y.Z stamps a version); make fw-web-serve serves it at http://localhost:8001
+#   make fw-web-check  the web panel in headless Chromium at desktop and phone width (tests/web_check.py)
+#   make fw-landscapes write firmware/src/landscapes.h again from audition/app.js (after a change to FAMILIES / QUICK)
+#   make fw-fonts      regenerate the fonts with Frodhes' generators at FW_FONT_REV, read from its git (Frodhes'
+#                      checkout is never changed), every glyph (no font diet): firmware/gen/felucca_font.h (Terminus
+#                      8x16, gfx.c), aa_font.h and aa_font_v24.h (Inter Tight, anti-aliased, aatext.c; Pillow from
+#                      .local/venv: another Pillow rasterises a few pixels differently)
 CC       ?= cc
 FRODHES  ?= ../frodhes
 CALIB    ?= 1
@@ -50,7 +57,7 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-.PHONY: fw-host fw-test fw-fonts tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-fx-tables tx-size tx-libcalls tx-clean
+.PHONY: fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-fonts tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -116,15 +123,31 @@ $(FW)/lanes_test: tests/lanes_test.c firmware/src/lanes.c $(ENG_SRC) $(ENG_HDR)
 fw-host: $(FW)/textura-host
 
 fw-test: $(FW)/lanes_test $(FW)/textura-host
-	@$(FW)/lanes_test || exit 1; \
+	@python3 -I tools/gen_landscapes.py --check || exit 1; \
+	$(FW)/lanes_test || exit 1; \
 	fail=0; for s in tests/scripts/*.txt; do n=$$(basename $$s .txt); \
 	  if $(FW)/textura-host $(FW)/$$n $$s > $(FW)/$$n.log 2>&1; then echo "ok    host $$n"; \
 	  else echo "FAIL  host $$n ($(FW)/$$n.log)"; fail=1; fi; done; exit $$fail
 
+fw-web:
+	sh web/build.sh $(if $(REL),--release $(REL),)
+
+fw-web-serve: fw-web
+	python3 -m http.server -d build/web 8001
+
+fw-web-check: fw-web
+	$(HEAVY) env PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py
+
+fw-landscapes:
+	python3 -I tools/gen_landscapes.py
+
 fw-fonts:
 	@rm -rf $(FW)/fonts && mkdir -p $(FW)/fonts
-	git -C $(FRODHES) archive $(FW_FONT_REV) tools/gen_font.py assets/fonts/ter-u16n.bdf | tar -x -C $(FW)/fonts
+	git -C $(FRODHES) archive $(FW_FONT_REV) tools/gen_font.py tools/gen_aa_font.py tools/aa_raster.py tools/font_chars.py \
+	  assets/fonts/ter-u16n.bdf 'assets/fonts/InterTight[wght].ttf' | tar -x -C $(FW)/fonts
 	python3 -I $(FW)/fonts/tools/gen_font.py --full firmware/gen/felucca_font.h
+	.local/venv/bin/python -I $(FW)/fonts/tools/gen_aa_font.py firmware/gen/aa_font.h --preset inter-tight --full
+	.local/venv/bin/python -I $(FW)/fonts/tools/gen_aa_font.py firmware/gen/aa_font_v24.h --value-px 24 --full
 
 # engines/ (and the firmware's lanes.c) compiled for a 32-bit soft-float target: any call to a 64-bit division or a float helper fails the check
 # (the device has no libgcc); 64-bit multiply instructions are counted for information (inner loops should have none)
@@ -224,4 +247,4 @@ tx-size:
 	size build/size/*.o
 
 tx-clean:
-	rm -rf build/bench build/wav build/calib build/arm build/size build/audition build/audition-check build/fw
+	rm -rf build/bench build/wav build/calib build/arm build/size build/audition build/audition-check build/fw build/web build/web-check

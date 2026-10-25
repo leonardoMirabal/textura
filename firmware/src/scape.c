@@ -1,0 +1,351 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* The landscape model: which landscape plays, which of its sounds sits on each of the four lanes, and each lane's
+ * HOW MANY (the source's COUNT) and HOW ACTIVE (the lane generator's ACTIVITY), its volume and its pan. It is the
+ * audition player's lane mode (audition/app.js: soundLoad, soundKey, laneCount, laneStep, laneStart, quickTick,
+ * setFamily, startLandscape) in C, on the tables tools/gen_landscapes.py writes from app.js (landscapes.h).
+ *
+ * The state here is what the player wants; sc_sync sends a lane's engine only what differs from what it was last sent
+ * (lanes.c's queue), so a change made while a lane's last engine switch still fades (ln_select busy) is simply sent a
+ * few blocks later. A sound is a SOURCE preset + TYPE, or a classic engine: those have no population, so HOW MANY and
+ * HOW ACTIVE together move a few of their own parameters (the QUICK maps), and the one-shot ones (thunder, glass ...)
+ * are pressed again and again at random (exponential) gaps.
+ *
+ * Main loop only (sc_poll every pass): integers, no division in 64 bits. */
+#include "landscapes.h"
+
+#define SC_N LN_N                               /* lanes */
+#define SC_STEPS 14                             /* HOW ACTIVE as a step 1 .. 14 (0: off), as the player's */
+#define SC_QUICK_MS 50u                         /* the classic engines' glide: 20 a second, 0.4 of the way each */
+#define SC_HOLD_NOTE 60u                        /* the key a lane holds down (the source, a held classic engine) */
+#define SC_HOLD_VEL 100u
+#define SC_PRESS_MS 150u                        /* a one-shot engine's press, and its shortest gap */
+#define SC_FAM_MS 300u                          /* ALGORITHM: the landscape changes this long after the last detent */
+
+static const uint16_t SC_BLINK_MS[LS_NACT] = {1600, 1105, 763, 527, 364, 252, 174, 120};   /* 1.6 s x (0.12 / 1.6)^(a / 7) */
+
+static struct {
+    uint8_t fam, sel;                           /* the landscape; the selected lane */
+    uint8_t fam_want, fam_pend;                 /* ALGORITHM's landscape, waiting for SC_FAM_MS */
+    uint32_t fam_t;
+    const tx_engine_t *src;                     /* the SOURCE engine */
+    int8_t id_preset, id_type, id_count;        /* its parameters */
+    /* each lane, as wanted */
+    int8_t snd[SC_N];                           /* the landscape's sound (-1: none) */
+    const tx_engine_t *eng[SC_N];
+    uint8_t preset[SC_N], type[SC_N];           /* (the source) */
+    uint8_t cnt[SC_N], step[SC_N], run[SC_N], notes[SC_N], pan[SC_N];
+    const ls_quick_t *q[SC_N];                  /* a classic engine's map (0: none) */
+    /* and as last sent */
+    const tx_engine_t *a_eng[SC_N];
+    int16_t a_preset[SC_N], a_type[SC_N], a_count[SC_N], a_act[SC_N], a_level[SC_N], a_pan[SC_N];
+    uint8_t a_gen[SC_N], a_mute[SC_N], a_held[SC_N];
+    /* the classic engines' glide and presses */
+    int8_t q_id[SC_N][3];
+    int32_t q_cur[SC_N][3];                     /* Q8 (-1 << 30: not yet sent) */
+    uint32_t q_next[SC_N], q_rel[SC_N];         /* the next press, the press's release (0: none) */
+    uint8_t q_on[SC_N];
+    uint32_t q_t;
+    uint8_t vol[LS_N][LS_SND_MAX];              /* each sound's volume (LEVEL, 100 = as tuned) */
+    uint8_t mem_cnt[SC_N], mem_step[SC_N];      /* REC: what played when all stopped */
+    tx_rng_t rng;
+} sc;
+
+/* ---- the player's scales */
+static uint32_t sc_act_step(uint32_t w) { return 1u + (w * 26u + 7u) / 14u; }          /* HOW ACTIVE key 0 .. 7 -> step */
+static uint32_t sc_act_val(uint32_t s) { return s ? ((s - 1u) * 254u + 13u) / 26u : 0u; }   /* step -> ACTIVITY 0 .. 127 */
+static uint32_t sc_act_of(uint32_t s) { return s ? ((s - 1u) * 14u + 13u) / 26u : 0u; }    /* step -> HOW ACTIVE 0 .. 7 */
+
+static int sc_eq(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
+/* the source's preset by name, read from its PRESET help line ("the source: 0 rain on water | 1 stone cloud | ...") */
+static int sc_preset_index(const char *name)
+{
+    const char *h = sc.src && sc.id_preset >= 0 ? sc.src->params[sc.id_preset].help : "";
+    while (*h && *h != ':') h++;
+    while (*h) {
+        int n = 0;
+        const char *a;
+        h++;                                    /* (':' or '|') */
+        while (*h == ' ') h++;
+        if (*h < '0' || *h > '9') break;
+        while (*h >= '0' && *h <= '9') n = n * 10 + (*h++ - '0');
+        while (*h == ' ') h++;
+        for (a = name; *a && *a == *h; a++, h++) {}
+        if (!*a && (!*h || *h == '|' || *h == ' ')) {
+            while (*h == ' ') h++;
+            if (!*h || *h == '|') return n;
+        }
+        while (*h && *h != '|') h++;
+    }
+    return -1;
+}
+static const ls_quick_t *sc_quick(const tx_engine_t *e)
+{
+    uint32_t i;
+    for (i = 0; e && i < LS_NQUICK; i++) if (sc_eq(LS_QUICK[i].eng, e->name)) return &LS_QUICK[i];
+    return 0;
+}
+static int sc_is_src(uint32_t k) { return sc.eng[k] && sc.eng[k] == sc.src; }
+static int sc_oneshot(uint32_t k) { return !sc_is_src(k) && sc.q[k] && sc.q[k]->every_ms; }
+static uint32_t sc_cnt_of(uint32_t k) { return sc.run[k] ? sc.cnt[k] : 0u; }
+static uint32_t sc_step_of(uint32_t k) { return sc.run[k] ? sc.step[k] : 0u; }
+static uint32_t sc_vol_of(uint32_t k)
+{
+    return sc.snd[k] >= 0 ? sc.vol[sc.fam][sc.snd[k]] : 100u;
+}
+static const char *sc_sound_name(uint32_t k) { return sc.snd[k] >= 0 ? LS[sc.fam].s[sc.snd[k]].name : "-"; }
+static uint32_t sc_blink_ms(uint32_t k) { return SC_BLINK_MS[sc_act_of(sc_step_of(k))]; }
+
+/* ---- what a lane's engine is sent: only what differs from the last time */
+static void sc_sync(uint32_t k)
+{
+    int src, gen, held;
+    uint32_t i;
+    if (sc.eng[k] != sc.a_eng[k]) {             /* another engine: the old one's notes go first */
+        if (sc.a_held[k]) { ln_key(k, SC_HOLD_NOTE, 0, 0); sc.a_held[k] = 0; }
+        if (sc.a_gen[k]) { ln_gen_on(k, 0, 0); sc.a_gen[k] = 0; }
+        if (ln_select(k, sc.eng[k], tx_seed()) < 0) return;   /* (the last switch still fading: next pass) */
+        sc.a_eng[k] = sc.eng[k];
+        sc.a_preset[k] = sc.a_type[k] = sc.a_count[k] = sc.a_level[k] = -1;
+        for (i = 0; i < 3u; i++) {              /* the classic engine's QUICK parameters */
+            sc.q_id[k][i] = (int8_t)(sc.q[k] && i < sc.q[k]->np ? tx_param_find(sc.eng[k], sc.q[k]->p[i].name) : -1);
+            sc.q_cur[k][i] = -(1 << 30);
+        }
+    }
+    if (!sc.eng[k]) return;
+    src = sc_is_src(k);
+    if (src && sc.preset[k] != sc.a_preset[k]) { ln_param(k, (uint32_t)sc.id_preset, sc.preset[k]); sc.a_preset[k] = sc.preset[k]; }
+    if (src && sc.id_type >= 0 && sc.type[k] != sc.a_type[k]) { ln_param(k, (uint32_t)sc.id_type, sc.type[k]); sc.a_type[k] = sc.type[k]; }
+    if (src && sc.id_count >= 0 && LS_COUNT_V[sc.cnt[k]] != sc.a_count[k]) {
+        ln_param(k, (uint32_t)sc.id_count, LS_COUNT_V[sc.cnt[k]]); sc.a_count[k] = LS_COUNT_V[sc.cnt[k]];
+    }
+    if ((int32_t)sc_vol_of(k) != sc.a_level[k]) { ln_level(k, sc_vol_of(k)); sc.a_level[k] = (int16_t)sc_vol_of(k); }
+    if (sc.pan[k] != sc.a_pan[k]) { ln_pan(k, sc.pan[k]); sc.a_pan[k] = sc.pan[k]; }
+    gen = sc.run[k] && sc.notes[k];             /* the generator: on while the lane runs (Notes on) */
+    if (gen && (int32_t)sc_act_val(sc.step[k]) != sc.a_act[k]) {
+        ln_gen_param(k, TX_GEN_ACTIVITY, sc_act_val(sc.step[k])); sc.a_act[k] = (int16_t)sc_act_val(sc.step[k]);
+    }
+    if ((uint8_t)!src != sc.a_mute[k]) { ln_gen_mute(k, !src); sc.a_mute[k] = (uint8_t)!src; }   /* a classic engine: no notes */
+    if (gen != sc.a_gen[k]) { ln_gen_on(k, (uint32_t)gen, tx_seed() | 1u); sc.a_gen[k] = (uint8_t)gen; }
+    if (src && !sc.notes[k] && sc.run[k]) {     /* Notes off: the fader is the source's activity itself */
+        int id = ln_act_id(sc.src);
+        if (id >= 0) ln_param(k, (uint32_t)id, sc_act_val(sc.step[k]));
+    }
+    held = sc.run[k] && !sc_oneshot(k);         /* the source, a held classic engine: key 60 down while it runs */
+    if (held != sc.a_held[k]) { ln_key(k, SC_HOLD_NOTE, held ? SC_HOLD_VEL : 0u, (uint32_t)held); sc.a_held[k] = (uint8_t)held; }
+}
+
+/* ---- a classic engine's activity: its QUICK parameters glide toward the place HOW MANY and HOW ACTIVE give */
+static uint32_t sc_quick_pos(uint32_t k)        /* 0 .. 65536 */
+{
+    uint32_t c = sc.cnt[k] > 1u ? (sc.cnt[k] - 1u) * 65536u / (LS_NCNT - 2u) : 0u, a, x;
+    if (sc.notes[k]) a = (uint32_t)ln_gen_activity(k) * 65536u / 254u;   /* the generator's wander (/ 127, x 0.5) */
+    else a = sc.step[k] * 65536u / (2u * SC_STEPS);
+    x = c / 2u + a;
+    return x > 65536u ? 65536u : x;
+}
+static void sc_quick_tick(uint32_t k, int jump)
+{
+    const ls_quick_t *q = sc.q[k];
+    uint32_t x = sc_quick_pos(k), i;
+    if (!q || sc.a_eng[k] != sc.eng[k]) return;
+    for (i = 0; i < q->np; i++) {
+        int32_t t = q->p[i].lo * 256 + (int32_t)(((q->p[i].hi - q->p[i].lo) * (int32_t)x) >> 8);   /* Q8 */
+        int32_t now = sc.q_cur[k][i], nx, d;
+        if (now == -(1 << 30) || jump) now = t;
+        d = t - now;
+        nx = d > -128 && d < 128 ? t : now + ((d * 13107) >> 15);   /* 0.4 of the way */
+        if (sc.q_id[k][i] >= 0 && ((nx + 128) >> 8 != (now + 128) >> 8 || sc.q_cur[k][i] == -(1 << 30) || jump))
+            ln_param(k, (uint32_t)sc.q_id[k][i], (uint32_t)((nx + 128) >> 8));
+        sc.q_cur[k][i] = nx;
+    }
+}
+/* a one-shot engine's next press: an exponential gap around the mean at the place (C4's gap .. C6's, log) */
+static uint32_t sc_quick_gap(uint32_t k)
+{
+    const ls_quick_t *q = sc.q[k];
+    uint32_t x = sc_quick_pos(k), mean, nl;
+    int32_t e = (q->every_oct_q16 >> 4) * (int32_t)(x >> 4) >> 8;
+    mean = (q->every_ms * (tx_exp2(e + (16 << 16)) >> 4)) >> 12;   /* ms */
+    nl = (tx_neglog2_q12(tx_rand(&sc.rng)) * 2839u) >> 12;           /* -ln u, Q12 */
+    mean = ((mean >> 4) * nl) >> 8;
+    return mean < SC_PRESS_MS ? SC_PRESS_MS : mean > 600000u ? 600000u : mean;
+}
+
+/* ---- the player's lane actions */
+static void sc_start(uint32_t k, int on)        /* laneStart: the lane plays on its own, or stops (tails ring) */
+{
+    sc.run[k] = (uint8_t)(on != 0);
+    sc.q_next[k] = 0;
+    if (on && !sc_is_src(k)) sc_quick_tick(k, 1);   /* (a classic engine: its settings first, no glide) */
+    if (on && sc_oneshot(k)) sc.q_next[k] = fm1_ms + sc_quick_gap(k) + 1u;   /* (its first strike after a gap) */
+    sc_sync(k);
+}
+static void sc_step(uint32_t k, uint32_t w);
+static void sc_count(uint32_t k, uint32_t c)    /* HOW MANY: 0 off (new events stop, the tails ring), 1 .. 6 */
+{
+    if (k >= SC_N) return;
+    sc.cnt[k] = (uint8_t)(c < LS_NCNT ? c : LS_NCNT - 1u);
+    if (!c) { if (sc.run[k]) sc_start(k, 0); else sc_sync(k); return; }
+    if (!sc.run[k]) sc_step(k, sc_act_step(0)); /* (started from off: rare, so the first key is 1 on both) */
+    else sc_sync(k);
+}
+static void sc_step(uint32_t k, uint32_t w)     /* HOW ACTIVE as a step 1 .. 14 (0: off) */
+{
+    if (k >= SC_N) return;
+    if (!w) { sc_count(k, 0); return; }
+    if (!sc.cnt[k]) sc.cnt[k] = 1;              /* a sound off: the activity keys start it with one */
+    sc.step[k] = (uint8_t)(w > SC_STEPS ? SC_STEPS : w);
+    if (!sc.run[k]) sc_start(k, 1);
+    else sc_sync(k);
+}
+static void sc_load(uint32_t k, uint32_t i)     /* soundLoad: the landscape's sound i into lane k, stopped */
+{
+    const ls_sound_t *s = &LS[sc.fam].s[i];
+    if (sc.run[k]) sc_start(k, 0);
+    sc.step[k] = 0; sc.cnt[k] = 0;
+    if (s->eng) {
+        const tx_engine_t *e = tx_engine_find(s->src);
+        if (!e) return;
+        sc.eng[k] = e;
+    } else {
+        int p = sc_preset_index(s->src);
+        sc.eng[k] = sc.src;
+        if (p >= 0) sc.preset[k] = (uint8_t)p;
+        sc.type[k] = s->type;
+    }
+    sc.q[k] = sc_is_src(k) ? 0 : sc_quick(sc.eng[k]);
+    sc.snd[k] = (int8_t)i;
+    sc_sync(k);
+}
+/* PLAY mode: the keys play the lane's engine, so a lane at HOW MANY off gets one (its COUNT) without starting */
+static void sc_play_ready(uint32_t k)
+{
+    if (k < SC_N && !sc.cnt[k]) { sc.cnt[k] = 1; sc_sync(k); }
+}
+static void sc_select(uint32_t k) { if (k < SC_N) sc.sel = (uint8_t)k; }
+static void sc_sound_key(uint32_t i)            /* a black key: the sound's lane selected (loaded into a free one); tapped
+                                                 * again while selected and playing: off */
+{
+    int k = -1;
+    uint32_t j;
+    if (i >= LS[sc.fam].n) return;
+    for (j = 0; j < SC_N; j++) if (sc.snd[j] == (int)i) k = (int)j;
+    if (k >= 0 && (uint32_t)k == sc.sel && sc.run[k]) { sc_count((uint32_t)k, 0); return; }
+    if (k < 0) {                                /* a free lane, else the smallest playing one gives way */
+        for (j = 0; j < SC_N && k < 0; j++) if (!sc.run[j] && j != sc.sel) k = (int)j;
+        for (j = 0; j < SC_N && k < 0; j++) if (!sc.run[j]) k = (int)j;
+        if (k < 0) {
+            k = 0;
+            for (j = 1; j < SC_N; j++)
+                if (sc_cnt_of(j) * 16u + sc_step_of(j) < sc_cnt_of((uint32_t)k) * 16u + sc_step_of((uint32_t)k)) k = (int)j;
+        }
+        sc_load((uint32_t)k, i);
+    }
+    sc_select((uint32_t)k);
+}
+/* K1 on LANDSCAPE: the selected lane's sound, d sounds on (the ones on the other lanes skipped); playing, it goes on
+ * playing with the same HOW MANY and HOW ACTIVE */
+static void sc_sound_turn(int32_t d)
+{
+    uint32_t k = sc.sel, n = LS[sc.fam].n, j, tries;
+    int32_t i = sc.snd[k];
+    uint8_t run = sc.run[k], c = sc.cnt[k], s = sc.step[k];
+    if (!d || !n) return;
+    for (tries = 0; tries < n; tries++) {
+        int used = 0;
+        i += d > 0 ? 1 : -1;
+        if (i < 0) i = (int32_t)n - 1;
+        if (i >= (int32_t)n) i = 0;
+        for (j = 0; j < SC_N; j++) if (j != k && sc.snd[j] == i) used = 1;
+        if (!used) break;
+    }
+    if (i == sc.snd[k]) return;
+    sc_load(k, (uint32_t)i);
+    if (run) { sc_count(k, c); sc_step(k, s); }
+}
+static void sc_volume(uint32_t k, uint32_t v)
+{
+    if (k >= SC_N || sc.snd[k] < 0) return;
+    sc.vol[sc.fam][sc.snd[k]] = (uint8_t)(v > 127u ? 127u : v);
+    sc_sync(k);
+}
+static void sc_pan(uint32_t k, uint32_t v) { if (k < SC_N) { sc.pan[k] = (uint8_t)(v > 127u ? 127u : v); sc_sync(k); } }
+static void sc_family(uint32_t f)               /* setFamily: every lane stopped, the landscape's first sounds loaded */
+{
+    uint32_t k;
+    sc.fam = (uint8_t)(f % LS_N);
+    sc.fam_want = sc.fam; sc.fam_pend = 0;
+    for (k = 0; k < SC_N; k++) { if (sc.run[k]) sc_start(k, 0); sc.snd[k] = -1; sc.mem_cnt[k] = 0; }
+    for (k = 0; k < SC_N && k < LS[sc.fam].n; k++) sc_load(k, k);
+    sc.sel = 0;
+}
+static void sc_start_landscape(void)            /* the first three sounds at once, low: 2 / 1 / 1 of them, rare */
+{
+    static const uint8_t C[3] = {2, 1, 1};
+    uint32_t k;
+    for (k = 0; k < 3u; k++) if (sc.snd[k] >= 0) { sc_count(k, C[k]); sc_step(k, sc_act_step(0)); }
+    sc.sel = 0;
+}
+static int sc_any_run(void) { uint32_t k; for (k = 0; k < SC_N; k++) if (sc.run[k]) return 1; return 0; }
+static void sc_all_toggle(void)                 /* REC: all lanes stop (remembered) / start again (or the landscape's start) */
+{
+    uint32_t k;
+    int mem = 0;
+    if (sc_any_run()) {
+        for (k = 0; k < SC_N; k++) {
+            sc.mem_cnt[k] = (uint8_t)sc_cnt_of(k); sc.mem_step[k] = (uint8_t)sc_step_of(k);
+            if (sc.run[k]) sc_start(k, 0);
+        }
+        return;
+    }
+    for (k = 0; k < SC_N; k++) if (sc.mem_cnt[k]) { mem = 1; sc_count(k, sc.mem_cnt[k]); sc_step(k, sc.mem_step[k]); }
+    if (!mem) sc_start_landscape();
+}
+/* ALGORITHM / F#5 / G5: another landscape; what played goes on playing (the new landscape's start), quiet stays quiet.
+ * The detents gather for SC_FAM_MS so a fast turn loads one landscape, not each it passes */
+static void sc_family_turn(int32_t d)
+{
+    int32_t f = (int32_t)sc.fam_want + d % (int32_t)LS_N + (int32_t)LS_N;
+    sc.fam_want = (uint8_t)(f % (int32_t)LS_N);
+    sc.fam_pend = 1; sc.fam_t = fm1_ms;
+}
+static void sc_family_go(void)
+{
+    int play = sc_any_run();
+    sc_family(sc.fam_want);
+    if (play) sc_start_landscape();
+}
+
+static void sc_init(void)
+{
+    uint32_t k, f, i;
+    sc.src = tx_engine_find("source");
+    sc.id_preset = (int8_t)(sc.src ? tx_param_find(sc.src, "PRESET") : -1);
+    sc.id_type = (int8_t)(sc.src ? tx_param_find(sc.src, "TYPE") : -1);
+    sc.id_count = (int8_t)(sc.src ? tx_param_find(sc.src, "COUNT") : -1);
+    tx_rng_seed(&sc.rng, tx_seed());
+    for (f = 0; f < LS_N; f++) for (i = 0; i < LS_SND_MAX; i++) sc.vol[f][i] = 100;
+    for (k = 0; k < SC_N; k++) {
+        sc.snd[k] = -1; sc.notes[k] = 1; sc.pan[k] = 64;
+        sc.a_preset[k] = sc.a_type[k] = sc.a_count[k] = sc.a_act[k] = sc.a_level[k] = sc.a_pan[k] = -1;
+    }
+    sc_family(0);
+}
+static void sc_poll(void)
+{
+    uint32_t k;
+    if (sc.fam_pend && fm1_ms - sc.fam_t >= SC_FAM_MS) sc_family_go();
+    for (k = 0; k < SC_N; k++) {
+        if (sc.a_eng[k] != sc.eng[k]) sc_sync(k);   /* a switch that had to wait */
+        if (sc.q_rel[k] && (int32_t)(fm1_ms - sc.q_rel[k]) >= 0) { ln_key(k, SC_HOLD_NOTE, 0, 0); sc.q_rel[k] = 0; }
+        if (sc.run[k] && sc.q_next[k] && sc_oneshot(k) && sc.a_eng[k] == sc.eng[k] && (int32_t)(fm1_ms - sc.q_next[k]) >= 0) {
+            ln_key(k, SC_HOLD_NOTE, SC_HOLD_VEL, 1);   /* quickPress */
+            sc.q_rel[k] = fm1_ms + SC_PRESS_MS; if (!sc.q_rel[k]) sc.q_rel[k] = 1;
+            sc.q_next[k] = fm1_ms + sc_quick_gap(k); if (!sc.q_next[k]) sc.q_next[k] = 1;
+        }
+    }
+    if (fm1_ms - sc.q_t >= SC_QUICK_MS) {
+        sc.q_t = fm1_ms;
+        for (k = 0; k < SC_N; k++) if (sc.run[k] && !sc_is_src(k)) sc_quick_tick(k, 0);
+    }
+}
