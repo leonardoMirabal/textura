@@ -226,21 +226,21 @@ static const host_t HOST[] = {
      400, 90, 3, 1},                /* (the top: a pane collapsing, 4-5 breaks/s) */
     /* the family members TYPE reaches (FAM below; note 16): */
     /* rain on surfaces (rain): drizzle on a roof .. a downpour, bigger drops */
-    {"rainsurf", -10, -10, -10, {{"RATE", 25, 70, 120}, {"DROPS", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"rainsurf", -10, -10, -10, {{"RATE", 25, 70, 120}, {"DROPS", 40, 64, 110}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* lake ice (ice): a crack now and then .. a lake singing and booming */
-    {"lakeice", -30, -30, -30, {{"RATE", 10, 40, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"lakeice", -30, -30, -30, {{"RATE", 8, 34, 90}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* rolling balls and marbles (gravel): a ball pushed now and then .. marbles rolling about */
-    {"pebble", -30, -30, -30, {{"SPEED", 40, 64, 96}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+    {"pebble", -5, -5, -5, {{"SPEED", 40, 64, 96}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
      60, 20, 6, 0},
     /* a flame without crackle (fire): a candle .. a gas burner roaring in a draught */
-    {"candle", 30, 30, 30, {{"FLOW", 5, 15, 70}, {"DRAUGHT", 5, 10, 60}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"candle", 30, 30, 30, {{"FLOW", 5, 15, 90}, {"DRAUGHT", 5, 20, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* singing dunes (sand): a slip below the threshold .. a booming avalanche */
-    {"sandsong", -30, -30, -30, {{"FLOW", 60, 100, 127}, {"STEADY", 50, 100, 127}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"sandsong", 0, 0, 0, {{"FLOW", 60, 100, 127}, {"STEADY", 50, 100, 127}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* stone friction (minerals): a slow rub .. scraping hard and fast */
     {"mineral", -45, -45, -45, {{"SPEED", 30, 64, 100}, {"PRESSURE", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* rockfall (stones): a fall now and then .. falls every few seconds, bigger */
     {"rockfall", 80, 80, 80, {{"VOLUME", 30, 64, 110}, {"FRAG", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
-     300, 100, 30, 1},
+     300, 100, 60, 1},
     /* ringing rocks (stones): a boulder struck now and then .. struck quickly */
     {"stonedrum", 30, 30, 30, {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
      60, 12, 3, 1},

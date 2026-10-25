@@ -13,6 +13,11 @@
  *   surface  what is heard is mostly the surface (pebbles ring ultrasonically, note 05): one shared modal bank fed
  *            by every pebble's force (physically one object), 6 modes of irregular plate-like ratios (ours), Q from
  *            the material (wood 40, stone 150 (granite, 05), glass 400, metal 1000), driven at unit noise power.
+ *   bounce   a push drops the ball onto the surface first (from 1 .. 12 cm by velocity: a marble set down, a ball
+ *            thrown): it bounces with restitution e (wood 0.55, stone 0.75, glass 0.85, metal 0.8, each bounce +-12 %),
+ *            the flights shrinking as e^n (t_n = 2 v_n / g) and each impact's push ~ its speed (momentum), Hertz-short,
+ *            until the flights are under 8 ms: then it rolls (the references' bursty, kurtotic first second: a
+ *            marble's accelerating patter, a ball's thuds; note 18).
  * Keys: the pebble radius at C4 = SIZE, 2^(1/12) smaller per semitone up.
  * Realism pass (marble-on-wood references, analysis only): real rolling is irregular and bright (energy 0.6-4 kHz,
  * kurtosis 14-370, event-level std 6-7 dB, slow 0.5-0.8 Hz level changes). So: the wood table's modes start at 620 Hz
@@ -40,11 +45,11 @@
 enum { P_SIZE, P_SPEED, P_ROUGH, P_ROUND, P_SURFACE, P_DRAG, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"SIZE", 127, 64, "pebble radius at C4: 2 .. 40 mm (log): longer, softer, sparser impacts as it grows"},
+    {"SIZE", 127, 48, "ball radius at C4: 2 .. 100 mm (log; a marble 8 mm, a ball 50): longer, softer, sparser impacts as it grows"},
     {"SPEED", 127, 64, "push speed at velocity 100: 5 cm/s .. 2 m/s (log)"},
     {"ROUGH", 127, 50, "surface roughness depth h: 1 .. 100 um (log): bridging spacing 2 sqrt(2 r h), louder"},
     {"ROUND", 127, 12, "out-of-roundness: a sphere .. a lumpy pebble (swells once per turn, v / 2 pi r)"},
-    {"SURFACE", 127, 0, "surface: wood table (Q 12) .. stone slab (150) .. glass (400) .. metal tray (1000)"},
+    {"SURFACE", 127, 38, "surface: wood floor (200 Hz, Q 15) | wood table (620 Hz, Q 12) | stone slab (150) | glass (400) | metal tray (1000)"},
     {"DRAG", 127, 62, "rolling resistance mu_r: 0.005 (marble on glass) .. 0.2 (lumpy pebble on wood) (log): coasting"},
 };
 
@@ -52,9 +57,10 @@ static const tx_param_t PARAMS[NP] = {
 #define NM 6u
 #define G_REF 4000                 /* impact gain: r 10 mm at 0.3 m/s (Q15; calibrated by render) */
 
-TX_AUDIO_DATA static const uint16_t SURF_HZ[4] = { 620, 420, 600, 260 };      /* first surface mode (ours; wood from the
+TX_AUDIO_DATA static const uint16_t SURF_HZ[5] = { 200, 620, 420, 600, 260 };      /* first surface mode (ours; wood from the
                                                               * marble-on-wood references: 0.6-4 kHz) */
-TX_AUDIO_DATA static const uint16_t SURF_Q[4] = { 12, 150, 400, 1000 };
+TX_AUDIO_DATA static const uint16_t SURF_Q[5] = { 15, 12, 150, 400, 1000 };
+TX_AUDIO_DATA static const uint16_t SURF_E[5] = { 16384, 18022, 24576, 27853, 26214 };   /* restitution, Q15 (ours) */
 TX_AUDIO_DATA static const uint16_t SURF_R[NM] = { 1024, 1516, 2222, 2806, 3717, 4823 };   /* ratios, Q10 (ours) */
 TX_AUDIO_DATA static const uint16_t SURF_G[NM] = { 2048, 1843, 1638, 1434, 1229, 1024 };   /* gains, Q11 */
 
@@ -65,6 +71,8 @@ typedef struct {
     int32_t wander;                /* slow random speed wander (Q15, ~0.8 Hz): an uneven slope / table */
     int32_t r_l2;                  /* log2(r / 1 mm), Q16 */
     int32_t rt;                    /* the press's character in r_l2 (its level change is taken back: playable) */
+    uint32_t bt, bfl;              /* bouncing: samples to the next impact, the flight now (samples) */
+    int32_t ba;                    /* the next impact's push (Q15; 0: rolling) */
     uint8_t em, note, alive, pad;
 } voice_t;
 
@@ -97,7 +105,7 @@ static uint32_t isqrt32(uint32_t x)
 
 static void set_surface(pebble_t *s)
 {
-    unsigned i, m = s->p[P_SURFACE] >> 5;                    /* 4 materials */
+    unsigned i, m = (s->p[P_SURFACE] * 5u) >> 7;             /* 5 surfaces (a wood floor: the ball's thuds, note 18) */
     uint32_t q = SURF_Q[m];
     s->sq = (int32_t)(16384u / q);
     for (i = 0; i < NM; i++) {
@@ -115,7 +123,7 @@ static void set_param(pebble_t *s, unsigned id, unsigned v)
     if (v > PARAMS[id].max) v = PARAMS[id].max;
     s->p[id] = (uint8_t)v;
     switch (id) {
-    case P_SIZE: s->size_l2 = 65536 + (int32_t)(v * 2224u); break;          /* log2(2 mm) + v log2(20) / 127 */
+    case P_SIZE: s->size_l2 = 65536 + (int32_t)(v * 2911u); break;          /* log2(2 mm) + v log2(50) / 127 */
     case P_SPEED: s->speed_l2 = 1022987 + (int32_t)(v * 2747u); break;     /* log2(50000 um/s) + v log2(40) / 127 */
     case P_ROUGH: s->h_l2 = (int32_t)(v * 3428u); break;                   /* log2(h / 1 um): 0 .. log2(100) */
     case P_ROUND: s->round = (int32_t)v * 206; break;                      /* swell depth 0 .. 0.8 */
@@ -198,8 +206,36 @@ static void push(pebble_t *s, const tx_event_t *e)
     v0 = tx_exp2(s->speed_l2);                               /* um/s */
     v0 = v0 * e->vel / 100u;                                 /* <= 2e6 x 127: 32-bit */
     if (v0 > v->v) v->v = v0;
+    {   /* the drop: h = 1 .. 12 cm by velocity, impact speed sqrt(2 g h), the flight 2 v / g after each bounce */
+        uint32_t h_mm = 10u + (uint32_t)e->vel * e->vel * 110u / 16129u;
+        uint32_t vi = isqrt32(19620u * h_mm);                /* mm/s: sqrt(2 g h) */
+        v->bfl = vi * 9u;                                    /* 2 v / g in samples: 2 x 44100 / 9810 = 9.0 per mm/s */
+        v->bt = tx_rand_below(&s->cloud.rng, 64u) + e->offset;
+        v->ba = (int32_t)(vi > 1500u ? 32767u : vi * 21u);   /* the push ~ speed */
+    }
     v->sc.wait = 0;                                          /* the first impact now (not a wait left over from a */
 }                                                            /* pebble that was slowing to a stop) */
+
+/* the bounces in this block: each a Hertz-short half sine (its length from the radius), the next after e x the flight */
+static void bounce(pebble_t *s, voice_t *v, int32_t *force, unsigned n)
+{
+    tx_rng_t *r = &s->cloud.rng;
+    while (v->ba && v->bt < n) {
+        unsigned j, d = 2u + (tx_exp2(v->r_l2 + (16 << 16)) >> 18);   /* ~ r: 2 .. 12 samples */
+        int32_t a = (int32_t)(((int64_t)v->ba * s->level) >> 15) * (int32_t)(G_REF >> 9) >> 5;   /* (calibrated: the drop stands over the roll) */
+        uint32_t ph = 0, inc = 0x80000000u / d, e;
+        a = (int32_t)(((int64_t)a * (24576 + (int32_t)(tx_rand(r) >> 17))) >> 15);   /* +-2.5 dB */
+        if (v->bt + d > n) v->bt = n - d;                     /* (whole in this block) */
+        for (j = v->bt; j < v->bt + d; j++, ph += inc) force[j] += (tx_sin_q15(ph) * (a >> 4)) >> 3;
+        e = SURF_E[(s->p[P_SURFACE] * 5u) >> 7];
+        e = (uint32_t)(((int64_t)e * (28836 + (int32_t)(tx_rand(r) >> 19))) >> 15);   /* 0.88 .. 1.12 */
+        v->bfl = (uint32_t)(((uint64_t)v->bfl * e) >> 15);
+        v->ba = (int32_t)(((int64_t)v->ba * e) >> 15);
+        v->bt += v->bfl;
+        if (v->bfl < 353u || v->ba < 64) { v->ba = 0; v->bt = 0; }   /* under 8 ms: rolling */
+    }
+    if (v->ba) v->bt -= n;
+}
 
 /* per block: the pebble's motion -> its contact (gap, Hertz length, level, rotation swell, cutoff) */
 static void roll(pebble_t *s, voice_t *v)
@@ -261,8 +297,9 @@ TX_AUDIO_CODE static void pebble_render(void *st, int32_t *mix, unsigned n)
     for (i = 0; i < NV; i++) {
         voice_t *v = &s->v[i];
         if (!v->alive) continue;
+        if (v->ba) bounce(s, v, force, n);
         roll(s, v);
-        tx_scrape_add(&v->sc, force, n);
+        if (!v->ba) tx_scrape_add(&v->sc, force, n);         /* (it rolls once it stops bouncing) */
         if (!v->v && tx_scrape_quiet(&v->sc)) { v->alive = 0; v->em = 0xFF; }
     }
     {   /* the surface's modes as the pebble rolls across them: a mode is excited ~ its shape at the contact point, so

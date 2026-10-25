@@ -21,8 +21,8 @@
  *            surface's corner), its share drawn per drop (0.25 .. 2 x: no two drops alike), bigger on wet wood and
  *            metal, little on fabric and leaves (ours, fitted to the references' upper octaves).
  *   surface  a roof or a window is modally dense: a log grid of 12 bands (150 Hz .. 7 kHz, half-octave, Q 2-5) whose
- *            gains are the surface's body (fitted per surface to the references: a tent's 0.3-2 kHz drum, a shed roof's
- *            bright shingles, a window's coincidence near 2.7 kHz over its low panel, a metal roof's flat ring), plus 4
+ *            gains are the surface's body (fitted per surface to the references: a tent's 0.3-2 kHz drum, a porch's
+ *            boards, a window's coincidence near 2.7 kHz over its low panel, a metal roof's flat ring), plus 4
  *            low panel modes at the surface's own frequencies and Q (tent membrane 70-230 Hz; glass Q 120; steel Q 300).
  *            SURFACE moves between the five continuously (bands, modes, splash interpolated).
  *   leaves   a water-repellent leaf gets a second, weaker push from the rebounding jet at 0.44 tau_g,
@@ -94,8 +94,8 @@ static const surf_t SURF[NSURF] = {
     {{-40, -19, -17, -31, -26, -30, -40, -40, 1, 20, 22, 13}, 10, {180, 260, 390, 560}, 6, -60, 26, -53, 55, -60, 51, 80, 7, 10},
     /* tent: the fabric drums 0.3-2 kHz, falls fast above 3 kHz; its membrane 70-230 Hz */
     {{-40, -26, -6, -20, -17, -18, -29, -20, 2, 12, -1, -35}, 8, {69, 105, 160, 230}, 6, -60, 21, -70, 50, -60, 0, 28, 3, 11},
-    /* wood (shingles, boards): bright, the splash of wet wood to 10 kHz */
-    {{-16, -15, -22, -30, -27, -34, -40, -40, -19, 23, 23, 23}, 12, {120, 175, 250, 360}, 15, -60, 32, 10, 60, -60, 0, 160, 15, -2},
+    /* wood (boards, shingles): distinct drops on wood, its body 1-2 kHz (the porch, darker above: the cleanest sound) */
+    {{7, -16, -11, -14, -14, -17, -27, -40, -40, -9, -1, 23}, 12, {120, 175, 250, 360}, 15, -60, 16, -9, 60, -60, 0, 90, 5, 10},
     /* glass (a window): its panel low, the coincidence near 2.7 kHz, dull above */
     {{19, 16, 12, -8, -2, -4, -3, -6, -1, -6, 15, -3}, 16, {64, 118, 172, 662}, 120, -51, 20, -40, 60, -60, 0, 140, 0, -5},
     /* metal roof: flat 0.2-4 kHz, a steel ring (Q 300) at its panel modes */

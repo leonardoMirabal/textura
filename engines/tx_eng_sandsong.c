@@ -10,6 +10,10 @@
  * (0.23 m/s for avalanches, 0.47 m/s pushed) there is no song, only the grains' rumble; poorly
  * sorted sand does not sing (G11: sorted -> tone, mixed -> noise). Near the threshold two patches may sing a doublet
  * (beating). Pushing fast raises f (inertia: G5); here velocity raises f up to +10 % (ours).
+ * Surges (note 18: the references come in bouts, 23-45 dB of level range, songs and silences): a held avalanche
+ * slides in surges, each its own length and strength (0 .. -10 dB), with stops between where the flow falls under the
+ * threshold (a trickle, -18 .. -36 dB: the grains' rumble). STEADY sets them: intermittent = squeaks (on 0.1-0.5 s, off 0.3-2 s: feet or a hand pushing the sand),
+ * steady = long songs (on 1.8-8 s, gaps 0.2-1.5 s). Ours.
  * Keys: grain size per key (C4 = GRAIN, 2^(-2/12) per semitone up: f a semitone up). Ours: the surface resonance Q 10,
  * the coupling strength, the hiss band (0.9 kHz, Q 0.7, -42 dB).
  * Realism pass (singing-dune references, analysis only): the song is a nearly pure tone (28-43 dB over the rest of
@@ -22,7 +26,7 @@
 #include "tx_core_noise.h"
 #include "tx_core_sync.h"
 
-#define OUT_TRIM 1850               /* output gain, Q12 (-9.0 dB): integrated (a key held 10 s): -17.0 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 2613               /* output gain, Q12 (-6.0 dB; +3 dB with the surges and stops, note 18): integrated (a key held 10 s): -17.0 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -50,6 +54,9 @@ static const tx_param_t PARAMS[NP] = {
 typedef struct {
     tx_sync_t sy;
     int32_t flow;                  /* Q15 of the target flow (ramps) */
+    int32_t sg;                    /* the surge now: the flow's target (Q15) */
+    uint16_t sgt;                  /* blocks to the next surge or stop */
+    uint8_t on, pad[3];            /* in a surge */
     uint8_t em, note, alive, vel;
 } aval_t;
 
@@ -148,6 +155,7 @@ static void avalanche(song_t *s, const tx_event_t *e)
             for (k = 1; k < TX_SYNC_N; k += 2) a->sy.inc[k] = (uint32_t)(((uint64_t)a->sy.inc[k] * (uint32_t)(32768 + s->detune)) >> 15);
         }
     }
+    if (!a->alive) { a->sg = 0; a->sgt = 0; a->on = 0; }               /* a new avalanche starts with a surge */
     a->alive = 1; a->em = e->emitter; a->note = e->note; a->vel = e->vel;
 }
 
@@ -167,7 +175,24 @@ TX_AUDIO_CODE static void song_render(void *st, int32_t *mix, unsigned n)
         int held;
         if (!a->alive && tx_sync_quiet(&a->sy)) continue;
         held = a->alive && a->em < TX_CLOUD_EMITTERS && s->cloud.em[a->em].held && s->cloud.em[a->em].note == a->note;
-        a->flow += held ? (32768 - a->flow) >> 4 : -((a->flow >> 6) + 1);   /* start ~0.1 s; the avalanche slows and
+        if (held && !a->sgt) {                               /* the next surge or stop */
+            tx_rng_t *r = &s->cloud.rng;
+            uint32_t u = tx_rand(r) >> 16, w = (u * u) >> 16, st = s->p[P_STEADY];
+            if (!a->on) {                                    /* a surge: 0 .. -10 dB, on 0.1-0.5 s .. 1.8-8 s */
+                uint32_t lo = 17u + st * 23u / 10u, hi = 86u + st * 10u;
+                a->sg = (int32_t)tx_exp2((15 << 16) - (int32_t)((tx_rand(r) >> 16) * 109u >> 6));   /* 2^-(0..1.7) */
+                a->sgt = (uint16_t)(lo + (((hi - lo) * w) >> 16));
+                a->on = 1;
+            } else {                                         /* a stop: 0.3-2 s .. 0.2-1.5 s */
+                uint32_t lo = 52u - st * 17u / 127u, hi = 344u - st * 86u / 127u;
+                a->sg = (int32_t)tx_exp2((12 << 16) - (int32_t)((tx_rand(r) >> 16) * 3u));   /* a trickle: -18 .. -36 dB,
+                                                              * under the threshold: the grains' rumble, no song */
+                a->sgt = (uint16_t)(lo + (((hi - lo) * w) >> 16));
+                a->on = 0;
+            }
+        }
+        if (a->sgt) a->sgt--;
+        a->flow += held ? (a->sg - a->flow) >> 3 : -((a->flow >> 6) + 1);   /* start ~0.1 s; the avalanche slows and
                                                               * stops over ~1.5-2 s (tau 0.37 s; session 5: no hard stop) */
         if (!held && a->flow < 256) { a->flow = 0; a->alive = 0; a->em = 0xFF; }
         {   /* speed v = FLOW x flow ramp: the coupling switches on above the threshold v_c (ours: K ~ (v - v_c) / v_c) */
