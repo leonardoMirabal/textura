@@ -11,7 +11,11 @@
  *             ours); the harp sings the partial nearest V ~ 1 and jumps to another as the wind changes (glide ~46 ms).
  *             Outside the window the bare wire's own tone at f_l remains.
  *   gusts     a slow random walk of u (~0.3 Hz, sd GUST x 40 %, ours: gust spectra were not researched); a key
- *             press adds a gust (velocity).
+ *             press adds a gust (velocity). And gusts as events (note 17: the singing-wire references' onsets come in
+ *             bursts, interval CV ~0.9): Poisson at 0.15 .. 0.65 /s by GUST, three times as likely for ~2 s after one
+ *             (gusts come in groups), each +12 .. +80 % of u (heavy-tailed), rising in ~0.25 s, dying in ~1.5 s; and
+ *             the turbulence's fast buffeting, u +-12 % at ~5-30 Hz (the references' 4-32 Hz modulation -3 dB re the
+ *             total, ours was -7 .. -12): the tones' level ~ u^3 flutters with it (ours).
  * Realism pass (aeolian-harp and singing-wire references, analysis only): a harp is heard inside the wind: every
  * reference carries a broadband low roar (50-250 Hz) at about the tones' level, the tones 10-20 dB over it in their own
  * band, crest ~10 dB, weak upper partials. Ours was bare tones (crest 3.8 dB, nothing under 600 Hz). So: a wind bed
@@ -24,7 +28,8 @@
 #include "tx_core_noise.h"
 #include "tx_core_aeolian.h"
 
-#define OUT_TRIM 4650               /* output gain, Q12 (-1.7 dB): integrated (a key held 10 s): -24.3 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 3700               /* output gain, Q12 (-3.7 dB; -2 with note 17's gusts and buffeting: ~ u^3 of a
+                                    * fluctuating u is louder on the mean): integrated (a key held 10 s): -24.3 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -66,6 +71,8 @@ typedef struct {
     int32_t buf[TX_BLOCK];
     uint8_t p[NP], limit, quiet;
     int32_t level, wind_l2, gust, gsd, d_l2, lock, sinA, cosA, benv, bfl;
+    int32_t gtgt, gcur, gmean, tb, tb2;   /* gust events: target, now, their running mean (Q15 of u); the turbulence */
+    uint16_t gclu, gpad;           /* blocks the gusts stay clustered */
     uint16_t dropped;
     tx_vary_t vy;
 } aeol_t;
@@ -157,7 +164,25 @@ TX_AUDIO_CODE static void aeol_render(void *st, int32_t *mix, unsigned n)
     /* the wind now: u (1 + gust); the gust a slow random walk back to 0 */
     s->gust += ((tx_rand_s15(&s->cloud.rng) * s->gsd) >> 17) - (s->gust >> 7);   /* AR(1), tau 0.74 s: sd ~ 8 steps = GUST x 40 % */
     s->gust = s->gust > 26214 ? 26214 : s->gust < -26214 ? -26214 : s->gust;
-    u = (uint32_t)(((uint64_t)tx_exp2(s->wind_l2) * (uint32_t)(32768 + s->gust)) >> 15);   /* mm/s */
+    {   /* gust events and the turbulence's buffeting */
+        tx_rng_t *r = &s->cloud.rng;
+        uint32_t pr = 57u + (uint32_t)s->p[P_GUST] * 2u;    /* per block, /65536: 0.15 .. 0.65 /s */
+        if (s->gclu) { s->gclu--; pr *= 3u; }
+        if ((tx_rand(r) >> 16) < pr) {
+            uint32_t e = (tx_neglog2_q12(tx_rand(r) | 1u) * 2839u) >> 12;   /* E, Q12 */
+            int32_t a = (int32_t)tx_exp2((int32_t)((e * 3u) >> 1) * 16 + (12 << 16) - 3 * 65536 + 31457);   /* 0.12 x 2^(1.5 E) */
+            s->gtgt += a > 26214 ? 26214 : a;
+            if (s->gtgt > 32767) s->gtgt = 32767;
+            s->gclu = 344u;                                  /* ~2 s */
+        }
+        s->gtgt -= (s->gtgt >> 8) + (s->gtgt > 0);           /* dies ~1.5 s */
+        s->gcur += (s->gtgt - s->gcur) >> 5;                 /* rises ~0.25 s */
+        s->gmean += (s->gcur - s->gmean) >> 11;              /* (~12 s: WIND stays the mean speed, gusts over lulls) */
+        s->tb += ((tx_rand_s15(r) * 3) / 4 - s->tb) >> 1;    /* white at the block rate, two poles: ~5-30 Hz */
+        s->tb2 += (s->tb - s->tb2) >> 1;
+    }
+    u = (uint32_t)(((uint64_t)tx_exp2(s->wind_l2) * (uint32_t)(32768 + s->gust + s->gcur - s->gmean + (s->tb2 * 2) / 5)) >> 15);   /* mm/s
+                                                              * (the buffeting ~+-12 %) */
     d = tx_exp2(s->d_l2);                                    /* um */
     fl = tx_aeol_shed(u, d, &q);
     wl2 = (32 << 16) - (int32_t)(tx_neglog2_q12(u) << 4) - 870948;   /* log2(u / 10 m/s): log2(10000) = 13.288 */
@@ -195,10 +220,19 @@ TX_AUDIO_CODE static void aeol_render(void *st, int32_t *mix, unsigned n)
             al = tx_exp2(3 * (wl2 > (1 << 16) ? (1 << 16) : wl2) + (16 << 16));   /* (u / 10)^3, Q16, <= 8 */
             a = (int32_t)(((uint64_t)al * A_REF * (uint32_t)boost >> 31) * (uint32_t)g->env >> 15);
             a = (int32_t)(((int64_t)a * s->level) >> 15);
+            {   /* the buffeting on the tone (~u^3: +-36 %), also where its level has topped out (u over 20 m/s) */
+                int32_t m = 32768 + (s->tb2 * 6) / 5;
+                a = (int32_t)(((int64_t)a * (m < 8192 ? 8192 : m)) >> 15);
+            }
             a = a > 32767 ? 32767 : a;
+            if (a < 16) a = 0;                               /* (inaudible: not computed, the idle cost) */
         }
-        tx_aeol_add(&g->v, (a * s->sinA) >> 15, (((a * 10486) >> 15) * s->cosA) >> 15, (((a * 2600) >> 15) * s->sinA) >> 15,
-                    buf, n);
+        if (a < 512)                                         /* a quiet tone: its 2 f and 3 f (-10, -22 dB under, so
+                                                              * under -46 dBFS) are not computed (the idle cost) */
+            tx_aeol_add(&g->v, (a * s->sinA) >> 15, 0, 0, buf, n);
+        else
+            tx_aeol_add(&g->v, (a * s->sinA) >> 15, (((a * 10486) >> 15) * s->cosA) >> 15, (((a * 2600) >> 15) * s->sinA) >> 15,
+                        buf, n);
         wake += g->env;
     }
     /* the wake: band at f_l with a -6 dB/oct tilt above (= -12 dB/oct), level ~ u^4 per string */
@@ -208,7 +242,8 @@ TX_AUDIO_CODE static void aeol_render(void *st, int32_t *mix, unsigned n)
                                                               * below fs/6 (f < 2 - 1/Q): the wake's centre <= 3 kHz */
         tx_noise_band(&s->wake, fw, 11, TX_NOISE_BAND);
         tx_noise_tilt(&s->wake, fw);
-        tx_noise_level(&s->wake, (int32_t)(((uint64_t)aw * 2000u * (uint32_t)(wake > 131072 ? 131072 : wake) >> 31) * (uint32_t)s->level >> 15));
+        int32_t wl = (int32_t)(((uint64_t)aw * 2000u * (uint32_t)(wake > 131072 ? 131072 : wake) >> 31) * (uint32_t)s->level >> 15);
+        tx_noise_level(&s->wake, wl < 16 ? 0 : wl);
     } else
         tx_noise_level(&s->wake, 0);
     tx_noise_roar_add(&s->wake, s->wake.target, buf, n);

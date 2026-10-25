@@ -12,14 +12,19 @@
  *   flight   each insect flies a 2-D path at SPEED around a home distance (a spring to DIST plus a random wander,
  *            ours): level ~ 1 / r, pitch x c / (c + v_r) (Doppler: +-0.3-1.5 % at 1-5 m/s). Manoeuvres change the
  *            stroke amplitude, not f0 (N13): an amplitude wander +-3 dB, f0 wander ~1 %.
- *   swarm    companions with f0 spread SPREAD (CV ~5 % across a swarm, note 08). */
+ *   swarm    companions with f0 spread SPREAD (CV ~5 % across a swarm, note 08).
+ *   ways     (note 17, the bee and fly references) each insect now and then flies out on a wide loop and back (a fly-by:
+ *            its home x 2.5 .. 7 for 0.6 .. 2.4 s: the close honeybee's 35 dB range); bumblebees and carpenter bees on a
+ *            flower sonicate (the flight muscles shake the pollen loose, wings still: bursts of 40-300 ms at ~2 x the
+ *            wingbeat, buzzier; the pollen-collecting bumblebee's 3.4 kHz, irregular); flies land and take off often
+ *            and abruptly (every ~1.3 s, the buzz on / off in ~25 ms). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_wingbeat.h"
 
-#define OUT_TRIM 9826               /* output gain, Q12 (+2.3 dB with the buzz rework, session 5; -1.4 dB with the spectrogram fixes, session 5; +4.1 dB): integrated (a key held 10 s): -30.1 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 11025              /* output gain, Q12 (+1 dB with note 17's fly-bys and longer landings; +2.3 dB with the buzz rework, session 5; -1.4 dB with the spectrogram fixes, session 5; +4.1 dB): integrated (a key held 10 s): -30.1 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -70,6 +75,10 @@ typedef struct {
     int32_t lg;                    /* landed (0) .. flying (32767): a bee at the flowers lands and takes off */
     uint16_t land;                 /* blocks it stays landed (0 = flying) */
     uint16_t fade;                 /* blocks into the fly-off (0 = still around) */
+    int32_t home0;                 /* its own home distance (home moves on a fly-by) */
+    uint16_t ex, son;              /* blocks left in a fly-by; in a sonication burst (or gap: son, sk) */
+    uint8_t sk, pad3;              /* sonicating now */
+    int16_t nz0;                   /* its turbulence level when flying */
     uint8_t em, note, alive, pad;
 } bug_t;
 
@@ -210,7 +219,7 @@ static void launch(bees_t *s, const tx_event_t *e)
         b->speed = (int32_t)tx_exp2(s->speed_l2) * (28672 + (int32_t)(tx_rand(r) >> 19)) >> 15;   /* x 0.875 .. 1.125 */
         b->vx = (tx_sin_q15((uint32_t)ang) * b->speed) >> 15;     /* off tangentially */
         b->vy = -(tx_sin_q15((uint32_t)ang + 0x40000000u) * b->speed) >> 15;
-        b->home = home;
+        b->home = home; b->home0 = home; b->ex = 0; b->son = 0; b->sk = 0;
         f_l2 = ((int32_t)e->note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3) + ((gauss_q12(r) * s->cv * 3) >> 12);   /* CV -> log2: x 1.44, Q16 */
         b->inc0 = (uint32_t)(((uint64_t)s->f0 * 97391u * tx_exp2(f_l2 + (16 << 16))) >> 16);
         b->wob = 32768;
@@ -220,6 +229,7 @@ static void launch(bees_t *s, const tx_event_t *e)
         b->lg = 32767; b->land = 0;
         b->bz.jit = (int16_t)(983 + tx_rand_below(r, 984u));   /* each stroke's period +-3 .. 6 % (wing-beat */
         b->bz.nz = (int16_t)(9000 + tx_rand_below(r, 8000u));  /* irregularity); turbulence ~-14 .. -10 dB (ours) */
+        b->nz0 = b->bz.nz;
     }
 }
 
@@ -232,6 +242,13 @@ static void fly(bees_t *s, bug_t *b, int32_t *g1, int32_t *mix1)
     uint32_t v2;
     rr = (int32_t)isqrt32((uint32_t)((b->px >> 4) * (b->px >> 4) + (b->py >> 4) * (b->py >> 4))) * 16;
     if (rr < 30) rr = 30;
+    if (held && !b->fade) {                                  /* a fly-by now and then (every ~5 s): out and back */
+        if (b->ex) { if (!--b->ex) b->home = b->home0; }
+        else if (!b->land && (tx_rand(r) >> 16) < 76u) {
+            b->ex = (uint16_t)(103u + tx_rand_below(r, 310u));
+            b->home = (int32_t)(((int64_t)b->home0 * (int32_t)(80u + tx_rand_below(r, 144u))) >> 5);   /* x 2.5 .. 7 */
+        }
+    }
     if (held && !b->fade) {                                  /* spring toward the home circle + random wander */
         int32_t k = ((rr - b->home) * 256) / (b->home > 0 ? b->home : 1);   /* (r - R) / R, Q8 */
         k = k > 2048 ? 2048 : k < -2048 ? -2048 : k;
@@ -279,13 +296,30 @@ static void fly(bees_t *s, bug_t *b, int32_t *g1, int32_t *mix1)
     gm = gm > 32767 ? 32767 : gm;
     {   /* at the flowers: now and then it lands (every ~3 s on average) for 0.3 .. 1.7 s, the buzz stopping and
          * starting again over ~0.1 s, the wingbeat slowing as it lands (ours; the references: a bumblebee at work comes and goes, with gaps) */
-        if (held && !b->fade) {
+        unsigned spi = (s->p[P_SPECIES] * NSP) >> 7, fly_ = spi == 1u || spi == 3u, son = spi == 2u || spi == 4u;
+        if (held && !b->fade && !b->ex) {
             if (b->land) b->land--;
-            else if ((tx_rand(r) >> 16) < 127u) b->land = (uint16_t)(52u + tx_rand_below(r, 240u));
+            else if ((tx_rand(r) >> 16) < (fly_ ? 290u : son ? 190u : 127u))   /* flies: every ~1.3 s, briefly; */
+                b->land = (uint16_t)(fly_ ? 17u + tx_rand_below(r, 120u)          /* bumblebees work a flower longer */
+                                         : son ? 103u + tx_rand_below(r, 413u) : 52u + tx_rand_below(r, 240u));
         } else
             b->land = 0;
-        b->lg += ((b->land ? 0 : 32767) - b->lg) >> 4;       /* (~0.1 s: the buzz winds down, not off) */
-        gm = (int32_t)(((int64_t)gm * b->lg) >> 15);
+        b->lg += ((b->land ? 0 : 32767) - b->lg) >> (fly_ ? 2 : 4);   /* (bees ~0.1 s: the buzz winds down; flies on /
+                                                              * off in ~25 ms) */
+        if (son && b->land) {                                /* at the flower: sonication bursts */
+            if (b->son) b->son--;
+            else {
+                b->sk ^= 1u;
+                b->son = (uint16_t)(b->sk ? 7u + tx_rand_below(r, 45u) : 9u + tx_rand_below(r, 80u));
+            }
+        } else b->sk = 0, b->son = 0;
+        if (b->sk) {                                         /* the thorax shakes: at full level, ~2 x the wingbeat, */
+            b->bz.nz = 32767;                                /* buzzier: the turbulence at its most */
+            b->bz.inc = (uint32_t)(((uint64_t)b->bz.inc * 36045u) >> 14);    /* x 2.2 */
+        } else {
+            b->bz.nz = b->nz0;
+            gm = (int32_t)(((int64_t)gm * b->lg) >> 15);
+        }
     }
     if (b->fade) {
         int32_t q = (int32_t)((FADE_BLK - (b->fade < FADE_BLK ? b->fade : FADE_BLK)) * 32767u / FADE_BLK);   /* 1 .. 0 */

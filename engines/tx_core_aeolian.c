@@ -58,6 +58,19 @@ TX_AUDIO_CODE void tx_aeol_add(tx_aeol_t *v, int32_t a1, int32_t a2, int32_t a3,
     int32_t s1 = (a1 - c1) / (int32_t)(n ? n : 1u), s2 = (a2 - c2) / (int32_t)(n ? n : 1u), s3 = (a3 - c3) / (int32_t)(n ? n : 1u);
     unsigned j;
     if (!c1 && !c2 && !c3 && !a1 && !a2 && !a3) { v->th = th + inc * n; return; }
+    if (!c2 && !c3 && !a2 && !a3) {                          /* the fundamental alone (a quiet tone: the caller drops its
+                                                              * upper partials; 1 sine a sample instead of 3) */
+        for (j = 0; j < n; j++) {
+            x32 ^= x32 << 13; x32 ^= x32 >> 17; x32 ^= x32 << 5;
+            psi += (uint32_t)(((int32_t)(x32 >> 16) - 32768) * sig);
+            th += inc;
+            out[j] += tx_sin_q15(th + psi) * (c1 >> 7);
+            c1 += s1;
+        }
+        v->th = th; v->psi = psi; v->rng.s = x32 ? x32 : 1u;
+        v->a1 = a1; v->a2 = a2; v->a3 = a3;
+        return;
+    }
     for (j = 0; j < n; j++) {
         uint32_t p;
         x32 ^= x32 << 13; x32 ^= x32 >> 17; x32 ^= x32 << 5;
