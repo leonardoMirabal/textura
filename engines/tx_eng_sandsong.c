@@ -175,21 +175,30 @@ TX_AUDIO_CODE static void song_render(void *st, int32_t *mix, unsigned n)
         int held;
         if (!a->alive && tx_sync_quiet(&a->sy)) continue;
         held = a->alive && a->em < TX_CLOUD_EMITTERS && s->cloud.em[a->em].held && s->cloud.em[a->em].note == a->note;
-        if (held && !a->sgt) {                               /* the next surge or stop */
+        if (held && !a->sgt) {                               /* the next surge or stop: long-tailed lengths, never a
+                                                              * beat (the user's rule: onset gap CV >= 0.9; the bounded
+                                                              * draws read 0.4) */
             tx_rng_t *r = &s->cloud.rng;
-            uint32_t u = tx_rand(r) >> 16, w = (u * u) >> 16, st = s->p[P_STEADY];
-            if (!a->on) {                                    /* a surge: 0 .. -10 dB, on 0.1-0.5 s .. 1.8-8 s */
-                uint32_t lo = 17u + st * 23u / 10u, hi = 86u + st * 10u;
+            uint32_t st = s->p[P_STEADY], lo, mean, d;
+            if (!a->on) {                                    /* a surge: 0 .. -10 dB, ~0.1-0.5 s .. 1.8-8 s: mostly
+                                                              * short, 1 in 4 a long song (2.5x; the short 0.5x) */
+                lo = 17u + st * 23u / 10u;
+                mean = lo + (86u + st * 10u - lo) / 3u - lo / 4u;
+                mean = tx_rand_below(r, 4u) ? mean / 2u : mean * 5u / 2u;
                 a->sg = (int32_t)tx_exp2((15 << 16) - (int32_t)((tx_rand(r) >> 16) * 109u >> 6));   /* 2^-(0..1.7) */
-                a->sgt = (uint16_t)(lo + (((hi - lo) * w) >> 16));
+                d = lo / 4u + (tx_cloud_exp_q8(&s->cloud, mean << 8) >> 8);
                 a->on = 1;
-            } else {                                         /* a stop: 0.3-2 s .. 0.2-1.5 s */
-                uint32_t lo = 52u - st * 17u / 127u, hi = 344u - st * 86u / 127u;
+            } else {                                         /* a stop: mostly short, now and then a long lull (1 in 4,
+                                                              * 3x the mean; the short ones 1/3: the mean kept) */
+                lo = 52u - st * 17u / 127u;
+                mean = lo + (344u - st * 86u / 127u - lo) / 3u;
+                mean = tx_rand_below(r, 4u) ? mean / 3u : mean * 3u;
                 a->sg = (int32_t)tx_exp2((12 << 16) - (int32_t)((tx_rand(r) >> 16) * 3u));   /* a trickle: -18 .. -36 dB,
                                                               * under the threshold: the grains' rumble, no song */
-                a->sgt = (uint16_t)(lo + (((hi - lo) * w) >> 16));
+                d = 8u + (tx_cloud_exp_q8(&s->cloud, mean << 8) >> 8);
                 a->on = 0;
             }
+            a->sgt = (uint16_t)(d > 3000u ? 3000u : d);      /* (at most ~17 s) */
         }
         if (a->sgt) a->sgt--;
         a->flow += held ? (a->sg - a->flow) >> 3 : -((a->flow >> 6) + 1);   /* start ~0.1 s; the avalanche slows and

@@ -2,8 +2,9 @@
 /* Textura #1 Drip: water drops falling into a pool, each one a weak impact click and then the "plink" of the air
  * bubble it traps.
  *
- * A key press lets one drop fall; a held key keeps dripping at RATE, from a periodic tap to a random cave drip
- * (REGULAR). Each key is a bubble size: the radius at C4 is SIZE, one semitone higher = a 2^(1/12) smaller bubble
+ * A key press lets one drop fall; a held key keeps dripping at RATE, at random (a cave drip, Poisson) or in runs
+ * and quiet spells (CLUMP; never a regular beat, the user's rule). Each key is a bubble size: the radius at C4 is
+ * SIZE, one semitone higher = a 2^(1/12) smaller bubble
  * (pitch f0 = 3.28 m/s / a), SCATTER varies it drop to drop. Per drop:
  *   impact   a zero-mean force pulse (PULSE, N-wave), length ~0.3 D / U, level ~ U^2 (U = impact speed);
  *   bubble   after the crater collapses (25 ms at 1.4 m/s, 10 ms at 2.36 m/s: t ~ U^-1.75), with probability ~0.9
@@ -32,13 +33,13 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 0
 
-enum { P_SIZE, P_SCATTER, P_RATE, P_REGULAR, P_DEPTH, P_HEIGHT, NP };
+enum { P_SIZE, P_SCATTER, P_RATE, P_CLUMP, P_DEPTH, P_HEIGHT, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"SIZE", 127, 55, "bubble radius at C4: 0.25 .. 6 mm (pitch 13 kHz .. 550 Hz; keys: a semitone smaller each)"},
     {"SCATTER", 127, 16, "drop-to-drop bubble size spread: 0 .. +-1 octave"},
     {"RATE", 127, 72, "drops per second while a key is held: 0.1 .. 20 (log)"},
-    {"REGULAR", 127, 80, "drip timing: 0 = random (cave, Poisson) .. 127 = periodic (a tap)"},
+    {"CLUMP", 127, 40, "drip timing: 0 = random (cave, Poisson) .. 127 = in runs of quick drops and quiet spells"},
     {"DEPTH", 127, 40, "how deep bubbles pinch off: 0 = at the surface (all rise, plink) .. 127 = deep (no glide, softer)"},
     {"HEIGHT", 127, 48, "fall height: 1 cm .. 3 m (log) -> impact speed 0.4 .. 8.6 m/s: louder, harder click, faster bubble"},
 };
@@ -91,7 +92,7 @@ static void set_param(drip_t *s, unsigned id, unsigned v)
     case P_SIZE: s->size_l2 = -131072 + (int32_t)(v * 300480u / 127u); break;   /* log2(0.25 mm) + v log2(24) */
     case P_SCATTER: s->scatter_q16 = (int32_t)(v * 516u); break;              /* 0 .. 1 octave */
     case P_RATE: tx_cloud_rate(&s->cloud, tx_knob_exp(v, 26u, 500695)); break;  /* 0.1 * 2^(7.64 v / 127) /s, Q8 */
-    case P_REGULAR: tx_cloud_regular(&s->cloud, 256u - v * 2u); break;
+    case P_CLUMP: tx_cloud_clump(&s->cloud, v * 2u); break;
     case P_DEPTH: s->rise_p16 = 65535u - v * 516u; break;
     case P_HEIGHT: {
         uint32_t h = tx_knob_exp(v, 655u, 539301);           /* m Q16: 0.01 * 2^(8.23 v / 127) = 1 cm .. 3 m */
@@ -244,7 +245,7 @@ static void drip_stats(const void *st, tx_stats_t *o)
 /* the worst case: every hero, every key slot at the fastest rate, the biggest (longest) bubbles, the hardest drops */
 static const char SCENE_MAX[] =
     "0 particles 32\n0 param RATE 127\n0 param SIZE 127\n0 param HEIGHT 127\n0 param SCATTER 127\n"
-    "0 param DEPTH 0\n0 param REGULAR 0\n"
+    "0 param DEPTH 0\n0 param CLUMP 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "500 on 53 127\n500 on 60 127\n500 on 67 127\n500 on 74 127\n"
     "1000 on 57 127\n1000 on 64 127\n1000 on 71 127\n1000 on 79 127\n"

@@ -139,7 +139,7 @@ static void plate_init(void *st, uint32_t seed)
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 1, 0);
     tx_cloud_rate(&s->cloud, 12u << 8);                      /* a held key rolls: ~12 soft hits / s */
-    tx_cloud_regular(&s->cloud, 96);
+    tx_cloud_clump(&s->cloud, 96);                          /* the roll's hits in runs and spells, never a beat */
     tx_noise_init(&s->hi, seed ^ 0x9E3779B9u);
     tx_noise_band(&s->hi, 7300, 11, TX_NOISE_HIGH);
     /* the bank's input: low-passed noise for bands 0-7, high-passed for 8-15 (700 Hz, 12 dB / oct): a band-pass's

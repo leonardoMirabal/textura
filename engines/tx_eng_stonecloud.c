@@ -4,8 +4,8 @@
  * modal stone hits with a room tail); the parameters are this engine's own, from the contact and modal physics.
  *
  * Holding a key keeps a cloud of hits going (a press starts it at once); release lets the last ones ring out.
- *   timing   a stream at DENSITY hits/s per held key; IRREG from periodic to Poisson (CV 0 .. 1; a stone-chime
- *            recording: ~4 hits/s, CV 0.66; the reference instrument: CV 1.0).
+ *   timing   a stream at DENSITY hits/s per held key; CLUMP from Poisson (CV 1, the reference instrument) to runs of
+ *            quick hits and quiet spells (CV ~1.5); never a regular beat (was IRREG, down to periodic).
  *   stones   the audible ring of a hand-sized stone comes from thin pieces (chips, flakes, slabs): bending modes of
  *            a free-free piece, f1 = 1.03 h c / L^2 (Euler-Bernoulli, note 05) with h = L / 8 (ours), so
  *            f1 ~ 0.128 c / L: a 15 cm granite flake (c = sqrt(E / rho) ~ 4.3 km/s) rings at ~3.7 kHz. Each hit draws
@@ -39,7 +39,7 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 2
 
-enum { P_DENSITY, P_SIZE, P_SPREAD, P_MINERAL, P_HARD, P_IRREG, P_ROOM, NP };
+enum { P_DENSITY, P_SIZE, P_SPREAD, P_MINERAL, P_HARD, P_CLUMP, P_ROOM, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"DENSITY", 127, 70, "hits per second per key: 0.3 .. 40 (log)"},
@@ -47,7 +47,7 @@ static const tx_param_t PARAMS[NP] = {
     {"SPREAD", 127, 40, "mixed sizes: all alike .. +-1.5 octaves"},
     {"MINERAL", 127, 30, "granite (Q 180) | marble 300 | slate 185 | flint 160 | obsidian 175 | quartz 2000"},
     {"HARD", 127, 0, "stone on stone (bright clinks) .. on wood .. on soft ground (dull knocks)"},
-    {"IRREG", 127, 100, "timing: regular .. random (Poisson)"},
+    {"CLUMP", 127, 16, "timing: random (Poisson) .. in runs and quiet spells"},
     {"ROOM", 127, 50, "the space: dry .. a long tail (T60 0.2 .. 2.5 s)"},
 };
 
@@ -118,7 +118,7 @@ static void set_param(cloud_t *s, unsigned id, unsigned v)
         tx_mallet_mix(&s->mallet, (int32_t)v * 258);      /* (t_c x 0.4: a 2 cm-edge flake meeting stone ~80 us) */
         s->mallet.lm -= 217706;
         break;
-    case P_IRREG: tx_cloud_regular(&s->cloud, (v * 256u) / 127u); break;
+    case P_CLUMP: tx_cloud_clump(&s->cloud, v * 2u); break;
     case P_ROOM: set_room(s); break;
     default: break;
     }

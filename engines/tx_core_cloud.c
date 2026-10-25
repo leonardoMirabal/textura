@@ -44,10 +44,20 @@ static uint32_t omori_t(tx_cloud_t *c)                       /* t = c (2^(-log2(
     return t > TX_OMORI_MAX_T ? TX_OMORI_MAX_T : (uint32_t)t;
 }
 
-/* the next stream gap, Q8 samples: Poisson by default, or partly periodic (tx_cloud_regular) */
-static uint32_t stream_gap(tx_cloud_t *c)
+/* the next stream gap, Q8 samples: Poisson by default, partly periodic (tx_cloud_regular), or clumped
+ * (tx_cloud_clump: the emitter's quick runs and quiet spells) */
+static uint32_t stream_gap(tx_cloud_t *c, tx_emitter_t *e)
 {
-    uint32_t x = tx_cloud_exp_q8(c, c->period_q8);
+    uint32_t x;
+    if (c->clump) {
+        uint32_t m = 256u + (((uint32_t)c->clump * 3u) >> 2), p = c->period_q8;   /* (1 +- 3a/4), Q8 */
+        if (!e->lull) m = 512u - m;
+        if (tx_rand_below(&c->rng, 3u) == 0u) e->lull ^= 1u;                   /* a run lasts ~3 events */
+        if (p <= 0x7FFFFFu) return tx_cloud_exp_q8(c, (p * m) >> 8);
+        p = (p >> 9) * m;                                    /* (slow streams: 32-bit products) */
+        return tx_cloud_exp_q8(c, p > 0x7FFFFFFFu ? 0xFFFFFFFEu : p << 1);
+    }
+    x = tx_cloud_exp_q8(c, c->period_q8);
     if (c->jitter_q8 >= 256u) return x;
     return (uint32_t)(((uint64_t)c->period_q8 * (256u - c->jitter_q8) + (uint64_t)x * c->jitter_q8) >> 8);
 }
@@ -72,6 +82,7 @@ void tx_cloud_rate(tx_cloud_t *c, uint32_t rate_q8)
 }
 
 void tx_cloud_regular(tx_cloud_t *c, uint32_t jitter_q8) { c->jitter_q8 = (uint16_t)(jitter_q8 > 256u ? 256u : jitter_q8); }
+void tx_cloud_clump(tx_cloud_t *c, uint32_t amount) { c->clump = (uint8_t)(amount > 255u ? 255u : amount); }
 
 void tx_cloud_burst(tx_cloud_t *c, uint32_t n, uint32_t spread_ms)
 {
@@ -140,7 +151,7 @@ void tx_cloud_key(tx_cloud_t *c, uint8_t note, uint8_t vel, uint8_t on)
     if (pick == TX_CLOUD_EMITTERS) pick = c->em_rr++ % TX_CLOUD_EMITTERS;   /* all held: take the next in turn */
     e = &c->em[pick];
     e->note = note; e->vel = vel ? vel : 1u; e->held = 1; e->fade = 32767;
-    e->next_q8 = c->period_q8 ? stream_gap(c) : 0;
+    e->next_q8 = c->period_q8 ? stream_gap(c, e) : 0;
     {
         uint32_t acc = 0;                                    /* the burst: MAIN at once, then Poisson spaced */
         for (i = 0; i < c->burst_n; i++) {
@@ -196,7 +207,7 @@ TX_AUDIO_CODE unsigned tx_cloud_block(tx_cloud_t *c, tx_event_t *ev, unsigned n)
             if (e->held || (tx_rand(&c->rng) >> 17) < e->fade)   /* thinned by the fade (a Poisson stream stays one) */
                 emit(c, ev, &k, &drop, e->next_q8 >> 8, tx_cloud_pareto(c, c->size_inv_q12, c->size_max_l2),
                      e->note, e->vel, TX_EV_STREAM, (uint8_t)i);
-            e->next_q8 += stream_gap(c) + 1u;
+            e->next_q8 += stream_gap(c, e) + 1u;
         }
         e->next_q8 = (e->next_q8 >> 8) >= n ? e->next_q8 - (n << 8) : 0;
     }

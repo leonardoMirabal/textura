@@ -3,8 +3,8 @@
  *
  * A field of individuals (POP core, tx_core_pop.h): while a key is held COUNT crickets are out there, the first at the
  * key, the others farther out on an area law, each its own distance, carrier, period, pulse length, glide and H2; each
- * sings in bouts and pauses of its own (ACTIVITY: a few chirps now and then .. on and on), never faster than its
- * temperature; now and then one leaves after a bout and a new one comes. COUNT 0: a cricket per key held (released:
+ * sings in bouts and pauses of its own (ACTIVITY: a few chirps now and then .. runs of chirps, short pauses), never
+ * faster than its temperature; now and then one leaves after a bout and a new one comes. COUNT 0: a cricket per key held (released:
  * it finishes its chirp). A key while the field is full: the one nearest the key in a pause sings now. Physics:
  *   song      the clockwork escapement (N1, N2, N10): one file tooth per cycle of the harp resonance, so each pulse
  *             (one wing closing) is a near-pure tone at the carrier, its pitch falling 5-15 % over the pulse, the
@@ -52,7 +52,7 @@ static const tx_param_t PARAMS[NP] = {
     {"SYNC", 127, 64, "reset by neighbours s: 0 free .. 0.5 alternate .. 1 synchrony"},
     {"DIST", 127, 50, "distance at velocity 100: 0.3 .. 30 m (log): level 1 / r; delays between callers"},
     {"FIELD", 127, 0, "the distant chorus behind (a band at the carrier): off .. loud"},
-    {"ACTIVITY", 127, 100, "how much each one sings: a few chirps now and then (bouts ~1.5 s, pauses ~15 s) .. all the time (bouts ~1 min, pauses ~1 s); never faster: the rhythm is its own"},
+    {"ACTIVITY", 127, 100, "how much each one sings: a few chirps now and then (bouts ~1.5 s, pauses ~15 s) .. busy (runs of ~6 chirps, pauses ~1 s: never a steady beat); never faster: the rhythm is its own"},
 };
 
 #define NV 32u
@@ -215,9 +215,11 @@ static void crickets_param(void *st, uint8_t id, uint8_t val)
         set_param(s, id, val);
 }
 
-/* the bouts (tx_core_pop.h): rare (1.5 s bouts, 15 s pauses) .. busy (1 min, 1 s); ours, from the references' single
- * callers (a cricket sings for minutes when warm and settled, a few chirps now and then when not) */
-static const tx_pop_law_t LAW = {525170, 873948, 742875, 486834};
+/* the bouts (tx_core_pop.h): rare (1.5 s bouts, 15 s pauses) .. busy (2 s, ~6 chirps, then 1 s); ours, from the
+ * references' single callers (a few chirps now and then when cold or unsettled). The busy end was 1 min bouts: a
+ * steady beat (call gap CV 0.35); the user's rule is no regular beat, so a busy cricket sings in runs of chirps with
+ * short pauses (CV ~1) */
+static const tx_pop_law_t LAW = {525170, 552600, 742875, 486834};
 
 static unsigned act(const crickets_t *s) { return s->p[P_ACT]; }
 
@@ -337,7 +339,8 @@ static void field_block(crickets_t *s, unsigned n)
         if (!c->alive || c->stop || --c->bl) continue;
         if (!c->sing) { bout_start(s, i, tx_rand_below(&s->cloud.rng, n)); continue; }
         bout_end(s, i);
-        if (want && !c->keyed && tx_rand_below(&s->cloud.rng, 5u) == 0u) c->stop = 1;   /* it leaves (ours: ~5 bouts) */
+        if (want && !c->keyed && tx_rand_below(&s->cloud.rng, 5u + act(s) / 6u) == 0u)
+            c->stop = 1;                                     /* it leaves (ours: ~5 bouts; ~25 of the short busy ones) */
     }
 }
 

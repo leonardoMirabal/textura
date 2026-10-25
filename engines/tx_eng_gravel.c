@@ -123,8 +123,9 @@ static void gravel_init(void *st, uint32_t seed)
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 1, 0);                         /* a press: one shake now */
     tx_cloud_sizes(&s->cloud, 6144, 0);
-    tx_cloud_regular(&s->cloud, 110);                        /* steps: loosely regular (ours; note 14: the gravel
-                                                              * references' onsets CV 0.5-0.85, ours was 0.26-0.47) */
+    tx_cloud_clump(&s->cloud, 200);                          /* steps and shakes in runs and lulls, never a beat
+                                                              * (the user's rule: gap CV >= 0.9; was loosely regular,
+                                                              * CV 0.4: read as a walker's steps) */
     for (i = 0; i < NV; i++) { tx_shaker_init(&s->v[i].sh, seed * 31u + i * 977u + 1u); s->v[i].em = 0xFF; }
     s->limit = 6;
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);

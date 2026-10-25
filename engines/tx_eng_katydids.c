@@ -3,8 +3,8 @@
  *
  * A population in the grass (POP core, tx_core_pop.h): while a key is held COUNT singers are out there, the first at
  * the key, the others farther out on an area law, each its own distance, carrier, period, syllables and file; each
- * sings in bouts and pauses of its own (ACTIVITY: a call or two now and then .. on and on), never faster than its
- * temperature; now and then one leaves after a bout and a new one comes. COUNT 0: a singer per key held (released: it
+ * sings in bouts and pauses of its own (ACTIVITY: a call or two now and then .. runs of calls, short pauses), never
+ * faster than its temperature; now and then one leaves after a bout and a new one comes. COUNT 0: a singer per key held (released: it
  * finishes its call). A key while all are there: the one nearest the key in a pause sings now. Two families:
  *   katydid      (N8, N8c) one decaying oscillation of the wing per tooth strike: regular strikes give a tone,
  *                uneven ones a broadband rasp. The escapement sets one strike per carrier cycle; JITTER is the SD of
@@ -52,7 +52,7 @@ static const tx_param_t PARAMS[NP] = {
     {"COUNT", 16, 0, "singers in the grass while a key is held: 0 = one per key held .. 16 (the first at the key, the others farther out on an area law, each its own distance, carrier and period)"},
     {"SYNC", 127, 64, "reset by neighbours s: 0 free .. 0.5 alternate .. 1 synchrony"},
     {"DIST", 127, 40, "distance at velocity 100: 0.3 .. 30 m (log): level 1 / r"},
-    {"ACTIVITY", 127, 100, "how much each one sings: a call or two now and then (bouts ~3 s, pauses ~15 s) .. all the time (bouts ~1 min, pauses ~1 s); never faster: the rhythm is its own"},
+    {"ACTIVITY", 127, 100, "how much each one sings: a call or two now and then (bouts ~3 s, pauses ~15 s) .. busy (runs of ~5 calls, pauses ~4 s: never a steady beat); never faster: the rhythm is its own"},
 };
 
 #define NV 16u
@@ -245,8 +245,9 @@ static void tune(const species_t *sp, singer_t *v, uint32_t f1)
     if (sp->katydid == 2u) tx_ireso_set(&v->r3, f1 * 42u / 10u > 18000u ? 18000u : f1 * 42u / 10u, 48u);   /* ~15.5 kHz, Q 3 */
 }
 
-/* the bouts (tx_core_pop.h): rare (3 s bouts, 15 s pauses) .. busy (1 min, 1 s) (ours) */
-static const tx_pop_law_t LAW = {590706, 873948, 742875, 486834};
+/* the bouts (tx_core_pop.h): rare (3 s bouts, 15 s pauses) .. busy (runs of ~5 calls, ~6 s, pauses ~4 s) (ours). The
+ * busy end was 1 min bouts: a steady beat (call gap CV 0.17); the user's rule is no regular beat (CV now ~1) */
+static const tx_pop_law_t LAW = {590706, 655360, 742875, 622000};
 
 static unsigned act(const katy_t *s) { return s->p[P_ACT]; }
 

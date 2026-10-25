@@ -48,7 +48,7 @@ typedef struct {                   /* a burst / aftershock event waiting for its
 
 typedef struct {
     uint32_t next_q8;              /* samples to the next stream event, Q8 */
-    uint8_t note, vel, held, pad;
+    uint8_t note, vel, held, lull;  /* lull: 1 while this emitter's stream is in a quiet spell (tx_cloud_clump) */
     uint16_t fade;                 /* Q15: 32767 while held; after release falling (RELEASE), 0 = stopped */
     uint16_t pad2;
 } tx_emitter_t;
@@ -67,6 +67,7 @@ typedef struct {
     uint8_t after_stream;          /* 1: stream events trigger aftershocks too */
     uint8_t npend;
     uint8_t rel_k;                 /* RELEASE: the fade falls by 2^-rel_k per block (0 = off: release stops at once) */
+    uint8_t clump;                 /* CLUMP (0 = plain Poisson .. 255): runs of quick events and quiet spells */
     uint16_t jitter_q8;            /* stream spacing: 256 = Poisson (exponential gaps, the default), 0 = periodic; */
                                    /* between: gap = mean (1 - j) + exponential draw x j */
     /* state */
@@ -104,6 +105,10 @@ static inline void tx_cloud_release(tx_cloud_t *c, unsigned k) { c->rel_k = (uin
 int tx_cloud_idle(const tx_cloud_t *c);                         /* nothing held, nothing pending */
 void tx_cloud_rate(tx_cloud_t *c, uint32_t rate_q8);           /* stream rate per held key, events/s Q8 (0 = off) */
 void tx_cloud_regular(tx_cloud_t *c, uint32_t jitter_q8);      /* 256 = Poisson stream (default) .. 0 = periodic */
+/* CLUMP: each held key's stream alternates runs of quick events and quiet spells (a two-state Markov-modulated
+ * Poisson stream: no regular beat, gap CV 1 .. 1.5; each state lasts ~3 events, a geometric run; the mean rate is
+ * kept: quick gaps x (1 - 3a/4), quiet x (1 + 3a/4)); amount 0 = plain Poisson (the default) .. 255 */
+void tx_cloud_clump(tx_cloud_t *c, uint32_t amount);
 void tx_cloud_burst(tx_cloud_t *c, uint32_t n, uint32_t spread_ms);   /* n events per press over ~spread_ms */
 void tx_cloud_sizes(tx_cloud_t *c, uint32_t alpha_q12, uint32_t range_l2_q12);   /* alpha > 1, E_max / E_min */
 void tx_cloud_omori(tx_cloud_t *c, uint32_t n, uint32_t p_q12, uint32_t c_ms, uint32_t gap_l2_q12);
