@@ -5,8 +5,13 @@
 #   make tx-render     every engine x every standard scene -> build/wav/   (one: make tx-render ENGINE=test SCENE=tap)
 #                      (through the CHAMBER: build/bench/txrender ENGINE SCENE -c -> build/wav/ENGINE-SCENE-chamber.wav)
 #   make tx-bench      CPU per block + the FM-1 estimate (runs tx-calib first; CALIB=0 skips the calibration;
-#                      REPEAT=3: each scene measured 3 times, the median kept: no flakes from a slow host moment)
-#   make tx-calib      Frodhes' worst scene timed on this host (needs ../frodhes, read-only; FRODHES=path to change)
+#                      REPEAT=3: each scene measured 3 times, the median kept: no flakes from a slow host moment;
+#                      timing jobs wait for the shared HEAVY lock, tools/lock.py; LOCK=0 skips it)
+#   make tx-calib      Frodhes' worst scene timed on this host, its code pinned at FRODHES_REV (read from ../frodhes'
+#                      git, never changed; FRODHES=path to change)
+#   make tx-budget     the CPU budget of the whole audio interrupt on the FM-1: the platform's costs (Frodhes'
+#                      measurements), the mix / CHAMBER, the effects reserve, the sources' pool, every SOURCE preset's
+#                      cost curve and the mixes (build/bench/budget.txt, budget.csv): a report, nothing changed
 #   make tx-player     the browser player -> build/audition/ (Emscripten from .local/emsdk)
 #   make tx-player-check   the player in headless Chromium (Playwright in .local/venv, browsers in .local/playwright)
 #   make tx-ab         the player's A/B data: ours vs the local reference recordings (.local/reference), loudness-
@@ -21,6 +26,11 @@ FRODHES  ?= ../frodhes
 CALIB    ?= 1
 REPEAT   ?= 1
 CALIB_RUNS ?= 9
+# the timing jobs (tx-calib, tx-bench, the player check's CPU meter) wait for the shared HEAVY lock (tools/lock.py, in
+# the main checkout's build/; a copy without git: TX_LOCK_ROOT=<main checkout>), so two agents never time at once.
+# LOCK=0 runs them without it. Nested calls inherit the holder's token (TX_LOCK_HEAVY) and go on at once.
+LOCK     ?= 1
+HEAVY     = $(if $(filter 1,$(LOCK)),python3 -I tools/lock.py run HEAVY --why "make $@" --wait 3600 --,)
 B        := build/bench
 CSTD     := -std=c99 -D_DARWIN_C_SOURCE -D_DEFAULT_SOURCE -Wall -Wextra -Iengines -Ibench
 ENG_SRC  := $(wildcard engines/*.c)
@@ -29,7 +39,7 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-.PHONY: tx-gen tx-test tx-render tx-bench tx-calib tx-player tx-player-check tx-ab tx-baseline tx-tables tx-size tx-libcalls tx-clean
+.PHONY: tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -80,27 +90,54 @@ tx-libcalls:
 	  if [ -n "$$bad" ]; then echo "FAIL  libcalls $$f: $$bad"; fail=1; else echo "ok    libcalls $$f (64-bit multiplies: $$m64)"; fi; \
 	done; exit $$fail
 
-# ---- calibration: Frodhes' own sources copied into build/calib/fr (never changed in place), host.c's audio call
-# rewritten to a timed one (bench/calib/frcal_hook.h), built as its Makefile's host build does, run CALIB_RUNS times
-build/calib/frodhes: bench/calib/frcal_hook.h
-	@test -f $(FRODHES)/firmware/src/frodhes.c || { echo "no $(FRODHES)/firmware/src/frodhes.c (FRODHES=path)"; exit 1; }
-	@rm -rf build/calib/fr && mkdir -p build/calib/fr/firmware build/calib/fr/tests
-	cp -R $(FRODHES)/firmware/src $(FRODHES)/firmware/gen build/calib/fr/firmware/
-	sed 's/app_audio(blk, HALF_FRAMES);/FRCAL_AUDIO(blk, HALF_FRAMES);/' $(FRODHES)/tests/host.c > build/calib/fr/tests/host.c
+# ---- calibration: Frodhes' own sources at FRODHES_REV, read from its git (git archive: Frodhes' checkout is never
+# changed) into build/calib/fr, host.c's audio call rewritten to a timed one (bench/calib/frcal_hook.h), built as its
+# Makefile's host build does, run CALIB_RUNS times. Pinned: FM1_WORST_US (3620 us, bench/txbench.c) was measured on
+# the FM-1 with exactly this revision's code (9 voices); a later Frodhes (0.9.5: 10 voices, other effects and CCs)
+# runs another scene, so its host time would no longer match that figure. Change both together, never one.
+FRODHES_REV ?= e68d1a7
+build/calib/frodhes: bench/calib/frcal_hook.h build/calib/rev-$(FRODHES_REV)
+	@rm -rf build/calib/fr && mkdir -p build/calib/fr
+	git -C $(FRODHES) archive --format=tar $(FRODHES_REV) firmware/src firmware/gen tests/host.c | tar -x -C build/calib/fr
+	@mv build/calib/fr/tests/host.c build/calib/fr/tests/host.orig
+	sed 's/app_audio(blk, HALF_FRAMES);/FRCAL_AUDIO(blk, HALF_FRAMES);/' build/calib/fr/tests/host.orig > build/calib/fr/tests/host.c && rm build/calib/fr/tests/host.orig
 	@grep -q FRCAL_AUDIO build/calib/fr/tests/host.c || { echo "host.c's app_audio call not found: calibration hook not applied"; exit 1; }
-	@(cd $(FRODHES) && git log -1 --format='%h %ci' 2>/dev/null) > build/calib/frodhes.rev || true
+	git -C $(FRODHES) log -1 --format='%h %ci' $(FRODHES_REV) > build/calib/frodhes.rev
 	$(CC) -O2 -Wall -Wno-unused-function -DDINGHY_HOST -DAPP_VER='"dev"' -include bench/calib/frcal_hook.h \
 	  -Ibuild/calib/fr/firmware/src -Ibuild/calib/fr/firmware/gen -o $@ build/calib/fr/firmware/src/frodhes.c -lm
 
+# a stamp per pinned revision: changing FRODHES_REV rebuilds the calibration binary
+build/calib/rev-$(FRODHES_REV):
+	@git -C $(FRODHES) cat-file -e '$(FRODHES_REV)^{commit}' 2>/dev/null || \
+	  { echo "no commit $(FRODHES_REV) in $(FRODHES) (FRODHES=path to Frodhes' checkout)"; exit 1; }
+	@mkdir -p build/calib && rm -f build/calib/rev-* && touch $@
+
 tx-calib: build/calib/frodhes
+	@$(HEAVY) $(MAKE) -s _tx-calib-run
+
+_tx-calib-run:
 	@rm -rf build/calib/run && mkdir -p build/calib/run
 	@i=1; while [ $$i -le $(CALIB_RUNS) ]; do \
 	  (cd build/calib/run && FRCAL_OUT=w$$i.txt ../frodhes out ../../../bench/calib/frodhes_worst.txt > log$$i.txt) || exit 1; \
 	  i=$$((i + 1)); done; echo "tx-calib: $(CALIB_RUNS) runs of Frodhes $$(cat build/calib/frodhes.rev) in build/calib/run"
 
 tx-bench: $(B)/txbench
+	@$(HEAVY) $(MAKE) -s _tx-bench-run
+
+_tx-bench-run:
 	@if [ "$(CALIB)" = 1 ]; then $(MAKE) -s tx-calib || echo "calibration failed: host times only"; fi
 	$(B)/txbench --repeat $(REPEAT) | tee $(B)/bench.txt
+
+$(B)/txbudget: bench/txbudget.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
+	@mkdir -p $(B)
+	$(CC) $(CSTD) -O2 -o $@ bench/txbudget.c $(HOST_SRC) $(ENG_SRC) -lm
+
+tx-budget: $(B)/txbudget build/calib/frodhes
+	@$(HEAVY) $(MAKE) -s _tx-budget-run
+
+_tx-budget-run:
+	@[ -f build/calib/run/w1.txt ] || $(MAKE) -s _tx-calib-run
+	$(B)/txbudget | tee $(B)/budget.txt
 
 tx-player:
 	sh audition/build.sh
@@ -108,7 +145,7 @@ tx-player:
 tx-player-check:
 	@[ -f $(B)/calib.json ] || $(MAKE) -s tx-bench   # the check reads the FM-1 calibration (check_player.py)
 	$(MAKE) -s tx-player
-	PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python audition/check_player.py
+	$(HEAVY) env PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python audition/check_player.py
 
 tx-ab: $(B)/txrender
 	.local/venv/bin/python -I audition/ab_prepare.py
