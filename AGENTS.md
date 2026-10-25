@@ -15,9 +15,14 @@ still to be designed (**todo**).
   multiply is fine, but prefer 32-bit products in inner loops: felucca-bsp reports a register-corruption fault with
   64-bit multiplies next to 16-bit loads. The host build will not catch float; `txtest` greps for it.
 - **Engines are instances**: all state in a struct, no globals, so up to four engines can play at once (layers).
-- **The audio budget:** 256 frames at 44.1 kHz = 5805 us per block on Frodhes' platform. Design target for one
-  engine's worst case: under ~18 % of the block at its default PARTICLES limit, so four layers fit the 75 % gate.
-  Host numbers are estimates until measured on the FM-1.
+- **The audio budget:** 256 frames at 44.1 kHz = 5805 us per block on Frodhes' platform. The whole interrupt stays
+  under the 4500 us gate (target 4200, USB at 48 kHz): the platform takes ~784 us, the effects their reserve
+  (880 us: the reverb, the grain delay under its dynamic cap), and the sources share the rest as **one pool**
+  (~1700 us planned on the host; on the device what the measured interrupt leaves, ~2500 us). The governor hands the
+  pool out by cost (lane inserts count against their lane); there is no per-engine cap. Sanity limits: a lane alone,
+  at any setting, stays inside the planned pool over 8 blocks, and no single block of a lane goes over half of it
+  (~870 us), since a spike passes the governor. `make tx-budget` reports all of it. Host numbers are estimates until
+  measured on the FM-1.
 - **No samples, ever.** Engines are physics models. Recordings are measured for numbers only; commit only numbers.
 - **Licence:** GPL-3.0 open source. New files start with `SPDX-License-Identifier: GPL-3.0-only`. Reused code
   keeps its original file header (that's all; no notice lists in the docs). GPL-3.0-compatible code (Frodhes,
@@ -61,7 +66,8 @@ still to be designed (**todo**).
    level are shared by all engines.
 3. **Check:** `txtest` (zero when idle, no overflow, particle cap, determinism, no float), `txbench` (worst case).
 4. **Audition:** the engine appears in the browser player; the user plays it and decides (keep / tune / drop).
-5. **Commit and push** as soon as it passes: one commit per piece; message = what changed and what was tested.
+5. **Commit and push** as soon as it passes: one commit per piece; message = what changed and what was tested (no
+   Claude-Session line).
 
 ## 5. Testing (port Frodhes' standards as the code grows)
 
