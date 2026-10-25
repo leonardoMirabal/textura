@@ -5,7 +5,7 @@
  *     (their cost is the lane's: the governor's pool). Off (DRIVE AMOUNT 0, FILTER TYPE OFF) = the lane untouched.
  *   on the stereo mix, before the limiter: the GRAIN DELAY (a delay whose repeats are grained), then the REVERB (a mono
  *   send of the mid, a stereo return):
- *     TYPE  OFF | ROOM (the CHAMBER's body modes + a short hall tail) | HALL | INFINITE | DARK | DRIFT | SWELL
+ *     TYPE  OFF | ROOM (the CHAMBER's body modes + a short hall tail) | HALL | INFINITE | DARK | DRIFT | SWELL | PLATE
  *     (one TYPE runs at a time; their states share one memory union).
  *
  * The dry path stays Q23. Only the wet signals pass through the effects' precision (Frodhes' Q15 with headroom: a
@@ -86,7 +86,7 @@ int tx_fx_grain_quiet(const tx_fx_grain_t *d);
 /* ---- REVERB (on the mix) */
 enum { TX_RV_TYPE, TX_RV_MIX, TX_RV_DECAY, TX_RV_TONE, TX_RV_PREDELAY, TX_RV_SIZE, TX_RV_MOD, TX_RV_LOWCUT, TX_RV_SHIMMER,
        TX_RV_SHIFT, TX_RV_NP };
-enum { TX_RVT_OFF, TX_RVT_ROOM, TX_RVT_HALL, TX_RVT_INF, TX_RVT_DARK, TX_RVT_DRIFT, TX_RVT_SWELL, TX_RVT_N };   /* (append only) */
+enum { TX_RVT_OFF, TX_RVT_ROOM, TX_RVT_HALL, TX_RVT_INF, TX_RVT_DARK, TX_RVT_DRIFT, TX_RVT_SWELL, TX_RVT_PLATE, TX_RVT_N };   /* (append only) */
 extern const tx_param_t tx_fx_reverb_params[TX_RV_NP];
 #define TX_PD_LEN 4096u            /* the pre-delay's line: 92.9 ms (int32: the send has headroom) */
 #define TX_RV_QZ 5u
@@ -109,7 +109,7 @@ typedef struct {
     uint32_t rng;                                /* DRIFT: its walks' random numbers (never reseeded) */
     int32_t swe, swr;                            /* SWELL: the send's level (its envelope), the return's root gain (Q15) */
     int32_t pd[TX_PD_LEN];
-    union { tx_hall_t h; tx_inf_t i; struct { tx_chamber_t c; tx_hall_t h; } rm; } u;   /* (ROOM: the body + a short hall) */
+    union { tx_hall_t h; tx_inf_t i; tx_plate_t p; struct { tx_chamber_t c; tx_hall_t h; } rm; } u;   /* (ROOM: the body + a short hall) */
 } tx_fx_reverb_t;
 void tx_fx_reverb_init(tx_fx_reverb_t *r);
 void tx_fx_reverb_param(tx_fx_reverb_t *r, unsigned id, unsigned v);

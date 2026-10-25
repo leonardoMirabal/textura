@@ -947,7 +947,7 @@ static uint32_t fx_run_rev(unsigned t, unsigned d, unsigned secs, int zero, int3
 }
 static void check_fx(FILE *update)
 {
-    static const char *const TN[TX_RVT_N] = {"off", "room", "hall", "infinite", "dark", "drift", "swell"};
+    static const char *const TN[TX_RVT_N] = {"off", "room", "hall", "infinite", "dark", "drift", "swell", "plate"};
     tx_fx_t *fx = malloc(sizeof *fx);
     char msg[200], hex[65], hex2[65], name[48];
     int32_t x[TX_BLOCK], y[TX_BLOCK], L[TX_BLOCK], R[TX_BLOCK], pk, pk2;
@@ -1001,7 +1001,7 @@ static void check_fx(FILE *update)
                 !bl ? " (no baseline: make tx-baseline)" : strcmp(bl, hex) ? " != baseline (a change moved the sound)" : " = baseline");
     }
     /* FREEZE (DECAY 127) for 3 minutes: the held level stays within 1.5 dB, never silent, bounded */
-    for (t = TX_RVT_INF; t < TX_RVT_N; t++) {
+    for (t = TX_RVT_INF; t <= TX_RVT_SWELL; t++) {
         double rms[18] = {0}, lo = 1e30, hi = 0;
         unsigned k;
         fx_run_rev(t, 127, 181, 0, &pk, hex, rms, 18);            /* 18 windows of 10 s: 0 .. 180 s */
@@ -1015,6 +1015,26 @@ static void check_fx(FILE *update)
          * holds) never silent, within 3 dB over 3 minutes (DRIFT 3.5: its random bends beat wider than the sines), 2 dB
          * once settled (its slow beating), bounded */
         verdict("fx", "freeze", lo > 0 && hi / lo < (t == TX_RVT_DRIFT ? 1.496 : 1.413) && hi2 / lo2 < 1.259 && pk < (1 << 23), msg, 0);
+    }
+    /* PLATE starts in O(1) over another TYPE's state: started over garbage = started over zeros */
+    {
+        tx_fx_reverb_t *ra = malloc(sizeof *ra), *rb = malloc(sizeof *rb);
+        uint32_t diff = 0, rng1 = 7u, nzs = 0;
+        if (ra && rb) {
+            tx_fx_reverb_init(ra); tx_fx_reverb_init(rb);
+            memset(&ra->u, 0, sizeof ra->u); memset(&rb->u, 0xA5, sizeof rb->u);
+            tx_fx_reverb_param(ra, TX_RV_TYPE, TX_RVT_PLATE); tx_fx_reverb_param(ra, TX_RV_MIX, 90);
+            tx_fx_reverb_param(rb, TX_RV_TYPE, TX_RVT_PLATE); tx_fx_reverb_param(rb, TX_RV_MIX, 90);
+            for (b = 0; b < 1034u; b++) {
+                for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = x[j] = y[j] = fx_in(b * TX_BLOCK + j, &rng1);
+                tx_fx_reverb_process(ra, L, R, TX_BLOCK);
+                tx_fx_reverb_process(rb, x, y, TX_BLOCK);
+                for (j = 0; j < TX_BLOCK; j++) diff += L[j] != x[j] || R[j] != y[j], nzs += L[j] != 0;
+            }
+        }
+        snprintf(msg, sizeof msg, "plate started over garbage = over zeros: %u of 6 s's samples differ (%u nonzero)", diff, nzs);
+        verdict("fx", "plate", ra && rb && !diff && nzs, msg, 0);
+        free(ra); free(rb);
     }
     /* SWELL: 3 s played (the burst again and again), then silence: the wet part (out - in) after the playing against
      * during it, SWELL against INFINITE (DECAY 100): the tail held down while played, swelling in after */

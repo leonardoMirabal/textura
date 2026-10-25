@@ -4,19 +4,19 @@
  * down into the kernel, the kernel at 22.05 kHz, the 1:2 up, the return (which eases off as MIX rises), a TYPE
  * change's fade (5.8 ms) and the tail's end in exact silence. ROOM (Textura) is the CHAMBER (tx_core_chamber) run on
  * the send at the full rate, so the CHAMBER is one of the reverb's TYPEs now: one room at a time, one memory union.
- * DRIFT and SWELL (Textura) run the infinite kernel too: DRIFT its wander a slow random walk (tx_fx_inf.c); SWELL the
+ * PLATE is Frodhes' plate kernel (tx_fx_plate.c). DRIFT and SWELL (Textura) run the infinite kernel too: DRIFT its wander a slow random walk (tx_fx_inf.c); SWELL the
  * tail held down while the send is loud and let in when it falls (the return's gain, below): the tail swells in after
  * the notes, in ~1.2 s. */
 #include "tx_fx.h"
 
 const tx_param_t tx_fx_reverb_params[TX_RV_NP] = {
-    {"TYPE", TX_RVT_N - 1, 0, "the space: 0 off (the tail rings out) | 1 room (the CHAMBER: body modes + a short tail) | 2 hall | 3 infinite (DECAY 120..126 sustain, 127 freeze) | 4 dark (the infinite tank, darker and still: a deep frozen bed) | 5 drift (the infinite tank, slowly bending in pitch at random) | 6 swell (the infinite tank, held down while you play, swelling in after)"},
+    {"TYPE", TX_RVT_N - 1, 0, "the space: 0 off (the tail rings out) | 1 room (the CHAMBER: body modes + a short tail) | 2 hall | 3 infinite (DECAY 120..126 sustain, 127 freeze) | 4 dark (the infinite tank, darker and still: a deep frozen bed) | 5 drift (the infinite tank, slowly bending in pitch at random) | 6 swell (the infinite tank, held down while you play, swelling in after) | 7 plate (a bright, dense plate)"},
     {"MIX", 127, 40, "the send and the return: dry .. wet (the return eases off as the send rises)"},
-    {"DECAY", 127, 64, "hall: x0.5 .. x2 the time; infinite / dark / drift / swell: T60 4 .. 60 s, 120..126 sustain, 127 freeze; room: the walls (127 = hard, long)"},
+    {"DECAY", 127, 64, "hall: x0.5 .. x2 the time; infinite / dark / drift / swell: T60 4 .. 60 s, 120..126 sustain, 127 freeze; plate: T60 0.8 .. 6 s; room: the walls (127 = hard, long)"},
     {"TONE", 127, 64, "the tail's top: 0 dark .. 64 as designed .. 127 bright; room: the body's resonance"},
     {"PREDELAY", 127, 0, "before the reverb: 0 .. 80 ms"},
     {"SIZE", 127, 0, "0 = from MIX (auto); 1..127 the size (room: 0.2 .. 3 m)"},
-    {"MOD", 127, 64, "the tail's slow wander (hall, infinite; drift: its random bend): none .. 2x"},
+    {"MOD", 127, 64, "the tail's slow wander (hall, infinite, plate; drift: its random bend): none .. 2x"},
     {"LOWCUT", 127, 0, "a high-pass on the send: off (0), 20 .. 800 Hz"},
     {"SHIMMER", 127, 0, "the tail shifted up and fed back into the reverb: none .. a rising, ringing halo"},
     {"SHIFT", 3, 0, "the shimmer's interval: 0 an octave up | 1 a fifth up | 2 an octave and a fifth up | 3 an octave down"},
@@ -26,7 +26,10 @@ const tx_param_t tx_fx_reverb_params[TX_RV_NP] = {
 #define FX_PDLY_SAMPLES(v) ((uint32_t)(v) * 3528u / 127u)
 #define RV_UPI(u) ((RV_HB((u) + 0, 1) + 512) >> 10)
 
-static uint32_t kern(uint32_t t) { return t >= TX_RVT_INF ? TX_RVT_INF : t; }   /* DARK, DRIFT, SWELL: the infinite kernel */
+static uint32_t kern(uint32_t t)                    /* DARK, DRIFT, SWELL: the infinite kernel */
+{
+    return t >= TX_RVT_INF && t <= TX_RVT_SWELL ? TX_RVT_INF : t;
+}
 static inline int32_t mq15s(int32_t a, int32_t q) { return (a >> 15) * q + (((a & 32767) * q) >> 15); }   /* a q, two 32-bit products */
 
 /* ---- SWELL: the return's gain g = r^2, r gliding toward T / (T + the send's level): held down while the send is
@@ -91,11 +94,13 @@ static void rev_begin(tx_fx_reverb_t *r, uint32_t t)
     r->cur = (uint8_t)kern(t);
     if (r->cur == TX_RVT_HALL) tx_hall_start(&r->u.h);
     else if (r->cur == TX_RVT_INF) tx_inf_start(&r->u.i);
+    else if (r->cur == TX_RVT_PLATE) tx_plate_start(&r->u.p);
     else if (r->cur == TX_RVT_ROOM) { tx_chamber_init(&r->u.rm.c); tx_chamber_param(&r->u.rm.c, TX_CH_TAIL, 0); tx_hall_start(&r->u.rm.h); }
 }
 static int rev_active(const tx_fx_reverb_t *r)
 {
-    return r->cur == TX_RVT_INF ? tx_inf_active(&r->u.i) : r->cur == TX_RVT_ROOM ? !tx_chamber_quiet(&r->u.rm.c) : 0;
+    return r->cur == TX_RVT_INF ? tx_inf_active(&r->u.i) : r->cur == TX_RVT_PLATE ? tx_plate_active(&r->u.p)
+         : r->cur == TX_RVT_ROOM ? !tx_chamber_quiet(&r->u.rm.c) : 0;
 }
 
 void tx_fx_reverb_init(tx_fx_reverb_t *r)
@@ -231,6 +236,13 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
                 if (shon) for (i = 0; i < HL_NC; i++) r->x[i] += r->sh[i];
                 tx_inf_run(&r->u.i, r->x, om, os, &c);
                 if (tgt == TX_RVT_SWELL || r->swr != 32768) swell(r, tgt == TX_RVT_SWELL ? spk : 0, om, os);
+            } else if (cur == TX_RVT_PLATE) {
+                tx_rev_ctl_t c;
+                c.decay = r->dk; c.damp = r->damp; c.size = zv ? zv : v; c.mod = r->p[TX_RV_MOD];
+                c.freeze = 0; c.dark = 0; c.drift = 0;
+                tx_rev_down(in, &r->hp, &r->he, r->x);
+                if (shon) for (i = 0; i < HL_NC; i++) r->x[i] += r->sh[i];
+                tx_plate_run(&r->u.p, r->x, om, os, &c);
             }
             if (cur && (r->p[TX_RV_SHIMMER] || shon)) {         /* the shimmer for the next control block */
                 shimmer(r, om);
@@ -296,11 +308,12 @@ TX_AUDIO_CODE void tx_fx_lane(void *u, unsigned k, int32_t *x, unsigned n)
 #define FX_US_GD_GRAIN1 14u        /* a grain at rate 1 (whole samples: a run decoded, one read a sample) */
 #define FX_US_GD_GRAINP 42u        /* a pitched or reversed grain (its run decoded, the interpolation) */
 #define FX_US_SHIMMER 75u          /* the shimmer on top of its reverb */
-static const uint16_t FX_US_REV[TX_RVT_N] = {0, 390, 210, 280, 280, 280, 290};
+static const uint16_t FX_US_REV[TX_RVT_N] = {0, 390, 210, 280, 280, 280, 290, 180};
 TX_AUDIO_CODE void tx_fx_bus(void *u, int32_t *L, int32_t *R, unsigned n)
 {
     tx_fx_t *fx = (tx_fx_t *)u;
-    uint32_t t = fx->rev.p[TX_RV_TYPE], c = fx->rev.cur > t ? fx->rev.cur : t, rv = c < TX_RVT_N ? FX_US_REV[c] : 0;
+    uint32_t t = fx->rev.p[TX_RV_TYPE], c = fx->rev.cur, rv = t < TX_RVT_N ? FX_US_REV[t] : 0;
+    if (c < TX_RVT_N && FX_US_REV[c] > rv) rv = FX_US_REV[c];          /* (a TYPE change: the dearer of the two) */
     if (rv && fx->rev.p[TX_RV_SHIMMER]) rv += FX_US_SHIMMER;
     uint32_t room = fx->reserve_us > rv + FX_US_GD_BASE ? fx->reserve_us - rv - FX_US_GD_BASE : 0;
     room /= fx->gd.p[TX_GD_PITCH] == 64 && !fx->gd.p[TX_GD_REVERSE] ? FX_US_GD_GRAIN1 : FX_US_GD_GRAINP;

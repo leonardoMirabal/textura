@@ -124,4 +124,31 @@ void tx_inf_start(tx_inf_t *s);
 int tx_inf_active(const tx_inf_t *s);
 void tx_inf_run(tx_inf_t *s, const int32_t *in, int32_t *mid, int32_t *side, const tx_rev_ctl_t *c);
 
+/* PLATE (tx_fx_plate.c: Frodhes' plate kernel); its sizes here for the TYPEs' union (the same as in its file) */
+#define PL_N 16384u                                    /* the tank's ring (int16) */
+#define PL_IN 1024u                                    /* the input allpasses' ring */
+#define PL_G 17u                                       /* the guard: a block's 16 samples + the interpolation's next */
+enum { PL_S_N = 22 };
+typedef struct {
+    int16_t ring[PL_N + PL_G + 1u];                  /* (+ 1: whole words for pl_cpy) */
+    int16_t id[PL_IN + PL_G + 1u];
+    int16_t zero[2u * HL_NC];       /* what a read of content older than the start sees */
+    uint32_t w, e;                  /* the rings' write index (one a sample), samples since the start (to PL_WARM) */
+    uint32_t ph;                    /* the LFO */
+    uint32_t quiet;                 /* samples with no input and no line write (to PL_N) */
+    int32_t bw, dl, dr;             /* the bandwidth and the two damping one-poles */
+    int32_t g, g2, pdm, pbw;        /* decay, allpass 2's gain, the damping / bandwidth poles (Q15): g g2 pdm in
+                                     * this order (pl_half's k[]) */
+    int32_t sz, szn, rr;            /* the size that runs, the step being made (szn, rr: its block), -1 at the start */
+    int32_t cdec, cdamp;            /* the settings the gains were made for */
+    int32_t ko;                     /* the output gain (Q12) */
+    uint32_t fix;                   /* this block: a write ran into the guard (ring 1, input 2) */
+    uint16_t d[PL_S_N];             /* the delays at this size */
+    uint16_t tk[PL_S_N];            /* the reads: their segment's top - their delay */
+    int32_t x[HL_NC];
+} tx_plate_t;
+void tx_plate_start(tx_plate_t *s);
+int tx_plate_active(const tx_plate_t *s);
+TX_AUDIO_CODE void tx_plate_run(tx_plate_t *s, const int32_t *in, int32_t *mid, int32_t *side, const tx_rev_ctl_t *c);
+
 #endif
