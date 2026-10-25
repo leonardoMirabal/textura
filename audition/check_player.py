@@ -54,7 +54,9 @@ def main():
     url = f"http://127.0.0.1:{srv.server_address[1]}/index.html"
     errors = []
     with sync_playwright() as pw:
-        br = pw.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
+        # --disable-audio-output: Chromium renders to a null sink on its own clock, so the audio callbacks run whatever
+        # the machine's sound device is doing (with the real device they can stall: the meters then read 0)
+        br = pw.chromium.launch(args=["--autoplay-policy=no-user-gesture-required", "--disable-audio-output"])
         page = br.new_page(viewport={"width": 1100, "height": 900}, accept_downloads=True)
         page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
         page.on("console", lambda m: errors.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
@@ -421,6 +423,8 @@ def main():
         br.close()
         plain.shutdown()
     srv.shutdown()
+    if not os.path.exists(os.path.join(SITE, "ab", "manifest.json")):   # (no A/B data here: its fetch's 404 is expected)
+        errors = [e for e in errors if "Failed to load resource" not in e or "404" not in e]
     check(not errors, "no JS errors" + ("" if not errors else ": " + "; ".join(errors[:5])))
     print(f"\n{'all player checks passed' if not fails else str(len(fails)) + ' FAILED'}; screenshots in {OUT}")
     return 1 if fails else 0
