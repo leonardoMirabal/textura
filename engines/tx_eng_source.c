@@ -79,7 +79,7 @@ static const tx_param_t PARAMS[NP] = {
     {"LOCK", 1, 0, "MIDI clock lock (a hook: stored, no effect until the clock sync is built)"},
     {"DIV", 9, 4, "beat division when locked: 1/1 1/2 1/4 1/8 1/16 1/32 1/4T 1/8T 1/16T, 9 = a probability per bar (a hook)"},
     {"GRID", 127, 0, "grid pull: the probability an event lands on the clock's grid (a hook)"},
-    {"TYPE", 127, 0, "the kind within the family: 0 = the preset's own; above, the hosted engine's own kinds over the range (wind: grass .. pines .. leafy trees .. a moor .. the coast .. a ridge .. autumn .. a winter storm .. a desert; crickets, katydids, bees: species; rain: surfaces 1 .. 99, hail and sleet 101 .. 127; ice: icicles | cubes in a glass; wood: spruce .. green branch; minerals: granite .. quartz; sand: hand .. tube)"},
+    {"TYPE", 127, 0, "the kind within the family: 0 = the preset's own; above, the hosted engine's own kinds over the range (wind: grass .. pines .. leafy trees .. a moor .. the coast .. a ridge .. autumn .. a winter storm .. a desert; crickets, katydids, bees: species; rain: surfaces 1 .. 99, hail and sleet 101 .. 127; water: drops 0, cave drips 16, eaves 32, a brook 48, a spring 64, a waterfall 80, waves on sand 96, on shingle 112; ice: icicles | cubes in a glass; wood: spruce .. green branch; minerals: granite .. quartz; sand: hand .. tube)"},
     {"COUNT", 127, 64, "how many individuals at once, each its own distance, size and character: 0 none (silence; tails ring), 1 + 21 steps per doubling: 1, 22, 43, 64, 85, 106, 127 = 1, 2, 4, 8, 16, 32, 64 (rain: patches of rain, stones: rolling stones or pouring points, water: dripping points, cicadas, birds; hosted engines: their keys or presses)"},
 };
 
@@ -262,6 +262,31 @@ static const host_t HOST[] = {
     {"aeolian", -78, -78, -78, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* hail and sleet (rain): a few stones now and then .. a hailstorm hammering, bigger stones */
     {"rainsurf", -55, -55, -55, {{"RATE", 40, 95, 127}, {"DROPS", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0, 0, 0, 0, 0},
+    /* drips in a cave (water): a drop into a pool now and then, from high up .. drip points all over, quicker (one per
+     * 10 s .. 4 /s each, at random: a cave's drips are Poisson) */
+    {"drip", -75, -75, -75, {{"RATE", 0, 38, 88}, {"HEIGHT", 95, 100, 105}, {"SIZE", 70, 70, 70}, {"CLUMP", 0, 0, 0},
+                     {"DEPTH", 30, 30, 30}}, 4, 12, 8, 0, 0, 0, 0},   /* (k0 4: each drip point its own: they
+                                                                     * begin at their own pace, not as a burst) */
+    /* eaves dripping (water): after the rain, a drop off the eaves into a puddle now and then .. dripping all along
+     * the gutter, in runs and quiet spells as the wind shakes it */
+    {"drip", -25, -25, -25, {{"RATE", 0, 50, 100}, {"CLUMP", 100, 100, 110}, {"HEIGHT", 60, 64, 70}, {"SIZE", 45, 45, 45},
+                     {"SCATTER", 40, 40, 40}}, 4, 12, 8, 0, 0, 0, 0},
+    /* a brook (water): a little gurgle now and then .. a babbling brook .. a rushing one (COUNT: the riffles heard) */
+    {"stream", -37, -37, -37, {{"FLOW", 0, 64, 95}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50}, {"SPREAD", 80, 64, 45},
+                             {"ROAR", 0, 0, 30}}, 2, 8, 2, 0, 0, 0, 0},
+    /* a bubbling spring (water): water welling up through the sand, a gulp now and then .. bubbling on, bigger bubbles
+     * close by */
+    {"stream", -82, -82, -82, {{"FLOW", 0, 15, 40}, {"SIZE", 60, 60, 66}, {"NEAR", 100, 100, 100}, {"EDDY", 60, 60, 70},
+                             {"SPREAD", 30, 30, 30}}, 2, 8, 2, 0, 0, 0, 0},
+    /* a waterfall (water): a thin fall now and then .. pouring .. a big fall's roar from farther off */
+    {"stream", -120, -120, -120, {{"FLOW", 30, 90, 110}, {"ROAR", 20, 60, 90}, {"SIZE", 45, 45, 50}, {"NEAR", 40, 30, 20},
+                             {"EDDY", 30, 40, 50}}, 2, 6, 2, 0, 0, 0, 0},
+    /* waves on a sandy beach (water): a small wave every 15 s .. breakers every 6 s, higher (COUNT: bigger waves) */
+    {"surf", 0, 0, 0, {{"HEIGHT", 0, 64, 110}, {"PERIOD", 127, 70, 30}, {"BACKWASH", 40, 50, 60}, {"DIST", 70, 64, 50},
+                     {0, 0, 0, 0}}, 0, 14, 0, 0, 0, 0, 0},
+    /* waves on shingle (water): the same sea on a stony beach close by: the backwash draining loud through the stones */
+    {"surf", 0, 0, 0, {{"HEIGHT", 0, 50, 100}, {"PERIOD", 127, 80, 40}, {"BACKWASH", 110, 115, 120}, {"DIST", 40, 40, 40},
+                     {0, 0, 0, 0}}, 0, 14, 0, 0, 0, 0, 0},
 };
 #define H_MEMBER 12u                 /* the first member row */
 
@@ -520,6 +545,16 @@ static const kmap_t HMAP[][HOST_NK] = {
     {{"WIRE", P_SIZE, 64}, {"LOCK", P_TONE, 48}, {"GUST", P_HARD, 48}, {0, 0, 0}, {0, 0, 0}},
     /* hail: the kind (a metal roof, a car, leaves, sleet on a window), stone sizes, the area heard, inside */
     {{"HAIL", P_TYPE, 0}, {"DROPS", P_SIZE, 64}, {"AREA", P_SPREAD, 64}, {"INSIDE", P_TONE, -64}, {0, 0, 0}},
+    /* drips (cave, eaves): bubble size, fall height, deeper (softer), size spread */
+    {{"SIZE", P_SIZE, 64}, {"HEIGHT", P_HARD, 64}, {"DEPTH", P_TONE, -64}, {"SCATTER", P_SPREAD, 64}, {0, 0, 0}},
+    {{"SIZE", P_SIZE, 64}, {"HEIGHT", P_HARD, 64}, {"DEPTH", P_TONE, -64}, {"SCATTER", P_SPREAD, 64}, {0, 0, 0}},
+    /* streams (brook, spring, waterfall): bubble size, nearer, eddies, size spread */
+    {{"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {0, 0, 0}},
+    {{"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {0, 0, 0}},
+    {{"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {0, 0, 0}},
+    /* waves (sand, shingle): height, backwash, chop, distance */
+    {{"HEIGHT", P_SIZE, 64}, {"BACKWASH", P_TONE, 64}, {"CHOP", P_HARD, 64}, {"DIST", P_SPREAD, 64}, {0, 0, 0}},
+    {{"HEIGHT", P_SIZE, 64}, {"BACKWASH", P_TONE, 64}, {"CHOP", P_HARD, 64}, {"DIST", P_SPREAD, 64}, {0, 0, 0}},
 };
 
 /* the family members TYPE reaches (note 16: every family had members no knob could reach): TYPE from lo up to the
@@ -537,12 +572,21 @@ static const fam_t FAM[] = {
     {PR_STONES, 64, H_MEMBER + 7, {{60, 60, 60}, 30, {20, 30, 40}, 1, 3, 200, -5, 10, {0, 0}, {0, 0}, 0}},
     {PR_WIND, 64, H_MEMBER + 8, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},
     {PR_RAIN, 100, H_MEMBER + 9, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},   /* hail: 101 .. 127 */
+    {PR_WATER, 16, H_MEMBER + 10, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},   /* cave drips */
+    {PR_WATER, 32, H_MEMBER + 11, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},   /* eaves */
+    {PR_WATER, 48, H_MEMBER + 12, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},   /* a brook */
+    {PR_WATER, 64, H_MEMBER + 13, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},   /* a spring */
+    {PR_WATER, 80, H_MEMBER + 14, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},   /* a waterfall */
+    {PR_WATER, 96, H_MEMBER + 15, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},   /* waves on sand */
+    {PR_WATER, 112, H_MEMBER + 16, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},   /* waves on shingle */
 };
 #define NFAM (sizeof FAM / sizeof FAM[0])
 
 /* heroes at most for a hosted engine whose heroes are dear (FM-1 worst block under half the pool, ~870 us) */
 static const struct { const char *eng; uint8_t max; } HCAP[] = {
     {"minerals", 3},                /* (~150 us a hero at ACTION's rub: 6 reached 1170 us at COUNT 127, 4 957 us) */
+    {"stream", 8},                  /* (a brook's or a waterfall's top: 16 heroes reached ~1100 us, 10 ~900 us; as
+                                     * WATER_HEROES, the rest go to the bed) */
 };
 static unsigned host_heroes(const host_t *hd, unsigned v)
 {
@@ -1521,7 +1565,10 @@ static void host_switch(src_t *s, unsigned pre)
             for (c = 0; c < HOST_NC && s->kid[i] >= 0; c++) if (s->hid[c] == s->kid[i]) s->kcur[i] = (int8_t)c;
         }
         if (s->lvl_v) ne->param(s->host, TX_PID_LEVEL, s->lvl_v);
-        if (s->part_v) ne->param(s->host, TX_PID_PARTICLES, (uint8_t)host_heroes(hd, s->part_v));
+        {   /* (the lane's PARTICLES, or the engine's own: at most its cap) */
+            unsigned pp = host_heroes(hd, s->part_v ? s->part_v : ne->particles_def);
+            if (s->part_v || pp != ne->particles_def) ne->param(s->host, TX_PID_PARTICLES, (uint8_t)pp);
+        }
         s->hcid = (int8_t)tx_param_find(ne, "COUNT");
         s->hfid = (int8_t)(s->hcid >= 0 ? tx_param_find(ne, "FIELD") : -1);
         host_apply(s, 1);

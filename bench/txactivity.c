@@ -56,7 +56,8 @@
 typedef struct { const char *name, *pre; unsigned type; } snd_t;
 static const snd_t SND[] = {
     {"rain on water", "rain on water", 0}, {"rain on a roof", "rain on water", 64}, {"hail", "rain on water", 110}, {"water drops", "water", 0},
-    {"stream", "#stream", 0}, {"surf", "#surf", 0},
+    {"cave drips", "water", 16}, {"eaves", "water", 32}, {"brook", "water", 48}, {"spring", "water", 64},
+    {"waterfall", "water", 80}, {"waves on sand", "water", 96}, {"waves on shingle", "water", 112},
     {"stones", "stone cloud", 0}, {"rockfall", "stone cloud", 32}, {"ringing rocks", "stone cloud", 96},
     {"gravel", "gravel", 0}, {"marbles", "gravel", 96}, {"sand", "sand", 0}, {"singing dune", "sand", 96},
     {"minerals", "minerals", 0}, {"stone friction", "minerals", 96},
