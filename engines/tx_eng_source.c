@@ -59,11 +59,11 @@ enum { P_PRESET, P_INTENS, P_ACT, P_SPACING, P_SIZE, P_SPREAD, P_TONE, P_HARD, P
        P_LIFE, P_TIME, P_LOCK, P_DIV, P_GRID, P_TYPE, NP };
 enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_WATER, PR_WIND, PR_FIRE, PR_CRICKETS, PR_SAND, PR_GRAVEL, PR_KATYDIDS, PR_BEES, PR_ICE, PR_WOOD, PR_MINERALS, PR_GLASS, PR_SONGBIRD, PR_CHIRPER, PR_CROW, PR_OWL,
        PR_GULL, PR_BLACKBIRD, PR_THRUSH, PR_NIGHTINGALE, PR_ROBIN, PR_WREN, PR_HERMIT, PR_SKYLARK,
-       PR_WOODTHRUSH, PR_WARBLER, PR_CURLEW, NPRE };
+       PR_WOODTHRUSH, PR_WARBLER, PR_CURLEW, PR_OYSTER, PR_CUCKOO, NPRE };
 enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER, V_BIRD };
 
 static const tx_param_t PARAMS[NP] = {
-    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees | 11 ice | 12 wood | 13 minerals | 14 glass | 15 songbird | 16 chirper | 17 crow | 18 owl | 19 gull | 20 blackbird | 21 song thrush | 22 nightingale | 23 robin | 24 wren | 25 hermit thrush | 26 skylark | 27 wood thrush | 28 reed warbler | 29 curlew"},
+    {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees | 11 ice | 12 wood | 13 minerals | 14 glass | 15 songbird | 16 chirper | 17 crow | 18 owl | 19 gull | 20 blackbird | 21 song thrush | 22 nightingale | 23 robin | 24 wren | 25 hermit thrush | 26 skylark | 27 wood thrush | 28 reed warbler | 29 curlew | 30 oystercatcher | 31 cuckoo"},
     {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water a single drop per 30 s .. dripping (2.8 /s) .. a trickle .. a stream .. a river, wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), fire 1 .. 30 crackles/s per log (embers .. a blaze), crickets 1 .. 16 (one .. a chorus falling into step), sand a trickle .. a pour, gravel a few stones .. a slide, katydids one in the cold .. a warm chorus of 8 in step, bees one far bee .. a swarm close by, ice an icicle per 30 s .. one every 1.5 s, wood a creak per 30 s .. snaps every 2 s, minerals a knock per 10 s .. 7 /s, glass a crack per 40 s .. a smash every 2 s, birds one bird singing now and then .. countersinging .. a dawn chorus of 12"},
     {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. the preset's own (64; Poisson for rain) .. even"},
@@ -128,6 +128,8 @@ static const preset_t PRE[NPRE] = {
     {4, 12, 0, 0, 205, 0},         /* wood thrush */
     {4, 13, 0, 0, 1300, 0},        /* reed warbler (a wetland; some birds sedge-like) */
     {4, 14, 0, 0, 1100, 0},        /* curlew (an estuary) */
+    {4, 15, 0, 0, 920, 0},        /* oystercatcher (a beach) */
+    {4, 16, 0, 0, 240, 0},        /* cuckoo (spring) */
 };
 
 /* stage 1's character per preset (tx_core_cluster.h; note 14, measured against the references), three values at
@@ -981,6 +983,7 @@ static void birds_block(src_t *s, unsigned n)
             b->gain = tx_bird_band(type, b->seed, b->f_off);  /* (birds keep their band here) */
             b->active = 1; b->wait = tx_rand_below(&s->rng, 65535u) * 2u;
         }
+        if (b->near) b->r_l2 = dist_l2(s) + tx_bird_near(type, a);   /* the key's bird: near only as the place fills */
         if (b->active && b->voice < NV && s->v[b->voice].kind == V_BIRD && (i >= want || s->run < 4096))
             tx_bird_stop(&s->v[b->voice].u.bv);              /* leaving: it ends the phrase it is singing */
         if (!b->active || b->voice != 0xFF) continue;

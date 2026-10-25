@@ -25,8 +25,8 @@
 /* the types (presets pick one): 0 a woodland mix (each bird drawn from blackbird, song thrush, robin, wren, chaffinch),
  * 1 chirper (chaffinch, sparrow), 2 crow, 3 owl, 4 gull, and the melodic species 5 blackbird, 6 song thrush,
  * 7 nightingale, 8 robin, 9 wren, 10 hermit thrush, 11 skylark, 12 wood thrush, 13 reed warbler (a wetland), 14 curlew
- * (an estuary) */
-#define TX_BIRD_TYPES 15u
+ * (an estuary), 15 oystercatcher (a beach), 16 cuckoo (spring) */
+#define TX_BIRD_TYPES 17u
 #define TX_BIRD_DL 48u              /* trachea delay line (samples, the longest tube) */
 #define TX_BIRD_SEG 16u             /* segments in a phrase */
 
@@ -83,6 +83,9 @@ unsigned tx_bird_want(unsigned type, int32_t act);           /* birds present */
 unsigned tx_bird_overlap(unsigned type, int32_t act);        /* how many may sing at once */
 int32_t tx_bird_band(unsigned type, uint32_t seed, int32_t f_off);   /* a bird's pitch centre, log2 Hz Q16 */
 int32_t tx_bird_dist(tx_rng_t *r, unsigned type, int32_t near_l2, int32_t depth_l2, int32_t act);   /* log2 m Q16 */
+/* the bird close by (the key's): how much farther it is (log2 m Q16) at this activity: a lone bird is somewhere around,
+ * the nearest come close only as the place fills (so the loudness grows with the birds) */
+int32_t tx_bird_near(unsigned type, int32_t act);
 /* 1: a bird (band, distance) waits while this other one sings (a neighbour in its band, near enough to matter) */
 int tx_bird_yield(unsigned type, int32_t band, int32_t r_l2, int32_t band_o, int32_t r_o);
 /* another bird has just started: an idle one's new wait (samples): it answers sooner, or keeps its own; nidle = the idle

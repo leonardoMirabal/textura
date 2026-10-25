@@ -7,16 +7,16 @@
 #define L2_1K 653118                /* log2(1000), Q16 */
 
 /* mean pause between bouts at the middle of the fader (0.1 s), base pitches (log2 Hz Q16) */
-const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES] = { 60, 80, 220, 200, 1500, 50, 90, 70, 50, 60, 80, 150, 80, 100, 250 };
+const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES] = { 60, 80, 220, 200, 1500, 50, 90, 70, 50, 60, 80, 150, 80, 100, 250, 120, 400 };
 const int32_t TX_BIRD_F0[TX_BIRD_TYPES] = { 731868, 771564, 596593, 641031, 666332,   /* 2.3, 3.5, 0.55, 0.88, 1.15 kHz */
                                             731868, 771564, 750467, 781796, 805288, 768824, 779340,
-                                            756990, 753784, 708692 };
-                                            /* 2.3, 3.5, 2.8, 3.9, 5.0, 3.4, 3.8, 3.0, 2.9, 1.8 kHz */
+                                            756990, 753784, 708692, 747028, 619395 };
+                                            /* 2.3, 3.5, 2.8, 3.9, 5.0, 3.4, 3.8, 3.0, 2.9, 1.8, 2.7, 0.7 kHz */
 
 enum { ST_BLACKBIRD, ST_THRUSH, ST_NIGHTINGALE, ST_ROBIN, ST_WREN, ST_HERMIT, ST_SKYLARK, ST_FINCH, ST_CROW, ST_OWL, ST_GULL,
-       ST_WOODTHRUSH, ST_WARBLER, ST_CURLEW };
+       ST_WOODTHRUSH, ST_WARBLER, ST_CURLEW, ST_OYSTER, ST_CUCKOO };
 enum { C_WHISTLE, C_NOTE, C_TRILL, C_HARSH, C_INTRO, C_SWEEP, C_CAW, C_HOOT, C_TREM, C_GLONG, C_KYOW, C_CHIRP, C_FLOURISH,
-       C_CURLEE, C_BUBBLE, C_RISE, C_FALL };
+       C_CURLEE, C_BUBBLE, C_RISE, C_FALL, C_KLEEP, C_PIPE, C_CU, C_COO };
 #define SYL(c, i) ((uint16_t)(((unsigned)(c) << 11) | ((unsigned)(i) & 2047u)))
 
 /* the species: numbers from the references where measured (note 15: 10-90 % of the syllables' pitch, lengths,
@@ -70,11 +70,17 @@ static const sp_t SP[TX_BIRD_TYPES] = {
      * ~1.5 kHz), a run of shorter rising ones with fast bubbling between, long falling notes to end (refs 1.4-2.2 kHz);
      * a long trachea, nearly pure */
     {ST_CURLEW, -1200, 1600, 450, 800, 40, 90, 2000, 60, 0, 8, 4, 2, 6, 1200, 3500, 1, 40, 20, 0, 0, 300},
+    /* 15 oystercatcher: loud "kleep" calls (2.4-3.1 kHz, a strong 2nd harmonic), 1-3 at a time 0.6-1.2 s apart, or the
+     * piping display: kleeps quickening into a trill of 20-60 notes (~15 /s), the pair piping together */
+    {ST_OYSTER, -1600, 1000, 25, 80, 20, 50, 600, 140, 0, 6, 4, 2, 10, 200, 900, 1, 32, 10, 0, 0, 500},
+    /* 16 cuckoo: "cu-coo", the second note 0.17-0.4 oct lower (each bird its own interval), ~0.2 s each, every
+     * 1.2-1.5 s in a series of 8-20; a closed bill and an inflated throat: nearly pure (refs 560-775 Hz) */
+    {ST_CUCKOO, -300, 300, 170, 230, 190, 250, 300, 16, 0, 2, 2, 8, 20, 700, 1050, 1, 64, 10, 2, 0, 100},
 };
 
 /* each type's level (Q6), by render: the songs' levels spread downward from 0 dB (as the references'), the presets at
  * the fader's middle where they were */
-static const uint8_t TRIM[TX_BIRD_TYPES] = { 150, 150, 100, 90, 83, 180, 120, 150, 150, 130, 100, 150, 150, 140, 150 };
+static const uint8_t TRIM[TX_BIRD_TYPES] = { 150, 150, 100, 90, 83, 180, 120, 150, 150, 130, 100, 150, 150, 140, 150, 120, 150 };
 
 static uint32_t mix(uint32_t a, uint32_t b)
 {
@@ -169,6 +175,22 @@ static void syl_make(tx_bird_voice_t *v)
     case C_FALL:                                             /* its long falling end */
         len_ms = rb(&r, 400, 800); rel = S->flo + rs(&r, span / 3, span * 2 / 3); df = rs(&r, -1100, -400); arch = rs(&r, 0, 400);
         k0 = rs(&r, 0, S->kmax / 2); k1 = rs(&r, 0, S->kmax / 2); amp = lvl(&r, 6);
+        break;
+    case C_KLEEP:                                            /* the oystercatcher's "kleep": short, falling a little, rich */
+        len_ms = rb(&r, S->dlo, S->dhi); rel = S->flo + rs(&r, span / 4, span * 3 / 4); df = rs(&r, -800, -200); arch = rs(&r, 200, 700);
+        k0 = rs(&r, S->kmax / 2, S->kmax); k1 = rs(&r, S->kmax / 3, S->kmax); amp = lvl(&r, 10);
+        break;
+    case C_PIPE:                                             /* a piping trill's note */
+        len_ms = rb(&r, S->llo, S->lhi); rel = S->flo + rs(&r, span / 3, span); df = rs(&r, -500, 0); arch = rs(&r, 0, 400);
+        k0 = rs(&r, S->kmax / 2, S->kmax); k1 = k0; amp = lvl(&r, 4);
+        break;
+    case C_CU:                                               /* the cuckoo's first note: flat or rising a little */
+        len_ms = rb(&r, S->dlo, S->dhi); rel = rs(&r, -100, 100) + (int32_t)(mix(v->seed, 21u) & 511u) - 256; df = rs(&r, 0, 400); arch = rs(&r, 0, 150);
+        k0 = k1 = rs(&r, 0, S->kmax); amp = 255;
+        break;
+    case C_COO:                                              /* the second: lower by the bird's own interval, falling */
+        len_ms = rb(&r, S->llo, S->lhi); rel = rs(&r, -100, 100) + (int32_t)(mix(v->seed, 21u) & 511u) - 256 - 700 - (int32_t)(mix(v->seed, 22u) % 940u);
+        df = rs(&r, -500, -100); arch = rs(&r, 0, 150); k0 = k1 = rs(&r, 0, S->kmax); amp = rs(&r, 200, 245);
         break;
     case C_BUBBLE:                                           /* a bubbling unit: short, rising */
         len_ms = rb(&r, S->llo, S->lhi); rel = S->flo + rs(&r, span / 4, span * 3 / 4); df = rs(&r, 700, 1600); arch = rs(&r, -300, 300);
@@ -385,6 +407,21 @@ static void phrase_start(tx_bird_voice_t *v)
             seg(v, SYL(C_FALL, rb(&pr, 0, ns - 1u)), rb(&v->rng, 1, 2), rb(&v->rng, 200, 450), lvl(&v->rng, 6), 255, 0);
         }
         break;
+    case ST_OYSTER:                                          /* kleeps, or the piping display */
+        v->plev = (int16_t)rs(&v->rng, -120, 120);
+        if (tx_rand_below(&v->rng, 4u))
+            seg(v, SYL(C_KLEEP, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 1, 3), rb(&v->rng, 60, 150), lvl(&v->rng, 12), 255, 0);
+        else {
+            seg(v, SYL(C_KLEEP, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 3, 6), rb(&v->rng, 150, 250), 230, 255, 0);
+            seg(v, SYL(C_PIPE, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 20, 60), rb(&v->rng, 20, 50), 255, rb(&v->rng, 120, 220), 2);
+            seg(v, SYL(C_KLEEP, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 2, 4), rb(&v->rng, 80, 120), 220, 255, -2);
+        }
+        break;
+    case ST_CUCKOO:                                          /* cu-coo (now and then cu-cu-coo) */
+        v->plev = (int16_t)rs(&v->rng, -40, 40);
+        seg(v, SYL(C_CU, 0), tx_rand_below(&v->rng, 10u) ? 1 : 2, rb(&v->rng, 110, 180), 255, 255, 0);
+        seg(v, SYL(C_COO, 0), 1, 0, 255, 255, 0);
+        break;
     case ST_CROW:
         v->plev = 0;
         seg(v, SYL(C_CAW, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 2, 6), rb(&v->rng, 120, 320), 255, 255, 0);
@@ -450,7 +487,8 @@ void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigne
     v->type = (uint8_t)type; v->sp = (uint8_t)sp; v->seed = bird_seed; v->song = (uint8_t)song;
     v->f_off = f_off + rs(&br, -13107, 13107) + rs(&v->rng, -1300, 1300);   /* the bird's pitch (+-0.2 oct), today's (+-0.02) */
     v->tempo = (4096 + rs(&br, -614, 614)) * (4096 + rs(&v->rng, -200, 200)) >> 12;   /* +-15 %, +-5 % */
-    v->pace = (uint8_t)rb(&br, 64, 255);                     /* gaps between phrases x 0.5 .. 2 */
+    v->pace = (uint8_t)(S->style == ST_CUCKOO ? rb(&br, 112, 144) : rb(&br, 64, 255));   /* gaps between phrases x 0.5 .. 2
+                                                              * (the cuckoo keeps its clock: +-12 %) */
     v->verb = (uint8_t)(int8_t)rs(&br, -1, 1);               /* shorter or longer phrases */
     v->pamp = 255;
     v->track = S->track; v->closed = S->closed; v->oec_l2 = S->oec;
@@ -499,6 +537,8 @@ static const struct {
     {4, 1, 3, 1, 60, 120, 1500, 5000, 8},    /* wood thrush */
     {6, 1, 4, 1, 40, 90, 1500, 5000, 8},     /* reed warbler: neighbours in the reeds */
     {6, 1, 3, 0, 80, 160, 500, 3000, 24},    /* curlew: calls answered across the mud */
+    {8, 1, 4, 0, 120, 200, 100, 600, 16},    /* oystercatcher: one pipes, others join */
+    {3, 1, 2, 1, 30, 60, 3000, 8000, 24},    /* cuckoo: a few, far apart */
 };
 
 unsigned tx_bird_want(unsigned type, int32_t act)
@@ -542,13 +582,20 @@ int32_t tx_bird_dist(tx_rng_t *r, unsigned type, int32_t near_l2, int32_t depth_
     act = act < 0 ? 0 : act > (127 << 8) ? 127 << 8 : act;
     span = depth_l2 + FL[type].span * 4096;                  /* Q4 octaves -> Q16 */
     lg = (32 << 16) - (int32_t)(tx_neglog2_q12(FL[type].nmax) << 4);   /* log2 nmax, Q16 */
-    near_l2 += (((lg >> 8) * ((127 << 8) - act) / 127) >> 1) - 32768;   /* (log2 nmax - log2 want) / 2, - 0.5 oct */
+    near_l2 += (((lg >> 8) * ((127 << 8) - act) / 127) >> 1) - 49152;   /* (log2 nmax - log2 want) / 2, - 0.75 oct */
     if (span <= 0) return near_l2;
     ks = span * 2;
     if (ks > (15 << 16)) ks = 15 << 16;
     K = tx_exp2(ks);
     x = 65536u + (tx_rand(r) >> 16) * (K - 1u);
     return near_l2 + ((32 << 16) - (int32_t)(tx_neglog2_q12(x) << 4) - (16 << 16)) / 2;
+}
+
+int32_t tx_bird_near(unsigned type, int32_t act)
+{
+    (void)type;
+    act = act < 0 ? 0 : act > (127 << 8) ? 127 << 8 : act;
+    return ((127 << 8) - act) * 2;                           /* 1 octave with one bird .. 0 at the full chorus */
 }
 
 int tx_bird_yield(unsigned type, int32_t band, int32_t r_l2, int32_t band_o, int32_t r_o)
@@ -631,7 +678,7 @@ TX_AUDIO_CODE int tx_bird_render(tx_bird_voice_t *v, int32_t *out, unsigned n)
             const tx_bird_syl_t *s = &v->s;
             int32_t f, k, a0, a1v, fi, ta = 0;
             uint32_t inc, inc2 = 0;
-            unsigned m = 16u, q, si, sf;
+            unsigned m = 16u, q, si, sf, sh = v->closed > 1u ? 17u : 15u;
             if (m > n - j) m = n - j;
             if (m > s->len - v->pos) m = s->len - v->pos;
             v->jw += ((tx_rand_s15(&v->rng) * v->jsd) >> 15) - (v->jw >> 6);   /* the tension's roughness */
@@ -653,7 +700,7 @@ TX_AUDIO_CODE int tx_bird_render(tx_bird_voice_t *v, int32_t *out, unsigned n)
                 int32_t w = w0 + (((w1 - w0) * (int32_t)sf) >> 8), amp = a0 + (((a1v - a0) * (int32_t)q) >> 4), x, pin, y;
                 v->phase += inc;
                 if (ta) { w += (tx_sin_q15(v->phase2) * ta) >> 8; v->phase2 += inc2; }   /* the second voice */
-                x = (w * (amp >> 2)) >> 15;                      /* Q13 */
+                x = (w * (amp >> 2)) >> sh;                      /* Q13 (closed 2: a resonant throat, the source 1/4) */
                 pin = x - ((v->dl[v->dp] * 22938) >> 15);        /* the trachea: p = s - r p(t - T) */
                 v->dl[v->dp] = pin; if (++v->dp >= v->dlen) v->dp = 0;
                 y = ((a1 * y1 - a2 * y2) >> 14) + ((b0 * pin) >> 15);   /* the cavity */
