@@ -1525,7 +1525,10 @@ static const host_t *host_for(const src_t *s, unsigned pre, const fam_t **fm, un
  * sample decays */
 /* a held engine in bouts (k0 & 2): one individual held all the time is a bed at the bottom; so below INTENSITY 64
  * it is held in bouts (~0.7 s, an exponential), off between them for on x (1 - p) / p, p its share on: 0.03 at 0 ..
- * 1 at 64, rising as the square (a pour, a squeak, a flare, a bee passing now and then .. on all the time). A press opens a bout. */
+ * 1 at 64, rising as the square (a pour, a squeak, a flare, a bee passing now and then .. on all the time). A press while
+ * held opens a bout. Switched on or first pressed, the gate is somewhere in its cycle (hgate 2: drawn at the next block,
+ * the fader settled): in a bout with its share p, else in a pause, cut to at most 2 .. 3 s (a sound switched on answers
+ * soon, never with a bout at once). */
 static uint32_t gate_draw(src_t *s, uint32_t mean)
 {
     uint32_t b = (uint32_t)(((uint64_t)mean * ((tx_neglog2_q12(tx_rand(&s->rng)) * 2839u) >> 12)) >> 12);
@@ -1537,6 +1540,14 @@ static void host_gate(src_t *s)
     uint32_t p = a >= 64 ? 4096u : 120u + (((uint32_t)(a * a) * 3976u) >> 12);   /* Q12 (square: LIFE's wander */
                                                              /* near 0 stays rare) */
     if (p >= 4096u) { s->hgate = 1; s->hgt = 0; return; }
+    if (s->hgate == 2u) {                                    /* (a random point in the cycle) */
+        uint32_t c = 344u + tx_rand_below(&s->rng, 173u);    /* (the first pause: 2 .. 3 s at most) */
+        uint16_t on = s->hgt;                                /* (a bout's length drawn at the switch, or none) */
+        s->hgate = (uint8_t)(tx_rand_below(&s->rng, 4096u) < p);
+        s->hgt = (uint16_t)(s->hgate && on ? on : gate_draw(s, s->hgate ? GATE_ON : (GATE_ON * (4096u - p)) / p));
+        if (!s->hgate && s->hgt > c) s->hgt = (uint16_t)c;
+        return;
+    }
     if (s->hgt) { s->hgt--; return; }
     s->hgate = (uint8_t)!s->hgate;
     s->hgt = (uint16_t)gate_draw(s, s->hgate ? GATE_ON : (GATE_ON * (4096u - p)) / p);
@@ -1584,10 +1595,12 @@ static void host_switch(src_t *s, unsigned pre)
         s->hfid = (int8_t)(s->hcid >= 0 ? tx_param_find(ne, "FIELD") : -1);
         host_apply(s, 1);
         s->hkeys = 0; s->hrenew = 258; s->hoff = 0;
-        s->hgate = 1; s->hgt = (uint16_t)gate_draw(s, GATE_ON);   /* (a sound switched on: a bout now) */
+        s->hgate = 2; s->hgt = (uint16_t)gate_draw(s, GATE_ON);   /* (a sound switched on: the gate's phase drawn at
+                                                             * the next block; a bout's length ready for it) */
         tx_clu_init(&s->clu);                       /* (the first renewal after 1.5 s: past the fader's glide) */
         s->hon = 0;
-        if (s->held && s->p[P_COUNT]) { ne->key(s->host, s->note, s->vel, 1); s->hkeys = 1; s->hon = 1; }
+        if (s->held && s->p[P_COUNT] && !(hd->k0 & 2u)) { ne->key(s->host, s->note, s->vel, 1); s->hkeys = 1; s->hon = 1; }
+                                                             /* (in bouts: host_render presses it when the gate opens) */
         s->quiet = 0;
     } else {                                                 /* the particle presets: fresh pools */
         s->hst = 0; s->hd = 0;
@@ -1779,7 +1792,10 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
                                                              * at the fader's INTENSITY, its first event after a gap of its
                                                              * own (stage 1 draws it), never at once */
     if (s->hst) {                                            /* a hosted engine: its own keys */
-        if (on && vel && s->hd && (s->hd->k0 & 2u) && !s->hgate) { s->hgate = 1; s->hgt = (uint16_t)gate_draw(s, GATE_ON); }
+        if (on && vel && s->hd && (s->hd->k0 & 2u)) {        /* the first press: the gate's phase drawn; one while */
+            if (!s->held) { s->hgate = 2; s->hgt = 0; }      /* held: a bout now */
+            else if (!s->hgate) { s->hgate = 1; s->hgt = (uint16_t)gate_draw(s, GATE_ON); }
+        }
         if (s->hd && s->hd->k127 && s->hon && s->hkeys) {    /* keys are individuals (COUNT holds them): another */
             if (on && vel) {                                 /* press is one of them acting afresh (a log thrown on, */
                 unsigned k = tx_rand_below(&s->rng, s->hkeys);   /* a singer starting again), never a new key: the */
