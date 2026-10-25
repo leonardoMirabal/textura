@@ -1158,15 +1158,69 @@ static void check_fx(FILE *update)
         snprintf(msg, sizeof msg, "grain delay, 16 pitched grains asked with INFINITE on: at most %u sounding (cap %u)", maxact, fx->gd.cap);
         verdict("fx", "cap", maxact <= fx->gd.cap && fx->gd.cap < 16u && maxact > 0, msg, 0);
     }
-    /* the lane inserts: renders against the baselines (a drive at 90 / TONE 100 / MIX 100; LP18 with its LFO) */
-    for (t = 0; t < 2; t++) {
+    /* the DRIVE TYPEs: zeros in, zeros out; AMOUNT 0 glides out to the lane untouched; a TYPE change while it
+     * sounds fades through (no step); TSH8 on one lane at a time */
+    {
+        static const char *const DN[TX_DRT_N] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
+        unsigned nzt = 0, dry = 0, own = 0;
+        int32_t step = 0, pv = 0;
+        for (t = 1; t < TX_DRT_N; t++) {
+            tx_fx_init(fx);
+            tx_fx_drive_param(&fx->drive[0], TX_DR_TYPE, t); tx_fx_drive_param(&fx->drive[0], TX_DR_AMOUNT, 127);
+            for (b = 0; b < 100u; b++) {
+                for (j = 0; j < TX_BLOCK; j++) y[j] = 0;
+                tx_fx_lane(fx, 0, y, TX_BLOCK);
+                for (j = 0; j < TX_BLOCK; j++) nzt += y[j] != 0;
+            }
+            rng = 5u;
+            for (b = 0; b < 300u; b++) {                 /* on, then AMOUNT 0 at 100: dry again after its glide */
+                if (b == 100u) tx_fx_drive_param(&fx->drive[0], TX_DR_AMOUNT, 0);
+                for (j = 0; j < TX_BLOCK; j++) x[j] = y[j] = fx_in(b * TX_BLOCK + j, &rng) * 4;
+                tx_fx_lane(fx, 0, y, TX_BLOCK);
+                if (b > 110u) for (j = 0; j < TX_BLOCK; j++) dry += y[j] != x[j];
+            }
+        }
+        snprintf(msg, sizeof msg, "DRIVE TYPEs %s .. %s at AMOUNT 127: zeros in, %u nonzero out; AMOUNT 0: %u samples "
+                 "not dry after the glide", DN[1], DN[TX_DRT_N - 1], nzt, dry);
+        verdict("fx", "drive-types", !nzt && !dry, msg, 0);
+        tx_fx_init(fx);                                  /* a sine through every TYPE in turn, switched while it sounds */
+        tx_fx_drive_param(&fx->drive[0], TX_DR_AMOUNT, 100);
+        for (b = 0; b < 1200u; b++) {
+            if (b % 200u == 100u) tx_fx_drive_param(&fx->drive[0], TX_DR_TYPE, (b / 200u + 1u) % TX_DRT_N);
+            for (j = 0; j < TX_BLOCK; j++) y[j] = (int32_t)(sin((b * TX_BLOCK + j) * 0.0142) * 2000000.0);
+            tx_fx_lane(fx, 0, y, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) { int32_t d = y[j] - pv; d = d < 0 ? -d : d; if ((b || j) && d > step) step = d; pv = y[j]; }
+        }
+        snprintf(msg, sizeof msg, "DRIVE TYPE changed while it sounds (a 100 Hz sine at -12 dBFS): the largest step "
+                 "%.2f %% of full scale (the sine's own: 0.34 %%)", 100.0 * step / 8388608.0);
+        verdict("fx", "drive-switch", step < 8388608 / 66, msg, 0);
+        tx_fx_init(fx);                                  /* TSH8: lane 0 has it; lane 1 keeps FDRV until lane 0 leaves */
+        tx_fx_drive_param(&fx->drive[0], TX_DR_AMOUNT, 80); tx_fx_drive_param(&fx->drive[0], TX_DR_TYPE, TX_DRT_TSH8);
+        tx_fx_drive_param(&fx->drive[1], TX_DR_AMOUNT, 80); tx_fx_drive_param(&fx->drive[1], TX_DR_TYPE, TX_DRT_TSH8);
+        for (b = 0; b < 60u; b++) {
+            unsigned k;
+            if (b == 30u) tx_fx_drive_param(&fx->drive[0], TX_DR_TYPE, TX_DRT_OHCD);
+            for (k = 0; k < 2u; k++) {
+                for (j = 0; j < TX_BLOCK; j++) y[j] = fx_in(b * TX_BLOCK + j, &rng) * 4;
+                tx_fx_lane(fx, k, y, TX_BLOCK);
+            }
+            if (b == 20u) own += fx->drive[0].cur == TX_DRT_TSH8 && fx->drive[1].cur == TX_DRT_FDRV;
+        }
+        own += fx->drive[0].cur == TX_DRT_OHCD && fx->drive[1].cur == TX_DRT_TSH8 && fx->drv.ts_own == &fx->drive[1];
+        snprintf(msg, sizeof msg, "TSH8 asked on two lanes: the first has it, the second keeps FDRV, then takes it when the "
+                 "first leaves (%u of 2)", own);
+        verdict("fx", "drive-tsh8", own == 2u, msg, 0);
+    }
+    /* the lane inserts: renders against the baselines (a drive at 90 / TONE 100 / MIX 100, the classic and each TYPE;
+     * LP18 with its LFO) */
+    for (t = 0; t < 2u + TX_DRT_N - 1u; t++) {
         tx_sha256_t h, h2;
         const char *bl;
         int pass;
         for (pass = 0; pass < 2; pass++) {
             tx_fx_init(fx);
-            if (!t) { tx_fx_drive_param(&fx->drive[1], TX_DR_AMOUNT, 90); tx_fx_drive_param(&fx->drive[1], TX_DR_TONE, 100);
-                      tx_fx_drive_param(&fx->drive[1], TX_DR_MIX, 100); }
+            if (t != 1u) { tx_fx_drive_param(&fx->drive[1], TX_DR_AMOUNT, 90); tx_fx_drive_param(&fx->drive[1], TX_DR_TONE, 100);
+                           tx_fx_drive_param(&fx->drive[1], TX_DR_MIX, 100); tx_fx_drive_param(&fx->drive[1], TX_DR_TYPE, t ? t - 1u : 0u); }
             else { tx_fx_filter_param(&fx->filter[1], TX_FL_TYPE, 2); tx_fx_filter_param(&fx->filter[1], TX_FL_FREQ, 70);
                    tx_fx_filter_param(&fx->filter[1], TX_FL_RESO, 100); tx_fx_filter_param(&fx->filter[1], TX_FL_LFO, 90); }
             tx_sha256_init(pass ? &h2 : &h);
@@ -1179,7 +1233,10 @@ static void check_fx(FILE *update)
             }
         }
         tx_sha256_hex(&h, hex); tx_sha256_hex(&h2, hex2);
-        snprintf(name, sizeof name, "fx-%s", t ? "filter" : "drive");
+        {
+            static const char *const FN[2u + TX_DRT_N - 1u] = {"drive", "filter", "khlon", "tsh8", "ohcd", "bhlue"};
+            snprintf(name, sizeof name, "fx-%s", FN[t]);
+        }
         if (strcmp(hex, hex2)) { verdict("fx", "determinism", 0, name, ": two renders differ"); continue; }
         if (update) { fprintf(update, "%s  %s\n", hex, name); continue; }
         bl = baseline_get(name);

@@ -290,7 +290,10 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
 void tx_fx_init(tx_fx_t *fx)
 {
     unsigned k;
-    for (k = 0; k < TX_FX_LANES; k++) { tx_fx_drive_init(&fx->drive[k]); tx_fx_filter_init(&fx->filter[k]); }
+    tx_fx_drive_shared_init(&fx->drv);
+    for (k = 0; k < TX_FX_LANES; k++) {
+        tx_fx_drive_init(&fx->drive[k]); tx_fx_drive_share(&fx->drive[k], &fx->drv); tx_fx_filter_init(&fx->filter[k]);
+    }
     tx_fx_grain_init(&fx->gd);
     tx_fx_reverb_init(&fx->rev);
     fx->reserve_us = TX_FX_RESERVE_US;

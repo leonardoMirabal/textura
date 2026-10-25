@@ -145,7 +145,7 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
     /* gusts and lulls */
     if (w->press_wait) w->press_wait--;
     if (w->U) {
-        uint32_t pr = (uint32_t)w->grate;
+        uint32_t pr = ((uint32_t)w->grate * (w->nsrc + 1u)) >> 1;   /* (COUNT: more gust sources, x 1 .. 2.5) */
         if (w->clu) { w->clu--; pr *= 3u; }
         if ((tx_rand(r) >> 16) < pr) {
             int32_t e = expo(r), a = (int32_t)tx_exp2((e * 3 / 2) * 16 + (15 << 16) - 200463);   /* 0.12 x 2^(1.5 E) */

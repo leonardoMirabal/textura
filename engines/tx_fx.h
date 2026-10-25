@@ -18,6 +18,7 @@
 #include "tx_engine.h"
 #include "tx_core_chamber.h"
 #include "tx_fx_kern.h"
+#include "tx_fx_drv.h"
 
 /* ---- FILTER (per lane): a TPT state-variable stage, stable at any setting (Frodhes' FILTER) */
 enum { TX_FL_TYPE, TX_FL_FREQ, TX_FL_RESO, TX_FL_LFO, TX_FL_RATE, TX_FL_SHAPE, TX_FL_NP };
@@ -33,17 +34,25 @@ void tx_fx_filter_init(tx_fx_filter_t *f);
 void tx_fx_filter_param(tx_fx_filter_t *f, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_filter_process(tx_fx_filter_t *f, int32_t *x, unsigned n);   /* mono Q23, in place */
 
-/* ---- DRIVE (per lane): Felucca's track drive as Frodhes' classic FDRV (tx_fx_drive.c) */
-enum { TX_DR_AMOUNT, TX_DR_TONE, TX_DR_MIX, TX_DR_NP };
+/* ---- DRIVE (per lane): Felucca's track drive as Frodhes' classic FDRV (TYPE 0) and Frodhes' four circuit TYPEs
+ * (tx_fx_drive.c, tx_fx_drv_<type>.c; their state: tx_fx_drv.h) */
+enum { TX_DR_AMOUNT, TX_DR_TONE, TX_DR_MIX, TX_DR_TYPE, TX_DR_NP };   /* (append only) */
 extern const tx_param_t tx_fx_drive_params[TX_DR_NP];
+#define TX_FX_US_FDRV 85u          /* the classic drive's FM-1 cost a block (make tx-budget section 4) */
 typedef struct {
     uint8_t p[TX_DR_NP];
     uint8_t ton, on, la;           /* the shelf runs; the drive runs (or glides out); the last AMOUNT */
+    uint8_t cur;                   /* the TYPE that runs (p[TX_DR_TYPE] after a change has faded through) */
     int32_t hp, lp1, lp2, w, tg, tlp;
+    tx_drv_shared_t *sh;           /* what the lanes' TYPEs share (tx_fx_t; 0: the classic drive only) */
+    tx_drv_state_t u;              /* the TYPE's state */
 } tx_fx_drive_t;
 void tx_fx_drive_init(tx_fx_drive_t *d);
 void tx_fx_drive_param(tx_fx_drive_t *d, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x, unsigned n);     /* mono Q23, in place */
+void tx_fx_drive_shared_init(tx_drv_shared_t *sh);
+void tx_fx_drive_share(tx_fx_drive_t *d, tx_drv_shared_t *sh);
+uint32_t tx_fx_drive_us(const tx_fx_drive_t *d);  /* its FM-1 cost now, us a block (0: off) */
 
 /* ---- GRAIN DELAY (on the mix, before the reverb; tx_fx_grain.c): a delay whose repeats are grained */
 enum { TX_GD_MIX, TX_GD_TIME, TX_GD_FEEDBACK, TX_GD_GRAINS, TX_GD_SIZE, TX_GD_SPRAY, TX_GD_PITCH, TX_GD_REVERSE,
@@ -122,6 +131,7 @@ int tx_fx_reverb_frozen(const tx_fx_reverb_t *r);   /* holding its tail (SUSTAIN
 #define TX_FX_RESERVE_US 880u     /* the effects' share of the block (CPU-BUDGET.md: 500 + the CHAMBER's, now a TYPE) */
 typedef struct {
     tx_fx_drive_t drive[TX_FX_LANES];
+    tx_drv_shared_t drv;           /* the DRIVE TYPEs' scratch and TSH8's tables (one lane at a time) */
     tx_fx_filter_t filter[TX_FX_LANES];
     tx_fx_grain_t gd;
     tx_fx_reverb_t rev;

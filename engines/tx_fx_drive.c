@@ -4,8 +4,24 @@
  * (fx.c fx_drive_classic: the gain law to ~18x at the top, level-neutral make-up, TONE after it: a shelf at ~1.8 kHz,
  * 0 = the highs gone, 64 = flat, 127 = +6 dB; MIX dry / driven), as one instance. TONE glides over ~23 ms, MIX and
  * on / off over ~46 ms: no zipper, no click. AMOUNT 0 = off (after its glide out): the lane untouched.
- * Precision: the drive works at Q15 (Frodhes' scale); the dry share of MIX stays at the lane's Q23. */
+ * Precision: the drive works at Q15 (Frodhes' scale); the dry share of MIX stays at the lane's Q23.
+ *
+ * TYPE: 0 FDRV is that classic drive (its loops as they were: TYPE 0 changes no sample); 1 KHLON, 2 TSH8, 3 OHCD,
+ * 4 BHLUE are Frodhes' four circuit TYPEs (drive.c and drv_<type>.c there: our own), one file each here
+ * (tx_fx_drv_<type>.c, included below; their tables tx_drive_tables.h, from tools/gen_drive_tables.py). The framework
+ * is Frodhes' drive.c as an instance: a TYPE runs once a block on the lane's signal at Q15 (in place, all wet), then
+ * the dry / wet blend at Q23 (w ramping every 4 samples: MIX and on / off over ~46 ms, as the classic drive), AMOUNT 0
+ * glides out as the classic drive does. A TYPE change while the drive sounds fades the one that runs out (46 ms),
+ * then the new one starts from rest and fades in. TSH8's diode tables are shared (tx_drv_shared_t, 12.2 KB once):
+ * TSH8 belongs to the first lane that selects it until that lane selects another TYPE; another lane that asks for it
+ * meanwhile keeps the TYPE it runs (and takes TSH8 as soon as it is free). */
 #include "tx_fx.h"
+#define TX_FX_DRIVE_UNIT
+#include "tx_drive_tables.h"
+#include "tx_fx_drv_khlon.c"
+#include "tx_fx_drv_tsh8.c"
+#include "tx_fx_drv_ohcd.c"
+#include "tx_fx_drv_bhlue.c"
 
 #define DR_TA 7700                  /* the shelf's one-pole: 1 - e^(-2 pi 1.8 kHz / fs), Q15 */
 #define DR_S 16                     /* Frodhes' drive row 0 (the electric piano's: gain scale, bias, make-up) */
@@ -16,6 +32,7 @@ const tx_param_t tx_fx_drive_params[TX_DR_NP] = {
     {"AMOUNT", 127, 0, "the drive: off (0) .. ~18x into a soft clip (level-neutral: it adds tone, not volume)"},
     {"TONE", 127, 64, "after the drive: 0 the highs gone .. 64 flat .. 127 +6 dB above ~1.8 kHz"},
     {"MIX", 127, 127, "dry .. driven"},
+    {"TYPE", TX_DRT_N - 1, 0, "0 FDRV (the classic drive) | 1 KHLON (a clean-blend overdrive: AMOUNT its gain, TONE its treble) | 2 TSH8 (a mid-hump overdrive; one lane at a time) | 3 OHCD (a MOSFET overdrive) | 4 BHLUE (a two-stage soft overdrive); TONE: 64 the circuit's middle"},
 };
 
 void tx_fx_drive_init(tx_fx_drive_t *d)
@@ -28,7 +45,7 @@ void tx_fx_drive_init(tx_fx_drive_t *d)
 }
 void tx_fx_drive_param(tx_fx_drive_t *d, unsigned id, unsigned v)
 {
-    if (id < TX_DR_NP) d->p[id] = (uint8_t)(v > 127u ? 127u : v);
+    if (id < TX_DR_NP) d->p[id] = (uint8_t)(v > tx_fx_drive_params[id].max ? tx_fx_drive_params[id].max : v);
 }
 static inline int32_t dr_cl(int32_t v) { v = v > -230000 ? v : -230000; return v < 230000 ? v : 230000; }
 
@@ -58,14 +75,15 @@ static inline __attribute__((always_inline)) void dr_settled(tx_fx_drive_t *d, i
     d->hp = hp; d->lp1 = lp1; d->lp2 = lp2; d->tlp = tlp;
 }
 
-TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x23, unsigned n)
+/* the classic drive (TYPE 0); amt: AMOUNT, or 0 while it fades out for a TYPE change */
+static void dr_classic(tx_fx_drive_t *d, int32_t *x23, unsigned n, int32_t amt)
 {
-    int32_t a = d->p[TX_DR_AMOUNT] ? d->p[TX_DR_AMOUNT] : d->la, tv = d->p[TX_DR_TONE], mv = d->p[TX_DR_MIX], g, k, mk, b0;
-    int32_t wt = !d->p[TX_DR_AMOUNT] ? 0 : mv >= 127 ? 32768 : mv * 258;   /* the wet share it goes to (AMOUNT 0: 0) */
+    int32_t a = amt ? amt : d->la, tv = d->p[TX_DR_TONE], mv = d->p[TX_DR_MIX], g, k, mk, b0;
+    int32_t wt = !amt ? 0 : mv >= 127 ? 32768 : mv * 258;      /* the wet share it goes to (AMOUNT 0: 0) */
     int32_t tt = tv >= 64 ? 4096 + (((tv - 64) * 4161) >> 6) : tv * 64;   /* the shelf's gain: 0 .. 1 .. 2 (Q12) */
     unsigned i;
     if (!d->on) {                                               /* off: the lane untouched */
-        if (!d->p[TX_DR_AMOUNT]) return;
+        if (!amt) return;
         d->on = 1; d->w = 0; d->hp = d->lp1 = d->lp2 = 0; d->ton = 0; d->tg = 4096;   /* on: from dry, a 46 ms glide */
     }
     d->la = (uint8_t)a;
@@ -103,4 +121,106 @@ TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x23, unsigned 
         x23[i] = d->w == 32768 ? y : x23[i] + (int32_t)(((int64_t)(y - x23[i]) * d->w) >> 15);
     }
     if (!wt && !d->w) d->on = 0;                                /* AMOUNT 0: glided out, off again */
+}
+
+/* ---- the TYPEs (1..): Frodhes' drive framework, as an instance */
+#define DRV_US_CORE 4u             /* the framework around a TYPE: Q23 -> Q15 in, the tests, the dispatch (~2 a sample) */
+#define DRV_US_BLEND 16u           /* the Q15 -> Q23 out with the dry / wet blend (all wet: ~6 us of it) */
+static const uint16_t DRV_US[TX_DRT_N] = {0, DRV_US_KHLON, DRV_US_TSH8, DRV_US_OHCD, DRV_US_BHLUE};
+static void drv_reset(tx_fx_drive_t *d, unsigned t)
+{
+    switch (t) {
+    case TX_DRT_KHLON: drv_khlon_reset(&d->u.kh); break;
+    case TX_DRT_TSH8: drv_tsh8_reset(&d->u.ts); break;
+    case TX_DRT_OHCD: drv_ohcd_reset(&d->u.oh); break;
+    case TX_DRT_BHLUE: drv_bhlue_reset(&d->u.bh); break;
+    default: break;
+    }
+}
+/* the TYPE that runs over q (n even, >= 4), in place; 1: not ready (TSH8 built its first table: q untouched) */
+static int drv_run(tx_fx_drive_t *d, int32_t *q, unsigned n, int32_t a, int32_t t)
+{
+    switch (d->cur) {
+    case TX_DRT_KHLON: drv_khlon_run(&d->u.kh, d->sh, q, q, n, a, t); return 0;
+    case TX_DRT_TSH8: return drv_tsh8_run(&d->u.ts, d->sh, q, q, n, a, t);
+    case TX_DRT_OHCD: drv_ohcd_run(&d->u.oh, q, q, n, a, t); return 0;
+    case TX_DRT_BHLUE: drv_bhlue_run(&d->u.bh, q, q, n, a, t); return 0;
+    default: return 1;
+    }
+}
+/* the TYPE that runs (d->cur >= 1) on x23; sw 0: fading out (a TYPE change). Off (on 0) costs nothing. */
+static void dr_types(tx_fx_drive_t *d, int32_t *x23, unsigned n, int sw)
+{
+    int32_t amt = sw ? d->p[TX_DR_AMOUNT] : 0, mv = d->p[TX_DR_MIX], a, w0, w1, d4, *q = d->sh->q;
+    int32_t wt = !amt ? 0 : mv >= 127 ? 32768 : (mv * 258 + 128) & ~255;   /* (multiples of 256: the ramp is exact) */
+    unsigned i;
+    if (!d->on) {                                         /* off: the lane untouched; on: from rest, from dry */
+        if (!wt) return;
+        d->on = 1; d->w = 0; drv_reset(d, d->cur);
+    }
+    if (n > TX_DRV_BLK || n < 4u) return;                 /* (never: the lanes run whole blocks) */
+    a = amt ? amt : d->la;
+    d->la = (uint8_t)a;
+    for (i = 0; i < n; i++) {                             /* Q23 -> Q15, held to 8 x full scale */
+        int32_t v = (x23[i] + 128) >> 8;
+        q[i] = v < -(1 << 18) ? -(1 << 18) : v > (1 << 18) ? 1 << 18 : v;
+    }
+    if (drv_run(d, q, n & ~1u, a, d->p[TX_DR_TONE])) return;   /* (not ready: dry, w held at 0) */
+    w0 = d->w; w1 = w0 < wt ? (wt - w0 > (int32_t)(16u * n) ? w0 + (int32_t)(16u * n) : wt)
+                            : (w0 - wt > (int32_t)(16u * n) ? w0 - (int32_t)(16u * n) : wt);
+    if (w0 == 32768 && w1 == 32768) {
+        for (i = 0; i < (n & ~1u); i++) x23[i] = q[i] * 256;
+    } else {                                              /* the dry share at the lane's Q23 */
+        int32_t w = w0;
+        d4 = (w1 - w0) / (int32_t)(n >> 2);
+        for (i = 0; i < (n & ~1u); i++) {
+            x23[i] += (int32_t)(((int64_t)(q[i] * 256 - x23[i]) * w) >> 15);
+            if ((i & 3u) == 3u) w += d4;
+        }
+    }
+    d->w = w1;
+    if (!wt && !w1) d->on = 0;                            /* glided out: off again */
+}
+/* the TYPE asked for (t) is not the one that runs: it starts at once while the drive is silent, else the one that
+ * runs fades out first (sw 0) and t starts from rest in the block after; TSH8 taken by another lane: the running
+ * TYPE goes on (sw 1) */
+static int dr_switch(tx_fx_drive_t *d, unsigned t)
+{
+    tx_drv_shared_t *sh = d->sh;
+    if (t >= TX_DRT_N || !sh) return 1;
+    if (t == TX_DRT_TSH8 && sh->ts_own && sh->ts_own != d) return 1;
+    if (d->on) return 0;
+    if (d->cur == TX_DRT_TSH8 && sh->ts_own == d) sh->ts_own = 0;
+    d->cur = (uint8_t)t;
+    if (t == TX_DRT_TSH8) sh->ts_own = d;
+    if (t) drv_reset(d, t);
+    else { d->ton = 0; d->tg = 4096; }                    /* (the classic shelf at rest, as its own off leaves it) */
+    return 1;
+}
+TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x23, unsigned n)
+{
+    int sw = 1;
+    if (d->p[TX_DR_TYPE] != d->cur) sw = dr_switch(d, d->p[TX_DR_TYPE]);
+    if (!d->cur) dr_classic(d, x23, n, sw ? d->p[TX_DR_AMOUNT] : 0);
+    else dr_types(d, x23, n, sw);
+}
+void tx_fx_drive_share(tx_fx_drive_t *d, tx_drv_shared_t *sh) { d->sh = sh; }
+void tx_fx_drive_shared_init(tx_drv_shared_t *sh)
+{
+    tx_fx_memset(sh, 0, sizeof *sh);
+    sh->ts_trow = -1; sh->ts_bpos = -1;
+}
+/* the FM-1 cost of this lane's DRIVE (us a block; 0 off): FDRV TX_FX_US_FDRV; a TYPE its count (Frodhes, compiled)
+ * + the framework, + the blend while it blends; while a TYPE change waits, the dearer of the two */
+uint32_t tx_fx_drive_us(const tx_fx_drive_t *d)
+{
+    unsigned t = d->p[TX_DR_TYPE], c = d->cur;
+    uint32_t us, ut;
+    if (!d->on && !d->p[TX_DR_AMOUNT]) return 0;
+    us = !c ? TX_FX_US_FDRV : DRV_US_CORE + DRV_US[c] + DRV_US_BLEND;
+    if (t != c && t < TX_DRT_N && d->sh && !(t == TX_DRT_TSH8 && d->sh->ts_own && d->sh->ts_own != d)) {
+        ut = !t ? TX_FX_US_FDRV : DRV_US_CORE + DRV_US[t] + DRV_US_BLEND;
+        if (ut > us) us = ut;
+    }
+    return us;
 }

@@ -240,7 +240,7 @@ static double fx_cost(int kind, unsigned type, unsigned decay)
         rng = 99u;
         tx_fx_init(&fx);
         if (kind == 0) { tx_fx_drive_param(&fx.drive[0], TX_DR_AMOUNT, 90); tx_fx_drive_param(&fx.drive[0], TX_DR_TONE, 100);
-                         tx_fx_drive_param(&fx.drive[0], TX_DR_MIX, 100); }
+                         tx_fx_drive_param(&fx.drive[0], TX_DR_MIX, type ? 127 : 100); tx_fx_drive_param(&fx.drive[0], TX_DR_TYPE, type); }
         if (kind == 1) { tx_fx_filter_param(&fx.filter[0], TX_FL_TYPE, 2); tx_fx_filter_param(&fx.filter[0], TX_FL_RESO, 90);
                          tx_fx_filter_param(&fx.filter[0], TX_FL_LFO, 90); tx_fx_filter_param(&fx.filter[0], TX_FL_FREQ, 70); }
         if (kind == 2) { tx_fx_reverb_param(&fx.rev, TX_RV_TYPE, type); tx_fx_reverb_param(&fx.rev, TX_RV_MIX, 90);
@@ -417,6 +417,17 @@ int main(int argc, char **argv)
         unsigned t;
         printf("\n4. effects (FM-1 us a block on a busy input, the 75th percentile of the per-block minima; tx_fx.h)\n");
         printf("   DRIVE (a lane, AMOUNT 90, TONE 100, MIX 100)            %5.0f us  (%4.1f %%)  per lane, from the lanes' pool\n", dr, 100 * dr / BLOCK_US);
+        {   /* the circuit TYPEs, all wet (MIX 127): measured here, and Frodhes' compiled count (tx_fx_drive_us) */
+            static const char *const DT[TX_DRT_N] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
+            unsigned u;
+            for (u = 1; u < TX_DRT_N; u++) {
+                tx_fx_drive_t dd;
+                double c = fx_cost(0, u, 0);
+                tx_fx_drive_init(&dd); dd.p[TX_DR_AMOUNT] = 90; dd.p[TX_DR_TYPE] = (uint8_t)u; dd.cur = (uint8_t)u; dd.on = 1;
+                printf("   DRIVE TYPE %-6s (AMOUNT 90, TONE 100, MIX 127)        %5.0f us  (%4.1f %%)  counted: %u us\n", DT[u],
+                       c, 100 * c / BLOCK_US, (unsigned)tx_fx_drive_us(&dd));
+            }
+        }
         printf("   FILTER (a lane, LP18, RESO 90, LFO 90)                  %5.0f us  (%4.1f %%)  per lane, from the lanes' pool\n", fl, 100 * fl / BLOCK_US);
         for (t = TX_RVT_ROOM; t < TX_RVT_N; t++) {
             rv[t] = fx_cost(2, t, 64);

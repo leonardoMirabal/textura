@@ -124,7 +124,7 @@ def main():
             check(want is not None and sha == want, f"{name}: wasm render of the max scene = native baseline ({sha[:16]})")
         nfx = [page.evaluate(f"Module._txw_fx_n({g})") for g in range(4)]
         nsl = [page.eval_on_selector_all(f"#{b} input", "x => x.length") for b in ("fx-dr", "fx-fl", "fx-rv", "fx-gd")]
-        check(nfx == nsl and nfx == [3, 6, 10, 12], f"EFFECTS: drive / filter / reverb / grain delay sliders {nsl} = their parameters {nfx}")
+        check(nfx == nsl and nfx == [4, 6, 10, 12], f"EFFECTS: drive / filter / reverb / grain delay sliders {nsl} = their parameters {nfx}")
         idrip = next((i for i in range(n) if page.evaluate(f"Module.UTF8ToString(Module._txw_name({i}))") == "drip"), None)
         if idrip is not None:
             sha = page.evaluate(f"window.txTest.chSha({idrip})")

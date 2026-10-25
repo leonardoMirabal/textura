@@ -24,6 +24,7 @@
 #                      checks (no stuck state, no runaway) -> build/gen/longrun.csv and a plot build/gen/longrun.png
 #   make tx-tables     regenerate engines/tx_tables.[ch]
 #   make tx-fx-tables  regenerate engines/tx_fx_tables.[ch] (the effects' tables)
+#   make tx-drive-tables   regenerate engines/tx_drive_tables.h (the DRIVE TYPEs' tables, from tools/drive_gen/: numpy)
 #   make tx-size       code size of each engines/ object (host arm64 -Os, a rough proxy for the device)
 CC       ?= cc
 FRODHES  ?= ../frodhes
@@ -43,7 +44,7 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-.PHONY: tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-fx-tables tx-size tx-libcalls tx-clean
+.PHONY: tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -78,6 +79,9 @@ $(B)/gen_fx_tables: bench/gen_fx_tables.c
 
 tx-fx-tables: $(B)/gen_fx_tables
 	$(B)/gen_fx_tables engines/tx_fx_tables.h engines/tx_fx_tables.c
+
+tx-drive-tables:
+	.local/venv/bin/python tools/gen_drive_tables.py
 
 tx-test: $(B)/txtest tx-libcalls
 	$(B)/txtest
