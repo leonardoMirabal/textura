@@ -3,9 +3,9 @@
  * it is), the first prototype with three presets (rain on water, a stone cloud, cicadas) and a particle-level MORPH
  * between any two of them. The engines it grew from (rainwater, stonecloud, cicadas) stay as they are.
  *
- * Playing: a held key keeps the source going (it fades in over ~0.2 s and, released, passes over ~1-2 s); the key
- * moves the size (a semitone per key from C4, as the presets' own engines do) and a press adds one near event (a big
- * drop, a thrown stone, a cicada close by). How much happens is INTENSITY: one fader, on each preset's own scale and
+ * Playing: a held key keeps the source going (it fades in over ~0.2 s; released, or at INTENSITY 0, no new event
+ * starts at once: only tails ring); the key moves the size (a semitone per key from C4, as the presets' own engines
+ * do) and a press adds one near event (a big drop, a thrown stone, a cicada close by). How much happens is INTENSITY: one fader, on each preset's own scale and
  * through its natural transition (stage 1):
  *   rain     30 .. 20000 drops/s per m^2 over the ~6 m^2 heard (ours; drizzle .. downpour); the rain rate behind it
  *            (Marshall-Palmer's flux ~ 415 R^0.65 per m^2, from note 02's table, ours: R ~ 0.01 .. 50 mm/h) moves the
@@ -57,7 +57,7 @@
 #define VARY_SPLIT 1
 
 enum { P_PRESET, P_INTENS, P_ACT, P_SPACING, P_SIZE, P_SPREAD, P_TONE, P_HARD, P_PROX, P_DEPTH,
-       P_LIFE, P_TIME, P_LOCK, P_DIV, P_GRID, P_TYPE, NP };
+       P_LIFE, P_TIME, P_LOCK, P_DIV, P_GRID, P_TYPE, P_COUNT, NP };
 enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_WATER, PR_WIND, PR_FIRE, PR_CRICKETS, PR_SAND, PR_GRAVEL, PR_KATYDIDS, PR_BEES, PR_ICE, PR_WOOD, PR_MINERALS, PR_GLASS, PR_SONGBIRD, PR_CHIRPER, PR_CROW,
        PR_GULL, PR_BLACKBIRD, PR_THRUSH, PR_NIGHTINGALE, PR_ROBIN, PR_WREN, PR_HERMIT, PR_SKYLARK,
        PR_WOODTHRUSH, PR_WARBLER, PR_CURLEW, PR_OYSTER, PR_CUCKOO, PR_WOODPECKER, PR_PIGEON, PR_NIGHTJAR, PR_BITTERN, NPRE };
@@ -65,7 +65,7 @@ enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER, V_BIRD };
 
 static const tx_param_t PARAMS[NP] = {
     {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees | 11 ice | 12 wood | 13 minerals | 14 glass | 15 songbird | 16 chirper | 17 crow | 18 gull | 19 blackbird | 20 song thrush | 21 nightingale | 22 robin | 23 wren | 24 hermit thrush | 25 skylark | 26 wood thrush | 27 reed warbler | 28 curlew | 29 oystercatcher | 30 cuckoo | 31 woodpecker | 32 wood pigeon | 33 nightjar | 34 bittern"},
-    {"INTENSITY", 127, 64, "how much happens, on the preset's own scale and through its transition: rain 30 .. 20000 drops/s per m^2 (drizzle .. downpour, fusing into a hiss), stones 0.2 .. 500 knocks/s (an avalanche), cicadas 1 .. 30 callers (falling into step), water a single drop per 30 s .. dripping (2.8 /s) .. a trickle .. a stream .. a river, wind 1.6 .. 20 m/s (a breath .. a gale, wires whistling), fire 1 .. 30 crackles/s per log (embers .. a blaze), crickets 1 .. 16 (one .. a chorus falling into step), sand a trickle .. a pour, gravel a few stones .. a slide, katydids one in the cold .. a warm chorus of 8 in step, bees one far bee .. a swarm close by, ice an icicle per 30 s .. one every 1.5 s, wood a creak per 30 s .. snaps every 2 s, minerals a knock per 10 s .. 7 /s, glass a crack per 40 s .. a smash every 2 s, birds one bird singing now and then .. countersinging .. a dawn chorus of 12"},
+    {"INTENSITY", 127, 64, "how active each individual is (COUNT says how many), on the preset's own scale and through its transition: a rain patch 0.2 .. 1500 drops/s (a stray drop .. a downpour on it), a stone 0.05 .. 30 knocks/s, a drip point one per 40 s .. 8 /s, a cicada rare short calls .. singing on, a bird singing now and then .. often; hosted engines: their own path (wind 1.6 .. 20 m/s, fire embers .. a blaze, ...)"},
     {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. the preset's own (64; Poisson for rain) .. even"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
@@ -80,6 +80,7 @@ static const tx_param_t PARAMS[NP] = {
     {"DIV", 9, 4, "beat division when locked: 1/1 1/2 1/4 1/8 1/16 1/32 1/4T 1/8T 1/16T, 9 = a probability per bar (a hook)"},
     {"GRID", 127, 0, "grid pull: the probability an event lands on the clock's grid (a hook)"},
     {"TYPE", 127, 0, "the kind within the family: 0 = the preset's own; above, the hosted engine's own kinds over the range (crickets, katydids, bees: species; ice: icicles | cubes in a glass; wood: spruce .. green branch; minerals: granite .. quartz; sand: hand .. tube)"},
+    {"COUNT", 127, 64, "how many individuals at once, each its own distance, size and character: 0 none (silence; tails ring), 1 + 21 steps per doubling: 1, 22, 43, 64, 85, 106, 127 = 1, 2, 4, 8, 16, 32, 64 (rain: patches of rain, stones: rolling stones or pouring points, water: dripping points, cicadas, birds; hosted engines: their keys or presses)"},
 };
 
 #define NV 16u                      /* heroes */
@@ -291,6 +292,9 @@ typedef struct {                    /* a bird of the population: persistent, its
 } birdm_t;
 
 
+#define NI 64u                      /* individuals (COUNT) at most */
+typedef struct { int32_t r_l2; int16_t sz; uint16_t life; } indiv_t;   /* its distance, size (log2 Q12), blocks to go */
+
 typedef struct {
     tx_rng_t rng;
     tx_pool_t pool;
@@ -317,7 +321,7 @@ typedef struct {
     int8_t hreg;                    /* and spacing */
     uint8_t tlo, tspan, tpad;       /* TYPE's range for the kind now: its value = (TYPE - tlo) x 127 / tspan */
     uint8_t lvl_v, part_v;          /* LEVEL and PARTICLES as last set (0: not set) */
-    uint8_t hkeys, hbase, hcycle, hpad;
+    uint8_t hkeys, hbase, hcycle, hon;  /* (hon: the player's key is down on the engine: held, COUNT > 0) */
     uint16_t hrenew;                /* blocks to the next renewed key */
     uint8_t hoff, hpn, hpad2[2];    /* blocks to its release, its note */         /* keys the source holds on the hosted engine (k curves; the first is the player's) */
     int32_t hgain, last_out, hlp;        /* the hosted output gain (Q12, ramped), the last sample out (for a switch) */
@@ -342,6 +346,9 @@ typedef struct {
     tx_vary_t vy;
     uint32_t x32;                   /* bed noise */
     tx_clu_t clu;                   /* stage 1's clock: Cox walk, children (tx_core_cluster.h) */
+    indiv_t ind[NI];                /* the events' individuals (rain patches, stones, drip points), ni drawn */
+    uint8_t ni, cur_on, ipad[2];
+    int32_t cur_r, cur_sz;          /* the individual of the event being made (cur_on) */
     tx_clu_cfg_t cf;                /* its character at the activity now */
 } src_t;
 
@@ -393,16 +400,42 @@ static int32_t pw4(const int32_t *at, const int32_t *y, int32_t x)
     return y[k] + (((y[k + 1] - y[k]) * (((x - at[k]) << 8) / (at[k + 1] - at[k]))) >> 8);
 }
 
+/* COUNT: the individuals, Q8 (0: none; 1, 22, 43 .. 127 = 1, 2, 4 .. 64) and whole (at least 1 when any) */
+static uint32_t count_q8(const src_t *s)
+{
+    unsigned v = s->p[P_COUNT];
+    return v ? tx_exp2((int32_t)(((v - 1u) << 16) / 21u) + (8 << 16)) : 0u;
+}
+static unsigned count_n(const src_t *s)
+{
+    uint32_t c = (count_q8(s) + 128u) >> 8;
+    return c > NI ? NI : c ? c : s->p[P_COUNT] ? 1u : 0u;
+}
+
+/* each individual's events at INTENSITY 0, 9, 64, 127 (log2 /s, Q16): a rain patch 0.2, 0.6, 500, 1500 (a stray drop ..
+ * a downpour on it); a stone (rolling, or a pouring point) 0.05, 0.1, 1.25, 30; a drip point 1 / 40 s, 1 / 15 s, 1.5,
+ * 8 /s (ours: COUNT 64 = 8 of them at INTENSITY 64 as the old one-fader scale there) */
+static const int32_t IND_AT[4] = { 0, 9 << 8, 64 << 8, 127 << 8 };
+static const int32_t IND_Y[3][4] = {
+    { -152170, -45000, 587500, 691400 },     /* rain */
+    { -283000, -217700, 21100, 321600 },     /* stones */
+    { -348800, -256000, 38300, 196600 },     /* water: drip points */
+};
+
+/* the events per second (Q8) of all the individuals, or the callers (kind 1, Q8) */
 static uint32_t pre_amount(const src_t *s, unsigned pre)
 {
     const preset_t *q = &PRE[pre];
     int32_t a = act_idx(s);
-    if (q->kind == 3) {
-        static const int32_t AT[4] = { 0, 40 << 8, 90 << 8, 127 << 8 }, Y[4] = { -321577, 97352, 387088, 348787 };
-        return tx_exp2(pw4(AT, Y, a) + (8 << 16));
+    if (q->kind == 1) return count_q8(s);
+    if (q->kind == 0 || q->kind == 3) {
+        const int32_t *y = IND_Y[pre == PR_RAIN ? 0 : pre == PR_STONES ? 1 : 2];
+        return (uint32_t)(((uint64_t)tx_exp2(pw4(IND_AT, y, a) + (8 << 16)) * count_q8(s)) >> 8);
     }
-    int32_t l = q->act_lo + (((q->act_oct >> 5) * a) / (127 << 8)) * 32;   /* 32-bit: < 2^30 */
-    return tx_exp2(l + (8 << 16));
+    {
+        int32_t l = q->act_lo + (((q->act_oct >> 5) * a) / (127 << 8)) * 32;   /* 32-bit: < 2^30 */
+        return tx_exp2(l + (8 << 16));
+    }
 }
 
 /* the preset's level at the effective intensity (Q12): its trim x the fader law, amplitude ~ amount^(-1/4) around
@@ -501,6 +534,7 @@ static int32_t ev_dist(src_t *s, unsigned pre)
     const clu_pre_t *c = &CLU[pre];
     int32_t d = depth_l2(s), a = s->i_eff >> 4;               /* (0 .. 2032) */
     int32_t nr = c->near[0] * 2032 + (c->near[1] - c->near[0]) * a, sp = c->span[0] * 2032 + (c->span[1] - c->span[0]) * a;
+    if (s->cur_on) return s->cur_r;                         /* (an individual's event: its place, drawn as below) */
     if (!c->dim) return tx_place_draw(&s->rng, dist_l2(s), d);
     nr = nr * 16 / 2032; sp = sp * 16 / 2032;                /* 1/160 of DEPTH's spread */
     return tx_clu_dist(&s->rng, dist_l2(s) + (nr * d) / 160, (sp * d) / 160, c->dim);
@@ -614,7 +648,7 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
     {
         int32_t lf = 321577 + (((PRE[PR_RAIN].act_oct >> 5) * s->i_eff) / (127 << 8)) * 32;   /* log2 30 + ... */
         int32_t lr = clampi(((lf - 569967) * 197) >> 7, -435412, 472000);   /* R 0.01 .. 150 mm/h */
-        lam_l2 = 133431 - ((lr * 215) >> 10) - knob(s, P_SIZE) * 2048 - s->life_s;
+        lam_l2 = 133431 - ((lr * 215) >> 10) - knob(s, P_SIZE) * 2048 - s->life_s - (s->cur_on ? s->cur_sz : 0);
     }
     if (near) d_q12 = 10240 + (vel * 12288) / 127;           /* a press: 2.5 .. 5.5 mm, by velocity */
     else {
@@ -677,12 +711,14 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
 static void wdrop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsigned pre, int32_t trim)
 {
     tx_rng_t *r = &s->rng;
-    int32_t r_l2 = near ? dist_l2(s) : tx_place_draw(r, dist_l2(s), depth_l2(s));   /* (a press, or a lane's note: at the place) */
+    int32_t r_l2 = near ? dist_l2(s)                         /* (a press: at the place; a drip point: where it is) */
+                   : s->cur_on ? s->cur_r : tx_place_draw(r, dist_l2(s), depth_l2(s));
     int32_t g = (int32_t)(((int64_t)tx_place_gain_q12(r_l2) * trim) >> 12), lu, a_l2, rel, amp, sp, c;
     uint32_t wait, u_q8, p_bub;
     int32_t hi = clampi(s->i_eff - (64 << 8), 0, 63 << 8);  /* above the middle: a trickle, then a stream */
     /* the fall: U / U_ref log-normal, sd ~0.6 octave (the references' level spread 6-11 dB), velocity for a press */
     lu = near ? ((vel - 100) * 1024) + (int32_t)(((int64_t)gauss(s) * 13107) >> 12) : (int32_t)(((int64_t)gauss(s) * 39322) >> 12);
+    if (s->cur_on && !near) lu = lu / 2 + s->cur_sz / 2;   /* (a drip point: its own fall height, its drops alike) */
     lu = clampi(lu, -(3 << 16), 3 << 16);
     u_q8 = tx_exp2(lu + 549325);                            /* U_ref 1.29 m/s: log2(330) = 8.366 Q16 */
     /* the click: level ~ U^2, a soft impact (one-pole) */
@@ -701,7 +737,8 @@ static void wdrop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, uns
     if ((tx_rand(r) >> 16) >= p_bub) return;
     sp = (65536 * (int32_t)s->p[P_SPREAD]) / 64;            /* +-SD 1 octave (references 1.1 .. 9 kHz, level sd 6-11 dB) */
     a_l2 = WD_A_L2 - knob(s, P_SIZE) * 2048 - ((int32_t)s->note - 60) * 5461 + s->life_s
-           + (int32_t)(((int64_t)gauss(s) * sp) >> 12) + hi;   /* a stream: bigger bubbles too (lower) */
+           + (int32_t)(((int64_t)gauss(s) * sp) >> (s->cur_on ? 13 : 12)) + hi   /* a stream: bigger bubbles too; a */
+           + (s->cur_on ? s->cur_sz : 0);                   /* drip point: its own size, its drops alike */
     rel = a_l2 - WD_A_L2;
     rel = clampi(rel + rel / 2, -(3 << 16), 3 << 16);       /* amplitude ~ a^1.5 */
     amp = WD_AMP_L2 + rel + clampi(lu, -(6 << 16), 5 << 15) + knob(s, P_TONE) * 1024;
@@ -810,7 +847,9 @@ static void stone(src_t *s, unsigned off, int near, int32_t vel, unsigned pre, i
 {
     int32_t sp = (40 * 774 * (int32_t)s->p[P_SPREAD]) / 64;   /* +-SD octaves, Q16 */
     int32_t size_l2 = -189876 + knob(s, P_SIZE) * 2048 - ((int32_t)s->note - 60) * 5461 + s->life_s
-                      + (int32_t)(((int64_t)gauss(s) * sp) >> 12) + clampi(s->i_eff - (64 << 8), 0, 63 << 8) * 2;
+                      + (int32_t)(((int64_t)gauss(s) * sp) >> (s->cur_on ? 14 : 12))
+                      + clampi(s->i_eff - (64 << 8), 0, 63 << 8) * 2
+                      + (s->cur_on ? s->cur_sz : 0);  /* (a stone: its own size, a little each knock) */
     int32_t lv = 65536 + (vel - 100) * 1638 + (((stone_energy(s) - RANGE_L2) * 16) >> 1)
                  + clampi(s->i_eff - (64 << 8), 0, 63 << 8) * 2 + lv_off / 2;   /* (speed: half the level step) */
     knock(s, off, lv, size_l2, pre, trim, near);
@@ -864,7 +903,9 @@ static void caller_tune(src_t *s, caller_t *c)
  * 5-15 dB lasting seconds, a song may end in a long decrescendo): songs median 8 s (sd 0.8 octave), pauses 5 s (sd 1) */
 static uint16_t bout_len(src_t *s, int song, unsigned sp)
 {
-    int32_t l = (song ? CIC[sp].song_l2 : CIC[sp].pause_l2) + (int32_t)(((int64_t)gauss(s) * (song ? 52429 : 65536)) >> 12);   /* log2 blocks */
+    int32_t a = (act_idx(s) >> 8) - 64;                     /* INTENSITY: how active a cicada is (songs x/ 2, pauses x/ 4) */
+    int32_t l = (song ? CIC[sp].song_l2 + a * 1024 : CIC[sp].pause_l2 - a * 2048)
+                + (int32_t)(((int64_t)gauss(s) * (song ? 52429 : 65536)) >> 12);   /* log2 blocks */
     uint32_t b = tx_exp2(clampi(l, 5 << 16, 16 << 16));
     return (uint16_t)(b > 65535u ? 65535u : b < 32u ? 32u : b);
 }
@@ -1051,7 +1092,7 @@ static void callers_block(src_t *s, uint32_t want_q8)
                 if (m->pad2 < 127 && !tx_rand_below(&s->rng, 8u)) m->pad2++;   /* shortest) */
             }
         }
-        else if (m->env) { m->env -= (m->env >> (m->calling ? m->fade : 6)) + 1; if (m->env < 0) m->env = 0; }
+        else if (m->env) { m->env -= (m->env >> (m->calling ? m->fade : s->run ? 6 : 4)) + 1; if (m->env < 0) m->env = 0; }
         if (!m->calling && !m->env && m->voice == 0xFF) m->fresh = 0;
         if (m->calling || m->env) {
             member_gain(s, m);
@@ -1146,7 +1187,8 @@ static void birds_block(src_t *s, unsigned n)
 {   /* the flock (tx_core_bird): who is here, how far, who sings now; neighbours in a band take turns, others answer */
     unsigned type = (unsigned)PRE[s->p[P_PRESET]].act_lo, i, j, want, singing = 0, allowed;
     int32_t a = act_idx(s);
-    want = tx_bird_want(type, a);
+    want = count_n(s);                                       /* COUNT: the birds here (INTENSITY: how often each sings) */
+    if (want > NB) want = NB;
     allowed = tx_bird_overlap(type, a);
     for (i = 0; i < NB; i++) if (s->bm[i].voice != 0xFF && s->bm[i].active) singing++;
     for (i = 0; i < NB; i++) {
@@ -1217,10 +1259,11 @@ static void host_clock(src_t *s)
     if (!s->hd->e64) return;
     if (s->hoff && !--s->hoff) s->hst->key(s->host, s->hpn, 0, 0);
     clu_cfg_row(s, s->hclu, s->hreg);
-    tx_clu_block(&s->clu, &s->rng, &s->cf, s->held ? host_rate(s) : 0u);
+    if (!s->hon) s->clu.nk = 0;                              /* (cut: no queued presses) */
+    tx_clu_block(&s->clu, &s->rng, &s->cf, s->hon ? (uint32_t)(((uint64_t)host_rate(s) * count_q8(s)) >> 11) : 0u);
     while ((off = tx_clu_next(&s->clu, &s->rng, &s->cf, TX_BLOCK, &ce)) >= 0) if (!got) { got = 1; lv = ce.lv; }
     tx_clu_end(&s->clu, TX_BLOCK);
-    if (got && s->held) {
+    if (got && s->hon) {                                     /* (presses: each an individual's event, COUNT / 8 x) */
         int32_t v = (int32_t)(((int64_t)s->vel * tx_exp2(clampi(lv / 2, -(3 << 16), 1 << 16) + (16 << 16))) >> 16);
         v = clampi(v, 16, 127);
         if (s->hoff) { s->hst->key(s->host, s->hpn, 0, 0); s->hoff = 0; }
@@ -1242,8 +1285,7 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
 {
     unsigned i;
     if (s->hd->k127) {                                       /* the keys held: more singers */
-        curve_t kc = { 0, s->hd->k0, s->hd->k64, s->hd->k127 };
-        unsigned want = s->held ? (unsigned)clampi(curve_at(&kc, act_idx(s)), 1, 4) : 0u;
+        unsigned want = s->hon ? (unsigned)clampi((int32_t)count_n(s), 1, 4) : 0u;   /* (COUNT: singers, 1 .. 4 keys) */
         if (s->hkeys <= 1) s->hbase = s->note;               /* (the extras keep the note they were pressed from) */
         while (s->hkeys && s->hkeys < want) { s->hst->key(s->host, (uint8_t)(s->hbase + HOST_KEYS[s->hkeys]), s->vel, 1); s->hkeys++; }
         while (s->hkeys > want && s->hkeys > 1) { s->hkeys--; s->hst->key(s->host, (uint8_t)(s->hbase + HOST_KEYS[s->hkeys]), 0, 0); }
@@ -1337,7 +1379,8 @@ static void host_switch(src_t *s, unsigned pre)
         host_apply(s, 1);
         s->hkeys = 0; s->hrenew = 258; s->hoff = 0;
         tx_clu_init(&s->clu);                       /* (the first renewal after 1.5 s: past the fader's glide) */
-        if (s->held) { ne->key(s->host, s->note, s->vel, 1); s->hkeys = 1; }
+        s->hon = 0;
+        if (s->held && s->p[P_COUNT]) { ne->key(s->host, s->note, s->vel, 1); s->hkeys = 1; s->hon = 1; }
         s->quiet = 0;
     } else {                                                 /* the particle presets: fresh pools */
         s->hst = 0; s->hd = 0;
@@ -1415,6 +1458,19 @@ TX_AUDIO_CODE static void host_render(src_t *s, int32_t *mix, unsigned n)
     tx_stats_t st;
     int32_t gdb, x = s->i_eff, a = s->hd->g0, b = s->hd->g64;
     life_block(s);
+    {   /* COUNT to 0 and back while held: the player's key up / down on the engine (tails ring) */
+        int on = s->held && s->p[P_COUNT];
+        if (!on && s->hon) {
+            s->hst->key(s->host, s->note, 0, 0);
+            if (s->hpn != s->note) s->hst->key(s->host, s->hpn, 0, 0);
+            s->hon = 0;
+        }
+        if (on && !s->hon) {
+            s->hon = 1;
+            if (!s->hkeys) s->hkeys = 1;
+            if (!s->hd->oneshot) s->hst->key(s->host, s->note, s->vel, 1);
+        }
+    }
     host_clock(s);
     host_apply(s, 0);
     if (x >= (64 << 8)) { a = s->hd->g64; b = s->hd->g127; x -= 64 << 8; gdb = a + ((b - a) * x) / (63 << 8); }
@@ -1479,8 +1535,13 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
     src_t *s = (src_t *)st;
     if (s->hst) {                                            /* a hosted engine: its own keys */
-        if (on && vel) { s->held++; s->note = note; s->vel = vel; s->quiet = 0; if (!s->hkeys) s->hkeys = 1; }
-        else if (s->held) s->held--;
+        if (on && vel) {
+            s->held++; s->note = note; s->vel = vel; s->quiet = 0;
+            if (!s->p[P_COUNT]) return;                      /* (COUNT 0: none; host_render presses it when COUNT rises) */
+            if (!s->hkeys) s->hkeys = 1;
+            s->hon = 1;
+        } else if (s->held) s->held--;
+        if (!s->held) s->hon = 0;
         s->hst->key(s->host, note, vel, on);
         if (!s->held && s->hd && !s->hd->oneshot && s->hpn != note) s->hst->key(s->host, s->hpn, 0, 0);   /* the last key up: the
                                                                      * one the clock pressed afresh is released too */
@@ -1491,6 +1552,7 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
         tx_vary_press(&s->vy);
         s->held++;
         s->note = note; s->vel = vel;
+        if (!s->p[P_COUNT]) { s->quiet = 0; return; }        /* (COUNT 0: none) */
         if (PRE[pre].kind == 4) {                            /* a bird sings now, at the key's pitch: the one close by, */
             unsigned bi = 0, q;                              /* or (it is singing) another one that is free */
             birdm_t *b;
@@ -1595,10 +1657,13 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     if (s->hst) { host_render(s, mix, n); return; }
     /* (buf and ck are cleared after each block, not here: a key's press may already have put its click in them) */
     s->events = 0;
-    /* the source on / off: in ~0.2 s, out over ~1.5 s */
-    if (s->held) s->run += (32767 - s->run) >> 3;
-    else s->run -= (s->run >> 7) + 1;
-    if (s->run < 0) s->run = 0;
+    /* the source on / off: in ~0.2 s; out at once (a key up, or COUNT 0: no new event, no queued child, only the tails
+     * of what already sounds) */
+    if (s->held && s->p[P_COUNT]) s->run += (32767 - s->run) >> 3;
+    else {
+        if (s->run > 30000) s->clu.nk = 0;                  /* (a tap keeps its own bounces) */
+        s->run = 0;
+    }
     life_block(s);
     /* stage 1: events (rain, stones; mixed by MORPH) */
     int ea = PRE[pa].kind == 0 || PRE[pa].kind == 3, eb = PRE[pb].kind == 0 && w;
@@ -1618,16 +1683,43 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
         clu_cfg(s, pa);
         tx_clu_block(&s->clu, r, &s->cf, ea || eb ? rate : 0u);
     } else tx_clu_block(&s->clu, r, &s->cf, 0u);
-    /* the events of this block in time order: immigrants and the children due (tx_core_cluster.h) */
+    /* the individuals (COUNT): who is here; a new one drawn afresh (its place, most far, and its size); stones come and
+     * go (a stone rolls a while, ~4 .. 20 s, then another starts) */
+    if (ea) {
+        unsigned cn = count_n(s), k;
+        int32_t ssd = pa == PR_RAIN ? 9830 : pa == PR_STONES ? 39322 : 26214;   /* size sd: 0.15 / 0.6 / 0.4 octave */
+        for (k = 0; k < cn; k++) {
+            indiv_t *d = &s->ind[k];
+            if (k >= s->ni || (pa == PR_STONES && !--d->life)) {
+                s->cur_on = 0;
+                d->r_l2 = ev_dist(s, pa);
+                d->sz = (int16_t)clampi(((int32_t)(((int64_t)gauss(s) * ssd) >> 12)) >> 4, -32767, 32767);
+                d->life = (uint16_t)(689u + tx_rand_below(r, 2756u));
+            }
+        }
+        s->ni = (uint8_t)cn;
+    }
+    /* the events of this block in time order: immigrants and the children due (tx_core_cluster.h); each an individual's
+     * (a child its parent's) */
     {
-        unsigned guard = 0;
+        unsigned guard = 0, cn = count_n(s);
         tx_clu_ev_t ce;
         int off;
+        s->clu.itag = (uint8_t)(cn > 1u ? tx_rand_below(r, cn) : 0u);
         while (guard++ < (pa == PR_RAIN ? 64u : 112u) && (off = tx_clu_next(&s->clu, r, &s->cf, n, &ce)) >= 0) {
             unsigned pre = pa;
             if (eb && !ce.kid && (!ea || (tx_rand(r) >> 17) < (uint32_t)w)) pre = pb;
+            if (pre == pa && ea && ce.tag < s->ni) {         /* its place: a stone's or a drip point's where it is; a rain */
+                const indiv_t *d = &s->ind[ce.tag];          /* patch's drops over the ground around, most far (the */
+                s->cur_r = pa == PR_RAIN ? ev_dist(s, pa)    /* salience law: rain falls all around), its drop sizes */
+                           : d->r_l2 + (pa == PR_STONES ? (int32_t)(((int64_t)gauss(s) * 3277) >> 12) : 0);
+                s->cur_sz = (int32_t)d->sz * 16;
+                s->cur_on = 1;
+            }
             event(s, (unsigned)off, n, pre, 0, 100, pre == PR_RAIN ? w_q8 : 256u, ce.lv);
+            s->cur_on = 0;
             if (!ce.kid) s->total++;
+            s->clu.itag = (uint8_t)(cn > 1u ? tx_rand_below(r, cn) : 0u);
         }
         tx_clu_end(&s->clu, n);
     }
@@ -1637,8 +1729,8 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
         if (PRE[pa].kind == 1) want += (uint32_t)(((uint64_t)pre_amount(s, pa) * (uint32_t)(32768 - w)) >> 15);
         if (PRE[pb].kind == 1 && w) want += (uint32_t)(((uint64_t)pre_amount(s, pb) * (uint32_t)w) >> 15);
         want = (uint32_t)(((uint64_t)want * (uint32_t)s->run) >> 15);
-        if (s->held && want < 256u && (PRE[pa].kind == 1 || (PRE[pb].kind == 1 && w))) want = 256u;   /* a press: at least one */
-        if (s->run < 4096 && !s->held) want = 0;
+        if (s->run && want < 256u && (PRE[pa].kind == 1 || (PRE[pb].kind == 1 && w))) want = 256u;   /* a press: at least one */
+        if (!s->run) want = 0;
         s->trim_c = pre_trim(s, PR_CICADAS);
         if (PRE[pa].kind == 4) birds_block(s, n);            /* birds (their members share that memory) */
         else if (PRE[pa].kind == 1) callers_block(s, want);  /* (water: the members' memory holds the stream; rain and

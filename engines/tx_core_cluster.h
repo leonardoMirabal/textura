@@ -46,7 +46,7 @@ typedef struct {
     uint32_t rate_q8;              /* the immigrants' rate this block, events/s Q8 */
     uint32_t next_q8;              /* samples to the next immigrant, Q8 */
     uint32_t now;                  /* sample clock */
-    uint8_t nk, pad[3];
+    uint8_t nk, itag, pad[2];      /* (itag: the next immigrant's tag, set by the caller: its individual) */
     tx_clu_kid_t k[TX_CLU_Q];
 } tx_clu_t;
 
@@ -147,9 +147,9 @@ static inline int tx_clu_next(tx_clu_t *c, tx_rng_t *r, const tx_clu_cfg_t *f, u
         return (int)off;
     }
     if (im < n) {
-        ev->lv = 0; ev->gen = 0; ev->tag = 0; ev->kid = 0;
+        ev->lv = 0; ev->gen = 0; ev->tag = c->itag; ev->kid = 0;
         c->next_q8 += tx_clu_gap(r, c->rate_q8, f->reg);
-        tx_clu_spawn(c, r, f, im, 0, 0, 0);
+        tx_clu_spawn(c, r, f, im, 0, 0, c->itag);
         return (int)im;
     }
     return -1;
