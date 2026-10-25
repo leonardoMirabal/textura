@@ -7,6 +7,8 @@
 
 const ENG_RATE = 44100, BLOCK = 256, BLOCK_US = 5805, LAYER = 0.18, GATE = 0.75;   // one layer, all four
 const KEY_LO = 53, KEY_HI = 79;                      // the FM-1's keys F3 .. G5
+const SMK_LO = 48, SMK_HI = 84;                      // the SMK-37's keybed C3 .. C6
+let kbLo = KEY_LO, kbHi = KEY_HI;                    // the on-screen keyboard outside lane mode (Keyboard: FM-1 / SMK-37)
 // the computer keys, as Ableton's: the middle letter row plays the white keys, the row above the black ones
 const KEYMAP = { KeyA: 0, KeyW: 1, KeyS: 2, KeyE: 3, KeyD: 4, KeyF: 5, KeyT: 6, KeyG: 7, KeyY: 8, KeyH: 9, KeyU: 10, KeyJ: 11,
                  KeyK: 12, KeyO: 13, KeyL: 14, KeyP: 15, Semicolon: 16, Quote: 17 };
@@ -78,6 +80,7 @@ async function init() {
   await loadCalib();
   await loadAB();
   midiInit();
+  showMidiMap();
   window.txTest.ready = true;
   window.txTest.sha = i => S(M._txw_max_sha(i));
   window.txTest.render = n => { M._txw_render(n); return M._txw_peak_take(); };
@@ -106,6 +109,9 @@ async function init() {
   window.txTest.sound = laneSound;
   window.txTest.gov = (budget) => { if (budget) M._txw_gov_budget(budget); return [0, 1, 2, 3].map(k => [M._txw_gov_cur(k), M._txw_gov_user(k)]); };
   window.txTest.gen = k => ({ on: gen[k].on, state: genState(k), step: gen[k].step });
+  window.txTest.midi = (st, d1, d2) => midiMsg({ data: [st, d1, d2] });
+  window.txTest.midiMap = () => ({ map: { ...midiMap }, learn, sustain, sustained: [...sustained] });
+  window.txTest.keys = () => [...document.querySelectorAll("#kb .key")].map(k => +k.dataset.n);
   window.txTest.abPlay = k => { const b = document.querySelectorAll("#ab-buttons button")[k]; if (b) b.click(); };
   status("Ready. Press Start sound, then play.");
   requestAnimationFrame(meters);
@@ -864,7 +870,7 @@ $("octup").onclick = () => octave(1);
 
 // ---- the on-screen keys: F3 .. G5 as on the FM-1
 function buildKeyboard() {
-  const kb = $("kb"), whites = [], lo = laneMode ? LANE_LO : KEY_LO, hi = laneMode ? LANE_HI : KEY_HI;
+  const kb = $("kb"), whites = [], lo = laneMode ? LANE_LO : kbLo, hi = laneMode ? LANE_HI : kbHi;
   kb.textContent = "";
   for (let n = lo; n <= hi; n++) if (![1, 3, 6, 8, 10].includes(n % 12)) whites.push(n);
   const w = 100 / whites.length;
@@ -895,7 +901,61 @@ function keyLabels() {                               // the computer letter of e
 }
 function lightKey(n, on) { const k = document.querySelector(`#kb .key[data-n="${n}"]`); if (k) k.classList.toggle("on", on); }
 
-// ---- Web MIDI: notes with velocity, CC 20-27 -> the first eight parameters, CC 7 -> level
+// ---- Web MIDI: notes with velocity, CC 20-27 -> the first eight parameters, CC 7 -> level, CC 64 sustain (the notes
+// released under the pedal sound on until it lifts), the mod wheel (CC 1) -> INTENSITY and the pitch wheel -> PROXIMITY
+// when the edited layer's engine has them (the wheel's centre, 64, is the preset's own distance), and MIDI LEARN: any CC
+// or the pitch wheel onto any slider of the edited layer, by the parameter's name (so a map survives an engine change
+// when the new engine has that parameter); kept in this browser (localStorage textura.midimap).
+const MAP_KEY = "textura.midimap", MIDI_DEF = { cc1: "INTENSITY", pb: "PROXIMITY" };
+let midiMap = {}, learn = null, sustain = false;     // learn: null, "armed" (pick a slider), or a parameter name
+const sustained = new Set();                          // notes released while the pedal was down
+try { midiMap = JSON.parse(localStorage.getItem(MAP_KEY) || "{}") || {}; } catch (e) { midiMap = {}; }
+function saveMidiMap() { try { localStorage.setItem(MAP_KEY, JSON.stringify(midiMap)); } catch (e) { } showMidiMap(); }
+function showMidiMap() {
+  const m = Object.entries(midiMap).map(([k, v]) => `${k === "pb" ? "pitch wheel" : "CC " + k.slice(2)} → ${v}`);
+  $("midimap").textContent = learn === "armed" ? "MIDI learn: click a slider" :
+    learn ? `MIDI learn: move a control for ${learn}` : (m.length ? "MIDI map: " + m.join(", ") : "");
+  $("learn").classList.toggle("primary", !!learn);
+}
+function sliderName(inp) {                            // a slider's parameter name (PARTICLES / LEVEL for the shared ones)
+  const id = +inp.dataset.id;
+  return id === -1 ? "PARTICLES" : id === -2 ? "LEVEL" : S(M._txw_pname(id));
+}
+function paramByName(name) {                          // the edited layer's slider id for a parameter name, or null
+  if (name === "PARTICLES") return -1;
+  if (name === "LEVEL") return -2;
+  if (layers[ed].eng < 0) return null;
+  for (let p = 0; p < M._txw_nparams(); p++) if (S(M._txw_pname(p)) === name) return p;
+  return null;
+}
+function midiControl(key, v) {                        // a CC ("cc<N>") or the pitch wheel ("pb"), value 0..127
+  if (learn && learn !== "armed") { midiMap[key] = learn; learn = null; saveMidiMap(); }
+  const name = midiMap[key] || MIDI_DEF[key];
+  if (!name) return false;
+  const id = paramByName(name);
+  if (id === null) return false;
+  const inp = document.querySelector(`#sliders input[data-id="${id}"]`);
+  setSlider(id, inp ? Math.round(v * +inp.max / 127) : v);
+  return true;
+}
+function setSustain(on) {
+  sustain = on;
+  if (!on) { for (const n of [...sustained]) noteOff(n); sustained.clear(); }
+}
+$("learn").onclick = () => { learn = learn ? null : "armed"; showMidiMap(); };
+$("unlearn").onclick = () => { midiMap = {}; learn = null; saveMidiMap(); };
+document.addEventListener("pointerdown", e => {     // MIDI learn: the slider clicked is the target
+  if (learn !== "armed" || !e.target.matches || !e.target.matches("#sliders input[type=range]")) return;
+  learn = sliderName(e.target); showMidiMap();
+}, true);
+$("kblayout").onchange = () => {
+  const smk = $("kblayout").value === "smk";
+  allOff();
+  kbLo = smk ? SMK_LO : KEY_LO; kbHi = smk ? SMK_HI : KEY_HI;
+  try { localStorage.setItem("textura.kblayout", smk ? "smk" : "fm1"); } catch (e) { }
+  buildKeyboard(); keyLabels();
+};
+try { if (localStorage.getItem("textura.kblayout") === "smk") { $("kblayout").value = "smk"; kbLo = SMK_LO; kbHi = SMK_HI; } } catch (e) { }
 function midiInit() {
   if (!navigator.requestMIDIAccess) { $("midi").textContent = "(no Web MIDI in this browser)"; return; }
   navigator.requestMIDIAccess().then(acc => {
@@ -910,12 +970,20 @@ function midiInit() {
 }
 function midiMsg(ev) {
   const [st, d1, d2] = ev.data, t = st & 0xF0;
-  if (t === 0x90 && d2 > 0) { if (!ctx) startAudio(); noteOn(d1, d2); }
-  else if (t === 0x80 || (t === 0x90 && d2 === 0)) noteOff(d1);
+  if (t === 0x90 && d2 > 0) {
+    if (!ctx) startAudio();
+    if (sustained.delete(d1)) noteOff(d1);            // re-struck under the pedal: a new press
+    noteOn(d1, d2);
+  }
+  else if (t === 0x80 || (t === 0x90 && d2 === 0)) { if (sustain && down.has(d1)) sustained.add(d1); else noteOff(d1); }
+  else if (t === 0xE0) midiControl("pb", d2);         // the pitch wheel's upper 7 bits (centre 64)
   else if (t === 0xB0) {
-    if (d1 >= 20 && d1 < 28 && d1 - 20 < M._txw_nparams()) setSlider(d1 - 20, d2);
+    if (d1 === 64) setSustain(d2 >= 64);
+    else if (d1 === 120 || d1 === 123) { setSustain(false); allOff(); }
+    else if (midiMap["cc" + d1] || (learn && learn !== "armed")) midiControl("cc" + d1, d2);
+    else if (d1 >= 20 && d1 < 28 && d1 - 20 < M._txw_nparams()) setSlider(d1 - 20, d2);
     else if (d1 === 7) setSlider(-2, d2);
-    else if (d1 === 120 || d1 === 123) allOff();
+    else midiControl("cc" + d1, d2);                  // the defaults (CC 1)
   }
 }
 

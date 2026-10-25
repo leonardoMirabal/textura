@@ -18,6 +18,7 @@
  * CHAMBER: idle zero, a quiet sweep (each knob at 0/64/90/127 after a drip tap), overflow (test max at its loudest),
  *          determinism + baseline (drip hold / max, gravel tap, test chord through the chamber at its defaults).
  * NOISE: the band filter at every corner (20 Hz .. 20 kHz, Q 0.5 .. 8, both paths, full gain) stays bounded.
+ * Keys: every engine over the SMK-37's keybed (notes 48..84) at v1 / v127: no overflow, quiet after.
  * Sources: no float / double / floating literal in engines/ (comments and strings stripped). */
 #include <dirent.h>
 #include <math.h>
@@ -846,6 +847,48 @@ static void check_layers(FILE *update)
     }
 }
 
+/* keys: the SMK-37's whole keybed (C3..C6, notes 48..84; the FM-1's own keys are 53..79) at velocity 1 and 127 (0 is
+ * the release, sent after every press), on every engine at its defaults: each note pressed for 2 blocks, released,
+ * the next one at once; no overflow (UBSan, peak under 2^27 as the overflow check) and quiet within 30 s after the
+ * last release. */
+static void check_keyrange(void)
+{
+    static const uint8_t VEL[2] = {1, 127};
+    unsigned k;
+    for (k = 0; tx_engines[k]; k++) {
+        const tx_engine_t *e = tx_engines[k];
+        void *st = tx_state_new(e);
+        int32_t mix[TX_BLOCK], peak = 0;
+        tx_stats_t s;
+        unsigned v, i, b, j, quiet = 0;
+        char msg[160];
+        if (!st) continue;
+        e->init(st, 5);
+        for (v = 0; v < 2; v++)
+            for (i = 0; i < 37; i++) {
+                uint8_t note = (uint8_t)(48 + i);           /* C3 .. C6 */
+                e->key(st, note, VEL[v], 1);
+                for (b = 0; b < 3; b++) {
+                    if (b == 2) e->key(st, note, 0, 0);
+                    for (j = 0; j < TX_BLOCK; j++) mix[j] = 0;
+                    e->render(st, mix, TX_BLOCK);
+                    for (j = 0; j < TX_BLOCK; j++) { int32_t x = mix[j] < 0 ? -mix[j] : mix[j]; if (x > peak) peak = x; }
+                }
+            }
+        for (b = 0; b < 5168u && !quiet; b++) {             /* 30 s */
+            for (j = 0; j < TX_BLOCK; j++) mix[j] = 0;
+            e->render(st, mix, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) { int32_t x = mix[j] < 0 ? -mix[j] : mix[j]; if (x > peak) peak = x; }
+            e->stats(st, &s);
+            quiet = s.quiet ? b + 1 : 0;
+        }
+        snprintf(msg, sizeof msg, "notes 48..84 at v1 / v127: peak %.1f dBFS, %s", 20 * log10((peak + 1) / 8388608.0),
+                 quiet ? "quiet after the last release" : "NOT quiet 30 s after the last release");
+        verdict(e->name, "keyrange", peak < (1 << 27) && quiet, msg, 0);
+        free(st);
+    }
+}
+
 int main(int argc, char **argv)
 {
     unsigned k;
@@ -864,7 +907,7 @@ int main(int argc, char **argv)
     check_chamber(update);
     check_layers(update);
     check_noise_core();
-    if (!update) { check_gen(); check_gov(); check_switch(); }
+    if (!update) { check_gen(); check_gov(); check_switch(); check_keyrange(); }
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }
     printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);
     return fails ? 1 : 0;

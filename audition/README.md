@@ -28,7 +28,12 @@ git clone https://github.com/emscripten-core/emsdk.git .local/emsdk
   K L ; '` play the white keys and `W E T Y U O P` the black ones (the letters are printed on the keys); `Z` / `X` move
   the octave, `C` / `V` the velocity. A held letter holds the note (no repeats). The keys are read at page level, so a
   focused slider or select never swallows them. A key pressed fires a burst, held keeps the cloud going, released lets
-  it ring out. A MIDI keyboard plays with its velocity; CC 20-27 move the first eight parameters, CC 7 the level.
+  it ring out. A MIDI keyboard plays with its velocity; CC 20-27 move the first eight parameters, CC 7 the level,
+  CC 64 (sustain) holds the released notes, the mod wheel (CC 1) moves INTENSITY and the pitch wheel PROXIMITY (its
+  centre is the preset's own distance). **MIDI learn** maps any CC or the pitch wheel onto any slider of the edited
+  layer, by the parameter's name (click it, click the slider, move the control; kept in this browser, "Forget the
+  MIDI map" clears it): an SMK-37 on its stock firmware is a controller this way. **Keyboard**: the FM-1's 27 keys
+  (F3-G5) or the SMK-37's 37 (C3-C6).
 - **Engine**: a slider and `◀` `▶` step through the engines (`[` / `]` or `←` / `→` from the keyboard) with the
   number and name shown large. A switch is instant and click-free: the old engine fades out over 23 ms while the new
   one starts, and the keys held on that layer carry over to the new engine.

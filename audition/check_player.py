@@ -411,6 +411,41 @@ def main():
             check(page.evaluate("window.txTest.ratings()").get("stream", {}).get("rating") == 4, "ratings kept in this browser (after a reload)")
         else:
             check("make tx-ab" in page.text_content("#ab-note"), "A/B: no data here (make tx-ab), the panel says so")
+        # an SMK-37 (or any MIDI keyboard) as the controller: its 37-key layout, the sustain pedal, the wheels' defaults,
+        # MIDI learn (synthetic MIDI messages through the same handler as Web MIDI)
+        page.evaluate("window.txTest.setLaneMode(false)")
+        page.evaluate("window.txTest.editLayer(0)")
+        page.select_option("#kblayout", "smk")
+        ks = page.evaluate("window.txTest.keys()")
+        page.select_option("#kblayout", "fm1")
+        ks2 = page.evaluate("window.txTest.keys()")
+        check(ks == list(range(48, 85)) and ks2 == list(range(53, 80)),
+              f"keyboard layouts: SMK-37 {len(ks)} keys {ks[0]}..{ks[-1]}, FM-1 {len(ks2)} keys {ks2[0]}..{ks2[-1]}")
+        page.evaluate("window.txTest.midi(0xB0, 64, 127); window.txTest.midi(0x90, 60, 100); window.txTest.midi(0x80, 60, 0)")
+        s1 = page.evaluate("window.txTest.held()")
+        page.evaluate("window.txTest.midi(0xB0, 64, 0)")
+        s2 = page.evaluate("window.txTest.held()")
+        check(60 in s1 and 60 not in s2, f"sustain pedal (CC 64): a note released under it held {s1}, freed when it lifts {s2}")
+        sid = page.evaluate("[...Array(Module._txw_count()).keys()].find(i => Module.UTF8ToString(Module._txw_name(i)) === 'source')")
+        if sid is not None and sid >= 0:
+            page.evaluate(f"window.txTest.selectEngine({sid})")
+            page.evaluate("window.txTest.midi(0xE0, 0, 100); window.txTest.midi(0xB0, 1, 20)")
+            got = page.evaluate("""() => { const v = n => { for (const i of document.querySelectorAll('#sliders input'))
+                if (i.closest('.sl').querySelector('label span').textContent === n) return +i.value; return null; };
+                return [v('PROXIMITY'), v('INTENSITY')]; }""")
+            check(got == [100, 20], f"the pitch wheel moves PROXIMITY, the mod wheel INTENSITY (source): {got}")
+        page.click("#learn")
+        page.click('#sliders input[data-id="0"]')
+        tgt = page.evaluate("window.txTest.midiMap().learn")
+        page.evaluate("window.txTest.midi(0xB0, 30, 0)")
+        a0 = page.eval_on_selector('#sliders input[data-id="0"]', "e => +e.value")
+        page.evaluate("window.txTest.midi(0xB0, 30, 127)")
+        a1 = page.eval_on_selector('#sliders input[data-id="0"]', "e => [+e.value, +e.max]")
+        mm = page.evaluate("window.txTest.midiMap()")
+        check(bool(tgt) and mm["map"].get("cc30") == tgt and a0 == 0 and a1[0] == a1[1] and "CC 30" in page.text_content("#midimap"),
+              f"MIDI learn: CC 30 -> {tgt}: 0 -> {a0}, 127 -> {a1[0]} of {a1[1]}; shown as '{page.text_content('#midimap')}'")
+        page.click("#unlearn")
+        check(page.evaluate("window.txTest.midiMap()")["map"] == {}, "MIDI map forgotten")
         plain = serve(isolated=False)                   # the README's plain python3 -m http.server case, phone width
         ph = br.new_page(viewport={"width": 390, "height": 844})
         ph.on("pageerror", lambda e: errors.append(f"phone pageerror: {e}"))

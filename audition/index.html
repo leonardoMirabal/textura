@@ -118,13 +118,21 @@
       <span class="keyinfo" id="oct"></span>
       <label>Velocity <kbd>C</kbd> <kbd>V</kbd> <input type="range" id="vel" min="1" max="127" value="100" style="accent-color: var(--accent); vertical-align: middle"></label>
       <span class="keyinfo" id="velv">100</span>
+      <label>Keyboard <select id="kblayout"><option value="fm1">FM-1: 27 keys F3–G5</option><option value="smk">SMK-37: 37 keys C3–C6</option></select></label>
+    </div>
+    <div class="row">
+      <button id="learn" title="click it, click a parameter's slider, then move a knob, fader or wheel on your MIDI keyboard">MIDI learn</button>
+      <button id="unlearn">Forget the MIDI map</button>
+      <span class="small" id="midimap"></span>
     </div>
     <div id="kb"></div>
     <div class="hint">Computer keys, as in Ableton: <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> <kbd>F</kbd> <kbd>G</kbd> <kbd>H</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> <kbd>;</kbd> <kbd>'</kbd>
       play the white keys, <kbd>W</kbd> <kbd>E</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>O</kbd> <kbd>P</kbd> the black ones (the letters are on the keys above);
       <kbd>Z</kbd> <kbd>X</kbd> octave, <kbd>C</kbd> <kbd>V</kbd> velocity, <kbd>[</kbd> <kbd>]</kbd> (or <kbd>←</kbd> <kbd>→</kbd>) previous / next engine (held keys carry over).
       A key pressed fires a burst, held keeps the cloud going, released lets it ring out.
-      A USB MIDI keyboard plays with velocity (Web MIDI: Chrome / Edge / Firefox); CC 20–27 move the first eight parameters, CC 7 the level.</div>
+      A USB MIDI keyboard plays with velocity (Web MIDI: Chrome / Edge / Firefox); CC 20–27 move the first eight parameters, CC 7 the level,
+      CC 64 (the sustain pedal) holds the notes, the mod wheel (CC 1) moves INTENSITY and the pitch wheel PROXIMITY (centre = the preset's own).
+      An SMK-37 (or any keyboard) as a controller: <b>MIDI learn</b>, click a slider, move a knob, fader, wheel or pad that sends a CC; the map is kept in this browser.</div>
   </section>
 
   <section class="panel" id="src-panel">
