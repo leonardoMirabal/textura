@@ -56,7 +56,7 @@
 #define VARY_SPLIT 1
 
 enum { P_PRESET, P_INTENS, P_ACT, P_SPACING, P_SIZE, P_SPREAD, P_TONE, P_HARD, P_PROX, P_DEPTH,
-       P_LIFE, P_TIME, P_LOCK, P_DIV, P_GRID, NP };
+       P_LIFE, P_TIME, P_LOCK, P_DIV, P_GRID, P_TYPE, NP };
 enum { PR_RAIN, PR_STONES, PR_CICADAS, PR_WATER, PR_WIND, PR_FIRE, PR_CRICKETS, PR_SAND, PR_GRAVEL, PR_KATYDIDS, PR_BEES, PR_ICE, PR_WOOD, PR_MINERALS, PR_GLASS, PR_SONGBIRD, PR_CHIRPER, PR_CROW, PR_OWL,
        PR_GULL, PR_BLACKBIRD, PR_THRUSH, PR_NIGHTINGALE, PR_ROBIN, PR_WREN, PR_HERMIT, PR_SKYLARK, NPRE };
 enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER, V_BIRD };
@@ -77,6 +77,7 @@ static const tx_param_t PARAMS[NP] = {
     {"LOCK", 1, 0, "MIDI clock lock (a hook: stored, no effect until the clock sync is built)"},
     {"DIV", 9, 4, "beat division when locked: 1/1 1/2 1/4 1/8 1/16 1/32 1/4T 1/8T 1/16T, 9 = a probability per bar (a hook)"},
     {"GRID", 127, 0, "grid pull: the probability an event lands on the clock's grid (a hook)"},
+    {"TYPE", 127, 0, "the kind within the family: 0 = the preset's own; above, the hosted engine's own kinds over the range (crickets, katydids, bees: species; ice: icicles | cubes in a glass; wood: spruce .. green branch; minerals: granite .. quartz; sand: hand .. tube)"},
 };
 
 #define NV 16u                      /* heroes */
@@ -170,6 +171,7 @@ static const clu_pre_t CLU[NPRE] = {
  * and one held key at a time is pressed afresh every 6 .. 16 s: singers leave and new ones come with the
  * parameters of now (these engines read them at a press). */
 #define HOST_NC 5u
+#define HOST_NK 5u                  /* character maps per hosted engine (HMAP) */
 #define HOST_BYTES 12544u           /* the largest hosted engine's state (sand 12 464 B) */
 typedef struct { const char *name; uint8_t v0, v64, v127; } curve_t;
 typedef struct {
@@ -272,6 +274,8 @@ typedef struct {
     const host_t *hd;
     int8_t hid[HOST_NC];            /* its curves' parameter ids */
     uint8_t hval[HOST_NC];          /* the values last sent */
+    int8_t kid[HOST_NK], kcur[HOST_NK];   /* the character maps: parameter ids, the curve they offset (-1: none) */
+    uint8_t kdef[HOST_NK], kval[HOST_NK]; /* the engine's own value, the value last sent */
     uint8_t lvl_v, part_v;          /* LEVEL and PARTICLES as last set (0: not set) */
     uint8_t hkeys, hbase, hcycle, hpad;
     uint16_t hrenew;                /* blocks to the next renewed key */
@@ -376,6 +380,39 @@ static int32_t pre_trim(const src_t *s, unsigned pre)
     int32_t l = -((((q->act_oct >> 5) * (act_idx(s) - (64 << 8))) / (127 << 8)) * q->law);   /* -oct (a - 64) / 127 / 4 */
     return (int32_t)(((int64_t)q->trim * (int32_t)tx_exp2(l + (12 << 16))) >> 12);
 }
+
+/* the hosted engines' character: the SOURCE's SIZE, TONE, HARD, SPREAD (centred at 64: the engine's own value or its
+ * INTENSITY curve, +-depth over the knob's range) and TYPE (0: the engine's own; above, its value directly) reach each
+ * engine's own parameters, so a hosted preset covers its family's sizes, species, materials and surfaces (note 16).
+ * Indexed as HOST[]. */
+typedef struct { const char *name; uint8_t knob; int8_t depth; } kmap_t;   /* depth 0 with P_TYPE: the value itself */
+static const kmap_t HMAP[][HOST_NK] = {
+    /* wind: thicker wires lower, locking harder, gustier */
+    {{"WIRE", P_SIZE, 64}, {"LOCK", P_TONE, 48}, {"GUST", P_HARD, 48}, {0, 0, 0}, {0, 0, 0}},
+    {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},                       /* (stream: inside the water) */
+    /* fire: a bigger fire, drier wood, burstier crackle, a draught */
+    {{"SIZE", P_SIZE, 64}, {"WOOD", P_TONE, 64}, {"BURSTY", P_HARD, 64}, {"DRAUGHT", P_SPREAD, 48}, {0, 0, 0}},
+    /* crickets: species, warmer (faster), less in step */
+    {{"SPECIES", P_TYPE, 0}, {"TEMP", P_TONE, 24}, {"SYNC", P_SPREAD, -64}, {0, 0, 0}, {0, 0, 0}},
+    /* sand: grain, landing surface, container, fall height, pulsing */
+    {{"GRAIN", P_SIZE, 64}, {"SURFACE", P_TYPE, 0}, {"SIZE", P_TONE, 64}, {"HEIGHT", P_HARD, 64}, {"PULSE", P_SPREAD, 48}},
+    /* gravel: stone size, the ground (a box, a floor), crunch .. rattle, grain shapes */
+    {{"SIZE", P_SIZE, 64}, {"GROUND", P_TONE, 64}, {"SHAKE", P_HARD, -64}, {"SPREAD", P_SPREAD, 64}, {0, 0, 0}},
+    /* katydids: species, warmer, pegs, rasp */
+    {{"SPECIES", P_TYPE, 0}, {"TEMP", P_TONE, 48}, {"PEGS", P_HARD, 64}, {"JITTER", P_SPREAD, 64}, {0, 0, 0}},
+    /* bees: species, flight speed, wingbeat spread */
+    {{"SPECIES", P_TYPE, 0}, {"SPEED", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {0, 0, 0}, {0, 0, 0}},
+    /* ice: icicles or cubes, size, colder (ringing) .. wet, more chunks */
+    {{"ACTION", P_TYPE, 0}, {"SIZE", P_SIZE, 64}, {"TEMP", P_TONE, -64}, {"AMOUNT", P_HARD, 48}, {0, 0, 0}},
+    /* wood: species, piece length, dry .. wet, creak pitch */
+    {{"WOOD", P_TYPE, 0}, {"SIZE", P_SIZE, 64}, {"MOIST", P_TONE, -64}, {"PITCH", P_HARD, 64}, {0, 0, 0}},
+    /* minerals: mineral, specimen size (bigger = lower), free ring .. gripped, strike .. clink .. rub */
+    {{"MINERAL", P_TYPE, 0}, {"SIZE", P_SIZE, -64}, {"HOLD", P_TONE, -64}, {"ACTION", P_HARD, 64}, {0, 0, 0}},
+    /* glass: shard size, ring (soft floor .. crystal), bounce, height */
+    {{"SIZE", P_SIZE, 64}, {"RING", P_TONE, 64}, {"BOUNCE", P_HARD, 64}, {"HEIGHT", P_SPREAD, 48}, {0, 0, 0}},
+};
+
+typedef char hmap_rows_ok[(sizeof HMAP / sizeof HMAP[0]) == (sizeof HOST / sizeof HOST[0]) ? 1 : -1];
 
 /* stage 1's character now (once per block) */
 static void clu_cfg(src_t *s, unsigned pre)
@@ -1012,6 +1049,14 @@ static void host_clock(src_t *s)
     }
 }
 
+/* a character map's offset now (a centred knob x its depth) */
+static int32_t kmap_off(const src_t *s, unsigned j)
+{
+    const kmap_t *k = &HMAP[s->hd - HOST][j];
+    if (k->knob == P_TYPE) return 0;
+    return (knob(s, k->knob) * k->depth) / 64;
+}
+
 static void host_apply(src_t *s, int force)               /* the curves at the intensity now (only changed values sent) */
 {
     unsigned i;
@@ -1032,9 +1077,20 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
     }
     for (i = 0; i < HOST_NC; i++) {
         int32_t v;
+        unsigned j;
         if (!s->hd->c[i].name || s->hid[i] < 0) continue;
-        v = clampi(curve_at(&s->hd->c[i], i ? s->i_eff : act_idx(s)), 0, 127);
+        v = curve_at(&s->hd->c[i], i ? s->i_eff : act_idx(s));
+        for (j = 0; j < HOST_NK; j++) if (s->kcur[j] == (int8_t)i) v += kmap_off(s, j);
+        v = clampi(v, 0, 127);
         if (force || v != s->hval[i]) { s->hval[i] = (uint8_t)v; s->hst->param(s->host, (uint8_t)s->hid[i], (uint8_t)v); }
+    }
+    for (i = 0; i < HOST_NK; i++) {                          /* the character maps on the engine's other parameters */
+        const kmap_t *k = &HMAP[s->hd - HOST][i];
+        int32_t v;
+        if (s->kid[i] < 0 || s->kcur[i] >= 0) continue;
+        if (k->knob == P_TYPE) v = s->p[P_TYPE] ? s->p[P_TYPE] : s->kdef[i];
+        else v = clampi((int32_t)s->kdef[i] + kmap_off(s, i), 0, 127);
+        if (force || v != s->kval[i]) { s->kval[i] = (uint8_t)v; s->hst->param(s->host, (uint8_t)s->kid[i], (uint8_t)v); }
     }
 }
 
@@ -1061,6 +1117,15 @@ static void host_switch(src_t *s, unsigned pre)
     if (ne && ne->state_bytes <= HOST_BYTES) {
         ne->init(s->host, tx_rand(&s->rng));
         for (i = 0; i < HOST_NC; i++) s->hid[i] = (int8_t)(hd->c[i].name ? tx_param_find(ne, hd->c[i].name) : -1);
+        for (i = 0; i < HOST_NK; i++) {                      /* the character maps: on a curve, or on their own */
+            const kmap_t *k = &HMAP[hd - HOST][i];
+            unsigned c;
+            s->kid[i] = (int8_t)(k->name ? tx_param_find(ne, k->name) : -1);
+            s->kcur[i] = -1;
+            s->kdef[i] = s->kid[i] >= 0 ? ne->params[s->kid[i]].def : 0;
+            s->kval[i] = 0xFF;
+            for (c = 0; c < HOST_NC && s->kid[i] >= 0; c++) if (s->hid[c] == s->kid[i]) s->kcur[i] = (int8_t)c;
+        }
         if (s->lvl_v) ne->param(s->host, TX_PID_LEVEL, s->lvl_v);
         if (s->part_v) ne->param(s->host, TX_PID_PARTICLES, s->part_v);
         host_apply(s, 1);

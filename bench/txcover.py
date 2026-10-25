@@ -19,9 +19,12 @@ REACHED when some render of the sweep lies within 1 tolerance (RMS over the feat
 more than 2; otherwise
 the report names the features that miss (the nearest render's gap, signed: + = the reference is higher).
 
-    .local/venv/bin/python bench/txcover.py [PRESET ...] [--json OUT] [--plots DIR]
+    .local/venv/bin/python bench/txcover.py [PRESET ...] [--json OUT] [--plots DIR] [--tree DIR]
         presets by name (rain stones cicadas water wind fire crickets sand gravel katydids bees ice wood minerals glass);
-        default: all. Renders with build/cover/txrender, built from the committed engines (git HEAD), not the work tree.
+        default: all. Renders with build/cover/txrender, built from the committed engines (git HEAD), not the work tree;
+        --tree DIR builds from that directory's engines/ and bench/ instead (a work in progress, cached by its content).
+        The sweep moves every preset's character knobs (SIZE, TONE + HARD, SPREAD, SPACING) and, where the source has
+        it, TYPE.
 """
 import glob
 import json
@@ -186,8 +189,29 @@ def refs_of(dirs):
 
 
 # ---- the renders (the committed engines: a git HEAD export built in build/cover)
+TREE = None
+
+
+def tree_hash(d):
+    import hashlib
+    h = hashlib.sha256()
+    for p in sorted(glob.glob(os.path.join(d, "engines", "*.[ch]")) + glob.glob(os.path.join(d, "bench", "*.[ch]"))):
+        h.update(p.encode()); h.update(open(p, "rb").read())
+    return "tree-" + h.hexdigest()[:16]
+
+
 def txrender():
     exe = os.path.join(OUT, "txrender")
+    if TREE:
+        head = tree_hash(TREE)
+        stamp = os.path.join(OUT, "txrender.head")
+        if not (os.path.exists(exe) and os.path.exists(stamp) and open(stamp).read().strip() == head):
+            files = ["bench/txrender.c", "bench/tx_host.c", "bench/tx_script.c"] + sorted(
+                os.path.relpath(p, TREE) for p in glob.glob(os.path.join(TREE, "engines", "*.c")))
+            subprocess.run(["cc", "-std=c99", "-D_DARWIN_C_SOURCE", "-D_DEFAULT_SOURCE", "-O2", "-Iengines", "-Ibench", "-o",
+                            exe] + files + ["-lm"], cwd=TREE, check=True)
+            open(stamp, "w").write(head)
+        return exe
     head = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     stamp = os.path.join(OUT, "txrender.head")
     if os.path.exists(exe) and os.path.exists(stamp) and open(stamp).read().strip() == head:
@@ -218,19 +242,31 @@ def render(exe, preset, knobs, seed):
     return x[FS * 2: FS * 22]
 
 
-def sweep(hosted):
-    """the controls swept: INTENSITY x PROXIMITY x (the character knobs: particle presets only) x LIFE"""
+def has_type(exe):
+    out = subprocess.run([exe, "list"], capture_output=True, text=True).stdout
+    src = out[out.find("source:"):]
+    return " TYPE " in src
+
+
+def sweep(hosted, typed=False):
+    """the controls swept: INTENSITY x PROXIMITY x the character knobs x LIFE, and TYPE where the source has it"""
     out = []
     for i in (0, 32, 64, 96, 127):
         for p in (24, 64, 110):
-            chars = [{}] if hosted else [{}, {"SIZE": 20}, {"SIZE": 110}, {"TONE": 20, "HARD": 20}, {"TONE": 110, "HARD": 110},
-                                         {"SPREAD": 0}, {"SPACING": 0}, {"SPACING": 127}]
+            chars = [{}, {"SIZE": 20}, {"SIZE": 110}, {"TONE": 20, "HARD": 20}, {"TONE": 110, "HARD": 110},
+                     {"TONE": 20, "HARD": 110}, {"TONE": 110, "HARD": 20}, {"SPREAD": 0}, {"SPACING": 0}, {"SPACING": 127}]
             for c in chars:
                 k = {"INTENSITY": i, "PROXIMITY": p}; k.update(c)
                 out.append(k)
     for i in (32, 96):                                   # LIFE still and alive
         out.append({"INTENSITY": i, "PROXIMITY": 64, "LIFE": 0})
         out.append({"INTENSITY": i, "PROXIMITY": 64, "LIFE": 127, "TIME": 0})
+    if typed:                                            # the family's members (TYPE 0 = the preset's own)
+        for t in (12, 36, 60, 84, 108, 127):
+            for i in (0, 64, 127):
+                for c in ({}, {"SIZE": 20}, {"SIZE": 110}, {"TONE": 20, "HARD": 20}, {"TONE": 110, "HARD": 110}):
+                    k = {"INTENSITY": i, "PROXIMITY": 64, "TYPE": t}; k.update(c)
+                    out.append(k)
     return out
 
 
@@ -240,8 +276,14 @@ def main():
     js = None; plots = os.path.join(ROOT, ".private", "research", "plots")
     if "--json" in args: js = args[args.index("--json") + 1]; del args[args.index("--json"):args.index("--json") + 2]
     if "--plots" in args: plots = args[args.index("--plots") + 1]; del args[args.index("--plots"):args.index("--plots") + 2]
+    global TREE, OUT
+    if "--tree" in args:
+        TREE = os.path.abspath(args[args.index("--tree") + 1]); del args[args.index("--tree"):args.index("--tree") + 2]
+        OUT = os.path.join(ROOT, "build", "cover-tree")      # (its own caches: HEAD's stay valid)
+        os.makedirs(OUT, exist_ok=True)
     names = args or list(PRESETS)
     exe = txrender()
+    typed = has_type(exe)
     # the scale: the spread of every reference of every family (cached)
     cache = os.path.join(OUT, "ref_features.json")
     reff = json.load(open(cache)) if os.path.exists(cache) else {}
@@ -262,7 +304,7 @@ def main():
         sc_path = os.path.join(OUT, f"sweep-{nm}.json")
         cached = json.load(open(sc_path)) if os.path.exists(sc_path) else {}
         if cached.get("head") != head: cached = {"head": head, "pts": {}}
-        for kn in sweep(hosted):
+        for kn in sweep(hosted, typed):
             key = json.dumps(kn, sort_keys=True)
             if key not in cached["pts"]:
                 cached["pts"][key] = features(render(exe, pre, kn, 3))

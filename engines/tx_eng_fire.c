@@ -227,10 +227,20 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
         {   /* a crackle = a burst of 1-4 sharp clicks over ~0.3-4 ms, random signs, each ~0.6 x the last (the */
             uint32_t nc = 1u + tx_rand_below(r, 4u), c, o = e->offset;   /* recordings: attack 2-5 ms, very */
             int32_t aa = a;                                  /* impulsive: kurtosis 200-2600; ours) */
+            /* no two crackles alike (note 14: the recordings' per-crackle centroid spreads 0.8-2 octaves, ours 0.35): the
+             * fracture's own front (a click 1 .. 10 samples wide: flat to 16 kHz .. dull above ~4 kHz; bigger cracks
+             * blunter) and how much of it the wood rings (the bank's share +-1 octave, sd) */
+            int32_t gb = tx_gauss_q12(r) * 16, bw;
+            uint32_t w;
+            gb -= 45426;                                     /* (the power's mean kept: ln2 sd^2 octaves under) */
+            gb = gb > (2 << 16) ? (2 << 16) : gb < -(3 << 16) ? -(3 << 16) : gb;
+            bw = (int32_t)tx_exp2(gb + (16 << 16));   /* Q16 */
+            uint32_t q;
+            w = 1u + tx_rand_below(r, 6u) + (sz > (RANGE_L2 * 3) / 4 ? tx_rand_below(r, 4u) : 0u);
             for (c = 0; c < nc && o < n && ne < NEV; c++) {
-                int32_t sa = (tx_rand(r) & 1u) ? aa : -aa;
-                s->off[ne] = (uint16_t)o; s->amp[ne] = (int16_t)sa; ne++;
-                s->buf[o] += sa * DRY;                       /* the click itself, broadband (to 16 kHz in the refs) */
+                int32_t sa = (tx_rand(r) & 1u) ? aa : -aa, sb = (int32_t)(((int64_t)sa * bw) >> 16), d = (sa * DRY) / (int32_t)w;
+                s->off[ne] = (uint16_t)o; s->amp[ne] = (int16_t)(sb > 32767 ? 32767 : sb < -32767 ? -32767 : sb); ne++;
+                for (q = 0; q < w && o + q < n; q++) s->buf[o + q] += d;   /* the click itself (to 16 kHz in the refs) */
                 o += 13u + tx_rand_below(r, 40u);
                 aa = aa * 19661 >> 15;
             }

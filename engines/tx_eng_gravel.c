@@ -105,7 +105,8 @@ static void gravel_init(void *st, uint32_t seed)
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 1, 0);                         /* a press: one shake now */
     tx_cloud_sizes(&s->cloud, 6144, 0);
-    tx_cloud_regular(&s->cloud, 80);                         /* steps: fairly regular (ours) */
+    tx_cloud_regular(&s->cloud, 110);                        /* steps: loosely regular (ours; note 14: the gravel
+                                                              * references' onsets CV 0.5-0.85, ours was 0.26-0.47) */
     for (i = 0; i < NV; i++) { tx_shaker_init(&s->v[i].sh, seed * 31u + i * 977u + 1u); s->v[i].em = 0xFF; }
     s->limit = 6;
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
@@ -160,7 +161,10 @@ static void shake(gravel_t *s, const tx_event_t *e)
     }
     {                                                        /* (re)configure: the knobs apply at every shake */
         int32_t tn = tx_vary_tone(&s->vy);                   /* the press's character: brighter = finer, */
-        d_l2 = s->size_l2 - ((int32_t)e->note - 60) * 2731 - tn;   /* at the same level (playable) */
+        /* no two steps alike (note 14: the references' per-event centroid spread 0.2-1.8 octave, ours 0.15): each
+         * step lands on its own patch of stones (+-0.35 octave of size, triangular), a little longer or shorter */
+        int32_t js = ((tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng)) * 7) / 10;   /* +-0.7 oct, sd ~0.29 */
+        d_l2 = s->size_l2 - ((int32_t)e->note - 60) * 2731 - tn + js;   /* at the same level (playable) */
         if (d_l2 < -65536) d_l2 = -65536;                    /* 0.5 .. 64 mm */
         if (d_l2 > 393216) d_l2 = 393216;
         f_l2 = L2_F15 - (int32_t)(((int64_t)(d_l2 - L2_D15) * 27394) >> 16);   /* f ~ d^-0.418 */
@@ -171,11 +175,19 @@ static void shake(gravel_t *s, const tx_event_t *e)
         amp_l2 = amp_l2 > (3 << 16) ? (3 << 16) : amp_l2 < -(3 << 16) ? -(3 << 16) : amp_l2;
         tx_shaker_objects(&v->sh, s->n_q4,
                           (int32_t)(((uint64_t)tx_exp2(BASE_L2 + amp_l2 + (11 << 16)) * (uint32_t)s->level) >> 15));
-        tx_shaker_decay(&v->sh, s->t60, 32113);
+        {
+            int32_t jt = tx_rand_s15(&s->cloud.rng) / 4;     /* the shake's length +-1/8 octave */
+            tx_shaker_decay(&v->sh, (uint32_t)(((uint64_t)s->t60 * tx_exp2(jt + (16 << 16))) >> 16), 32113);
+        }
         tx_shaker_vary(&v->sh, s->vary);
         tx_shaker_eq(&v->sh, 0, -1);
     }
-    tx_shaker_shake(&v->sh, (int32_t)((uint32_t)e->vel * e->vel * 1040u));
+    {                                                        /* and its own weight: +-0.25 octave of energy (note 16: */
+                                                             /* the level spread of a slide stays ~2-3 dB) */
+        uint32_t ev = (uint32_t)e->vel * e->vel * 1040u;
+        ev = (uint32_t)(((uint64_t)ev * tx_exp2(tx_rand_s15(&s->cloud.rng) / 2 + (16 << 16))) >> 16);
+        tx_shaker_shake(&v->sh, (int32_t)(ev > 0x7FFFFFFFu ? 0x7FFFFFFFu : ev));
+    }
 }
 
 TX_AUDIO_CODE static void gravel_render(void *st, int32_t *mix, unsigned n)
