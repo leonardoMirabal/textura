@@ -75,7 +75,7 @@ def main():
         st = page.evaluate("window.txTest.src()")
         pk = page.evaluate("window.txTest.render(64)")
         names_l = page.evaluate("[0, 1, 2].map(k => document.querySelector(`#lanes-box .lane[data-k='${k}'] .lab`).textContent)")
-        check(all(st["run"][:3]) and st["step"][:3] == [7, 8, 5] and st["cnt"][:3] == [3, 4, 2] and pk > 0 and "rain on water" in names_l[0] and "roof" in names_l[1]
+        check(all(st["run"][:3]) and st["step"][:3] == [3, 1, 1] and st["cnt"][:3] == [2, 1, 1] and pk > 0 and "rain on water" in names_l[0] and "roof" in names_l[1]
               and "water drops" in names_l[2], f"Start a landscape: three sounds running ({names_l}), sounding (peak {pk})")
         bar = page.locator("#lanes-box .lane[data-k='1'] .abar:not(.cbar)")
         cbar = page.locator("#lanes-box .lane[data-k='1'] .abar.cbar")

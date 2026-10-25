@@ -741,7 +741,7 @@ function laneCount(k, c) {                            // HOW MANY: 0 off (new ev
   laneCnt[k] = c;
   if (layers[k].eng === srcEng && srcIds && srcIds.COUNT !== undefined) srcSet(k, "COUNT", COUNT_V[c]);
   if (c <= 0) { if (laneRun[k]) laneStart(k, false); showSource(); return; }
-  if (!laneRun[k]) laneStep(k, gen[k].step || actStep(3));   // (started: the activity as it was, or the middle)
+  if (!laneRun[k]) laneStep(k, gen[k].step || actStep(0));   // (started: the activity as it was, or rare)
   else showSource();
 }
 function laneCntOf(i) { return laneRun[i] ? laneCnt[i] : 0; }
@@ -903,10 +903,10 @@ function laneSound(k, nm) {
   laneSelect(k);
   showSource();
 }
-function startLandscape() {                         // the landscape's first three sounds at once: steps 6, 8, 5
+function startLandscape() {                         // the landscape's first three sounds at once, low: 2 / 1 / 1 of them, rare
   if (!ctx) startAudio();
   if (!laneMode) setLaneMode(true);
-  [[3, 3], [4, 4], [2, 2]].forEach(([c, a], k) => { if (laneSnd[k] >= 0) { laneCount(k, c); laneStep(k, actStep(a)); } });
+  [[2, 1], [1, 0], [1, 0]].forEach(([c, a], k) => { if (laneSnd[k] >= 0) { laneCount(k, c); laneStep(k, actStep(a)); } });   // (low: a start)
   laneSelect(0);
   showSource();
 }
