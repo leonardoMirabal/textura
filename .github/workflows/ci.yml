@@ -1,9 +1,10 @@
 name: ci
 on: [push, pull_request]
 jobs:
+  # arm64 Linux runners: the same architecture as the development Macs (Apple silicon), as Frodhes' CI
   # Nothing private, no audio, no papers, no third-party binaries or vendor trees in git (AGENTS.md section 1).
   guard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
       - name: tracked files allowed
@@ -11,7 +12,8 @@ jobs:
   # The engines' checks: no float, no 64-bit division on a 32-bit target, idle zero, no overflow, the particle cap,
   # determinism against bench/baselines (AGENTS.md section 4).
   engines:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
+      - run: command -v clang || { sudo apt-get update && sudo apt-get install -y clang; }   # the arm image may lack it
       - run: make tx-test CC=clang
