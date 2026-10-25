@@ -11,12 +11,12 @@
 2700 btn 3
 2720 expect state mode LANDSCAPE
 2800 btn 8
-2820 expect state page MIXER
+2820 expect state page MIXER_1/2
 2900 turn 2 -20
 2920 expect state vol0 80
 3000 shot
 3100 turn 0 1
-3120 expect state page MIXER_2
+3120 expect state page MIXER_2/2
 3200 turn 3 20
 3220 expect state pan1 84
 3500 shot

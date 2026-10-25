@@ -1,0 +1,364 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* The parameters: one table that the pages, MIDI (CC and NRPN) and, later, the scenes and the mod matrix all read.
+ *
+ * An id is scope << 8 | index: scopes 0..3 are the lanes (each lane has the same list), 4 the globals (the effects on
+ * the mix). Ids never change once given (append only: tests/scripts/params.txt checks a few by number).
+ *   lane    0 SOUND  1 HOW MANY  2 HOW ACTIVE  3 LEVEL  4 PAN
+ *           8 .. 15   the sound's cards (what they turn depends on the sound: sound_cards.h)
+ *           32 .. 35  DRIVE  AMOUNT TONE MIX TYPE          (tx_fx_drive_params order)
+ *           36 .. 41  FILTER TYPE FREQ RESO LFO RATE SHAPE  (tx_fx_filter_params order)
+ *   global  0 .. 11   GRAIN DELAY (tx_fx_grain_params order)
+ *           16 .. 25  REVERB (tx_fx_reverb_params order)
+ * The lane model's entries (SOUND .. PAN) are the landscape's (scape.c); the cards set the lane's engine (or its
+ * hosted engine); the effects are kept here and sent to lanes.c's chain.
+ *
+ * MIDI: a lane listens on channel 1 + lane, the globals on channel 5 (P_CH_GLOBAL); the same CC numbers on each lane
+ * channel (P_CC_LANE). Every parameter is also an NRPN on any of those channels: MSB 99 = the scope, LSB 98 = the
+ * index, data entry 6 (7 bits, scaled onto the range; 38, the fine byte, is taken and ignored). Main loop only. */
+#include "sound_cards.h"
+
+/* text helpers (the screen's, and the values' here) */
+static void p_strcpy(char *d, const char *s, uint32_t max) { uint32_t i = 0; while (s[i] && i < max) { d[i] = s[i]; i++; } d[i] = 0; }
+static void p_fmt_int(char *s, int32_t v)
+{
+    char t[12];
+    int32_t i = 0, n = 0;
+    if (v < 0) { s[n++] = '-'; v = -v; }
+    do { t[i++] = (char)('0' + v % 10); v /= 10; } while (v && i < 11);
+    while (i) s[n++] = t[--i];
+    s[n] = 0;
+}
+static void p_upper(char *d, const char *s, uint32_t max)   /* the screen writes in capitals */
+{
+    uint32_t i = 0;
+    while (s[i] && i < max) { d[i] = s[i] >= 'a' && s[i] <= 'z' ? (char)(s[i] - 32) : s[i]; i++; }
+    d[i] = 0;
+}
+static void p_cat(char *d, const char *s, uint32_t max) { uint32_t n = 0; while (d[n]) n++; if (n < max) p_strcpy(d + n, s, max - n); }
+
+#define P_LANES SC_N
+#define P_GLOBAL 4u
+#define PID(scope, i) ((uint32_t)(scope) << 8 | (uint32_t)(i))
+#define P_SCOPE(id) ((id) >> 8)
+#define P_IDX(id) ((id) & 0xFFu)
+#define P_LANE_ANY 0xFu                         /* a page's card: "the selected lane" (resolved when drawn / turned) */
+enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_DRIVE0 = 32, PL_FILTER0 = 36, PL_NUM = 42 };
+enum { PG_GRAIN0 = 0, PG_REVERB0 = 16, PG_N_ = 26 };
+#define P_CH_GLOBAL 4u                          /* MIDI channel 5 (0-based 4) */
+
+/* how a value reads */
+enum { F_NUM, F_ENUM, F_ONOFF, F_SOUND, F_COUNT, F_ACTIVE, F_PAN, F_HZ_FL, F_HZ_LFO, F_MS_GD, F_MS_GS, F_MS_PD, F_SEMI,
+       F_PLUS1 };
+static const char *const N_DRIVE[] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
+static const char *const N_FILTER[] = {"OFF", "LP12", "LP18", "HP12", "HP18", "BP", "NOTCH"};
+static const char *const N_SHAPE[] = {"SINE", "TRI", "SAW UP", "SAW DN", "SQUARE", "RANDOM"};
+static const char *const N_REVERB[] = {"OFF", "ROOM", "HALL", "INFINITE", "DARK", "DRIFT", "SWELL", "PLATE"};
+static const char *const N_SHIFT[] = {"+OCT", "+5TH", "+OCT+5", "-OCT"};
+
+/* the effects' values (the lanes' drive and filter, the grain delay, the reverb) */
+static uint8_t pv_lane[P_LANES][PL_NUM];
+static uint8_t pv_glob[PG_N_];
+
+/* ---- the cards of each lane's sound, resolved when its sound changes */
+typedef struct {
+    uint8_t n;
+    const char *lab[SCD_MAX];
+    uint8_t kind[SCD_MAX];                      /* CK_SRC (the lane engine's own), CK_HOST (the hosted engine's) | CK_INV */
+    uint8_t id[SCD_MAX], hi[SCD_MAX], def[SCD_MAX];
+    const tx_engine_t *eng, *hosted;            /* the lane's engine; the engine the source hosts for this sound */
+    const tx_engine_t *live;                    /* the engine the source hosted when these were resolved */
+    int8_t snd;
+    uint8_t fam;
+    uint8_t cv[SCD_MAX];                        /* the card's value as set (0xFF: never set: the engine's own) */
+} p_cards_t;
+static p_cards_t pc[P_LANES];
+
+static int p_quick_param(const tx_engine_t *e, const char *name)   /* a parameter the classic engine's map moves */
+{
+    const ls_quick_t *q = sc_quick(e);
+    uint32_t i;
+    for (i = 0; q && i < q->np; i++) if (sc_eq(q->p[i].name, name)) return 1;
+    return 0;
+}
+static void p_cards_resolve(uint32_t k)
+{
+    p_cards_t *c = &pc[k];
+    const tx_engine_t *e = sc.eng[k];
+    uint32_t i;
+    c->n = 0; c->eng = e; c->hosted = 0; c->snd = sc.snd[k]; c->fam = sc.fam; c->live = ln_hosted(k);
+    for (i = 0; i < SCD_MAX; i++) c->cv[i] = 0xFF;
+    if (!e) return;
+    if (e != sc.src) {                          /* a classic engine: its own parameters, less its activity map's */
+        for (i = 0; i < e->n_params && c->n < SCD_MAX; i++) {
+            if (p_quick_param(e, e->params[i].name)) continue;
+            c->lab[c->n] = e->params[i].name; c->kind[c->n] = CK_SRC; c->id[c->n] = (uint8_t)i;
+            c->hi[c->n] = e->params[i].max; c->def[c->n] = e->params[i].def; c->n++;
+        }
+        return;
+    }
+    {
+        const scd_sound_t *d = &SC_SRC_DEFAULT;
+        for (i = 0; i < SCD_N; i++) if (sc.snd[k] >= 0 && sc_eq(SCD[i].sound, sc_sound_name(k))) d = &SCD[i];
+        if (d->hosted) c->hosted = tx_engine_find(d->hosted);
+        if (c->hosted != c->live) { d = &SC_SRC_DEFAULT; c->hosted = 0; }   /* (the source plays it another way: its own
+                                                                      * general cards) */
+        for (i = 0; i < d->n; i++) {
+            const tx_engine_t *t = d->c[i].kind & CK_HOST ? c->hosted : e;
+            int id = t ? tx_param_find(t, d->c[i].par) : -1;
+            if (id < 0) continue;               /* (a parameter this build's engine has not got) */
+            c->lab[c->n] = d->c[i].lab; c->kind[c->n] = d->c[i].kind; c->id[c->n] = (uint8_t)id;
+            c->hi[c->n] = t->params[id].max; c->def[c->n] = t->params[id].def;
+            if (d->c[i].kind & CK_INV) c->def[c->n] = (uint8_t)(c->hi[c->n] - c->def[c->n]);
+            c->n++;
+        }
+    }
+}
+/* the lane's cards, up to date with its sound; a new sound: the cards the last one set on the source go back to the
+ * source's defaults (a hosted engine's are cleared by the source itself when PRESET / TYPE change) */
+static p_cards_t *p_cards(uint32_t k)
+{
+    p_cards_t *c = &pc[k];
+    if (c->eng != sc.eng[k] || c->snd != sc.snd[k] || c->fam != sc.fam || (sc.eng[k] == sc.src && c->live != ln_hosted(k))) {
+        uint32_t i;
+        if (c->eng == sc.src && sc.eng[k] == sc.src)
+            for (i = 0; i < c->n; i++)
+                if (!(c->kind[i] & CK_HOST) && c->cv[i] != 0xFF) ln_param(k, c->id[i], c->kind[i] & CK_INV ? c->hi[i] - c->def[i] : c->def[i]);
+        p_cards_resolve(k);
+    }
+    return c;
+}
+static int32_t p_card_get(uint32_t k, uint32_t i)
+{
+    p_cards_t *c = p_cards(k);
+    int32_t v;
+    if (i >= c->n) return 0;
+    if (c->cv[i] != 0xFF) return c->cv[i];
+    if (c->kind[i] & CK_HOST) {                 /* the hosted engine's value now (the source's curves set it) */
+        v = ln_host_value(k, sc.src, c->hosted, c->id[i]);
+        if (v >= 0) return c->kind[i] & CK_INV ? c->hi[i] - v : v;
+    }
+    return c->def[i];
+}
+static void p_card_set(uint32_t k, uint32_t i, uint32_t v)
+{
+    p_cards_t *c = p_cards(k);
+    uint32_t x;
+    if (i >= c->n) return;
+    if (v > c->hi[i]) v = c->hi[i];
+    c->cv[i] = (uint8_t)v;
+    x = c->kind[i] & CK_INV ? c->hi[i] - v : v;
+    if (c->kind[i] & CK_HOST) ln_host(k, c->id[i], x, 0);
+    else ln_param(k, c->id[i], x);
+}
+
+/* ---- the table */
+static const tx_param_t *p_fx_desc(uint32_t id)   /* an effect's descriptor (0: not an effect) */
+{
+    uint32_t s = P_SCOPE(id), i = P_IDX(id);
+    if (s < P_LANES) {
+        if (i >= PL_DRIVE0 && i < PL_DRIVE0 + TX_DR_NP) return &tx_fx_drive_params[i - PL_DRIVE0];
+        if (i >= PL_FILTER0 && i < PL_FILTER0 + TX_FL_NP) return &tx_fx_filter_params[i - PL_FILTER0];
+    } else if (s == P_GLOBAL) {
+        if (i < PG_GRAIN0 + TX_GD_NP) return &tx_fx_grain_params[i - PG_GRAIN0];
+        if (i >= PG_REVERB0 && i < PG_REVERB0 + TX_RV_NP) return &tx_fx_reverb_params[i - PG_REVERB0];
+    }
+    return 0;
+}
+static int p_valid(uint32_t id)
+{
+    uint32_t s = P_SCOPE(id), i = P_IDX(id);
+    if (p_fx_desc(id)) return 1;
+    if (s >= P_LANES) return 0;
+    if (i <= PL_PAN) return 1;
+    return i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX && i - PL_CARD0 < p_cards(s)->n;
+}
+static const char *p_lab(uint32_t id)
+{
+    const tx_param_t *d = p_fx_desc(id);
+    uint32_t s = P_SCOPE(id), i = P_IDX(id);
+    static const char *const L[] = {"SOUND", "HOW MANY", "HOW ACTIVE", "LEVEL", "PAN"};
+    if (d) return d->name;
+    if (s < P_LANES && i <= PL_PAN) return L[i];
+    if (s < P_LANES && i >= PL_CARD0 && i - PL_CARD0 < p_cards(s)->n) return p_cards(s)->lab[i - PL_CARD0];
+    return "";
+}
+static int32_t p_hi(uint32_t id)
+{
+    const tx_param_t *d = p_fx_desc(id);
+    uint32_t s = P_SCOPE(id), i = P_IDX(id);
+    if (d) return d->max;
+    if (s >= P_LANES) return 0;
+    if (i == PL_SOUND) return LS[sc.fam].n - 1;
+    if (i == PL_COUNT) return LS_NCNT - 1;
+    if (i == PL_ACTIVE) return LS_NACT;
+    if (i == PL_LEVEL || i == PL_PAN) return 127;
+    if (i >= PL_CARD0 && i - PL_CARD0 < p_cards(s)->n) return p_cards(s)->hi[i - PL_CARD0];
+    return 0;
+}
+static uint32_t p_fmt(uint32_t id)
+{
+    uint32_t s = P_SCOPE(id), i = P_IDX(id);
+    if (s < P_LANES) {
+        if (i == PL_SOUND) return F_SOUND;
+        if (i == PL_COUNT) return F_COUNT;
+        if (i == PL_ACTIVE) return F_ACTIVE;
+        if (i == PL_PAN) return F_PAN;
+        if (i == PL_DRIVE0 + TX_DR_TYPE || i == PL_FILTER0 + TX_FL_TYPE || i == PL_FILTER0 + TX_FL_SHAPE) return F_ENUM;
+        if (i == PL_FILTER0 + TX_FL_FREQ) return F_HZ_FL;
+        if (i == PL_FILTER0 + TX_FL_RATE) return F_HZ_LFO;
+    } else if (s == P_GLOBAL) {
+        if (i == PG_GRAIN0 + TX_GD_FREEZE) return F_ONOFF;
+        if (i == PG_GRAIN0 + TX_GD_TIME) return F_MS_GD;
+        if (i == PG_GRAIN0 + TX_GD_SIZE) return F_MS_GS;
+        if (i == PG_GRAIN0 + TX_GD_PITCH) return F_SEMI;
+        if (i == PG_GRAIN0 + TX_GD_GRAINS) return F_PLUS1;
+        if (i == PG_REVERB0 + TX_RV_TYPE || i == PG_REVERB0 + TX_RV_SHIFT) return F_ENUM;
+        if (i == PG_REVERB0 + TX_RV_PREDELAY) return F_MS_PD;
+    }
+    return F_NUM;
+}
+static const char *const *p_names(uint32_t id)
+{
+    uint32_t i = P_IDX(id);
+    if (P_SCOPE(id) < P_LANES) return i == PL_DRIVE0 + TX_DR_TYPE ? N_DRIVE : i == PL_FILTER0 + TX_FL_TYPE ? N_FILTER : N_SHAPE;
+    return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : N_SHIFT;
+}
+static int32_t p_get(uint32_t id)
+{
+    uint32_t s = P_SCOPE(id), i = P_IDX(id);
+    if (s == P_GLOBAL) return i < PG_N_ ? pv_glob[i] : 0;
+    if (s >= P_LANES) return 0;
+    switch (i) {
+    case PL_SOUND: return sc.snd[s] < 0 ? 0 : sc.snd[s];
+    case PL_COUNT: return (int32_t)sc_cnt_of(s);
+    case PL_ACTIVE: return sc.run[s] ? (int32_t)sc_act_of(sc.step[s]) + 1 : 0;
+    case PL_LEVEL: return (int32_t)sc_vol_of(s);
+    case PL_PAN: return sc.pan[s];
+    }
+    if (i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX) return p_card_get(s, i - PL_CARD0);
+    return i < PL_NUM ? pv_lane[s][i] : 0;
+}
+static void p_set(uint32_t id, int32_t v)
+{
+    uint32_t s = P_SCOPE(id), i = P_IDX(id);
+    int32_t hi = p_hi(id);
+    if (!p_valid(id)) return;
+    v = v < 0 ? 0 : v > hi ? hi : v;
+    if (s == P_GLOBAL) {
+        pv_glob[i] = (uint8_t)v;
+        if (i < PG_REVERB0) ln_fx(LN_FX_GRAIN, 0, i - PG_GRAIN0, (uint32_t)v);
+        else ln_fx(LN_FX_REVERB, 0, i - PG_REVERB0, (uint32_t)v);
+        return;
+    }
+    switch (i) {
+    case PL_SOUND: sc_sound_to(s, (uint32_t)v); return;
+    case PL_COUNT: sc_count(s, (uint32_t)v); return;
+    case PL_ACTIVE: if (!v) sc_count(s, 0); else sc_step(s, sc_act_step((uint32_t)v - 1u)); return;
+    case PL_LEVEL: sc_volume(s, (uint32_t)v); return;
+    case PL_PAN: sc_pan(s, (uint32_t)v); return;
+    }
+    if (i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX) { p_card_set(s, i - PL_CARD0, (uint32_t)v); return; }
+    pv_lane[s][i] = (uint8_t)v;
+    if (i >= PL_FILTER0) ln_fx(LN_FX_FILTER, s, i - PL_FILTER0, (uint32_t)v);
+    else ln_fx(LN_FX_DRIVE, s, i - PL_DRIVE0, (uint32_t)v);
+}
+/* a value as the screen writes it, and its unit apart (0: none) */
+static const char *p_text(uint32_t id, char *t)
+{
+    int32_t v = p_get(id);
+    uint32_t f = p_fmt(id);
+    t[0] = 0;
+    switch (f) {
+    case F_ENUM: p_strcpy(t, p_names(id)[v], 10); return 0;
+    case F_ONOFF: p_strcpy(t, v ? "ON" : "OFF", 4); return 0;
+    case F_SOUND: p_upper(t, sc_sound_name(P_SCOPE(id)), 22); return 0;
+    case F_COUNT: if (!v) p_strcpy(t, "OFF", 4); else p_fmt_int(t, 1 << (v - 1)); return 0;
+    case F_ACTIVE: if (!v) p_strcpy(t, "OFF", 4); else { p_fmt_int(t, v); p_cat(t, "/8", 15); } return 0;
+    case F_PAN:
+        if (v == 64) { p_strcpy(t, "C", 2); return 0; }
+        t[0] = v < 64 ? 'L' : 'R'; p_fmt_int(t + 1, v < 64 ? 64 - v : v - 64); return 0;
+    case F_HZ_FL: {                             /* 30 Hz .. 16 kHz, log */
+        uint32_t hz = (30u * tx_exp2((int32_t)(16 << 16) + v * 593700 / 127)) >> 16;
+        if (hz >= 1000u) { p_fmt_int(t, (int32_t)(hz / 1000u)); p_cat(t, ".", 15); { char d[2] = {(char)('0' + hz / 100u % 10u), 0}; p_cat(t, d, 15); } return "kHz"; }
+        p_fmt_int(t, (int32_t)hz); return "Hz";
+    }
+    case F_HZ_LFO: {                            /* tenths of a Hz from the LFO's phase step */
+        uint32_t h10 = (((TX_FX_LFO_INC[v] >> 10) * 441000u) + (1u << 21)) >> 22;
+        char d[2] = {(char)('0' + h10 % 10u), 0};
+        p_fmt_int(t, (int32_t)(h10 / 10u)); p_cat(t, ".", 15); p_cat(t, d, 15); return "Hz";
+    }
+    case F_MS_GD: p_fmt_int(t, (int32_t)((TX_FX_GD_TIME[v] * 10u + 220u) / 441u)); return "ms";
+    case F_MS_GS: p_fmt_int(t, (int32_t)(((0xFFFFFFFFu / TX_FX_GD_SIZE[v]) * 10u + 220u) / 441u)); return "ms";
+    case F_MS_PD: p_fmt_int(t, (v * 80 + 63) / 127); return "ms";
+    case F_SEMI: { int32_t st = (v - 64) * 12 / 63; if (st > 0) { t[0] = '+'; p_fmt_int(t + 1, st); } else p_fmt_int(t, st); return "st"; }
+    case F_PLUS1: p_fmt_int(t, v + 1); return 0;
+    }
+    p_fmt_int(t, v);
+    return 0;
+}
+/* a card's look: an amount (a fill), a choice (n options: segments), a toggle (ON / OFF) */
+enum { PK_AMOUNT, PK_SELECT, PK_TOGGLE };
+static uint32_t p_kind(uint32_t id)
+{
+    uint32_t f = p_fmt(id);
+    if (f == F_ONOFF) return PK_TOGGLE;
+    if (f == F_ENUM || f == F_SOUND || f == F_COUNT || f == F_ACTIVE) return PK_SELECT;
+    return PK_AMOUNT;
+}
+
+static void p_init(void)
+{
+    uint32_t k, i;
+    for (k = 0; k < P_LANES; k++) {
+        for (i = 0; i < TX_DR_NP; i++) pv_lane[k][PL_DRIVE0 + i] = tx_fx_drive_params[i].def;
+        for (i = 0; i < TX_FL_NP; i++) pv_lane[k][PL_FILTER0 + i] = tx_fx_filter_params[i].def;
+        pc[k].snd = -2;                         /* (resolved at the first look) */
+    }
+    for (i = 0; i < TX_GD_NP; i++) pv_glob[PG_GRAIN0 + i] = tx_fx_grain_params[i].def;
+    for (i = 0; i < TX_RV_NP; i++) pv_glob[PG_REVERB0 + i] = tx_fx_reverb_params[i].def;
+}
+
+/* ---- MIDI: CC numbers (the lane's channel: P_CC_LANE; channel 5: P_CC_GLOBAL), NRPN */
+typedef struct { uint8_t cc, idx; } p_cc_t;
+static const p_cc_t P_CC_LANE[] = {
+    {7, PL_LEVEL}, {10, PL_PAN}, {20, PL_SOUND}, {21, PL_COUNT}, {22, PL_ACTIVE},
+    {14, PL_CARD0}, {15, PL_CARD0 + 1}, {16, PL_CARD0 + 2}, {17, PL_CARD0 + 3}, {18, PL_CARD0 + 4}, {19, PL_CARD0 + 5},
+    {23, PL_CARD0 + 6}, {24, PL_CARD0 + 7},
+    {76, PL_DRIVE0 + TX_DR_AMOUNT}, {77, PL_DRIVE0 + TX_DR_TONE}, {78, PL_DRIVE0 + TX_DR_MIX}, {79, PL_DRIVE0 + TX_DR_TYPE},
+    {102, PL_FILTER0 + TX_FL_TYPE}, {74, PL_FILTER0 + TX_FL_FREQ}, {71, PL_FILTER0 + TX_FL_RESO},
+    {103, PL_FILTER0 + TX_FL_LFO}, {104, PL_FILTER0 + TX_FL_RATE}, {105, PL_FILTER0 + TX_FL_SHAPE},
+};
+static const p_cc_t P_CC_GLOBAL[] = {
+    {102, PG_GRAIN0 + TX_GD_MIX}, {103, PG_GRAIN0 + TX_GD_TIME}, {104, PG_GRAIN0 + TX_GD_FEEDBACK},
+    {105, PG_GRAIN0 + TX_GD_GRAINS}, {106, PG_GRAIN0 + TX_GD_SIZE}, {107, PG_GRAIN0 + TX_GD_SPRAY},
+    {108, PG_GRAIN0 + TX_GD_PITCH}, {109, PG_GRAIN0 + TX_GD_REVERSE}, {110, PG_GRAIN0 + TX_GD_SPREAD},
+    {111, PG_GRAIN0 + TX_GD_TONE}, {112, PG_GRAIN0 + TX_GD_GRAIN}, {113, PG_GRAIN0 + TX_GD_FREEZE},
+    {85, PG_REVERB0 + TX_RV_TYPE}, {91, PG_REVERB0 + TX_RV_MIX}, {86, PG_REVERB0 + TX_RV_DECAY},
+    {87, PG_REVERB0 + TX_RV_TONE}, {88, PG_REVERB0 + TX_RV_PREDELAY}, {89, PG_REVERB0 + TX_RV_SIZE},
+    {90, PG_REVERB0 + TX_RV_MOD}, {92, PG_REVERB0 + TX_RV_LOWCUT}, {93, PG_REVERB0 + TX_RV_SHIMMER},
+    {94, PG_REVERB0 + TX_RV_SHIFT},
+};
+/* a 7-bit value onto a parameter's range (0 .. hi): 127 always reaches hi */
+static int32_t p_scale7(uint32_t id, uint32_t v) { int32_t hi = p_hi(id); return hi == 127 ? (int32_t)v : ((int32_t)v * hi + 63) / 127; }
+static struct { uint8_t msb[5], lsb[5], on[5]; } p_nrpn;
+static uint32_t p_touched;                      /* (the screen: a parameter MIDI changed, id + 1) */
+static void p_midi_set(uint32_t id, int32_t v) { if (p_valid(id)) { p_set(id, v); p_touched = id + 1u; } }
+/* a control change on channel ch (0-based): 1 if it was one of ours */
+static int p_cc(uint32_t ch, uint32_t cc, uint32_t v)
+{
+    uint32_t i, scope = ch < P_LANES ? ch : ch == P_CH_GLOBAL ? P_GLOBAL : 0xFFu;
+    const p_cc_t *t = scope == P_GLOBAL ? P_CC_GLOBAL : P_CC_LANE;
+    uint32_t n = scope == P_GLOBAL ? sizeof P_CC_GLOBAL / sizeof P_CC_GLOBAL[0] : sizeof P_CC_LANE / sizeof P_CC_LANE[0];
+    if (scope == 0xFFu) return 0;
+    if (cc == 99u) { p_nrpn.msb[ch] = (uint8_t)v; p_nrpn.on[ch] = 1; return 1; }
+    if (cc == 98u) { p_nrpn.lsb[ch] = (uint8_t)v; p_nrpn.on[ch] = 1; return 1; }
+    if (cc == 101u || cc == 100u) { p_nrpn.on[ch] = 0; return 1; }   /* (RPN: not ours) */
+    if ((cc == 6u || cc == 38u) && p_nrpn.on[ch]) {                  /* NRPN data: MSB 99 the scope, LSB 98 the index */
+        uint32_t id = PID(p_nrpn.msb[ch], p_nrpn.lsb[ch]);
+        if (cc == 6u) p_midi_set(id, p_scale7(id, v));
+        return 1;
+    }
+    for (i = 0; i < n; i++) if (t[i].cc == cc) { uint32_t id = PID(scope, t[i].idx); p_midi_set(id, p_scale7(id, v)); return 1; }
+    return 0;
+}
+static void p_poll(void) { uint32_t k; for (k = 0; k < P_LANES; k++) (void)p_cards(k); }   /* (a lane's new sound: its cards) */

@@ -6,9 +6,10 @@
  * and the audition player run, linked as their own objects). Below both is platform.c: on the FM-1 the hardware; with
  * DINGHY_HOST tests/host.c, a fake FM-1 that runs a script and writes the screen (PPM) and the sound (WAV).
  *
- * Stage (UI-PLAN piece 2): the ten landscapes on four lanes (scape.c), the keys in LANDSCAPE and PLAY mode with their
- * LEDs (notes.c), the screen in Frodhes' look with the LANDSCAPE and MIXER pages (ui.c); MIDI notes on channel 1 play
- * the selected lane. The params table and the sound pages, the tempo, the modulation and the scenes come next.
+ * Stage (UI-PLAN piece 4): the ten landscapes on four lanes (scape.c), the keys in LANDSCAPE and PLAY mode with their
+ * LEDs (notes.c), the params table with its CC and NRPN (params.c), the screen in Frodhes' look with the LANDSCAPE,
+ * MIXER, SOUND, DRIVE, FILTER, GRAIN and REVERB pages (ui.c); MIDI notes on channel 1 play the selected lane. The
+ * tempo, the modulation and the scenes come next.
  *
  * Rules of the road (no FPU, no libgcc): integers only, no float, no 64-bit division. */
 #include <stdint.h>
@@ -64,15 +65,18 @@ static uint32_t tx_palette_index(const char *name)
 
 #include "scape.c"
 #include "notes.c"
+#include "params.c"
 #include "ui.c"
 
-/* ---- MIDI: notes on channel 1 play the selected lane, pitched (the lanes' channels come with the params table) */
+/* ---- MIDI: notes on channel 1 play the selected lane, pitched; control changes reach the params table (a lane's on
+ * channel 1 + lane, the effects on the mix on channel 5: params.c) */
 static void tx_midi_poll(void)
 {
     uint8_t st, d1, d2;
     while (midi_get(&st, &d1, &d2)) {
-        uint32_t t = st & 0xF0u;
-        if ((st & 0x0Fu) != 0u) continue;
+        uint32_t t = st & 0xF0u, ch = st & 0x0Fu;
+        if (t == 0xB0u) { (void)p_cc(ch, d1, d2); continue; }
+        if (ch != 0u) continue;
         if (t == 0x90u) ln_key(sc.sel, d1, d2 ? d2 : 0u, d2 != 0u);
         else if (t == 0x80u) ln_key(sc.sel, d1, 0, 0);
     }
@@ -83,6 +87,7 @@ static void app_main(void)
     palette_set(tx_palette_index(TX_PALETTE));
     ln_init();
     sc_init();
+    p_init();
     ui_splash();
     for (;;) {
         uint32_t rel, b;
@@ -92,13 +97,14 @@ static void app_main(void)
         nt_poll();
         tx_midi_poll();
         sc_poll();
+        p_poll();
         ui_draw();
         nt_leds(ui_btn_leds());
     }
 }
 
 #ifdef DINGHY_WEB
-EMSCRIPTEN_KEEPALIVE const char *web_page(void) { return PAGE_TITLE[ui_page]; }   /* (web/app.js: the buttons' captions) */
+EMSCRIPTEN_KEEPALIVE const char *web_page(void) { return G_TITLE[ui_g]; }   /* (web/app.js: the buttons' captions) */
 #endif
 
 /* ---- the host's checks (tests/host.c: "expect state K V", "expect sound", "dump") */
@@ -110,16 +116,27 @@ static int host_sound_check(char *msg, unsigned n)   /* 0 if every lane runs the
     for (k = 0; k < SC_N; k++)
         if (ln.mix.e[k] != sc.eng[k]) { snprintf(msg, n, "lane %u runs %s, not %s", k + 1u, ln.mix.e[k] ? ln.mix.e[k]->name : "-", sc.eng[k] ? sc.eng[k]->name : "-"); return 1; }
     if (ln.dropped) { snprintf(msg, n, "%u events dropped", ln.dropped); return 1; }
+    for (k = 0; k < SC_N; k++) {                /* the chain plays the effects' values the table holds */
+        uint32_t i;
+        for (i = 0; i < TX_DR_NP; i++)
+            if (ln.fx.drive[k].p[i] != pv_lane[k][PL_DRIVE0 + i]) { snprintf(msg, n, "lane %u drive %u: %u, not %u", k + 1u, i, ln.fx.drive[k].p[i], pv_lane[k][PL_DRIVE0 + i]); return 1; }
+        for (i = 0; i < TX_FL_NP; i++)
+            if (ln.fx.filter[k].p[i] != pv_lane[k][PL_FILTER0 + i]) { snprintf(msg, n, "lane %u filter %u: %u, not %u", k + 1u, i, ln.fx.filter[k].p[i], pv_lane[k][PL_FILTER0 + i]); return 1; }
+    }
+    for (k = 0; k < TX_GD_NP; k++)
+        if (ln.fx.gd.p[k] != pv_glob[PG_GRAIN0 + k]) { snprintf(msg, n, "grain %u: %u, not %u", k, ln.fx.gd.p[k], pv_glob[PG_GRAIN0 + k]); return 1; }
+    for (k = 0; k < TX_RV_NP; k++)
+        if (ln.fx.rev.p[k] != pv_glob[PG_REVERB0 + k]) { snprintf(msg, n, "reverb %u: %u, not %u", k, ln.fx.rev.p[k], pv_glob[PG_REVERB0 + k]); return 1; }
     return 0;
 }
 static int host_state(const char *key, char *v, unsigned n)
 {
-    unsigned k;
+    unsigned k, i;
     char c;
     if (!strcmp(key, "app")) snprintf(v, n, "%s", APP_NAME);
     else if (!strcmp(key, "palette")) snprintf(v, n, "%s", PALETTES[tx_palette_index(TX_PALETTE)].c[4] == C_HI ? TX_PALETTE : "?");
     else if (!strcmp(key, "splash")) snprintf(v, n, "%u", ui_splash_on);
-    else if (!strcmp(key, "page")) snprintf(v, n, "%s%s", PAGE_TITLE[ui_page], ui_page == PG_PAN ? " 2" : "");
+    else if (!strcmp(key, "page")) { if (ui_nsub(ui_g) > 1u) snprintf(v, n, "%s %u/%u", G_TITLE[ui_g], ui_sub + 1u, ui_nsub(ui_g)); else snprintf(v, n, "%s", G_TITLE[ui_g]); }
     else if (!strcmp(key, "landscape")) snprintf(v, n, "%s", LS[sc.fam].name);
     else if (!strcmp(key, "sel")) snprintf(v, n, "%u", sc.sel + 1u);
     else if (!strcmp(key, "mode")) snprintf(v, n, "%s", nt.mode == NT_PLAY ? "PLAY" : "LANDSCAPE");
@@ -134,6 +151,16 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (sscanf(key, "vol%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc_vol_of(k));
     else if (sscanf(key, "pan%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.pan[k]);
     else if (sscanf(key, "gen%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", ln.gen_on[k]);
+    else if (sscanf(key, "lab%u%c", &k, &c) == 1 && k < 4u) snprintf(v, n, "%s", ui_row_id(k) != NOID ? p_lab(ui_row_id(k)) : "-");
+    else if (sscanf(key, "card%u%c", &k, &c) == 1 && k < 4u) {   /* the value as the card writes it */
+        char t[24];
+        const char *u;
+        if (ui_row_id(k) == NOID) { snprintf(v, n, "-"); return 0; }
+        u = p_text(ui_row_id(k), t);
+        snprintf(v, n, "%s%s%s", t, u ? " " : "", u ? u : "");
+    } else if (sscanf(key, "p%x%c", &k, &c) == 1) snprintf(v, n, "%d", p_valid(k) ? (int)p_get(k) : -1);   /* "p120": id 0x120 */
+    else if (sscanf(key, "host%u.%u%c", &k, &i, &c) == 2 && k < SC_N)   /* the hosted engine's parameter i: its override */
+        snprintf(v, n, "%d", ln.mix.e[k] == sc.src ? (int)tx_source_host_value(ln.mix.st[k], i) : -2);
     else return 1;
     return 0;
 }

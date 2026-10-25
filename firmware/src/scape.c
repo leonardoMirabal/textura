@@ -263,6 +263,18 @@ static void sc_sound_turn(int32_t d)
     sc_load(k, (uint32_t)i);
     if (run) { sc_count(k, c); sc_step(k, s); }
 }
+/* the lane's sound set to the landscape's sound i (a CC, the SOUND card): playing, it goes on playing as it was; a sound
+ * already on another lane stays there (no change) */
+static void sc_sound_to(uint32_t k, uint32_t i)
+{
+    uint32_t j;
+    uint8_t run, c, st;
+    if (k >= SC_N || i >= LS[sc.fam].n || sc.snd[k] == (int)i) return;
+    for (j = 0; j < SC_N; j++) if (sc.snd[j] == (int)i) return;
+    run = sc.run[k]; c = sc.cnt[k]; st = sc.step[k];
+    sc_load(k, i);
+    if (run) { sc_count(k, c); sc_step(k, st); }
+}
 static void sc_volume(uint32_t k, uint32_t v)
 {
     if (k >= SC_N || sc.snd[k] < 0) return;

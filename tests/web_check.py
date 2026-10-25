@@ -3,8 +3,8 @@
 firmware runs (the splash, then the LANDSCAPE page on the screen), ?selftest starts the landscape and it sounds, the
 on-screen keys reach the firmware and its key LEDs come back (a black key selects a sound, a white key starts it), the
 knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
-tests/py/test_web_knobs.py), HOME turns to MIXER, and the page fits a phone (390 px, no sideways scroll). Screenshots
-at desktop and phone width.
+tests/py/test_web_knobs.py), HOME turns to MIXER, EDIT to SOUND / DRIVE, FX to GRAIN / REVERB (the captions follow),
+and the page fits a phone (390 px, no sideways scroll). Screenshots at desktop and phone width.
 
     make fw-web-check     (PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py)
 Outputs in build/web-check/. Exit 1 on any failure. The sound itself is not judged here (no ears)."""
@@ -97,6 +97,27 @@ def main():
         check(pg.evaluate(PAGE) == "MIXER", "HOME: the MIXER page")
         check(home.locator("small").inner_text() == "LANDSCAPE", "HOME's caption on MIXER: LANDSCAPE")
         pg.screenshot(path=os.path.join(OUT, "desktop-mixer.png"))
+        # EDIT: the lane's SOUND page, again: DRIVE; FX: GRAIN, again: REVERB (the captions follow)
+        edit, fx = pg.locator('button.b[data-name="EDIT"]'), pg.locator('button.b[data-name="FX"]')
+        edit.click(delay=60)
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(PAGE) == "SOUND", "EDIT: the SOUND page")
+        check(edit.locator("small").inner_text() == "DRIVE", "EDIT's caption on SOUND: DRIVE")
+        pg.screenshot(path=os.path.join(OUT, "desktop-sound.png"))
+        edit.click(delay=60)
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(PAGE) == "DRIVE", "EDIT again: the DRIVE page")
+        fx.click(delay=60)
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(PAGE) == "GRAIN", "FX: the GRAIN page")
+        check(fx.locator("small").inner_text() == "REVERB", "FX's caption on GRAIN: REVERB")
+        fx.click(delay=60)
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(PAGE) == "REVERB", "FX again: the REVERB page")
+        pg.screenshot(path=os.path.join(OUT, "desktop-reverb.png"))
+        home.click(delay=60)
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(PAGE) == "LANDSCAPE", "HOME: back to LANDSCAPE")
         # the knobs (SELECT, encoder 0): one detent per distance of the hand
         pg.evaluate(COUNT_ENC)
         check(pg.evaluate(WHEEL, [[-4, 0, 8]] * 30) == 2, "a gentle trackpad swipe (120 px): 2 detents")

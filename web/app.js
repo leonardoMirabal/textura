@@ -131,13 +131,13 @@ $("start").onclick = startAudio;
 
 // ---- the panel, laid out as the FM-1 (device coordinates, 1200 x 700; fit() scales it to the window)
 const KNOBS = [["MASTER", -1, 50, 22, "VOLUME"], ["SELECT", 0, 200, 22, "PAGES"], ["PRESETS", 6, 50, 152, "SCENES"],
-               ["ALGORITHM", 1, 200, 152, "LANDSCAPE"], ["KNOB 1", 2, 685, 22, "CARD 1"], ["KNOB 2", 3, 800, 22, "CARD 2"],
+               ["ALGORITHM", 1, 200, 152, "LANDSCAPE·TYPE"], ["KNOB 1", 2, 685, 22, "CARD 1"], ["KNOB 2", 3, 800, 22, "CARD 2"],
                ["KNOB 3", 4, 915, 22, "CARD 3"], ["KNOB 4", 5, 1030, 22, "CARD 4"]];
-// the buttons' captions (the ones still to come are blank: the effects, tempo, modulation and scenes pieces)
-const HINT = { FX: "", SEL: "KEY MODE", ENV: "", LFO: "", EDIT: "", GLO: "", HOME: "LANDSCAPE", SAVE: "", ARP: "",
+// the buttons' captions (the ones still to come are blank: the tempo, modulation and scenes pieces)
+const HINT = { FX: "EFFECTS", SEL: "KEY MODE", ENV: "", LFO: "", EDIT: "SOUND", GLO: "", HOME: "LANDSCAPE", SAVE: "", ARP: "",
                SEQ: "", PLAY: "TAP TEMPO", REC: "ALL ON·OFF", "OCT−": "LANE", "OCT+": "LANE" };
 const HINT_ON = {                                    // what a button does on a given page (else HINT)
-  LANDSCAPE: { HOME: "MIXER" }, MIXER: { HOME: "LANDSCAPE" },
+  LANDSCAPE: { HOME: "MIXER" }, MIXER: { HOME: "LANDSCAPE" }, SOUND: { EDIT: "DRIVE" }, GRAIN: { FX: "REVERB" },
 };
 let shownPage = "";
 function captions() {                                // the page on the screen: the buttons' captions

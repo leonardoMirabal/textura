@@ -26,7 +26,13 @@
  * tests) the governor never acts, as the player's before its calibration */
 
 enum { LN_EV_KEY, LN_EV_PARAM, LN_EV_PAN, LN_EV_SWAP, LN_EV_OFF, LN_EV_FX, LN_EV_GEN_ON, LN_EV_GEN_PARAM,
-       LN_EV_GEN_MUTE };
+       LN_EV_GEN_MUTE, LN_EV_HOST };
+
+/* the source's hosted engine (tx_eng_source.c): its own parameters, set over the source's curves until the sound
+ * (PRESET or TYPE) changes */
+const tx_engine_t *tx_source_hosted(const void *st);
+int tx_source_host_value(const void *st, unsigned id);
+void tx_source_host_param(void *st, unsigned id, unsigned val);
 enum { LN_FX_DRIVE, LN_FX_FILTER, LN_FX_REVERB, LN_FX_GRAIN };   /* ln_fx groups (as the player's txw_fx_param) */
 typedef struct { uint8_t kind, lane, a, b, c; } ln_ev_t;
 
@@ -111,6 +117,20 @@ static int ln_gen_on(uint32_t k, uint32_t on, uint32_t seed)
 }
 static int ln_gen_param(uint32_t k, uint32_t id, uint32_t v) { return ln_q(LN_EV_GEN_PARAM, k, id, v, 0); }
 static int ln_gen_mute(uint32_t k, uint32_t m) { return ln_q(LN_EV_GEN_MUTE, k, m != 0, 0, 0); }
+/* the lane's source: its hosted engine's parameter id set to v (rel: released, back to the source's own) */
+static int ln_host(uint32_t k, uint32_t id, uint32_t v, uint32_t rel) { return ln_q(LN_EV_HOST, k, id, v, rel != 0); }
+/* the hosted engine's value now (main loop: a read of the interrupt's state, for the screen only), or -1 */
+/* the engine the lane's source hosts now (0: none, or not a source): a read of the interrupt's state, one pointer */
+static const tx_engine_t *ln_hosted(uint32_t k)
+{
+    if (k >= LN_N || !ln.mix.e[k] || ln.int_id[k] < 0) return 0;
+    return tx_source_hosted(ln.mix.st[k]);
+}
+static int ln_host_value(uint32_t k, const tx_engine_t *src, const tx_engine_t *hosted, uint32_t id)
+{
+    if (k >= LN_N || !src || ln.mix.e[k] != src || tx_source_hosted(ln.mix.st[k]) != hosted) return -1;
+    return tx_source_host_value(ln.mix.st[k], id);
+}
 static int32_t ln_gen_activity(uint32_t k) { return k < LN_N ? ln.gen[k].a >> 8 : 0; }   /* 0..127, the walk now */
 static uint32_t ln_gov_cur(uint32_t k) { return k < LN_N ? ln.gov.cur[k] : 0u; }
 static uint32_t ln_gov_user(uint32_t k) { return k < LN_N ? ln.gov.user[k] : 0u; }
@@ -167,6 +187,9 @@ static void ln_event(const ln_ev_t *v)
         break;
     case LN_EV_GEN_MUTE:
         if (k < LN_N) ln.gen_mute[k] = v->a;
+        break;
+    case LN_EV_HOST:
+        if (k < LN_N && ln.mix.e[k] && ln.int_id[k] >= 0) tx_source_host_param(ln.mix.st[k], v->a, v->c ? 256u : v->b);
         break;
     case LN_EV_FX:
         if (v->a == LN_FX_DRIVE && k < TX_FX_LANES) tx_fx_drive_param(&ln.fx.drive[k], v->b, v->c);
