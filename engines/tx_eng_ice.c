@@ -50,7 +50,7 @@ static const tx_param_t PARAMS[NP] = {
 
 #define NV 8u                      /* ringing bodies (icicles or glasses) */
 #define NMB 4u
-#define NF 32u                     /* chunks */
+#define NF 48u                     /* chunks (48: at the top 3-5 breaks/s, each scattering for up to 0.8 s) */
 #define NPC 6u                     /* chunk rings at once */
 #define OUT_TRIM 21700             /* output gain, Q12 (+15.9 dB; LOUDNESS.md: a v100 icicle toward -20 LUFS max
                                     * momentary, held at -33.5 by its crack's crest: the default chord <= +12 dBFS and
@@ -91,7 +91,7 @@ typedef struct {
     uint8_t p[NP], limit, quiet;
     int32_t level, size_l2, fe;    /* fe: the fizz's envelope (Q15) */
     uint32_t q_x16, fizz;
-    uint16_t dropped;
+    uint16_t dropped, steals;
     tx_vary_t vy;
     int32_t f1_l2;                 /* the last icicle's rod (log2 Hz Q16): its chunks ring above it */
     uint8_t rk, rd, pad2[2];       /* the clicks' colour now: high-pass shift, decay shift (per crack) */
@@ -169,7 +169,7 @@ static void body_strike(ice_t *s, unsigned note, int32_t a, uint32_t tc, int fre
     if (!b) {
         int32_t lo = 0x7FFFFFFF;
         for (i = 0; i < s->limit; i++) if (s->b[i].m[0].amp < lo) { lo = s->b[i].m[0].amp; b = &s->b[i]; }
-        s->dropped++;
+        s->steals++;                                         /* (the quietest ring taken over: a steal, not a drop) */
     }
     if (!b) return;
     if (!b->used || b->note != note || fresh) {
@@ -243,12 +243,18 @@ static void icicle(ice_t *s, const tx_event_t *e)
     nl2 = oct(s, 45000);
     n = (uint32_t)(((uint64_t)(3u + ((uint32_t)s->p[P_AMOUNT] * 21u >> 7)) * tx_exp2(nl2 + (16 << 16))) >> 16);
     n = n < 2u ? 2u : n > 28u ? 28u : n;
+    {   /* a pile shattering fast: as many chunks as the air still has room for (the breaks themselves are never
+         * dropped: B's faster presses at the top) */
+        uint32_t fr = 0;
+        for (i = 0; i < NF; i++) fr += !s->ch[i].alive;
+        if (n > fr) n = fr;
+    }
     fly = 12000u + tx_rand_below(r, 24000u);                 /* this break's scatter: 0.3 .. 0.8 s (ours) */
     for (j = 0; j < n; j++) {                                /* the chunks fly and bounce */
         chunk_t *h = 0;
         uint32_t u;
         for (i = 0; i < NF && !h; i++) if (!s->ch[i].alive) h = &s->ch[i];
-        if (!h) { s->dropped++; break; }
+        if (!h) break;
         u = tx_rand(r) >> 16;
         h->t = e->offset + 1300u + (uint32_t)(((uint64_t)u * u * fly) >> 32);   /* 30 ms .. the scatter, most early */
         h->v = 300 + (int32_t)tx_rand_below(r, 1500u);
@@ -397,7 +403,7 @@ static void ice_stats(const void *st, tx_stats_t *o)
     o->limit = s->limit;
     o->events = s->cloud.last_events;
     o->dropped = s->cloud.last_dropped;
-    o->steals = 0;
+    o->steals = s->steals;
     o->total = s->cloud.total;
     o->quiet = s->quiet;
 }

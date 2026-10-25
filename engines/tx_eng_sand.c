@@ -29,7 +29,7 @@
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 
-#define OUT_TRIM 4869               /* output gain, Q12 (-0.9 dB): integrated (a key held 10 s): -25.1 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 4100               /* output gain, Q12 (-2.4 dB; -1.5 with note 17's swings past the cap): integrated (a key held 10 s): -25.1 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -228,6 +228,16 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
      * (pile 0.8 kHz, hand 1.5 kHz) and a two-pole low-pass (pile 4 kHz, hand 6 kHz) */
     int32_t lpa = (s->p[P_SURFACE] * 5u) >> 7 == 1u ? 14250 : 18850;   /* Q15: 1 - exp(-2 pi fc / fs) */
     int32_t hpa = (s->p[P_SURFACE] * 5u) >> 7 == 1u ? 3700 : 6300;
+    {   /* the grains' click is shorter, so brighter, for finer grains and faster impacts (Hertz: contact time ~ R v^-1/5;
+         * ours: the band's corners x (d / 200 um)^-0.8 x (h / 0.1 m)^0.1, +-1.5 octaves: a fine sandfall from high ~12 kHz,
+         * coarse grit poured low ~3 kHz; the references 4.4 .. 11.8 kHz) */
+        int32_t k = -(((s->d_l2 - 500953) * 4) / 5) + (s->h_l2 + 217706) / 10;
+        k = k > 98304 ? 98304 : k < -98304 ? -98304 : k;
+        lpa = (int32_t)(((int64_t)lpa * (int32_t)tx_exp2(k + (16 << 16))) >> 16);
+        hpa = (int32_t)(((int64_t)hpa * (int32_t)tx_exp2(k + (16 << 16))) >> 16);
+        lpa = lpa > 30000 ? 30000 : lpa;                     /* (a one-pole tops out near fs / 4) */
+        hpa = hpa > 24000 ? 24000 : hpa;
+    }
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) buf[j] = 0;
     k = tx_cloud_block(&s->cloud, s->ev, n);
@@ -235,7 +245,7 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
     for (i = 0; i < NV; i++) {
         pour_t *v = &s->v[i];
         int held = v->alive && v->em < TX_CLOUD_EMITTERS && s->cloud.em[v->em].held && s->cloud.em[v->em].note == v->note;
-        int32_t lx, lam_l2, amp, p16, mpul;
+        int32_t lx, lam_l2, amp, p16, mpul, mod;
         uint32_t x32;
         if (!v->alive && tx_svf_bank_quiet(v->body, NM) && !v->tlp && !v->lp && !v->lp2 && !v->hp) continue;
         if (held) v->stop = (int32_t)tx_exp2((s->h_l2 >> 1) + 411640);   /* sqrt(2 h / g) = 0.45 s sqrt(h): 77.8 sqrt(h) blocks */
@@ -267,7 +277,9 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
             tx_rng_t *r = &s->cloud.rng;
             v->lump += (tx_rand_s15(r) - v->lump) >> 5;
             v->flick += (tx_rand_s15(r) - v->flick) >> 2;
-            amp = (int32_t)(((int64_t)amp * tx_exp2(v->lump * 16 + v->flick * 4 + (16 << 16))) >> 16);
+            mod = (int32_t)tx_exp2(v->lump * 32 - 21800 + v->flick * 4 + (12 << 16));   /* Q12 (slow
+                                                              * swings +-1.2 oct, the mean power kept: a sandfall's
+                                                              * level swings ~20 dB, note 17) */
         }
         {   /* the stream breaks into slugs (granular flow near jamming is intermittent: arches form and collapse, the
              * bursts power-law sized; a wide neck flows on, still lumpy). Intermittency I from the neck's margin over
@@ -277,11 +289,12 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
              * user: no flat hiss) */
             tx_rng_t *r = &s->cloud.rng;
             uint32_t D0 = tx_exp2(s->d0_l2), kd = (tx_exp2(s->d_l2) * 29u / 10u) | 1u, rt = (D0 << 4) / kd;   /* Q4 */
-            int32_t I = rt <= 32u ? 32767 : rt >= 128u ? 16384 : 32767 - (int32_t)((rt - 32u) * 171u);   /* Q15 */
+            int32_t I = rt <= 32u ? 32767 : rt >= 160u ? 6554 : 32767 - (int32_t)((rt - 32u) * 205u);   /* Q15: 1 .. 0.2 */
             if (!v->sleft) {
                 uint32_t e = (tx_neglog2_q12(tx_rand(r) | 1u) * 2839u) >> 12;   /* E, Q12 */
                 if (e > 16384u) e = 16384u;
-                if (v->sgt && (int32_t)(tx_rand(r) >> 17) < (I >> 1)) {   /* a jam: silence for a while */
+                if (v->sgt && (int32_t)(tx_rand(r) >> 17) < I - 13107) {   /* a jam: silence for a while (none once the
+                                                              * neck is wide: a sandfall pours on, note 17) */
                     v->sgt = 0;
                     v->sleft = (uint16_t)(3u + (((e * (uint32_t)(I >> 7)) >> 12) * 17u >> 8) * 3u);
                 } else {
@@ -293,9 +306,13 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
             }
             v->sleft--;
             v->sg += (v->sgt - v->sg) >> 1;
-            amp = (int32_t)(((int64_t)amp * v->sg) >> 15);
+            mod = (int32_t)(((int64_t)mod * v->sg) >> 15);
+            if (mod > 32767) mod = 32767;                    /* (x 8 at most) */
         }
         if (amp > 16383) amp = 16383;
+        if (p16 < 16384) amp = (int32_t)(((int64_t)amp * mod) >> 12);   /* (the swings after the cap: a heavy pour swings
+                                                              * too instead of sitting on the cap, note 17) */
+        if (amp > 24000) amp = 24000;                        /* (the filters' headroom: |x - lp| x a < 2^31) */
         /* the shot train: clicks (rare) or noise of the same variance (dense) */
         x32 = s->cloud.rng.s;
         if (p16 < 16384) {
@@ -310,6 +327,8 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
         } else {
             int32_t sd = (int32_t)(((int64_t)amp * (int32_t)tx_exp2((int32_t)((log2_q16((uint32_t)p16) - (16 << 16)) / 2) + (16 << 16))) >> 16);
             if (sd > 16383) sd = 16383;                      /* the force at most +-1 full scale */
+            sd = (int32_t)(((int64_t)sd * mod) >> 12);
+            if (sd > 24000) sd = 24000;
             for (j = 0; j < n; j += 32) {                    /* clumps: each 0.7 ms its own gain (+-1 oct, ours: */
                 unsigned e = j + 32u < n ? j + 32u : n, q;   /* grains arrive in clusters; references kurtosis 1-25) */
                 int32_t g = clump(&x32, sd);

@@ -72,7 +72,8 @@ static const species_t SPECIES[NSP] = {
     {3510, 1638, 1642, 583, 0, 617, 882},   /* mole cricket G. vineae: H2 -26, H3 -35 dB (N28), a trill */
     {7400, 1311, 1300, 0, 0, 1500, 3392},   /* a small ground cricket's fast trill (ours, from a close single-cricket
                                              * recording: 7.4 kHz, 13 pulses/s, steady) */
-    {2000, 1638, 2600, 0, 4, 1100, 2200},   /* a low cricket's chirps (ours, from a recording: 2 kHz, ~2 chirps/s) */
+    {2000, 1638, 2600, 0, 2, 4000, 2000},   /* a low cricket's chirps (ours, from a recording: 2 kHz, ~2 chirps/s, each
+                                             * chirp one sound: 2 long pulses overlapping, 90 ms each) */
 };
 
 typedef struct {
