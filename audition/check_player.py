@@ -369,7 +369,7 @@ def main():
             key(63); key(60)                                 # C4: the selected sound off
             st = page.evaluate("window.txTest.src()")
             check(not st["run"][1] and st["lit"] == 0 and st["cnt"][1] == 0, "lane mode: C4 (how many: off) turns the selected sound off")
-            key(70); key(72)                                 # A#4 (the 5th black key): Water's surf, in a free lane; C5 rare
+            key(75); key(72)                                 # D#5 (the 7th black key): Water's surf, in a free lane; C5 rare
             st = page.evaluate("window.txTest.src()")
             check(any(e == "surf" and r for e, r in zip(st["eng"], st["run"])), f"lane mode: a black key past the fourth plays its sound ({st['eng']})")
             # quick lanes: an old engine in a lane, its own parameters on the fader (stream: FLOW), and a one-shot one

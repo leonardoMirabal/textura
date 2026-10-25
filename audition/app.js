@@ -474,14 +474,17 @@ function setSlider(id, val) {                         // from MIDI CC (the edite
 let SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];   // (read from the PRESET help line)
 // a family's sounds: [name, source preset, TYPE] (TYPE reaches the preset's family members), or "#engine" (a classic)
 const FAMILIES = [
-  ["Water", [["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 64], ["water drops", "water", 0], ["#stream"], ["#surf"]]],
+  ["Water", [["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 64], ["water drops", "water", 0],
+    ["#drip"], ["#rainwater"], ["#stream"], ["#surf"]]],
   ["Stones & sand", [["stones", "stone cloud", 0], ["rockfall", "stone cloud", 32], ["ringing rocks", "stone cloud", 96],
     ["gravel", "gravel", 0], ["marbles", "gravel", 96], ["sand", "sand", 0], ["singing dune", "sand", 96],
     ["minerals", "minerals", 0], ["stone friction", "minerals", 96]]],
-  ["Ice & glass", [["ice", "ice", 0], ["lake ice", "ice", 96], ["glass", "glass", 0]]],
-  ["Fire & wood", [["fire", "fire", 0], ["flame", "fire", 96], ["wood", "wood", 0]]],
-  ["Wind & storm", [["wind", "wind", 0], ["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 64], ["#thunder"]]],
-  ["Insects", [["crickets", "crickets", 0], ["cicadas", "cicadas", 0], ["katydids", "katydids", 0], ["bees", "bees", 0]]],
+  ["Ice & glass", [["icicles", "ice", 16], ["ice in a glass", "ice", 48], ["lake ice", "ice", 96], ["glass", "glass", 0], ["#chimes"]]],
+  ["Fire & wood", [["fire", "fire", 0], ["flame", "fire", 96], ["#sparks"], ["dry wood", "wood", 16], ["green branch", "wood", 112]]],
+  ["Wind & storm", [["wind", "wind", 0], ["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 64], ["#storm"], ["#thunder"]]],
+  ["Insects", [["field cricket", "crickets", 10], ["tree cricket", "crickets", 53], ["mole cricket", "crickets", 74],
+    ["cicada", "cicadas", 0], ["small cicada", "cicadas", 20], ["cicada chorus", "cicadas", 64], ["katydid", "katydids", 16],
+    ["grasshopper", "katydids", 80], ["honeybee", "bees", 10], ["bumblebee", "bees", 53]]],
   ["Songbirds", ["songbird", "blackbird", "song thrush", "nightingale", "robin", "wren", "hermit thrush", "skylark",
     "wood thrush", "reed warbler"].map(n => [n, n, 0])],
   ["Wild birds", ["chirper", "crow", "gull", "curlew", "oystercatcher", "cuckoo", "woodpecker", "wood pigeon", "nightjar",
