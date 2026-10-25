@@ -129,6 +129,32 @@ EMSCRIPTEN_KEEPALIVE int txw_pdef(int id) { return cur && id < cur->n_params ? c
 EMSCRIPTEN_KEEPALIVE int txw_particles_max(void) { return cur ? cur->particles_max : 0; }
 EMSCRIPTEN_KEEPALIVE int txw_particles_def(void) { return cur ? cur->particles_def : 0; }
 
+/* ---- the dev view's hosted block: the edited layer's source, the engine it hosts now and that engine's own parameters,
+ * set directly (an override: it wins over the source's mapping until the lane's sound changes; v < 0 releases it) */
+extern const tx_engine_t tx_eng_source;
+const tx_engine_t *tx_source_hosted(const void *st);
+int tx_source_host_value(const void *st, unsigned id);
+void tx_source_host_param(void *st, unsigned id, unsigned val);
+int tx_source_host_over(const void *st, unsigned id);
+static const tx_engine_t *hosted(void) { return cur == &tx_eng_source ? tx_source_hosted(arena) : 0; }
+EMSCRIPTEN_KEEPALIVE const char *txw_host_name(void) { return hosted() ? hosted()->name : ""; }
+EMSCRIPTEN_KEEPALIVE int txw_host_n(void) { return hosted() ? hosted()->n_params : 0; }
+EMSCRIPTEN_KEEPALIVE const char *txw_host_pname(int id) { return hosted() && id >= 0 && id < hosted()->n_params ? hosted()->params[id].name : ""; }
+EMSCRIPTEN_KEEPALIVE const char *txw_host_phelp(int id) { return hosted() && id >= 0 && id < hosted()->n_params ? hosted()->params[id].help : ""; }
+EMSCRIPTEN_KEEPALIVE int txw_host_pmax(int id) { return hosted() && id >= 0 && id < hosted()->n_params ? hosted()->params[id].max : 0; }
+EMSCRIPTEN_KEEPALIVE int txw_host_value(int id)          /* the value now (the source's, or the override) */
+{
+    int v;
+    if (!hosted() || id < 0 || id >= hosted()->n_params) return -1;
+    v = tx_source_host_value(arena, (unsigned)id);
+    return v >= 0 ? v : hosted()->params[id].def;
+}
+EMSCRIPTEN_KEEPALIVE int txw_host_over(int id) { return hosted() && id >= 0 ? tx_source_host_over(arena, (unsigned)id) : 0; }
+EMSCRIPTEN_KEEPALIVE void txw_host_param(int id, int v)
+{
+    if (hosted() && id >= 0) tx_source_host_param(arena, (unsigned)id, v < 0 ? 256u : (unsigned)v);
+}
+
 /* id >= 0: the engine's own parameter; -1 PARTICLES, -2 LEVEL */
 EMSCRIPTEN_KEEPALIVE void txw_param(int id, int v)
 {

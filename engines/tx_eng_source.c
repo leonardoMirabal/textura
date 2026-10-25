@@ -371,6 +371,9 @@ typedef struct {
     int8_t hcid, hfid;              /* the engine's own COUNT (its individuals) and FIELD (its far callers), -1: none */
     uint8_t hcnt, hpart, hfld, hgate;   /* the COUNT, PARTICLES and FIELD last sent to it; the bout gate open */
     uint16_t hgt;                   /* blocks to the gate's next turn */
+    uint32_t ovm;                   /* the dev view's overrides: the hosted engine's own parameters (bit = id < 32) set
+                                     * directly, winning over the curves and maps until the sound changes */
+    uint8_t ovv[32];                /* their values */
     uint8_t start, hpad4;           /* start: a first press (the population starts: ACTIVITY at the fader) */
     uint16_t hrenew;                /* blocks to the next renewed key */
     uint8_t hoff, hpn, hpad2[2];    /* blocks to its release, its note */         /* keys the source holds on the hosted engine (k curves; the first is the player's) */
@@ -1439,6 +1442,7 @@ static int32_t kmap_off(const src_t *s, unsigned j)
     return (knob(s, k->knob) * k->depth) / 64;
 }
 
+#define OVR(s, id) ((id) >= 0 && (id) < 32 && ((s)->ovm >> (id) & 1u))   /* (a dev-view override holds it) */
 static void host_apply(src_t *s, int force)               /* the curves at the intensity now (only changed values sent) */
 {
     unsigned i;
@@ -1448,12 +1452,12 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
         if (pp > HOST_HEROES) pp = HOST_HEROES;
         pp = host_heroes(s->hd, pp);
         if (pp > s->hst->particles_max) pp = s->hst->particles_max;
-        if (force || n != s->hcnt) { s->hcnt = (uint8_t)n; s->hst->param(s->host, (uint8_t)s->hcid, (uint8_t)n); }
+        if ((force || n != s->hcnt) && !OVR(s, s->hcid)) { s->hcnt = (uint8_t)n; s->hst->param(s->host, (uint8_t)s->hcid, (uint8_t)n); }
         if (force || pp != s->hpart) { s->hpart = (uint8_t)pp; s->hst->param(s->host, TX_PID_PARTICLES, (uint8_t)pp); }
         e = n > pp ? n - pp : 0u;                            /* the rest: the engine's cheap far callers (FIELD), */
         if (s->hfid >= 0) {                                  /* louder as they are more (power ~ their number) */
             unsigned f = e ? (unsigned)clampi((int32_t)(24u * isqrt(e << 8)) >> 4, 0, 127) : 0u;
-            if (force || f != s->hfld) { s->hfld = (uint8_t)f; s->hst->param(s->host, (uint8_t)s->hfid, (uint8_t)f); }
+            if ((force || f != s->hfld) && !OVR(s, s->hfid)) { s->hfld = (uint8_t)f; s->hst->param(s->host, (uint8_t)s->hfid, (uint8_t)f); }
         }
     }
     if (s->hd->k127) {                                       /* the keys held: more singers */
@@ -1488,7 +1492,7 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
         }
         for (j = 0; j < HOST_NK; j++) if (s->kcur[j] == (int8_t)i) v += kmap_off(s, j);
         v = clampi(v, 0, 127);
-        if (force || v != s->hval[i]) { s->hval[i] = (uint8_t)v; s->hst->param(s->host, (uint8_t)s->hid[i], (uint8_t)v); }
+        if ((force || v != s->hval[i]) && !OVR(s, s->hid[i])) { s->hval[i] = (uint8_t)v; s->hst->param(s->host, (uint8_t)s->hid[i], (uint8_t)v); }
     }
     for (i = 0; i < HOST_NK; i++) {                          /* the character maps on the engine's other parameters */
         const kmap_t *k = &HMAP[s->hd - HOST][i];
@@ -1498,7 +1502,7 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
             v = s->p[P_TYPE] >= s->tlo && (s->tlo || s->p[P_TYPE])
                 ? clampi(((int32_t)(s->p[P_TYPE] - s->tlo) * 127) / s->tspan, 0, 127) : s->kdef[i];
         else v = clampi((int32_t)s->kdef[i] + kmap_off(s, i), 0, 127);
-        if (force || v != s->kval[i]) { s->kval[i] = (uint8_t)v; s->hst->param(s->host, (uint8_t)s->kid[i], (uint8_t)v); }
+        if ((force || v != s->kval[i]) && !OVR(s, s->kid[i])) { s->kval[i] = (uint8_t)v; s->hst->param(s->host, (uint8_t)s->kid[i], (uint8_t)v); }
     }
 }
 
@@ -1924,7 +1928,10 @@ static void src_param(void *st, uint8_t id, uint8_t val)
         s->level = tx_level_q15(val > 127u ? 127u : val);
     else if (id < NP) {
         s->p[id] = (uint8_t)(val > PARAMS[id].max ? PARAMS[id].max : val);
-        if (id == P_PRESET || id == P_TYPE) host_switch(s, s->p[P_PRESET]);
+        if (id == P_PRESET || id == P_TYPE) {               /* (set up anew: the dev view's overrides go) */
+            s->ovm = 0;
+            host_switch(s, s->p[P_PRESET]);
+        }
         if (id == P_HARD) {                                  /* stones: stone on stone .. soft ground above 64 */
             tx_mallet_mix(&s->mallet, clampi(knob(s, P_HARD), 0, 63) * 520);
             s->mallet.lm -= 217706;
@@ -2128,6 +2135,46 @@ static const char SCENE_MAX[] =
     "13000 param PRESET 11\n14000 param PRESET 12\n15000 param PRESET 13\n16000 param PRESET 14\n"
     "17000 param PRESET 15\n18000 param PRESET 16\n19000 param PRESET 17\n20000 param PRESET 18\n21000 param PRESET 19\n"
     "22000 off 60\n23000 end\n";
+
+/* the dev view (the player's hosted block): the hosted engine playing now (0: none), and its own parameters read and
+ * set directly. A value set here is an override: it wins over the source's curves, maps and COUNT until the sound
+ * (PRESET or TYPE) changes, which clears every override. */
+const tx_engine_t *tx_source_hosted(const void *st)
+{
+    const src_t *s = (const src_t *)st;
+    return s->hst && s->hd ? s->hst : 0;
+}
+int tx_source_host_value(const void *st, unsigned id)    /* the value now: the override, else as last sent, else -1 */
+{
+    const src_t *s = (const src_t *)st;
+    unsigned i;
+    if (!tx_source_hosted(st) || id >= s->hst->n_params) return -1;
+    if (id < 32u && (s->ovm >> id & 1u)) return s->ovv[id];
+    for (i = 0; i < HOST_NC; i++) if (s->hid[i] == (int)id) return s->hval[i];
+    for (i = 0; i < HOST_NK; i++) if (s->kid[i] == (int)id && s->kval[i] != 0xFF) return s->kval[i];
+    if (s->hcid == (int)id) return s->hcnt;
+    if (s->hfid == (int)id) return s->hfld;
+    return -1;                                               /* (never sent: the engine's own default) */
+}
+int tx_source_host_over(const void *st, unsigned id)    /* 1: the dev view holds it */
+{
+    const src_t *s = (const src_t *)st;
+    return tx_source_hosted(st) && id < 32u && (s->ovm >> id & 1u);
+}
+void tx_source_host_param(void *st, unsigned id, unsigned val)   /* an override (val > 255: released) */
+{
+    src_t *s = (src_t *)st;
+    if (!tx_source_hosted(st) || id >= s->hst->n_params || id >= 32u) return;
+    if (val > 255u) {                                        /* the source's value back (or the engine's default) */
+        s->ovm &= ~(1u << id);
+        host_apply(s, 1);
+        if (tx_source_host_value(st, id) < 0) s->hst->param(s->host, (uint8_t)id, s->hst->params[id].def);
+        return;
+    }
+    if (val > s->hst->params[id].max) val = s->hst->params[id].max;
+    s->ovm |= 1u << id; s->ovv[id] = (uint8_t)val;
+    s->hst->param(s->host, (uint8_t)id, (uint8_t)val);
+}
 
 const tx_engine_t tx_eng_source = {
     "source", "Landscape", NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,

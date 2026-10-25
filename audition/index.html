@@ -38,6 +38,7 @@
   .sl input { width: 100%; accent-color: var(--accent); }
   .sl small { display: block; color: var(--dim); font-size: 11.5px; min-height: 1.4em; }
   .sl.shared label span:first-child { color: var(--accent); font-weight: 600; }
+  #host-sliders .sl.ov label span:first-child { color: var(--accent); font-weight: 600; }
   #kb { position: relative; height: 120px; user-select: none; touch-action: none; margin-top: 4px; }
   .key { position: absolute; top: 0; border: 1px solid var(--line); border-radius: 0 0 5px 5px; }
   .key.w { background: var(--key); height: 118px; z-index: 1; }
@@ -181,6 +182,12 @@
       <span class="small" id="gen-now"></span>
     </div>
     <div class="sliders" id="gen-sliders" style="margin-top:6px"></div>
+    <div id="host-box" style="margin-top:10px" hidden>
+      <div class="row"><span class="small"><b>Hosted engine</b> <span id="host-name"></span>: its own parameters, for trying
+        values (dev view). A value moved here holds over the source's own mapping until the sound changes;
+        <button id="host-reset" class="small" title="give every parameter back to the source">Reset</button></span></div>
+      <div class="sliders" id="host-sliders" style="margin-top:6px"></div>
+    </div>
     <div class="hint">Lane mode: the keyboard shows C4 … C6. A <b>landscape</b> is one family of sounds (water, stones, birds …).
       The 10 <b>black keys</b> C#4 … A#5 are its sounds, in the order of the Sounds row; tapping the chosen sound's key again turns it off.
       The <b>white keys</b> are two faders for the chosen sound: the lower octave C4 … B4 is <b>how many</b> (C4 off: silence; then 1,

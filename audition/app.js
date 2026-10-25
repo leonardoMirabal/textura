@@ -565,7 +565,7 @@ function srcLayer(k, preset) {                        // put the source on layer
 function showSource() {
   const on = layers[ed].eng === srcEng;
   $("src-panel").hidden = !on && !laneMode;
-  if (!on) { $("src-layer").textContent = laneMode ? `(layer ${ed + 1} is not a source)` : ""; showLanes(); return; }
+  if (!on) { $("src-layer").textContent = laneMode ? `(layer ${ed + 1} is not a source)` : ""; showLanes(); hostBlock(); return; }
   srcFindIds(ed);
   $("src-layer").textContent = `(layer ${ed + 1})`;
   gridMark();
@@ -575,7 +575,46 @@ function showSource() {
   $("src-prox").value = pr; $("src-prox-v").textContent = pr;
   $("src-run").classList.toggle("primary", srcHeld[ed]);
   showLanes();
+  hostBlock();
 }
+// THE HOSTED BLOCK (dev view): the engine the edited layer's source hosts now, with its own parameters set directly. A
+// moved slider is an override: it holds over the source's own mapping until the sound changes (the source clears it).
+let hostKey = "";
+function hostBlock() {                                // build (a new engine or layer) or refresh (values, overrides)
+  const box = $("host-sliders"), n = window.txTest.ready && srcEng >= 0 && layers[ed].eng === srcEng ? M._txw_host_n() : 0;
+  $("host-box").hidden = !n;
+  if (!n) { hostKey = ""; box.innerHTML = ""; return; }
+  const name = S(M._txw_host_name()), key = `${ed}/${name}`;
+  if (key !== hostKey) {
+    hostKey = key; box.innerHTML = ""; $("host-name").textContent = `"${name}"`;
+    for (let p = 0; p < n; p++)
+      slider(box, S(M._txw_host_pname(p)), S(M._txw_host_phelp(p)), 0, M._txw_host_pmax(p), M._txw_host_value(p),
+             v => { M._txw_host_param(p, v); hostBlock(); }, false, p);
+  }
+  box.querySelectorAll("input").forEach(inp => {
+    const p = +inp.dataset.id, v = M._txw_host_value(p);
+    inp.parentElement.classList.toggle("ov", !!M._txw_host_over(p));
+    if (document.activeElement !== inp && +inp.value !== v) { inp.value = v; inp.previousElementSibling.querySelector("span:last-child").textContent = v; }
+  });
+}
+$("host-reset").onclick = () => { for (let p = 0; p < M._txw_host_n(); p++) M._txw_host_param(p, -1); hostBlock(); };
+setInterval(hostBlock, 500);
+window.txTest.host = () => {
+  hostBlock();
+  const out = { shown: !$("host-box").hidden, name: S(M._txw_host_name()), params: {} };
+  $("host-sliders").querySelectorAll("input").forEach(inp => {
+    const p = +inp.dataset.id;
+    out.params[S(M._txw_host_pname(p))] = { id: p, slider: +inp.value, value: M._txw_host_value(p), over: !!M._txw_host_over(p) };
+  });
+  return out;
+};
+window.txTest.hostSet = (name, v) => {               // through the slider, as a hand would
+  hostBlock();
+  for (const inp of $("host-sliders").querySelectorAll("input"))
+    if (S(M._txw_host_pname(+inp.dataset.id)) === name) { inp.value = v; inp.oninput(); return true; }
+  return false;
+};
+
 // QUICK LANES: any of the old engines in a lane. The player keeps it sounding on its own (a held note, or presses
 // re-triggered at the step's rate for the one-shot engines) and the 15 steps move the engine's own density / rate /
 // amount parameters: each [name, value at C4, value at C6], linear in the knob (the knobs are log in their units), gliding

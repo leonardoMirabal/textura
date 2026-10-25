@@ -379,6 +379,25 @@ def main():
             st = page.evaluate("window.txTest.src()")
             check(any(s == 8 and r and e == "source" for s, r, e in zip(st["snd"], st["run"], st["eng"])),
                   f"lane mode: a black key past the fourth plays its sound ({st['eng']}, {st['snd']})")
+            # the dev view's hosted block: the selected lane's hosted engine (surf), its own parameters set directly; an
+            # override holds through the source's own mapping (how active) and goes when the sound is set again
+            hk = st["lane"]
+            h = page.evaluate("window.txTest.host()")
+            check(h["shown"] and h["name"] == "surf" and "FLOOR" in h["params"] and not any(p["over"] for p in h["params"].values()),
+                  f"hosted block: the lane's surf and its own parameters ({h['name']}, {len(h['params'])} sliders)")
+            fl0 = h["params"]["FLOOR"]["value"]
+            fv = 100 if fl0 != 100 else 90
+            page.evaluate(f"window.txTest.hostSet('FLOOR', {fv})")
+            key(84); key(76)                                 # how active: busy, then E5 (the source's mapping moves)
+            page.evaluate("window.txTest.render(16)")
+            h = page.evaluate("window.txTest.host()")
+            check(h["params"]["FLOOR"]["value"] == fv and h["params"]["FLOOR"]["slider"] == fv and h["params"]["FLOOR"]["over"],
+                  f"hosted block: FLOOR {fv} set here holds through the source's mapping ({h['params']['FLOOR']})")
+            page.evaluate(f"window.txTest.sound({hk}, 'water')")   # the sound set again: the overrides go
+            h = page.evaluate("window.txTest.host()")
+            check(h["name"] == "surf" and not h["params"]["FLOOR"]["over"] and h["params"]["FLOOR"]["value"] == fl0,
+                  f"hosted block: a sound change clears the override (FLOOR {h['params']['FLOOR']['value']}, the source's {fl0})")
+            key(72)                                          # C5 rare again, as before
             # quick lanes: an old engine in a lane, its own parameters on the fader (stream: FLOW), and a one-shot one
             key(66)                                          # F#4: sound 3 (water drops); put the stream there; F5 = how active 4 (step 7)
             page.evaluate(f"window.txTest.selectEngine({names.index('stream')})")
