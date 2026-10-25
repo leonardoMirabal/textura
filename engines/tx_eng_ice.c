@@ -51,6 +51,7 @@ static const tx_param_t PARAMS[NP] = {
 #define NV 8u                      /* ringing bodies (icicles or glasses) */
 #define NMB 4u
 #define NF 32u                     /* chunks */
+#define NPC 6u                     /* chunk rings at once */
 #define OUT_TRIM 21700             /* output gain, Q12 (+15.9 dB; LOUDNESS.md: a v100 icicle toward -20 LUFS max
                                     * momentary, held at -33.5 by its crack's crest: the default chord <= +12 dBFS and
                                     * the output limiter under ~8 dB) */
@@ -69,6 +70,7 @@ typedef struct {
     uint32_t t;                    /* samples to its next impact */
     int32_t v;                     /* impact speed, mm/s */
     int32_t a;                     /* amplitude scale */
+    uint32_t inc;                  /* its own piece's ring (a shorter rod: higher), 0 = none */
     uint8_t alive, k, pad[2];
 } chunk_t;
 
@@ -78,6 +80,7 @@ typedef struct {
     body_t b[NV];
     chunk_t ch[NF];
     tx_mode_t thud[2];
+    tx_mode_t piece[NPC];          /* the chunks' own short rings (a few at a time) */
     tx_ireso_t fz;
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t buf[TX_BLOCK], bpush[TX_BLOCK], spk[TX_BLOCK];
@@ -90,6 +93,8 @@ typedef struct {
     uint32_t q_x16, fizz;
     uint16_t dropped;
     tx_vary_t vy;
+    int32_t f1_l2;                 /* the last icicle's rod (log2 Hz Q16): its chunks ring above it */
+    uint8_t rk, rd, pad2[2];       /* the clicks' colour now: high-pass shift, decay shift (per crack) */
 } ice_t;
 
 static unsigned cubes(const ice_t *s) { return s->p[P_ACTION] >= 64u; }
@@ -121,6 +126,7 @@ static void ice_init(void *st, uint32_t seed)
     tx_mallet_mix(&s->mal, 0);
     s->mal.lm -= 217706;
     for (i = 0; i < 2; i++) { s->thud[i].inc = (70u + i * 75u) * 97391u; s->thud[i].m16 = tx_mode_decay(70u + i * 75u, 40u, 0u); }
+    s->rk = 1; s->rd = 5;
     tx_ireso_set(&s->fz, 2000, 24);                          /* the fizz: 2 kHz, Q 1.5 (C8: 1-3 kHz) */
     s->fz.g = 256;
     s->limit = 6;
@@ -155,7 +161,7 @@ static void body_strike(ice_t *s, unsigned note, int32_t a, uint32_t tc, int fre
 {
     body_t *b = 0;
     unsigned i, k, cu = cubes(s);
-    uint32_t f1;
+    uint32_t f1, sig = 256u;
     for (i = 0; i < s->limit && !b && !fresh; i++) if (s->b[i].used && s->b[i].note == note) b = &s->b[i];
     for (i = 0; i < s->limit && !b; i++) if (!s->b[i].used) b = &s->b[i];
     if (!b) {
@@ -167,14 +173,18 @@ static void body_strike(ice_t *s, unsigned note, int32_t a, uint32_t tc, int fre
     if (!b->used || b->note != note || fresh) {
         int32_t own = fresh ? ((tx_rand_s15(&s->cloud.rng) * 19661) >> 15) + (tx_vary_tone(&s->vy) >> 1) : 0;
         if (cu) f1 = tx_exp2(539293 + s->size_l2 * 2 / 3 + ((int32_t)note - 60) * 5461);   /* 300 Hz x 2^(0..2) */
-        else f1 = tx_exp2(tx_log2_q16(3140u) - 267150 + 217706 - s->size_l2 + ((int32_t)note - 60) * 5461 + own);   /* 0.059 c / L */
+        else {
+            s->f1_l2 = tx_log2_q16(3140u) - 267150 + 217706 - s->size_l2 + ((int32_t)note - 60) * 5461 + own;   /* 0.059 c / L */
+            f1 = tx_exp2(s->f1_l2);
+        }
+        sig = cu ? 256u : (40u + tx_rand_below(&s->cloud.rng, 210u)) * 256u;   /* how it lies: on ice .. in snow (40 .. 250 /s, ours) */
         for (k = 0; k < NMB; k++) {
             uint32_t f = (f1 * (cu ? GLS_R[k] : ROD_R[k])) >> 10;
             b->m[k].amp = 0; b->m[k].ph = 0;
             b->m[k].inc = f < 20000u ? f * 97391u : 0u;
             /* the glass rings with the drink (Q ~250, ours from the recording); the icicle with the ice's Q, damped by
              * the ground it lies on (sigma0 60 /s, ours) */
-            b->m[k].m16 = f < 20000u ? (cu ? tx_mode_decay(f, 4000u, 256u) : tx_mode_decay(f, s->q_x16, 60u * 256u)) : 0u;
+            b->m[k].m16 = f < 20000u ? (cu ? tx_mode_decay(f, 4000u, sig) : tx_mode_decay(f, s->q_x16, sig)) : 0u;
         }
         b->note = (uint8_t)note;
     }
@@ -183,34 +193,66 @@ static void body_strike(ice_t *s, unsigned note, int32_t a, uint32_t tc, int fre
     b->used = 1;
 }
 
+/* a draw in octaves: sd x (the sum of three uniforms: sd 1, within +-3), log2 Q16; up at most 1.5 sd (headroom) */
+static int32_t oct(ice_t *s, int32_t sd_q16)
+{
+    int32_t g = (int32_t)(((int64_t)tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng)) * sd_q16 >> 15);
+    return g > sd_q16 + (sd_q16 >> 1) ? sd_q16 + (sd_q16 >> 1) : g;
+}
+
+/* the crack's own colour: how sharp (the burst's high-pass) and how short (no two cracks alike: note 17) */
+static void crack_colour(ice_t *s)
+{
+    s->rk = (uint8_t)(1u + tx_rand_below(&s->cloud.rng, 2u));   /* corner ~9 / 5 kHz */
+    s->rd = (uint8_t)(4u + tx_rand_below(&s->cloud.rng, 2u));   /* tau ~0.4 / 0.7 ms */
+}
+
 static void icicle(ice_t *s, const tx_event_t *e)
 {
     tx_rng_t *r = &s->cloud.rng;
-    int32_t lv = 65536 + ((int32_t)e->vel - 100) * 1638, er, a;
-    uint32_t tc, n = 3u + ((uint32_t)s->p[P_AMOUNT] * 21u >> 7), j, i, c;
+    int32_t lv = 65536 + ((int32_t)e->vel - 100) * 1638, er, a, nl2;
+    uint32_t tc, n, j, i, c, fly;
     tx_contact_hit(&s->mal, lv, &tc, &er);
     tc = tx_vary_scale(tc, -(tx_vary_tone(&s->vy) >> 1)); if (tc < 1u) tc = 1u;   /* the press's tone: harder / softer */
     a = (int32_t)(((int64_t)A_REF * (int32_t)tx_exp2(lv - 65536 + (15 << 16))) >> 15);
     a = (int32_t)(((int64_t)a * s->level) >> 15);
-    body_strike(s, e->note, (int32_t)(((int64_t)a * 3277) >> 15), tc, 1);    /* the rod rings -20 dB under the crack (the
-                                                              * icicle references: 0.5-0.8 kHz 15-25 dB under 5 kHz) */
-    tx_mode_strike(&s->thud[0], a / 30);                     /* the ground (-20 dB: the references' 30-120 Hz) */
-    tx_mode_strike(&s->thud[1], -a / 60);
+    {   /* its own weight: sd 0.7 octave, the mean power kept, at most +0.5 octave (the peaks' headroom) */
+        int32_t w = oct(s, 45000) - 21600;
+        a = (int32_t)(((int64_t)a * (int32_t)tx_exp2((w > 32768 ? 32768 : w) + (15 << 16))) >> 15);
+    }
+    /* no two icicles alike (note 17: the references' per-break level spread 10-12 dB, ours 4 at the top): how loud its
+     * rod rings under the crack (-20 dB, sd 6 dB), its thud (sd 1 oct), how many chunks (x/ 1.6), how far they fly */
+    body_strike(s, e->note, (int32_t)(((int64_t)a * (int32_t)tx_exp2(oct(s, 65536) + (15 << 16) - 217706 - 45426)) >> 15), tc, 1);
+    {
+        int32_t th = (int32_t)tx_exp2(oct(s, 65536) + (15 << 16) - 45426);   /* Q15 (the mean power kept) */
+        tx_mode_strike(&s->thud[0], (int32_t)(((int64_t)(a / 30) * th) >> 15));   /* the ground (-20 dB: 30-120 Hz) */
+        tx_mode_strike(&s->thud[1], (int32_t)(((int64_t)(-a / 60) * th) >> 15));
+    }
+    crack_colour(s);
     s->bpush[e->offset] += a >> 6;                           /* the first crack; 1-4 more within ~20 ms follow as */
     for (c = 0, j = e->offset; c < 1u + (tx_rand(r) >> 30); c++) {   /* one-impact chunks (k = 4: no bounce) */
         chunk_t *h = 0;
         j += 40u + tx_rand_below(r, 300u);
         for (i = 0; i < NF && !h; i++) if (!s->ch[i].alive) h = &s->ch[i];
         if (!h) break;
-        h->t = j; h->v = 2048; h->a = a >> (1 + c); h->k = 4; h->alive = 1;
+        h->t = j; h->v = 2048; h->a = a >> (1 + c); h->k = 4; h->inc = 0; h->alive = 1;
     }
+    nl2 = oct(s, 45000);
+    n = (uint32_t)(((uint64_t)(3u + ((uint32_t)s->p[P_AMOUNT] * 21u >> 7)) * tx_exp2(nl2 + (16 << 16))) >> 16);
+    n = n < 2u ? 2u : n > 28u ? 28u : n;
+    fly = 12000u + tx_rand_below(r, 24000u);                 /* this break's scatter: 0.3 .. 0.8 s (ours) */
     for (j = 0; j < n; j++) {                                /* the chunks fly and bounce */
         chunk_t *h = 0;
+        uint32_t u;
         for (i = 0; i < NF && !h; i++) if (!s->ch[i].alive) h = &s->ch[i];
         if (!h) { s->dropped++; break; }
-        h->t = e->offset + 1500u + tx_rand_below(r, 12000u);  /* 30-300 ms aloft (ours) */
+        u = tx_rand(r) >> 16;
+        h->t = e->offset + 1300u + (uint32_t)(((uint64_t)u * u * fly) >> 32);   /* 30 ms .. the scatter, most early */
         h->v = 300 + (int32_t)tx_rand_below(r, 1500u);
         h->a = (int32_t)(((int64_t)a * (int32_t)(4000u + tx_rand_below(r, 28000u))) >> 15);
+        /* a chunk is a shorter piece of the rod: it rings higher (1.5 .. 6 x: L / l), briefly, at its first impact */
+        h->inc = s->f1_l2 ? tx_exp2(s->f1_l2 + 38336 + (int32_t)tx_rand_below(r, 131072u)) : 0u;
+        h->inc = h->inc < 18000u ? h->inc * 97391u : 0u;
         h->k = 0; h->alive = 1;
     }
 }
@@ -238,6 +280,7 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
             tc = tx_vary_scale(tc, -(tx_vary_tone(&s->vy) >> 1)); if (tc < 1u) tc = 1u;   /* the press's tone: harder / softer */
             a = (int32_t)(((int64_t)A_REF / 5 * (int32_t)tx_exp2(lv - 65536 + (15 << 16))) >> 15);
             a = (int32_t)(((int64_t)a * s->level) >> 15);
+            crack_colour(s);
             for (c = 0; c < nb; c++) {                       /* dropped in: a few clinks at once (ours) */
                 body_strike(s, e->note, c ? a >> c : a, tc, 0);
                 s->bpush[e->offset] += a >> 5;
@@ -259,6 +302,16 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
         while (h->alive && h->t < n) {
             int32_t a = (int32_t)(((int64_t)h->a * h->v) >> 11);
             s->bpush[h->t] += a >> 8;                        /* the chunk's click, +12 dB (references: shatter) */
+            if (!h->k) crack_colour(s);                      /* (its own colour as it lands) */
+            if (!h->k && h->inc) {                           /* its piece rings, damped by the ground (~10-30 ms; the */
+                tx_mode_t *m = &s->piece[0];                 /* quietest ring; it lands at the block start) */
+                unsigned q;
+                for (q = 1; q < NPC; q++) if (s->piece[q].amp < m->amp) m = &s->piece[q];
+                m->inc = h->inc;
+                m->m16 = tx_mode_decay(h->inc / 97391u, s->q_x16, (60u + tx_rand_below(&s->cloud.rng, 200u)) << 8);
+                m->amp = 0;
+                tx_mode_strike(m, a >> 3);
+            }
             tx_mode_strike(&s->thud[h->k & 1u], a >> 9);
             h->k++;
             h->v = (h->v * 6554) >> 15;                      /* restitution 0.2 (ice on frozen ground: ours) */
@@ -278,6 +331,8 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
     }
     tx_modal_run(s->thud, 2, s->buf, 0, n);
     any |= s->thud[0].amp | s->thud[1].amp;
+    tx_modal_run(s->piece, NPC, s->buf, 0, n);
+    for (i = 0; i < NPC; i++) any |= s->piece[i].amp;
     s->fe += (((cubes(s) ? tx_cloud_held(&s->cloud) != 0 : any != 0) ? 32767 : 0) - s->fe) >> 5;   /* the fizz dies away
                                                               * over ~0.5 s with the ice's ring (it stopped dead at
                                                               * -45 dBFS: session 5's tails) */
@@ -302,9 +357,10 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
             e += s->bpush[j];
             if (!e) continue;
             x = (int32_t)(tx_rand(r) >> 17) - 16384;
-            x1 += (x - x1) >> 1;                             /* minus a ~5 kHz low-pass: bright (references 5-8 kHz) */
-            s->buf[j] += ((x - x1) * (e >> 12)) >> 2;
-            e -= (e >> 5) + 1;
+            x1 += (x - x1) >> s->rk;                         /* minus a low-pass (each crack its own: 5 .. 9 kHz; the */
+                                                             /* references 5-8 kHz) */
+            s->buf[j] += ((x - x1) * (e >> 12)) >> (s->rk + 1);   /* (a duller crack is softer) */
+            e -= (e >> s->rd) + 1;
             if (e < 0) e = 0;
         }
         s->res = e; s->res_x1 = e ? x1 : 0;

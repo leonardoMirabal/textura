@@ -23,7 +23,7 @@
  *            x (1 - 0.25 HUMID) for the rest (ours).
  * Keys: a different specimen per key, a semitone smaller per key up; velocity = how hard (level, contact time).
  * VARY (no two knocks alike, the user's session 3): at 0 each key is one fixed specimen; above, every knock is a new
- * one (shape, tuning, Q, hardness drawn; ours).
+ * one (shape, size, tuning, Q, hardness, where it is struck drawn; ours).
  * Listening session 5 ("nice, but must be more glassy"): the defaults are now a quartz crystal (Q 4000 held), a
  * little smaller (SIZE 84) and held by the fingertips (HOLD 36): a crystalline ring, -20 dB after ~0.6 s (granite
  * gripped: 0.12 s), its centroid ~3 kHz (was 1.7). Granite and the others stay a knob away. */
@@ -63,6 +63,7 @@ static const tx_param_t PARAMS[NP] = {
 #define NMS 4u                     /* modes per specimen */
 #define NMV (2u * NMS + 1u)        /* a pair + the hand thud */
 #define NMIN 9u
+#define CULL (1 << 15)             /* a mode's floor (Q30: -90 dBFS before the trim) */
 #define A_REF 50000000             /* a mode's amplitude for a v100 knock (Q30; calibrated by render) */
 
 static const uint16_t MIN_Q[NMIN] = {180, 300, 100, 185, 150, 600, 160, 175, 2000};
@@ -161,13 +162,17 @@ static void build(min_t *s, pair_t *v, uint32_t tc)
 {
     tx_rng_t r;
     unsigned k, sp, two = action_of(s) > 0;
-    int32_t vy = s->p[P_VARY];
+    int32_t vy = s->p[P_VARY], own;
     uint32_t qx = s->q_x16 * 2u;                             /* see set_q: x 2 */
     /* VARY 0: one fixed specimen per key (drawn from the note); above: a new one every knock, its Q +-30 % */
     tx_rng_seed(&r, vy ? tx_rand(&s->cloud.rng) | 1u : v->note * 2654435761u ^ 0x5701E5u);
     if (vy) qx = (uint32_t)(((uint64_t)qx * (uint32_t)(32768 + ((tx_rand_s15(&s->cloud.rng) * vy * 77) >> 15))) >> 15);
+    {   /* a new specimen is its own size too (sd 0.3 octave at VARY 100: a handful picked from a pile; note 17) */
+        int32_t g = (int32_t)(((int64_t)tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng)) * vy * 199 >> 15);
+        own = vy ? g : 0;
+    }
     for (sp = 0; sp < 2; sp++) {
-        int32_t f_l2 = tx_log2_q16(s->c) - 348773 - s->size_l2 - ((int32_t)v->note - 60) * 5461 + (tx_vary_tone(&s->vy) >> 2);   /* 0.025 c / L */
+        int32_t f_l2 = tx_log2_q16(s->c) - 348773 - s->size_l2 - ((int32_t)v->note - 60) * 5461 + (tx_vary_tone(&s->vy) >> 2) + own;   /* 0.025 c / L */
         if (sp) f_l2 += (int32_t)tx_rand_below(&r, 42000u) - 21000;   /* the second: x 0.8 .. 1.25 */
         for (k = 0; k < NMS; k++) {
             unsigned i = sp * NMS + k;
@@ -210,8 +215,13 @@ static void knock(min_t *s, const tx_event_t *e)
         if (v) { unsigned k; for (k = 0; k < NMV; k++) v->m[k].amp = 0; }
     }
     if (!v) return;
-    lv += (tx_rand_s15(&s->cloud.rng) * s->p[P_VARY]) >> 7;  /* no two knocks alike: +-0.4 oct of speed at VARY 100 */
+    /* no two knocks alike (note 17: the references' per-knock level spread 6.9 dB, centroid 0.6 octave; ours 4 and
+     * 0.27): how hard (sd 0.4 octave of speed at VARY 100, was +-0.4 uniform) and where it lands (an edge .. a face: the
+     * contact time sd 0.47 octave: brighter .. duller) */
+    lv += (int32_t)(((int64_t)tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng)) * s->p[P_VARY] * 258 >> 15);
     tx_contact_hit(act ? &s->stone : &s->tool, lv, &tc, &ev);
+    tc = tx_vary_scale(tc, (int32_t)(((int64_t)tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng)) * s->p[P_VARY] * 310 >> 15));
+    if (tc < 1u) tc = 1u;
     a = (int32_t)(((int64_t)A_REF * (int32_t)tx_exp2(lv + (15 << 16))) >> 16);
     a = (int32_t)(((int64_t)a * (32768 + ev)) >> 16);
     a = (int32_t)(((int64_t)a * s->level) >> 15);
@@ -281,6 +291,21 @@ TX_AUDIO_CODE static void min_render(void *st, int32_t *mix, unsigned n)
         tx_modal_run(v->m, NMV, s->buf, j0, n);
         for (m = 0; m < NMV; m++) live |= v->m[m].amp != 0;
         if (!live && !v->rub && v->moff[0] == 0xFFFF && v->moff[1] == 0xFFFF && v->moff[2] == 0xFFFF) v->alive = 0;
+    }
+    {   /* masking (CPU): a mode 30 dB under the loudest one sounding, or under -90 dBFS, is not heard in the clinking;
+         * nor, once its specimen has rung down 12 dB from the knock, one 24 dB under the specimen's loudest: it stops */
+        int32_t top = 0, cut, vt;
+        unsigned m;
+        for (i = 0; i < NV; i++) if (s->v[i].alive) for (m = 0; m < NMV; m++) if (s->v[i].m[m].amp > top) top = s->v[i].m[m].amp;
+        cut = top >> 5;
+        if (cut < CULL) cut = CULL;
+        for (i = 0; i < NV; i++) if (s->v[i].alive) {
+            for (vt = 0, m = 0; m < 2u * NMS; m++) if (s->v[i].m[m].amp > vt) vt = s->v[i].m[m].amp;
+            vt = vt < (s->v[i].a0 >> 2) ? vt >> 4 : 0;
+            if (vt < cut) vt = cut;
+            for (m = 0; m < 2u * NMS; m++) if (s->v[i].m[m].amp < vt) s->v[i].m[m].amp = 0;
+            if (s->v[i].m[2u * NMS].amp < cut) s->v[i].m[2u * NMS].amp = 0;
+        }
     }
     tx_vary_block(&s->vy, s->buf, n);
     tx_trim(s->buf, n, OUT_TRIM);

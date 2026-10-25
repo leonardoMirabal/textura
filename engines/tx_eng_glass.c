@@ -82,6 +82,7 @@ typedef struct {
     uint32_t q_x16;
     uint16_t dropped;
     tx_vary_t vy;
+    uint8_t rk, rd, pad2[2];       /* this break's clicks: high-pass and decay shifts */
 } glass_t;
 
 static void set_param(glass_t *s, unsigned id, unsigned v)
@@ -108,7 +109,8 @@ static void glass_init(void *st, uint32_t seed)
     tx_cloud_burst(&s->cloud, 1, 0);
     tx_cloud_rate(&s->cloud, 0);
     tx_mallet_mix(&s->mal, 0);
-    s->mal.lm -= 326000;                                     /* a shard: ~30x lighter than the hammer row */
+    s->mal.lm -= 326000;
+    s->rk = 2; s->rd = 4;                                     /* a shard: ~30x lighter than the hammer row */
     s->limit = 12;
     for (i = 0; i < 2; i++) { s->floor[i].inc = (80u + i * 55u) * 97391u; s->floor[i].m16 = tx_mode_decay(80u + i * 55u, 64u, 0u); }
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
@@ -161,11 +163,16 @@ static void glass_break(glass_t *s, const tx_event_t *e)
 {
     tx_rng_t *r = &s->cloud.rng;
     unsigned n = 8u + ((uint32_t)s->p[P_ENERGY] * 40u >> 7), i, j, ringn = 0;
-    int32_t lmax_l2 = s->size_l2 - ((int32_t)e->note - 60) * 5461;
+    /* no two breaks alike (note 17: the references' per-event peak spread 2.3 octaves, ours 1.2): each pane breaks
+     * into its own largest pieces (sd 0.45 octave of size: 0.9 of pitch), and its cracks have their own edge */
+    int32_t lmax_l2 = s->size_l2 - ((int32_t)e->note - 60) * 5461
+                    + (int32_t)(((int64_t)tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng)) * 29491 >> 15);
     int32_t ve = 65536 + ((int32_t)e->vel - 100) * 1638;   /* log2 of the blow speed (2 m/s at v100) */
     uint32_t tc;
     int32_t er;
     tx_contact_hit(&s->mal, 65536, &tc, &er);
+    s->rk = (uint8_t)(1u + tx_rand_below(r, 3u));           /* the clicks' corner ~9 / 3.5 / 1.7 kHz (was 3.5) */
+    s->rd = (uint8_t)(3u + tx_rand_below(r, 3u));           /* their tau ~0.2 / 0.4 / 0.7 ms (was 0.4) */
     for (j = 0; j < n; j++) {
         shard_t *h = 0;
         int32_t l2, f_l2, hl2;
@@ -189,8 +196,8 @@ static void glass_break(glass_t *s, const tx_event_t *e)
                 for (k = 0; k < NMS; k++) {
                     if (k) f = (uint32_t)(((uint64_t)f * tx_exp2(31785 + (int32_t)tx_rand_below(r, 51000u) + (16 << 16))) >> 16);   /* x 1.4 .. 2.4 */
                     v->m[k].amp = 0; v->m[k].ph = 0;
-                    v->m[k].inc = f < 20000u ? f * 97391u : 0u;
-                    v->m[k].m16 = f < 20000u ? tx_mode_decay(f, s->q_x16, 179u) : 0u;
+                    v->m[k].inc = f < 15000u ? f * 97391u : 0u;   /* (modes over 15 kHz left out: the air */
+                    v->m[k].m16 = f < 15000u ? tx_mode_decay(f, s->q_x16, 179u) : 0u;   /* takes them; CPU) */
                 }
                 v->used = 1;
                 h->ring = (uint8_t)rv;
@@ -307,9 +314,9 @@ TX_AUDIO_CODE static void glass_render(void *st, int32_t *mix, unsigned n)
             e += s->bpush[j];
             if (!e) continue;
             x = (int32_t)(tx_rand(&s->cloud.rng) >> 17) - 16384;
-            x1 += (x - x1) >> 2;                             /* (a slight low-pass: ~3.5 kHz corner, then +6 dB/oct */
+            x1 += (x - x1) >> s->rk;                         /* (a slight low-pass: ~3.5 kHz corner, then +6 dB/oct */
             s->buf[j] += ((x - x1) * (e >> 12)) >> 3;        /* below it: bright, as the recordings' 16 kHz) */
-            e -= (e >> 4) + 1;
+            e -= (e >> s->rd) + 1;
             if (e < 0) e = 0;
         }
         s->res = e; s->res_x1 = e ? x1 : 0;

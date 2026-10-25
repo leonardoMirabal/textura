@@ -57,7 +57,8 @@ static const tx_param_t PARAMS[NP] = {
 #define NB 4u                      /* the crackle bank: two pairs (green / dry) */
 #define NEV 64u
 #define RANGE_L2 40795             /* 3 decades of energy: log2(10^3) Q12 (E33: 2-3; the recordings spread 5-7.6 dB) */
-#define HERO_L2 34816              /* the top ~5 % of the truncated law (8.5 octaves of 10) */
+#define HERO_BLK 3u                /* new heroes per block at most (their set-up is the cost) */
+#define HERO_L2 12000              /* the top ~44 % of the truncated law ring on their own (2.9 octaves of 10) */
 #define A_REF 21000                /* the largest crackle's amplitude, Q15 (calibrated by render) */
 #define DRY 96                     /* the dry click: Q15 x 96 -> Q23 (0.37 of the impulse; by the recordings' flat HF) */
 #define ROAR_G 2500                /* roar gain of one log fully burning at ROAR 127 (Q15, 0.27; by the recordings: */
@@ -181,27 +182,35 @@ static int32_t draw_size(fire_t *s)
     return x > RANGE_L2 ? RANGE_L2 : x;
 }
 
-static void pop(fire_t *s, unsigned o, int32_t a, unsigned note)
+/* a crackle's own ring (a hero): the piece of wood that cracks rings at its own pitch and damping. Pitch log-uniform
+ * over 0.7 .. 14 kHz (4.3 octaves; bigger cracks up to 0.8 octave lower, a key a quarter tone: a bigger log deeper),
+ * Q 4 .. 18 (log-uniform: a dull thock .. a ringing tick). Ours, from the campfire recordings' per-crackle centroid
+ * spread (0.8-2 octaves, note 17). Returns 0 when no hero is free (the crackle stays in the shared bank). */
+static int pop(fire_t *s, unsigned o, int32_t a, unsigned note, int32_t sz)
 {
     unsigned i, pick = NH;
+    int32_t l2;
     uint32_t f;
     for (i = 0; i < s->limit && pick == NH; i++) if (!s->hnum[i] && tx_ireso_quiet(&s->hero[i])) pick = i;
-    if (pick == NH) { s->dropped++; return; }
-    f = 2500u + tx_rand_below(&s->cloud.rng, 9500u);         /* 2.5 .. 12 kHz (ours) */
-    f = (uint32_t)(((uint64_t)f * tx_exp2(((int32_t)note - 60) * 2731 + (16 << 16))) >> 16);   /* a key: a quarter */
-    if (f > 16000u) f = 16000u;                               /* tone; lower = bigger log, deeper */
-    if (f < 1200u) f = 1200u;
-    tx_ireso_set(&s->hero[pick], f, 112);                    /* Q 7: a ~1.5 ms pop (ours) */
+    if (pick == NH) { s->dropped++; return 0; }
+    l2 = 619512 + (int32_t)tx_rand_below(&s->cloud.rng, 283116u)   /* log2(700) + 0 .. 4.32 oct */
+         - ((sz * 1316) >> 10)                                     /* the biggest 0.8 oct lower (sz / RANGE x 0.8 oct) */
+         + ((int32_t)note - 60) * 2731;
+    f = tx_exp2(l2);
+    if (f > 16000u) f = 16000u;
+    if (f < 900u) f = 900u;
+    tx_ireso_set(&s->hero[pick], f, tx_exp2((6 << 16) + (int32_t)tx_rand_below(&s->cloud.rng, 140000u)));   /* Q x 16: 64 .. 282 */
     s->hero[pick].g = 128;
     s->hero[pick].zlim = 64;
     s->hoff[pick] = (uint16_t)o; s->hamp[pick] = (int16_t)a; s->hnum[pick] = 1;
+    return 1;
 }
 
 TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
 {
     fire_t *s = (fire_t *)st;
     tx_rng_t *r = &s->cloud.rng;
-    unsigned k, i, j, ne = 0;
+    unsigned k, i, j, ne = 0, nh = 0;
     uint16_t d0 = s->dropped;
     int32_t heat = 0, any = 0, g;
     if (n > TX_BLOCK) n = TX_BLOCK;
@@ -230,22 +239,26 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
             /* no two crackles alike (note 14: the recordings' per-crackle centroid spreads 0.8-2 octaves, ours 0.35): the
              * fracture's own front (a click 1 .. 10 samples wide: flat to 16 kHz .. dull above ~4 kHz; bigger cracks
              * blunter) and how much of it the wood rings (the bank's share +-1 octave, sd) */
-            int32_t gb = tx_gauss_q12(r) * 16, bw;
+            int32_t gb = tx_gauss_q12(r) * 16, bw, dr;
             uint32_t w;
-            gb -= 45426;                                     /* (the power's mean kept: ln2 sd^2 octaves under) */
+            int own = sz >= HERO_L2 && nh < HERO_BLK && pop(s, e->offset, a, e->note, sz);   /* its own ring: the bank a */
+            nh += (unsigned)own;                             /* little (at most HERO_BLK new per block: CPU) */
+            gb -= 45426 + (own ? 2 << 16 : 0);                                     /* (the power's mean kept: ln2 sd^2 octaves under) */
             gb = gb > (2 << 16) ? (2 << 16) : gb < -(3 << 16) ? -(3 << 16) : gb;
             bw = (int32_t)tx_exp2(gb + (16 << 16));   /* Q16 */
             uint32_t q;
+            dr = tx_gauss_q12(r) * 16 - 22713;               /* and how dry its snap: +-1 octave (sd), power kept */
+            dr = dr > (2 << 16) ? (2 << 16) : dr < -(3 << 16) ? -(3 << 16) : dr;
+            dr = (int32_t)tx_exp2(dr + (12 << 16));          /* Q12 */
             w = 1u + tx_rand_below(r, 6u) + (sz > (RANGE_L2 * 3) / 4 ? tx_rand_below(r, 4u) : 0u);
             for (c = 0; c < nc && o < n && ne < NEV; c++) {
-                int32_t sa = (tx_rand(r) & 1u) ? aa : -aa, sb = (int32_t)(((int64_t)sa * bw) >> 16), d = (sa * DRY) / (int32_t)w;
+                int32_t sa = (tx_rand(r) & 1u) ? aa : -aa, sb = (int32_t)(((int64_t)sa * bw) >> 16), d = (((sa * DRY) >> 6) * dr >> 6) / (int32_t)w;
                 s->off[ne] = (uint16_t)o; s->amp[ne] = (int16_t)(sb > 32767 ? 32767 : sb < -32767 ? -32767 : sb); ne++;
                 for (q = 0; q < w && o + q < n; q++) s->buf[o + q] += d;   /* the click itself (to 16 kHz in the refs) */
                 o += 13u + tx_rand_below(r, 40u);
                 aa = aa * 19661 >> 15;
             }
         }
-        if (sz >= HERO_L2) pop(s, e->offset, a, e->note);
     }
     for (i = 0; i < NLOG; i++) {                             /* the logs' heat -> the roar */
         log_t *lg = &s->lg[i];

@@ -12,15 +12,24 @@
  * Keys: a press = one shake / step (energy ~ velocity^2), held = steps at RATE. Each key is a grain size class
  * (d at C4 = SIZE, 2^(1/24) smaller per semitone up); each sounding key is one SHAKER voice (PARTICLES voices).
  * Ours: per-collision level ~ d (heavier stones click louder); GROUND = a shared pair of low box modes (230 / 610 Hz,
- * Q 4-12) for a container or a wooden floor, 0 = open ground. */
+ * Q 4-12) for a container or a wooden floor, 0 = open ground.
+ * No two steps alike (note 17: the gravel references' per-step centroid spreads ~1.8 octaves, ours was 0.19): each
+ * step lands on its own patch (grain size +-1.2 octaves), its collisions also rock the patch's bigger stones and the
+ * bed under them (one two-pole body at 0.5 .. 2.5 kHz, Q 2 .. 6, its share +-1 octave per step) and the foot or the
+ * falling stones thud on the ground (60 .. 160 Hz, Q ~2, its share +-1 octave): a crunch, a thud, a rattle, each step
+ * its own mix (ours, from the references' 1.4 kHz crunch with a low body). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_shaker.h"
 #include "tx_core_noise.h"
+#include "tx_core_insect.h"
+#include "tx_core_modal.h"
+#include "tx_core_chorus.h"
 
-#define OUT_TRIM 14702               /* output gain, Q12 (+9.8 dB): integrated (a key held 10 s): -39.5 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 9720                /* output gain, Q12 (+6.2 dB; -3.6 dB with each step's body and thud, note 17, the
+                                    * preset's loudness at INTENSITY 64 kept): integrated (a key held 10 s): -39.5 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -48,6 +57,8 @@ static const tx_param_t PARAMS[NP] = {
 #define L2_F15 829494              /* log2(6460 Hz), Q16 */
 #define L2_D15 256034              /* log2(15 mm), Q16 */
 #define BASE_L2 152000             /* collision gain at 15 mm: 2^2.32 = 5.0 (calibrated by render) */
+#define BODY_L2 (6 << 16)          /* the body's gain (Q8: x 0.25) (by render: ours) */
+#define THUD_L2 (11 << 16)         /* the thud's amplitude per unit of step energy (by render: ours) */
 
 TX_AUDIO_DATA static const uint16_t GROUND_HZ[NG] = { 230, 610 };
 
@@ -72,6 +83,13 @@ typedef struct {
     int32_t vary;
     uint16_t dropped;
     tx_vary_t vy;
+    int32_t exc[TX_BLOCK];         /* the collisions' raw impulses (all voices) */
+    uint16_t bo[TX_BLOCK];         /* and as a list for the body */
+    int16_t ba[TX_BLOCK];
+    tx_ireso_t body;               /* the patch's bigger stones and bed, retuned per step */
+    tx_mode_t thud[2];             /* the ground under the step (alternating) */
+    int32_t bsh;                   /* the body's share now (Q8 gain) */
+    uint8_t tk, pad2[3];
 } gravel_t;
 
 static void set_param(gravel_t *s, unsigned id, unsigned v)
@@ -163,7 +181,7 @@ static void shake(gravel_t *s, const tx_event_t *e)
         int32_t tn = tx_vary_tone(&s->vy);                   /* the press's character: brighter = finer, */
         /* no two steps alike (note 14: the references' per-event centroid spread 0.2-1.8 octave, ours 0.15): each
          * step lands on its own patch of stones (+-0.35 octave of size, triangular), a little longer or shorter */
-        int32_t js = ((tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng)) * 7) / 10;   /* +-0.7 oct, sd ~0.29 */
+        int32_t js = ((tx_rand_s15(&s->cloud.rng) + tx_rand_s15(&s->cloud.rng)) * 6) / 5;   /* +-1.2 oct, sd ~0.49 */
         d_l2 = s->size_l2 - ((int32_t)e->note - 60) * 2731 - tn + js;   /* at the same level (playable) */
         if (d_l2 < -65536) d_l2 = -65536;                    /* 0.5 .. 64 mm */
         if (d_l2 > 393216) d_l2 = 393216;
@@ -176,7 +194,8 @@ static void shake(gravel_t *s, const tx_event_t *e)
         tx_shaker_objects(&v->sh, s->n_q4,
                           (int32_t)(((uint64_t)tx_exp2(BASE_L2 + amp_l2 + (11 << 16)) * (uint32_t)s->level) >> 15));
         {
-            int32_t jt = tx_rand_s15(&s->cloud.rng) / 4;     /* the shake's length +-1/8 octave */
+            int32_t jt = tx_gauss_q12(&s->cloud.rng) * 8;     /* the step's length: sd 1/2 octave (refs: CV 0.75) */
+            jt = jt > (3 << 15) ? (3 << 15) : jt < -(3 << 15) ? -(3 << 15) : jt;
             tx_shaker_decay(&v->sh, (uint32_t)(((uint64_t)s->t60 * tx_exp2(jt + (16 << 16))) >> 16), 32113);
         }
         tx_shaker_vary(&v->sh, s->vary);
@@ -187,6 +206,24 @@ static void shake(gravel_t *s, const tx_event_t *e)
         uint32_t ev = (uint32_t)e->vel * e->vel * 1040u;
         ev = (uint32_t)(((uint64_t)ev * tx_exp2(tx_rand_s15(&s->cloud.rng) / 2 + (16 << 16))) >> 16);
         tx_shaker_shake(&v->sh, (int32_t)(ev > 0x7FFFFFFFu ? 0x7FFFFFFFu : ev));
+        {   /* the patch's body and the ground's thud, this step's own */
+            tx_rng_t *r = &s->cloud.rng;
+            int32_t sh = tx_gauss_q12(r) * 16, a;
+            uint32_t f;
+            sh = sh > (1 << 16) ? (1 << 16) : sh < -(2 << 16) ? -(2 << 16) : sh;   /* (up 1 octave at most: headroom) */
+            f = tx_exp2(587630 + (int32_t)tx_rand_below(r, 152170u) - ((int32_t)e->note - 60) * 2731);   /* 0.5 .. 2.5 kHz */
+            tx_ireso_set(&s->body, f > 8000u ? 8000u : f, 32u + tx_rand_below(r, 64u));             /* Q 2 .. 6 */
+            s->bsh = (int32_t)tx_exp2(sh + BODY_L2);
+            sh = tx_gauss_q12(r) * 16;
+            sh = sh > (1 << 16) ? (1 << 16) : sh < -(3 << 16) ? -(3 << 16) : sh;
+            s->tk ^= 1u;
+            f = 60u + tx_rand_below(r, 100u);
+            s->thud[s->tk].inc = f * 97391u;
+            s->thud[s->tk].m16 = tx_mode_decay(f, 32u, 0u);
+            a = (int32_t)(((int64_t)(int32_t)(ev >> 8) * (int32_t)tx_exp2(sh + THUD_L2)) >> 16);
+            a = (int32_t)(((int64_t)a * s->level) >> 15);
+            tx_mode_strike(&s->thud[s->tk], (tx_rand(r) & 1u) ? a : -a);
+        }
     }
 }
 
@@ -197,15 +234,25 @@ TX_AUDIO_CODE static void gravel_render(void *st, int32_t *mix, unsigned n)
     int32_t *buf = s->buf;
     uint16_t d0 = s->dropped;
     if (n > TX_BLOCK) n = TX_BLOCK;
-    for (j = 0; j < n; j++) buf[j] = 0;
+    for (j = 0; j < n; j++) buf[j] = s->exc[j] = 0;
     k = tx_cloud_block(&s->cloud, s->ev, n);
     for (i = 0; i < k; i++) shake(s, &s->ev[i]);             /* (block-accurate: the shake starts with the block) */
     for (i = 0; i < NV; i++) {
         voice_t *v = &s->v[i];
         if (!v->alive) continue;
-        tx_shaker_add(&v->sh, buf, n);
+        tx_shaker_add_exc(&v->sh, buf, s->exc, n);
         if (tx_shaker_quiet(&v->sh)) { v->alive = 0; v->em = 0xFF; }
     }
+    {   /* the patch's body: the collisions' impulses into its two-pole (Q15 impulses, the larger clipped) */
+        unsigned m = 0;
+        for (j = 0; j < n; j++) if (s->exc[j]) {
+            int32_t x = s->exc[j] >> 9;
+            s->bo[m] = (uint16_t)j; s->ba[m] = (int16_t)(x > 32767 ? 32767 : x < -32767 ? -32767 : x); m++;
+        }
+        s->body.g = s->bsh;
+        tx_ireso_add(&s->body, s->bo, s->ba, m, buf, n);
+    }
+    tx_modal_run(s->thud, 2, buf, 0, n);
     /* ground / box modes on the sum (shared bank helper, unit-peak modes) */
     if (s->gwet) {
         int32_t g[NG];
@@ -222,6 +269,8 @@ TX_AUDIO_CODE static void gravel_render(void *st, int32_t *mix, unsigned n)
         int32_t z = s->dc.v | s->hp.x1 | s->hp.y1;
         for (i = 0; i < NV; i++) z |= s->v[i].alive;
         z |= !tx_svf_bank_quiet(s->ground, NG);
+        z |= !tx_ireso_quiet(&s->body);
+        z |= s->thud[0].amp | s->thud[1].amp;
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }
 }
