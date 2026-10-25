@@ -7,13 +7,16 @@
 #define L2_1K 653118                /* log2(1000), Q16 */
 
 /* mean pause between bouts at the middle of the fader (0.1 s), base pitches (log2 Hz Q16) */
-const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES] = { 60, 80, 220, 200, 1500, 50, 90, 70, 50, 60, 80, 150 };
+const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES] = { 60, 80, 220, 200, 1500, 50, 90, 70, 50, 60, 80, 150, 80, 100, 250 };
 const int32_t TX_BIRD_F0[TX_BIRD_TYPES] = { 731868, 771564, 596593, 641031, 666332,   /* 2.3, 3.5, 0.55, 0.88, 1.15 kHz */
-                                            731868, 771564, 750467, 781796, 805288, 768824, 779340 };
-                                            /* 2.3, 3.5, 2.8, 3.9, 5.0, 3.4, 3.8 kHz */
+                                            731868, 771564, 750467, 781796, 805288, 768824, 779340,
+                                            756990, 753784, 708692 };
+                                            /* 2.3, 3.5, 2.8, 3.9, 5.0, 3.4, 3.8, 3.0, 2.9, 1.8 kHz */
 
-enum { ST_BLACKBIRD, ST_THRUSH, ST_NIGHTINGALE, ST_ROBIN, ST_WREN, ST_HERMIT, ST_SKYLARK, ST_FINCH, ST_CROW, ST_OWL, ST_GULL };
-enum { C_WHISTLE, C_NOTE, C_TRILL, C_HARSH, C_INTRO, C_SWEEP, C_CAW, C_HOOT, C_TREM, C_GLONG, C_KYOW, C_CHIRP, C_FLOURISH };
+enum { ST_BLACKBIRD, ST_THRUSH, ST_NIGHTINGALE, ST_ROBIN, ST_WREN, ST_HERMIT, ST_SKYLARK, ST_FINCH, ST_CROW, ST_OWL, ST_GULL,
+       ST_WOODTHRUSH, ST_WARBLER, ST_CURLEW };
+enum { C_WHISTLE, C_NOTE, C_TRILL, C_HARSH, C_INTRO, C_SWEEP, C_CAW, C_HOOT, C_TREM, C_GLONG, C_KYOW, C_CHIRP, C_FLOURISH,
+       C_CURLEE, C_BUBBLE, C_RISE, C_FALL };
 #define SYL(c, i) ((uint16_t)(((unsigned)(c) << 11) | ((unsigned)(i) & 2047u)))
 
 /* the species: numbers from the references where measured (note 15: 10-90 % of the syllables' pitch, lengths,
@@ -55,14 +58,23 @@ static const sp_t SP[TX_BIRD_TYPES] = {
     /* 9 wren: loud fast trills 3.5-8 kHz (11-20 /s), a few song types each bird repeats before switching */
     {ST_WREN, -3200, 3000, 15, 100, 60, 120, 1200, 150, 20, 32, 6, 2, 5, 1500, 5000, 1, 40, 3, 0, 0, 300},
     /* 10 hermit thrush: a long pure note, then a flute-like cascade above it, two voices; each song at a new pitch */
-    {ST_HERMIT, -1300, 1200, 15, 60, 200, 350, 300, 60, 150, 20, 10, 3, 10, 1800, 4500, 1, 56, 6, 0, 0, 200},
+    {ST_HERMIT, -2000, 1200, 15, 60, 200, 350, 300, 60, 150, 20, 10, 3, 10, 1800, 4500, 1, 56, 6, 0, 0, 200},
     /* 11 skylark: endless warbling 2.6-5.1 kHz, ~11 syllables /s, glides, rolling buzzes */
     {ST_SKYLARK, -2600, 1700, 15, 100, 80, 180, 1600, 140, 30, 48, 24, 30, 120, 20, 110, 1, 44, 4, 0, 0, 350},
+    /* 12 wood thrush: soft low notes, a loud fluted phrase (a few types per bird), a high two-voice trill; 2.0-5.9 kHz */
+    {ST_WOODTHRUSH, -2400, 4000, 15, 50, 50, 140, 600, 120, 120, 24, 5, 6, 20, 400, 1500, 1, 52, 6, 0, 0, 200},
+    /* 13 reed warbler: an endless chatter of scratchy and whistled syllables, each repeated 2-4 times; 2.3-5.8 kHz.
+     * Some birds sedge-like: fewer repeats, buzzy trills; refs 2.2-5.5 kHz, ~10-12 syllables /s, phrases 0.2-1 s */
+    {ST_WARBLER, -2000, 3000, 15, 70, 60, 150, 1400, 200, 30, 40, 24, 20, 80, 150, 700, 1, 40, 4, 0, 0, 600},
+    /* 14 curlew: rising "cour-lee" calls in series, or the bubbling song: long rising notes (0.5-0.8 s, +0.5 oct from
+     * ~1.5 kHz), a run of shorter rising ones with fast bubbling between, long falling notes to end (refs 1.4-2.2 kHz);
+     * a long trachea, nearly pure */
+    {ST_CURLEW, -1200, 1600, 450, 800, 40, 90, 2000, 60, 0, 8, 4, 2, 6, 1200, 3500, 1, 40, 20, 0, 0, 300},
 };
 
 /* each type's level (Q6), by render: the songs' levels spread downward from 0 dB (as the references'), the presets at
  * the fader's middle where they were */
-static const uint8_t TRIM[TX_BIRD_TYPES] = { 150, 150, 100, 90, 83, 180, 120, 150, 150, 130, 100, 150 };
+static const uint8_t TRIM[TX_BIRD_TYPES] = { 150, 150, 100, 90, 83, 180, 120, 150, 150, 130, 100, 150, 150, 140, 150 };
 
 static uint32_t mix(uint32_t a, uint32_t b)
 {
@@ -145,6 +157,22 @@ static void syl_make(tx_bird_voice_t *v)
     case C_CHIRP:
         len_ms = rb(&r, 25, 90); rel = rs(&r, -1200, 1000); df = rs(&r, -800, 800); arch = rs(&r, 800, 1600);
         k0 = rs(&r, 60, 100); k1 = rs(&r, 60, 100); amp = rs(&r, 110, 255);
+        break;
+    case C_CURLEE:                                           /* the curlew's "cour-lee": a slow rising whistle */
+        len_ms = rb(&r, S->dlo, S->dhi); rel = S->flo + rs(&r, 0, span / 3); df = rs(&r, 1400, 2400); arch = rs(&r, -400, 400);
+        k0 = rs(&r, 10, S->kmax); k1 = rs(&r, 0, S->kmax / 2); amp = lvl(&r, 6);
+        break;
+    case C_RISE:                                             /* the song's shorter rising notes */
+        len_ms = rb(&r, 150, 400); rel = S->flo + rs(&r, span / 6, span / 2); df = rs(&r, 800, 1800); arch = rs(&r, -300, 300);
+        k0 = rs(&r, 0, S->kmax); k1 = rs(&r, 0, S->kmax / 2); amp = lvl(&r, 8);
+        break;
+    case C_FALL:                                             /* its long falling end */
+        len_ms = rb(&r, 400, 800); rel = S->flo + rs(&r, span / 3, span * 2 / 3); df = rs(&r, -1100, -400); arch = rs(&r, 0, 400);
+        k0 = rs(&r, 0, S->kmax / 2); k1 = rs(&r, 0, S->kmax / 2); amp = lvl(&r, 6);
+        break;
+    case C_BUBBLE:                                           /* a bubbling unit: short, rising */
+        len_ms = rb(&r, S->llo, S->lhi); rel = S->flo + rs(&r, span / 4, span * 3 / 4); df = rs(&r, 700, 1600); arch = rs(&r, -300, 300);
+        k0 = rs(&r, 0, S->kmax); k1 = rs(&r, 0, S->kmax); amp = lvl(&r, 6);
         break;
     default:                                                 /* C_FLOURISH: the chaffinch's terminal flourish */
         len_ms = rb(&r, S->llo, S->lhi); rel = 1638; df = rs(&r, -4600, -3400); arch = rs(&r, 400, 1000);
@@ -314,9 +342,47 @@ static void phrase_start(tx_bird_voice_t *v)
             return;
         } else {                                             /* a chaffinch: 2-3 falling trills and the flourish */
             for (m = rb(&pr, 2, 3), i = 0; i < m; i++)
-                seg(v, SYL((tx_rand(&pr) & 1u) ? C_TRILL : C_NOTE, rb(&pr, 0, ns - 1u)), vary_n(v, rb(&pr, 4, 10)), rb(&pr, 20, 60),
+                seg(v, SYL((mix(v->seed, 11u) & 1u) ? ((tx_rand(&pr) & 1u) ? C_SWEEP : C_NOTE) : ((tx_rand(&pr) & 1u) ? C_TRILL : C_NOTE), rb(&pr, 0, ns - 1u)), vary_n(v, rb(&pr, 4, 10)),
+                    (mix(v->seed, 11u) & 1u) ? rb(&pr, 45, 100) : rb(&pr, 20, 60),   /* (half the birds trill slower) */
                     lvl(&v->rng, 12), rb(&v->rng, 90, 255), 20 - (int32_t)i * 18 + rs(&pr, -3, 3));   /* each trill its own level, swelling */
             seg(v, SYL(C_FLOURISH, rb(&pr, 0, ns - 1u)), 1, 0, 255, 255, 0);
+        }
+        break;
+    case ST_WOODTHRUSH:                                      /* soft low notes, the fluted phrase, a high trill */
+        pid = pick(v, S->nphr);
+        tx_rng_seed(&pr, mix(v->seed, 0x5000u + pid));
+        v->plev = (int16_t)rs(&pr, -150, 150);
+        if (tx_rand_below(&v->rng, 4u)) seg(v, SYL(C_NOTE, rb(&pr, 0, ns - 1u)), rb(&v->rng, 1, 3), rb(&v->rng, 60, 120), lvl(&v->rng, 6) / 3, 255, -16);
+        for (m = rb(&pr, 2, 4), i = 0; i < m; i++) seg(v, SYL(C_WHISTLE, rb(&pr, 0, ns - 1u)), 1, rb(&pr, 20, 50), 255, 255, 0);
+        seg(v, fresh(v, C_TRILL), rb(&v->rng, 6, 14), rb(&v->rng, 6, 15), lvl(&v->rng, 6) / 2, 255, rs(&v->rng, 8, 16));
+        break;
+    case ST_WARBLER:                                         /* chatter: syllables in 2-4 x repeats; sedge-like: buzzes */
+        {
+            int sedge = (mix(v->seed, 13u) & 3u) == 0u;
+            unsigned fr = tx_rand_below(&v->rng, 10u) < 3u;
+            uint32_t sd = tx_rand(&v->rng);
+            if (fr) tx_rng_seed(&pr, sd); else tx_rng_seed(&pr, mix(v->seed, 0x5000u + pick(v, S->nphr)));
+            v->plev = (int16_t)rs(&pr, -150, 150);
+            for (m = rb(&pr, 1, 4), i = 0; i < m; i++) {
+                unsigned c = tx_rand_below(&pr, 20u), cls = c < 7u ? C_HARSH : c < 13u ? C_NOTE : c < 17u ? C_TRILL : C_SWEEP;
+                unsigned id = fr ? 256u + rb(&pr, 0, 1791u) : rb(&pr, 0, ns - 1u);
+                if (sedge && cls == C_HARSH && (tx_rand(&pr) & 3u) == 0u) seg(v, SYL(C_HARSH, id), rb(&v->rng, 8, 20), rb(&v->rng, 8, 20), 200, 255, 0);
+                else seg(v, SYL(cls, id), sedge ? rb(&v->rng, 1, 2) : rb(&v->rng, 2, 4), rb(&v->rng, 35, 80), lvl(&pr, 10), 255, 0);
+            }
+        }
+        break;
+    case ST_CURLEW:                                          /* calls in series, or the bubbling song */
+        v->plev = (int16_t)rs(&v->rng, -150, 150);
+        if (tx_rand_below(&v->rng, 20u) < 13u)
+            seg(v, SYL(C_CURLEE, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 1, 2), rb(&v->rng, 300, 500), lvl(&v->rng, 9), 255, 0);
+        else {
+            tx_rng_seed(&pr, mix(v->seed, 0x5000u + tx_rand_below(&v->rng, S->nphr)));
+            seg(v, SYL(C_CURLEE, rb(&pr, 0, ns - 1u)), rb(&v->rng, 1, 3), rb(&v->rng, 150, 400), lvl(&v->rng, 8), 255, -4);
+            for (m = rb(&pr, 2, 4), i = 0; i < m; i++) {     /* rising notes, bubbling between */
+                seg(v, SYL(C_RISE, rb(&pr, 0, ns - 1u)), vary_n(v, rb(&pr, 1, 4)), rb(&pr, 30, 120), lvl(&v->rng, 8), 255, rs(&pr, -2, 4));
+                if (tx_rand(&pr) & 1u) seg(v, SYL(C_BUBBLE, rb(&pr, 0, ns - 1u)), vary_n(v, rb(&pr, 4, 14)), rb(&pr, 8, 25), lvl(&v->rng, 8), rb(&pr, 90, 200), 2);
+            }
+            seg(v, SYL(C_FALL, rb(&pr, 0, ns - 1u)), rb(&v->rng, 1, 2), rb(&v->rng, 200, 450), lvl(&v->rng, 6), 255, 0);
         }
         break;
     case ST_CROW:
@@ -430,6 +496,9 @@ static const struct {
     {6, 1, 4, 1, 80, 150, 1000, 4000, 8},   /* wren */
     {4, 1, 3, 1, 50, 100, 1500, 5000, 8},   /* hermit thrush */
     {6, 1, 4, 0, 40, 100, 1500, 5000, 12},   /* skylark: overhead, they overlap */
+    {4, 1, 3, 1, 60, 120, 1500, 5000, 8},    /* wood thrush */
+    {6, 1, 4, 1, 40, 90, 1500, 5000, 8},     /* reed warbler: neighbours in the reeds */
+    {6, 1, 3, 0, 80, 160, 500, 3000, 24},    /* curlew: calls answered across the mud */
 };
 
 unsigned tx_bird_want(unsigned type, int32_t act)
