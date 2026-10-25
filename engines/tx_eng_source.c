@@ -183,7 +183,8 @@ static const clu_pre_t CLU[NPRE] = {
  * individuals past them are its far callers (FIELD, where it has one). Where each held key is an individual (bees: a singer;
  * fire: a log), the source holds down one key per individual COUNT asks for, at most k127 (<= 8, a few semitones
  * apart): more keys, more of them, coming one at a time; COUNT past them moves the first curve k64 knob units a
- * doubling (a fire: its logs burn livelier). k0 & 2: held in bouts below INTENSITY 64 (host_gate). With k0 & 1, a
+ * doubling (a fire: its logs burn livelier). k0 & 2: held in bouts below INTENSITY 64 (host_gate). k0 & 4: each
+ * key a crack of its own: the extras come at an engine's own pace (exponential, mean 2 s), not ~0.2 s apart. With k0 & 1, a
  * held key, picked at random, is pressed afresh after
  * 3 s + an exponential wait (mean 7 s; no clock): a singer leaves and a new one comes with the parameters of now (these engines read them at a press; a
  * fire's logs just burn: a press there would throw a new log on, its burst louder than the fire it lands in). */
@@ -218,14 +219,14 @@ static const host_t HOST[] = {
     /* sand: a trickle of grains through a narrow neck .. a pour .. a heavy pour from higher, pulsing */
     {"sand", -37, -37, -37, {{"ORIFICE", 20, 50, 115}, {"HEIGHT", 30, 50, 90}, {"PULSE", 0, 0, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 16, 2, 0, 0, 0, 0},
     /* gravel: a few stones now and then .. footsteps on gravel .. a slide (many stones, long rattles) */
-    {"gravel", 16, 16, 16, {{"AMOUNT", 20, 64, 120}, {"RATE", 20, 59, 110}, {"SHAKE", 20, 30, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 16, 4, 0, 0, 0, 0},
+    {"gravel", 16, 16, 16, {{"RATE", 20, 59, 110}, {"AMOUNT", 20, 64, 120}, {"SHAKE", 20, 30, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 16, 4, 0, 0, 0, 0},
     /* katydids (COUNT: the engine's own, up to 16; they come and go on their own): a call now and then on a cold
      * night .. singing on, warm, falling into step */
     {"katydids", 0, 0, 0, {{"ACTIVITY", 0, 64, 127}, {"TEMP", 40, 76, 90}, {"SYNC", 40, 50, 64}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* bees: one bee wandering farther off, slower .. one at its ease .. a swarm of 8 close by */
-    {"bees", -45, -45, -45, {{"SWARM", 0, 0, 64}, {"DIST", 90, 50, 30}, {"SPEED", 40, 64, 80}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 3, 0, 4, 0, 0, 0, 0},
+    {"bees", -45, -45, -45, {{"SWARM", 0, 0, 64}, {"DIST", 90, 50, 30}, {"SPEED", 40, 64, 80}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 3, 10, 4, 0, 0, 0, 0},
     /* ice: an icicle breaking off now and then .. icicles falling every few seconds, more chunks each */
-    {"ice", 175, 175, 100, {{"AMOUNT", 20, 64, 127}, {"FIZZ", 10, 20, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+    {"ice", 175, 175, 100, {{"AMOUNT", 20, 64, 127}, {"FIZZ", 10, 20, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0,
      300, 70, 3, 1},                /* (the top: a pile of icicles shattering, 3-5 breaks/s as the references) */
     /* wood: a branch taken and bent now and then, creaking .. load building faster, snapping every few seconds */
     {"wood", -35, -35, -35, {{"LOAD", 110, 40, 0}, {"CREAK", 15, 25, 30}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
@@ -234,24 +235,24 @@ static const host_t HOST[] = {
     {"minerals", -40, -40, -40, {{"HOLD", 50, 36, 30}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
      100, 12, 2, 1},
     /* glass: a pane cracking now and then .. smashing every few seconds, harder */
-    {"glass", 0, 0, 0, {{"ENERGY", 60, 100, 127}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+    {"glass", 0, 0, 0, {{"ENERGY", 60, 100, 127}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 8, 0,
      400, 90, 3, 1},                /* (the top: a pane collapsing, 4-5 breaks/s) */
     /* the family members TYPE reaches (FAM below; note 16): */
     /* rain on surfaces (rain): drizzle on a roof .. a downpour, bigger drops */
     {"rainsurf", -10, -10, -10, {{"RATE", -20, 60, 120}, {"DROPS", 40, 64, 110}, {"AREA", -20, 50, 50}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 16, 4, 0, 0, 0, 0},
     /* lake ice (ice): a crack now and then .. a lake singing and booming */
-    {"lakeice", -30, -30, -30, {{"RATE", 8, 34, 90}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 16, 4, 0, 0, 0, 0},
+    {"lakeice", -30, -30, -30, {{"RATE", 8, 34, 90}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 4, 16, 4, 0, 0, 0, 0},
     /* rolling balls and marbles (gravel): a ball pushed now and then .. marbles rolling about */
     {"pebble", -5, -5, -5, {{"SPEED", 40, 64, 96}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 0, 0,
      60, 20, 6, 0},
     /* a flame without crackle (fire): a candle .. a gas burner roaring in a draught */
-    {"candle", 30, 30, 30, {{"FLOW", 5, 15, 90}, {"DRAUGHT", 5, 20, 70}, {"SPUTTER", 30, 100, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 0, 8, 0, 0, 0, 0},
+    {"candle", 30, 30, 30, {{"FLOW", 5, 15, 90}, {"DRAUGHT", 5, 20, 70}, {"SPUTTER", 30, 100, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 8, 8, 0, 0, 0, 0},
     /* singing dunes (sand): a slip below the threshold .. a booming avalanche */
     {"sandsong", 0, 0, 0, {{"FLOW", 60, 100, 127}, {"STEADY", 50, 100, 127}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 8, 2, 0, 0, 0, 0},
     /* stone friction (minerals): a slow rub .. scraping hard and fast */
     {"mineral", -45, -45, -45, {{"SPEED", 30, 64, 100}, {"PRESSURE", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 8, 2, 0, 0, 0, 0},
     /* rockfall (stones): a fall now and then .. falls every few seconds, bigger */
-    {"rockfall", 80, 80, 80, {{"VOLUME", 0, 64, 110}, {"FRAG", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+    {"rockfall", 80, 80, 80, {{"VOLUME", 0, 64, 110}, {"FRAG", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0,
      300, 100, 60, 1},
     /* ringing rocks (stones): a boulder struck now and then .. struck quickly */
     {"stonedrum", -50, -50, -50, {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
@@ -1401,7 +1402,7 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
     if (s->hd->k127) {                                       /* the keys held: more singers */
         unsigned want = s->hon ? (unsigned)clampi((int32_t)count_n(s), 1, s->hd->k127 > 8 ? 8 : s->hd->k127) : 0u;   /* (COUNT: one key an individual) */
         if (s->hkeys <= 1) s->hbase = s->note;               /* (the extras keep the note they were pressed from) */
-        if (s->hkeys && s->hkeys < want && !tx_rand_below(&s->rng, 32u)) {   /* one at a time (~0.2 s apart: logs */
+        if (s->hkeys && s->hkeys < want && !tx_rand_below(&s->rng, (s->hd->k0 & 4u) ? 344u : 32u)) {   /* one at a time (~0.2 s apart: logs */
             s->hst->key(s->host, (uint8_t)(s->hbase + HOST_KEYS[s->hkeys]), s->vel, 1);   /* thrown on together */
             s->hkeys++;                                      /* would crack at once) */
         }
@@ -1423,7 +1424,8 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
         if (!i && s->hd->k64) {                              /* COUNT past the keys: each doubling more on the first */
             int32_t kb = s->hd->k127 >= 8 ? 63 : s->hd->k127 >= 4 ? 42 : s->hd->k127 >= 2 ? 21 : 0;   /* curve (the */
             int32_t over = (int32_t)s->p[P_COUNT] - 1 - kb;                                         /* keys' 21 log2) */
-            if (over > 0) v += (over * s->hd->k64) / 21;
+            if (s->hd->e64) over -= 63;                      /* (an event engine's curves are its 8: fewer, less) */
+            if (over > 0 || s->hd->e64) v += (over * s->hd->k64) / 21;
         }
         for (j = 0; j < HOST_NK; j++) if (s->kcur[j] == (int8_t)i) v += kmap_off(s, j);
         v = clampi(v, 0, 127);
