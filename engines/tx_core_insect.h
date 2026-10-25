@@ -54,6 +54,9 @@ void tx_ireso_set(tx_ireso_t *r, uint32_t f_hz, uint32_t q_x16);
 TX_AUDIO_CODE void tx_ireso_add(tx_ireso_t *r, const uint16_t *off, const int16_t *imp, unsigned nimp, int32_t *out,
                                 unsigned n);
 static inline int tx_ireso_quiet(const tx_ireso_t *r) { return !(r->y1 | r->y2 | r->p1 | r->p2); }
+/* two resonators on the same impulses, one pass (the same as tx_ireso_add on each; their input states stay equal) */
+TX_AUDIO_CODE void tx_ireso_add2(tx_ireso_t *r, tx_ireso_t *q, const uint16_t *off, const int16_t *imp, unsigned nimp,
+                                 int32_t *out, unsigned n);
 
 /* TYMBAL (the cicada, N4-N6): rib impulses into a tymbal resonance whose pitch glides down within each click (a1
  * moves linearly per sample from the click's start value toward a1_end: the buckling tymbal's 5.5 -> 4.3 kHz and

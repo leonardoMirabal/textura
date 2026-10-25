@@ -1,8 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura #29 Katydids / grasshoppers: stridulation, tooth by tooth (INSECT + CHORUS cores).
  *
- * A key press puts a singer (and CHORUS companions farther out) in the grass; holding keeps it calling; release lets
- * it finish its call. Two families:
+ * A population in the grass (POP core, tx_core_pop.h): while a key is held COUNT singers are out there, the first at
+ * the key, the others farther out on an area law, each its own distance, carrier, period, syllables and file; each
+ * sings in bouts and pauses of its own (ACTIVITY: a call or two now and then .. on and on), never faster than its
+ * temperature; now and then one leaves after a bout and a new one comes. COUNT 0: a singer per key held (released: it
+ * finishes its call). A key while all are there: the one nearest the key in a pause sings now. Two families:
  *   katydid      (N8, N8c) one decaying oscillation of the wing per tooth strike: regular strikes give a tone,
  *                uneven ones a broadband rasp. The escapement sets one strike per carrier cycle; JITTER is the SD of
  *                the strike interval. Panacanthus: 5.0 kHz, wing Q 16-17, 226 cycles per call (N8c); its upper
@@ -25,6 +28,7 @@
 #include "tx_core_cloud.h"
 #include "tx_core_insect.h"
 #include "tx_core_chorus.h"
+#include "tx_core_pop.h"
 
 #define OUT_TRIM 6420                /* output gain, Q12 (-6 dB with note 17's steadier presses and longer syllables; -2.5 dB step 6, longer syllables; +1.6 dB with the spectrogram fixes, session 5; +8.5 dB): integrated (a key held 10 s): -34.5 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
@@ -38,22 +42,24 @@
 #define VARY_DRIFT 60
 #define VARY_SPLIT 0
 
-enum { P_SPECIES, P_JITTER, P_PEGS, P_TEMP, P_CHORUS, P_SYNC, P_DIST, NP };
+enum { P_SPECIES, P_JITTER, P_PEGS, P_TEMP, P_COUNT, P_SYNC, P_DIST, P_ACT, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"SPECIES", 127, 0, "true katydid rasp 4.5 kHz | katydid Panacanthus 5 kHz (tonal) | grasshopper C. biguttulus 6.6 kHz | C. brunneus 9.7 kHz"},
     {"JITTER", 127, 12, "strike timing SD: 0 .. 50 % of an interval: a pure tone .. a broadband rasp"},
     {"PEGS", 127, 50, "grasshoppers: peg impacts within a pulse 1.5 .. 6 kHz (log; N30 >= 1.5 kHz)"},
     {"TEMP", 127, 76, "temperature 10 .. 35 C: call and syllable rhythm (Q10 2); the spectrum stays"},
-    {"CHORUS", 127, 0, "companions per key: 0 .. 7 singers farther out"},
+    {"COUNT", 16, 0, "singers in the grass while a key is held: 0 = one per key held .. 16 (the first at the key, the others farther out on an area law, each its own distance, carrier and period)"},
     {"SYNC", 127, 64, "reset by neighbours s: 0 free .. 0.5 alternate .. 1 synchrony"},
     {"DIST", 127, 40, "distance at velocity 100: 0.3 .. 30 m (log): level 1 / r"},
+    {"ACTIVITY", 127, 100, "how much each one sings: a call or two now and then (bouts ~3 s, pauses ~15 s) .. all the time (bouts ~1 min, pauses ~1 s); never faster: the rhythm is its own"},
 };
 
 #define NV 16u
 #define NSP 4u
 #define NEV 96u                    /* strikes per voice per block, at most */
 #define G_REF 1600                 /* strike amplitude at 1 m (Q15; calibrated by render) */
+#define TOOTH_HZ 400u              /* the true katydid's tooth groups at 25 C (the references: 390-400 /s) */
 
 typedef struct {
     uint16_t f1, f2;               /* the two resonances, Hz */
@@ -67,19 +73,23 @@ typedef struct {
 } species_t;
 
 static const species_t SPECIES[NSP] = {
-    {4500, 6800, 64, 80, 3000, 2, 3, 630, 0, 2300, 0, 0, 1300},   /* a true katydid's rasp: 3 syllables ("ka-ty-did") of
-                                                                    * ~140 ms, 230 ms apart, a call per 1.3 s; wing Q 4,
-                                                                    * uneven teeth at half the carrier rate, the upper
-                                                                    * resonance at 6.8 kHz -21 dB (step 6: the katydid
-                                                                    * references' syllables last 70-200 ms in a band 1.5-7
-                                                                    * kHz; ours were 45 ms bursts reaching 20 kHz) */
+    {3700, 5550, 128, 128, 0, 2, 4, 36, 0, 1000, 0, 0, 1600},       /* a true katydid's rasp: 2-5 syllables ("ka-ty-did",
+                                                                    * "ka-ty-did-n't") of ~70 ms, 100 ms apart, a call per
+                                                                    * 1.6 s; uneven teeth at 3/4 of the carrier, in groups
+                                                                    * of ~400 /s (TOOTH_HZ), 30 groups a syllable; the
+                                                                    * wing's two resonances 3.3 and 5 kHz (Q 5) at the same
+                                                                    * level (the references: syllables 50-70 ms at ~10 /s,
+                                                                    * rising in 10-20 ms, the envelope pulsed at 390-400
+                                                                    * Hz, peaks at 3.2 and 5 kHz, a dip at 4; agent D,
+                                                                    * 2026-10-25: the old one, 280 ms smooth bursts of one
+                                                                    * band at 4.5 kHz, was a hiss) */
     {5000, 14700, 264, 160, 11024, 1, 0, 226, 0, 0, 0, 0, 600},    /* Panacanthus (N8c); 14.7 kHz -9.4 dB */
     {6570, 18000, 96, 96, 26000, 0, 3, 0, 80, 200, 730, 24, 3500}, /* C. biguttulus (N25, N30); upper -2 dB (ours) */
     {9720, 19500, 96, 96, 20000, 0, 1, 0, 75, 100, 100, 20, 2000}, /* C. brunneus (N25: 7-8 ms pulses at ~100 /s) */
 };
 
 typedef struct {
-    tx_ireso_t r1, r2;
+    tx_ireso_t r1, r2, r3;         /* r3: the true katydid's high band (after the low-pass) */
     int32_t next_q8[2];            /* the next strike of each leg (katydid: one wing), samples from the block start */
     int32_t t;                     /* samples since the call started (at the block start) */
     int32_t gain;                  /* strike amplitude, Q15 */
@@ -88,7 +98,10 @@ typedef struct {
     uint8_t in_call, em, note, alive, stop, npul;   /* npul: its syllables per call (katydids) */
     uint16_t tq;                   /* its syllables' length (teeth) re the species', Q8 */
     uint16_t jq;                   /* its teeth's unevenness re JITTER, Q8 */
+    uint16_t tr;                   /* its tooth rate (true katydid), Hz at 25 C */
     uint16_t linger;               /* released: blocks it keeps calling (0 = not yet counted) */
+    uint8_t sing, keyed, pad4[2];  /* in a bout; bound to its key (COUNT 0) */
+    uint32_t bl;                   /* blocks left in the bout or the pause */
 } singer_t;
 
 typedef struct {
@@ -96,6 +109,8 @@ typedef struct {
     tx_chorus_t ch;
     singer_t v[NV];
     int16_t env[TX_ITONE_ENV + 1];
+    int16_t env2[TX_ITONE_ENV + 1];   /* a syllable's: a quick rise, a longer fall */
+    int32_t hb[TX_BLOCK];          /* the high band, added after the low-pass */
     tx_event_t ev[TX_CLOUD_EV_MAX];
     uint8_t who[TX_CHORUS_MAX];
     uint16_t off[TX_CHORUS_MAX];
@@ -104,6 +119,7 @@ typedef struct {
     uint8_t p[NP], limit, quiet;
     int32_t level, q15, jit, peg_l2, dist_l2;
     uint16_t dropped;
+    uint8_t knote, kvel;           /* the last key pressed: the grass's carrier and distance */
     tx_vary_t vy;
     tx_rad_t rad;                  /* the body radiates its lows poorly (tx_core_radiate.h) */
     int32_t lp1, lp2;              /* and its highs: the 7 kHz low-pass */
@@ -119,20 +135,25 @@ static int32_t call_T(const katy_t *s, int32_t tf)
     int32_t T = ms10(s, sp_of(s)->call * 10u);
     return (int32_t)(((int64_t)T * tf) >> 15);
 }
+/* a syllable of n teeth at a tooth rate (Hz at 25 C), samples at the temperature */
+static int32_t syl_len(const katy_t *s, uint32_t n, uint32_t hz)
+{
+    return ms10(s, n * 10000u / (hz ? hz : 1u));
+}
 /* a singer's call length (v 0: the species' own) */
 static int32_t call_len_v(const katy_t *s, uint32_t f1, const singer_t *v)
 {
     const species_t *sp = sp_of(s);
     uint32_t tq = v ? v->tq : 256u, np = v && v->npul ? v->npul : sp->pulses;
     uint32_t teeth = (sp->teeth * tq) >> 8;
-    if (sp->katydid == 2u) return ms10(s, (((uint32_t)sp->pspc * tq) >> 8) * (np - 1u)) + (int32_t)(teeth * TX_FS / f1);
+    if (sp->katydid == 2u) return ms10(s, (((uint32_t)sp->pspc * tq) >> 8) * (np - 1u)) + syl_len(s, teeth, v ? v->tr : TOOTH_HZ);
     if (sp->katydid) return (int32_t)(teeth * TX_FS / f1);
     return ms10(s, (uint32_t)sp->syl * sp->nsyl);
 }
 static int32_t call_len(const katy_t *s, uint32_t f1)
 {
     const species_t *sp = sp_of(s);
-    if (sp->katydid == 2u) return ms10(s, (uint32_t)sp->pspc * (sp->pulses - 1u)) + (int32_t)(sp->teeth * TX_FS / f1);
+    if (sp->katydid == 2u) return ms10(s, (uint32_t)sp->pspc * (sp->pulses - 1u)) + syl_len(s, sp->teeth, TOOTH_HZ);
     if (sp->katydid) return (int32_t)(sp->teeth * TX_FS / f1);
     return ms10(s, (uint32_t)sp->syl * sp->nsyl);
 }
@@ -174,6 +195,14 @@ static void katy_init(void *st, uint32_t seed)
     tx_cloud_rate(&s->cloud, 0);
     tx_chorus_init(&s->ch);
     tx_itone_env(s->env, 16384);                             /* the strike level across a katydid's call (ours) */
+    for (i = 0; i <= TX_ITONE_ENV; i++) {                    /* a syllable: up in its first fifth, held, down in */
+        uint32_t q = i < TX_ITONE_ENV / 5u ? (0x40000000u / (TX_ITONE_ENV / 5u)) * i   /* its last third (the */
+                   : i < (TX_ITONE_ENV * 2u) / 3u ? 0x40000000u                        /* references: up in */
+                   : 0x40000000u + (0x40000000u / (TX_ITONE_ENV - (TX_ITONE_ENV * 2u) / 3u)) * (i - (TX_ITONE_ENV * 2u) / 3u);
+        int32_t v = tx_sin_q15(q);                           /* 10-20 ms, the dips between ~-12 dB) */
+        s->env2[i] = (int16_t)((v * v) >> 15);
+    }
+    s->env2[TX_ITONE_ENV] = 0;
     for (i = 0; i < NV; i++) s->v[i].em = 0xFF;
     s->limit = 8;
     s->q15 = 32768;
@@ -185,8 +214,10 @@ static void katy_init(void *st, uint32_t seed)
 
 static void katy_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
-    if (on && vel) tx_vary_press(&((katy_t *)st)->vy);
-    tx_cloud_key(&((katy_t *)st)->cloud, note, vel, on);
+    katy_t *s = (katy_t *)st;
+    if (on && vel && (!s->p[P_COUNT] || !tx_cloud_held(&s->cloud))) tx_vary_press(&s->vy);   /* (the grass: its night, not
+                                                                                   * each key) */
+    tx_cloud_key(&s->cloud, note, vel, on);
 }
 
 static void katy_param(void *st, uint8_t id, uint8_t val)
@@ -202,7 +233,7 @@ static void katy_param(void *st, uint8_t id, uint8_t val)
         set_param(s, id, val);
 }
 
-static int quiet_v(const singer_t *v) { return !v->alive && tx_ireso_quiet(&v->r1) && tx_ireso_quiet(&v->r2); }
+static int quiet_v(const singer_t *v) { return !v->alive && tx_ireso_quiet(&v->r1) && tx_ireso_quiet(&v->r2) && tx_ireso_quiet(&v->r3); }
 
 /* the two resonances for a carrier f1 (Hz) */
 static void tune(const species_t *sp, singer_t *v, uint32_t f1)
@@ -210,58 +241,145 @@ static void tune(const species_t *sp, singer_t *v, uint32_t f1)
     if (f1 > 16000u) f1 = 16000u;
     tx_ireso_set(&v->r1, f1, sp->q1);
     tx_ireso_set(&v->r2, sp->katydid == 1u ? (f1 * 2940u / 1000u > 20000u ? 20000u : f1 * 2940u / 1000u)
-                         : sp->katydid ? f1 * 2u : sp->f2, sp->q2);
+                         : sp->katydid ? (f1 * 3u) >> 1 : sp->f2, sp->q2);
+    if (sp->katydid == 2u) tx_ireso_set(&v->r3, f1 * 42u / 10u > 18000u ? 18000u : f1 * 42u / 10u, 48u);   /* ~15.5 kHz, Q 3 */
 }
 
-static void spawn(katy_t *s, const tx_event_t *e)
+/* the bouts (tx_core_pop.h): rare (3 s bouts, 15 s pauses) .. busy (1 min, 1 s) (ours) */
+static const tx_pop_law_t LAW = {590706, 873948, 742875, 486834};
+
+static unsigned act(const katy_t *s) { return s->p[P_ACT]; }
+
+static void bout_start(katy_t *s, unsigned i, uint32_t first)
+{
+    singer_t *v = &s->v[i];
+    int32_t T = call_T(s, v->tf);
+    v->sing = 1;
+    v->bl = tx_pop_bout(&LAW, &s->cloud.rng, act(s), (uint32_t)T / TX_BLOCK + 2u);
+    tx_chorus_place(&s->ch, i, s->ch.x[i], s->ch.y[i]);
+    tx_chorus_start(&s->ch, i, T, first);
+}
+
+static void bout_end(katy_t *s, unsigned i)
+{
+    s->v[i].sing = 0;
+    s->v[i].bl = tx_pop_pause(&LAW, &s->cloud.rng, act(s));
+    tx_chorus_stop(&s->ch, i);
+}
+
+static unsigned free_slot(const katy_t *s)
+{
+    unsigned i;
+    for (i = 0; i < s->limit; i++) if (quiet_v(&s->v[i])) return i;
+    for (i = 0; i < s->limit; i++) if (!s->v[i].alive) return i;
+    for (i = 0; i < s->limit; i++) if (s->v[i].stop) return i;
+    return NV;
+}
+
+/* a singer in slot vi: near = at the key (the one a press brings, singing now), else farther out on the area law
+ * (1 .. 8 x the distance), entering after a pause of its own */
+static void individual(katy_t *s, unsigned vi, uint8_t note, uint8_t vel, int near, uint8_t em)
 {
     const species_t *sp = sp_of(s);
-    unsigned n = 1u + (s->p[P_CHORUS] >> 4), k, i;
+    singer_t *v = &s->v[vi];
     tx_rng_t *r = &s->cloud.rng;
-    int32_t r0_l2 = s->dist_l2 + ((int32_t)100 - (int32_t)e->vel) * 1638;
-    for (k = 0; k < n; k++) {
-        singer_t *v;
-        unsigned vi = NV;
-        int32_t rl2 = r0_l2, rr, ang, f_l2;
-        for (i = 0; i < s->limit && vi == NV; i++) if (quiet_v(&s->v[i])) vi = i;
-        for (i = 0; i < s->limit && vi == NV; i++) if (!s->v[i].alive) vi = i;
-        for (i = 0; i < s->limit && vi == NV; i++) if (s->v[i].stop) vi = i;
-        if (vi == NV) { s->dropped++; continue; }
-        v = &s->v[vi];
-        if (k) rl2 += 38336 + (int32_t)tx_rand_below(r, 92736u);
-        if (rl2 > 9 << 16) rl2 = 9 << 16;
-        rr = (int32_t)tx_exp2(rl2 + (10 << 16));
-        ang = (int32_t)tx_rand(r);
-        tx_chorus_place(&s->ch, vi, (tx_sin_q15((uint32_t)ang + 0x40000000u) * (rr >> 4)) >> 11,
-                        (tx_sin_q15((uint32_t)ang) * (rr >> 4)) >> 11);
-        v->gain = (int32_t)((uint32_t)G_REF * 1000u / (uint32_t)(rr < 300 ? 300 : rr));
-        f_l2 = ((int32_t)e->note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3);   /* the character (warmer = higher, faster) */
-        f_l2 += (tx_gauss_q12(r) * (k ? 2789 : 930)) >> 12;   /* individuals: CV 3 % (ours); the key's own 1 % */
-        /* no two singers alike (note 17): its syllables' length (x 1.5, x/ 1.35: the references' katydid syllables 140-320 ms),
-         * 2-4 syllables per call ("katy-did", "katy-didn't"), its teeth's unevenness (x/ 1.4: a cleaner or raspier
-         * file) */
-        v->tq = (uint16_t)(tx_exp2(((tx_gauss_q12(r) * 28000) >> 12) + (8 << 16) + 39000));
-        if (v->tq < 128u) v->tq = 128u;
-        if (v->tq > 640u) v->tq = 640u;
-        v->npul = sp->katydid == 2u ? (uint8_t)(2u + tx_rand_below(r, 3u)) : 0u;
-        v->jq = (uint16_t)(tx_exp2(((tx_gauss_q12(r) * 32000) >> 12) + (8 << 16)));
-        if (v->jq > 768u) v->jq = 768u;
-        v->f1 = (uint32_t)(((uint64_t)sp->f1 * tx_exp2(f_l2 + (16 << 16))) >> 16);
-        if (v->f1 > 16000u) v->f1 = 16000u;
-        tune(sp, v, v->f1);
-        v->r1.g = sp->katydid == 1u ? 256 : sp->katydid ? 900 : 640;   /* clicks / a rasp do not build up: x 2.5-3.5 */
-        v->r2.g = sp->katydid == 1u ? (sp->l2 >> 7) * 10 : (sp->l2 * 5) >> 8;   /* the upper level; katydid: x 10 for */
-                                                                          /* the low mode's build-up (by render) */
-        v->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);   /* own period CV 5 % (ours) */
-        v->alive = 1; v->stop = 0; v->em = e->emitter; v->note = e->note; v->in_call = 0; v->linger = 0;
-        tx_chorus_start(&s->ch, vi, call_T(s, v->tf), k ? tx_rand_below(r, 65535u) % (uint32_t)call_T(s, v->tf) : 0);
+    int32_t rl2 = s->dist_l2 + ((int32_t)100 - (int32_t)vel) * 1638, rr, ang, f_l2;
+    if (!near) rl2 += tx_pop_far_l2(r, 3 << 16);
+    if (rl2 > 9 << 16) rl2 = 9 << 16;
+    rr = (int32_t)tx_exp2(rl2 + (10 << 16));
+    ang = (int32_t)tx_rand(r);
+    s->ch.x[vi] = (tx_sin_q15((uint32_t)ang + 0x40000000u) * (rr >> 4)) >> 11;
+    s->ch.y[vi] = (tx_sin_q15((uint32_t)ang) * (rr >> 4)) >> 11;
+    v->gain = (int32_t)((uint32_t)G_REF * 1000u / (uint32_t)(rr < 300 ? 300 : rr));
+    f_l2 = ((int32_t)note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3);   /* the character (warmer = higher, faster) */
+    f_l2 += (tx_gauss_q12(r) * (near ? 930 : 2789)) >> 12;   /* individuals: CV 3 % (ours); the key's own 1 % */
+    /* no two singers alike (note 17): its syllables' length (x 1.5, x/ 1.35: the references' katydid syllables 140-320 ms),
+     * 2-4 syllables per call ("katy-did", "katy-didn't"), its teeth's unevenness (x/ 1.4: a cleaner or raspier
+     * file) */
+    v->tq = (uint16_t)(tx_exp2(((tx_gauss_q12(r) * (sp->katydid == 2u ? 6554 : 28000)) >> 12) + (8 << 16) + (sp->katydid == 2u ? 0 : 39000)));
+    if (v->tq < 128u) v->tq = 128u;
+    if (v->tq > 640u) v->tq = 640u;
+    v->npul = sp->katydid == 2u ? (uint8_t)(2u + tx_rand_below(r, 4u)) : 0u;
+    v->tr = (uint16_t)((TOOTH_HZ * tx_exp2(((tx_gauss_q12(r) * 8192) >> 12) + (16 << 16))) >> 16);   /* sd 0.25 oct (the
+                                                              * draw's SD is 2.0: tx_gauss_q12 reads 8192, not 4096) */
+    v->jq = (uint16_t)(tx_exp2(((tx_gauss_q12(r) * 32000) >> 12) + (8 << 16)));
+    if (v->jq > 768u) v->jq = 768u;
+    v->f1 = (uint32_t)(((uint64_t)sp->f1 * tx_exp2(f_l2 + (16 << 16))) >> 16);
+    if (v->f1 > 16000u) v->f1 = 16000u;
+    tune(sp, v, v->f1);
+    v->r1.g = sp->katydid == 1u ? 256 : sp->katydid ? 450 : 640;   /* clicks / a rasp do not build up: x 2.5-3.5 */
+    v->r2.g = sp->katydid == 1u ? (sp->l2 >> 7) * 10 : sp->katydid ? 550 : (sp->l2 * 5) >> 8;   /* the upper level; katydid: x 10 for */
+    v->r3.g = sp->katydid == 2u ? 625 : 0;              /* the references' 11-18 kHz band, -10 dB, with the syllables */
+                                                                      /* the low mode's build-up (by render) */
+    v->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);       /* own period CV 5 % (ours) */
+    v->alive = 1; v->stop = 0; v->em = em; v->keyed = (uint8_t)(em != 0xFF); v->note = note; v->in_call = 0; v->linger = 0;
+    if (near) bout_start(s, vi, 0);
+    else { v->sing = 0; v->bl = 1u + ((tx_pop_pause(&LAW, r, act(s)) * (1u + tx_rand_below(r, 255u))) >> 8); tx_chorus_stop(&s->ch, vi); }
+}
+
+static unsigned singing_pop(const katy_t *s)
+{
+    unsigned i, n = 0;
+    for (i = 0; i < s->limit; i++) n += s->v[i].alive && !s->v[i].stop && !s->v[i].keyed;
+    return n;
+}
+
+/* a key: COUNT 0, a singer of its own (as long as the key is held); else the grass's first one at the key, or, all
+ * there, the one nearest the key in a pause sings now */
+static void spawn(katy_t *s, const tx_event_t *e)
+{
+    unsigned n = s->p[P_COUNT], vi, i, bi = NV;
+    uint32_t bd = 0xFFFFFFFFu, kf;
+    s->knote = e->note; s->kvel = e->vel;
+    if (!n || singing_pop(s) < (n < s->limit ? n : s->limit)) {
+        vi = free_slot(s);
+        if (vi == NV) { s->dropped++; return; }
+        {
+            unsigned first = singing_pop(s) > 0u;            /* (the field's later ones: each at its own phase) */
+            individual(s, vi, e->note, e->vel, 1, n ? 0xFF : e->emitter);
+            if (n && first) tx_chorus_start(&s->ch, vi, call_T(s, s->v[vi].tf), tx_rand_below(&s->cloud.rng, 65535u) % (uint32_t)call_T(s, s->v[vi].tf));
+        }
+        return;
+    }
+    kf = (uint32_t)(((uint64_t)sp_of(s)->f1 * tx_exp2(((int32_t)e->note - 60) * 2731 + (16 << 16))) >> 16);
+    for (i = 0; i < s->limit; i++) {
+        const singer_t *v = &s->v[i];
+        uint32_t d;
+        if (!v->alive || v->stop || v->sing) continue;
+        d = v->f1 > kf ? v->f1 - kf : kf - v->f1;
+        if (d < bd) { bd = d; bi = i; }
+    }
+    if (bi < NV) bout_start(s, bi, 0);
+    else if ((vi = free_slot(s)) < NV) individual(s, vi, e->note, e->vel, 1, e->emitter);   /* all singing: one more of its own while the key is held */
+}
+
+/* per block: the grass kept at COUNT (one comes or goes a block), the bouts and pauses running out; after a bout now
+ * and then one leaves (a new one comes, drawn afresh) */
+static void field_block(katy_t *s, unsigned n)
+{
+    unsigned want = s->p[P_COUNT] < s->limit ? s->p[P_COUNT] : s->limit, have = singing_pop(s), i;
+    int scene = tx_cloud_held(&s->cloud) > 0;
+    if (want && scene && have < want) {
+        unsigned vi = free_slot(s);
+        if (vi < NV) individual(s, vi, s->knote, s->kvel, 0, 0xFF);
+    } else if (have > (want ? want : have)) {
+        for (i = s->limit; i-- > 0;) if (s->v[i].alive && !s->v[i].stop && !s->v[i].keyed && !s->v[i].sing) break;
+        if (i >= s->limit) for (i = s->limit; i-- > 0;) if (s->v[i].alive && !s->v[i].stop && !s->v[i].keyed) break;
+        if (i < s->limit) { s->v[i].stop = 1; s->v[i].sing = 0; tx_chorus_stop(&s->ch, i); }
+    }
+    for (i = 0; i < s->limit; i++) {
+        singer_t *v = &s->v[i];
+        if (!v->alive || v->stop || --v->bl) continue;
+        if (!v->sing) { bout_start(s, i, tx_rand_below(&s->cloud.rng, n)); continue; }
+        bout_end(s, i);
+        if (want && !v->keyed && tx_rand_below(&s->cloud.rng, 5u) == 0u) v->stop = 1;   /* it leaves (ours: ~5 bouts) */
     }
 }
 
 /* the strike interval: the period x (1 + JITTER x a normal draw), at least 1/4 of it */
 static int32_t interval_q8(katy_t *s, int32_t per_q8, uint32_t jq)
 {
-    int32_t j = sp_of(s)->katydid == 2u && s->jit < 11469 ? 11469 : s->jit;   /* a rasp: uneven teeth (SD >= 35 %) */
+    int32_t j = sp_of(s)->katydid == 2u && s->jit < 6554 ? 6554 : s->jit;   /* a rasp: uneven teeth (SD >= 20 %) */
     j = (int32_t)(((int64_t)j * jq) >> 8);
     int32_t d = (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * j) >> 15);   /* Q12 */
     int32_t q = per_q8 + (int32_t)(((int64_t)per_q8 * d) >> 12);
@@ -287,15 +405,24 @@ static unsigned strikes(katy_t *s, singer_t *v, unsigned n)
     int32_t g = (int32_t)(((int64_t)v->gain * s->level) >> 15);
     int32_t len = call_len_v(s, v->f1, v);
     unsigned legs = sp->katydid ? 1u : 2u, L, cnt[2] = {0, 0}, a, b, m;
-    int32_t per_q8 = sp->katydid ? (int32_t)((TX_FS << 8) / (sp->katydid == 2u ? (v->f1 * 3u) >> 2 : v->f1)) : (int32_t)((TX_FS << 8) / tx_exp2(s->peg_l2));
+    int32_t per_q8 = sp->katydid ? (int32_t)((TX_FS << 8) / v->f1) : (int32_t)((TX_FS << 8) / tx_exp2(s->peg_l2));
+    int32_t pg = sp->katydid == 2u ? ms10(s, (10000u << 8) / v->tr) >> 8 : 1;   /* the tooth groups' period (the
+                                                              * strokes as fast as the rhythm) */
     for (L = 0; L < legs; L++) {
         while (v->in_call && (v->next_q8[L] >> 8) < (int32_t)n && cnt[L] < NEV) {
             int32_t o = v->next_q8[L] >> 8, ts = v->t + o, e, amp;
             if (ts >= len) { if (L + 1 == legs) v->in_call = 0; break; }
             if (sp->katydid == 2u) {                         /* syllables: each its own sweep of the file */
-                int32_t spc = ms10(s, ((uint32_t)sp->pspc * v->tq) >> 8), sl = (int32_t)(((sp->teeth * v->tq) >> 8) * TX_FS / v->f1), u = ts % spc;
+                int32_t spc = ms10(s, ((uint32_t)sp->pspc * v->tq) >> 8), sl = syl_len(s, (sp->teeth * v->tq) >> 8, v->tr), u = ts % spc;
                 uint32_t pos = u < sl ? (uint32_t)(((uint32_t)u << 6) / (uint32_t)sl) : 64u;
-                e = s->env[pos > 64u ? 64u : pos];
+                e = s->env2[pos > 64u ? 64u : pos];
+                if (ts < len - sl && e < 8192) e = 8192;   /* between syllables the file still sounds, -12 dB (the
+                                                            * references' dips: the wing's opening stroke; ours) */
+                {   /* the teeth come in groups ~400 /s (the wing's own beat: the references' envelope pulses at
+                     * 390-400 Hz, 10-15 dB deep): each group struck hard at its start, softer after */
+                    int32_t w = pg - ts % pg, q = (w << 8) / pg;   /* 256 .. 0 through the group */
+                    e = (int32_t)(((int64_t)e * (6554 + ((q * q * 26214) >> 16))) >> 15);
+                }
             } else if (sp->katydid) {
                 uint32_t pos = (uint32_t)(((uint32_t)ts << 6) / (uint32_t)len);   /* along the call: the file */
                 e = s->env[pos > 64u ? 64u : pos];
@@ -323,11 +450,16 @@ TX_AUDIO_CODE static void katy_render_raw(void *st, int32_t *mix, unsigned n)
     if (n > TX_BLOCK) n = TX_BLOCK;
     k = tx_cloud_block(&s->cloud, s->ev, n);
     for (i = 0; i < k; i++) spawn(s, &s->ev[i]);
+    field_block(s, n);
     ncall = tx_chorus_block(&s->ch, &s->cloud.rng, n, s->who, s->off, TX_CHORUS_MAX);
     for (i = 0; i < ncall; i++) {
         singer_t *v = &s->v[s->who[i]];
         if (!v->alive || v->stop) continue;
         v->in_call = 1;
+        if (v->npul && (tx_rand(&s->cloud.rng) >> 30) == 0u) {   /* now and then a syllable more or less ("katy-did", */
+            int32_t np = (int32_t)v->npul + (int32_t)(tx_rand(&s->cloud.rng) >> 31) * 2 - 1;   /* "katy-didn't") */
+            v->npul = (uint8_t)(np < 2 ? 3 : np > 5 ? 4 : np);
+        }
         tune(sp_of(s), v, tx_vary_scale(v->f1, tx_vary_drift(&s->vy) >> 3));   /* the night warms, cools */
         v->t = -(int32_t)s->off[i];
         v->next_q8[0] = v->next_q8[1] = (int32_t)s->off[i] << 8;
@@ -337,16 +469,17 @@ TX_AUDIO_CODE static void katy_render_raw(void *st, int32_t *mix, unsigned n)
         unsigned m = 0;
         int held;
         if (quiet_v(v)) continue;
-        held = v->alive && v->em < TX_CLOUD_EMITTERS && s->cloud.em[v->em].held && s->cloud.em[v->em].note == v->note;
+        held = v->alive && (v->keyed ? v->em < TX_CLOUD_EMITTERS && s->cloud.em[v->em].held && s->cloud.em[v->em].note == v->note
+                                     : s->p[P_COUNT] && tx_cloud_held(&s->cloud) > 0);
         if (v->alive && !held && !v->stop) {                 /* released: each singer goes on for 0-3 s, then stops */
             if (!v->linger) v->linger = (uint16_t)(2u + tx_rand_below(&s->cloud.rng, 516u));   /* after its call */
             else if (--v->linger == 1u) { v->stop = 1; tx_chorus_stop(&s->ch, i); }            /* (session 5) */
         }
         if (v->in_call) m = strikes(s, v, n);
         if (v->in_call) v->t += (int32_t)n;
-        tx_ireso_add(&v->r1, s->mo, s->ma, m, mix, n);
-        tx_ireso_add(&v->r2, s->mo, s->ma, m, mix, n);
-        if (v->stop && !v->in_call) { v->alive = 0; v->stop = 0; v->em = 0xFF; }
+        tx_ireso_add2(&v->r1, &v->r2, s->mo, s->ma, m, mix, n);
+        if (v->r3.g) tx_ireso_add(&v->r3, s->mo, s->ma, m, s->hb, n);
+        if (v->stop && !v->in_call) { v->alive = 0; v->stop = 0; v->em = 0xFF; v->sing = 0; }
     }
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
@@ -362,7 +495,7 @@ TX_AUDIO_CODE static void katy_render(void *st, int32_t *mix, unsigned n)
     int32_t b[TX_BLOCK];
     unsigned j;
     if (n > TX_BLOCK) n = TX_BLOCK;
-    for (j = 0; j < n; j++) b[j] = 0;
+    for (j = 0; j < n; j++) b[j] = ((katy_t *)st)->hb[j] = 0;
     katy_render_raw(st, b, n);
     tx_rad_hp(&((katy_t *)st)->rad, b, n, 3);
     {   /* above ~7 kHz the wings radiate less and the grass and the air take the rest: two one-poles (step 6: the
@@ -373,7 +506,7 @@ TX_AUDIO_CODE static void katy_render(void *st, int32_t *mix, unsigned n)
         for (j = 0; j < n; j++) {
             int32_t h = b[j] - a; a += (h * 5 + (h > 0 ? 7 : 0)) >> 3;
             h = a - c; c += (h * 5 + (h > 0 ? 7 : 0)) >> 3;
-            b[j] = c;
+            b[j] = c + k->hb[j];
         }
         k->lp1 = a; k->lp2 = c;
         if (a | c) k->quiet = 0;
@@ -400,7 +533,7 @@ static void katy_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: 16 katydids calling in synchrony (every resonator rings at once), jittered, close, hot */
 static const char SCENE_MAX[] =
-    "0 particles 16\n0 param SPECIES 40\n0 param PEGS 127\n0 param JITTER 127\n0 param CHORUS 127\n0 param SYNC 127\n"
+    "0 particles 16\n0 param SPECIES 40\n0 param PEGS 127\n0 param JITTER 127\n0 param COUNT 16\n0 param ACTIVITY 127\n0 param SYNC 127\n"
     "0 param DIST 0\n0 param TEMP 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"

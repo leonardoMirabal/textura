@@ -178,14 +178,19 @@ static const clu_pre_t CLU[NPRE] = {
  * curve a parameter's value at INTENSITY 0, 64 and 127 (linear between); the first curve follows ACTIVITY too. The
  * level is set with a gain at 0 / 64 / 127 (tenths of a dB, linear between: ours, by render: every preset at INTENSITY 64
  * about -27 LUFS, a key held 20 s, the mean of 3 seeds, so lanes sit together in a landscape). Hosted
- * presets do not morph (one engine fits the arena). Where an engine spawns its singers per key press (katydids, bees),
- * k0 / k64 / k127 is how many keys the source holds down (1 .. 4, a few semitones apart): more keys, more of them;
- * and one held key at a time is pressed afresh every 6 .. 16 s: singers leave and new ones come with the
- * parameters of now (these engines read them at a press). */
+ * presets do not morph (one engine fits the arena). An engine with its own COUNT (crickets, katydids) is sent the
+ * source's (at most its own maximum), its heroes the lane's PARTICLES (the governor's) up to HOST_HEROES; the
+ * individuals past them are its far callers (FIELD, where it has one). Where each held key is an individual (bees: a singer;
+ * fire: a log), the source holds down one key per individual COUNT asks for, at most k127 (<= 8, a few semitones
+ * apart): more keys, more of them, coming one at a time; COUNT past them moves the first curve k64 knob units a
+ * doubling (a fire: its logs burn livelier). With k0 set, a held key, picked at random, is pressed afresh every
+ * 6 .. 16 s: a singer leaves and a new one comes with the parameters of now (these engines read them at a press; a
+ * fire's logs just burn: a press there would throw a new log on, its burst louder than the fire it lands in). */
 #define HOST_NC 5u
 #define HOST_NK 5u                  /* character maps per hosted engine (HMAP) */
+#define HOST_HEROES 12u             /* an engine counting its own individuals: heroes at most (CPU: half the pool) */
 #define HOST_BYTES 12544u           /* the largest hosted engine's state (sand 12 464 B) */
-typedef struct { const char *name; uint8_t v0, v64, v127; } curve_t;
+typedef struct { const char *name; int8_t v0; uint8_t v64, v127; } curve_t;   /* (v0 < 0: off until the line crosses 0) */
 typedef struct {
     const char *eng; int16_t g0, g64, g127; curve_t c[HOST_NC]; uint8_t k0, k64, k127;
     uint16_t e0, e64, e127;         /* event engines: the mean time between presses (0.1 s; log between; 0 = none) */
@@ -201,20 +206,22 @@ static const host_t HOST[] = {
     {"stream", -42, -42, -42, {{"FLOW", 10, 70, 127}, {"ROAR", 0, 0, 100}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
                             {"SPREAD", 80, 64, 45}}, 0, 0, 0, 0, 0, 0, 0},
     /* fire: embers (a rare crackle, a faint roar) .. a campfire .. a blaze (a big fire, dense crackles in bursts, roar, gusts) */
-    {"fire", 150, 140, 110, {{"MOIST", 25, 72, 100}, {"SIZE", 20, 50, 100}, {"ROAR", 20, 80, 127}, {"DRAUGHT", 10, 30, 70},
-                          {"BURSTY", 8, 24, 40}}, 0, 0, 0, 0, 0, 0, 0},   /* (the top: no denser than the references, and
+    {"fire", 110, 110, 80, {{"MOIST", 0, 25, 95}, {"SIZE", 20, 50, 100}, {"ROAR", -30, 28, 100}, {"DRAUGHT", 10, 30, 70},
+                          {"BURSTY", 0, 24, 40}}, 0, 26, 8, 0, 0, 0, 0},   /* (the top: no denser than the references, and
                                                                      * under the output limiter: agent D, 2026-10-25) */
-    /* crickets: one caller .. a few .. a chorus falling into step, with the distant field behind (warmer: a little faster) */
-    {"crickets", -12, -12, -12, {{"CHORUS", 0, 16, 127}, {"SYNC", 30, 64, 110}, {"FIELD", 0, 0, 90}, {"TEMP", 70, 76, 84},
+    /* crickets (COUNT: the engine's own, up to 32): each singing now and then .. all the time, a little in step,
+     * warmer (a little faster) */
+    {"crickets", -12, -12, -12, {{"ACTIVITY", 0, 64, 127}, {"SYNC", 30, 40, 50}, {"TEMP", 70, 76, 84}, {0, 0, 0, 0},
                              {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* sand: a trickle of grains through a narrow neck .. a pour .. a heavy pour from higher, pulsing */
     {"sand", -37, -37, -37, {{"ORIFICE", 20, 50, 115}, {"HEIGHT", 30, 50, 90}, {"PULSE", 0, 0, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* gravel: a few stones now and then .. footsteps on gravel .. a slide (many stones, long rattles) */
     {"gravel", 16, 16, 16, {{"AMOUNT", 20, 64, 120}, {"RATE", 20, 59, 110}, {"SHAKE", 20, 30, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
-    /* katydids: one singer on a cold night (slow calls) .. one at its ease .. a warm chorus of 8, falling into step */
-    {"katydids", 0, 0, 0, {{"CHORUS", 0, 0, 50}, {"TEMP", 40, 76, 90}, {"SYNC", 40, 64, 110}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 1, 1, 2, 0, 0, 0, 0},
+    /* katydids (COUNT: the engine's own, up to 16; they come and go on their own): a call now and then on a cold
+     * night .. singing on, warm, falling into step */
+    {"katydids", 0, 0, 0, {{"ACTIVITY", 0, 64, 127}, {"TEMP", 40, 76, 90}, {"SYNC", 40, 50, 64}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* bees: one bee wandering farther off, slower .. one at its ease .. a swarm of 8 close by */
-    {"bees", -45, -45, -45, {{"SWARM", 0, 0, 64}, {"DIST", 90, 50, 30}, {"SPEED", 40, 64, 80}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 1, 1, 2, 0, 0, 0, 0},
+    {"bees", -45, -45, -45, {{"SWARM", 0, 0, 64}, {"DIST", 90, 50, 30}, {"SPEED", 40, 64, 80}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 1, 0, 4, 0, 0, 0, 0},
     /* ice: an icicle breaking off now and then .. icicles falling every few seconds, more chunks each */
     {"ice", 175, 175, 100, {{"AMOUNT", 20, 64, 127}, {"FIZZ", 10, 20, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
      300, 70, 3, 1},                /* (the top: a pile of icicles shattering, 3-5 breaks/s as the references) */
@@ -225,9 +232,8 @@ static const host_t HOST[] = {
     {"minerals", -40, -40, -40, {{"HOLD", 50, 36, 30}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
      100, 12, 2, 1},
     /* glass: a pane cracking now and then .. smashing every few seconds, harder */
-    {"glass", -10, -10, -10, {{"ENERGY", 60, 100, 127}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
-     400, 90, 3, 1},                /* (the top: a pane collapsing, 4-5 breaks/s; -1 dB: a first smash at PROXIMITY 127
-                                     * reached +24.7 dBFS raw on some seeds, over the 16x headroom) */
+    {"glass", 0, 0, 0, {{"ENERGY", 60, 100, 127}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+     400, 90, 3, 1},                /* (the top: a pane collapsing, 4-5 breaks/s) */
     /* the family members TYPE reaches (FAM below; note 16): */
     /* rain on surfaces (rain): drizzle on a roof .. a downpour, bigger drops */
     {"rainsurf", -10, -10, -10, {{"RATE", 25, 70, 120}, {"DROPS", 40, 64, 110}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
@@ -325,7 +331,9 @@ typedef struct {
     int8_t hreg;                    /* and spacing */
     uint8_t tlo, tspan, tpad;       /* TYPE's range for the kind now: its value = (TYPE - tlo) x 127 / tspan */
     uint8_t lvl_v, part_v;          /* LEVEL and PARTICLES as last set (0: not set) */
-    uint8_t hkeys, hbase, hcycle, hon;  /* (hon: the player's key is down on the engine: held, COUNT > 0) */
+    uint8_t hkeys, hbase, hpad, hon;  /* (hon: the player's key is down on the engine: held, COUNT > 0) */
+    int8_t hcid, hfid;              /* the engine's own COUNT (its individuals) and FIELD (its far callers), -1: none */
+    uint8_t hcnt, hpart, hfld, hpad3;   /* the COUNT, PARTICLES and FIELD last sent to it */
     uint16_t hrenew;                /* blocks to the next renewed key */
     uint8_t hoff, hpn, hpad2[2];    /* blocks to its release, its note */         /* keys the source holds on the hosted engine (k curves; the first is the player's) */
     int32_t hgain, last_out, hlp;        /* the hosted output gain (Q12, ramped), the last sample out (for a switch) */
@@ -910,8 +918,9 @@ static void caller_tune(src_t *s, caller_t *c)
  * 5-15 dB lasting seconds, a song may end in a long decrescendo): songs median 8 s (sd 0.8 octave), pauses 5 s (sd 1) */
 static uint16_t bout_len(src_t *s, int song, unsigned sp)
 {
-    int32_t a = (act_idx(s) >> 8) - 64;                     /* INTENSITY: how active a cicada is (songs x/ 2, pauses x/ 4) */
-    int32_t l = (song ? CIC[sp].song_l2 + a * 1024 : CIC[sp].pause_l2 - a * 2048)
+    int32_t a = (act_idx(s) >> 8) - 64;                     /* INTENSITY: how active a cicada is (songs x/ 2, pauses x/ 4; */
+    int32_t k = a < 0 ? 3 : 2;                               /* down to rare short calls: songs / 2.6, pauses x 6.5) */
+    int32_t l = (song ? CIC[sp].song_l2 + a * 512 * k : CIC[sp].pause_l2 - a * 1024 * k)
                 + (int32_t)(((int64_t)gauss(s) * (song ? 52429 : 65536)) >> 12);   /* log2 blocks */
     uint32_t b = tx_exp2(clampi(l, 5 << 16, 16 << 16));
     return (uint16_t)(b > 65535u ? 65535u : b < 32u ? 32u : b);
@@ -1084,10 +1093,12 @@ static void callers_block(src_t *s, uint32_t want_q8)
             if (m->bout > dec) m->bout = (uint16_t)(m->bout - dec);
             else {
                 m->song ^= 1u;
+                s->total += m->song;                         /* (a song begins: the stats' event) */
                 m->bout = bout_len(s, m->song, m->pad);
                 m->pad2 = 0;
                 if (!m->song) m->fade = (uint8_t)(m->pad == 1u ? 2u + tx_rand_below(&s->rng, 2u)   /* ends: 25-50 ms */
-                                                              : 6u + tx_rand_below(&s->rng, 5u));   /* 0.4 .. 6 s */
+                                                              : 6u + tx_rand_below(&s->rng, 1u + (unsigned)clampi(act_idx(s) >> 12, 0, 4)));
+                /* (0.4 .. 6 s; a cicada calling rarely: its call ends in ~1 s) */
             }
         }
         if (m->calling && m->song) {
@@ -1184,6 +1195,7 @@ static void bird_sing(src_t *s, unsigned bi, unsigned type, int steal, int32_t k
     if (!steal && tx_pool_count(&s->pool) >= s->limit) return;
     if ((k = take(s, lv)) < 0) return;
     s->v[k].kind = V_BIRD; s->v[k].pre = (uint8_t)s->p[P_PRESET]; s->v[k].pad[0] = (uint8_t)bi; s->v[k].last = 0;
+    s->total++;                                              /* (a song: the stats' event) */
     tx_bird_song(&s->v[k].u.bv, type, b->seed, tx_rand_below(&s->rng, b->songs), tx_rand(&s->rng), b->f_off + key_l2,
                  g);
     b->voice = (uint8_t)k;
@@ -1196,7 +1208,8 @@ static void birds_block(src_t *s, unsigned n)
     int32_t a = act_idx(s);
     want = count_n(s);                                       /* COUNT: the birds here (INTENSITY: how often each sings) */
     if (want > NB) want = NB;
-    allowed = tx_bird_overlap(type, a);
+    allowed = tx_bird_overlap(type, a) * ((count_n(s) + 7u) >> 3);   /* (the flock's rule within a neighbourhood of ~8;
+                                                                     * more birds: more neighbourhoods singing at once) */
     for (i = 0; i < NB; i++) if (s->bm[i].voice != 0xFF && s->bm[i].active) singing++;
     for (i = 0; i < NB; i++) {
         birdm_t *b = &s->bm[i];
@@ -1246,7 +1259,7 @@ static int32_t curve_at(const curve_t *c, int32_t i_q8)     /* the curve's value
     return a + ((b - a) * x + (64 << 7)) / (64 << 8);
 }
 
-static const int8_t HOST_KEYS[4] = { 0, -3, 4, -7 };      /* the extra keys, semitones from the played one */
+static const int8_t HOST_KEYS[8] = { 0, -3, 4, -7, 7, -5, 2, -9 };   /* the extra keys, semitones from the played one */
 /* an event engine's rate (events/s Q8): the mean gap at the intensity now (0.1 s; log between e0, e64, e127) */
 static uint32_t host_rate(src_t *s)
 {
@@ -1291,14 +1304,30 @@ static int32_t kmap_off(const src_t *s, unsigned j)
 static void host_apply(src_t *s, int force)               /* the curves at the intensity now (only changed values sent) */
 {
     unsigned i;
+    if (s->hcid >= 0) {   /* the engine's own individuals: COUNT; a hero each up to HOST_HEROES or the governor's cut */
+        unsigned n = (unsigned)clampi((int32_t)count_n(s), 1, s->hst->params[s->hcid].max), e;
+        unsigned pp = s->part_v ? s->part_v : s->hst->particles_def;   /* (the lane's PARTICLES: the governor's) */
+        if (pp > HOST_HEROES) pp = HOST_HEROES;
+        if (pp > s->hst->particles_max) pp = s->hst->particles_max;
+        if (force || n != s->hcnt) { s->hcnt = (uint8_t)n; s->hst->param(s->host, (uint8_t)s->hcid, (uint8_t)n); }
+        if (force || pp != s->hpart) { s->hpart = (uint8_t)pp; s->hst->param(s->host, TX_PID_PARTICLES, (uint8_t)pp); }
+        e = n > pp ? n - pp : 0u;                            /* the rest: the engine's cheap far callers (FIELD), */
+        if (s->hfid >= 0) {                                  /* louder as they are more (power ~ their number) */
+            unsigned f = e ? (unsigned)clampi((int32_t)(24u * isqrt(e << 8)) >> 4, 0, 127) : 0u;
+            if (force || f != s->hfld) { s->hfld = (uint8_t)f; s->hst->param(s->host, (uint8_t)s->hfid, (uint8_t)f); }
+        }
+    }
     if (s->hd->k127) {                                       /* the keys held: more singers */
-        unsigned want = s->hon ? (unsigned)clampi((int32_t)count_n(s), 1, 4) : 0u;   /* (COUNT: singers, 1 .. 4 keys) */
+        unsigned want = s->hon ? (unsigned)clampi((int32_t)count_n(s), 1, s->hd->k127 > 8 ? 8 : s->hd->k127) : 0u;   /* (COUNT: one key an individual) */
         if (s->hkeys <= 1) s->hbase = s->note;               /* (the extras keep the note they were pressed from) */
-        while (s->hkeys && s->hkeys < want) { s->hst->key(s->host, (uint8_t)(s->hbase + HOST_KEYS[s->hkeys]), s->vel, 1); s->hkeys++; }
+        if (s->hkeys && s->hkeys < want && !tx_rand_below(&s->rng, 32u)) {   /* one at a time (~0.2 s apart: logs */
+            s->hst->key(s->host, (uint8_t)(s->hbase + HOST_KEYS[s->hkeys]), s->vel, 1);   /* thrown on together */
+            s->hkeys++;                                      /* would crack at once) */
+        }
         while (s->hkeys > want && s->hkeys > 1) { s->hkeys--; s->hst->key(s->host, (uint8_t)(s->hbase + HOST_KEYS[s->hkeys]), 0, 0); }
         if (!want) s->hkeys = 0;
-        if (s->hkeys && !s->hrenew--) {                      /* renew one key: a singer leaves, a new one comes */
-            unsigned k = s->hcycle++ % s->hkeys;
+        if (s->hd->k0 && s->hkeys && !s->hrenew--) {                      /* renew one key: a singer leaves, a new one comes */
+            unsigned k = tx_rand_below(&s->rng, s->hkeys);   /* (any of them: no round) */
             uint8_t nt = (uint8_t)(k ? s->hbase + HOST_KEYS[k] : s->note);
             s->hst->key(s->host, nt, 0, 0);
             s->hst->key(s->host, nt, s->vel, 1);
@@ -1310,6 +1339,11 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
         unsigned j;
         if (!s->hd->c[i].name || s->hid[i] < 0) continue;
         v = curve_at(&s->hd->c[i], i ? s->i_eff : act_idx(s));
+        if (!i && s->hd->k64) {                              /* COUNT past the keys: each doubling more on the first */
+            int32_t kb = s->hd->k127 >= 8 ? 63 : s->hd->k127 >= 4 ? 42 : s->hd->k127 >= 2 ? 21 : 0;   /* curve (the */
+            int32_t over = (int32_t)s->p[P_COUNT] - 1 - kb;                                         /* keys' 21 log2) */
+            if (over > 0) v += (over * s->hd->k64) / 21;
+        }
         for (j = 0; j < HOST_NK; j++) if (s->kcur[j] == (int8_t)i) v += kmap_off(s, j);
         v = clampi(v, 0, 127);
         if (force || v != s->hval[i]) { s->hval[i] = (uint8_t)v; s->hst->param(s->host, (uint8_t)s->hid[i], (uint8_t)v); }
@@ -1383,6 +1417,8 @@ static void host_switch(src_t *s, unsigned pre)
         }
         if (s->lvl_v) ne->param(s->host, TX_PID_LEVEL, s->lvl_v);
         if (s->part_v) ne->param(s->host, TX_PID_PARTICLES, s->part_v);
+        s->hcid = (int8_t)tx_param_find(ne, "COUNT");
+        s->hfid = (int8_t)(s->hcid >= 0 ? tx_param_find(ne, "FIELD") : -1);
         host_apply(s, 1);
         s->hkeys = 0; s->hrenew = 258; s->hoff = 0;
         tx_clu_init(&s->clu);                       /* (the first renewal after 1.5 s: past the fader's glide) */
@@ -1542,6 +1578,22 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
     src_t *s = (src_t *)st;
     if (s->hst) {                                            /* a hosted engine: its own keys */
+        if (s->hd && s->hd->k127 && s->hon && s->hkeys) {    /* keys are individuals (COUNT holds them): another */
+            if (on && vel) {                                 /* press is one of them acting afresh (a log thrown on, */
+                unsigned k = tx_rand_below(&s->rng, s->hkeys);   /* a singer starting again), never a new key: the */
+                uint8_t nt = (uint8_t)(k ? s->hbase + HOST_KEYS[k] : s->note);   /* engine's keys stay theirs */
+                s->held++; s->vel = vel; s->quiet = 0;
+                s->hst->key(s->host, nt, 0, 0);
+                s->hst->key(s->host, nt, vel, 1);
+                return;
+            }
+            if (s->held && --s->held) return;
+            s->hon = 0;                                      /* the last key up: all of them */
+            s->hst->key(s->host, s->note, 0, 0);
+            while (s->hkeys > 1) { s->hkeys--; s->hst->key(s->host, (uint8_t)(s->hbase + HOST_KEYS[s->hkeys]), 0, 0); }
+            s->hkeys = 0;
+            return;
+        }
         if (on && vel) {
             s->held++; s->note = note; s->vel = vel; s->quiet = 0;
             if (!s->p[P_COUNT]) return;                      /* (COUNT 0: none; host_render presses it when COUNT rises) */
@@ -1561,19 +1613,22 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
         s->note = note; s->vel = vel;
         if (!s->p[P_COUNT]) { s->quiet = 0; return; }        /* (COUNT 0: none) */
         if (PRE[pre].kind == 4) {                            /* a bird sings now, at the key's pitch: the one close by, */
-            unsigned bi = 0, q;                              /* or (it is singing) another one that is free */
-            birdm_t *b;
-            if (s->bm[0].voice != 0xFF) for (q = 1; q < NB; q++) if (s->bm[q].active && s->bm[q].voice == 0xFF) { bi = q; break; }
-            b = &s->bm[bi];
-            if (b->voice != 0xFF) { unsigned vi = b->voice; voice_cut(s, vi); tx_pool_free(&s->pool, vi); b->voice = 0xFF; }
-            if (!bi) bird_draw(s, b, 1);
-            b->active = 1;
-            bird_sing(s, bi, (unsigned)PRE[pre].act_lo, 1, ((int32_t)note - 60) * 5461);
-        } else if (PRE[pre].kind == 1) {                     /* a cicada close by, at the key's pitch */
-            member_t *m = &s->m[0];
-            member_new(s, m, 1);
-            if (m->voice != 0xFF) { unsigned vi = m->voice; voice_cut(s, vi); tx_pool_free(&s->pool, vi); m->voice = 0xFF; }
-            m->calling = 0; m->fresh = 1;
+            unsigned bi = 0, q;                              /* or (it is singing) another one that is free; all of */
+            birdm_t *b;                                      /* them singing: none (a song is never cut by a press) */
+            if (s->bm[0].voice != 0xFF) for (bi = NB, q = 1; q < NB; q++) if (s->bm[q].active && s->bm[q].voice == 0xFF) { bi = q; break; }
+            if (bi < NB) {
+                b = &s->bm[bi];
+                if (!bi) bird_draw(s, b, 1);
+                b->active = 1;
+                bird_sing(s, bi, (unsigned)PRE[pre].act_lo, 1, ((int32_t)note - 60) * 5461);
+            }
+        } else if (PRE[pre].kind == 1) {                     /* a cicada close by, at the key's pitch (one singing */
+            member_t *m = &s->m[0];                          /* sings on: a press does not cut its song) */
+            if (!(m->calling && m->song)) {
+                member_new(s, m, 1);
+                if (m->voice != 0xFF) { unsigned vi = m->voice; voice_cut(s, vi); tx_pool_free(&s->pool, vi); m->voice = 0xFF; }
+                m->calling = 0; m->fresh = 1;
+            }
         } else {
             s->events = 0;
             event(s, 0, TX_BLOCK, pre, 1, vel, 256u, 0);
@@ -1622,6 +1677,7 @@ static void src_param(void *st, uint8_t id, uint8_t val)
 {
     src_t *s = (src_t *)st;
     if (s->hst && (id == TX_PID_PARTICLES || id == TX_PID_LEVEL)) s->hst->param(s->host, id, val);
+    if (s->hst && id == TX_PID_PARTICLES) s->hpart = val;  /* (host_apply raises it to COUNT where the engine counts) */
     if (s->wst && id == TX_PID_LEVEL) s->wst->param((uint8_t *)s->host + WATER_OFF, id, val);
     if (id == TX_PID_PARTICLES) s->part_v = val;
     if (id == TX_PID_LEVEL) s->lvl_v = val ? val : 1u;

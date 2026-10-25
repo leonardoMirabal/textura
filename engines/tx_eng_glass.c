@@ -76,6 +76,8 @@ typedef struct {
     int32_t buf[TX_BLOCK], bpush[TX_BLOCK];
     int32_t res, res_x1;
     int32_t shn, shn_x1, shn_in;   /* the shattering's noise: envelope, high-pass state, energy still to come */
+    int32_t shcap;                 /* its ticks' size at most: the loudest break's own (breaks on top of each other add
+                                    * cracks, not bigger ones) */
     tx_mallet_t mal;
     uint8_t p[NP], limit, quiet;
     int32_t level, size_l2, e_q15, h_l2;
@@ -232,6 +234,7 @@ static void glass_break(glass_t *s, const tx_event_t *e)
         }
         int32_t add = (int32_t)(((int64_t)(((int64_t)A_REF * s->level) >> 15) * v2) >> 15) * 3 >> 4;   /* ~0.1 s of breaking */
         s->shn_in = s->shn_in > add ? s->shn_in + (add >> 2) : add + (s->shn_in >> 2);   /* noise; breaks add ~ in power */
+        if (add - (add >> 2) > s->shcap) s->shcap = add - (add >> 2);   /* (one break's envelope peaks at 0.63 x add) */
     }
     {   /* the blow knocks the frame / floor: the low body of the break (a recording's loudest moment, 65-180 Hz) */
         int32_t b = (int32_t)(((int64_t)A_REF * 3 * s->level) >> 15);
@@ -293,7 +296,7 @@ TX_AUDIO_CODE static void glass_render(void *st, int32_t *mix, unsigned n)
         for (j = 0; j < n; j++) {                            /* "an unpleasant white-noise background"): the pane */
             uint32_t u = tx_rand(&s->cloud.rng);             /* breaks in many separate cracks and chips, each a */
             if ((u >> 16) < (uint32_t)(e >> 12)) {           /* sharp tick of its own size (~3 k/s at the peak, */
-                int32_t a = (e >> 14) * (int32_t)((u & 0xFFFFu) * (u & 0xFFFFu) >> 18);   /* a u^2 level: a few */
+                int32_t a = ((e < s->shcap ? e : s->shcap) >> 14) * (int32_t)((u & 0xFFFFu) * (u & 0xFFFFu) >> 18);   /* a u^2 level: a few */
                 s->buf[j] += (u & 0x10000u) ? a : -a;        /* loud, most faint; ours) */
                 s->bpush[j] += a >> 10;
             }
@@ -305,6 +308,7 @@ TX_AUDIO_CODE static void glass_render(void *st, int32_t *mix, unsigned n)
             if (!e && !in) break;
         }
         s->shn = e; s->shn_in = in; s->shn_x1 = e ? x1 : 0;
+        if (!e && !in) s->shcap = 0;
         any |= e | in;
     }
     {   /* the clicks: noise bursts, tau ~0.4 ms (glass) */

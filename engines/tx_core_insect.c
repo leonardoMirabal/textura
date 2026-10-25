@@ -75,6 +75,37 @@ void tx_ireso_coefs(uint32_t f_hz, uint32_t q_x16, int32_t *a1, int32_t *a2, int
 
 void tx_ireso_set(tx_ireso_t *r, uint32_t f_hz, uint32_t q_x16) { tx_ireso_coefs(f_hz, q_x16, &r->a1, &r->a2, &r->b0); }
 
+/* two resonators on the same impulses in one pass (a katydid's wing modes): as tx_ireso_add on each, the input's
+ * (1 - z^-2) / 2 shared */
+TX_AUDIO_CODE void tx_ireso_add2(tx_ireso_t *r, tx_ireso_t *q, const uint16_t *off, const int16_t *imp, unsigned nimp,
+                                 int32_t *out, unsigned n)
+{
+    int32_t y1 = r->y1, y2 = r->y2, p1 = r->p1, p2 = r->p2, a1 = r->a1, a2 = r->a2, g = r->g, y01 = y1, y02 = y2;
+    int32_t z1 = q->y1, z2 = q->y2, b1 = q->a1, b2 = q->a2, h = q->g, z01 = z1, z02 = z2;
+    unsigned j, k = 0;
+    if (!nimp && !(y1 | y2 | p1 | p2 | z1 | z2 | q->p1 | q->p2)) return;
+    for (j = 0; j < n; j++) {
+        int32_t x = 0, y, z, d;
+        while (k < nimp && off[k] == j) { x += imp[k]; k++; }
+        d = (x - p2) >> 1;                                   /* (1 - z^-2) / 2 */
+        p2 = p1; p1 = x;
+        y = ((a1 * y1) >> 14) - ((a2 * y2) >> 14) + d;
+        y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
+        y2 = y1; y1 = y;
+        z = ((b1 * z1) >> 14) - ((b2 * z2) >> 14) + d;
+        z = z > 65535 ? 65535 : z < -65535 ? -65535 : z;
+        z2 = z1; z1 = z;
+        out[j] += y * g + z * h;
+    }
+    {
+        int32_t zl = r->zlim ? r->zlim : 8, zq = q->zlim ? q->zlim : 8;
+        if (!nimp && !(p1 | p2) && ((y1 > -zl && y1 < zl && y2 > -zl && y2 < zl) || (y1 == y01 && y2 == y02))) y1 = y2 = 0;
+        if (!nimp && !(p1 | p2) && ((z1 > -zq && z1 < zq && z2 > -zq && z2 < zq) || (z1 == z01 && z2 == z02))) z1 = z2 = 0;
+    }
+    r->y1 = y1; r->y2 = y2; r->p1 = p1; r->p2 = p2;
+    q->y1 = z1; q->y2 = z2; q->p1 = p1; q->p2 = p2;
+}
+
 TX_AUDIO_CODE void tx_tymbal_add(tx_tymbal_t *t, const tx_tev_t *ev, unsigned nev, int32_t *out, unsigned n)
 {
     int32_t y1 = t->y1, y2 = t->y2, s1 = t->s1, s2 = t->s2, a1 = t->a1, a1e = t->a1_end, da1 = t->da1, fr = t->frac;
