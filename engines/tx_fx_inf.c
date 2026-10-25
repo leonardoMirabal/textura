@@ -15,7 +15,12 @@
  *
  * DARK (Textura): the same tank darker and still: no wander (MOD 0: the reads stand, nothing beats), TONE's damping
  * 60 steps darker (the input one-pole near 250 Hz and lower, the top's absolute damping up), so a FREEZE holds a deep,
- * soft bed. The framework sets it (c->dark: damp + 60, mod 0). */
+ * soft bed. The framework sets it (c->dark: damp + 60, mod 0).
+ *
+ * DRIFT (Textura): the same tank, its wander a slow random walk instead of the slow sines: each wandering read follows
+ * two one-poles (0.75 s each) toward a target drawn at random every 1.5 .. 6 s, over twice the swing, so the tail
+ * slowly bends in pitch, never in a cycle; the reads stay allpass-interpolated (clean, no high loss). c->drift: the
+ * framework's random state (never reseeded: no two tails alike). */
 #include "tx_fx_kern.h"
 
 #define RI_LCPT 2u                  /* log2 RI_CPT */
@@ -42,6 +47,8 @@
 #define RI_LOSS 140u
 #define RI_MODM 0x55u               /* the modulated lines (0, 2, 4, 6) */
 #define RI_RRS 3u                   /* the reads' round robin */
+#define RI_WK 6u                    /* DRIFT: the walk's one-poles, 2^-6 a read (a read every 4 tank blocks: 11.6 ms) */
+#define RI_WN0 129u                 /* DRIFT: reads to the next target: 129 .. 516 (1.5 .. 6 s) */
 static const uint16_t RI_LEN[RI_NL] = {2161, 2437, 2687, 2963, 3271, 3617, 3989, 4409};
 static const uint16_t RI_AP[RI_NDIF] = {127, 193, 277};
 static const uint32_t RI_INC[RI_NL] = {218157u, 645121u, 324119u, 751083u, 433197u, 860162u, 539159u, 966124u};
@@ -211,11 +218,29 @@ static void ri_tank(tx_inf_t *s, int32_t *mo, int32_t *so, const tx_rev_ctl_t *c
         int32_t g = c->freeze ? 16384 + (s->dq >> 8) : s->g[k];
         int32_t ck = clampi((((16384 - g) * s->c) >> 9) + s->ca, 0, 14000) + RI_CMIN;
         if (!((k ^ s->rr) & RI_RRS) || !s->mI[k]) {        /* the read: every 4th block */
-            int32_t dep = (int32_t)((RI_MODQ8 * (uint32_t)mod) >> 6);
+            int32_t dep = (int32_t)((RI_MODQ8 * (uint32_t)mod) >> 6), lf;
             uint32_t t, r;
             if ((RI_MODM >> k) & 1u) {
-                t = (uint32_t)s->len[k] * 256u
-                    + (uint32_t)(dep + ((dep * (tx_fx_sine(s->ph[k] += (RI_RRS + 1u) * RI_CPT * RI_INC[k]) >> 1)) >> 14));
+                lf = tx_fx_sine(s->ph[k] += (RI_RRS + 1u) * RI_CPT * RI_INC[k]) >> 1;   /* (+-16384: the swing) */
+                if (c->drift) {                            /* DRIFT: the walk, over twice the swing */
+                    if (!s->wn[k]) {
+                        uint32_t *q = c->drift;
+                        *q = *q * 1664525u + 1013904223u;
+                        s->wt[k] = (int32_t)(*q >> 16) - 32768;
+                        s->wn[k] = (int32_t)(RI_WN0 + ((*q >> 4) & 511u) * 3u / 4u);
+                    }
+                    s->wn[k]--;
+                    s->wg |= (uint8_t)(1u << k);
+                } else
+                    s->wt[k] = lf, s->wn[k] = 0;
+                if ((s->wg >> k) & 1u) {                   /* the walk (or its glide back onto the sine): no jump */
+                    s->wu[k] += (s->wt[k] - s->wu[k]) >> RI_WK;
+                    s->wv[k] += (s->wu[k] - s->wv[k]) >> RI_WK;
+                    if (!c->drift && s->wv[k] - lf < 64 && lf - s->wv[k] < 64) s->wg &= (uint8_t)~(1u << k);
+                    else lf = s->wv[k];
+                } else
+                    s->wu[k] = s->wv[k] = lf;              /* (a DRIFT starts where the sine is) */
+                t = (uint32_t)s->len[k] * 256u + (uint32_t)(dep + ((dep * lf) >> 14));
                 I = (t - 128u) >> 8;
                 r = t - I * 256u;
                 s->ma[k] = ((256 - (int32_t)r) * 32768) / (256 + (int32_t)r);

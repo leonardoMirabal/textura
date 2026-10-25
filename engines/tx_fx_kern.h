@@ -56,6 +56,7 @@ typedef struct {            /* filled by the framework once per control block */
     int32_t mod;            /* 0..127 (64 the default) */
     int32_t freeze;         /* the infinite kernel: 0 normal; 1 SUSTAIN (DECAY 120..126); 2 FREEZE (DECAY 127) */
     int32_t dark;           /* the infinite kernel: DARK (no wander, the top held down, the input darker) */
+    uint32_t *drift;        /* the infinite kernel: DRIFT (the wander a slow random walk; the framework's random state) */
 } tx_rev_ctl_t;
 
 /* the 2:1 down into every kernel: an 11-tap half-band, the level into the lines, a DC blocker (Frodhes fx.c rev_down) */
@@ -106,6 +107,9 @@ typedef struct {
     int32_t yp[RI_NL], op[RI_NL], oe[RI_NL];
     int32_t ma[RI_NL];
     uint32_t ph[RI_NL];
+    int32_t wu[RI_NL], wv[RI_NL];   /* DRIFT: each wandering read's walk (two one-poles toward a random target) */
+    int32_t wt[RI_NL], wn[RI_NL];   /* its target, the reads until the next one */
+    uint8_t wg;                     /* the reads on their walk (DRIFT, or gliding back onto the sine after it) */
     uint16_t mI[RI_NL];
     uint16_t len[RI_NL], tlen[RI_NL];
     int16_t g[RI_NL];

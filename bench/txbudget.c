@@ -412,7 +412,7 @@ int main(int argc, char **argv)
                (unsigned)(4.0 * pool11p / typ), (unsigned)(4.0 * pool11d / typ), names);
     }
     {   /* the effects: each one's cost, the chain against the effects reserve */
-        static const char *const RT[TX_RVT_N] = {"off", "ROOM (the CHAMBER)", "HALL", "INFINITE", "DARK"};
+        static const char *const RT[TX_RVT_N] = {"off", "ROOM (the CHAMBER)", "HALL", "INFINITE", "DARK", "DRIFT", "SWELL"};
         double dr = fx_cost(0, 0, 0), fl = fx_cost(1, 0, 0), rv[TX_RVT_N], fz = fx_cost(2, TX_RVT_INF, 127), worst = 0;
         unsigned t;
         printf("\n4. effects (FM-1 us a block on a busy input, the 75th percentile of the per-block minima; tx_fx.h)\n");

@@ -218,7 +218,7 @@ def main():
         time.sleep(0.5)
         lv = page.evaluate("window.txTest.render(8)")
         check(lv > 0, f"REVERB ROOM on: the output still sounds (peak {lv})")
-        for t in (2, 3, 4):                             # HALL, INFINITE, DARK: each sounds; INFINITE frozen at DECAY 127
+        for t in (2, 3, 4, 5, 6):                       # HALL, INFINITE, DARK, DRIFT, SWELL: each sounds; INFINITE frozen at DECAY 127
             page.evaluate(f"window.txTest.fx(2, 0, 0, {t})")
             page.evaluate("window.txTest.fx(2, 0, 2, 127)") if t == 3 else None
             page.evaluate("window.txTest.render(64)")

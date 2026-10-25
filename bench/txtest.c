@@ -947,7 +947,7 @@ static uint32_t fx_run_rev(unsigned t, unsigned d, unsigned secs, int zero, int3
 }
 static void check_fx(FILE *update)
 {
-    static const char *const TN[TX_RVT_N] = {"off", "room", "hall", "infinite", "dark"};
+    static const char *const TN[TX_RVT_N] = {"off", "room", "hall", "infinite", "dark", "drift", "swell"};
     tx_fx_t *fx = malloc(sizeof *fx);
     char msg[200], hex[65], hex2[65], name[48];
     int32_t x[TX_BLOCK], y[TX_BLOCK], L[TX_BLOCK], R[TX_BLOCK], pk, pk2;
@@ -1001,7 +1001,7 @@ static void check_fx(FILE *update)
                 !bl ? " (no baseline: make tx-baseline)" : strcmp(bl, hex) ? " != baseline (a change moved the sound)" : " = baseline");
     }
     /* FREEZE (DECAY 127) for 3 minutes: the held level stays within 1.5 dB, never silent, bounded */
-    for (t = TX_RVT_INF; t <= TX_RVT_DARK; t++) {
+    for (t = TX_RVT_INF; t < TX_RVT_N; t++) {
         double rms[18] = {0}, lo = 1e30, hi = 0;
         unsigned k;
         fx_run_rev(t, 127, 181, 0, &pk, hex, rms, 18);            /* 18 windows of 10 s: 0 .. 180 s */
@@ -1012,8 +1012,36 @@ static void check_fx(FILE *update)
                  TN[t], 20 * log10(lo / 8388608.0 + 1e-12), 20 * log10(hi / 8388608.0 + 1e-12), 20 * log10(hi / (lo + 1e-9)),
                  20 * log10(hi2 / (lo2 + 1e-9)), 20 * log10((pk + 1) / 8388608.0));
         /* (the held level settles over the first minute as the top fades: the least damping, by design; then it
-         * holds) never silent, within 3 dB over 3 minutes, 2 dB once settled (its slow beating), bounded */
-        verdict("fx", "freeze", lo > 0 && hi / lo < 1.413 && hi2 / lo2 < 1.259 && pk < (1 << 23), msg, 0);
+         * holds) never silent, within 3 dB over 3 minutes (DRIFT 3.5: its random bends beat wider than the sines), 2 dB
+         * once settled (its slow beating), bounded */
+        verdict("fx", "freeze", lo > 0 && hi / lo < (t == TX_RVT_DRIFT ? 1.496 : 1.413) && hi2 / lo2 < 1.259 && pk < (1 << 23), msg, 0);
+    }
+    /* SWELL: 3 s played (the burst again and again), then silence: the wet part (out - in) after the playing against
+     * during it, SWELL against INFINITE (DECAY 100): the tail held down while played, swelling in after */
+    {
+        double ratio[2];
+        for (t = 0; t < 2; t++) {
+            tx_fx_reverb_t *r = &fx->rev;
+            double dur = 0, aft = 0, acc = 0;
+            uint32_t rngs = 7u;
+            tx_fx_reverb_init(r);
+            tx_fx_reverb_param(r, TX_RV_TYPE, t ? TX_RVT_SWELL : TX_RVT_INF); tx_fx_reverb_param(r, TX_RV_MIX, 90);
+            tx_fx_reverb_param(r, TX_RV_DECAY, 100);
+            for (b = 0; b < 1034u; b++) {                       /* 6 s: 3 played, 3 after; 0.25 s windows (43 blocks) */
+                for (j = 0; j < TX_BLOCK; j++) x[j] = L[j] = R[j] = b < 517u ? fx_in((b * TX_BLOCK + j) % 22050u, &rngs) : 0;
+                tx_fx_reverb_process(r, L, R, TX_BLOCK);
+                for (j = 0; j < TX_BLOCK; j++) acc += (double)(L[j] - x[j]) * (L[j] - x[j]);
+                if ((b + 1u) % 43u == 0) {
+                    double v = sqrt(acc / (43.0 * TX_BLOCK));
+                    if (b >= 344u && b < 516u) dur = v > dur ? v : dur;   /* 2 .. 3 s: played */
+                    if (b >= 559u && v > aft) aft = v;                      /* 3.25 .. 6 s: after */
+                    acc = 0;
+                }
+            }
+            ratio[t] = 20 * log10((aft + 1e-9) / (dur + 1e-9));
+        }
+        snprintf(msg, sizeof msg, "the tail after the playing against during it: SWELL %+.1f dB, INFINITE %+.1f dB", ratio[1], ratio[0]);
+        verdict("fx", "swell", ratio[1] > 6.0 && ratio[1] > ratio[0] + 10.0, msg, 0);
     }
     /* SHIMMER: a HALL with it ends in exact zeros; an INFINITE SUSTAIN with it at its top stays bounded for a minute */
     for (t = 0; t < 2; t++) {
