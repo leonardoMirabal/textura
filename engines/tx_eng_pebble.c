@@ -157,7 +157,12 @@ static void pebble_init(void *st, uint32_t seed)
 
 static void pebble_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
-    if (on && vel) tx_vary_press(&((pebble_t *)st)->vy);
+    pebble_t *s = (pebble_t *)st;
+    unsigned i, rolling = 0;
+    for (i = 0; i < s->limit; i++) rolling |= s->v[i].alive && s->v[i].note == note;
+    if (on && vel && !rolling) tx_vary_press(&s->vy);       /* (a pebble rolling is pushed on: the same pebble, its press
+                                                              * level kept; drawn afresh at each push, a pebble pushed
+                                                              * often was quieter the more it was pushed) */
     tx_cloud_key(&((pebble_t *)st)->cloud, note, vel, on);
 }
 
@@ -187,8 +192,10 @@ static void push(pebble_t *s, const tx_event_t *e)
     voice_t *v = 0;
     unsigned i;
     uint32_t v0;
+    int fresh = 0;
     for (i = 0; i < s->limit && !v; i++) if (s->v[i].alive && s->v[i].note == e->note) v = &s->v[i];
     if (!v) {
+        fresh = 1;
         for (i = 0; i < s->limit && !v; i++) if (!s->v[i].alive) v = &s->v[i];
         if (!v) {                                            /* all rolling: the slowest makes way */
             uint32_t lo = 0xFFFFFFFFu;
@@ -206,14 +213,16 @@ static void push(pebble_t *s, const tx_event_t *e)
     v0 = tx_exp2(s->speed_l2);                               /* um/s */
     v0 = v0 * e->vel / 100u;                                 /* <= 2e6 x 127: 32-bit */
     if (v0 > v->v) v->v = v0;
-    {   /* the drop: h = 1 .. 12 cm by velocity, impact speed sqrt(2 g h), the flight 2 v / g after each bounce */
+    if (fresh) {   /* the drop: h = 1 .. 12 cm by velocity, impact speed sqrt(2 g h), the flight 2 v / g after each bounce
+                    * (a new pebble set down; one rolling is just pushed on: dropped afresh at each push, a pebble pushed
+                    * often stayed in its sparse bounces, quieter the more it was pushed) */
         uint32_t h_mm = 10u + (uint32_t)e->vel * e->vel * 110u / 16129u;
         uint32_t vi = isqrt32(19620u * h_mm);                /* mm/s: sqrt(2 g h) */
         v->bfl = vi * 9u;                                    /* 2 v / g in samples: 2 x 44100 / 9810 = 9.0 per mm/s */
         v->bt = tx_rand_below(&s->cloud.rng, 64u) + e->offset;
         v->ba = (int32_t)(vi > 1500u ? 32767u : vi * 21u);   /* the push ~ speed */
     }
-    v->sc.wait = 0;                                          /* the first impact now (not a wait left over from a */
+    if (fresh) v->sc.wait = 0;                               /* the first impact now (not a wait left over from a */
 }                                                            /* pebble that was slowing to a stop) */
 
 /* the bounces in this block: each a Hertz-short half sine (its length from the radius), the next after e x the flight */

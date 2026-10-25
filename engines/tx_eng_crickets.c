@@ -314,8 +314,7 @@ static void spawn(crickets_t *s, const tx_event_t *e)
         d = c->inc > ki ? c->inc - ki : ki - c->inc;
         if (d < bd) { bd = d; bi = i; }
     }
-    if (bi < NV) bout_start(s, bi, 0);
-    else if ((ci = free_slot(s)) < NV) individual(s, ci, e->note, e->vel, 1, e->emitter);   /* all singing: one more of its own while the key is held */
+    if (bi < NV) bout_start(s, bi, 0);                      /* (all singing: none more; COUNT says how many) */
 }
 
 /* per block: the field kept at COUNT (one comes or goes a block), the bouts and pauses running out; after a bout

@@ -360,9 +360,11 @@ static void spawn(katy_t *s, const tx_event_t *e)
     if (!n || singing_pop(s) < (n < s->limit ? n : s->limit)) {
         vi = free_slot(s);
         if (vi == NV) { s->dropped++; return; }
-        individual(s, vi, e->note, e->vel, n ? 2 : 1, n ? 0xFF : e->emitter);   /* a field: the one at the key enters
-                                                             * after a pause of its own, as the others (singing at once,
-                                                             * the start was louder than what follows) */
+        individual(s, vi, e->note, e->vel, n ? 0 : 1, n ? 0xFF : e->emitter);   /* a field: the first one is one of
+                                                             * them, at a distance drawn as theirs, after a pause of its
+                                                             * own (at the key, singing at once, the start was louder than
+                                                             * what follows; at the key at all, a lone one outsang 8: the
+                                                             * chorus's alternation quiets the near one among others) */
         return;
     }
     kf = (uint32_t)(((uint64_t)sp_of(s)->f1 * tx_exp2(((int32_t)e->note - 60) * 2731 + (16 << 16))) >> 16);
@@ -373,8 +375,7 @@ static void spawn(katy_t *s, const tx_event_t *e)
         d = v->f1 > kf ? v->f1 - kf : kf - v->f1;
         if (d < bd) { bd = d; bi = i; }
     }
-    if (bi < NV) bout_start(s, bi, 0);
-    else if ((vi = free_slot(s)) < NV) individual(s, vi, e->note, e->vel, 1, e->emitter);   /* all singing: one more of its own while the key is held */
+    if (bi < NV) bout_start(s, bi, 0);                      /* (all singing: none more; COUNT says how many) */
 }
 
 /* per block: the grass kept at COUNT (one comes or goes a block), the bouts and pauses running out; after a bout now

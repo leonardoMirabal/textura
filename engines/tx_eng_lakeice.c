@@ -65,7 +65,8 @@ typedef struct {
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t ex[TX_BLOCK], buf[TX_BLOCK], bx[TX_BLOCK];
     uint32_t now, tsilent, tmax;      /* samples since the tone was last rung; its 3 T60 bound */
-    uint8_t p[NP], quiet, pad;
+    uint8_t p[NP], quiet, pend;     /* pend: the first key's crack still to come (pnote, pvel) */
+    uint8_t pnote, pvel, pad2[2];
     int32_t level, h_l2, x_l2, q, tf, tg, tq;
     uint16_t dropped;
     tx_vary_t vy;
@@ -125,10 +126,27 @@ static void ice_init(void *st, uint32_t seed)
     tx_vary_init(&((ice_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
+/* the first key (none held) starts the ice cracking at RATE, its first crack after a gap of its own (a start striking
+ * at the press was louder than what follows); let go before that (a tap), it cracks then: a tap is still a crack. A
+ * key while others are held cracks at once. */
 static void ice_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
-    if (on && vel) tx_vary_press(&((ice_t *)st)->vy);
-    tx_cloud_key(&((ice_t *)st)->cloud, note, vel, on);
+    ice_t *s = (ice_t *)st;
+    tx_cloud_t *c = &s->cloud;
+    if (on && vel) tx_vary_press(&s->vy);
+    if (on && vel && !tx_cloud_held(c)) {
+        uint8_t b = c->burst_n;
+        c->burst_n = 0;
+        tx_cloud_key(c, note, vel, on);
+        c->burst_n = b;
+        s->pend = 1; s->pnote = note; s->pvel = vel;
+        return;
+    }
+    if ((!on || !vel) && s->pend && note == s->pnote) {
+        s->pend = 0;
+        tx_cloud_key(c, note, s->pvel, 1);                   /* (its crack now: the burst on the held key) */
+    }
+    tx_cloud_key(c, note, vel, on);
 }
 
 static void ice_param(void *st, uint8_t id, uint8_t val)
@@ -189,6 +207,7 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) buf[j] = ex[j] = bx[j] = 0;
     k = tx_cloud_block(&s->cloud, s->ev, n);
+    for (i = 0; i < k && s->pend; i++) if (s->ev[i].note == s->pnote) s->pend = 0;   /* (the first key has cracked) */
     tx_pool_tick(&s->pool);
     for (i = 0; i < k; i++) crack(s, &s->ev[i]);
     for (i = 0; i < TX_POOL_MAX; i++) {

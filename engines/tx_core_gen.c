@@ -69,6 +69,7 @@ void tx_gen_param(tx_gen_t *g, unsigned id, unsigned v)
     if (id >= TX_GEN_NP) return;
     if (v > tx_gen_params[id].max) v = tx_gen_params[id].max;
     g->p[id] = (uint8_t)v;
+    if (id == TX_GEN_ACTIVITY && !g->blk) g->a = (int32_t)v << 8;   /* (before its first block: read at the fader, not 64) */
 }
 
 /* the next note: its pitch (semitones above ROOT) */

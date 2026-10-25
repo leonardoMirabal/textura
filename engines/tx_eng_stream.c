@@ -73,7 +73,7 @@ typedef struct {
     uint32_t bed_e;                /* this block's bed energy (sum A^2 fs / 4d, Q?) */
     int32_t size_l2, beta_q8, eddy_d, e1, e2, flow_on;
     uint32_t rate_q8;
-    uint8_t p[NP], limit, quiet, pad;
+    uint8_t p[NP], limit, quiet, spray_new;   /* (spray_new: the water starting, its first drop after a gap) */
     int32_t level;
     uint16_t dropped;
     tx_vary_t vy;
@@ -121,13 +121,23 @@ static void stream_init(void *st, uint32_t seed)
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
+    s->spray_new = 1;
     tx_vary_init(&((stream_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
+/* the first key (none held) just starts the flow; a key while the water runs tips a stone in: the gulp (the gulp at
+ * the start was louder than the flow that follows) */
 static void stream_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
+    tx_cloud_t *c = &((stream_t *)st)->cloud;
     if (on && vel) tx_vary_press(&((stream_t *)st)->vy);
-    tx_cloud_key(&((stream_t *)st)->cloud, note, vel, on);
+    if (on && vel && !tx_cloud_held(c)) {
+        uint8_t b = c->burst_n;
+        c->burst_n = 0;
+        tx_cloud_key(c, note, vel, on);
+        c->burst_n = b;
+    } else
+        tx_cloud_key(c, note, vel, on);
 }
 
 static void stream_param(void *st, uint8_t id, uint8_t val)
@@ -217,13 +227,14 @@ TX_AUDIO_CODE static void stream_render(void *st, int32_t *mix, unsigned n)
         tx_cloud_rate(&s->cloud, (uint32_t)(((uint64_t)s->rate_q8 * (uint32_t)(32768 + m)) >> 15));
     }
     k = tx_cloud_block(&s->cloud, s->ev, n);
-    if (!k && s->quiet) return;                              /* silent and nothing new */
+    if (!k && s->quiet && !lvq) return;                      /* silent and nothing new (a key held: the flow starts) */
     for (j = 0; j < n; j++) buf[j] = 0;
     s->bed_e = 0;
     for (i = 0; i < k; i++) bubble(s, &s->ev[i]);
     if (lvq) {   /* the spray: ~20 / s per plunge at the default FLOW (rate / 64), Poisson; thinning as it dies */
         uint32_t per = (uint32_t)((TX_FS << 6) / ((((s->rate_q8 >> 8) * (lvq >> 3)) >> 12) + 1u)) << 8;   /* mean samples, Q8 */
         unsigned live = 0, e;
+        if (s->spray_new) { s->spray_wait = tx_cloud_exp_q8(&s->cloud, per) >> 8; s->spray_new = 0; }   /* (none at once) */
         for (e = 0; e < TX_CLOUD_EMITTERS; e++) live += s->cloud.em[e].held || s->cloud.em[e].fade;
         while (s->spray_wait < n) {
             unsigned c = tx_rand_below(r, live ? live : 1u), q = 0;
@@ -232,8 +243,10 @@ TX_AUDIO_CODE static void stream_render(void *st, int32_t *mix, unsigned n)
             s->spray_wait += (tx_cloud_exp_q8(&s->cloud, per) >> 8) + 1u;
         }
         s->spray_wait -= n;
-    } else
+    } else {
         s->spray_wait = 0;
+        s->spray_new = 1;
+    }
     s->flow_on += ((int32_t)(lvq > 32768u ? 32768u : lvq) - s->flow_on) >> 4;   /* follows the keys and their release */
     if (!lvq && s->flow_on < 64) s->flow_on = 0;
     {   /* the events over the per-block cap: as average bubbles into the bed */

@@ -50,7 +50,7 @@ static const tx_param_t PARAMS[NP] = {
     {"SIZE", 127, 64, "piece length at C4: 10 .. 100 cm (log): f1 ~ 0.06 c / L"},
 };
 
-#define NP_ 4u                     /* pieces (one per key) */
+#define NP_ 3u                     /* pieces (one per key; 3 at most: 4 snapping at once with creaks reached ~1140 us on the FM-1) */
 #define NMW 5u
 #define NR 3u                      /* creak resonators */
 #define NAF 12u                    /* pending aftershocks per piece */
@@ -237,6 +237,44 @@ static void take(wood_t *s, const tx_event_t *e)
     p->em = e->emitter; p->note = e->note; p->vel = e->vel; p->alive = 1; p->held = 1;
 }
 
+/* the creak's three resonators on the same slips in one pass (CPU: as tx_ireso_add on each, bit for bit) */
+TX_AUDIO_CODE static void creak_res(tx_ireso_t *cr, const uint16_t *off, const int16_t *imp, unsigned nimp, int32_t *out,
+                                    unsigned n)
+{
+    int32_t a1 = cr[0].y1, a2 = cr[0].y2, b1 = cr[1].y1, b2 = cr[1].y2, c1 = cr[2].y1, c2 = cr[2].y2;
+    int32_t p1 = cr[0].p1, p2 = cr[0].p2;
+    const int32_t ka1 = cr[0].a1, ka2 = cr[0].a2, kb1 = cr[1].a1, kb2 = cr[1].a2, kc1 = cr[2].a1, kc2 = cr[2].a2;
+    const int32_t ga = cr[0].g, gb = cr[1].g, gc = cr[2].g;
+    int32_t a01 = a1, a02 = a2, b01 = b1, b02 = b2, c01 = c1, c02 = c2;
+    unsigned j, k = 0, q;
+    if (!nimp && !(a1 | a2 | b1 | b2 | c1 | c2 | p1 | p2)) return;
+    for (j = 0; j < n; j++) {
+        int32_t x = 0, d, y, z, w;
+        while (k < nimp && off[k] == j) { x += imp[k]; k++; }
+        d = (x - p2) >> 1;                                   /* (1 - z^-2) / 2 */
+        p2 = p1; p1 = x;
+        y = ((ka1 * a1) >> 14) - ((ka2 * a2) >> 14) + d;
+        y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
+        a2 = a1; a1 = y;
+        z = ((kb1 * b1) >> 14) - ((kb2 * b2) >> 14) + d;
+        z = z > 65535 ? 65535 : z < -65535 ? -65535 : z;
+        b2 = b1; b1 = z;
+        w = ((kc1 * c1) >> 14) - ((kc2 * c2) >> 14) + d;
+        w = w > 65535 ? 65535 : w < -65535 ? -65535 : w;
+        c2 = c1; c1 = w;
+        out[j] += y * ga + z * gb + w * gc;
+    }
+    if (!nimp && !(p1 | p2)) {                               /* silent input: small or frozen -> exact zero */
+        int32_t *v[3][2] = {{&a1, &a2}, {&b1, &b2}, {&c1, &c2}}, o[3][2] = {{a01, a02}, {b01, b02}, {c01, c02}};
+        for (q = 0; q < 3; q++) {
+            int32_t zl = cr[q].zlim ? cr[q].zlim : 8, u1 = *v[q][0], u2 = *v[q][1];
+            if ((u1 > -zl && u1 < zl && u2 > -zl && u2 < zl) || (u1 == o[q][0] && u2 == o[q][1])) *v[q][0] = *v[q][1] = 0;
+        }
+    }
+    cr[0].y1 = a1; cr[0].y2 = a2; cr[1].y1 = b1; cr[1].y2 = b2; cr[2].y1 = c1; cr[2].y2 = c2;
+    for (q = 0; q < 3; q++) { cr[q].p1 = p1; cr[q].p2 = p2; }
+}
+
 /* a crack of piece p at offset o, energy x (Q12 log2 below the snap's): strike the modes, click */
 static void crack(wood_t *s, piece_t *p, unsigned o, int32_t x, unsigned *ne)
 {
@@ -337,10 +375,10 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
                 }
                 if (lvl > 64) {
                     uint32_t f0 = (uint32_t)(((uint64_t)tx_knob_exp(s->p[P_PITCH], 30u, 310000) * tx_exp2(s->k->pitch + (16 << 16))) >> 16);   /* 30 .. 800 Hz */
-                    unsigned nc = tx_creak_block(&p->ck, r, f0, 4915, lvl > 20000 ? 20000 : lvl, n, s->co, s->ca, NEVB), q;
-                    for (q = 0; q < NR; q++) tx_ireso_add(&p->cr[q], s->co, s->ca, nc, s->buf, n);
+                    unsigned nc = tx_creak_block(&p->ck, r, f0, 4915, lvl > 20000 ? 20000 : lvl, n, s->co, s->ca, NEVB);
+                    creak_res(p->cr, s->co, s->ca, nc, s->buf, n);
                 } else
-                    for (a = 0; a < NR; a++) tx_ireso_add(&p->cr[a], 0, 0, 0, s->buf, n);
+                    creak_res(p->cr, 0, 0, 0, s->buf, n);
             }
             {   /* done: released (or snapped), no aftershock left, the creak faded */
                 unsigned left = 0;
@@ -348,7 +386,7 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
                 if ((!p->held || p->snapped) && !left && p->cenv < 64) { p->alive = 0; p->em = 0xFF; }
             }
         } else
-            for (a = 0; a < NR; a++) tx_ireso_add(&p->cr[a], 0, 0, 0, s->buf, n);
+            creak_res(p->cr, 0, 0, 0, s->buf, n);
         /* the body: strikes in time order (insertion-sorted), each rendering up to its sample */
         for (a = 1; a < ne; a++) {
             uint16_t o = s->eo[a]; int16_t v = s->ea[a]; unsigned q = a;
@@ -400,9 +438,9 @@ static void wood_stats(const void *st, tx_stats_t *o)
     o->quiet = s->quiet;
 }
 
-/* the worst case: four pieces bent hard to a quick snap, strong creaks at the highest slip rate */
+/* the worst case: three pieces bent hard (a fourth key: dropped) to a quick snap, strong creaks at the highest slip rate */
 static const char SCENE_MAX[] =
-    "0 particles 4\n0 param LOAD 0\n0 param CREAK 127\n0 param PITCH 127\n0 param SIZE 127\n"
+    "0 particles 3\n0 param LOAD 0\n0 param CREAK 127\n0 param PITCH 127\n0 param SIZE 127\n"
     "0 on 53 127\n0 on 60 127\n0 on 67 127\n0 on 74 127\n"
     "2500 off 53\n2500 off 60\n2500 off 67\n2500 off 74\n"
     "4500 end\n";
