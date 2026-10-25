@@ -7,10 +7,10 @@
 #define L2_1K 653118                /* log2(1000), Q16 */
 
 /* mean pause between bouts at the middle of the fader (0.1 s), base pitches (log2 Hz Q16) */
-const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES] = { 60, 80, 220, 200, 1100, 50, 90, 70, 50, 60, 80, 150 };
+const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES] = { 60, 80, 220, 200, 1500, 50, 90, 70, 50, 60, 80, 150 };
 const int32_t TX_BIRD_F0[TX_BIRD_TYPES] = { 731868, 771564, 596593, 641031, 666332,   /* 2.3, 3.5, 0.55, 0.88, 1.15 kHz */
-                                            731868, 784190, 750467, 788803, 805288, 781796, 779340 };
-                                            /* 2.3, 4.0, 2.8, 4.2, 5.0, 3.9, 3.8 kHz */
+                                            731868, 771564, 750467, 781796, 805288, 768824, 779340 };
+                                            /* 2.3, 3.5, 2.8, 3.9, 5.0, 3.4, 3.8 kHz */
 
 enum { ST_BLACKBIRD, ST_THRUSH, ST_NIGHTINGALE, ST_ROBIN, ST_WREN, ST_HERMIT, ST_SKYLARK, ST_FINCH, ST_CROW, ST_OWL, ST_GULL };
 enum { C_WHISTLE, C_NOTE, C_TRILL, C_HARSH, C_INTRO, C_SWEEP, C_CAW, C_HOOT, C_TREM, C_GLONG, C_KYOW, C_CHIRP, C_FLOURISH };
@@ -37,7 +37,7 @@ static const sp_t SP[TX_BIRD_TYPES] = {
     /* 0: the woodland mix draws one of the species below per bird (never used itself) */
     {ST_BLACKBIRD, -2700, 3300, 20, 120, 120, 330, 1230, 70, 0, 24, 16, 2, 6, 1200, 5000, 1, 48, 5, 0, 0, 300},
     /* 1 chirper: chaffinch (trills falling, a flourish) or house sparrow (chirps); 1.5-5.6 kHz */
-    {ST_FINCH, -4200, 3000, 15, 60, 250, 400, 900, 100, 0, 16, 4, 1, 4, 3000, 9000, 1, 40, 4, 0, 0, 400},
+    {ST_FINCH, -4200, 3000, 15, 110, 250, 400, 900, 100, 0, 16, 4, 1, 4, 3000, 9000, 1, 40, 4, 0, 0, 400},
     /* 2 crow: caws in series */
     {ST_CROW, -800, 800, 220, 420, 220, 420, 900, 224, 0, 6, 4, 1, 3, 1500, 5000, 0, 32, 30, 0, 691454, 2600},
     /* 3 owl */
@@ -51,9 +51,9 @@ static const sp_t SP[TX_BIRD_TYPES] = {
     /* 7 nightingale: 1.6-5.9 kHz; strophes ~1.7 s: soft notes, a swelling whistle or a rattling trill, an end note */
     {ST_NIGHTINGALE, -3000, 4800, 15, 90, 40, 120, 1500, 140, 40, 40, 40, 3, 8, 1500, 4000, 1, 48, 5, 0, 0, 300},
     /* 8 robin: thin, high 2.8-7.7 kHz, strophes of 4-11 varied notes and sweeps, never the same twice */
-    {ST_ROBIN, -2500, 3500, 15, 200, 120, 300, 700, 90, 30, 40, 32, 3, 10, 300, 2000, 1, 48, 4, 0, 0, 250},
+    {ST_ROBIN, -2500, 3500, 15, 200, 120, 300, 1000, 90, 30, 40, 32, 3, 10, 300, 2000, 1, 48, 4, 0, 0, 250},
     /* 9 wren: loud fast trills 3.5-8 kHz (11-20 /s), a few song types each bird repeats before switching */
-    {ST_WREN, -3200, 3000, 15, 60, 60, 120, 600, 150, 20, 32, 6, 2, 5, 1500, 5000, 1, 40, 3, 0, 0, 300},
+    {ST_WREN, -3200, 3000, 15, 100, 60, 120, 1200, 150, 20, 32, 6, 2, 5, 1500, 5000, 1, 40, 3, 0, 0, 300},
     /* 10 hermit thrush: a long pure note, then a flute-like cascade above it, two voices; each song at a new pitch */
     {ST_HERMIT, -1300, 1200, 15, 60, 200, 350, 300, 60, 150, 20, 10, 3, 10, 1800, 4500, 1, 56, 6, 0, 0, 200},
     /* 11 skylark: endless warbling 2.6-5.1 kHz, ~11 syllables /s, glides, rolling buzzes */
@@ -155,13 +155,13 @@ static void syl_make(tx_bird_voice_t *v)
         two = rs(&r, 1000, 2400); if (tx_rand(&r) & 1u) two = -two;
         twa = rs(&r, 60, 150);
     }
-    /* this rendition: pitch +-0.05 oct, glide +-15 %, length +-12 %, level +-50 % (and the phrase's), the segment's swell */
+    /* this rendition: pitch +-0.05 oct, glide +-15 %, length +-12 %, level -6 .. +2 dB (and the phrase's), the segment's swell */
     rel += g->lev * 128 + v->plev + rs(&v->rng, -205, 205);
     df += (df * rs(&v->rng, -614, 614)) >> 12;
     len_ms = (len_ms * (uint32_t)(4096 + rs(&v->rng, -492, 492))) >> 12;
     a = (amp * g->amp) >> 8;
     if (g->n > 1 && g->cres < 255) a = (a * (g->cres + (255 - g->cres) * v->sn / (g->n - 1u))) >> 8;
-    a = (a * (256 + rs(&v->rng, -128, 128))) >> 8;
+    a = (a * lvl(&v->rng, 8) * 5 / 4) >> 8;                 /* -6 .. +2 dB */
     a = (a * v->pamp) >> 8;
     {
         uint32_t n = ms_n(v, len_ms);
@@ -286,7 +286,7 @@ static void phrase_start(tx_bird_voice_t *v)
         seg(v, SYL(C_NOTE, rb(&pr, 0, ns - 1u)), vary_n(v, rb(&pr, 2, 4)), rb(&pr, 40, 80), 220, 255, 0);
         for (m = rb(&pr, 4, 6), i = 0; i < m; i++) {
             unsigned c = tx_rand_below(&pr, 10u), cls = c < 6u ? C_TRILL : c < 8u ? C_HARSH : C_NOTE;
-            seg(v, SYL(cls, rb(&pr, 0, ns - 1u)), vary_n(v, rb(&pr, 3, 12)), rb(&pr, 10, 35), rb(&pr, 180, 255), 255, 0);
+            seg(v, SYL(cls, rb(&pr, 0, ns - 1u)), vary_n(v, rb(&pr, 3, 12)), rb(&pr, 35, 80), rb(&pr, 180, 255), 255, 0);
         }
         break;
     case ST_HERMIT:                                          /* a long pure note, then a cascade above; a new pitch level */
@@ -302,15 +302,20 @@ static void phrase_start(tx_bird_voice_t *v)
         tx_rng_seed(&pr, mix(v->seed, 0x5000u + v->song % S->nphr));
         v->plev = (int16_t)rs(&pr, -180, 180);
         if ((mix(v->seed, 7u) & 3u) == 0u) {                 /* a house sparrow: chirps */
-            seg(v, SYL(C_CHIRP, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 1, 3), rb(&v->rng, 30, 80), 255, 255, 0);
-            if (tx_rand(&v->rng) & 1u) seg(v, SYL(C_CHIRP, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 1, 3), rb(&v->rng, 30, 80), 255, 255, 0);
+            seg(v, SYL(C_CHIRP, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 1, 3), rb(&v->rng, 30, 80), lvl(&v->rng, 12), 255, 0);
+            if (tx_rand(&v->rng) & 1u) seg(v, SYL(C_CHIRP, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 1, 3), rb(&v->rng, 30, 80), lvl(&v->rng, 12), 255, 0);
             v->pgap = (uint16_t)((rb(&v->rng, 400, 2000) * v->pace) >> 8);
             v->pamp = (uint8_t)lvl(&v->rng, 9);
             return;
+        } else if (v->nph > 1u && tx_rand_below(&v->rng, 10u) < 4u) {   /* between songs: its soft "pink" calls */
+            seg(v, SYL(C_CHIRP, rb(&pr, 0, ns - 1u)), rb(&v->rng, 2, 5), rb(&v->rng, 300, 500), lvl(&v->rng, 10) * 2 / 5, 255, 8);
+            v->pgap = (uint16_t)((rb(&v->rng, 600, 2500) * v->pace) >> 8);
+            v->pamp = 255;
+            return;
         } else {                                             /* a chaffinch: 2-3 falling trills and the flourish */
             for (m = rb(&pr, 2, 3), i = 0; i < m; i++)
-                seg(v, SYL(C_TRILL, rb(&pr, 0, ns - 1u)), vary_n(v, rb(&pr, 4, 10)), rb(&pr, 20, 45), 230, 255,
-                    20 - (int32_t)i * 18 + rs(&pr, -3, 3));
+                seg(v, SYL((tx_rand(&pr) & 1u) ? C_TRILL : C_NOTE, rb(&pr, 0, ns - 1u)), vary_n(v, rb(&pr, 4, 10)), rb(&pr, 20, 60),
+                    lvl(&v->rng, 12), rb(&v->rng, 90, 255), 20 - (int32_t)i * 18 + rs(&pr, -3, 3));   /* each trill its own level, swelling */
             seg(v, SYL(C_FLOURISH, rb(&pr, 0, ns - 1u)), 1, 0, 255, 255, 0);
         }
         break;
@@ -377,7 +382,7 @@ void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigne
     S = &SP[sp];
     tx_rng_seed(&v->rng, var_seed);
     v->type = (uint8_t)type; v->sp = (uint8_t)sp; v->seed = bird_seed; v->song = (uint8_t)song;
-    v->f_off = f_off + rs(&br, -7864, 7864) + rs(&v->rng, -1300, 1300);   /* the bird's pitch (+-0.12 oct), today's (+-0.02) */
+    v->f_off = f_off + rs(&br, -13107, 13107) + rs(&v->rng, -1300, 1300);   /* the bird's pitch (+-0.2 oct), today's (+-0.02) */
     v->tempo = (4096 + rs(&br, -614, 614)) * (4096 + rs(&v->rng, -200, 200)) >> 12;   /* +-15 %, +-5 % */
     v->pace = (uint8_t)rb(&br, 64, 255);                     /* gaps between phrases x 0.5 .. 2 */
     v->verb = (uint8_t)(int8_t)rs(&br, -1, 1);               /* shorter or longer phrases */
@@ -392,7 +397,7 @@ void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigne
     v->a1 = v->a2 = v->b0 = 0;
     v->recent[0] = v->recent[1] = 0xFF;
     v->nph = (uint8_t)(S->style == ST_OWL ? ((mix(bird_seed, 9u) % 3u) ? 2u : 1u) : rb(&v->rng, S->plo, S->phi));
-    if (S->style == ST_FINCH && (mix(bird_seed, 7u) & 3u) == 0u) v->nph = (uint8_t)rb(&v->rng, 4, 14);   /* a sparrow's chirping */
+    if (S->style == ST_FINCH) v->nph = (uint8_t)((mix(bird_seed, 7u) & 3u) == 0u ? rb(&v->rng, 4, 14) : rb(&v->rng, 2, 6));   /* a sparrow's chirping; a chaffinch's songs and calls */
     phrase_start(v);
     syl_make(v);
     v->wait = 0; v->singing = 1;
@@ -413,11 +418,11 @@ static const struct {
     uint16_t ans_lo, ans_hi;        /* its delay, ms */
     uint8_t span;                   /* the distances' spread added to DEPTH's (octaves Q4) */
 } FL[TX_BIRD_TYPES] = {
-    {12, 1, 4, 1, 60, 140, 1500, 5000, 8},   /* woodland mix */
+    {9, 1, 3, 1, 50, 90, 1500, 5000, 8},     /* woodland mix */
     {10, 1, 5, 1, 60, 140, 800, 4000, 8},   /* chirper */
     {8, 1, 3, 0, 120, 200, 300, 1500, 8},   /* crow: answers, in series */
     {3, 1, 3, 1, 100, 150, 1000, 4000, 8},  /* owl: a duet */
-    {10, 1, 4, 0, 150, 225, 100, 600, 16},   /* gull: excitement spreads */
+    {10, 1, 4, 0, 150, 235, 80, 450, 16},    /* gull: excitement spreads */
     {6, 1, 4, 1, 60, 120, 1500, 5000, 8},   /* blackbird */
     {4, 1, 3, 1, 50, 100, 1500, 5000, 8},   /* song thrush */
     {4, 1, 3, 1, 80, 150, 1000, 4000, 8},   /* nightingale: countersinging */
