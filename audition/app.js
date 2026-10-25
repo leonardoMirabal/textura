@@ -638,6 +638,7 @@ function genState(k) { const p = M._txw_gen_state(k) >> 2; return Array.from(M.H
 function genRun(k) {                                  // the generator follows the lane: on while it runs with Notes on
   const seed = new Uint32Array(1); crypto.getRandomValues(seed);
   genSet(k, "ACTIVITY", Math.round(gen[k].step * 127 / 14));
+  M._txw_gen_mute(k, layers[k].eng !== srcEng ? 1 : 0);   // a classic engine: its activity through QUICK, no notes
   M._txw_gen_on(k, laneMode && laneRun[k] && gen[k].on ? 1 : 0, seed[0] || 1);
 }
 function laneStart(k, on) {                           // a lane plays on its own: the source or a held engine held, a one-shot re-pressed

@@ -39,7 +39,7 @@ static int lim_db10;                                    /* the output limiter's 
 /* the lanes' generators (tx_core_gen: SOURCE-DESIGN 4f), one per layer: when on, it sets the source's INTENSITY (or,
  * for an old engine, the player reads its activity) and presses its notes into the layer's engine */
 static tx_gen_t gens[TX_MIX_SLOTS];
-static int gen_on[TX_MIX_SLOTS], gen_ready[TX_MIX_SLOTS];
+static int gen_on[TX_MIX_SLOTS], gen_ready[TX_MIX_SLOTS], gen_mute[TX_MIX_SLOTS];   /* (mute: no notes, a one-shot lane) */
 static int32_t gen_stat[8];
 /* the CPU governor across the layers (tx_core_gov): each layer's render time per block, scaled to the FM-1 by the
  * player's calibration (gov_factor: FM-1 us per host us, x 1000), against the sources' budget (55 %: 3193 us) */
@@ -162,7 +162,7 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
                 unsigned ne = tx_gen_block(&gens[k], TX_BLOCK, ev, TX_GEN_EV_MAX, &in), q;
                 int ip = tx_param_find(mixer.e[k], "INTENSITY");
                 if (ip >= 0 && !strcmp(mixer.e[k]->name, "source")) mixer.e[k]->param(mixer.st[k], (uint8_t)ip, in);
-                for (q = 0; q < ne; q++) mixer.e[k]->key(mixer.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
+                for (q = 0; q < ne && !gen_mute[k]; q++) mixer.e[k]->key(mixer.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
             }
             tx_mix_slot_render(&mixer, k, TX_BLOCK);
             {   /* the governor's cost: this layer's block on the FM-1 (us) */
@@ -354,6 +354,7 @@ EMSCRIPTEN_KEEPALIVE void txw_gen_on(int k, int on, unsigned seed)
 {
     if (k < 0 || k >= (int)TX_MIX_SLOTS) return;
     if (!gen_ready[k]) { tx_gen_init(&gens[k], seed ? seed : 1u); gen_ready[k] = 1; }
+    else if (on && !gen_on[k] && seed) tx_rng_seed(&gens[k].rng, seed ^ 0x6E4E4E21u);   /* each start a new walk */
     if (!on && gen_on[k] && mixer.e[k]) {
         tx_gen_ev_t ev[TX_GEN_OFFS];
         unsigned ne = tx_gen_stop(&gens[k], ev, TX_GEN_OFFS), q;
@@ -361,6 +362,7 @@ EMSCRIPTEN_KEEPALIVE void txw_gen_on(int k, int on, unsigned seed)
     }
     gen_on[k] = on != 0;
 }
+EMSCRIPTEN_KEEPALIVE void txw_gen_mute(int k, int m) { if (k >= 0 && k < (int)TX_MIX_SLOTS) gen_mute[k] = m != 0; }
 EMSCRIPTEN_KEEPALIVE int txw_gen_n(void) { return TX_GEN_NP; }
 EMSCRIPTEN_KEEPALIVE const char *txw_gen_pname(int i) { return i >= 0 && i < (int)TX_GEN_NP ? tx_gen_params[i].name : ""; }
 EMSCRIPTEN_KEEPALIVE const char *txw_gen_phelp(int i) { return i >= 0 && i < (int)TX_GEN_NP ? tx_gen_params[i].help : ""; }

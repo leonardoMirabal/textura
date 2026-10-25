@@ -12,6 +12,8 @@
 #   make tx-budget     the CPU budget of the whole audio interrupt on the FM-1: the platform's costs (Frodhes'
 #                      measurements), the mix / CHAMBER, the effects reserve, the sources' pool, every SOURCE preset's
 #                      cost curve and the mixes (build/bench/budget.txt, budget.csv): a report, nothing changed
+#   make tx-activity   each landscape sound as a player lane (the generator on) at ACTIVITY 0 / 9 / 64 / 118 / 127:
+#                      events/s, LUFS-S, gaps, a cloud at the top or not (ARGS="-s SECS -n SEEDS -f NAME")
 #   make tx-grain      a granular-delay prototype's cost on the FM-1 and its buffer formats' noise (costing only)
 #   make tx-player     the browser player -> build/audition/ (Emscripten from .local/emsdk)
 #   make tx-player-check   the player in headless Chromium (Playwright in .local/venv, browsers in .local/playwright)
@@ -41,7 +43,7 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-.PHONY: tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-fx-tables tx-size tx-libcalls tx-clean
+.PHONY: tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -157,6 +159,16 @@ $(B)/txgrain: bench/txgrain.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 tx-grain: $(B)/txgrain build/calib/frodhes
 	@[ -f build/calib/run/w1.txt ] || $(MAKE) -s tx-calib
 	@$(HEAVY) $(B)/txgrain
+
+# the lane fader's range per sound, as the player drives a lane (the generator on): events/s, short-term loudness,
+# gaps, whether the top reads as a cloud (bench/txactivity.c; ARGS="-s 30 -n 3 -f name" ...)
+$(B)/txactivity: bench/txactivity.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
+	@mkdir -p $(B)
+	$(CC) $(CSTD) -O2 -o $@ bench/txactivity.c $(HOST_SRC) $(ENG_SRC) -lm
+
+tx-activity: $(B)/txactivity build/calib/frodhes
+	@[ -f build/calib/run/w1.txt ] || $(MAKE) -s tx-calib
+	@$(HEAVY) $(B)/txactivity $(ARGS) | tee $(B)/activity.txt
 
 tx-player:
 	sh audition/build.sh
