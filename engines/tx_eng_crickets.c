@@ -250,8 +250,8 @@ static unsigned free_slot(const crickets_t *s)
     return NV;
 }
 
-/* an individual in slot ci: near = at the key (the one a press brings, singing now), else farther out on the area
- * law (1 .. 8 x the distance), entering after a pause of its own */
+/* an individual in slot ci: near = at the key (1: the one a press brings, singing now; 2: entering after a pause of
+ * its own), else farther out on the area law (1 .. 8 x the distance), entering after a pause of its own */
 static void individual(crickets_t *s, unsigned ci, uint8_t note, uint8_t vel, int near, uint8_t em)
 {
     const species_t *sp = sp_of(s);
@@ -280,7 +280,7 @@ static void individual(crickets_t *s, unsigned ci, uint8_t note, uint8_t vel, in
     c->inc = (uint32_t)(((uint64_t)sp->f0 * 97391u * tx_exp2(f_l2 + (16 << 16))) >> 16);
     c->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);        /* own period: CV 5 % (ours) */
     c->alive = 1; c->stop = 0; c->em = em; c->keyed = (uint8_t)(em != 0xFF); c->note = note; c->pl = 0; c->linger = 0;
-    if (near) bout_start(s, ci, 0);
+    if (near == 1) bout_start(s, ci, 0);
     else { c->sing = 0; c->bl = 1u + ((tx_pop_pause(&LAW, r, act(s)) * (1u + tx_rand_below(r, 255u))) >> 8); tx_chorus_stop(&s->ch, ci); }
 }
 
@@ -301,11 +301,9 @@ static void spawn(crickets_t *s, const tx_event_t *e)
     if (!n || singing_pop(s) < (n < s->limit ? n : s->limit)) {
         ci = free_slot(s);
         if (ci == NV) { s->dropped++; return; }
-        {
-            unsigned first = singing_pop(s) > 0u;            /* (the field's later ones: each at its own phase) */
-            individual(s, ci, e->note, e->vel, 1, n ? 0xFF : e->emitter);
-            if (n && first) tx_chorus_start(&s->ch, ci, call_T(s, s->c[ci].tf), tx_rand_below(&s->cloud.rng, 65535u) % (uint32_t)call_T(s, s->c[ci].tf));
-        }
+        individual(s, ci, e->note, e->vel, n ? 2 : 1, n ? 0xFF : e->emitter);   /* a field: the one at the key enters
+                                                             * after a pause of its own, as the others (singing at once,
+                                                             * the start was louder than what follows) */
         return;
     }
     ki = (uint32_t)(((uint64_t)sp_of(s)->f0 * 97391u * tx_exp2(((int32_t)e->note - 60) * 2731 + (16 << 16))) >> 16);

@@ -302,8 +302,8 @@ static unsigned free_slot(const katy_t *s)
     return NV;
 }
 
-/* a singer in slot vi: near = at the key (the one a press brings, singing now), else farther out on the area law
- * (1 .. 8 x the distance), entering after a pause of its own */
+/* a singer in slot vi: near = at the key (1: the one a press brings, singing now; 2: entering after a pause of its
+ * own), else farther out on the area law (1 .. 8 x the distance), entering after a pause of its own */
 static void individual(katy_t *s, unsigned vi, uint8_t note, uint8_t vel, int near, uint8_t em)
 {
     const species_t *sp = sp_of(s);
@@ -339,7 +339,7 @@ static void individual(katy_t *s, unsigned vi, uint8_t note, uint8_t vel, int ne
                                                                       /* the low mode's build-up (by render) */
     v->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);       /* own period CV 5 % (ours) */
     v->alive = 1; v->stop = 0; v->em = em; v->keyed = (uint8_t)(em != 0xFF); v->note = note; v->in_call = 0; v->linger = 0;
-    if (near) bout_start(s, vi, 0);
+    if (near == 1) bout_start(s, vi, 0);
     else { v->sing = 0; v->bl = 1u + ((tx_pop_pause(&LAW, r, act(s)) * (1u + tx_rand_below(r, 255u))) >> 8); tx_chorus_stop(&s->ch, vi); }
 }
 
@@ -360,11 +360,9 @@ static void spawn(katy_t *s, const tx_event_t *e)
     if (!n || singing_pop(s) < (n < s->limit ? n : s->limit)) {
         vi = free_slot(s);
         if (vi == NV) { s->dropped++; return; }
-        {
-            unsigned first = singing_pop(s) > 0u;            /* (the field's later ones: each at its own phase) */
-            individual(s, vi, e->note, e->vel, 1, n ? 0xFF : e->emitter);
-            if (n && first) tx_chorus_start(&s->ch, vi, call_T(s, s->v[vi].tf), tx_rand_below(&s->cloud.rng, 65535u) % (uint32_t)call_T(s, s->v[vi].tf));
-        }
+        individual(s, vi, e->note, e->vel, n ? 2 : 1, n ? 0xFF : e->emitter);   /* a field: the one at the key enters
+                                                             * after a pause of its own, as the others (singing at once,
+                                                             * the start was louder than what follows) */
         return;
     }
     kf = (uint32_t)(((uint64_t)sp_of(s)->f1 * tx_exp2(((int32_t)e->note - 60) * 2731 + (16 << 16))) >> 16);
