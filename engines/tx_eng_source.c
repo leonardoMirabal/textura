@@ -79,7 +79,7 @@ static const tx_param_t PARAMS[NP] = {
     {"LOCK", 1, 0, "MIDI clock lock (a hook: stored, no effect until the clock sync is built)"},
     {"DIV", 9, 4, "beat division when locked: 1/1 1/2 1/4 1/8 1/16 1/32 1/4T 1/8T 1/16T, 9 = a probability per bar (a hook)"},
     {"GRID", 127, 0, "grid pull: the probability an event lands on the clock's grid (a hook)"},
-    {"TYPE", 127, 0, "the kind within the family: 0 = the preset's own; above, the hosted engine's own kinds over the range (crickets, katydids, bees: species; ice: icicles | cubes in a glass; wood: spruce .. green branch; minerals: granite .. quartz; sand: hand .. tube)"},
+    {"TYPE", 127, 0, "the kind within the family: 0 = the preset's own; above, the hosted engine's own kinds over the range (wind: grass .. pines .. leafy trees .. a moor .. the coast .. a ridge .. autumn .. a winter storm .. a desert; crickets, katydids, bees: species; rain: surfaces 1 .. 99, hail and sleet 101 .. 127; ice: icicles | cubes in a glass; wood: spruce .. green branch; minerals: granite .. quartz; sand: hand .. tube)"},
     {"COUNT", 127, 64, "how many individuals at once, each its own distance, size and character: 0 none (silence; tails ring), 1 + 21 steps per doubling: 1, 22, 43, 64, 85, 106, 127 = 1, 2, 4, 8, 16, 32, 64 (rain: patches of rain, stones: rolling stones or pouring points, water: dripping points, cicadas, birds; hosted engines: their keys or presses)"},
 };
 
@@ -258,6 +258,8 @@ static const host_t HOST[] = {
      60, 12, 3, 1},
     /* whistling wires (wind): a breath (1.6 m/s) .. a gale (20 m/s); gusts deepen; at the top the strings lock in */
     {"aeolian", -78, -78, -78, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    /* hail and sleet (rain): a few stones now and then .. a hailstorm hammering, bigger stones */
+    {"rainsurf", -55, -55, -55, {{"RATE", 40, 95, 127}, {"DROPS", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
 };
 #define H_MEMBER 12u                 /* the first member row */
 
@@ -514,6 +516,8 @@ static const kmap_t HMAP[][HOST_NK] = {
     {{"MATERIAL", P_TYPE, 0}, {"TUNE", P_SIZE, -64}, {"MALLET", P_HARD, -64}, {"DAMP", P_TONE, -64}, {"POS", P_SPREAD, 64}},
     /* whistling wires: thicker wires lower, locking harder, gustier */
     {{"WIRE", P_SIZE, 64}, {"LOCK", P_TONE, 48}, {"GUST", P_HARD, 48}, {0, 0, 0}, {0, 0, 0}},
+    /* hail: the kind (a metal roof, a car, leaves, sleet on a window), stone sizes, the area heard, inside */
+    {{"HAIL", P_TYPE, 0}, {"DROPS", P_SIZE, 64}, {"AREA", P_SPREAD, 64}, {"INSIDE", P_TONE, -64}, {0, 0, 0}},
 };
 
 /* the family members TYPE reaches (note 16: every family had members no knob could reach): TYPE from lo up to the
@@ -530,6 +534,7 @@ static const fam_t FAM[] = {
     {PR_STONES, 1, H_MEMBER + 6, {{80, 80, 80}, 50, {20, 30, 40}, 0, 2, 1500, -5, 5, {0, 0}, {0, 0}, 0}},
     {PR_STONES, 64, H_MEMBER + 7, {{60, 60, 60}, 30, {20, 30, 40}, 1, 3, 200, -5, 10, {0, 0}, {0, 0}, 0}},
     {PR_WIND, 64, H_MEMBER + 8, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},
+    {PR_RAIN, 100, H_MEMBER + 9, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},   /* hail: 101 .. 127 */
 };
 #define NFAM (sizeof FAM / sizeof FAM[0])
 

@@ -27,7 +27,18 @@
  *            SURFACE moves between the five continuously (bands, modes, splash interpolated).
  *   leaves   a water-repellent leaf gets a second, weaker push from the rebounding jet at 0.44 tau_g,
  *            tau_g = sqrt(rho D^3 / gamma) (gain 0.2, measured < 0.37 when splashing), on the near drops.
- *   inside   heard from under the roof: a low-pass (~600 Hz .. open) (ours). */
+ *   inside   heard from under the roof: a low-pass (~600 Hz .. open) (ours).
+ *   hail     (HAIL > 0: in place of the rain) ice falling on a metal roof, a car, through leaves, or sleet on a
+ *            window. Stones of four size classes (hail 5 / 10 / 18 / 30 mm, sleet's pellets 1.5 .. 5 mm), an
+ *            exponential size mix N(D) ~ exp(-D / D0) (D0 3 .. 8 mm by DROPS; sleet 0.8 .. 2 mm), 0.5 .. 500 stones per
+ *            m^2 per s by RATE (sleet 5 .. 3000), falling at V = 9 (D / 1 cm)^0.8 m/s (pellets 4 (D / 2 mm)^0.6).
+ *            Ice is hard: a Hertz contact of ~25 us (D / 1 cm)^0.84 (V / 9)^-0.2 (a click, bright to the top); its push
+ *            ~ the momentum's fourth root, D^0.75 V^0.25 (compressed as the rain's), the biggest at most x 2.
+ *            A stone bounces (restitution e 0.3 .. 0.5): it lands again after 2 e V / g x (0.3 .. 1) (its angle), up to
+ *            twice, each softer; through leaves it falls on to lower leaves after 50 .. 400 ms. The bigger stones
+ *            shatter (the splash path: a spray of ice fragments); no drips, no water. Each kind its own surface, fitted
+ *            to hail references (ours): the roof's steel ringing, the car's thin panels over the cabin (low modes
+ *            140 .. 450 Hz, Q 60, a bright clank), leaves' crisp slaps, a window's pellets ticking (little body). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_vary.h"
@@ -45,7 +56,7 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 3
 
-enum { P_RATE, P_SURFACE, P_DROPS, P_AREA, P_INSIDE, NP };
+enum { P_RATE, P_SURFACE, P_DROPS, P_AREA, P_INSIDE, P_HAIL, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"RATE", 127, 70, "rain rate R: 0.1 .. 100 mm/h (log): drizzle .. downpour"},
@@ -53,6 +64,8 @@ static const tx_param_t PARAMS[NP] = {
     {"DROPS", 127, 64, "drop sizes: drizzle (small drops) .. convective (big drops: louder, darker); above 64 also drips off eaves and leaves (4-5.5 mm)"},
     {"AREA", 127, 50, "area heard: 0.1 .. 20 m^2 (log): a few drops near you .. a whole roof (the near few stand out)"},
     {"INSIDE", 127, 0, "outside .. inside under the roof (low-passed)"},
+    {"HAIL", 127, 0, "rain (0) .. ice, 32 steps each: hail on a metal roof | hail on a car | hail in leaves | sleet on a window "
+                     "(SURFACE then unused; RATE: stones per m^2, DROPS: their sizes)"},
 };
 
 #define NC 4u
@@ -102,6 +115,27 @@ static const surf_t SURF[NSURF] = {
     {{-7, -3, -12, -12, -18, -24, -40, -40, 7, 8, 12, 0}, 20, {215, 436, 527, 2083}, 300, -60, 26, -59, 50, -60, 0, 60, 7, 7},
 };
 
+/* the ice kinds' surfaces (as SURF; fitted to the hail references; ours): the top open (ice clicks are bright) */
+static const surf_t HSURF_T[4] = {
+    /* a metal roof under hail */
+    {{-7, -3, -12, -12, -18, -24, -30, -30, 0, 8, 12, 6}, 20, {215, 436, 527, 2083}, 300, -52, 26, -20, 120, -50, 0, 160, 16, 0},
+    /* a car: thin steel panels over the cabin's cavity: low panel modes, a bright clank 1-4 kHz */
+    {{16, 22, 20, 18, 12, 8, 0, -4, -4, 0, 2, 0}, 16, {140, 210, 300, 450}, 60, -30, 20, -40, 80, -50, 0, 160, 14, 0},
+    /* leaves */
+    {{-30, -30, -30, -45, -45, -45, -45, -40, -18, 6, 22, 24}, 10, {180, 260, 390, 560}, 6, -70, 26, -26, 80, -70, 0, 160, 12, 0},
+    /* a window under sleet: the pellets' ticks in the air, little of the pane */
+    {{-30, -30, -30, -30, -30, -30, -30, -30, -30, -30, -30, -30}, 16, {64, 118, 172, 662}, 120, -60, 20, 0, 160, -60, 0, 160, 14, 0},
+};
+#define NHK 4u
+static const surf_t *const HSURF[NHK] = { &HSURF_T[0], &HSURF_T[1], &HSURF_T[2], &HSURF_T[3] };
+static const uint8_t H_E[NHK] = { 115, 102, 128, 77 };    /* restitution, Q8 (0.45, 0.4, 0.5: on through the leaves, 0.3) */
+static const int8_t H_LVL[NHK] = { -7, -28, 10, -1 };     /* level, dB (by render: -24 .. -27 LUFS at RATE 90) */
+static const uint16_t H_D[2][NC] = { {5000, 10000, 18000, 30000}, {1500, 2500, 3500, 5000} };   /* um */
+static const uint8_t H_DD[2][NC] = { {5, 6, 10, 14}, {10, 10, 10, 20} };   /* the classes' widths (mm; sleet 0.1 mm) */
+#define A_REF_H 24000              /* a 1 cm hailstone's push at 9 m/s (Q15 force units; set by render) */
+#define NBQ 24u                    /* bounces in flight */
+typedef struct { uint32_t t, f; int32_t a; uint16_t len, n; } bounce_t;   /* lands in t samples; its flight f */
+
 typedef struct {
     tx_cloud_t cloud;
     tx_dcblock_t hp;
@@ -127,6 +161,9 @@ typedef struct {
     int32_t level;
     uint16_t dropped, pad2;
     tx_vary_t vy;
+    uint8_t hk, nbq, pad3[2];      /* the ice kind (0: rain), bounces in flight */
+    uint32_t hv[NC];               /* the stones' fall speed by class, mm/s (the bounces' flights) */
+    bounce_t bnc[NBQ];
 } rain_t;
 
 #define MUL15(a, b) ((((a) >> 15) * (b)) + ((((a) & 0x7FFF) * (b)) >> 15))
@@ -156,6 +193,7 @@ static void surface(rain_t *s)
 {
     unsigned i, v = s->p[P_SURFACE] * 4u, m = v >> 7, fr = v & 127u;
     const surf_t *a = &SURF[m], *b = &SURF[m + 1u < NSURF ? m + 1u : m];
+    if (s->hk) { a = b = HSURF[s->hk - 1u]; fr = 0; }        /* the ice kinds: their own surface */
     int32_t q4 = (a->q4 * (128 - (int32_t)fr) + b->q4 * (int32_t)fr) >> 7;
     int32_t lq = (log2_q16(a->pq) * (128 - (int32_t)fr) + log2_q16(b->pq) * (int32_t)fr) >> 7;
     uint32_t pq = tx_exp2(lq);
@@ -184,10 +222,10 @@ static void surface(rain_t *s)
     s->spa = (int32_t)corner_a((uint32_t)MIX(a->spc, b->spc) * 100u);
     s->dirg = db_q11(MIX(a->dir, b->dir) * 10) * 64;          /* Q15 (the push heard directly, re the bands' input) */
     if (s->dirg > 32767) s->dirg = 32767;
-    s->reb = (uint8_t)MIX(a->reb, b->reb);
+    s->reb = (uint8_t)(s->hk ? 0 : MIX(a->reb, b->reb));    /* (ice through leaves: the bounces) */
     s->top = (uint32_t)MIX(a->top, b->top) * 100u;
     s->shk = MIX(a->shelf, b->shelf);
-    s->otrim = (int32_t)(((int64_t)OUT_TRIM * db_q11(MIX(a->lvl, b->lvl) * 10)) >> 11);
+    s->otrim = (int32_t)(((int64_t)OUT_TRIM * db_q11((MIX(a->lvl, b->lvl) + (s->hk ? H_LVL[s->hk - 1u] : 0)) * 10)) >> 11);
     if (s->otrim > 65535) s->otrim = 65535;
 #undef MIX
 }
@@ -200,6 +238,22 @@ static int32_t peak_of(uint32_t d_um, uint32_t v_mm)
     return (int32_t)tx_exp2(log2_q16(A_REF) + (l > (2 << 16) ? (2 << 16) : l));
 }
 
+/* a stone of D um: its fall speed (mm/s), contact (pulse length, samples), push (Q15) and corner, ice kind k (1..4) */
+static void stone(unsigned k, uint32_t d_um, uint32_t *v_mm, uint32_t *len, int32_t *amp, int32_t *fca)
+{
+    int32_t ld = log2_q16(d_um), lv, lt;
+    if (k == NHK) lv = 784190 + ((ld - 718654) * 3) / 5;     /* sleet: log2 4000 + 0.6 log2(D / 2 mm) */
+    else lv = 860859 + ((ld - 870820) * 4) / 5;              /* hail: log2 9000 + 0.8 log2(D / 10 mm) */
+    *v_mm = tx_exp2(lv);
+    lt = 9227 + ((ld - 870820) * 21) / 25 - (lv - 860859) / 5;   /* log2(25 us x fs) .. */
+    *len = 2u + ((tx_exp2(lt + (8 << 16)) + 128u) >> 8);
+    {   /* (m V)^(1/4) re a 1 cm stone at 9 m/s: (3 log2 D + log2 V) / 4 (compressed as the rain's) */
+        int32_t l = (3 * (ld - 870820) + (lv - 860859)) / 4;
+        *amp = (int32_t)tx_exp2(log2_q16(A_REF_H) + (l > (1 << 16) ? (1 << 16) : l));
+    }
+    *fca = (int32_t)corner_a(20000u);
+}
+
 static void rates(rain_t *s)
 {
     static const int32_t LR[4] = { 0, 152170, 304340, 435412 };   /* log2 1, 5, 25, 100 */
@@ -207,6 +261,27 @@ static void rates(rain_t *s)
     int32_t la = -217706 + (int32_t)(s->p[P_AREA] * 3896u);   /* log2(0.1 m^2) + v log2(200) / 127 */
     int32_t shift = ((int32_t)s->p[P_DROPS] - 64) * 2048;     /* +-2 octaves of the size mix */
     unsigned c, k;
+    if (s->hk) {   /* ice: stones per m^2 per s, the size mix exp(-D / D0) over the classes' widths */
+        unsigned sl = s->hk == NHK;
+        int32_t lf = sl ? 152170 + (int32_t)(s->p[P_RATE] * 4765u) : -65536 + (int32_t)(s->p[P_RATE] * 5143u);   /* log2 5 .. 3000 / 0.5 .. 500 */
+        uint32_t d0 = tx_exp2((sl ? 632043 : 756997) + (int32_t)s->p[P_DROPS] * (sl ? 678 : 727));   /* 0.8 .. 2 / 3 .. 8 mm */
+        int32_t lw[NC], mx = -(30 << 16), sum = 0;
+        for (c = 0; c < NC; c++) {
+            uint32_t ratio = ((uint32_t)H_D[sl][c] << 12) / d0;  /* D / D0, Q12 */
+            lw[c] = log2_q16(H_DD[sl][c]) - (int32_t)((ratio * 94548u) >> 12);   /* x 1 / ln 2 */
+            if (lw[c] > mx) mx = lw[c];
+        }
+        for (c = 0; c < NC; c++) sum += (int32_t)tx_exp2(lw[c] - mx + (12 << 16));
+        for (c = 0; c < NC; c++) {
+            uint32_t v;
+            int32_t lv = lf + lw[c] - mx + (12 << 16) - log2_q16((uint32_t)sum) + la + (8 << 16);
+            s->lam_q8[c] = lv > (26 << 16) ? (1u << 26) : lv < 0 ? 0u : tx_exp2(lv);
+            stone(s->hk, H_D[sl][c], &v, &s->len[c], &s->amp[c], &s->fca[c]);
+            s->hv[c] = v;
+            s->tg[c] = 0;
+        }
+        s->drip_q8 = 0;
+    } else
     for (c = 0; c < NC; c++) {
         int32_t l0, l1, lv;
         uint32_t L, fc;
@@ -223,7 +298,7 @@ static void rates(rain_t *s)
         s->amp[c] = peak_of(D_UM[c], V_MM[c]);
         s->tg[c] = tx_exp2((3 * log2_q16(D_UM[c])) / 2 - 574900);   /* 0.44 tau_g = 0.002287 D_um^1.5 samples */
     }
-    {   /* drips: water caught above (eaves, gutters, leaves) falls in big drops (Tate: ~4.5 mm off an edge), 0 .. 3 /s
+    if (!s->hk) {   /* drips: water caught above (eaves, gutters, leaves) falls in big drops (Tate: ~4.5 mm off an edge), 0 .. 3 /s
          * by DROPS over 64 x (0.3 + R / 25 mm/h, at most 1.3): the porch's and the window's single drops (ours) */
         int32_t d = (int32_t)s->p[P_DROPS] - 64;
         uint32_t rr = lr > 304340 ? 256u : tx_exp2(lr - 304340 + (8 << 16));   /* R / 25, Q8 */
@@ -249,9 +324,14 @@ static void set_param(rain_t *s, unsigned id, unsigned v)
     if (id >= NP) return;
     if (v > PARAMS[id].max) v = PARAMS[id].max;
     s->p[id] = (uint8_t)v;
-    if (id == P_SURFACE || id == P_INSIDE) {                 /* the top: the surface's damping, or inside the roof */
+    if (id == P_HAIL) {
+        s->hk = (uint8_t)(v ? 1u + ((v * NHK) >> 7) : 0u);
+        if (s->hk > NHK) s->hk = NHK;
+        rates(s);
+    }
+    if (id == P_SURFACE || id == P_INSIDE || id == P_HAIL) {   /* the top: the surface's damping, or inside the roof */
         uint32_t in = tx_knob_exp(127u - s->p[P_INSIDE], 600u, 315000);   /* 600 Hz .. 16.6 kHz */
-        if (id == P_SURFACE) surface(s);
+        if (id != P_INSIDE) surface(s);
         s->olpa = (int32_t)corner_a(in < s->top ? in : s->top);
     } else rates(s);
 }
@@ -312,6 +392,23 @@ static void splash(rain_t *s, uint32_t r, unsigned off, int32_t a)
     s->fb[off] += (int32_t)(((int64_t)v * s->spg) >> 13);    /* into the bands' scale (Q21) */
 }
 
+/* a stone landed: it bounces (up to twice), landing again after 2 e V / g x (0.3 .. 1), softer by sqrt(e) (through
+ * leaves: on to lower leaves after 50 .. 400 ms) */
+static void bounce(rain_t *s, uint32_t r, uint32_t v_mm, uint32_t len, int32_t a, unsigned left)
+{
+    bounce_t *b;
+    uint32_t e, t;
+    if (!left || s->nbq >= NBQ || a < 64) return;
+    e = H_E[s->hk - 1u];
+    if (s->hk == 3u) t = 2205u + ((r >> 16) * 15435u >> 16);  /* 50 .. 400 ms */
+    else t = ((((v_mm * e) >> 8) * 9u) * (77u + ((r >> 24) * 179u >> 8))) >> 8;   /* 2 e V / g x fs = 9 e V (x 0.3 .. 1) */
+    b = &s->bnc[s->nbq++];
+    b->t = t; b->f = t;
+    b->a = (int32_t)((a * (int32_t)(e + 96u)) >> 9);          /* ~ sqrt(e) */
+    b->len = (uint16_t)(len + 1u);
+    b->n = (uint16_t)(left - 1u);
+}
+
 TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
 {
     rain_t *s = (rain_t *)st;
@@ -325,11 +422,46 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
     if (!k && s->quiet && !tx_cloud_held(&s->cloud)) return;   /* silent and nothing new: nothing to compute */
     for (i = 0; i < k; i++) {                                /* a press: one big drop near you (2 .. 6 mm by key) */
         const tx_event_t *e = &s->ev[i];
+        if (s->hk) {   /* a big stone near you: hail 12 .. 40 mm by key (lower: bigger), sleet 3 .. 6 mm */
+            uint32_t v, len, D;
+            int32_t a, fca, lo = s->hk == NHK ? 701223 : 917589, sp = s->hk == NHK ? 65536 : 113770;   /* log2 3 / 12 mm, + 1 / 1.74 oct */
+            int32_t dl = lo + ((84 - (int32_t)(e->note < 48 ? 48 : e->note > 84 ? 84 : e->note)) * sp) / 36 - (tx_vary_tone(&s->vy) >> 3);
+            D = tx_exp2(dl);
+            stone(s->hk, D, &v, &len, &a, &fca);
+            a = a * e->vel * e->vel / 16129;                    /* (<= 2^16 x 2^14: 32-bit) */
+            a = (int32_t)(((int64_t)a * s->level) >> 15);
+            pulse(s, e->offset, len, a);
+            splash(s, tx_rand(r), e->offset, a);
+            bounce(s, tx_rand(r), v, len, a, 2u);
+            continue;
+        }
+        {
         int32_t dl2 = 718615 + (60 - (int32_t)e->note) * 3641 - (tx_vary_tone(&s->vy) >> 2);   /* brighter = smaller drops */
         uint32_t D = tx_exp2(dl2 < 718615 ? 718615 : dl2 > 822500 ? 822500 : dl2), L = 882u * D / 9100u / 10u;
         int32_t a = peak_of(D, 9100u) * e->vel * e->vel / 16129;   /* (<= 2^16 x 2^14: 32-bit) */
         a = (int32_t)(((int64_t)a * s->level) >> 15);
         pulse(s, e->offset, L, a);
+        }
+    }
+    if (s->nbq) {   /* the bounces landing in this block */
+        unsigned q = 0;
+        for (i = 0; i < s->nbq; i++) {
+            bounce_t b = s->bnc[i];
+            if (b.t < n) {
+                uint32_t x = tx_rand(r);
+                pulse(s, b.t, b.len, b.a);
+                if ((x & 3u) == 0u) splash(s, x, b.t, b.a >> 1);
+                if (s->hk && b.n) {                  /* it bounces again, its flight x e (the queue compacts in place) */
+                    uint32_t e = H_E[s->hk - 1u], f = s->hk == 3u ? 2205u + ((x >> 16) * 15435u >> 16) : (b.f * e) >> 8;
+                    bounce_t *nb = &s->bnc[q];
+                    nb->t = b.t + f > n ? b.t + f - n : 0u; nb->f = f;
+                    nb->a = (int32_t)((b.a * (int32_t)(e + 96u)) >> 9);
+                    nb->len = (uint16_t)(b.len + 1u); nb->n = (uint16_t)(b.n - 1u);
+                    if (nb->a >= 64) q++;
+                }
+            } else { s->bnc[q] = b; s->bnc[q].t -= n; q++; }
+        }
+        s->nbq = (uint8_t)q;
     }
     {   /* rain: on while a key is held; released, the shower passes over ~3-4 s (session 5: no hard stop) */
         unsigned held = tx_cloud_held(&s->cloud);
@@ -360,13 +492,14 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
                 uint32_t x = tx_rand(r), y = tx_rand(r);
                 unsigned off = ((x >> 16) * n) >> 16, u = x & (NAMP - 1u);
                 int32_t sz = (int32_t)tx_exp2((int32_t)((x >> 5) & 32767u) * 4 + (14 << 16));   /* its own size: 0.5 .. 2 x its class (log) */
-                int32_t ai = (int32_t)(((int64_t)a * sz) >> 15), ad = (ai * s->amp_t[u]) >> 15;
+                int32_t ai = (int32_t)(((int64_t)a * sz) >> 15), ad = ai < 65536 ? (ai * s->amp_t[u]) >> 15 : ((ai >> 1) * s->amp_t[u]) >> 14;   /* (ice: ai to 2^17) */
                 if (u < s->near_n && nexp < s->limit) {      /* near: a full pulse of its own length */
                     uint32_t len = (s->len[c] * (uint32_t)(sz >> 7)) >> 8;
                     if (len > CARRY) len = CARRY;
                     pulse(s, off, len, ad);
                     if (s->reb && off + s->tg[c] + len < TX_BLOCK + CARRY)   /* leaves: the rebound */
                         pulse(s, off + s->tg[c], len, (ad * s->reb) >> 8);
+                    if (s->hk) bounce(s, y, s->hv[c], len, ad, 2u);
                     nexp++;
                 } else {                                     /* far: its momentum at once, through the corner below */
                     int32_t m = (int32_t)(((int64_t)mom * sz) >> 15);
@@ -374,7 +507,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
                     buf[off] += m;                           /* (buf: this class's impulses, Q15) */
                     far++;
                 }
-                splash(s, y, off, (ad * fg) >> 8);
+                if (!s->hk || c >= 2u || (y & 3u) == 0u) splash(s, y, off, (ad * fg) >> 8);   /* (ice: the big ones shatter) */
             }
             lp = s->flp[c];
             for (j = 0; j < n; j++) {                        /* the far drops through their class's corner */
@@ -462,7 +595,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
-        int32_t z = s->hp.x1 | s->hp.y1 | s->wet | s->olp | s->olp2 | s->slp | s->slp2 | s->sx1 | s->senv | s->shlp | !tx_svf_bank_quiet(s->band, NB)
+        int32_t z = s->hp.x1 | s->hp.y1 | s->wet | s->nbq | s->olp | s->olp2 | s->slp | s->slp2 | s->sx1 | s->senv | s->shlp | !tx_svf_bank_quiet(s->band, NB)
                     | !tx_svf_bank_quiet(s->panel, NPANEL);
         for (j = 0; j < CARRY; j++) z |= ex[j];
         for (c = 0; c < NC; c++) z |= s->flp[c];

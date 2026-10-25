@@ -35,28 +35,29 @@ static const tx_param_t PARAMS[NP] = {
 typedef struct { int16_t us, tim, trim; tx_wkind_t k; } kind_t;   /* (the offsets need int32: see tx_wkind_t) */
 #define NK 10u
 static const kind_t KINDS[NK] = {
-    /*            gsz  grt   kr lull |  rg       ro      rbw |  lg       lr lsh  lhp       lo lut   lp |  bg |  wg   wr wq0 wq1       wo   wt |  em   fl |    r2 */
+    /*            gsz  grt   kr lull |  rg       ro      rbw |  lg       lr lsh  lhp       lo lut   lp |  bg |  wg   wr wq0 wq1       wo   wt |  em   fl |    r2 | sk sut sr */
     /* wind: ground and trees, the all-round one */
-    {256, 256, 4096, {256, 256, 256, 3, 256, O(0), O(20), 256, O(0), 7, 400, O(0), 0, 512, 256, 256, 256, 19, 40, O(0), 256, 256, 256, 0}},
+    {256, 256, 4096, {256, 256, 256, 3, 256, O(0), O(20), 256, O(0), 7, 400, O(0), 0, 512, 256, 256, 256, 19, 40, O(0), 256, 256, 256, 0, 0, 0, 0, 0}},
     /* a breeze in tall grass: blades swishing (fewer, longer flaps, darker), waves of wind across the field (long, broad
      * whooshes, higher), little at the ground */
-    {180, 256, 18707, {300, 300, 200, 3, 140, O(-5), O(20), 900, O(-10), 8, 500, O(-12), 0, 512, 90, 200, 400, 12, 19, O(10), 420, 0, 300, O(10)}},
+    {180, 256, 18707, {300, 300, 200, 3, 140, O(-5), O(20), 900, O(-10), 8, 500, O(-12), 0, 512, 90, 200, 400, 12, 19, O(10), 420, 0, 300, O(10), 0, 0, 0, 0}},
     /* pines: the needles' smooth hiss (dense, tiny flaps, high), soughing in slow swells, sheltered under the canopy */
-    {230, 200, 15407, {220, 200, 150, 2, 110, O(-4), O(20), 520, O(30), 5, 1500, O(-5), 0, 512, 50, 140, 150, 16, 24, O(15), 420, 100, 150, O(10)}},
+    {230, 200, 15407, {220, 200, 150, 2, 110, O(-4), O(20), 520, O(30), 5, 1500, O(-5), 0, 512, 50, 140, 150, 16, 24, O(15), 420, 100, 150, O(10), 0, 0, 0, 0}},
     /* leafy trees: leaves rattling and flapping (bigger, mid-bright), gusts sweeping through the canopy */
-    {230, 256, 7208, {256, 256, 256, 3, 170, O(0), O(20), 460, O(0), 8, 600, O(2), 0, 512, 110, 300, 300, 16, 30, O(7), 300, 80, 350, 0}},
+    {230, 256, 7208, {256, 256, 256, 3, 170, O(0), O(20), 460, O(0), 8, 600, O(2), 0, 512, 110, 300, 300, 16, 30, O(7), 300, 80, 350, 0, 0, 0, 0, 0}},
     /* an open plain or moor: no trees, the low broad roar of the air over open ground, buffeting, gusts moaning past */
-    {256, 256, 4921, {256, 256, 256, 3, 300, O(-4), O(30), 70, O(-10), 6, 800, O(-5), 0, 512, 430, 260, 200, 30, 50, O(0), 300, 150, 250, O(10)}},
+    {256, 256, 4921, {256, 256, 256, 3, 300, O(-4), O(30), 70, O(-10), 6, 800, O(-5), 0, 512, 430, 260, 200, 30, 50, O(0), 300, 150, 250, O(10), 0, 0, 0, 0}},
     /* a sea wind on the coast: strong and steady (little turbulence, long slow swells), a broad bright roar, spray hiss */
-    {280, 128, 6276, {120, 150, 150, 1, 300, O(3), O(35), 110, O(40), 4, 2000, O(5), 0, 512, 120, 200, 60, 16, 24, O(5), 500, 20, 100, O(10)}},
+    {280, 128, 6276, {120, 150, 150, 1, 300, O(3), O(35), 110, O(40), 4, 2000, O(5), 0, 512, 120, 200, 60, 16, 24, O(5), 500, 20, 100, O(10), 0, 0, 0, 0}},
     /* a gale on a ridge: violent sudden gusts and deep lulls, a deep roar over the rock, howling gusts, buffeting */
-    {330, 480, 1500, {700, 300, 500, 7, 300, O(-9), O(25), 40, O(0), 6, 1000, O(0), 0, 512, 480, 400, 300, 48, 96, O(-5), 300, 300, 500, O(10)}},
-    /* a gusty autumn day: calm, then a gust and dry leaves crackling and skittering (sparse, big, bright, ~u^3) */
-    {230, 380, 6868, {450, 320, 350, 6, 100, O(0), O(20), 520, O(-40), 9, 1200, O(6), 0, 768, 150, 250, 250, 19, 40, O(8), 256, 80, 300, O(10)}},
+    {330, 480, 1500, {700, 300, 500, 7, 300, O(-9), O(25), 40, O(0), 6, 1000, O(0), 0, 512, 480, 400, 300, 48, 96, O(-5), 300, 300, 500, O(10), 0, 0, 0, 0}},
+    /* a gusty autumn day: calm, then a gust and dry leaves crackling (sparse, big, bright, ~u^3) and skittering over the
+     * ground above 4 m/s, in runs */
+    {230, 380, 4770, {450, 320, 350, 6, 100, O(0), O(20), 400, O(-40), 9, 1200, O(6), 0, 768, 250, 250, 250, 19, 40, O(8), 256, 80, 300, O(10), 128, 64, 1024, 0}},
     /* a winter storm: bare branches, blowing snow hissing over 7 m/s (~u^3), howling gusts, buffeting */
-    {320, 220, 3300, {300, 300, 400, 2, 260, O(-4), O(20), 750, O(20), 6, 3000, O(10), 112, 768, 320, 400, 350, 40, 80, O(-8), 300, 250, 250, O(10)}},
+    {320, 220, 3300, {300, 300, 400, 2, 260, O(-4), O(20), 750, O(20), 6, 3000, O(10), 112, 768, 320, 400, 350, 40, 80, O(-8), 300, 250, 250, O(10), 0, 0, 0, 0}},
     /* a desert wind: sand lifting over 5 m/s, its grains ticking and hissing (~u^3, bright), no plants */
-    {256, 180, 7479, {200, 256, 256, 1, 120, O(0), O(20), 1600, O(30), 4, 4000, O(30), 80, 768, 100, 200, 100, 19, 30, O(5), 256, 60, 250, O(10)}},
+    {256, 180, 7479, {200, 256, 256, 1, 120, O(0), O(20), 1600, O(30), 4, 4000, O(30), 80, 768, 100, 200, 100, 19, 30, O(5), 256, 60, 250, O(10), 0, 0, 0, 0}},
 };
 
 typedef struct {

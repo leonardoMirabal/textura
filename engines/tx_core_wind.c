@@ -6,6 +6,7 @@
 #define RUSH_REF 8200              /* the rush's gain at 10 m/s (Q15; calibrated by render against the references) */
 #define RUST_REF 1040              /* the rustle's at 10 m/s, FOLIAGE 127 */
 #define BUF_REF 9500               /* the buffeting's at 10 m/s, BUFFET 127, a burst of 1 */
+#define SK_REF 3000               /* a skitter click's at 10 m/s, a run at full swell (Q15) */
 #define WH_REF 8000                /* a whoosh's at 10 m/s, WHOOSH 127, size 1 */
 
 /* log2 of an integer, Q16 */
@@ -39,6 +40,7 @@ void tx_wind_init(tx_wind_t *w, uint32_t seed)
     tx_rng_seed(&w->nl, seed * 5u + 23u);
     tx_rng_seed(&w->nb, seed * 7u + 41u);
     tx_rng_seed(&w->ne, seed * 11u + 59u);
+    tx_rng_seed(&w->ns, seed * 17u + 83u);
     for (i = 0; i < TX_WIND_NW; i++) tx_rng_seed(&w->wv[i].rng, seed * 13u + i * 101u + 7u);
     for (i = 0; i < 5; i++) w->w[i] = tx_rand_s15(&w->rng);  /* the walks start somewhere */
     w->kr = 1000; w->kd = 200;
@@ -93,8 +95,9 @@ void tx_wind_press(tx_wind_t *w, uint8_t vel)
 int tx_wind_quiet(const tx_wind_t *w)
 {
     unsigned i;
-    int32_t z = w->rg | w->lg | w->bg | w->eg | w->eon | w->r.low | w->r.band | w->llp2 | w->b2 | w->env;
+    int32_t z = w->rg | w->lg | w->bg | w->eg | w->eon | w->se | w->r.low | w->r.band | w->llp2 | w->b2 | w->env;
     for (i = 0; i < TX_WIND_NW; i++) z |= w->wv[i].on;
+    for (i = 0; i < TX_WIND_NS; i++) z |= w->sv[i].left | w->sv[i].env;
     return !z;
 }
 
@@ -293,6 +296,58 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
         w->b1 = b1; w->b2 = b2;
     }
     w->bg = bg;
+    /* leaf skitter: runs start ~ 0.1 (u - ut)^2 /s (x kind, x COUNT; twice while a gust blows), up to three at once */
+    if (w->k.sk) {
+        int32_t ov = u - w->k.sut * 256, act = 0, g;
+        tx_rng_t *q = &w->ns;
+        if (ov > 0 && w->env > 16384) {
+            int32_t x = ov >> 4, pr = ((((x * x) >> 8) * 38) >> 8) * w->k.sr >> 8;   /* Q16 per block */
+            pr *= w->nsrc;
+            if (w->gcur > w->gmean + 1638) pr *= 2;
+            if (pr > 30000) pr = 30000;
+            if ((int32_t)(tx_rand(q) >> 16) < pr) {
+                for (i = 0; i < TX_WIND_NS; i++) if (!w->sv[i].left && w->sv[i].env <= 0) {
+                    int32_t a = (int32_t)(tx_rand(q) >> 17);
+                    w->sv[i].amp = 4915 + (((a * a) >> 15) * 27853 >> 15);   /* its distance: 0.15 .. 1 (most far) */
+                    w->sv[i].left = 35 + (int32_t)tx_rand_below(q, 226u);     /* 0.2 .. 1.5 s */
+                    w->sv[i].p = ((3560 + (int32_t)tx_rand_below(q, 10680u)) * (256 + ((ov > 49152 ? 49152 : ov) >> 7))) >> 8;   /* 150 .. 600 grains /s, faster in more wind */
+                    w->sv[i].env = 1;
+                    w->events++; w->total++;
+                    break;
+                }
+            }
+        }
+        for (i = 0; i < TX_WIND_NS; i++) {
+            if (w->sv[i].left) { w->sv[i].left--; w->sv[i].env += (32768 - w->sv[i].env) >> 4; act = 1; }
+            else if (w->sv[i].env > 0) { w->sv[i].env -= (w->sv[i].env >> 4) + 8; act = 1; if (w->sv[i].env < 0) w->sv[i].env = 0; }
+        }
+        if (act || w->se) {
+            int32_t se = w->se, shp = w->shp, slp = w->slp, ah = op_coef(1200u), al = op_coef(7000u);
+            uint32_t sb;
+            g = (int32_t)(((int64_t)SK_REF * upow(l2, 8) * w->k.sk) >> 24);
+            g = clampi(gmul(g, w->level), 0, 524288);
+            for (sb = 0; sb < n; sb += 16u) {
+                unsigned m = n - sb < 16u ? n - sb : 16u;
+                for (i = 0; i < TX_WIND_NS; i++)
+                    if (w->sv[i].env > 0 && (int32_t)(tx_rand(q) >> 16) < w->sv[i].p) {
+                        int32_t c = (int32_t)(tx_rand(q) >> 17);                   /* each click its own size */
+                        se += (((w->sv[i].amp * (w->sv[i].env >> 1)) >> 14) * (8192 + ((c * c) >> 17))) >> 13;
+                    }
+                if (se > (1 << 17)) se = 1 << 17;
+                for (j = sb; j < sb + m; j++) {
+                    int32_t x = (int32_t)(tx_rand(q) >> 18) - 8192, h;
+                    x = clampi((x * (se >> 3)) >> 13, -32767, 32767);
+                    se -= se >> 7;                                  /* 2.9 ms: a scrape's grain */
+                    shp += ((x - shp) * ah) >> 15;
+                    h = x - shp;
+                    slp += ((h - slp) * (al >> 1)) >> 14;
+                    out[j] += slp * (g >> 5);
+                }
+            }
+            if (!act && se < 64) se = shp = slp = 0;
+            w->se = se; w->shp = shp; w->slp = slp;
+        }
+    }
     /* the wind's own whooshes (rate ~ WHOOSH (0.1 + 0.9 min(1, u / 15)) /s), then every voice */
     if (u > 400 && w->whoosh) {
         int32_t uu = u > 61440 ? 61440 : u;

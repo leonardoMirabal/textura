@@ -476,7 +476,7 @@ function setSlider(id, val) {                         // from MIDI CC (the edite
 let SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];   // (read from the PRESET help line)
 // a family's sounds: [name, source preset, TYPE] (TYPE reaches the preset's family members), or "#engine" (a classic)
 const FAMILIES = [
-  ["Water", [["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 64], ["water drops", "water", 0],
+  ["Water", [["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 50], ["water drops", "water", 0],
     ["#drip"], ["#rainwater"], ["#stream"], ["#surf"]]],
   ["Stones & sand", [["stones", "stone cloud", 0], ["rockfall", "stone cloud", 32], ["ringing rocks", "stone cloud", 96],
     ["gravel", "gravel", 0], ["marbles", "gravel", 96], ["sand", "sand", 0], ["singing dune", "sand", 96],
@@ -486,8 +486,9 @@ const FAMILIES = [
   ["Wind", [["wind", "wind", 0], ["breeze in grass", "wind", 9], ["wind in pines", "wind", 16], ["leafy trees", "wind", 22],
     ["open moor", "wind", 28], ["sea wind", "wind", 35], ["ridge gale", "wind", 41], ["gusty autumn", "wind", 48],
     ["winter storm", "wind", 54], ["desert wind", "wind", 61]]],
-  ["Storm", [["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 64], ["#storm"], ["#thunder"], ["ridge gale", "wind", 41],
-    ["winter storm", "wind", 54]]],
+  ["Storm", [["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 50], ["#storm"], ["#thunder"], ["ridge gale", "wind", 41],
+    ["winter storm", "wind", 54], ["hail on a roof", "rain on water", 103], ["hail on a car", "rain on water", 110],
+    ["hail in leaves", "rain on water", 117], ["sleet on a window", "rain on water", 124]]],
   ["Insects", [["field cricket", "crickets", 10], ["tree cricket", "crickets", 53], ["mole cricket", "crickets", 74],
     ["cicada", "cicadas", 0], ["small cicada", "cicadas", 20], ["cicada chorus", "cicadas", 64], ["katydid", "katydids", 16],
     ["grasshopper", "katydids", 80], ["honeybee", "bees", 10], ["bumblebee", "bees", 53]]],

@@ -17,6 +17,9 @@
  *             in light air (ticks), thousands in a gale (a seething rush that still flickers). Amplitude ~ u^2.5.
  *   buffet    the pressure bursts of eddies at the listener: low noise (two one-poles at ~90 Hz) x the square of a
  *             fast walk (tau 25 ms) leaning on the gusts, ~ u^2.5: intermittent thumps, as the recordings' 20-120 Hz.
+ *   skitter   (some kinds) dry leaves tumbling over the ground above a threshold speed: runs (0.2 .. 1.5 s,
+ *             ~ (u - ut)^2 runs a second, more while the wind rises) of clicks at 40 .. 220 /s (each a 0.7 ms burst
+ *             of white, 1.2 .. 7 kHz), every run its own distance, pace and swell.
  *   whoosh    gusts passing by: band noise voices (Q 1.2 .. 2.5) whose loudness is a gamma pulse (two poles, 0.2 ..
  *             0.8 s) and whose centre follows the pulse's first pole (brightest while it comes, falling as it passes:
  *             a Doppler-like sweep of 0.6 .. 1.6 octaves). Spawned by the wind (WHOOSH x (0.1 + 0.9 min(1, u / 15))
@@ -33,6 +36,7 @@
 #include "tx_core_math.h"
 
 #define TX_WIND_NW 4u              /* whoosh voices */
+#define TX_WIND_NS 3u              /* skitter runs */
 
 /* a kind of wind (a place): how its paths are set. Gains and scales Q8 (256 = 1), offsets Q16 octaves. */
 typedef struct {
@@ -44,6 +48,7 @@ typedef struct {
     int16_t wg, wr, wq0, wq1; int32_t wo; int16_t wt;   /* whooshes: gain, rate, Q x 16 from .. to, centre (+oct), pulse length (x) */
     int16_t em, fl;                /* edge tone rate (x), flutter depth (x) */
     int32_t r2;                    /* the rush's second low-pass pole (+oct over its corner; 0: none): a steeper top */
+    int16_t sk, sut, sr, pad;      /* leaf skitter: gain (0: none), its threshold (m/s Q4), runs' rate (x) */
 } tx_wkind_t;
 
 typedef struct {                   /* a two-state Chamberlin band (Q14 coefficients) */
@@ -94,6 +99,10 @@ typedef struct {
     int32_t lnorm;                 /* flap size normalisation, Q15 */
     /* buffet */
     int32_t b1, b2, bg;
+    /* leaf skitter: runs of clicks (a dry leaf tumbling over the ground), sharing one click envelope and filter */
+    struct { int32_t env, amp, left, p; } sv[TX_WIND_NS];   /* (env Q15, amp Q15, blocks left, click chance Q16 / 16 samples) */
+    int32_t se, shp, slp;          /* the click envelope (Q15 x 2^7), HP and LP states */
+    tx_rng_t ns;
     /* whooshes */
     tx_wwhoosh_t wv[TX_WIND_NW];
     /* edge tone */
