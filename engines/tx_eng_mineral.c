@@ -10,8 +10,8 @@
  *            low-pass whose cutoff rises with the speed: fc = v / lambda, lambda 0.1 mm (I1: 100 Hz at 1 cm/s,
  *            10 kHz at 1 m/s). Level ~ sqrt(frictional power v F_N) (I1; garbled extract: the root is our reading).
  *   body     a constant-Q mineral (note 05 table: the loss factor 1/Q is the same for every mode, so higher modes
- *            die faster, which is what tells materials apart, I6): 5 free-free bar modes 1 : 2.7565 : 5.4039 :
- *            8.9330 : 13.3443 (modes over fs/6 dropped), driven at unit noise power (the bank's input gain
+ *            die faster, which is what tells materials apart, I6): 3 free-free bar modes 1 : 2.7565 : 5.4039
+ *            (modes over fs/6 dropped; the 4th and 5th, 8.93 and 13.3, faint under the rub: dropped for CPU, note 18), driven at unit noise power (the bank's input gain
  *            sqrt(fs Q / (pi f))), plus a little of the contact noise itself.
  *   stick    stick-slip (F5, brake noise, the same physics): at low speed two regimes coexist, a groan ~70-100 Hz and
  *            a honk ~400-500 Hz; the system jumps between them, a light tap restores the groan, the static-dynamic
@@ -56,12 +56,13 @@ static const tx_param_t PARAMS[NP] = {
 };
 
 #define NV 6u
-#define NM 5u
+#define NM 3u                     /* (the 4th and 5th bar modes, 8.9 and 13.3 f1 at -21 / -27 dB under the 1st and
+                                    * 18 dB under the rub, dropped: note 18, CPU) */
 #define G_REF 12000                /* contact force at the reference (5 N, 0.1 m/s, v100), Q15 (calibrated by render) */
 
 TX_AUDIO_DATA static const uint16_t STONE_Q[8] = { 55, 65, 150, 150, 150, 175, 300, 1000 };
-TX_AUDIO_DATA static const uint16_t BAR_R[NM] = { 1024, 2823, 5534, 9147, 13665 };   /* bar ratios, Q10 */
-TX_AUDIO_DATA static const uint16_t MODE_G[NM] = { 256, 205, 154, 115, 90 };          /* mode gains, Q11 (ours; -18 dB
+TX_AUDIO_DATA static const uint16_t BAR_R[NM] = { 1024, 2823, 5534 };   /* bar ratios, Q10 */
+TX_AUDIO_DATA static const uint16_t MODE_G[NM] = { 256, 205, 154 };          /* mode gains, Q11 (ours; -18 dB
                                                               * in the realism pass: the body sat 27 dB over the rub) */
 
 typedef struct {
@@ -71,7 +72,6 @@ typedef struct {
     int32_t f[NM], gin[NM], g[NM];
     int32_t gain, target;          /* contact force gain now / wanted (Q15): lift and press ramps */
     uint32_t ph, sinc;             /* stick-slip phase and its step per sample */
-    int32_t dlp;                   /* the direct contact's low-pass (~2 kHz: stone on stone is dark, references) */
     int32_t wander;                /* the hand's slow pressure wander (Q15, ~1 Hz; sd ~0.6 oct) */
     int32_t bq;                    /* the body's damping now: held = damped by the contact, free = the mineral's Q */
     uint32_t sph, sinc2;           /* the hand's stroke: phase, step per block (back and forth, ~0.6-1.1 Hz) */
@@ -84,7 +84,8 @@ typedef struct {
     tx_dcblock_t hp;
     voice_t v[NV];
     tx_event_t ev[TX_CLOUD_EV_MAX];
-    int32_t tmp[TX_BLOCK], buf[TX_BLOCK];
+    int32_t tmp[TX_BLOCK], buf[TX_BLOCK], con[TX_BLOCK];
+    int32_t dlp;                   /* the contacts' low-pass (~2 kHz: stone on stone is dark, references), shared */
     uint8_t p[NP], limit, quiet;
     int32_t level;                 /* Q15 */
     int32_t q, qx16;               /* body Q */
@@ -278,11 +279,12 @@ TX_AUDIO_CODE static void mineral_render(void *st, int32_t *mix, unsigned n)
 {
     mineral_t *s = (mineral_t *)st;
     unsigned k, i, j;
-    int32_t *buf = s->buf, *tmp = s->tmp;
+    int32_t *buf = s->buf, *tmp = s->tmp, *con = s->con;
     uint16_t d0 = s->dropped;
     if (n > TX_BLOCK) n = TX_BLOCK;
-    for (j = 0; j < n; j++) buf[j] = 0;
+    for (j = 0; j < n; j++) buf[j] = con[j] = 0;
     k = tx_cloud_block(&s->cloud, s->ev, n);
+    if (!k && s->quiet) return;                              /* silent and nothing new */
     for (i = 0; i < k; i++) press(s, &s->ev[i]);
     for (i = 0; i < NV; i++) {
         voice_t *v = &s->v[i];
@@ -306,15 +308,16 @@ TX_AUDIO_CODE static void mineral_render(void *st, int32_t *mix, unsigned n)
             v->ph = ph;
         }
         tx_pulses_add(&v->slip, tmp, n);
-        {   /* the contact noise itself (the rub is mostly this), low-passed at ~2 kHz (references: -5..-12 dB / oct) */
-            int32_t d = v->dlp;
-            for (j = 0; j < n; j++) { d += ((tmp[j] - d) >> 3) * 2 + ((tmp[j] - d) >> 5); buf[j] += d; }   /* a 0.28 */
-            v->dlp = (d > -16 && d < 16) ? 0 : d;
-        }
+        for (j = 0; j < n; j++) con[j] += tmp[j];          /* the contact itself: all stones through one low-pass below */
         if (v->nm) tx_svf_bank_add_g(v->body, v->f, v->bq ? v->bq : s->q, v->gin, v->g, v->nm, tmp, buf, n);
-        if (!v->gain && !v->dlp && tx_scrape_quiet(&v->sc) && !tx_pulses_active(&v->slip) && tx_svf_bank_quiet(v->body, NM)) {
+        if (!v->gain && tx_scrape_quiet(&v->sc) && !tx_pulses_active(&v->slip) && tx_svf_bank_quiet(v->body, NM)) {
             v->alive = 0; v->em = 0xFF;
         }
+    }
+    {   /* the contact noise itself (the rub is mostly this), low-passed at ~2 kHz (references: -5..-12 dB / oct) */
+        int32_t d = s->dlp;
+        for (j = 0; j < n; j++) { d += ((con[j] - d) >> 3) * 2 + ((con[j] - d) >> 5); buf[j] += d; }   /* a 0.28 */
+        s->dlp = (d > -16 && d < 16) ? 0 : d;
     }
     tx_declick_run(&s->dc, buf, n);
     tx_vary_block(&s->vy, buf, n);
@@ -322,7 +325,7 @@ TX_AUDIO_CODE static void mineral_render(void *st, int32_t *mix, unsigned n)
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
-        int32_t z = s->dc.v | s->hp.x1 | s->hp.y1;
+        int32_t z = s->dc.v | s->hp.x1 | s->hp.y1 | s->dlp;
         for (i = 0; i < NV; i++) z |= s->v[i].alive;
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }

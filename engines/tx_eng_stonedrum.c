@@ -54,7 +54,8 @@ static const tx_param_t PARAMS[NP] = {
 };
 
 #define NV 12u
-#define NM 6u
+#define NM 5u                     /* (6 until note 18: the 6th mode of slab / boulder, -14 dB and above most
+                                    * mallets' force spectrum, dropped for CPU) */
 #define NMAT 9u
 #define A_REF 48000000             /* a mode's amplitude for a 2 m/s stone-hammer hit (Q30: -27 dBFS; by render) */
 
@@ -168,7 +169,7 @@ static unsigned modes(drum_t *s, unsigned note, uint32_t *ratio, int32_t *gain)
         }
         return 5;
     }
-    n = sh == 1 ? 6u : NM;
+    n = NM;
     for (k = 0; k < n; k++) {
         int32_t c = tx_sin_q15((k + 1u) * (uint32_t)p * 111411u);   /* a position pattern: sin(1.7 pi (k + 1) p), ours */
         int32_t g;
@@ -189,9 +190,12 @@ static void strike(stone_t *v, int32_t a)
 
 static void tune(drum_t *s, stone_t *v, const uint32_t *ratio, unsigned n, unsigned note, uint32_t qx16)
 {
-    uint32_t f1 = tx_exp2(s->f1_l2 + ((int32_t)note - 60) * 5461);
-    unsigned k;
     int32_t vy = s->p[P_VARY];
+    uint32_t f1 = tx_exp2(s->f1_l2 + ((int32_t)note - 60) * 5461
+                          + (vy ? (tx_rand_s15(&s->cloud.rng) * vy) / 160 : 0));   /* a new stone: its size +-0.4 oct
+                                                              * at VARY 127 (a field of rocks: the references' strikes spread
+                                                              * 0.4-1.9 octaves in centroid; note 18) */
+    unsigned k;
     v->nm = (uint8_t)n;
     if (vy) qx16 = (uint32_t)(((uint64_t)qx16 * (uint32_t)(32768 + ((tx_rand_s15(&s->cloud.rng) * vy * 77) >> 15))) >> 15);   /* Q +-30 % */
     for (k = 0; k < n; k++) {
@@ -222,9 +226,11 @@ static void hit(drum_t *s, const tx_event_t *e, unsigned *which)
     if (!v) return;
     *which = (unsigned)(v - s->v);
     lv = 65536 + ((int32_t)e->vel - 100) * 1638;            /* 2 m/s at v100, +-1 octave per 40 */
-    lv += (tx_rand_s15(&s->cloud.rng) * s->p[P_VARY]) >> 7;  /* no two hits alike: +-0.4 oct of speed at VARY 100 */
+    lv += (tx_rand_s15(&s->cloud.rng) * s->p[P_VARY]) >> 6;  /* no two hits alike: +-0.8 oct of speed at VARY 100
+                                                              * (references: strike levels spread 6-13 dB; note 18) */
     tx_contact_hit(&s->mallet, lv, &tc, &ev);
-    tc = tx_vary_scale(tc, -(tx_vary_tone(&s->vy) >> 1));    /* the press's tone: a harder / softer blow */
+    tc = tx_vary_scale(tc, -(tx_vary_tone(&s->vy) >> 1)      /* the press's tone: a harder / softer blow; */
+                       + ((tx_rand_s15(&s->cloud.rng) * s->p[P_VARY]) >> 7));   /* each its own spot: +-0.4 oct of contact */
     if (tc < 1u) tc = 1u;
     a = (int32_t)(((int64_t)A_REF * (int32_t)tx_exp2(lv + (15 << 16))) >> 16);   /* ~ v: 2 m/s -> A_REF */
     a = (int32_t)(((int64_t)a * (32768 + ev)) >> 16);         /* x (1 + e) / 2 */
@@ -240,7 +246,11 @@ static void hit(drum_t *s, const tx_event_t *e, unsigned *which)
         if (!v->alive || v->note != e->note) { unsigned k; for (k = 0; k < NM; k++) v->m[k].amp = 0; }
         tune(s, v, ratio, n, e->note, v->q_eff);
         v->young = 1;
-        for (i = 0; i < n; i++) v->gw[i] = (int16_t)(((int64_t)gain[i] * tx_contact_weight(tc, v->f[i])) >> 15);
+        {   /* each mode's weight; one under 1/128 of the strongest (-42 dB) is not run (CPU, note 18) */
+            int32_t mx = 0;
+            for (i = 0; i < n; i++) { v->gw[i] = (int16_t)(((int64_t)gain[i] * tx_contact_weight(tc, v->f[i])) >> 15); if (v->gw[i] > mx) mx = v->gw[i]; }
+            for (i = 0; i < n; i++) if (v->gw[i] < (mx >> 7) && !v->m[i].amp) v->gw[i] = 0;
+        }
         strike(v, a);
         /* the attack residue: the many short-lived high modes a real stone has beyond the NM kept (and the contact's
          * own noise), as a ~3 ms low-passed noise burst weighted by the force spectrum at 4 kHz (ours; by the reference: the

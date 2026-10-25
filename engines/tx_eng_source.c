@@ -242,7 +242,7 @@ static const host_t HOST[] = {
     {"rockfall", 80, 80, 80, {{"VOLUME", 30, 64, 110}, {"FRAG", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
      300, 100, 60, 1},
     /* ringing rocks (stones): a boulder struck now and then .. struck quickly */
-    {"stonedrum", 30, 30, 30, {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+    {"stonedrum", -50, -50, -50, {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
      60, 12, 3, 1},
 };
 #define H_MEMBER 12u                 /* the first member row */
