@@ -17,8 +17,8 @@
  *            transition: single plinks fuse into a hiss: bubbles beyond the heroes (or over the per-block cap)
  *            become a noise bed of the same power (Campbell), its two bands (type I 13-20 kHz, type II 3-10 kHz).
  *   stones   0.2 .. 500 knocks/s of pieces as stonecloud's (flexural modes of a flake, f1 ~ 0.128 c / L, constant Q
- *            by mineral, Hunt-Crossley contacts, power-law energies). The transition: an avalanche. Above the
- *            middle each knock may set off others (a branching ratio rising to 0.85, Omori delays c 30 ms, p 1.5),
+ *            by mineral, Hunt-Crossley contacts, power-law energies). The transition: an avalanche. Each knock
+ *            may set off others (stage 1's clock, tx_core_cluster.h: branching 0.3 .. 0.85, Omori c 30 ms, p 1.5),
  *            the stones grow and are thrown harder; knocks beyond the heroes leave their attack residue (a slide).
  *   cicadas  1 .. 30 callers, each a tymbal voice as the cicadas engine's (ribs, glide, air sac), persistent members
  *            with their own carrier, rate, phrase and distance. The transition: falling into step. Above a third
@@ -45,6 +45,7 @@
 #include "tx_core_place.h"
 #include "tx_core_life.h"
 #include "tx_core_bird.h"
+#include "tx_core_cluster.h"
 
 #define OUT_TRIM 4096               /* output gain, Q12 (the presets' own levels are in PRE[].trim) */
 
@@ -81,7 +82,6 @@ static const tx_param_t PARAMS[NP] = {
 #define NV 16u                      /* heroes */
 #define NM 32u                      /* members (callers) */
 #define NPEND 40u
-#define NCH 32u                     /* pending knocks (an avalanche's children) */
 #define EVMAX 24u                   /* explicit heroes started per block */
 #define RATE_CAP 5000u              /* explicit events per second at most: above, each stands for several (rain) */
 
@@ -97,8 +97,8 @@ typedef struct {
 
 static const preset_t PRE[NPRE] = {
     {0, 490986, 614782, 0, 23500, 0},   /* rain: 30 .. 20000 drops/s per m^2 (drizzle .. downpour), over ~6 m^2 heard (ours) */
-    {0, -152170, 739752, 10, 27000, 0}, /* stones: 0.2 .. 500 knocks/s */
-    {1, 0, 321577, 0, 5160, 0},     /* cicadas: 1 .. 30 callers */
+    {0, -152170, 739752, 10, 39470, 0}, /* stones: 0.2 .. 500 knocks/s (+3.3 dB: most knocks now far, note 14) */
+    {1, 0, 321577, 0, 6800, 0},     /* cicadas: 1 .. 30 callers (+2.4 dB: their pauses, most far) */
     {3, 1, 0, -6, 19800, 0},        /* water: drops (WATER_RATE) + the stream engine (HOST[1]) fading in */
     {2, 0, 0, 0, 4096, 0},          /* wind: the aeolian engine hosted */
     {2, 2, 0, 0, 4096, 0},          /* fire */
@@ -109,13 +109,48 @@ static const preset_t PRE[NPRE] = {
     {2, 7, 0, 0, 4096, 0},          /* bees */
     {2, 8, 0, 0, 4096, 0},          /* ice */
     {2, 9, 0, 0, 4096, 0},          /* wood */
-    {2, 10, 0, 0, 4096, 0},         /* minerals */
+    {2, 10, 0, 30, 4096, 0},        /* minerals (knocked by hand: near even, note 14) */
     {2, 11, 0, 0, 4096, 0},         /* glass */
     {4, 0, 0, 0, 410, 0},          /* birds (tx_core_bird type act_lo): songbird (blackbird, thrush) */
     {4, 1, 0, 0, 410, 0},          /* chirper (chaffinch, sparrow) */
     {4, 2, 0, 0, 1630, 0},          /* crow */
     {4, 3, 0, 0, 130, 0},          /* owl (tawny, eagle owl) */
     {4, 4, 0, 0, 860, 0},          /* gull */
+};
+
+/* stage 1's character per preset (tx_core_cluster.h; note 14, measured against the references), three values at
+ * INTENSITY 0 / 64 / 127 (linear between): sparse individuals .. bunched .. a fused cloud.
+ *   cox     the rate's slow walk (gusts, runs, quiet spells): its sd, 1/100 octave; ctau its time constant, 0.1 s
+ *   br      self-excitation: the branching ratio (1/100), children after an exponential delay (mean tau_ms) or an
+ *           Omori one (c = tau_ms, p 1.5), at most gens generations, each a level step child (sd csd), 1/10 octave
+ *   near, span, dim   salience: an event's distance over the ground (dim 2) or a volume (3) from DIST + near out to
+ *           span farther (both in DEPTH's spread x 1/10: DEPTH 0 puts all at DIST), at INTENSITY 0 and 127: sparse
+ *           individuals are heard where they are, a dense cloud spreads over the ground (most of it far); dim 0: the
+ *           plain draw */
+typedef struct {
+    uint8_t cox[3], ctau, br[3], omori, gens;
+    uint16_t tau_ms;
+    int8_t child, csd, near[2], span[2];
+    uint8_t dim;
+} clu_pre_t;
+#define CLU_NONE {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}
+static const clu_pre_t CLU[NPRE] = {
+    /* rain: inside the references' family as it is (Poisson, smooth: the refs' 2 s level sd 0.3-0.8 dB) */
+    CLU_NONE,
+    /* stones: runs and quiet spells; a knock sets others off (Omori), from a few (0.3) to an avalanche (0.85); pieces
+     * over the slope around, most far: a few near knocks stand out of the slide */
+    {{90, 90, 250}, 30, {30, 45, 85}, 1, 12, 30, -5, 10, {-10, -21}, {20, 42}, 2},
+    /* cicadas: callers (their bouts in callers_block); over the ground around, most far */
+    {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {-10, -15}, {20, 40}, 2},
+    /* water: drip points come and go (runs), a drop's splash sets off another now and then */
+    {{60, 50, 30}, 15, {15, 15, 10}, 0, 3, 120, -10, 10, {0, 0}, {0, 0}, 0},
+    CLU_NONE, CLU_NONE, CLU_NONE, CLU_NONE, CLU_NONE, CLU_NONE, CLU_NONE,   /* wind .. bees: their engines' own timing */
+    /* the event engines' presses: ice, one icicle bringing down others (runs, quiet spells); wood, cracks in runs; minerals
+     * knocked by hand (near even, a little wander); glass, a break setting off another */
+    {{80, 80, 80}, 50, {30, 40, 50}, 0, 3, 600, -5, 5, {0, 0}, {0, 0}, 0},
+    {{60, 60, 60}, 50, {20, 30, 40}, 0, 3, 1500, -5, 5, {0, 0}, {0, 0}, 0},
+    {{40, 40, 40}, 30, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0},
+    {{60, 60, 60}, 50, {20, 30, 40}, 0, 3, 800, -5, 5, {0, 0}, {0, 0}, 0},
 };
 
 /* HOSTED presets: an existing engine run whole inside the source (its own physics and defaults: at INTENSITY 64 it is
@@ -196,6 +231,10 @@ typedef struct {                    /* a caller of the population */
     uint32_t pph, pinc;             /* the phrase (pulse groups): phase and step per block */
     int32_t pmod;                   /* the phrase gain now, Q15 */
     uint8_t calling, voice, fresh, pad;
+    uint8_t song, fade;             /* in a song bout (else pausing); its end's fade (blocks per e-fold, log2) */
+    int8_t q_off, pad2;             /* its own tymbal Q (timbre), 1/32 octave */
+    uint16_t bout;                  /* blocks to the bout's end */
+    uint16_t pad3;
 } member_t;
 
 #define NB 16u                      /* birds in a lane at most (12 sing at the top) */
@@ -205,11 +244,6 @@ typedef struct {                    /* a bird of the population: persistent, its
     uint8_t voice, songs, active, near;
 } birdm_t;
 
-typedef struct {                    /* an avalanche's child knock waiting for its time */
-    uint32_t t;
-    int32_t lv, size_l2;
-    uint8_t pre, gen, pad[2];
-} child_t;
 
 typedef struct {
     tx_rng_t rng;
@@ -219,7 +253,7 @@ typedef struct {
     union {                         /* the particle presets' pools, or a hosted engine's whole state */
         struct {
             voice_t v[NV];
-            union { struct { member_t m[NM]; child_t ch[NCH]; }; birdm_t bm[NB]; };
+            union { member_t m[NM]; birdm_t bm[NB]; };
         };
         uint64_t host[HOST_BYTES / 8];
     };
@@ -234,16 +268,14 @@ typedef struct {
     uint8_t lvl_v, part_v;          /* LEVEL and PARTICLES as last set (0: not set) */
     uint8_t hkeys, hbase, hcycle, hpad;
     uint16_t hrenew;                /* blocks to the next renewed key */
-    uint32_t hnext;                 /* event engines: blocks to the next press */
     uint8_t hoff, hpn, hpad2[2];    /* blocks to its release, its note */         /* keys the source holds on the hosted engine (k curves; the first is the player's) */
     int32_t hgain, last_out, hlp;        /* the hosted output gain (Q12, ramped), the last sample out (for a switch) */
     int32_t buf[TX_BLOCK], ck[TX_BLOCK];
-    uint8_t p[NP], limit, quiet, held, nch;
+    uint8_t p[NP], limit, quiet, held, pad0;
     uint8_t note, vel, pad[2];
     int32_t level;
     int32_t run;                    /* the source on (Q15 ramp) */
     uint32_t now;                   /* sample clock */
-    uint32_t next_q8;               /* samples to the next event, Q8 */
     int32_t i_eff;                  /* INTENSITY with LIFE, Q8 knob units */
     int32_t i_glide;                /* INTENSITY gliding to the fader, Q8 */
     int32_t trim_c;                 /* the callers' level now (pre_trim), Q12 */
@@ -265,6 +297,8 @@ typedef struct {
     uint32_t pm;                    /* the stones' power-law cut */
     tx_vary_t vy;
     uint32_t x32;                   /* bed noise */
+    tx_clu_t clu;                   /* stage 1's clock: Cox walk, children (tx_core_cluster.h) */
+    tx_clu_cfg_t cf;                /* its character at the activity now */
 } src_t;
 
 /* ---- helpers */
@@ -334,6 +368,33 @@ static int32_t pre_trim(const src_t *s, unsigned pre)
     const preset_t *q = &PRE[pre];
     int32_t l = -((((q->act_oct >> 5) * (act_idx(s) - (64 << 8))) / (127 << 8)) * q->law);   /* -oct (a - 64) / 127 / 4 */
     return (int32_t)(((int64_t)q->trim * (int32_t)tx_exp2(l + (12 << 16))) >> 12);
+}
+
+/* stage 1's character now (once per block) */
+static void clu_cfg(src_t *s, unsigned pre)
+{
+    const clu_pre_t *c = &CLU[pre];
+    tx_clu_cfg_t *f = &s->cf;
+    int32_t a = act_idx(s);
+    f->cox = tx_clu_at(c->cox[0], c->cox[1], c->cox[2], a) * 655;
+    f->cox_tau_l2 = c->ctau ? tx_place_log2(c->ctau) + 269090 : 0;   /* x 17.23 blocks per 0.1 s */
+    f->branch = tx_clu_at(c->br[0], c->br[1], c->br[2], a) * 655;
+    f->tau = (int32_t)c->tau_ms * 441 / 10;
+    f->child_l2 = c->child * 6554;
+    f->child_sd = c->csd * 6554;
+    f->reg = clampi(PRE[pre].reg + knob(s, P_SPACING), -64, 63);
+    f->omori = c->omori; f->gens = c->gens;
+}
+
+/* an event's distance: the preset's salience law, or (dim 0) the plain draw around DIST */
+static int32_t ev_dist(src_t *s, unsigned pre)
+{
+    const clu_pre_t *c = &CLU[pre];
+    int32_t d = depth_l2(s), a = s->i_eff >> 4;               /* (0 .. 2032) */
+    int32_t nr = c->near[0] * 2032 + (c->near[1] - c->near[0]) * a, sp = c->span[0] * 2032 + (c->span[1] - c->span[0]) * a;
+    if (!c->dim) return tx_place_draw(&s->rng, dist_l2(s), d);
+    nr = nr * 16 / 2032; sp = sp * 16 / 2032;                /* 1/160 of DEPTH's spread */
+    return tx_clu_dist(&s->rng, dist_l2(s) + (nr * d) / 160, (sp * d) / 160, c->dim);
 }
 
 /* ---- voices */
@@ -529,35 +590,36 @@ static int32_t stone_energy(src_t *s)
     return x > RANGE_L2 ? RANGE_L2 : x;
 }
 
-static void child(src_t *s, uint32_t t, int32_t lv, int32_t size_l2, unsigned pre, int gen);
+/* a knock's uniqueness (tx_core_cluster.h; note 14: the references' per-event centroid spreads 0.6-1.1 octave, the
+ * strongest peak 0.6-2.3 octave): a bigger piece rings lower, longer and with a softer contact; where it is struck
+ * (brightness: the upper modes' share), how it lands (soil .. rock: the contact time), its cracks (Q) all differ */
+static const tx_clu_spread_t STONE_VAR = { 39322, 45875, 26214, 52429, 3277, 128, 64 };
+/* (sd: size 0.6 octave over the size law's own, contact 0.7, Q 0.4, brightness 0.8, modes 0.05; couplings: contact
+ * +0.5, Q +0.25 octave per octave of size) */
 
-/* a knock: speed lv (log2 m/s Q16), piece length size_l2 (log2 m Q16), at sample offset off; may set off others */
-static void knock(src_t *s, unsigned off, int32_t lv, int32_t size_l2, unsigned pre, int32_t trim, int gen)
+/* a knock: speed lv (log2 m/s Q16), piece length size_l2 (log2 m Q16), at sample offset off (near: a press) */
+static void knock(src_t *s, unsigned off, int32_t lv, int32_t size_l2, unsigned pre, int32_t trim, int near)
 {
     tx_rng_t *r = &s->rng;
-    int32_t r_l2 = gen < 0 ? dist_l2(s) - 65536 : tx_place_draw(r, dist_l2(s), depth_l2(s));
+    int32_t r_l2 = near ? dist_l2(s) - 65536 : ev_dist(s, pre);
     int32_t g = (int32_t)(((int64_t)tx_place_gain_q12(r_l2) * trim) >> 12), a, f_l2;
-    int32_t q = (int32_t)tx_exp2(tx_place_log2(2880u) + knob(s, P_TONE) * 2048);   /* Q x16: granite 180, x/ 4 */
+    int32_t q;
     uint32_t tc, lvl;
     int32_t ev;
+    tx_clu_var_t vr;
     int k;
     unsigned i;
     voice_t *v;
+    (void)off;                                               /* (the modes start at the block's start) */
+    tx_clu_vary(r, &STONE_VAR, &vr);
+    size_l2 += vr.size;
+    q = (int32_t)tx_exp2(tx_place_log2(2880u) + knob(s, P_TONE) * 2048 + clampi(vr.decay, -(1 << 16), 1 << 16));   /* Q x16: granite 180, x/ 4 */
     tx_contact_hit(&s->mallet, lv, &tc, &ev);
+    tc = (uint32_t)(((uint64_t)tc * tx_exp2(clampi(vr.hard, -(2 << 16), 2 << 16) + (16 << 16))) >> 16);
     a = (int32_t)(((int64_t)A_HIT * (int32_t)tx_exp2(lv - 65536 + (15 << 16))) >> 15);
     a = (int32_t)(((int64_t)a * s->level) >> 15);
     a = (int32_t)(((int64_t)a * g) >> 12);
     if (a < (1 << 14)) return;
-    if (gen >= 0 && gen < 12 && s->i_eff > (64 << 8)) {      /* the avalanche: a child, branching up to 0.85 */
-        uint32_t b = ((uint32_t)(s->i_eff - (64 << 8)) * 7u) >> 1;   /* Q16 of 1: 0 .. 0.85 at 127 */
-        if ((tx_rand(r) >> 16) < b) {
-            uint32_t u = (tx_rand(r) >> 16) | 1u;            /* Omori p 1.5, c 30 ms: t = c (u^-2 - 1) */
-            uint32_t x = tx_neglog2_q12(u << 16) << 5;       /* -log2 u, Q17 = 2 x Q16 */
-            uint32_t dt = x > (5u << 16) ? 132300u : (uint32_t)(((uint64_t)1323u * (tx_exp2((int32_t)x + (16 << 16)) - 65536u)) >> 16);
-            int32_t dl = (int32_t)(tx_rand(r) >> 17), ds = (int32_t)(tx_rand(r) >> 18) - 8192;   /* (one draw each) */
-            child(s, s->now + off + 441u + dt, lv - dl, size_l2 + ds, pre, gen + 1);
-        }
-    }
     lvl = (uint32_t)a;
     if (s->events >= EVMAX || (k = take(s, lvl)) < 0) {      /* no hero: the attack residue only */
         s->res += (int32_t)(((int64_t)(a >> 4) * tx_contact_weight(tc, 6000u)) >> 15);
@@ -571,7 +633,7 @@ static void knock(src_t *s, unsigned off, int32_t lv, int32_t size_l2, unsigned 
     for (i = 0; i < NMO; i++) {
         uint32_t f;
         int32_t gm;
-        if (i) f_l2 += 13215 + (int32_t)tx_rand_below(r, 47480u);   /* x 1.15 .. 1.9 */
+        if (i) f_l2 += 13215 + (int32_t)tx_rand_below(r, 47480u) + tx_clu_detune(r, &vr);   /* x 1.15 .. 1.9 */
         f = tx_exp2(f_l2);
         v->u.s.m[i].amp = 0;
         if (f < 60u || f > 20000u) continue;
@@ -579,6 +641,8 @@ static void knock(src_t *s, unsigned off, int32_t lv, int32_t size_l2, unsigned 
         v->u.s.m[i].m16 = tx_mode_decay(f, (uint32_t)q, 179u);
         v->u.s.m[i].ph = 0;
         gm = i ? 16384 + (int32_t)tx_rand_below(r, 16383u) : 32767;
+        if (i) gm = (int32_t)(((int64_t)gm * tx_exp2(clampi((vr.bright * (int32_t)i) / 3, -(3 << 16), 1 << 16) + (15 << 16))) >> 15);
+        gm = gm > 32767 ? 32767 : gm;
         gm = (int32_t)(((int64_t)gm * tx_contact_weight(tc, f)) >> 15);
         gm = (int32_t)(((int64_t)gm * tx_place_air_q15(f, r_l2)) >> 15);
         tx_mode_strike(&v->u.s.m[i], (int32_t)(((int64_t)a * gm) >> 15));
@@ -587,23 +651,16 @@ static void knock(src_t *s, unsigned off, int32_t lv, int32_t size_l2, unsigned 
     if (s->res > (1 << 28)) s->res = 1 << 28;
 }
 
-static void child(src_t *s, uint32_t t, int32_t lv, int32_t size_l2, unsigned pre, int gen)
-{
-    child_t *c;
-    if (s->nch >= NCH) return;
-    c = &s->ch[s->nch++];
-    c->t = t; c->lv = lv; c->size_l2 = size_l2; c->pre = (uint8_t)pre; c->gen = (uint8_t)gen;
-}
-
-/* a new knock of the cloud: size around the preset's (SIZE, the key, the slide's bigger stones), power-law energy */
-static void stone(src_t *s, unsigned off, int near, int32_t vel, unsigned pre, int32_t trim)
+/* a knock of the cloud: size around the preset's (SIZE, the key, the slide's bigger stones), power-law energy; lv_off
+ * the cluster's level step (a child knock: set off by another, mostly smaller) */
+static void stone(src_t *s, unsigned off, int near, int32_t vel, unsigned pre, int32_t trim, int32_t lv_off)
 {
     int32_t sp = (40 * 774 * (int32_t)s->p[P_SPREAD]) / 64;   /* +-SD octaves, Q16 */
     int32_t size_l2 = -189876 + knob(s, P_SIZE) * 2048 - ((int32_t)s->note - 60) * 5461 + s->life_s
                       + (int32_t)(((int64_t)gauss(s) * sp) >> 12) + clampi(s->i_eff - (64 << 8), 0, 63 << 8) * 2;
     int32_t lv = 65536 + (vel - 100) * 1638 + (((stone_energy(s) - RANGE_L2) * 16) >> 1)
-                 + clampi(s->i_eff - (64 << 8), 0, 63 << 8) * 2;
-    knock(s, off, lv, size_l2, pre, trim, near ? -1 : 0);
+                 + clampi(s->i_eff - (64 << 8), 0, 63 << 8) * 2 + lv_off / 2;   /* (speed: half the level step) */
+    knock(s, off, lv, size_l2, pre, trim, near);
 }
 
 /* ---- cicadas */
@@ -613,7 +670,7 @@ static void stone(src_t *s, unsigned off, int near, int32_t vel, unsigned pre, i
 
 static void caller_tune(src_t *s, caller_t *c)
 {
-    int32_t a2, b0, a1e, sa1, sa2, sb0, qv = clampi(45 + knob(s, P_TONE), 0, 127);
+    int32_t a2, b0, a1e, sa1, sa2, sb0, qv = clampi(45 + knob(s, P_TONE) + s->m[c->member < NM ? c->member : 0].q_off, 0, 127);
     uint32_t f = c->f, q = tx_exp2(262144 + qv * 1504);
     tx_ireso_coefs(f * 1150u / 1000u, q, &c->a1s, &a2, &b0);
     tx_ireso_coefs(f * 1400u / 1000u, q, &c->a1o, &a2, &b0);
@@ -627,6 +684,15 @@ static void caller_tune(src_t *s, caller_t *c)
     c->jit = clampi(27 + knob(s, P_HARD), 0, 127) * 258;
 }
 
+/* a calling bout (song) or a pause, in blocks: log-normal (note 14: the references' callers enter and leave in steps of
+ * 5-15 dB lasting seconds, a song may end in a long decrescendo): songs median 8 s (sd 0.8 octave), pauses 5 s (sd 1) */
+static uint16_t bout_len(src_t *s, int song)
+{
+    int32_t l = (song ? 683500 : 639000) + (int32_t)(((int64_t)gauss(s) * (song ? 52429 : 65536)) >> 12);   /* log2 blocks */
+    uint32_t b = tx_exp2(clampi(l, 5 << 16, 16 << 16));
+    return (uint16_t)(b > 65535u ? 65535u : b < 32u ? 32u : b);
+}
+
 /* a member drawn afresh: a new cicada (carrier CV 4 % x SPREAD, rate CV 5 %, its own distance and phrase) */
 static void member_new(src_t *s, member_t *m, int near)
 {
@@ -634,7 +700,10 @@ static void member_new(src_t *s, member_t *m, int near)
     m->f_l2 = 788474 + knob(s, P_SIZE) * -1024 - ((int32_t)s->note - 60) * -2731 + s->life_s / 4
               + (int32_t)((((int64_t)gauss(s) * 3718 * sp) >> 6) >> 12) + (tx_vary_tone(&s->vy) >> 3);
     m->rate_l2 = 449072 + (int32_t)(((int64_t)gauss(s) * 4648) >> 12);
-    m->r_l2 = near ? dist_l2(s) - 65536 : tx_place_draw(&s->rng, dist_l2(s), depth_l2(s));
+    m->r_l2 = near ? dist_l2(s) - 65536 : ev_dist(s, PR_CICADAS);   /* most far, a few near (note 14) */
+    m->q_off = (int8_t)clampi((gauss(s) * 12) >> 12, -40, 40);   /* its own tymbal (timbre): sd 0.28 octave of Q */
+    m->song = 1; m->fade = 6;
+    m->bout = bout_len(s, 1);
     m->pph = tx_rand(&s->rng);
     m->pinc = (uint32_t)(((uint64_t)70u * 1963000u * (60000u + tx_rand_below(&s->rng, 11000u))) >> 16);
     m->env = 0;
@@ -739,8 +808,13 @@ static void caller_render(src_t *s, voice_t *v, unsigned n)
 /* the population per block: how many call (INTENSITY), who swells in or fades, who has a hero, the bed, the sync */
 static void callers_block(src_t *s, uint32_t want_q8)
 {
-    unsigned i, want = (want_q8 + 128u) >> 8, calling = 0;
+    unsigned i, want = (want_q8 + 128u) >> 8, calling = 0, sing_l = 0, kc;
     int32_t sx = 0, sy = 0, kpull;
+    for (i = 0; i < NM; i++) sing_l += s->m[i].calling && s->m[i].song;
+    /* chorus waves: the others' singing shortens a pause (contagion), more as the chorus grows (0 .. 2 blocks per
+     * block per singer, over the callers) */
+    kc = (unsigned)(clampi(s->i_eff - (20 << 8), 0, 107 << 8) * 2 / 107) ;      /* Q8: 0 .. 512 */
+    if (want) sing_l = (sing_l * 256u) / want;              /* the singing share, Q8 */
     uint64_t bed = 0;
     int32_t bf = 0;
     uint32_t bw = 0;
@@ -751,8 +825,17 @@ static void callers_block(src_t *s, uint32_t want_q8)
         int on = i < want;
         if (on && !m->calling) { if (!m->fresh) member_new(s, m, 0); m->fresh = 0; m->calling = 1; }
         if (!on && m->calling) m->calling = 0;
-        if (m->calling) m->env += (32767 - m->env) >> 7;     /* the swell: ~0.75 s */
-        else if (m->env) { m->env -= (m->env >> 6) + 1; if (m->env < 0) m->env = 0; }
+        if (m->calling) {                                    /* its bouts: songs and pauses; a pause is cut short */
+            unsigned dec = 1u + (m->song ? 0u : (unsigned)((sing_l * (uint32_t)kc) >> 16));   /* by the others singing */
+            if (m->bout > dec) m->bout = (uint16_t)(m->bout - dec);
+            else {
+                m->song ^= 1u;
+                m->bout = bout_len(s, m->song);
+                if (!m->song) m->fade = (uint8_t)(6u + tx_rand_below(&s->rng, 5u));   /* ends: 0.4 .. 6 s */
+            }
+        }
+        if (m->calling && m->song) m->env += (32767 - m->env) >> 7;     /* the swell: ~0.75 s */
+        else if (m->env) { m->env -= (m->env >> (m->calling ? m->fade : 6)) + 1; if (m->env < 0) m->env = 0; }
         if (!m->calling && !m->env && m->voice == 0xFF) m->fresh = 0;
         if (m->calling || m->env) {
             member_gain(s, m);
@@ -773,7 +856,7 @@ static void callers_block(src_t *s, uint32_t want_q8)
         sn = tx_sin_q15(m->pph);
         m->pmod = 18022 + (int32_t)(((int64_t)sn * sn * 14745) >> 30);
         /* a hero: the swelling member takes one (stealing the quietest), the others wait for a free one */
-        if (m->voice == 0xFF && m->env > 0 && m->calling) caller_start(s, i, m->env < 2048);
+        if (m->voice == 0xFF && m->env > 0 && m->calling && m->song) caller_start(s, i, m->env < 2048);
         if (m->voice == 0xFF && m->env > 0) {               /* in the bed */
             uint32_t g = (uint32_t)m->gain, e = (uint32_t)m->env;
             bed += ((uint64_t)g * g * ((e * e) >> 15)) >> CBED_SH;   /* Q30 FS^2 */
@@ -855,27 +938,13 @@ static void birds_block(src_t *s, unsigned n)
     }
 }
 
-/* ---- stage 1: the event clock (events presets) */
-static uint32_t gap_q8(src_t *s, uint32_t rate_q8)
-{
-    tx_rng_t *r = &s->rng;
-    int32_t reg = clampi(PRE[s->p[P_PRESET]].reg + knob(s, P_SPACING), -64, 63);
-    uint32_t mean = (TX_FS << 16) / (rate_q8 ? rate_q8 : 1u);   /* samples, Q8 (fs 2^16 < 2^32) */
-    uint32_t e = (uint32_t)(((uint64_t)mean * (tx_neglog2_q12(tx_rand(r)) * 2839u >> 12)) >> 12);   /* exponential */
-    if (reg > 0) {                                           /* toward even: mean (1 - j) + j Exp */
-        uint32_t j = (uint32_t)(64 - reg) * 1024u;           /* Q16 */
-        return (uint32_t)(((uint64_t)mean * (65536u - j) + (uint64_t)e * j) >> 16);
-    }
-    if (reg < 0 && (tx_rand(r) >> 16) < (uint32_t)(-reg) * 900u) return e >> 4;   /* clumped: a burst */
-    return reg < 0 ? (uint32_t)(((uint64_t)e * (65536u + (uint32_t)(-reg) * 900u)) >> 16) : e;
-}
-
-static void event(src_t *s, unsigned off, unsigned n, unsigned pre, int near, int32_t vel, uint32_t w_q8)
+static void event(src_t *s, unsigned off, unsigned n, unsigned pre, int near, int32_t vel, uint32_t w_q8, int32_t lv_off)
 {
     int32_t trim = pre_trim(s, pre);
+    if (lv_off && pre != PR_STONES) trim = (int32_t)(((int64_t)trim * tx_exp2(clampi(lv_off, -(15 << 16), 2 << 16) + (16 << 16))) >> 16);
     if (pre == PR_RAIN) drop(s, off, n, near, vel, pre, trim, w_q8);
     else if (pre == PR_WATER) wdrop(s, off, n, near, vel, pre, trim);
-    else if (pre == PR_STONES) stone(s, off, near, vel, pre, trim);
+    else if (pre == PR_STONES) stone(s, off, near, vel, pre, trim, lv_off);
 }
 
 /* ---- hosted presets */
@@ -887,32 +956,41 @@ static int32_t curve_at(const curve_t *c, int32_t i_q8)     /* the curve's value
 }
 
 static const int8_t HOST_KEYS[4] = { 0, -3, 4, -7 };      /* the extra keys, semitones from the played one */
-/* an event engine's next gap (blocks): exponential around the mean at the intensity now (log between e0, e64, e127) */
-static uint32_t host_gap(src_t *s)
+/* an event engine's rate (events/s Q8): the mean gap at the intensity now (0.1 s; log between e0, e64, e127) */
+static uint32_t host_rate(src_t *s)
 {
     const host_t *h = s->hd;
-    int32_t a = act_idx(s), l0 = tx_place_log2(h->e0), l1 = tx_place_log2(h->e64), l2 = tx_place_log2(h->e127), l, m;
+    int32_t a = act_idx(s), l0 = tx_place_log2(h->e0), l1 = tx_place_log2(h->e64), l2 = tx_place_log2(h->e127), l;
     l = a < (64 << 8) ? l0 + (((l1 - l0) * (a >> 6)) >> 8) : l1 + (((l2 - l1) * (((a - (64 << 8)) << 8) / (63 << 8))) >> 8);
-    m = (int32_t)tx_exp2(l + 265519);                        /* x 17.23 blocks per 0.1 s (log2 17.23 = 4.106) */
-    m = (int32_t)(((int64_t)m * (int32_t)((tx_neglog2_q12(tx_rand(&s->rng)) * 2839u) >> 12)) >> 12);   /* x Exp(1) */
-    return (uint32_t)(m < 26 ? 26 : m);
+    return (uint32_t)(2560u << 8) / tx_exp2(l + (8 << 16)) ;   /* 10 / mean, Q8 (mean in 0.1 s, Q8) */
+}
+
+/* an event engine's presses: stage 1's clock (tx_core_cluster.h: the preset's runs and the breaks one break sets off;
+ * a child's level step moves the velocity), at most one press per block; a strike's key is released after 150 ms */
+static void host_clock(src_t *s)
+{
+    tx_clu_ev_t ce;
+    int off, got = 0;
+    int32_t lv = 0;
+    if (!s->hd->e64) return;
+    if (s->hoff && !--s->hoff) s->hst->key(s->host, s->hpn, 0, 0);
+    clu_cfg(s, s->p[P_PRESET]);
+    tx_clu_block(&s->clu, &s->rng, &s->cf, s->held ? host_rate(s) : 0u);
+    while ((off = tx_clu_next(&s->clu, &s->rng, &s->cf, TX_BLOCK, &ce)) >= 0) if (!got) { got = 1; lv = ce.lv; }
+    tx_clu_end(&s->clu, TX_BLOCK);
+    if (got && s->held) {
+        int32_t v = (int32_t)(((int64_t)s->vel * tx_exp2(clampi(lv / 2, -(3 << 16), 1 << 16) + (16 << 16))) >> 16);
+        v = clampi(v, 16, 127);
+        if (s->hoff) { s->hst->key(s->host, s->hpn, 0, 0); s->hoff = 0; }
+        s->hpn = s->note;
+        if (s->hd->oneshot) { s->hst->key(s->host, s->hpn, (uint8_t)v, 1); s->hoff = 26; }
+        else { s->hst->key(s->host, s->hpn, 0, 0); s->hst->key(s->host, s->hpn, (uint8_t)v, 1); }
+    }
 }
 
 static void host_apply(src_t *s, int force)               /* the curves at the intensity now (only changed values sent) */
 {
     unsigned i;
-    if (s->hd->e64) {                                        /* an event engine: pressed at its rate while it runs */
-        if (s->hoff && !--s->hoff) s->hst->key(s->host, s->hpn, 0, 0);
-        if (s->held && !s->hoff) {
-            if (!s->hnext) s->hnext = host_gap(s);
-            if (!--s->hnext) {
-                s->hpn = s->note;
-                if (s->hd->oneshot) { s->hst->key(s->host, s->hpn, s->vel, 1); s->hoff = 26; }
-                else { s->hst->key(s->host, s->hpn, 0, 0); s->hst->key(s->host, s->hpn, s->vel, 1); }
-                s->hnext = host_gap(s);
-            }
-        }
-    }
     if (s->hd->k127) {                                       /* the keys held: more singers */
         curve_t kc = { 0, s->hd->k0, s->hd->k64, s->hd->k127 };
         unsigned want = s->held ? (unsigned)clampi(curve_at(&kc, act_idx(s)), 1, 4) : 0u;
@@ -954,7 +1032,7 @@ static void host_switch(src_t *s, unsigned pre)
     s->bed1_p = s->bed2_p = s->acc1 = s->acc2 = s->cbed_p = 0;
     s->b1x1 = s->b1x2 = s->b2x1 = s->b2lp = s->res = s->res_x1 = s->clp = s->cbed_f = s->cbed_mod = 0;
     { uint8_t *b = (uint8_t *)&s->cres; for (i = 0; i < sizeof s->cres; i++) b[i] = 0; }
-    s->hp.x1 = s->hp.y1 = 0; s->vy.lp = 0; s->run = 0; s->next_q8 = 0; s->hgain = 0;
+    s->hp.x1 = s->hp.y1 = 0; s->vy.lp = 0; s->run = 0; s->hgain = 0;
     for (i = 0; i < TX_BLOCK; i++) s->buf[i] = s->ck[i] = 0;
     if (ne && ne->state_bytes <= HOST_BYTES) {
         ne->init(s->host, tx_rand(&s->rng));
@@ -962,14 +1040,15 @@ static void host_switch(src_t *s, unsigned pre)
         if (s->lvl_v) ne->param(s->host, TX_PID_LEVEL, s->lvl_v);
         if (s->part_v) ne->param(s->host, TX_PID_PARTICLES, s->part_v);
         host_apply(s, 1);
-        s->hkeys = 0; s->hrenew = 258; s->hnext = 0; s->hoff = 0;                       /* (the first renewal after 1.5 s: past the fader's glide) */
+        s->hkeys = 0; s->hrenew = 258; s->hoff = 0;
+        tx_clu_init(&s->clu);                       /* (the first renewal after 1.5 s: past the fader's glide) */
         if (s->held) { ne->key(s->host, s->note, s->vel, 1); s->hkeys = 1; }
         s->quiet = 0;
     } else {                                                 /* the particle presets: fresh pools */
         s->hst = 0; s->hd = 0;
         tx_pool_init(&s->pool, NV, s->limit);
         for (i = 0; i < NM; i++) s->m[i].voice = 0xFF;
-        s->nch = 0;
+        tx_clu_init(&s->clu);
         if (PRE[pre].kind == 4) {                            /* birds: their members fresh (over the callers' memory) */
             { uint8_t *b = (uint8_t *)s->bm; for (i = 0; i < sizeof s->bm; i++) b[i] = 0; }
             for (i = 0; i < NB; i++) s->bm[i].voice = 0xFF;
@@ -1037,6 +1116,7 @@ TX_AUDIO_CODE static void host_render(src_t *s, int32_t *mix, unsigned n)
     tx_stats_t st;
     int32_t gdb, x = s->i_eff, a = s->hd->g0, b = s->hd->g64;
     life_block(s);
+    host_clock(s);
     host_apply(s, 0);
     if (x >= (64 << 8)) { a = s->hd->g64; b = s->hd->g127; x -= 64 << 8; gdb = a + ((b - a) * x) / (63 << 8); }
     else gdb = a + ((b - a) * x) / (64 << 8);
@@ -1125,7 +1205,9 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
             m->calling = 0; m->fresh = 1;
         } else {
             s->events = 0;
-            event(s, 0, TX_BLOCK, pre, 1, vel, 256u);
+            event(s, 0, TX_BLOCK, pre, 1, vel, 256u, 0);
+            clu_cfg(s, pre);
+            tx_clu_spawn(&s->clu, &s->rng, &s->cf, 0, 0, 0, 0);   /* a press sets off its own (a thrown stone's bounces) */
         }
         s->quiet = 0;
     } else if (s->held) s->held--;
@@ -1217,8 +1299,9 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     if (s->run < 0) s->run = 0;
     life_block(s);
     /* stage 1: events (rain, stones; mixed by MORPH) */
+    int ea = PRE[pa].kind == 0 || PRE[pa].kind == 3, eb = PRE[pb].kind == 0 && w;
+    uint32_t w_q8 = 256u;
     if (s->run) {
-        int ea = PRE[pa].kind == 0 || PRE[pa].kind == 3, eb = PRE[pb].kind == 0 && w;
         uint32_t rate = 0;
         if (ea && eb) {
             int32_t la = tx_place_log2(pre_amount(s, pa)), lb = tx_place_log2(pre_amount(s, pb));
@@ -1226,30 +1309,22 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
         } else if (ea) rate = (uint32_t)(((uint64_t)pre_amount(s, pa) * (uint32_t)(32768 - w)) >> 15);
         else if (eb) rate = (uint32_t)(((uint64_t)pre_amount(s, pb) * (uint32_t)w) >> 15);
         rate = (uint32_t)(((uint64_t)rate * (uint32_t)s->run) >> 15);
-        if (rate) {
-            unsigned guard = 0;
-            uint32_t w_q8 = 256u;
-            if (rate > (RATE_CAP << 8)) { w_q8 = rate / RATE_CAP; rate = RATE_CAP << 8; }   /* over the cap: weighted */
-            uint32_t mean = (TX_FS << 16) / rate;
-            if (s->next_q8 / 4u > mean) s->next_q8 = gap_q8(s, rate);   /* a much faster rate starts now */
-            while ((s->next_q8 >> 8) < n && guard++ < 112u) {
-                unsigned off = s->next_q8 >> 8, pre = pa;
-                if (eb && (!ea || (tx_rand(r) >> 17) < (uint32_t)w)) pre = pb;
-                event(s, off, n, pre, 0, 100, pre == PR_RAIN ? w_q8 : 256u);
-                s->total++;
-                s->next_q8 += gap_q8(s, rate);
-            }
-            s->next_q8 = s->next_q8 > (n << 8) ? s->next_q8 - (n << 8) : 0;
+        if (rate > (RATE_CAP << 8)) { w_q8 = rate / RATE_CAP; rate = RATE_CAP << 8; }   /* over the cap: weighted */
+        clu_cfg(s, pa);
+        tx_clu_block(&s->clu, r, &s->cf, ea || eb ? rate : 0u);
+    } else tx_clu_block(&s->clu, r, &s->cf, 0u);
+    /* the events of this block in time order: immigrants and the children due (tx_core_cluster.h) */
+    {
+        unsigned guard = 0;
+        tx_clu_ev_t ce;
+        int off;
+        while (guard++ < 112u && (off = tx_clu_next(&s->clu, r, &s->cf, n, &ce)) >= 0) {
+            unsigned pre = pa;
+            if (eb && !ce.kid && (!ea || (tx_rand(r) >> 17) < (uint32_t)w)) pre = pb;
+            event(s, (unsigned)off, n, pre, 0, 100, pre == PR_RAIN ? w_q8 : 256u, ce.lv);
+            if (!ce.kid) s->total++;
         }
-    }
-    /* avalanche children due in this block */
-    for (i = 0; i < s->nch; ) {
-        int32_t dt = (int32_t)(s->ch[i].t - s->now);
-        if (dt < (int32_t)n) {
-            child_t c = s->ch[i];
-            s->ch[i] = s->ch[--s->nch];
-            knock(s, dt < 0 ? 0u : (unsigned)dt, c.lv, c.size_l2, c.pre, pre_trim(s, c.pre), c.gen);
-        } else i++;
+        tx_clu_end(&s->clu, n);
     }
     /* callers (cicadas): their number, weighted by the morph */
     {
@@ -1288,8 +1363,8 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
             member_t *m = &s->m[v->u.c.member];
             caller_render(s, v, n);
             s->pool.level[i] = (uint32_t)(((uint64_t)(uint32_t)m->gain * (uint32_t)m->env) >> 1);
-            if (!m->env && !m->calling && tx_tymbal_quiet(&v->u.c.ty) && !v->u.c.npend) { m->voice = 0xFF; v->kind = V_NONE; }
-            else if (!m->env && !m->calling) v->u.c.npend = 0;
+            if (!m->env && (!m->calling || !m->song) && tx_tymbal_quiet(&v->u.c.ty) && !v->u.c.npend) { m->voice = 0xFF; v->kind = V_NONE; }
+            else if (!m->env && (!m->calling || !m->song)) v->u.c.npend = 0;
         }
         if (v->kind != V_NONE && !voice_live(v)) {
             if (v->kind == V_BUBBLE) tx_declick_add(&s->dc, v->last);
@@ -1385,7 +1460,7 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     s->now += n;
     {
         int32_t z = any | s->run | s->clp | s->b1x1 | s->b1x2 | s->b2x1 | s->b2lp | (int32_t)s->bed1_p | (int32_t)s->bed2_p
-                    | s->res | (int32_t)s->cbed_p | !tx_ireso_quiet(&s->cres) | s->dc.v | s->hp.x1 | s->hp.y1 | s->nch
+                    | s->res | (int32_t)s->cbed_p | !tx_ireso_quiet(&s->cres) | s->dc.v | s->hp.x1 | s->hp.y1 | s->clu.nk
                     | s->vy.lp | s->held;
         if (PRE[pa].kind != 3 && PRE[pa].kind != 4) for (i = 0; i < NM; i++) z |= s->m[i].env;
         s->quiet = (uint8_t)!z;
