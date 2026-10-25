@@ -25,8 +25,8 @@
 /* the types (presets pick one): 0 a woodland mix (each bird drawn from blackbird, song thrush, robin, wren, chaffinch),
  * 1 chirper (chaffinch, sparrow), 2 crow, 3 owl, 4 gull, and the melodic species 5 blackbird, 6 song thrush,
  * 7 nightingale, 8 robin, 9 wren, 10 hermit thrush, 11 skylark, 12 wood thrush, 13 reed warbler (a wetland), 14 curlew
- * (an estuary), 15 oystercatcher (a beach), 16 cuckoo (spring) */
-#define TX_BIRD_TYPES 17u
+ * (an estuary), 15 oystercatcher (a beach), 16 cuckoo (spring), 17 woodpecker (drumming on its tree), 18 wood pigeon */
+#define TX_BIRD_TYPES 19u
 #define TX_BIRD_DL 48u              /* trachea delay line (samples, the longest tube) */
 #define TX_BIRD_SEG 16u             /* segments in a phrase */
 

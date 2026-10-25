@@ -7,16 +7,16 @@
 #define L2_1K 653118                /* log2(1000), Q16 */
 
 /* mean pause between bouts at the middle of the fader (0.1 s), base pitches (log2 Hz Q16) */
-const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES] = { 60, 80, 220, 200, 1500, 50, 90, 70, 50, 60, 80, 150, 80, 100, 250, 120, 400 };
+const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES] = { 60, 80, 220, 200, 1500, 50, 90, 70, 50, 60, 80, 150, 80, 100, 250, 120, 400, 150, 200 };
 const int32_t TX_BIRD_F0[TX_BIRD_TYPES] = { 731868, 771564, 596593, 641031, 666332,   /* 2.3, 3.5, 0.55, 0.88, 1.15 kHz */
                                             731868, 771564, 750467, 781796, 805288, 768824, 779340,
-                                            756990, 753784, 708692, 747028, 619395 };
-                                            /* 2.3, 3.5, 2.8, 3.9, 5.0, 3.4, 3.8, 3.0, 2.9, 1.8, 2.7, 0.7 kHz */
+                                            756990, 753784, 708692, 747028, 619395, 619395, 607920 };
+                                            /* 2.3, 3.5, 2.8, 3.9, 5.0, 3.4, 3.8, 3.0, 2.9, 1.8, 2.7, 0.7, 0.7 (the strike), 0.62 kHz */
 
 enum { ST_BLACKBIRD, ST_THRUSH, ST_NIGHTINGALE, ST_ROBIN, ST_WREN, ST_HERMIT, ST_SKYLARK, ST_FINCH, ST_CROW, ST_OWL, ST_GULL,
-       ST_WOODTHRUSH, ST_WARBLER, ST_CURLEW, ST_OYSTER, ST_CUCKOO };
+       ST_WOODTHRUSH, ST_WARBLER, ST_CURLEW, ST_OYSTER, ST_CUCKOO, ST_WOODPECKER, ST_PIGEON };
 enum { C_WHISTLE, C_NOTE, C_TRILL, C_HARSH, C_INTRO, C_SWEEP, C_CAW, C_HOOT, C_TREM, C_GLONG, C_KYOW, C_CHIRP, C_FLOURISH,
-       C_CURLEE, C_BUBBLE, C_RISE, C_FALL, C_KLEEP, C_PIPE, C_CU, C_COO };
+       C_CURLEE, C_BUBBLE, C_RISE, C_FALL, C_KLEEP, C_PIPE, C_CU, C_COO, C_KNOCK, C_HOO, C_HOOO };
 #define SYL(c, i) ((uint16_t)(((unsigned)(c) << 11) | ((unsigned)(i) & 2047u)))
 
 /* the species: numbers from the references where measured (note 15: 10-90 % of the syllables' pitch, lengths,
@@ -43,8 +43,8 @@ static const sp_t SP[TX_BIRD_TYPES] = {
     {ST_FINCH, -4200, 3000, 15, 110, 250, 400, 900, 100, 0, 16, 4, 1, 4, 3000, 9000, 1, 40, 4, 0, 0, 400},
     /* 2 crow: caws in series */
     {ST_CROW, -800, 800, 220, 420, 220, 420, 900, 224, 0, 6, 4, 1, 3, 1500, 5000, 0, 32, 30, 0, 691454, 2600},
-    /* 3 owl */
-    {ST_OWL, -200, 200, 400, 600, 900, 1200, 200, 24, 0, 4, 4, 2, 2, 2500, 4000, 1, 64, 12, 1, 0, 150},
+    /* 3 owl: closed bill, a resonant throat (closed 2: the source 1/4, else the cavity clips) */
+    {ST_OWL, -200, 200, 400, 600, 900, 1200, 200, 24, 0, 4, 4, 2, 2, 2500, 4000, 1, 64, 12, 2, 0, 150},
     /* 4 gull: the long call */
     {ST_GULL, -250, 250, 170, 240, 250, 350, 1600, 224, 0, 4, 4, 1, 2, 2000, 6000, 0, 24, 24, 0, 727665, 1000},
     /* 5 blackbird: fluted low whistles 1.5-3.2 kHz, then a quiet high twitter; strophes ~2 s, 1-5 s apart */
@@ -72,15 +72,23 @@ static const sp_t SP[TX_BIRD_TYPES] = {
     {ST_CURLEW, -1200, 1600, 450, 800, 40, 90, 2000, 60, 0, 8, 4, 2, 6, 1200, 3500, 1, 40, 20, 0, 0, 300},
     /* 15 oystercatcher: loud "kleep" calls (2.4-3.1 kHz, a strong 2nd harmonic), 1-3 at a time 0.6-1.2 s apart, or the
      * piping display: kleeps quickening into a trill of 20-60 notes (~15 /s), the pair piping together */
-    {ST_OYSTER, -1600, 1000, 25, 80, 20, 50, 600, 140, 0, 6, 4, 2, 10, 200, 900, 1, 32, 10, 0, 0, 500},
+    {ST_OYSTER, -1600, 1000, 18, 55, 20, 45, 600, 140, 0, 6, 4, 2, 10, 200, 900, 1, 32, 10, 0, 0, 500},
     /* 16 cuckoo: "cu-coo", the second note 0.17-0.4 oct lower (each bird its own interval), ~0.2 s each, every
      * 1.2-1.5 s in a series of 8-20; a closed bill and an inflated throat: nearly pure (refs 560-775 Hz) */
     {ST_CUCKOO, -300, 300, 170, 230, 190, 250, 300, 16, 0, 2, 2, 8, 20, 700, 1050, 1, 64, 10, 2, 0, 100},
+    /* 17 woodpecker: not a voice: the beak strikes its tree (a short rich burst, the strike) and the tree rings (the
+     * fixed resonance, its own pitch per bird's tree: refs 540-1030 Hz, ringing ~5 ms); rolls of 6-30 strikes, 17-23 /s,
+     * most quickening toward the end (refs: the last quarter's interval 0.7-0.8 of the first), a few slowing; rolls
+     * ~5 s apart in a bout */
+    {ST_WOODPECKER, -150, 150, 6, 9, 6, 9, 0, 224, 0, 4, 4, 2, 8, 3000, 9000, 0, 48, 6, 0, 625918, 2000},
+    /* 18 wood pigeon: a phrase of a short rising coo, a short coo, one long coo (0.9-1.4 s, falling 0.1-0.45 oct) and a
+     * short low one, ~650 Hz, 2.5-3.4 s apart, 3-5 in a bout; soft, hollow: a closed bill, an inflated throat */
+    {ST_PIGEON, -300, 300, 80, 250, 900, 1400, 400, 60, 0, 4, 4, 3, 5, 700, 1500, 1, 56, 14, 2, 0, 100},
 };
 
 /* each type's level (Q6), by render: the songs' levels spread downward from 0 dB (as the references'), the presets at
  * the fader's middle where they were */
-static const uint8_t TRIM[TX_BIRD_TYPES] = { 150, 150, 100, 90, 83, 180, 120, 150, 150, 130, 100, 150, 150, 140, 150, 120, 150 };
+static const uint16_t TRIM[TX_BIRD_TYPES] = { 150, 150, 100, 256, 83, 180, 120, 150, 150, 130, 100, 150, 150, 140, 150, 120, 150, 2400, 150 };
 
 static uint32_t mix(uint32_t a, uint32_t b)
 {
@@ -191,6 +199,18 @@ static void syl_make(tx_bird_voice_t *v)
     case C_COO:                                              /* the second: lower by the bird's own interval, falling */
         len_ms = rb(&r, S->llo, S->lhi); rel = rs(&r, -100, 100) + (int32_t)(mix(v->seed, 21u) & 511u) - 256 - 700 - (int32_t)(mix(v->seed, 22u) % 940u);
         df = rs(&r, -500, -100); arch = rs(&r, 0, 150); k0 = k1 = rs(&r, 0, S->kmax); amp = rs(&r, 200, 245);
+        break;
+    case C_KNOCK:                                            /* a beak strike: a short, rich burst (the tree rings it) */
+        len_ms = rb(&r, S->dlo, S->dhi); rel = rs(&r, S->flo, S->fhi); k0 = k1 = S->kmax; amp = lvl(&r, 3);
+        break;
+    case C_HOO:                                              /* the pigeon's short coos (idx 0 rising, 1 level, 3 low) */
+        len_ms = rb(&r, S->dlo, S->dhi); rel = rs(&r, -150, 150) - ((g->id & 3u) == 3u ? 1229 : 0);
+        df = (g->id & 3u) == 0u ? rs(&r, 400, 1200) : rs(&r, -500, 0); arch = rs(&r, 0, 300);
+        k0 = k1 = rs(&r, S->kmax / 2, S->kmax); amp = lvl(&r, 6);
+        break;
+    case C_HOOO:                                             /* its long coo, slowly falling */
+        len_ms = rb(&r, S->llo, S->lhi); rel = rs(&r, -100, 100); df = rs(&r, -2048, -800); arch = rs(&r, 100, 500);
+        k0 = rs(&r, S->kmax / 2, S->kmax); k1 = rs(&r, 0, S->kmax / 2); amp = 255;
         break;
     case C_BUBBLE:                                           /* a bubbling unit: short, rising */
         len_ms = rb(&r, S->llo, S->lhi); rel = S->flo + rs(&r, span / 4, span * 3 / 4); df = rs(&r, 700, 1600); arch = rs(&r, -300, 300);
@@ -422,6 +442,27 @@ static void phrase_start(tx_bird_voice_t *v)
         seg(v, SYL(C_CU, 0), tx_rand_below(&v->rng, 10u) ? 1 : 2, rb(&v->rng, 110, 180), 255, 255, 0);
         seg(v, SYL(C_COO, 0), 1, 0, 255, 255, 0);
         break;
+    case ST_WOODPECKER:                                      /* a roll at the bird's rate, quickening (a few slow down) */
+        {
+            uint32_t h = mix(v->seed, 31u), n = vary_n(v, 6u + (h & 15u) + tx_rand_below(&v->rng, 10u));   /* 6 .. 30 */
+            uint32_t g = 44u + ((h >> 5) & 15u) + (uint32_t)rs(&v->rng, -2, 6);   /* 1 / (16 .. 23 /s), ms; each roll its own */
+            int32_t dg = (int32_t)(3u + ((h >> 12) & 3u)) + rs(&v->rng, -1, 1);   /* 2 .. 7 ms per third */
+            if (mix(v->seed, 33u) & 3u) dg = -dg;            /* three birds in four quicken */
+            uint32_t n1 = n / 3u, n2 = n / 3u;
+            v->plev = 0;
+            seg(v, SYL(C_KNOCK, 0), n1 ? n1 : 1u, g - 7u, 230, 160, 0);
+            seg(v, SYL(C_KNOCK, 1), n2 ? n2 : 1u, (uint32_t)((int32_t)g + dg) - 7u, 255, 255, 0);
+            seg(v, SYL(C_KNOCK, 2), n - n1 - n2 ? n - n1 - n2 : 1u, (uint32_t)((int32_t)g + 2 * dg) - 7u, 190, 255, 0);
+        }
+        break;
+    case ST_PIGEON:                                          /* its phrase: coo, coo, a long COOO, a low coo */
+        tx_rng_seed(&pr, mix(v->seed, 0x5000u));
+        v->plev = (int16_t)rs(&v->rng, -60, 60);
+        seg(v, SYL(C_HOO, 0), 1, rb(&pr, 30, 120), 60, 255, 0);    /* the short coos soft (refs: 10-12 dB under) */
+        seg(v, SYL(C_HOO, 1), 1, rb(&pr, 20, 80), 70, 255, 0);
+        seg(v, SYL(C_HOOO, 2), 1, rb(&pr, 60, 160), 255, 255, 0);
+        seg(v, SYL(C_HOO, 3), 1, 0, 45, 255, 0);
+        break;
     case ST_CROW:
         v->plev = 0;
         seg(v, SYL(C_CAW, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 2, 6), rb(&v->rng, 120, 320), 255, 255, 0);
@@ -445,6 +486,7 @@ static void phrase_start(tx_bird_voice_t *v)
     v->plev = (int16_t)(v->plev + rs(&v->rng, -60, 60));
     v->pgap = (uint16_t)((rb(&v->rng, S->pglo, S->pghi) * v->pace) >> 8);   /* (2 ms) */
     v->pamp = (uint8_t)lvl(&v->rng, 9);                    /* the bird turns: the phrase -9 .. 0 dB */
+    if (S->style == ST_OYSTER) v->pamp = (uint8_t)lvl(&v->rng, 16);   /* (calling in flight, passing: -16 .. 0 dB) */
 }
 
 /* the syllable ended: the next one, the phrase again, the next phrase, or the song is over (0) */
@@ -492,6 +534,7 @@ void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigne
     v->verb = (uint8_t)(int8_t)rs(&br, -1, 1);               /* shorter or longer phrases */
     v->pamp = 255;
     v->track = S->track; v->closed = S->closed; v->oec_l2 = S->oec;
+    if (S->style == ST_WOODPECKER) v->oec_l2 += rs(&br, -32768, 32768);   /* its own tree: +-0.5 oct */
     v->oec_q = (int32_t)(S->q * rb(&br, 75, 125) / 100u);
     v->jsd = (int32_t)(S->jsd * rb(&br, 70, 130) / 100u);
     i = S->dlen * rb(&br, 80, 120) / 100u;
@@ -539,6 +582,8 @@ static const struct {
     {6, 1, 3, 0, 80, 160, 500, 3000, 24},    /* curlew: calls answered across the mud */
     {8, 1, 4, 0, 120, 200, 100, 600, 16},    /* oystercatcher: one pipes, others join */
     {3, 1, 2, 1, 30, 60, 3000, 8000, 24},    /* cuckoo: a few, far apart */
+    {4, 1, 2, 1, 60, 120, 2000, 8000, 24},   /* woodpecker: a neighbour drums back */
+    {6, 1, 3, 1, 40, 80, 2000, 6000, 16},    /* wood pigeon */
 };
 
 unsigned tx_bird_want(unsigned type, int32_t act)
