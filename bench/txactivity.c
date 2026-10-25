@@ -55,7 +55,7 @@
 /* ---- the landscapes (audition/app.js FAMILIES): name, source preset ("#engine": a classic engine), TYPE */
 typedef struct { const char *name, *pre; unsigned type; } snd_t;
 static const snd_t SND[] = {
-    {"rain on water", "rain on water", 0}, {"rain on a roof", "rain on water", 64}, {"water drops", "water", 0},
+    {"rain on water", "rain on water", 0}, {"rain on a roof", "rain on water", 64}, {"hail", "rain on water", 110}, {"water drops", "water", 0},
     {"stream", "#stream", 0}, {"surf", "#surf", 0},
     {"stones", "stone cloud", 0}, {"rockfall", "stone cloud", 32}, {"ringing rocks", "stone cloud", 96},
     {"gravel", "gravel", 0}, {"marbles", "gravel", 96}, {"sand", "sand", 0}, {"singing dune", "sand", 96},

@@ -183,7 +183,8 @@ static const clu_pre_t CLU[NPRE] = {
  * individuals past them are its far callers (FIELD, where it has one). Where each held key is an individual (bees: a singer;
  * fire: a log), the source holds down one key per individual COUNT asks for, at most k127 (<= 8, a few semitones
  * apart): more keys, more of them, coming one at a time; COUNT past them moves the first curve k64 knob units a
- * doubling (a fire: its logs burn livelier). k0 & 2: held in bouts below INTENSITY 64 (host_gate). k0 & 4: each
+ * doubling (a fire: its logs burn livelier; with no keys, or an event engine, about COUNT 8 = the curves as written, fewer
+ * less; k0 & 8: the curve falls with more, from 8). k0 & 2: held in bouts below INTENSITY 64 (host_gate). k0 & 4: each
  * key a crack of its own: the extras come at an engine's own pace (exponential, mean 2 s), not ~0.2 s apart. With k0 & 1, a
  * held key, picked at random, is pressed afresh after
  * 3 s + an exponential wait (mean 7 s; no clock): a singer leaves and a new one comes with the parameters of now (these engines read them at a press; a
@@ -209,7 +210,7 @@ static const host_t HOST[] = {
     {"stream", -42, -42, -42, {{"FLOW", 10, 70, 105}, {"ROAR", 0, 0, 50}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
                             {"SPREAD", 80, 64, 45}}, 0, 0, 0, 0, 0, 0, 0},
     /* fire: embers (a rare crackle, a faint roar) .. a campfire .. a blaze (a big fire, dense crackles in bursts, roar, gusts) */
-    {"fire", 110, 110, 80, {{"MOIST", 0, 25, 95}, {"SIZE", 20, 50, 100}, {"ROAR", -30, 28, 100}, {"DRAUGHT", 10, 30, 70},
+    {"fire", 110, 110, 80, {{"MOIST", 0, 25, 95}, {"SIZE", 8, 50, 100}, {"ROAR", -30, 28, 100}, {"DRAUGHT", 10, 30, 70},
                           {"BURSTY", 0, 24, 40}}, 2, 26, 8, 0, 0, 0, 0},   /* (the top: no denser than the references, and
                                                                      * under the output limiter: agent D, 2026-10-25) */
     /* crickets (COUNT: the engine's own, up to 32): each singing now and then .. all the time, a little in step,
@@ -229,7 +230,7 @@ static const host_t HOST[] = {
     {"ice", 175, 175, 100, {{"AMOUNT", 20, 64, 127}, {"FIZZ", 10, 20, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0,
      300, 70, 3, 1},                /* (the top: a pile of icicles shattering, 3-5 breaks/s as the references) */
     /* wood: a branch taken and bent now and then, creaking .. load building faster, snapping every few seconds */
-    {"wood", -35, -35, -35, {{"LOAD", 110, 40, 0}, {"CREAK", 15, 25, 30}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+    {"wood", -35, -35, -35, {{"LOAD", 110, 40, 0}, {"CREAK", 15, 25, 30}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 10, 12, 0,
      300, 80, 4, 0},                /* (the top: a snap every ~0.4 s, each bend 0.3 s: a press sooner cuts the bend) */
     /* minerals: a knock on a stone now and then .. knocking and clinking, quicker */
     {"minerals", -40, -40, -40, {{"HOLD", 50, 36, 30}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
@@ -260,7 +261,7 @@ static const host_t HOST[] = {
     /* whistling wires (wind): a breath (1.6 m/s) .. a gale (20 m/s); gusts deepen; at the top the strings lock in */
     {"aeolian", -78, -78, -78, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* hail and sleet (rain): a few stones now and then .. a hailstorm hammering, bigger stones */
-    {"rainsurf", -55, -55, -55, {{"RATE", 40, 95, 127}, {"DROPS", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"rainsurf", -55, -55, -55, {{"RATE", 40, 95, 127}, {"DROPS", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0, 0, 0, 0, 0},
 };
 #define H_MEMBER 12u                 /* the first member row */
 
@@ -984,8 +985,8 @@ static void caller_tune(src_t *s, caller_t *c)
 static uint16_t bout_len(src_t *s, int song, unsigned sp)
 {
     int32_t a = (act_idx(s) >> 8) - 64;                     /* INTENSITY: how active a cicada is (songs x/ 2, pauses x/ 4; */
-    int32_t k = a < 0 ? 3 : 2;                               /* down to rare short calls: songs / 2.6, pauses x 6.5) */
-    int32_t l = (song ? CIC[sp].song_l2 + a * 512 * k : CIC[sp].pause_l2 - a * 1024 * k)
+    int32_t k = a < 0 ? 3 : 2;                               /* down to rare short calls: songs / 9, ~1 s, pauses x 6.5, */
+    int32_t l = (song ? CIC[sp].song_l2 + a * 512 * (a < 0 ? 5 : 2) : CIC[sp].pause_l2 - a * 1024 * k)   /* ~40 s) */
                 + (int32_t)(((int64_t)gauss(s) * (song ? 52429 : 65536)) >> 12);   /* log2 blocks */
     uint32_t b = tx_exp2(clampi(l, 5 << 16, 16 << 16));
     return (uint16_t)(b > 65535u ? 65535u : b < 32u ? 32u : b);
@@ -1424,8 +1425,10 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
         if (!i && s->hd->k64) {                              /* COUNT past the keys: each doubling more on the first */
             int32_t kb = s->hd->k127 >= 8 ? 63 : s->hd->k127 >= 4 ? 42 : s->hd->k127 >= 2 ? 21 : 0;   /* curve (the */
             int32_t over = (int32_t)s->p[P_COUNT] - 1 - kb;                                         /* keys' 21 log2) */
-            if (s->hd->e64) over -= 63;                      /* (an event engine's curves are its 8: fewer, less) */
-            if (over > 0 || s->hd->e64) v += (over * s->hd->k64) / 21;
+            if (s->hd->e64 || !s->hd->k127) over -= 63;      /* (no keys: the curves are its 8: fewer, less) */
+            if (s->hd->k0 & 8u) { if (over > 0) v -= over * s->hd->k64 / 21; }   /* (k0 & 8: the curve falls as they
+                                                             * are more, never rises: wood's LOAD, at 127 a bed of creaks) */
+            else if (over > 0 || s->hd->e64 || !s->hd->k127) v += over * s->hd->k64 / 21;
         }
         for (j = 0; j < HOST_NK; j++) if (s->kcur[j] == (int8_t)i) v += kmap_off(s, j);
         v = clampi(v, 0, 127);
