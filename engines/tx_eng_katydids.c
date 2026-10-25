@@ -4,8 +4,12 @@
  * A population in the grass (POP core, tx_core_pop.h): while a key is held COUNT singers are out there, the first at
  * the key, the others farther out on an area law, each its own distance, carrier, period, syllables and file; each
  * sings in bouts and pauses of its own (ACTIVITY: a call or two now and then .. runs of calls, short pauses), never
- * faster than its temperature; now and then one leaves after a bout and a new one comes. COUNT 0: a singer per key held (released: it
- * finishes its call). A key while all are there: the one nearest the key in a pause sings now. Two families:
+ * faster than its temperature; now and then one leaves after a bout and a new one comes. COUNT 0: a singer per key
+ * held (released: it finishes its call). A key while all are there: the one nearest the key in a pause sings now.
+ * Past the heroes (PARTICLES) the rest are FIELD's far callers: up to 6 farther out (2 .. 8 x the distance), each
+ * its own call period, syllables and bouts, their calls cheap: a katydid's tooth groups or a grasshopper's pulses as
+ * single strikes into one shared pair of wing resonances (the air has blurred the strikes within), Panacanthus' calls
+ * as tones. Two families:
  *   katydid      (N8, N8c) one decaying oscillation of the wing per tooth strike: regular strikes give a tone,
  *                uneven ones a broadband rasp. The escapement sets one strike per carrier cycle; JITTER is the SD of
  *                the strike interval. Panacanthus: 5.0 kHz, wing Q 16-17, 226 cycles per call (N8c); its upper
@@ -42,17 +46,18 @@
 #define VARY_DRIFT 60
 #define VARY_SPLIT 0
 
-enum { P_SPECIES, P_JITTER, P_PEGS, P_TEMP, P_COUNT, P_SYNC, P_DIST, P_ACT, NP };
+enum { P_SPECIES, P_JITTER, P_PEGS, P_TEMP, P_COUNT, P_SYNC, P_DIST, P_ACT, P_FIELD, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"SPECIES", 127, 0, "true katydid rasp 4.5 kHz | katydid Panacanthus 5 kHz (tonal) | grasshopper C. biguttulus 6.6 kHz | C. brunneus 9.7 kHz"},
     {"JITTER", 127, 12, "strike timing SD: 0 .. 50 % of an interval: a pure tone .. a broadband rasp"},
     {"PEGS", 127, 50, "grasshoppers: peg impacts within a pulse 1.5 .. 6 kHz (log; N30 >= 1.5 kHz)"},
     {"TEMP", 127, 76, "temperature 10 .. 35 C: call and syllable rhythm (Q10 2); the spectrum stays"},
-    {"COUNT", 16, 0, "singers in the grass while a key is held: 0 = one per key held .. 16 (the first at the key, the others farther out on an area law, each its own distance, carrier and period)"},
+    {"COUNT", 64, 0, "singers in the grass while a key is held: 0 = one per key held .. 64 (the first at the key, the others farther out on an area law, each its own distance, carrier and period; past PARTICLES heroes the rest are FIELD's)"},
     {"SYNC", 127, 64, "reset by neighbours s: 0 free .. 0.5 alternate .. 1 synchrony"},
     {"DIST", 127, 40, "distance at velocity 100: 0.3 .. 30 m (log): level 1 / r"},
     {"ACTIVITY", 127, 100, "how much each one sings: a call or two now and then (bouts ~3 s, pauses ~15 s) .. busy (runs of ~5 calls, pauses ~4 s: never a steady beat); never faster: the rhythm is its own"},
+    {"FIELD", 127, 0, "the far callers behind: none .. 6 (FIELD^2 / 576 of them, 24 = one, 59 = six; above, louder: more stand for each)"},
 };
 
 #define NV 16u
@@ -60,6 +65,9 @@ static const tx_param_t PARAMS[NP] = {
 #define NEV 96u                    /* strikes per voice per block, at most */
 #define G_REF 1600                 /* strike amplitude at 1 m (Q15; calibrated by render) */
 #define TOOTH_HZ 400u              /* the true katydid's tooth groups at 25 C (the references: 390-400 /s) */
+#define NFK 6u                     /* far callers (FIELD) */
+static const uint16_t FAR_G[4] = {1460, 5950, 6900, 10600};   /* a far caller's tone at 1 m by species (Q15 x 1000 / mm;
+                                    * by render: 6 far ones as loud as 6 heroes on the same distance law, -1 dB) */
 
 typedef struct {
     uint16_t f1, f2;               /* the two resonances, Hz */
@@ -104,10 +112,27 @@ typedef struct {
     uint32_t bl;                   /* blocks left in the bout or the pause */
 } singer_t;
 
+typedef struct {                   /* a far caller (FIELD) */
+    tx_itone_t t;                  /* (Panacanthus: its call, a tone) */
+    uint32_t inc;                  /* its carrier, phase step (the tone) */
+    int32_t amp;                   /* its level at its distance, Q15 */
+    int32_t tf;                    /* own period factor, Q15 */
+    int32_t nx, cn;                /* samples to its next syllable, to its next call (from the block start) */
+    int32_t s0, ni, sln;           /* the syllable now: its start, the next strike (from the block start), its length
+                                    * (0: none) */
+    uint32_t bl;                   /* blocks left in the bout or the pause */
+    uint16_t len, tr;              /* its syllables' length re the species', Q8; its strike interval, samples */
+    uint8_t sing, syl, nsyl, on;   /* in a bout; syllables left in the call; per call; drawn (in the field) */
+} far_t;
+
 typedef struct {
     tx_cloud_t cloud;
     tx_chorus_t ch;
     singer_t v[NV];
+    far_t f[NFK];
+    tx_ireso_t fr1, fr2;           /* the far callers' shared wing resonances */
+    uint16_t fo[NEV];              /* their strikes this block */
+    int16_t fa[NEV];
     int16_t env[TX_ITONE_ENV + 1];
     int16_t env2[TX_ITONE_ENV + 1];   /* a syllable's: a quick rise, a longer fall */
     int32_t hb[TX_BLOCK];          /* the high band, added after the low-pass */
@@ -377,6 +402,122 @@ static void field_block(katy_t *s, unsigned n)
     }
 }
 
+/* FIELD's far callers: one drawn afresh as it comes (farther out than the heroes: 2 .. 8 x the distance) */
+static void far_draw(katy_t *s, far_t *f)
+{
+    const species_t *sp = sp_of(s);
+    tx_rng_t *r = &s->cloud.rng;
+    int32_t rl2 = s->dist_l2 + ((int32_t)100 - (int32_t)s->kvel) * 1638 + 65536 + tx_pop_far_l2(r, 2 << 16), rr, f_l2;
+    uint32_t hz;
+    if (rl2 > 9 << 16) rl2 = 9 << 16;
+    rr = (int32_t)tx_exp2(rl2 + (10 << 16));
+    f->amp = (int32_t)((uint32_t)FAR_G[(s->p[P_SPECIES] * NSP) >> 7] * 1000u / (uint32_t)(rr < 300 ? 300 : rr));
+    f_l2 = ((int32_t)s->knote - 60) * 2731 + ((tx_gauss_q12(r) * 2789) >> 12);   /* the field: CV 3 % */
+    hz = (uint32_t)(((uint64_t)sp->f1 * tx_exp2(f_l2 + (16 << 16))) >> 16);
+    if (hz > 16000u) hz = 16000u;
+    f->inc = hz * 97391u;                                    /* 2^32 / fs per Hz */
+    {   /* the shared resonances at the key's carrier (this one's, the last drawn) */
+        singer_t t;
+        tune(sp, &t, hz);
+        s->fr1.a1 = t.r1.a1; s->fr1.a2 = t.r1.a2; s->fr2.a1 = t.r2.a1; s->fr2.a2 = t.r2.a2;
+        s->fr1.g = sp->katydid ? 450 : 640;
+        s->fr2.g = sp->katydid ? 550 : (sp->l2 * 5) >> 8;
+    }
+    f->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);
+    f->len = (uint16_t)(tx_exp2(((tx_gauss_q12(r) * 14000) >> 12) + (8 << 16)));
+    if (f->len < 160u) f->len = 160u;
+    if (f->len > 420u) f->len = 420u;
+    f->nsyl = sp->katydid == 2u ? (uint8_t)(2u + tx_rand_below(r, 4u)) : sp->katydid ? 1u : (uint8_t)sp->nsyl;
+    hz = sp->katydid == 2u ? (TOOTH_HZ * tx_exp2(((tx_gauss_q12(r) * 4096) >> 12) + (16 << 16))) >> 16 : 0u;   /* +-1/4 oct */
+    f->tr = (uint16_t)(sp->katydid == 2u ? ms10(s, 10000u / (hz ? hz : 1u)) : ms10(s, sp->pspc));   /* tooth groups | pulses */
+    if (f->tr < 8u) f->tr = 8u;
+    f->sing = 0; f->syl = 0; f->sln = 0; f->on = 1;
+    f->bl = 1u + ((tx_pop_pause(&LAW, r, act(s)) * (1u + tx_rand_below(r, 255u))) >> 8);   /* entering after a pause */
+}
+
+/* FIELD's far callers this block: FIELD^2 / 576 of them (at most NFK; above, each stands for more: louder), their
+ * bouts on the law of the heroes; each syllable a train of single strikes (a katydid's tooth groups, a grasshopper's
+ * pulses, +-20 % apart, under the syllable's envelope) into the shared resonances, or a tone (Panacanthus) */
+TX_AUDIO_CODE static void far_block(katy_t *s, int32_t *mix, unsigned n, int held)
+{
+    const species_t *sp = sp_of(s);
+    unsigned fv = s->p[P_FIELD], want = fv ? (fv * fv) / 576u : 0u, i, m = 0, a, b;
+    int32_t g = (int32_t)(((int64_t)s->level * (fv > 59u ? (int32_t)fv * 555 : 32768)) >> 15);   /* (59 x 555 = 2^15) */
+    int32_t spc, sl, tone = sp->katydid == 1u, nb, bp;
+    const int16_t *env = sp->katydid == 2u ? s->env2 : s->env;
+    if (fv && !want) want = 1u;
+    if (want > NFK) want = NFK;
+    if (sp->katydid) { bp = (int32_t)(TX_FS / sp->f1); nb = 6; }   /* (a burst's tail past the block is dropped) */
+    else { bp = (int32_t)(TX_FS / tx_exp2(s->peg_l2)); nb = ms10(s, sp->plen) / (bp ? bp : 1); }
+    if (bp < 4) bp = 4;
+    if (nb < 1) nb = 1;
+    if (nb > 8) nb = 8;
+    spc = sp->katydid == 2u ? ms10(s, sp->pspc) : ms10(s, sp->syl);
+    sl = sp->katydid == 2u ? syl_len(s, sp->teeth, TOOTH_HZ) : tone ? (int32_t)(sp->teeth * TX_FS / sp->f1)
+                                                          : (ms10(s, sp->syl) * 3) >> 2;
+    for (i = 0; i < NFK; i++) {
+        far_t *f = &s->f[i];
+        int32_t amp;
+        if (!f->on && i < want && held) far_draw(s, f);
+        if (f->on && (i >= want || !held)) { f->on = 0; f->sing = 0; }   /* it goes (its call finishes) */
+        if (f->on && !--f->bl) {                             /* each sings in bouts */
+            f->sing ^= 1u;
+            f->bl = f->sing ? tx_pop_bout(&LAW, &s->cloud.rng, act(s), 2u) : tx_pop_pause(&LAW, &s->cloud.rng, act(s));
+            if (f->sing) f->cn = (int32_t)tx_rand_below(&s->cloud.rng, n);
+        }
+        amp = (int32_t)(((int64_t)f->amp * g) >> 15);
+        for (;;) {
+            if (f->sln) {                                    /* in a syllable: its strikes */
+                int32_t pos;
+                if (f->ni >= (int32_t)n) break;
+                pos = f->ni - f->s0;
+                if (pos >= f->sln) { f->sln = 0; continue; }
+                {   /* a tooth group or a pulse: a short burst of strikes at the carrier (katydid) or the peg rate
+                     * (grasshopper), struck hard first, softer after (as the heroes' groups) */
+                    int32_t e = env[(uint32_t)(((uint32_t)pos << 6) / (uint32_t)f->sln)], o = f->ni < 0 ? 0 : f->ni, k;
+                    int32_t x = (int32_t)(((int64_t)amp * e) >> 15);
+                    x = (int32_t)(((int64_t)x * (24576 + (int32_t)tx_rand_below(&s->cloud.rng, 16384u))) >> 15);
+                    for (k = 0; k < nb && o < (int32_t)n && m < NEV; k++) {
+                        int32_t y = (x * (nb - k)) / nb;
+                        s->fo[m] = (uint16_t)o; s->fa[m] = (int16_t)(y > 32767 ? 32767 : y); m++;
+                        o += bp + (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * bp) >> 16);   /* +-10 % */
+                    }
+                }
+                f->ni += (int32_t)f->tr + (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * f->tr) >> 15);   /* +-20 % */
+                continue;
+            }
+            if (f->syl && f->nx < (int32_t)n) {              /* a syllable */
+                int32_t ln = (sl * f->len) >> 8;
+                if (ln < 64) ln = 64;
+                if (tone) {
+                    int32_t x = (int32_t)(((int64_t)amp * (24576 + (int32_t)tx_rand_below(&s->cloud.rng, 16384u))) >> 15);
+                    tx_itone_start(&f->t, f->inc, 0, (uint32_t)ln, x > 32767 ? 32767 : x, 0, 0, (unsigned)(f->nx < 0 ? 0 : f->nx));
+                } else { f->s0 = f->nx; f->ni = f->nx; f->sln = ln; }
+                f->syl--;
+                f->nx += (spc * f->len) >> 8;
+                continue;
+            }
+            if (!f->syl && f->on && f->sing && f->cn < (int32_t)n) {   /* a call: the period +-5 % */
+                int32_t T = call_T(s, f->tf);
+                f->syl = f->nsyl; f->nx = f->cn;
+                f->cn += T + (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * T) >> 17);
+                continue;
+            }
+            break;
+        }
+        if (f->sln) { f->s0 -= (int32_t)n; f->ni -= (int32_t)n; }
+        if (f->syl) f->nx -= (int32_t)n;
+        if (f->on && f->sing) f->cn -= (int32_t)n;
+        if (tone) tx_itone_add(&f->t, env, mix, n);
+    }
+    for (a = 1; a < m; a++) {                                /* the strikes in order (a few dozen) */
+        uint16_t o = s->fo[a]; int16_t x = s->fa[a];
+        for (b = a; b && s->fo[b - 1] > o; b--) { s->fo[b] = s->fo[b - 1]; s->fa[b] = s->fa[b - 1]; }
+        s->fo[b] = o; s->fa[b] = x;
+    }
+    if (m || !tx_ireso_quiet(&s->fr1) || !tx_ireso_quiet(&s->fr2)) tx_ireso_add2(&s->fr1, &s->fr2, s->fo, s->fa, m, mix, n);
+}
+
 /* the strike interval: the period x (1 + JITTER x a normal draw), at least 1/4 of it */
 static int32_t interval_q8(katy_t *s, int32_t per_q8, uint32_t jq)
 {
@@ -447,6 +588,7 @@ TX_AUDIO_CODE static void katy_render_raw(void *st, int32_t *mix, unsigned n)
 {
     katy_t *s = (katy_t *)st;
     unsigned k, i, ncall;
+    int held_any = 0;
     uint16_t d0 = s->dropped;
     if (n > TX_BLOCK) n = TX_BLOCK;
     k = tx_cloud_block(&s->cloud, s->ev, n);
@@ -476,15 +618,19 @@ TX_AUDIO_CODE static void katy_render_raw(void *st, int32_t *mix, unsigned n)
             if (!v->linger) v->linger = (uint16_t)(2u + tx_rand_below(&s->cloud.rng, 516u));   /* after its call */
             else if (--v->linger == 1u) { v->stop = 1; tx_chorus_stop(&s->ch, i); }            /* (session 5) */
         }
+        held_any |= v->alive && !v->stop;
         if (v->in_call) m = strikes(s, v, n);
         if (v->in_call) v->t += (int32_t)n;
         tx_ireso_add2(&v->r1, &v->r2, s->mo, s->ma, m, mix, n);
         if (v->r3.g) tx_ireso_add(&v->r3, s->mo, s->ma, m, s->hb, n);
         if (v->stop && !v->in_call) { v->alive = 0; v->stop = 0; v->em = 0xFF; v->sing = 0; }
     }
+    far_block(s, mix, n, held_any);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
         int32_t z = 0;
+        for (i = 0; i < NFK; i++) z |= s->f[i].t.on | s->f[i].syl | s->f[i].on | (s->f[i].sln != 0);
+        z |= !tx_ireso_quiet(&s->fr1) || !tx_ireso_quiet(&s->fr2);
         for (i = 0; i < NV; i++) z |= !quiet_v(&s->v[i]);
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }
@@ -532,10 +678,11 @@ static void katy_stats(const void *st, tx_stats_t *o)
     o->quiet = s->quiet;
 }
 
-/* the worst case: 16 katydids calling in synchrony (every resonator rings at once), jittered, close, hot */
+/* the worst case: 16 katydids calling in synchrony (every resonator rings at once), jittered, close, hot, the far
+ * callers all singing */
 static const char SCENE_MAX[] =
     "0 particles 16\n0 param SPECIES 40\n0 param PEGS 127\n0 param JITTER 127\n0 param COUNT 16\n0 param ACTIVITY 127\n0 param SYNC 127\n"
-    "0 param DIST 0\n0 param TEMP 127\n"
+    "0 param DIST 0\n0 param TEMP 127\n0 param FIELD 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
     "4000 end\n";
