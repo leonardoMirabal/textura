@@ -23,6 +23,7 @@
  * and the verdict, on the grid's two corners:
  *   the fewest and least active (the smallest COUNT at the lowest ACTIVITY) should be a lone event now and then:
  *     LONE (at ACTIVITY 0: <= 0.5 events/s and >= 80 % gaps; at a higher lowest ACTIVITY: <= 2 /s and >= 50 %), else BUSY;
+ *     SILENT when no seed's 95th percentile reaches -90 LUFS (30 s of nothing: the user's rule, only C4 is off);
  *   the most and most active (the largest COUNT at ACTIVITY 127) should be a cloud:
  *     CLOUD (dense: >= 15 events/s, no gaps, env <= 6 dB), DENSE (one of them short), EVENTS.
  * A last line per sound gives both corners (lone / cloud) and "ok" when both hold.
@@ -55,25 +56,36 @@
 #define GOV_BUDGET 3193u            /* the player's governor budget (tx_web.c gov_init) */
 #define MAXA 8u
 
-/* ---- the landscapes (audition/app.js FAMILIES): name, source preset ("#engine": a classic engine), TYPE */
+/* ---- the landscapes (audition/app.js FAMILIES), every sound once (Storm's rain and wind are Water's and Wind's): name,
+ * source preset ("#engine": a classic engine), TYPE */
 typedef struct { const char *name, *pre; unsigned type; } snd_t;
 static const snd_t SND[] = {
-    {"rain on water", "rain on water", 0}, {"rain on a roof", "rain on water", 64}, {"hail", "rain on water", 110}, {"water drops", "water", 0},
-    {"cave drips", "water", 16}, {"eaves", "water", 32}, {"brook", "water", 48}, {"spring", "water", 64},
+    {"rain on water", "rain on water", 0}, {"rain on a roof", "rain on water", 50}, {"water drops", "water", 0}, {"cave drips", "water", 16},
+    {"eaves dripping", "water", 32}, {"brook", "water", 48}, {"bubbling spring", "water", 64},
     {"waterfall", "water", 80}, {"waves on sand", "water", 96}, {"waves on shingle", "water", 112},
-    {"stones", "stone cloud", 0}, {"rockfall", "stone cloud", 32}, {"ringing rocks", "stone cloud", 96},
-    {"gravel", "gravel", 0}, {"marbles", "gravel", 96}, {"sand", "sand", 0}, {"singing dune", "sand", 96},
-    {"minerals", "minerals", 0}, {"stone friction", "minerals", 96},
-    {"ice", "ice", 0}, {"lake ice", "ice", 72}, {"glass", "glass", 0},
-    {"fire", "fire", 0}, {"flame", "fire", 96}, {"wood", "wood", 0},
-    {"wind", "wind", 0}, {"thunder", "#thunder", 0},
-    {"crickets", "crickets", 0}, {"cicadas", "cicadas", 0}, {"katydids", "katydids", 0}, {"bees", "bees", 0},
-    {"songbird", "songbird", 0}, {"blackbird", "blackbird", 0}, {"song thrush", "song thrush", 0},
-    {"nightingale", "nightingale", 0}, {"robin", "robin", 0}, {"wren", "wren", 0}, {"hermit thrush", "hermit thrush", 0},
-    {"skylark", "skylark", 0}, {"wood thrush", "wood thrush", 0}, {"reed warbler", "reed warbler", 0},
-    {"chirper", "chirper", 0}, {"crow", "crow", 0}, {"gull", "gull", 0}, {"curlew", "curlew", 0},
-    {"oystercatcher", "oystercatcher", 0}, {"cuckoo", "cuckoo", 0}, {"woodpecker", "woodpecker", 0},
-    {"wood pigeon", "wood pigeon", 0}, {"nightjar", "nightjar", 0}, {"bittern", "bittern", 0},
+    {"stones", "stone cloud", 0}, {"rockfall", "stone cloud", 32}, {"ringing rocks", "stone cloud", 96}, {"gravel", "gravel", 0},
+    {"marbles", "gravel", 96}, {"sand", "sand", 0}, {"singing dune", "sand", 96}, {"minerals", "minerals", 0},
+    {"stone friction", "minerals", 96}, {"icicles", "ice", 8}, {"ice in a glass", "ice", 24}, {"frost tinkling", "ice", 40},
+    {"snow underfoot", "ice", 56}, {"lake ice", "ice", 72}, {"frozen lake booming", "ice", 104},
+    {"thin ice underfoot", "ice", 120}, {"glass pane", "glass", 0}, {"bottles", "glass", 64},
+    {"shards settling", "glass", 110}, {"campfire", "fire", 0}, {"bonfire", "fire", 12}, {"fireplace", "fire", 20}, {"embers", "fire", 28},
+    {"kindling", "fire", 36}, {"pine fire", "fire", 44}, {"leaves, paper", "fire", 52}, {"torch", "fire", 60}, {"flame", "fire", 96},
+    {"sparks", "#sparks", 0}, {"spruce", "wood", 9}, {"pine", "wood", 27}, {"maple", "wood", 46}, {"oak", "wood", 64},
+    {"green branch", "wood", 82}, {"tree trunk", "wood", 100}, {"twigs underfoot", "wood", 118},
+    {"wind", "wind", 0}, {"breeze in grass", "wind", 9}, {"wind in pines", "wind", 16}, {"leafy trees", "wind", 22},
+    {"open moor", "wind", 28}, {"sea wind", "wind", 35}, {"ridge gale", "wind", 41}, {"gusty autumn", "wind", 48},
+    {"winter storm", "wind", 54}, {"desert wind", "wind", 61}, {"storm", "#storm", 0}, {"thunder", "#thunder", 0},
+    {"hail on a roof", "rain on water", 103}, {"hail on a car", "rain on water", 110},
+    {"hail in leaves", "rain on water", 117}, {"sleet on a window", "rain on water", 124},
+    {"field cricket", "crickets", 10}, {"tree cricket", "crickets", 53}, {"mole cricket", "crickets", 74}, {"cicada", "cicadas", 0},
+    {"small cicada", "cicadas", 20}, {"cicada chorus", "cicadas", 64}, {"katydid", "katydids", 16},
+    {"grasshopper", "katydids", 80}, {"honeybee", "bees", 10}, {"bumblebee", "bees", 53}, {"songbird", "songbird", 0},
+    {"blackbird", "blackbird", 0}, {"song thrush", "song thrush", 0}, {"nightingale", "nightingale", 0},
+    {"robin", "robin", 0}, {"wren", "wren", 0}, {"hermit thrush", "hermit thrush", 0}, {"skylark", "skylark", 0},
+    {"wood thrush", "wood thrush", 0}, {"reed warbler", "reed warbler", 0}, {"chirper", "chirper", 0},
+    {"crow", "crow", 0}, {"gull", "gull", 0}, {"curlew", "curlew", 0}, {"oystercatcher", "oystercatcher", 0},
+    {"cuckoo", "cuckoo", 0}, {"woodpecker", "woodpecker", 0}, {"wood pigeon", "wood pigeon", 0},
+    {"nightjar", "nightjar", 0}, {"bittern", "bittern", 0},
 };
 #define NSND (sizeof SND / sizeof SND[0])
 
@@ -82,7 +94,9 @@ typedef struct { const char *eng; unsigned np; struct { const char *name; double
 static const quick_t QUICK[] = {
     {"stream", 2, {{"FLOW", 10, 127}, {"ROAR", 0, 90}}, {0, 0}},
     {"surf", 2, {{"HEIGHT", 10, 127}, {"CHOP", 30, 90}}, {0, 0}},
-    {"thunder", 2, {{"DIST", 110, 25}, {"ENERGY", 40, 100}}, {600, 10}},
+    {"thunder", 2, {{"DIST", 110, 25}, {"ENERGY", 40, 100}}, {40, 8}},
+    {"sparks", 2, {{"RATE", 10, 120}, {"BURST", 20, 80}}, {0, 0}},
+    {"storm", 1, {{"INTENSITY", 0, 127}}, {0, 0}},
 };
 
 static double factor;                                     /* FM-1 us per host us (0: no calibration) */
@@ -451,9 +465,10 @@ int main(int argc, char **argv)
                     if ((ci == cmin || classic) && ai == amin)   /* (at ACTIVITY 0: the player's rarest step, stricter) */
                     {   /* (the events: the engine's, or its bouts where fewer: a gurgle of many bubbles is one) */
                         double ev = a.bouts < a.evs ? a.bouts : a.evs;
-                        v = lone = (acts[ai] ? ev <= 2.0 && a.gaps >= 50.0 : ev <= 0.5 && a.gaps >= 80.0) ? "LONE" : "BUSY";
+                        v = lone = l95 < -90 ? "SILENT"      /* (COUNT 1 is one individual now and then, never none) */
+                                 : (acts[ai] ? ev <= 2.0 && a.gaps >= 50.0 : ev <= 0.5 && a.gaps >= 80.0) ? "LONE" : "BUSY";
                     }
-                    if (ci == cmax && ai == amax) {
+                    if (ci == cmax && ai == amax && (ci != cmin || ai != amin)) {   /* (one cell: the lone verdict) */
                         int dense = a.evs >= 15, full = a.gaps < 1.0, even = a.env <= 6.0;
                         v = cloud = dense && full && even ? "CLOUD" : dense + full + even >= 2 ? "DENSE" : "EVENTS";
                     }

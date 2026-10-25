@@ -589,7 +589,7 @@ const QUICK = {
   rainstick: { p: [["SEEDS", 10, 127]] },
   mineral: { p: [["SPEED", 20, 110], ["PRESSURE", 30, 100]] },
   pebble: { p: [["SPEED", 20, 115]] },
-  thunder: { p: [["DIST", 110, 25], ["ENERGY", 40, 100]], every: [600, 10] },
+  thunder: { p: [["DIST", 110, 25], ["ENERGY", 40, 100]], every: [40, 8] },
   bees: { p: [["SWARM", 0, 127]] },
   sandsong: { p: [["FLOW", 40, 127]] },
   aeolian: { p: [["WIND", 20, 127], ["GUST", 20, 80]] },

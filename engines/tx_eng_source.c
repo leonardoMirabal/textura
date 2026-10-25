@@ -203,10 +203,11 @@ typedef struct {
 } host_t;   /* (g: one calibration, flat:
                                                      * more activity is louder by the engine's own physics) */
 static const host_t HOST[] = {
-    /* wind: a calm (silence) .. a breath now and then .. a breeze .. a storm: gustier, more gusts passing, more
-     * buffeting; an edge tone only now and then in the strong gusts */
-    {"wind", 100, -73, -120, {{"WIND", 0, 64, 127}, {"GUST", 40, 70, 110}, {"WHOOSH", 30, 64, 90}, {"BUFFET", 30, 48, 80},
-                    {"EDGE", 0, 12, 28}}, 1, 1, 4, 0, 0, 0, 0},
+    /* wind: a lone gust now and then (never a dead calm: COUNT 0 is the silence) .. a breeze .. a storm: gustier, more
+     * gusts passing, more buffeting; an edge tone only now and then in the strong gusts. In bouts below INTENSITY 64
+     * (k0 2): light air comes in puffs with lulls between */
+    {"wind", 100, -73, -120, {{"WIND", 20, 64, 127}, {"GUST", 40, 70, 110}, {"WHOOSH", 30, 64, 90}, {"BUFFET", 30, 48, 80},
+                    {"EDGE", 0, 12, 28}}, 3, 1, 4, 0, 0, 0, 0},
     /* stream: a trickle of plinks .. a babbling brook .. a torrent: bigger gulping bubbles, eddies, the low roar */
     {"stream", -42, -42, -42, {{"FLOW", 10, 70, 105}, {"ROAR", 0, 0, 50}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
                             {"SPREAD", 80, 64, 45}}, 0, 0, 0, 0, 0, 0, 0},
@@ -262,8 +263,8 @@ static const host_t HOST[] = {
      60, 12, 3, 1},
     /* whistling wires (wind): a breath (1.6 m/s) .. a gale (20 m/s); gusts deepen; at the top the strings lock in */
     {"aeolian", -78, -78, -78, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
-    /* hail and sleet (rain): a few stones now and then .. a hailstorm hammering, bigger stones */
-    {"rainsurf", -55, -55, -55, {{"RATE", 40, 95, 127}, {"DROPS", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0, 0, 0, 0, 0},
+    /* hail and sleet (rain): a lone stone now and then, a small patch heard .. a hailstorm hammering, bigger stones */
+    {"rainsurf", -55, -55, -55, {{"RATE", 34, 95, 127}, {"DROPS", 40, 64, 100}, {"AREA", 30, 50, 50}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0, 0, 0, 0, 0},
     /* drips in a cave (water): a drop into a pool now and then, from high up .. drip points all over, quicker (one per
      * 10 s .. 4 /s each, at random: a cave's drips are Poisson) */
     {"drip", -75, -75, -75, {{"RATE", 0, 38, 88}, {"HEIGHT", 95, 100, 105}, {"SIZE", 70, 70, 70}, {"CLUMP", 0, 0, 0},

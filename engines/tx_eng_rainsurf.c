@@ -477,6 +477,11 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
             int32_t mom = (int32_t)(((uint64_t)(uint32_t)a * s->len[c] * s->mtab) >> 15);   /* a far drop's momentum (Q15 x samples) */
             int32_t fg = 256, lp, fa = s->fca[c];
             uint32_t want = 0, far = 0;
+            if (!mu_q8 && lam && lam < (1u << 20)) {         /* (under one Q8 step: drawn as 0 or 1 at that mean, so a
+                                                              * stray stone or drop still falls, never none) */
+                uint32_t x = (lam * n) >> 4;                 /* (< 2756 x 16 here: 32-bit) */
+                mu_q8 = tx_rand_below(r, 2756u) < x ? 1u : 0u;
+            }
             if (mu_q8 >= (8u << 8)) want = (mu_q8 + (tx_rand(r) >> 24)) >> 8;   /* dense: the mean (a Poisson's spread is small) */
             else if (mu_q8) {                                /* sparse: a Poisson count (exponential gaps in blocks) */
                 uint32_t mean = 65536u / mu_q8, acc = tx_cloud_exp_q8(&s->cloud, mean);
