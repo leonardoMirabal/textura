@@ -41,9 +41,11 @@
 enum { P_ACTION, P_TEMP, P_AMOUNT, P_SIZE, P_FIZZ, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"ACTION", 127, 0, "icicles falling and shattering | ice cubes in a glass"},
+    {"ACTION", 127, 0, "icicles falling and shattering | ice cubes in a glass | ice crystals tinkling (frost falling from "
+                        "twigs) | snow crunching underfoot (32 each)"},
     {"TEMP", 127, 64, "ice temperature -40 .. 0 C: ringing (Q ~500) .. wet and dull (Q ~50), more fizz"},
-    {"AMOUNT", 127, 64, "icicles: chunks per break 3 .. 24 | cubes: shaking 1 .. 15 clinks/s"},
+    {"AMOUNT", 127, 64, "icicles: chunks per break 3 .. 24 | cubes: shaking 1 .. 15 clinks/s | crystals: 1 .. 15 /s | "
+                        "snow: steps 0.5 .. 2.5 /s while held"},
     {"SIZE", 127, 64, "icicle length 10 .. 80 cm | glass: lowest mode 300 .. 1200 Hz (keys a semitone)"},
     {"FIZZ", 127, 20, "melt fizz: off .. strong (bubbles at 1-3 kHz)"},
 };
@@ -56,6 +58,10 @@ static const tx_param_t PARAMS[NP] = {
                                     * momentary, held at -33.5 by its crack's crest: the default chord <= +12 dBFS and
                                     * the output limiter under ~8 dB) */
 #define A_REF 100000000            /* a mode's amplitude for a v100 impact (Q30; calibrated by render) */
+#define NSTEP 4u                   /* footsteps crunching at once */
+enum { K_ICICLES, K_CUBES, K_CRYSTALS, K_SNOW };
+/* each kind's level re the icicles', Q8 (by render: on the icicles' loudness) */
+static const uint16_t K_OUT[4] = {256, 256, 256, 91};
 
 static const uint16_t ROD_R[NMB] = {1024, 2823, 5534, 9147};      /* free-free, Q10 */
 static const uint16_t GLS_R[NMB] = {1024, 2734, 5171, 8141};      /* the glass recording's ratios, Q10 */
@@ -73,6 +79,14 @@ typedef struct {
     uint32_t inc;                  /* its own piece's ring (a shorter rod: higher), 0 = none */
     uint8_t alive, k, pad[2];
 } chunk_t;
+
+typedef struct {                   /* a step into snow: the bonds between the grains break as the foot sinks (ours) */
+    uint32_t t, len;               /* samples into it, its length */
+    uint32_t next;                 /* samples to its next grain bond breaking */
+    int32_t a;                     /* its loudness */
+    uint32_t pk;                   /* the foot's peak (heel down), samples */
+    uint8_t alive, pad[3];
+} step_t;
 
 typedef struct {
     tx_cloud_t cloud;
@@ -97,9 +111,13 @@ typedef struct {
     uint8_t rk, rd, pad2[2];       /* the clicks' colour now: high-pass shift, decay shift (per crack) */
     uint16_t fzt;                  /* blocks of fizz left after a break */
     uint32_t fnext;                /* samples to the next fizz pop */
+    step_t st[NSTEP];
+    uint8_t lp, pad3[3];           /* lp: the clicks low-passed (snow: the grains' crunch is dull) */
+    int32_t res_x2;                /* (its second pole) */
 } ice_t;
 
-static unsigned cubes(const ice_t *s) { return s->p[P_ACTION] >= 64u; }
+static unsigned kind(const ice_t *s) { return s->p[P_ACTION] >> 5; }
+static unsigned cubes(const ice_t *s) { return kind(s) == K_CUBES; }
 
 static void set_param(ice_t *s, unsigned id, unsigned v)
 {
@@ -112,7 +130,8 @@ static void set_param(ice_t *s, unsigned id, unsigned v)
         s->q_x16 = q * 16u;
         s->fizz = (uint32_t)s->p[P_FIZZ] * (64u + (uint32_t)s->p[P_TEMP]) >> 6;   /* warmer: more fizz (ours) */
     }
-    if (cubes(s)) tx_cloud_rate(&s->cloud, 256u + (uint32_t)s->p[P_AMOUNT] * 28u);   /* 1 .. 15 /s */
+    if (cubes(s) || kind(s) == K_CRYSTALS) tx_cloud_rate(&s->cloud, 256u + (uint32_t)s->p[P_AMOUNT] * 28u);   /* 1 .. 15 /s */
+    else if (kind(s) == K_SNOW) tx_cloud_rate(&s->cloud, 128u + (uint32_t)s->p[P_AMOUNT] * 4u);   /* 0.5 .. 2.5 steps /s */
     else tx_cloud_rate(&s->cloud, 0);
     if (id == P_SIZE) s->size_l2 = (int32_t)v * 1714;        /* 0 .. +log2(8) (icicle 10-80 cm) / 0 .. 2 oct (glass) */
 }
@@ -266,6 +285,72 @@ static void icicle(ice_t *s, const tx_event_t *e)
     }
 }
 
+/* ice crystals (hoar frost, rime) shaken from twigs onto the crust: a few tiny pieces each, falling a short way; a piece
+ * of a few mm rings ultrasonically, so what rings is its splinter's bending (3 .. 10 kHz, log-uniform: ours, the
+ * references' tinkle 2.7-6.6 kHz), briefly, with a bright tick (ours) */
+static void crystals(ice_t *s, const tx_event_t *e)
+{
+    tx_rng_t *r = &s->cloud.rng;
+    int32_t a = (int32_t)(((int64_t)(A_REF / 6) * (int32_t)tx_exp2(((int32_t)e->vel - 100) * 1638 + (15 << 16))) >> 15);
+    uint32_t n = e->kind == TX_EV_MAIN ? 3u + tx_rand_below(r, 6u) : 1u + (tx_rand(r) >> 31), j, i;
+    a = (int32_t)(((int64_t)a * s->level) >> 15);
+    for (j = 0; j < n; j++) {
+        chunk_t *h = 0;
+        int32_t x = (int32_t)(((int64_t)tx_neglog2_q12(tx_rand(r)) * 8192) >> 12);   /* sizes alpha 1.5 */
+        for (i = 0; i < NF && !h; i++) if (!s->ch[i].alive) h = &s->ch[i];
+        if (!h) { s->dropped++; break; }
+        h->t = e->offset + (j ? tx_rand_below(r, 9000u) : 0u);   /* a shower over ~0.2 s */
+        h->v = 150 + (int32_t)tx_rand_below(r, 500u);         /* a short fall: 1 .. 3 cm */
+        h->a = (int32_t)(((int64_t)a * (int32_t)tx_exp2(-(x > 4 << 16 ? 4 << 16 : x) + (15 << 16))) >> 15);
+        h->inc = tx_exp2(757000 + (int32_t)tx_rand_below(r, 113800u));   /* 3 .. 10 kHz (log2 Q16) */
+        h->inc = h->inc < 18000u ? h->inc * 97391u : 0u;
+        h->k = 0; h->alive = 1;
+    }
+}
+
+/* a step into snow: the foot compacts it, breaking the bonds between grains (a dense crunch of small fractures, its
+ * rate rising as the heel goes down and fading as the foot settles: 0.15 .. 0.35 s; the references: a step a second or
+ * two, 15-16 crunch segments /s, 125 Hz .. 2 kHz, the squeak of cold snow brighter); the ground under it thuds */
+static void step(ice_t *s, const tx_event_t *e)
+{
+    tx_rng_t *r = &s->cloud.rng;
+    step_t *f = 0;
+    unsigned i;
+    int32_t a = (int32_t)(((int64_t)A_REF * (int32_t)tx_exp2(((int32_t)e->vel - 100) * 1638 + (15 << 16))) >> 15);
+    a = (int32_t)(((int64_t)a * s->level) >> 15);
+    for (i = 0; i < NSTEP && !f; i++) if (!s->st[i].alive) f = &s->st[i];
+    if (!f) { s->dropped++; return; }
+    f->len = 6615u + tx_rand_below(r, 8820u);                /* 0.15 .. 0.35 s */
+    f->pk = f->len / 5u + tx_rand_below(r, f->len / 5u);     /* the heel down at 20 .. 40 % */
+    f->t = 0; f->next = e->offset; f->a = a; f->alive = 1;
+    tx_mode_strike(&s->thud[0], a / 24);
+    tx_mode_strike(&s->thud[1], -a / 48);
+}
+
+/* the steps' crunch this block: grain bonds breaking, Poisson at up to ~1500 /s at the heel (ours), each a click of a
+ * power-law size into the low-passed burst */
+static void crunch(ice_t *s, unsigned n)
+{
+    tx_rng_t *r = &s->cloud.rng;
+    unsigned i;
+    for (i = 0; i < NSTEP; i++) {
+        step_t *f = &s->st[i];
+        if (!f->alive) continue;
+        while (f->next < n) {
+            uint32_t tt = f->t + f->next, env, gap;
+            int32_t x, c;
+            if (tt >= f->len) { f->alive = 0; break; }
+            env = tt < f->pk ? (tt << 15) / f->pk : (((f->len - tt) << 10) / ((f->len - f->pk) >> 5));   /* Q15 */
+            x = (int32_t)(((int64_t)tx_neglog2_q12(tx_rand(r)) * 8192) >> 12);   /* alpha 1.5 */
+            c = (int32_t)(((int64_t)(f->a >> 7) * (int32_t)tx_exp2(-(x > 5 << 16 ? 5 << 16 : x) + (15 << 16))) >> 15);
+            s->bpush[f->next] += (int32_t)(((int64_t)c * (int32_t)env) >> 15);
+            gap = 8u + (uint32_t)(((uint64_t)tx_neglog2_q12(tx_rand(r) | 1u) * ((29u << 15) / (env + 1024u)) * 2839u) >> 24);
+            f->next += gap;
+        }
+        if (f->alive) { f->next -= n; f->t += n; }
+    }
+}
+
 TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
 {
     ice_t *s = (ice_t *)st;
@@ -279,6 +364,8 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
     for (j = 0; j < n; j++) s->buf[j] = s->bpush[j] = s->spk[j] = 0;
     for (i = 0; i < k; i++) {
         const tx_event_t *e = &s->ev[i];
+        if (kind(s) == K_CRYSTALS) { crystals(s, e); continue; }
+        if (kind(s) == K_SNOW) { step(s, e); continue; }
         if (!cubes(s)) { if (e->kind == TX_EV_MAIN) icicle(s, e); continue; }
         {   /* a clink: a cube hits the glass (sizes from a power law, alpha 1.5 over 1.5 decades: ours) */
             int32_t x = (int32_t)(((int64_t)tx_neglog2_q12(tx_rand(r)) * 8192) >> 12), lv, er, a;
@@ -304,24 +391,35 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
             }
         }
     }
+    {
+        unsigned sn = kind(s) == K_SNOW;
+        int any_st = 0;
+        for (i = 0; i < NSTEP; i++) any_st |= s->st[i].alive;
+        if (any_st) { crunch(s, n); any = 1; }
+        if (sn) { s->rk = (uint8_t)(4u - (s->p[P_TEMP] < 64u)); s->rd = 6; }   /* cold snow squeaks brighter (ours); a
+                                                              * grain's crunch ~1.5 ms */
+        s->lp = (uint8_t)sn;
+    }
     for (i = 0; i < NF; i++) {                               /* chunk impacts: a click and a small thud each */
         chunk_t *h = &s->ch[i];
         if (!h->alive) continue;
         any = 1;
         while (h->alive && h->t < n) {
             int32_t a = (int32_t)(((int64_t)h->a * h->v) >> 11);
-            s->bpush[h->t] += a >> 8;                        /* the chunk's click, +12 dB (references: shatter) */
+            unsigned cry = kind(s) == K_CRYSTALS;
+            if (cry) a <<= 2;                                /* (a crystal: its ring over a light tick) */
+            s->bpush[h->t] += cry ? a >> 12 : a >> 8;        /* the chunk's click, +12 dB (references: shatter) */
             if (!h->k) crack_colour(s);                      /* (its own colour as it lands) */
             if (!h->k && h->inc) {                           /* its piece rings, damped by the ground (~10-30 ms; the */
                 tx_mode_t *m = &s->piece[0];                 /* quietest ring; it lands at the block start) */
-                unsigned q;
+                unsigned q, cr = kind(s) == K_CRYSTALS;      /* (a crystal on the crust: lightly, ~30-100 ms) */
                 for (q = 1; q < NPC; q++) if (s->piece[q].amp < m->amp) m = &s->piece[q];
                 m->inc = h->inc;
-                m->m16 = tx_mode_decay(h->inc / 97391u, s->q_x16, (60u + tx_rand_below(&s->cloud.rng, 200u)) << 8);
+                m->m16 = tx_mode_decay(h->inc / 97391u, s->q_x16, (cr ? 15u + tx_rand_below(&s->cloud.rng, 40u) : 60u + tx_rand_below(&s->cloud.rng, 200u)) << 8);
                 m->amp = 0;
-                tx_mode_strike(m, a >> 3);
+                tx_mode_strike(m, cr ? a : a >> 3);
             }
-            tx_mode_strike(&s->thud[h->k & 1u], a >> 9);
+            if (kind(s) != K_CRYSTALS) tx_mode_strike(&s->thud[h->k & 1u], a >> 9);
             h->k++;
             h->v = (h->v * 6554) >> 15;                      /* restitution 0.2 (ice on frozen ground: ours) */
             if (h->v < 60 || h->k > 4) { h->alive = 0; break; }
@@ -345,6 +443,7 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
     /* the melt fizz: fresh breaks and wet chunks release their air for ~1 s, then the ice is quiet (it ran under every
      * ring's tail before: a -90 dB bed between the breaks; the user, 2026-10-25: silence between events) */
     if (s->fzt) s->fzt--;
+    if (kind(s) >= K_CRYSTALS) s->fzt = 0;                   /* (no melt fizz: frost and snow) */
     s->fe += (((cubes(s) ? tx_cloud_held(&s->cloud) != 0 : s->fzt != 0) ? 32767 : 0) - s->fe) >> 5;   /* dies away over
                                                               * ~0.5 s (session 5: no dead stop) */
     if (s->fe < 32) s->fe = 0;
@@ -375,11 +474,15 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
             x = (int32_t)(tx_rand(r) >> 17) - 16384;
             x1 += (x - x1) >> s->rk;                         /* minus a low-pass (each crack its own: 5 .. 9 kHz; the */
                                                              /* references 5-8 kHz) */
-            s->buf[j] += ((x - x1) * (e >> 12)) >> (s->rk + 1);   /* (a duller crack is softer) */
+            if (s->lp) {                                     /* (snow: two poles of the low-pass, ~0.4 .. 0.9 kHz) */
+                s->res_x2 += (x1 - s->res_x2) >> s->rk;
+                s->buf[j] += (s->res_x2 * (e >> 12)) >> 0;
+            }
+            else s->buf[j] += ((x - x1) * (e >> 12)) >> (s->rk + 1);   /* (a duller crack is softer) */
             e -= (e >> s->rd) + 1;
             if (e < 0) e = 0;
         }
-        s->res = e; s->res_x1 = e ? x1 : 0;
+        s->res = e; s->res_x1 = e ? x1 : 0; if (!e) s->res_x2 = 0;
         any |= e;
     }
     for (j = 0; j < n; j++) {                                /* + the clinks' spikes; at most full scale before the
@@ -388,7 +491,7 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
         s->buf[j] = v > TX_Q23 ? TX_Q23 : v < -TX_Q23 ? -TX_Q23 : v;
     }
     tx_vary_block(&s->vy, s->buf, n);
-    tx_trim(s->buf, n, OUT_TRIM);                            /* the loudness target */
+    tx_trim(s->buf, n, (OUT_TRIM * K_OUT[kind(s)]) >> 8);    /* the loudness target */
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !any && !s->fe && !(s->hp.x1 | s->hp.y1));
@@ -410,7 +513,7 @@ static void ice_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: eight glasses shaken hard with cubes, cold (long rings), loud fizz */
 static const char SCENE_MAX[] =
-    "0 particles 8\n0 param ACTION 127\n0 param TEMP 20\n0 param AMOUNT 127\n0 param FIZZ 127\n"
+    "0 particles 8\n0 param ACTION 48\n0 param TEMP 20\n0 param AMOUNT 127\n0 param FIZZ 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
     "4500 end\n";

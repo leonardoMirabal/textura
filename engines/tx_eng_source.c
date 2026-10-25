@@ -79,7 +79,7 @@ static const tx_param_t PARAMS[NP] = {
     {"LOCK", 1, 0, "MIDI clock lock (a hook: stored, no effect until the clock sync is built)"},
     {"DIV", 9, 4, "beat division when locked: 1/1 1/2 1/4 1/8 1/16 1/32 1/4T 1/8T 1/16T, 9 = a probability per bar (a hook)"},
     {"GRID", 127, 0, "grid pull: the probability an event lands on the clock's grid (a hook)"},
-    {"TYPE", 127, 0, "the kind within the family: 0 = the preset's own; above, the hosted engine's own kinds over the range (wind: grass .. pines .. leafy trees .. a moor .. the coast .. a ridge .. autumn .. a winter storm .. a desert; crickets, katydids, bees: species; rain: surfaces 1 .. 99, hail and sleet 101 .. 127; water: drops 0, cave drips 16, eaves 32, a brook 48, a spring 64, a waterfall 80, waves on sand 96, on shingle 112; ice: icicles | cubes in a glass; wood: spruce .. green branch; minerals: granite .. quartz; sand: hand .. tube)"},
+    {"TYPE", 127, 0, "the kind within the family: 0 = the preset's own; above, the hosted engine's own kinds over the range (wind: grass .. pines .. leafy trees .. a moor .. the coast .. a ridge .. autumn .. a winter storm .. a desert; crickets, katydids, bees: species; rain: surfaces 1 .. 99, hail and sleet 101 .. 127; water: drops 0, cave drips 16, eaves 32, a brook 48, a spring 64, a waterfall 80, waves on sand 96, on shingle 112; ice: icicles 8, cubes in a glass 24, frost 40, snow 56, lake ice 72, sea ice 88, a far lake booming 104, thin ice 120; glass: a pane 0, bottles 64, shards 110; wood: spruce .. green branch; minerals: granite .. quartz; sand: hand .. tube)"},
     {"COUNT", 127, 64, "how many individuals at once, each its own distance, size and character: 0 none (silence; tails ring), 1 + 21 steps per doubling: 1, 22, 43, 64, 85, 106, 127 = 1, 2, 4, 8, 16, 32, 64 (rain: patches of rain, stones: rolling stones or pouring points, water: dripping points, cicadas, birds; hosted engines: their keys or presses)"},
 };
 
@@ -526,8 +526,8 @@ static const kmap_t HMAP[][HOST_NK] = {
     {{"WOOD", P_TYPE, 0}, {"SIZE", P_SIZE, 64}, {"MOIST", P_TONE, -64}, {"PITCH", P_HARD, 64}, {0, 0, 0}},
     /* minerals: mineral, specimen size (bigger = lower), free ring .. gripped, strike .. clink .. rub */
     {{"MINERAL", P_TYPE, 0}, {"SIZE", P_SIZE, -64}, {"HOLD", P_TONE, -64}, {"ACTION", P_HARD, 64}, {0, 0, 0}},
-    /* glass: shard size, ring (soft floor .. crystal), bounce, height */
-    {{"SIZE", P_SIZE, 64}, {"RING", P_TONE, 64}, {"BOUNCE", P_HARD, 64}, {"HEIGHT", P_SPREAD, 48}, {0, 0, 0}},
+    /* glass: shard size, ring (soft floor .. crystal), bounce, height, kind (a pane, bottles, shards) */
+    {{"SIZE", P_SIZE, 64}, {"RING", P_TONE, 64}, {"BOUNCE", P_HARD, 64}, {"HEIGHT", P_SPREAD, 48}, {"KIND", P_TYPE, 0}},
     /* rain on surfaces: the surface (leaves .. metal roof), drop sizes, the area heard, inside */
     {{"SURFACE", P_TYPE, 0}, {"DROPS", P_SIZE, 64}, {"AREA", P_SPREAD, 64}, {"INSIDE", P_TONE, -64}, {0, 0, 0}},
     /* lake ice: thicker (lower), colder (ringing), farther (harder: nearer), fresh .. sea ice */

@@ -64,7 +64,7 @@ static const snd_t SND[] = {
     {"stones", "stone cloud", 0}, {"rockfall", "stone cloud", 32}, {"ringing rocks", "stone cloud", 96},
     {"gravel", "gravel", 0}, {"marbles", "gravel", 96}, {"sand", "sand", 0}, {"singing dune", "sand", 96},
     {"minerals", "minerals", 0}, {"stone friction", "minerals", 96},
-    {"ice", "ice", 0}, {"lake ice", "ice", 96}, {"glass", "glass", 0},
+    {"ice", "ice", 0}, {"lake ice", "ice", 72}, {"glass", "glass", 0},
     {"fire", "fire", 0}, {"flame", "fire", 96}, {"wood", "wood", 0},
     {"wind", "wind", 0}, {"thunder", "#thunder", 0},
     {"crickets", "crickets", 0}, {"cicadas", "cicadas", 0}, {"katydids", "katydids", 0}, {"bees", "bees", 0},

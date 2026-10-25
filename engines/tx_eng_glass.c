@@ -16,6 +16,13 @@
  *            that restrikes the shard's modes phase-correctly (MODAL) and clicks; stops under 5 cm/s or 6 bounces.
  *   floor    every impact of a big shard also knocks the floor: two low modes (70-150 Hz, Q 4; a shattering
  *            recording shows 65-180 Hz peaks at its impacts: ours).
+ * KIND: the pane above; or
+ *   bottles  two bottles knocked together (a crate, a toast): each a glass shell, its ring mode (n = 2, ~2.3 kHz for
+ *            a wine bottle: the references peak there, narrow) and the next (x 2.7), and the whole bottle's free
+ *            bending (~0.24 x: the references' 0.5 kHz peak); they knock, rattle 1 .. 4 times (restitution) and ring.
+ *   shards   broken glass shifting and settling (swept up, walked on, a pile slipping): small shards (3.5 .. 6 cm,
+ *            their f1 5 .. 15 kHz, most only clicking: the references peak at 6 .. 14 kHz) tipping over and dropping
+ *            a few mm onto the others, one after another (a held key keeps them settling), bright ticks between.
  * Keys: SIZE shifts with the key (a semitone smaller shards per key up). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
@@ -36,7 +43,8 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 2
 
-enum { P_ENERGY, P_SIZE, P_RING, P_BOUNCE, P_HEIGHT, NP };
+enum { P_ENERGY, P_SIZE, P_RING, P_BOUNCE, P_HEIGHT, P_KIND, NP };
+enum { K_PANE, K_BOTTLES, K_SHARDS };
 
 static const tx_param_t PARAMS[NP] = {
     {"ENERGY", 127, 100, "the blow: a crack .. a smash (8 .. 48 shards, louder)"},
@@ -44,6 +52,7 @@ static const tx_param_t PARAMS[NP] = {
     {"RING", 127, 30, "glass Q: 200 (on a soft floor) .. 6000 (crystal, hung free) (log)"},
     {"BOUNCE", 127, 50, "restitution on the floor: 0.1 (carpet) .. 0.6 (stone tiles)"},
     {"HEIGHT", 127, 64, "the pane's height above the floor: 0.2 .. 2 m (log): first impacts after 0.2 .. 0.64 s"},
+    {"KIND", 127, 0, "a pane smashing | bottles clinking | shards shifting and settling (43 each)"},
 };
 
 #define NF 48u                     /* shards */
@@ -84,7 +93,7 @@ typedef struct {
     uint32_t q_x16;
     uint16_t dropped;
     tx_vary_t vy;
-    uint8_t rk, rd, pad2[2];       /* this break's clicks: high-pass and decay shifts */
+    uint8_t rk, rd, kind, pad2;    /* this break's clicks: high-pass and decay shifts; KIND */
 } glass_t;
 
 static void set_param(glass_t *s, unsigned id, unsigned v)
@@ -97,6 +106,10 @@ static void set_param(glass_t *s, unsigned id, unsigned v)
     case P_RING: s->q_x16 = tx_knob_exp(v, 3200u, 321580); break;      /* Q 200 .. 6000 (x 30), Q x 16 */
     case P_BOUNCE: s->e_q15 = 3277 + (int32_t)v * 129; break;          /* 0.1 .. 0.6 */
     case P_HEIGHT: s->h_l2 = -152170 + (int32_t)(v * 1709u); break;    /* log2(0.2 m) + v log2(10) / 127 */
+    case P_KIND: s->kind = (uint8_t)(v * 3u >> 7); /* fall through: the stream */
+    case P_ENERGY:                                                     /* shards: a held key keeps them settling */
+        tx_cloud_rate(&s->cloud, s->kind == K_SHARDS ? 512u + (uint32_t)s->p[P_ENERGY] * 12u : 0u);   /* 2 .. 8 /s */
+        break;
     default: break;
     }
 }
@@ -109,7 +122,6 @@ static void glass_init(void *st, uint32_t seed)
     for (i = 0; i < sizeof *s; i++) b[i] = 0;
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 1, 0);
-    tx_cloud_rate(&s->cloud, 0);
     tx_mallet_mix(&s->mal, 0);
     s->mal.lm -= 326000;
     s->rk = 2; s->rd = 4;                                     /* a shard: ~30x lighter than the hammer row */
@@ -151,8 +163,11 @@ static void impact(glass_t *s, shard_t *h, unsigned o, int32_t v_mm)
     if (h->ring != 0xFF) {
         ringv_t *r = &s->rv[h->ring];
         unsigned k;
-        for (k = 0; k < NMS; k++) if (r->m[k].inc) tx_mode_strike(&r->m[k], (k & 1u) ? -(a >> (k + 0)) : a >> k);
-        if (h->a > A_REF / 3)                                /* the floor: the big shards only, softly (ours; every */
+        for (k = 0; k < NMS; k++) if (r->m[k].inc) {
+            int32_t ak = s->kind == K_BOTTLES ? a >> (k == 1u ? 0 : 1) : a >> k;   /* (a bottle: its shell ring first) */
+            tx_mode_strike(&r->m[k], (k & 1u) ? -ak : ak);
+        }
+        if (h->a > A_REF / 3 && s->kind == K_PANE)                                /* the floor: the big shards only, softly (ours; every */
             tx_mode_strike(&s->floor[o & 1u], a >> 5);      /* ringing shard at -18 dB made a pulsing low bed between the
                                                               * breaks: session 5's spectrogram review) */
     }
@@ -244,6 +259,92 @@ static void glass_break(glass_t *s, const tx_event_t *e)
     (void)ringn;
 }
 
+/* a free mode voice (or NRING: none) */
+static unsigned ring_take(glass_t *s, unsigned lim)
+{
+    unsigned i;
+    for (i = 0; i < s->limit && i < lim; i++) if (!s->rv[i].used) return i;
+    return NRING;
+}
+
+static shard_t *shard_take(glass_t *s)
+{
+    unsigned i;
+    for (i = 0; i < NF; i++) if (!s->sh[i].alive) return &s->sh[i];
+    s->dropped++;
+    return 0;
+}
+
+/* two bottles knocked together: each its own pitch (+-0.35 oct: other bottles, fills), knocking 1 .. 4 times */
+static void bottles(glass_t *s, const tx_event_t *e)
+{
+    tx_rng_t *r = &s->cloud.rng;
+    int32_t f_l2 = 732200 - (s->size_l2 + 216000) + ((int32_t)e->note - 60) * 5461;   /* 2.3 kHz at SIZE 84, C4 */
+    int32_t v0 = 120 + (int32_t)e->vel * 3 + (int32_t)tx_rand_below(r, 200u), b;   /* mm/s: a knock .. a clash */
+    s->rk = (uint8_t)(2u + tx_rand_below(r, 2u));
+    s->rd = (uint8_t)(2u + tx_rand_below(r, 2u));            /* (a glass-on-glass tick: ~0.1 .. 0.2 ms) */
+    for (b = 0; b < 2; b++) {
+        shard_t *h = shard_take(s);
+        unsigned rv = ring_take(s, NRING), k;
+        int32_t fl = f_l2 + (int32_t)(((int64_t)tx_rand_s15(r) * 23000) >> 15);
+        if (!h) return;
+        h->ring = 0xFF;
+        if (rv < NRING) {
+            ringv_t *v = &s->rv[rv];
+            static const int32_t RAT[NMS] = {-127000, 0, 93900};   /* log2: x 0.26 (the bottle), 1 (n = 2), 2.7 (n = 3) */
+            for (k = 0; k < NMS; k++) {
+                uint32_t f = tx_exp2(fl + RAT[k] + (int32_t)(((int64_t)tx_rand_s15(r) * 4000) >> 15));
+                v->m[k].amp = 0; v->m[k].ph = 0;
+                v->m[k].inc = f < 15000u ? f * 97391u : 0u;
+                v->m[k].m16 = f < 15000u ? tx_mode_decay(f, s->q_x16, 179u) : 0u;
+            }
+            v->used = 1;
+            h->ring = (uint8_t)rv;
+        } else s->dropped++;
+        h->a = (int32_t)(((int64_t)(A_REF * 3) * s->level) >> 15);   /* (by render: the pane's loudness) */
+        h->c = (int32_t)((((int64_t)A_REF * s->level) >> 15) >> 9);
+        h->t = e->offset;
+        h->v = v0;
+        h->k = (uint8_t)(6u - tx_rand_below(r, 4u));         /* 1 .. 4 knocks before it stops */
+        h->alive = 1;
+    }
+}
+
+/* shards shifting: 2 .. 6 small ones tip over and drop a few mm, one after another over ~0.3 s */
+static void shards(glass_t *s, const tx_event_t *e)
+{
+    tx_rng_t *r = &s->cloud.rng;
+    unsigned n = 2u + ((uint32_t)s->p[P_ENERGY] * 5u >> 7), j;
+    int32_t lmax_l2 = s->size_l2 - 59000 - ((int32_t)e->note - 60) * 5461;   /* 0.9 oct under the pane's largest */
+    s->rk = (uint8_t)(1u + tx_rand_below(r, 3u)); s->rd = (uint8_t)(2u + tx_rand_below(r, 2u));   /* (bright ticks) */
+    for (j = 0; j < n; j++) {
+        shard_t *h = shard_take(s);
+        int32_t l2 = lmax_l2 - (int32_t)tx_rand_below(r, 49152u), f_l2 = 285700 - 2 * l2;   /* over 0.75 oct */
+        uint32_t f1 = f_l2 > (15 << 16) ? 0u : tx_exp2(f_l2), rv;
+        if (!h) return;
+        h->ring = 0xFF;
+        if (f1 && f1 < 15000u && (rv = ring_take(s, NRING / 2u)) < NRING) {   /* (at most 8 ring: CPU) */
+            ringv_t *v = &s->rv[rv];
+            uint32_t f = f1, k;
+            for (k = 0; k < NMS; k++) {
+                if (k) f = (uint32_t)(((uint64_t)f * tx_exp2(31785 + (int32_t)tx_rand_below(r, 51000u) + (16 << 16))) >> 16);
+                v->m[k].amp = 0; v->m[k].ph = 0;
+                v->m[k].inc = f < 15000u && k < 2u ? f * 97391u : 0u;   /* (two modes: the third over ~12 kHz) */
+                v->m[k].m16 = f < 15000u && k < 2u ? tx_mode_decay(f, s->q_x16, 179u) : 0u;
+            }
+            v->used = 1;
+            h->ring = (uint8_t)rv;
+        }
+        h->a = (int32_t)(((int64_t)A_REF * 4 * (int32_t)tx_exp2((l2 - lmax_l2) * 3 / 2 + (15 << 16))) >> 15);   /* (x 4: */
+        h->a = (int32_t)(((int64_t)h->a * s->level) >> 15);                                                 /* by render) */
+        h->c = (int32_t)((((int64_t)A_REF * s->level) >> 15) * (int32_t)tx_exp2(l2 - lmax_l2 + (15 << 16)) >> 17);
+        h->t = e->offset + tx_rand_below(r, 13230u);         /* within 0.3 s */
+        h->v = 150 + (int32_t)tx_rand_below(r, 250u) + ((int32_t)e->vel - 100);   /* a drop of 1 .. 8 mm */
+        h->k = 4;                                            /* (a bounce or two, then perhaps a late slip) */
+        h->alive = 1;
+    }
+}
+
 TX_AUDIO_CODE static void glass_render(void *st, int32_t *mix, unsigned n)
 {
     glass_t *s = (glass_t *)st;
@@ -254,7 +355,10 @@ TX_AUDIO_CODE static void glass_render(void *st, int32_t *mix, unsigned n)
     k = tx_cloud_block(&s->cloud, s->ev, n);
     if (!k && s->quiet) return;
     for (j = 0; j < n; j++) s->buf[j] = s->bpush[j] = 0;
-    for (i = 0; i < k; i++) glass_break(s, &s->ev[i]);
+    for (i = 0; i < k; i++)
+        if (s->kind == K_BOTTLES) bottles(s, &s->ev[i]);
+        else if (s->kind == K_SHARDS) shards(s, &s->ev[i]);
+        else glass_break(s, &s->ev[i]);
     /* impacts of this block, shard by shard; a ringing shard renders up to each of its impacts */
     for (i = 0; i < NF; i++) {
         shard_t *h = &s->sh[i];
@@ -265,6 +369,7 @@ TX_AUDIO_CODE static void glass_render(void *st, int32_t *mix, unsigned n)
             impact(s, h, o, h->v);
             h->k++;
             h->v = (int32_t)(((int64_t)h->v * s->e_q15) >> 15);
+            if (s->kind == K_BOTTLES && (h->v < 50 || h->k > 6)) { h->alive = 0; break; }   /* (held in hand: no tumble) */
             if (h->v < 50 || (h->k > 6 && h->k < 16)) {     /* bounced out: it settles, tumbles, slides into others: */
                 uint32_t l;                                  /* 0-6 late knocks, Omori-like (c 0.2 s, p 1.5) over */
                 if (h->k >= 16 + 6 || (tx_rand(&s->cloud.rng) >> 28) == 0) { h->alive = 0; break; }   /* ~3 s (ours) */

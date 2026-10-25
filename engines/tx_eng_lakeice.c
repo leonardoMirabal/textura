@@ -43,13 +43,35 @@ static const tx_param_t PARAMS[NP] = {
     {"THICK", 127, 64, "ice thickness h: 2 .. 30 cm (log): faster sweeps, singing tone (f h) / h = 1550 .. 100 Hz"},
     {"DIST", 127, 64, "distance of the crack at C4: 5 .. 500 m (log): longer sweeps, later air wave, quieter"},
     {"RATE", 127, 40, "cracks per second while a key is held: 0.1 .. 10 (log)"},
-    {"ICE", 127, 0, "ice type: fresh lake ice (f h 31 Hz m) .. sea ice (48 Hz m)"},
+    {"ICE", 127, 0, "fresh lake ice (f h 31 Hz m) | sea ice (48 Hz m) | a frozen lake booming far off | thin ice "
+                     "cracking underfoot (a puddle, a pond's edge) (32 each)"},
     {"COLD", 127, 80, "temperature: near 0 C (wet, Q ~60, dull) .. -20 C (Q ~500, ringing)"},
 };
 
 #define NV 8u
 #define NAIR 16u
 #define CHIRP_L2 (13 << 16)        /* chirp start amplitude at 50 m, median crack: 2^13 Q15 = -12 dBFS (calibrated) */
+
+/* the kinds (ICE; ours, set against the references, analysis only) */
+typedef struct {
+    int32_t dx, dh;                /* distance and thickness re DIST's and THICK's, log2 Q16 */
+    uint16_t fh;                   /* f h, Hz mm (0: fresh, 31 .. 35 by ICE) */
+    uint8_t boom;                  /* the boom re a crack's, Q4 */
+    uint8_t burst;                 /* cracks per press (a step on thin ice breaks several) */
+    uint16_t spread;               /* over ms */
+    uint8_t near, pad;             /* near: at the feet (1 .. 3 m), DIST unused */
+    uint16_t rate, out;            /* the cracking rate re RATE's, its level: Q8 */
+} lkind_t;
+static const lkind_t LK[4] = {
+    {0, 0, 0, 16, 1, 0, 0, 0, 256, 256},                    /* fresh lake ice */
+    {0, 0, 48000, 16, 1, 0, 0, 0, 256, 256},                /* sea ice */
+    /* a lake booming far off: 4 x farther (long whistling sweeps, the air wave late and dull), 2 x thicker, its
+     * booms (the sheet's thermal cracks thumping it) 4 x louder, half as often (the references: rumbling ice) */
+    {131072, 65536, 0, 64, 1, 0, 0, 0, 128, 512},
+    /* thin ice underfoot: 8 x thinner (2.5 mm .. 4 cm: the sweeps fast and high, the tone high), at the feet; a step
+     * breaks 4 or so within ~0.25 s, no boom (the references: walking on thin ice, 1.5-10 kHz, a step a second) */
+    {0, -196608, 20000, 0, 4, 250, 1, 0, 256, 80},
+};
 
 typedef struct { uint32_t due; int32_t amp, hl2; uint16_t dur, boom; } air_t;   /* hl2: the crack's local thickness; boom: its pitch, Hz */
 
@@ -61,12 +83,14 @@ typedef struct {
     tx_pulses_t clicks;
     air_t air[NAIR];
     tx_svf_t tone, boom;
+    int32_t hpl;                    /* near: the lows taken out (underfoot: no sheet-wide sweep below ~700 Hz) */
     int32_t bf, bgin;               /* the boom's coefficient, input gain */
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t ex[TX_BLOCK], buf[TX_BLOCK], bx[TX_BLOCK];
     uint32_t now, tsilent, tmax;      /* samples since the tone was last rung; its 3 T60 bound */
     uint8_t p[NP], quiet, pend;     /* pend: the first key's crack still to come (pnote, pvel) */
     uint8_t pnote, pvel, pad2[2];
+    const lkind_t *k;
     int32_t level, h_l2, x_l2, q, tf, tg, tq;
     uint16_t dropped;
     tx_vary_t vy;
@@ -79,9 +103,9 @@ typedef struct {
  * crack's own local thickness: no two cracks ring the same note, and a ringing tone glides to the next */
 static void tone_set(ice_t *s, int32_t hl2)
 {
-    uint32_t fh = 31000u + (uint32_t)s->p[P_ICE] * 134u;     /* Hz mm */
+    uint32_t fh = s->k->fh ? s->k->fh : 31000u + (uint32_t)s->p[P_ICE] * 134u;     /* Hz mm */
     uint32_t h = tx_exp2(hl2), f = fh / (h ? h : 1u);
-    int32_t q = s->q > 48 ? 48 : s->q;
+    int32_t q = s->q > (s->k->near ? 4 : 48) ? (s->k->near ? 4 : 48) : s->q;   /* (near: a broad knock of the broken plate) */
     s->tf = tx_svf_coef(f);
     s->tq = (int32_t)(16384u / (uint32_t)(q > 2 ? q : 2));
     s->tg = (int32_t)tx_svf_gin_noise(f, (uint32_t)q * 16u);
@@ -96,7 +120,11 @@ static void set_param(ice_t *s, unsigned id, unsigned v)
     switch (id) {
     case P_THICK: s->h_l2 = 283241 + (int32_t)(v * 2016u); break;         /* log2(20 mm) + v log2(15) / 127 */
     case P_DIST: s->x_l2 = 587592 + (int32_t)(v * 3428u); break;          /* log2(500 cm) + v log2(100) / 127 */
-    case P_RATE: tx_cloud_rate(&s->cloud, tx_knob_exp(v, 26u, 435383)); break;   /* 0.1 .. 10 /s */
+    case P_RATE: case P_ICE:
+        s->k = &LK[s->p[P_ICE] >> 5];
+        tx_cloud_rate(&s->cloud, (tx_knob_exp(s->p[P_RATE], 26u, 435383) * s->k->rate) >> 8);   /* 0.1 .. 10 /s */
+        tx_cloud_burst(&s->cloud, s->k->burst, s->k->spread);
+        break;
     case P_COLD: s->q = (int32_t)tx_knob_exp(v, 60u, 200540); break;      /* Q 60 .. 500 (3.06 oct) */
     default: break;
     }
@@ -120,6 +148,7 @@ static void ice_init(void *st, uint32_t seed)
     s->q = 60;
     s->bf = tx_svf_coef(80u);
     s->bgin = (int32_t)tx_svf_gin_noise(80u, 256u);
+    s->k = &LK[0];
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
@@ -168,9 +197,9 @@ static void crack(ice_t *s, const tx_event_t *e)
     /* no two cracks alike (the user's session 3): each one somewhere else on the sheet (distance +-0.8 oct), through
      * ice of its own local thickness (+-0.3 oct: sweep and tone), with +-3 dB of energy (ours) */
     int32_t jx = tx_rand_s15(r) * 2;                         /* (its level change halved below: playable peaks) */
-    int32_t xl2 = s->x_l2 - ((int32_t)e->note - 60) * 5461 + jx;
+    int32_t xl2 = (s->k->near ? 473800 : s->x_l2 + s->k->dx) - ((int32_t)e->note - 60) * 5461 + jx;   /* (near: 1.5 m) */
     int32_t size = e->size_l2 * 8 + ((int32_t)e->vel - 100) * 819 + (tx_rand_s15(r) >> 1);
-    int32_t hl2 = s->h_l2 + tx_rand_s15(r);
+    int32_t hl2 = s->h_l2 + s->k->dh + tx_rand_s15(r);
     uint32_t x, stolen, i;
     int32_t a, lx;
     xl2 = xl2 < 435412 ? 435412 : xl2 > 1175000 ? 1175000 : xl2;   /* 1 .. 2500 m */
@@ -228,7 +257,7 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
             ex[off] += w->amp * 2048;                        /* rings the sheet's tone (calibrated by render) */
             s->bf = tx_svf_coef(w->boom);                    /* and its boom, at this crack's own pitch */
             s->bgin = (int32_t)tx_svf_gin_noise(w->boom, 256u);
-            bx[off] += w->amp * 1024;
+            bx[off] += (w->amp * 64) * s->k->boom;            /* (x 1024 at boom 16) */
             w->amp = 0;
         }
     }
@@ -248,7 +277,21 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
     }
     s->now += n;
     tx_vary_block(&s->vy, buf, n);
-    tx_trim(buf, n, OUT_TRIM);
+    if (s->k->near) {   /* a one-pole high-pass at ~700 Hz (c = 1/8 - 1/64 ~ 2 pi 700 / fs): the references are flat 0.5-12 kHz */
+        int32_t l = s->hpl, nz = 0;
+        for (j = 0; j < n; j++) {
+            int32_t x = buf[j] - l;
+            nz |= buf[j];
+            l += (x >> 3) - (x >> 6);
+            buf[j] = x;
+        }
+        if (!nz && l > -4096 && l < 4096) {                  /* (silent in: its last residue let go, not held) */
+            for (j = 0; j < n; j++) buf[j] = 0;
+            l = 0;
+        }
+        s->hpl = l;
+    }
+    tx_trim(buf, n, (OUT_TRIM * s->k->out) >> 8);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (s->pool.rejected - rej0) + s->dropped);
     s->dropped = 0;
