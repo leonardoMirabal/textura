@@ -6,7 +6,7 @@
  *   crack      fracture pulses as the block detaches (< 1 s): a few sharp, bright cracks;
  *   impact     the intact mass hits ~1.7 s later (R2), breaking up: one big hit and 2-5 follow-ups within ~1 s;
  *   free fall  silence, sqrt(2 h / g) (R2: 7.5 s for 271 m);
- *   fragments  impacts on the talus with a rate decaying over FRAG (3 .. 12 s; R2: ~40 s, compressed to play: ours),
+ *   fragments  impacts on the talus with a rate decaying over FRAG (4 .. 13 s; R2: ~40 s), 3 .. 80 per s,
  *              ~1 Hz surges (R5), sizes from a power law V^-beta (R4: 1.43 .. 2.27), and the rattle of the smallest bits
  *              (SHAKER, PhISEM).
  * Every hit: loudness ~ momentum m v (R1), x sqrt(radiated share) (10^-6 soft marl .. 10^-3 hard rock, R1); a Hertz
@@ -39,7 +39,7 @@ enum { P_VOLUME, P_HEIGHT, P_FRAG, P_GROUND, P_DIST, NP };
 static const tx_param_t PARAMS[NP] = {
     {"VOLUME", 127, 64, "rock volume: 0.01 .. 10 m^3 (log): bigger main block, more fragments, louder (m v)"},
     {"HEIGHT", 127, 50, "fall height: 5 .. 100 m (log): silence sqrt(2 h / g) 1 .. 4.5 s, impact speed sqrt(2 g h)"},
-    {"FRAG", 127, 64, "fragmentation: a few big blocks (beta 1.4, 3 s) .. many small (beta 2.3, 12 s of talus)"},
+    {"FRAG", 127, 64, "fragmentation: a few big blocks (beta 1.4, 4 s) .. many small (beta 2.3, 13 s of tumbling talus)"},
     {"GROUND", 127, 80, "ground: soft (marl: dull, quiet) .. hard rock (bright, loud): radiated share 1e-6 .. 1e-3"},
     {"DIST", 127, 40, "distance: 30 m .. 3 km (log): quieter, darker; far: the 70-120 Hz rumble"},
 };
@@ -90,7 +90,7 @@ static void set_param(rock_t *s, unsigned id, unsigned v)
     case P_HEIGHT: s->h_l2 = 152170 + (int32_t)(v * 2224u); break;        /* log2(5 m) + v log2(20) / 127 */
     case P_FRAG:
         s->beta_inv = (int32_t)(4096u * 4096u / (1720u + v * 21u));   /* 1 / (beta - 1), beta 1.42 .. 2.27, Q12 */
-        s->frag_ms = 3000u + v * 71u;                        /* 3 .. 12 s (R2: ~40 s, compressed) */
+        s->frag_ms = tx_knob_exp(v, 4000u, 111400);          /* 4 .. 13 s (log; R2: ~40 s, a tap quiet within 20 s) */
         break;
     case P_GROUND: s->share_l2 = -1306000 + (int32_t)(v * 5142u); break;  /* log2(1e-6) .. log2(1e-3) */
     case P_DIST: {
@@ -116,7 +116,7 @@ static void rock_init(void *st, uint32_t seed)
     tx_cloud_rate(&s->cloud, 0);
     tx_pulses_init(&s->pul);
     tx_shaker_init(&s->talus, seed ^ 0x70C4u);
-    tx_shaker_res(&s->talus, 0, 3800, 14745);                /* grit on the talus: ~3.8 kHz, r 0.9 (ours) */
+    tx_shaker_res(&s->talus, 0, 1800, 14745);                /* grit on the talus: ~1.8 kHz, r 0.9 (references: 0.6-2.5 kHz) */
     tx_shaker_objects(&s->talus, 400u << 4, 3000);
     tx_shaker_decay(&s->talus, 400, 31457);
     tx_noise_init(&s->rumble, seed ^ 0x4B4Du);
@@ -158,14 +158,19 @@ static void hit(rock_t *s, unsigned off, int32_t lr, int32_t lv, int32_t l)
 {
     /* t_c = 1.3 ms (R / 0.25 m) (v / 10)^-0.2 x (soft ground: up to x 4), samples */
     int32_t soft = (-955000 - s->share_l2) / 5;              /* 0 at 1e-3 .. ~2 octaves at 1e-6 */
-    int32_t lt = 336500 + (lr + 131072) - (lv - 217706) / 5 + (soft > 0 ? soft : 0);   /* log2(57 samples) = 5.83 */
+    uint32_t u = tx_rand(&s->cloud.rng);                     /* each knock its own: a face, an edge, a corner */
+    int32_t lt = 336500 + (lr + 131072) - (lv - 217706) / 5 + (soft > 0 ? soft : 0)   /* log2(57 samples) = 5.83 */
+                 + (int32_t)(u >> 16) - 32768;                 /* contact +-0.5 octave */
     uint32_t dur = tx_exp2(lt < (1 << 16) ? (1 << 16) : lt > (12 << 16) ? (12 << 16) : lt);
     int32_t a = l > (15 << 16) ? 32767 : l < 0 ? 0 : (int32_t)tx_exp2(l);
     a = (int32_t)(((int64_t)a * s->level) >> 15);
     if (a < 4) return;
     tx_pulse_start(&s->pul, TX_PULSE_SHAPE_HERTZ, dur, a, off);
-    if (s->share_l2 > -1150000)                              /* hard ground: the stone's own bright click (ours) */
-        tx_pulse_start(&s->pul, TX_PULSE_SHAPE_NWAVE, 4u + (dur >> 6), a / 3, off);
+    if (s->share_l2 > -1150000) {                            /* hard ground: the stone's own bright click (ours), its
+                                                              * share 1/12 .. 2/3 by the corner that strikes */
+        int32_t c = (int32_t)(((int64_t)a * tx_exp2((int32_t)(u & 0xFFFFu) * 3 + (13 << 16))) >> 16);   /* a / 8 .. a */
+        tx_pulse_start(&s->pul, TX_PULSE_SHAPE_NWAVE, 4u + (dur >> 6), (u & 0x10000u) ? c : (c * 2) / 3, off);
+    }
 }
 
 static void trigger(rock_t *s, const tx_event_t *e)
@@ -219,12 +224,13 @@ static void fall_block(rock_t *s, fall_t *f, unsigned n, int32_t *talus_e)
             uint32_t el = f->next - f->t_frag, span = f->t_end - f->t_frag;
             int32_t decay = 32768 - (int32_t)(((el >> 5) << 15) / ((span >> 5) ? (span >> 5) : 1u));   /* 1 .. 0 */
             int32_t surge = 32768 + (tx_sin_q15(el * 97391u) >> 1);           /* ~1 Hz */
-            int32_t sz = tx_cloud_pareto(&s->cloud, s->beta_inv, 6 << 12);   /* volume: up to 6 octaves below */
+            int32_t sz = tx_cloud_pareto(&s->cloud, s->beta_inv, 9 << 12);   /* volume: up to 9 octaves below (debris) */
             int32_t lfr = f->lr_main - 131072 - sz * 16 / 3;                  /* R ~ V^(1/3) */
             uint32_t gap;
             hit(s, off, lfr, lv - 65536, f->l_main - (2 << 16) - sz * 16);   /* m v: smaller, slower */
             *talus_e += (decay * (surge >> 4)) >> 9;
-            gap = 11289600u / (2u + (uint32_t)(((decay >> 8) * (surge >> 8) * 23) >> 14));   /* 2 .. ~36 /s, Q8 samples */
+            gap = 11289600u / (3u + (uint32_t)(((decay >> 8) * (surge >> 8) * 50) >> 14));   /* 3 .. ~80 /s, Q8 samples:
+                                                              * the debris tumbling between the big knocks (references) */
             f->next += 1u + (tx_cloud_exp_q8(&s->cloud, gap) >> 8);
         } else {
             f->alive = 0;

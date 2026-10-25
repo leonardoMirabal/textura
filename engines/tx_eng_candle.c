@@ -17,6 +17,12 @@
  *   crackle  wick / wax micro-bursts: Poisson events per flame (~6 / s at the default, as the wood-wick references'
  *            7-12 onsets / s), power-law sizes (b 1.4, as fracture E33), each a burst of 2-6 sharp clicks over 1-6 ms;
  *            a bigger one when a flame is lit.
+ *   jet      a gas flame's fuel jet is a turbulent jet of its own: a hiss at St U / d (St ~0.2; ~1 mm orifice, 15-45 m/s:
+ *            2.5-7 kHz), its power rising steeply with the flow (Lighthill: U^8; ours, from FLOW 64 up, x the brightness
+ *            of SLOPE): the gas burner's and the torch's 2-8 kHz hiss over the roar (references, note 18).
+ *   gusts    in a draught the flame is blown: gusts arrive as events (Poisson, (DRAUGHT / 127)^2 x 2 per s), each its own
+ *            strength (log-uniform up to +24 dB of roar, deeper with the draught), rise (25-90 ms) and fall (0.1-0.6 s),
+ *            the flicker deepening while it lasts: a candle in the wind's 15-23 dB level range, its whoomps (references).
  * Realism pass (reference recordings, analysis only): a candle is quiet, broadband (-2 dB / oct) and crackly, its
  * level wandering slowly (0.5-1.3 Hz, 1.5-3 dB): so the still-air flicker no longer modulates the roar (a 12 Hz
  * tremolo read as synthetic), the roar is broader (Q 0.5) and lower (from 120 Hz), and quieter at the default. */
@@ -27,7 +33,7 @@
 #include "tx_core_noise.h"
 #include "tx_core_pulse.h"
 
-#define OUT_TRIM 11410               /* output gain, Q12 (+8.3 dB): integrated (a key held 10 s): -39.9 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 10170               /* output gain, Q12 (+7.3 dB; -1 dB with the louder pops, note 18): integrated (a key held 10 s): -39.9 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
                                     * lowered 1.9 dB: the default chord <= +12 dBFS, the max scene <= +24 dBFS) */
 
@@ -65,7 +71,7 @@ typedef struct {
 
 typedef struct {
     tx_cloud_t cloud;
-    tx_noise_t roar;
+    tx_noise_t roar, jet;
     tx_pulses_t ticks;
     tx_dcblock_t hp;
     flame_t fl[NFL];
@@ -78,6 +84,9 @@ typedef struct {
     int32_t kappa, lag;            /* coupling (Q15 of the flicker step) and lag (0 or pi as a phase) */
     int32_t draught;               /* Q15 */
     int32_t gust;                  /* slow random gain, Q15 signed */
+    int32_t jet_g;                 /* the jet's hiss gain (Q15, 0: none) */
+    int32_t ge, gpk;               /* a gust: its gain now and its peak (log2 Q16); */
+    uint8_t gup, gdec, gatt, gpad; /* rising, its fall and rise (shifts per block) */
     uint16_t dropped;
     tx_vary_t vy;
 } candle_t;
@@ -102,6 +111,12 @@ static void set_roar(candle_t *s)
     tx_noise_band(&s->roar, fpk, 8, TX_NOISE_BAND);      /* Q 0.5: broad */
     tx_noise_tilt(&s->roar, fc);
     s->flow_g = (int32_t)tx_exp2((15 << 16) - (int32_t)((127u - fv) * 2580u));   /* 2^(-5 (1 - v/127)): -30 dB */
+    if (fv > 64u) {                                          /* the jet: 2.5 .. 7 kHz, (U / U_max)^8 over FLOW 64 .. 127 */
+        uint32_t u = fv - 64u;
+        tx_noise_band(&s->jet, 2500u + u * 71u, 11, TX_NOISE_BAND);   /* Q 0.7 */
+        s->jet_g = (int32_t)tx_exp2((8 << 16) - (int32_t)((63u - u) * 4161u)   /* 8 log2(U): -72 dB at FLOW 64, -42 dB re the roar gain at 127 (its band is not tilted) */
+                                    - (int32_t)s->p[P_SLOPE] * 516);              /* darker SLOPE: -6 dB at 89 */
+    } else s->jet_g = 0;
 }
 
 static void set_param(candle_t *s, unsigned id, unsigned v)
@@ -133,6 +148,7 @@ static void candle_init(void *st, uint32_t seed)
     tx_cloud_burst(&s->cloud, 1, 0);                         /* lighting a flame: one tick */
     tx_cloud_sizes(&s->cloud, 5734, 8u << 12);               /* b = 1.4 over 8 octaves (2.4 decades) of energy */
     tx_noise_init(&s->roar, seed ^ 0x5EEDF1A3u);
+    tx_noise_init(&s->jet, seed ^ 0x1E7A11CEu);
     tx_pulses_init(&s->ticks);
     s->limit = NFL;
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
@@ -198,7 +214,21 @@ static int32_t flames(candle_t *s)
     }
     if (!n) return 0;
     s->gust += (tx_rand_s15(r) - s->gust) >> 4;              /* slow random gain (~1 Hz) */
-    depth = (int32_t)(((uint32_t)s->draught * 19661u) >> 15) + (int32_t)(n - 1u) * 2621;   /* still air: steady */
+    {   /* gust events: (d / 127)^2 x 2 per s, each its own strength, rise and fall */
+        uint32_t d = (uint32_t)s->draught >> 8, p = d * d * 2u * 256u / 16129u;   /* per s, x 256 per block / 44100 .. */
+        if (!s->gup && (tx_rand(r) >> 16) < (p * 65536u / 44100u)) {   /* (p: per s x 256 / fs, a block's chance) */
+            uint32_t u = tx_rand(r);
+            s->gpk = (int32_t)(((u >> 16) * (4u * 65536u >> 4)) >> 12) * (int32_t)(38u + d * 90u / 127u) / 128   /* 0 .. 4 oct, */
+                     * (int32_t)(136u - s->p[P_FLOW]) / 136;     /* less over a roaring burner (0.3 oct at full flow) */
+            s->gatt = (uint8_t)(1u + ((u >> 8) & 1u) + ((u >> 9) & 1u));   /* rise ~25-90 ms */
+            s->gdec = (uint8_t)(4u + ((u >> 4) % 3u));                      /* fall ~0.1-0.6 s */
+            s->gup = 1;
+        }
+        if (s->gup) { s->ge += (s->gpk - s->ge) >> s->gatt; if (s->ge >= s->gpk - 2048) s->gup = 0; }
+        else s->ge -= s->ge >> s->gdec;
+        if (s->ge < 64) s->ge = 0;
+    }
+    depth = (int32_t)(((uint32_t)s->draught * 19661u) >> 15) + (int32_t)(n - 1u) * 2621 + (s->ge >> 3);   /* still air: steady; a gust flutters */
     if (depth > 31130) depth = 31130;
     for (i = 0; i < NFL; i++) {
         flame_t *f = &s->fl[i];
@@ -214,16 +244,19 @@ static int32_t flames(candle_t *s)
         f->th += f->w + (uint32_t)((int32_t)(f->w >> 15) * jit) + (uint32_t)c;
         m = 32768 + ((tx_sin_q15(f->th) * depth) >> 15);
         {
-            int32_t gm = (s->gust * ((s->draught >> 3) + 2400)) >> 10;   /* gust x 4 x draught, + a slow wander in still
+            int32_t gm = (s->gust * ((s->draught >> 2) + 2400)) >> 10;   /* gust x 8 x draught, + a slow wander in still
                                                               * air (references: rms std 1.5-3 dB at 0.5-1.3 Hz) */
-            gm = gm > 24576 ? 24576 : gm < -24576 ? -24576 : gm;
+            gm = gm > 24576 ? 24576 : gm < -27853 ? -27853 : gm;
             m = (m >> 1) * ((32768 + gm) >> 1) >> 13;
         }
         if (m < 0) m = 0;
         g[i] = (f->amp >> 1) * (m >> 1) >> 13;
         sum += (uint32_t)((g[i] >> 3) * (g[i] >> 3));
     }
-    return (int32_t)(isqrt32(sum) << 3);
+    {
+        uint32_t gg = isqrt32(sum) << 3;
+        return (int32_t)(((uint64_t)gg * tx_exp2(s->ge + (12 << 16))) >> 12);   /* x the gust */
+    }
 }
 
 TX_AUDIO_CODE static void candle_render(void *st, int32_t *mix, unsigned n)
@@ -237,8 +270,9 @@ TX_AUDIO_CODE static void candle_render(void *st, int32_t *mix, unsigned n)
     k = tx_cloud_block(&s->cloud, s->ev, n);
     for (i = 0; i < k; i++) {                                /* sputter ticks (a bigger one at lighting) */
         const tx_event_t *e = &s->ev[i];
-        int32_t l2 = (13 << 16) + e->size_l2 * 8 + (e->kind == TX_EV_MAIN ? (1 << 16) : 0);   /* -12 dBFS .. */
-        uint32_t a = tx_exp2(l2 > (14 << 16) + 32768 ? (14 << 16) + 32768 : l2);        /* .. -3 dBFS */
+        int32_t l2 = (14 << 16) + e->size_l2 * 8 + (e->kind == TX_EV_MAIN ? (1 << 16) : 0);   /* -6 dBFS .. */
+        uint32_t a = tx_exp2(l2 > (16 << 16) ? (16 << 16) : l2);                         /* .. +6 dBFS (the near pops
+                                                              * stand 12-20 dB over the roar: references, note 18) */
         a = (a * e->vel) >> 7;
         a = (uint32_t)(((uint64_t)a * (uint32_t)s->level) >> 15);
         {   /* a crackle: 2-6 sharp clicks within ~1-6 ms (a burst), random signs, each weaker (references: attack 1.5-6 ms,
@@ -259,12 +293,13 @@ TX_AUDIO_CODE static void candle_render(void *st, int32_t *mix, unsigned n)
     g = (int32_t)(((uint64_t)(uint32_t)g * ROAR_G) >> 15);
     g = (int32_t)(((uint64_t)(uint32_t)g * (uint32_t)s->level) >> 15);
     tx_noise_roar_add(&s->roar, g, buf, n);
+    tx_noise_roar_add(&s->jet, (int32_t)(((int64_t)g * s->jet_g) >> 15), buf, n);   /* the jet follows the flames' gains */
     tx_pulses_add(&s->ticks, buf, n);
     tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
-    s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !g && !s->roar.gain && !tx_pulses_active(&s->ticks)
+    s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !g && !s->roar.gain && !s->jet.gain && !tx_pulses_active(&s->ticks)
                          && !s->hp.x1 && !s->hp.y1);
 }
 
