@@ -93,6 +93,10 @@ def main():
         bt = page.eval_on_selector_all("#fam-box .snd button", "b => b.map(x => x.textContent)")
         check(fm["names"][3] == "nightingale" and bt == fm["names"] and fm["snd"] == [0, 1, 2, 3] and not any(page.evaluate("window.txTest.src()")["run"]),
               f"a landscape picked (Songbirds): every sound stopped, its sounds on the black keys {bt}")
+        v = page.evaluate("[window.txTest.vol(0, 40), (window.txTest.family(1), window.txTest.family(6), window.txTest.vol(0))]")
+        nv = page.eval_on_selector_all("#lanes-box .vol", "x => x.length")
+        check(v == [40, 40] and nv == 4, f"a volume per sound: set 40, kept with the sound across landscapes ({v}), {nv} volume sliders")
+        page.evaluate("window.txTest.vol(0, 100)")
         page.evaluate("window.txTest.family(0)")
         page.evaluate("window.txTest.setLaneMode(false)")   # (the classic checks below: lane mode off, layers 2-4 off)
         for k in (1, 2, 3):
@@ -379,8 +383,8 @@ def main():
             time.sleep(1.6)
             st = page.evaluate("window.txTest.src()")
             fl = st["quick"][2]["cur"].get("FLOW", -1)
-            check(st["eng"][2] == "stream" and st["run"][2] and st["held"][2] and abs(fl - (10 + 117 * 7 / 14)) < 30 and st["lit"] == 5,
-                  f"quick lane: stream at step 8 holds itself, FLOW {fl:.1f} (68.5 at the fader, the generator wandering around it), {st['lit']} keys lit")
+            check(st["eng"][2] == "stream" and st["run"][2] and st["held"][2] and abs(fl - (10 + 117 * 0.25)) < 20 and st["lit"] == 5,
+                  f"quick lane: stream, one of it at activity 4 of 8, holds itself, FLOW {fl:.1f} (39 at the faders, the generator wandering around it), {st['lit']} keys lit")
             key(68)                                          # G#4: sound 4 (stream); thunder there (one-shot: re-pressed at its rate)
             page.evaluate(f"window.txTest.selectEngine({names.index('thunder')})")
             key(84)                                          # C6: the most

@@ -111,6 +111,7 @@ async function init() {
   window.txTest.setLaneMode = setLaneMode;
   window.txTest.landscape = startLandscape;
   window.txTest.sound = laneSound;
+  window.txTest.vol = (k, v) => laneVol(k, v);
   window.txTest.family = f => { setFamily(f); return { fam, snd: [...laneSnd], names: FAMILIES[fam][1].map((_, i) => soundName(i)) }; };
   window.txTest.gov = (budget) => { if (budget) M._txw_gov_budget(budget); return [0, 1, 2, 3].map(k => [M._txw_gov_cur(k), M._txw_gov_user(k)]); };
   window.txTest.gen = k => ({ on: gen[k].on, state: genState(k), step: gen[k].step });
@@ -496,6 +497,14 @@ const laneSnd = [-1, -1, -1, -1];                    // each lane's sound in the
 // octave's 8 HOW ACTIVE each one is (rare .. busy: the generator's ACTIVITY, 0 .. 127, kept as a step on the 0 .. 14 scale)
 const COUNT_V = [0, 1, 22, 43, 64, 85, 106], NCNT = 7, NACT = 8;
 const laneCnt = [0, 0, 0, 0];
+const sndVol = {};                                   // each sound's volume (the lane's LEVEL, 100 = unity), by landscape and sound
+function volKey(k) { return `${fam}:${laneSnd[k]}`; }
+function laneVol(k, v) {                             // a lane's volume: kept with its sound
+  if (v !== undefined && laneSnd[k] >= 0) sndVol[volKey(k)] = v;
+  const x = laneSnd[k] >= 0 && volKey(k) in sndVol ? sndVol[volKey(k)] : 100;
+  M._txw_slot(k); M._txw_param(-2, x); M._txw_slot(ed); layers[k].vals[-2] = x;
+  return x;
+}
 function actStep(a) { return 1 + Math.round(a * 13 / (NACT - 1)); }        // HOW ACTIVE 0 .. 7 -> step 1 .. 14
 function actVal(step) { return step <= 0 ? 0 : Math.round((step - 1) * 127 / 13); }   // step 1 .. 14 -> ACTIVITY 0 .. 127
 function actOf(step) { return Math.max(0, Math.round((step - 1) * (NACT - 1) / 13)); }
@@ -603,9 +612,14 @@ function pidOf(k, name) {                             // a parameter id of layer
   M._txw_slot(ed);
   return id;
 }
+function quickPos(k) {                               // a classic engine has no population: how many and how active
+  const c = laneMode ? Math.max(0, laneCnt[k] - 1) / (NCNT - 2) : 1;   // together move its density, 0 .. 1
+  return laneMode ? Math.min(1, 0.5 * c + 0.5 * quick[k].step / 14) : quick[k].step / 14;
+}
 function quickTargets(k) {                            // the parameter values for layer k's step
   const q = QUICK[engName(k)], t = {};
-  if (q) for (const [name, lo, hi] of q.p) t[name] = lo + (hi - lo) * quick[k].step / 14;
+  const x = quickPos(k);
+  if (q) for (const [name, lo, hi] of q.p) t[name] = lo + (hi - lo) * x;
   return t;
 }
 function quickTick() {                                // ~20 / s: the running quick lanes glide toward their step (~1 s)
@@ -614,7 +628,7 @@ function quickTick() {                                // ~20 / s: the running qu
     if (gen[k].on) quick[k].step = genState(k)[0] * 14 / 127;   // the generator's wandering activity
     const t = quickTargets(k), c = quick[k].cur;
     for (const name in t) {
-      const now = name in c ? c[name] : t[name], nx = Math.abs(t[name] - now) < 0.5 ? t[name] : now + (t[name] - now) * 0.15;
+      const now = name in c ? c[name] : t[name], nx = Math.abs(t[name] - now) < 0.5 ? t[name] : now + (t[name] - now) * 0.4;
       if (Math.round(nx) !== Math.round(now) || !(name in c)) {
         const id = pidOf(k, name);
         if (id >= 0) { M._txw_slot(k); M._txw_param(id, Math.round(nx)); M._txw_slot(ed); layers[k].vals[id] = Math.round(nx); }
@@ -629,7 +643,7 @@ function quickPress(k) {                              // a one-shot engine's nex
   if (!q || !q.every || !laneRun[k]) return;
   M._txw_key_slot(k, 60, 100, 1);
   setTimeout(() => M._txw_key_slot(k, 60, 0, 0), 150);
-  const [a, b] = q.every, mean = a * Math.pow(b / a, quick[k].step / 14);
+  const [a, b] = q.every, mean = a * Math.pow(b / a, quickPos(k));
   quick[k].timer = setTimeout(() => quickPress(k), Math.max(150, -Math.log(1 - Math.random()) * mean * 1000));
 }
 // THE LANE GENERATOR (tx_core_gen, in tx_web.c): when a lane's Notes are on, it sets the source's INTENSITY along a
@@ -684,6 +698,7 @@ function soundLoad(k, i) {                            // the family's sound i in
     if (srcIds.TYPE !== undefined) srcSet(k, "TYPE", type);
   }
   laneSnd[k] = i;
+  laneVol(k);
 }
 function soundName(i) { const s = FAMILIES[fam][1][i]; return s ? s[0].replace("#", "") : "–"; }
 function soundKey(i) {                                // the family's sound i: select its lane (loading it into a free one)
@@ -742,6 +757,7 @@ function laneCount(k, c) {                            // HOW MANY: 0 off (new ev
   laneCnt[k] = c;
   if (layers[k].eng === srcEng && srcIds && srcIds.COUNT !== undefined) srcSet(k, "COUNT", COUNT_V[c]);
   if (c <= 0) { if (laneRun[k]) laneStart(k, false); showSource(); return; }
+  if (laneRun[k] && layers[k].eng !== srcEng) quickTick();
   if (!laneRun[k]) laneStep(k, actStep(0));         // (started from off: rare, so the first key is 1 on both)
   else showSource();
 }
@@ -784,7 +800,8 @@ function showLanes() {                                // the LEDs: the bar on th
     d.dataset.k = i;
     d.innerHTML = `<span class="lab"></span><span class="bars"><span class="small">how many</span>` +
       `<span class="abar cbar" title="how many: click or drag (C4 off, then 1, 2, 4, 8, 16, 32)"></span>` +
-      `<span class="small">how active</span><span class="abar" title="how active each one is: click or drag (C5 rare .. C6 busy)"><i class="mk"></i></span></span>`;
+      `<span class="small">how active</span><span class="abar" title="how active each one is: click or drag (C5 rare .. C6 busy)"><i class="mk"></i></span>` +
+      `<span class="small">volume</span><input type="range" class="vol" min="0" max="127" aria-label="volume"></span>`;
     const [cbar, bar] = d.querySelectorAll(".abar");
     for (let w = 0; w < NCNT; w++) cbar.insertAdjacentHTML("beforeend", `<b data-w="${w}">${w ? 1 << (w - 1) : "off"}</b>`);
     for (let w = 0; w < NACT; w++) bar.insertAdjacentHTML("beforeend", `<b data-w="${w}"></b>`);
@@ -800,6 +817,10 @@ function showLanes() {                                // the LEDs: the bar on th
       el.addEventListener("pointermove", ev => { if (ev.buttons & 1) set(ev); });
     };
     fader(cbar, NCNT, w => laneCount(i, w));
+    const vol = d.querySelector(".vol");
+    vol.value = laneSnd[i] >= 0 && volKey(i) in sndVol ? sndVol[volKey(i)] : 100;
+    vol.title = `volume ${vol.value} (100 = as tuned)`;
+    vol.oninput = () => { laneVol(i, +vol.value); vol.title = `volume ${vol.value} (100 = as tuned)`; };
     fader(bar, NACT, w => laneStep(i, actStep(w)));
     box.appendChild(d);
     laneBar(i);
