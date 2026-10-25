@@ -188,7 +188,8 @@ static void drop(drip_t *s, const tx_event_t *e)
     {
         int32_t l = 662300 + (7 * (log2_q16(358u) - log2_q16(u))) / 4;   /* log2(1102.5) = 10.106 Q16 */
         wait = tx_exp2(l);
-        wait = wait + (uint32_t)(((int32_t)wait * (tx_rand_s15(r) / 4)) >> 15);
+        wait = wait > 4096u ? 4096u : wait;                  /* beyond, the clamp below gives 1984 anyway (no overflow) */
+        wait = wait +(uint32_t)(((int32_t)wait * (tx_rand_s15(r) / 4)) >> 15);
         wait = wait < 176u ? 176u : wait > 1984u ? 1984u : wait;
         wait += e->offset;
     }
