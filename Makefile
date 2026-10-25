@@ -26,6 +26,12 @@
 #   make tx-fx-tables  regenerate engines/tx_fx_tables.[ch] (the effects' tables)
 #   make tx-drive-tables   regenerate engines/tx_drive_tables.h (the DRIVE TYPEs' tables, from tools/drive_gen/: numpy)
 #   make tx-size       code size of each engines/ object (host arm64 -Os, a rough proxy for the device)
+#   make fw-host       the firmware on this computer (plans: UI-PLAN): build/fw/textura-host, a fake FM-1
+#                      (tests/host.c): build/fw/textura-host OUT [SCRIPT [FPS]] -> OUT.wav, OUT-<ms>.ppm
+#   make fw-test       the firmware's checks: tests/lanes_test.c (the lanes = the player's chain, sample for sample)
+#                      and every host script in tests/scripts/ (its expects)
+#   make fw-fonts      regenerate firmware/gen/felucca_font.h (every ASCII glyph of Terminus 8x16) with Frodhes'
+#                      tools/gen_font.py at FW_FONT_REV, read from its git (Frodhes' checkout is never changed)
 CC       ?= cc
 FRODHES  ?= ../frodhes
 CALIB    ?= 1
@@ -44,7 +50,7 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-.PHONY: tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-fx-tables tx-size tx-libcalls tx-clean
+.PHONY: fw-host fw-test fw-fonts tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -92,14 +98,42 @@ tx-baseline: $(B)/txtest
 tx-render: $(B)/txrender
 	@if [ -n "$(ENGINE)" ]; then $(B)/txrender $(ENGINE) $(or $(SCENE),max); else $(B)/txrender all; fi
 
-# engines/ compiled for a 32-bit soft-float target: any call to a 64-bit division or a float helper fails the check
+# ---- the firmware (UI-PLAN): firmware/src/textura.c, one compilation unit with Dinghy's platform (platform.c and
+# tests/host.c, from Frodhes v0.9.5, unchanged); the engines link beside it as their own objects
+FW        := build/fw
+FW_DEPS   := $(wildcard firmware/src/*.c firmware/src/*.h firmware/gen/*.h firmware/hal/*.h) tests/host.c
+CFLAGS_FW := -O2 -Wall -Wno-unused-function -DDINGHY_HOST -DAPP_VER='"dev"' -Ifirmware/src -Ifirmware/gen -Iengines
+FW_FONT_REV ?= v0.9.5
+
+$(FW)/textura-host: $(FW_DEPS) $(ENG_SRC) $(ENG_HDR)
+	@mkdir -p $(FW)
+	$(CC) $(CFLAGS_FW) -o $@ firmware/src/textura.c $(ENG_SRC) -lm
+
+$(FW)/lanes_test: tests/lanes_test.c firmware/src/lanes.c $(ENG_SRC) $(ENG_HDR)
+	@mkdir -p $(FW)
+	$(CC) $(CSTD) -Wno-unused-function -Ifirmware/src -O1 -g $(UBSAN) -o $@ tests/lanes_test.c $(ENG_SRC) -lm
+
+fw-host: $(FW)/textura-host
+
+fw-test: $(FW)/lanes_test $(FW)/textura-host
+	@$(FW)/lanes_test || exit 1; \
+	fail=0; for s in tests/scripts/*.txt; do n=$$(basename $$s .txt); \
+	  if $(FW)/textura-host $(FW)/$$n $$s > $(FW)/$$n.log 2>&1; then echo "ok    host $$n"; \
+	  else echo "FAIL  host $$n ($(FW)/$$n.log)"; fail=1; fi; done; exit $$fail
+
+fw-fonts:
+	@rm -rf $(FW)/fonts && mkdir -p $(FW)/fonts
+	git -C $(FRODHES) archive $(FW_FONT_REV) tools/gen_font.py assets/fonts/ter-u16n.bdf | tar -x -C $(FW)/fonts
+	python3 -I $(FW)/fonts/tools/gen_font.py --full firmware/gen/felucca_font.h
+
+# engines/ (and the firmware's lanes.c) compiled for a 32-bit soft-float target: any call to a 64-bit division or a float helper fails the check
 # (the device has no libgcc); 64-bit multiply instructions are counted for information (inner loops should have none)
 tx-libcalls:
 	@mkdir -p build/arm
 	@if ! echo 'int x;' | $(CC) --target=armv7m-none-eabi -ffreestanding -x c -S -o /dev/null - 2>/dev/null; then \
 	  echo "skip  libcalls: $(CC) has no 32-bit ARM target"; exit 0; fi; \
-	fail=0; for f in $(ENG_SRC); do o=build/arm/$$(basename $$f .c).s; \
-	  $(CC) --target=armv7m-none-eabi -mfloat-abi=soft -ffreestanding -O2 -Iengines -S -o $$o $$f || exit 1; \
+	fail=0; for f in $(ENG_SRC) firmware/src/lanes.c; do o=build/arm/$$(basename $$f .c).s; \
+	  $(CC) --target=armv7m-none-eabi -mfloat-abi=soft -ffreestanding -O2 -Iengines -Wno-unused-function -S -o $$o $$f || exit 1; \
 	  bad=$$(grep -E 'bl[[:space:]]+(__aeabi_(l|ul)divmod|__aeabi_[fd][a-z]+|__aeabi_[iul]+2[fd]|__aeabi_[fd]2|__(u)?(div|mod)di3|__.*(sf|df)[0-9]?)' $$o | sort -u); \
 	  m64=$$(grep -cE '^[[:space:]]+(smull|umull|smlal|umlal)' $$o); \
 	  if [ -n "$$bad" ]; then echo "FAIL  libcalls $$f: $$bad"; fail=1; else echo "ok    libcalls $$f (64-bit multiplies: $$m64)"; fi; \
@@ -190,4 +224,4 @@ tx-size:
 	size build/size/*.o
 
 tx-clean:
-	rm -rf build/bench build/wav build/calib build/arm build/size build/audition build/audition-check
+	rm -rf build/bench build/wav build/calib build/arm build/size build/audition build/audition-check build/fw

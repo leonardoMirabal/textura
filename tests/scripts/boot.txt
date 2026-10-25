@@ -1,0 +1,19 @@
+# Textura boot (UI-PLAN piece 1): the splash in RED, then lane 1 plays the SOURCE from the keys and from MIDI
+100 expect state app TEXTURA
+100 expect state palette RED
+500 expect state splash 1
+500 shot
+600 expect rms < -90
+2000 expect state splash 0
+2000 expect state lane0 source
+2100 shot
+2200 keys 0x80
+5000 expect rms > -60
+5000 keys 0
+5100 midi 0x90 72 110
+7000 expect rms > -60
+7000 midi 0x80 72 0
+7100 expect sound
+7100 expect state dropped 0
+7200 dump
+7200 end
