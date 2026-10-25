@@ -65,7 +65,7 @@ enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER, V_BIRD };
 
 static const tx_param_t PARAMS[NP] = {
     {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees | 11 ice | 12 wood | 13 minerals | 14 glass | 15 songbird | 16 chirper | 17 crow | 18 gull | 19 blackbird | 20 song thrush | 21 nightingale | 22 robin | 23 wren | 24 hermit thrush | 25 skylark | 26 wood thrush | 27 reed warbler | 28 curlew | 29 oystercatcher | 30 cuckoo | 31 woodpecker | 32 wood pigeon | 33 nightjar | 34 bittern"},
-    {"INTENSITY", 127, 64, "how active each individual is (COUNT says how many), on the preset's own scale and through its transition: a rain patch 0.2 .. 1500 drops/s (a stray drop .. a downpour on it), a stone 0.05 .. 30 knocks/s, a drip point one per 40 s .. 8 /s, a cicada rare short calls .. singing on, a bird singing now and then .. often; hosted engines: their own path (wind a calm .. 28 m/s, fire embers .. a blaze, ...)"},
+    {"INTENSITY", 127, 64, "how active each individual is (COUNT says how many), on the preset's own scale and through its transition: a rain patch 0.2 .. 1500 drops/s (a stray drop .. a downpour on it), a stone 0.05 .. 60 knocks/s, a drip point one per 40 s .. 8 /s, a cicada rare short calls .. singing on, a bird singing now and then .. often; hosted engines: their own path (wind a calm .. 28 m/s, fire embers .. a blaze, ...)"},
     {"ACTIVITY", 127, 64, "the rate (or the callers) alone, without the coupled physics: 64 = as INTENSITY says, +-8 octaves (+-5 for callers)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. the preset's own (64; Poisson for rain) .. even"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
@@ -157,9 +157,9 @@ static const clu_pre_t CLU[NPRE] = {
     /* rain: Poisson (the refs' 2 s level sd 0.3-0.8 dB); over the ground around, most drops far (a downpour's few near
      * drops stand out of its far mass: note 16, the dense end was a flat hiss) */
     {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {-10, -20}, {20, 75}, 2},
-    /* stones: runs and quiet spells; a knock sets others off (Omori), from a few (0.3) to an avalanche (0.85); pieces
-     * over the slope around, most far: a few near knocks stand out of the slide */
-    {{90, 90, 250}, 30, {30, 45, 85}, 1, 12, 30, -5, 10, {-10, -21}, {20, 42}, 2},
+    /* stones: runs and quiet spells (fewer at the top: a slide that does not stop); a knock sets others off (Omori),
+     * from a few (0.3) to an avalanche (0.85); pieces over the slope around, most far: a few near knocks stand out */
+    {{90, 90, 40}, 30, {30, 45, 85}, 1, 12, 30, -5, 10, {-10, -21}, {20, 42}, 2},
     /* cicadas: callers (their bouts in callers_block); over the ground around, most far */
     {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {-10, -15}, {20, 40}, 2},
     /* water: drip points come and go (runs), a drop's splash sets off another now and then */
@@ -183,11 +183,13 @@ static const clu_pre_t CLU[NPRE] = {
  * individuals past them are its far callers (FIELD, where it has one). Where each held key is an individual (bees: a singer;
  * fire: a log), the source holds down one key per individual COUNT asks for, at most k127 (<= 8, a few semitones
  * apart): more keys, more of them, coming one at a time; COUNT past them moves the first curve k64 knob units a
- * doubling (a fire: its logs burn livelier). With k0 set, a held key, picked at random, is pressed afresh every
+ * doubling (a fire: its logs burn livelier). k0 & 2: held in bouts below INTENSITY 64 (host_gate). With k0 & 1, a
+ * held key, picked at random, is pressed afresh every
  * 6 .. 16 s: a singer leaves and a new one comes with the parameters of now (these engines read them at a press; a
  * fire's logs just burn: a press there would throw a new log on, its burst louder than the fire it lands in). */
 #define HOST_NC 5u
 #define HOST_NK 5u                  /* character maps per hosted engine (HMAP) */
+#define GATE_ON 120u                /* a bout held, mean blocks (0.7 s) */
 #define HOST_HEROES 12u             /* an engine counting its own individuals: heroes at most (CPU: half the pool) */
 #define HOST_BYTES 12544u           /* the largest hosted engine's state (sand 12 464 B) */
 typedef struct { const char *name; int8_t v0; uint8_t v64, v127; } curve_t;   /* (v0 < 0: off until the line crosses 0) */
@@ -203,25 +205,25 @@ static const host_t HOST[] = {
     {"wind", 100, -73, -120, {{"WIND", 0, 64, 127}, {"GUST", 40, 70, 110}, {"WHOOSH", 30, 64, 90}, {"BUFFET", 30, 48, 80},
                     {"EDGE", 0, 12, 28}}, 1, 1, 4, 0, 0, 0, 0},
     /* stream: a trickle of plinks .. a babbling brook .. a torrent: bigger gulping bubbles, eddies, the low roar */
-    {"stream", -42, -42, -42, {{"FLOW", 10, 70, 127}, {"ROAR", 0, 0, 100}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
+    {"stream", -42, -42, -42, {{"FLOW", 10, 70, 105}, {"ROAR", 0, 0, 50}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
                             {"SPREAD", 80, 64, 45}}, 0, 0, 0, 0, 0, 0, 0},
     /* fire: embers (a rare crackle, a faint roar) .. a campfire .. a blaze (a big fire, dense crackles in bursts, roar, gusts) */
     {"fire", 110, 110, 80, {{"MOIST", 0, 25, 95}, {"SIZE", 20, 50, 100}, {"ROAR", -30, 28, 100}, {"DRAUGHT", 10, 30, 70},
-                          {"BURSTY", 0, 24, 40}}, 0, 26, 8, 0, 0, 0, 0},   /* (the top: no denser than the references, and
+                          {"BURSTY", 0, 24, 40}}, 2, 26, 8, 0, 0, 0, 0},   /* (the top: no denser than the references, and
                                                                      * under the output limiter: agent D, 2026-10-25) */
     /* crickets (COUNT: the engine's own, up to 32): each singing now and then .. all the time, a little in step,
      * warmer (a little faster) */
     {"crickets", -12, -12, -12, {{"ACTIVITY", 0, 64, 127}, {"SYNC", 30, 40, 50}, {"TEMP", 70, 76, 84}, {0, 0, 0, 0},
                              {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* sand: a trickle of grains through a narrow neck .. a pour .. a heavy pour from higher, pulsing */
-    {"sand", -37, -37, -37, {{"ORIFICE", 20, 50, 115}, {"HEIGHT", 30, 50, 90}, {"PULSE", 0, 0, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"sand", -37, -37, -37, {{"ORIFICE", 20, 50, 115}, {"HEIGHT", 30, 50, 90}, {"PULSE", 0, 0, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 16, 2, 0, 0, 0, 0},
     /* gravel: a few stones now and then .. footsteps on gravel .. a slide (many stones, long rattles) */
-    {"gravel", 16, 16, 16, {{"AMOUNT", 20, 64, 120}, {"RATE", 20, 59, 110}, {"SHAKE", 20, 30, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"gravel", 16, 16, 16, {{"AMOUNT", 20, 64, 120}, {"RATE", 20, 59, 110}, {"SHAKE", 20, 30, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 16, 4, 0, 0, 0, 0},
     /* katydids (COUNT: the engine's own, up to 16; they come and go on their own): a call now and then on a cold
      * night .. singing on, warm, falling into step */
     {"katydids", 0, 0, 0, {{"ACTIVITY", 0, 64, 127}, {"TEMP", 40, 76, 90}, {"SYNC", 40, 50, 64}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* bees: one bee wandering farther off, slower .. one at its ease .. a swarm of 8 close by */
-    {"bees", -45, -45, -45, {{"SWARM", 0, 0, 64}, {"DIST", 90, 50, 30}, {"SPEED", 40, 64, 80}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 1, 0, 4, 0, 0, 0, 0},
+    {"bees", -45, -45, -45, {{"SWARM", 0, 0, 64}, {"DIST", 90, 50, 30}, {"SPEED", 40, 64, 80}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 3, 0, 4, 0, 0, 0, 0},
     /* ice: an icicle breaking off now and then .. icicles falling every few seconds, more chunks each */
     {"ice", 175, 175, 100, {{"AMOUNT", 20, 64, 127}, {"FIZZ", 10, 20, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
      300, 70, 3, 1},                /* (the top: a pile of icicles shattering, 3-5 breaks/s as the references) */
@@ -236,20 +238,20 @@ static const host_t HOST[] = {
      400, 90, 3, 1},                /* (the top: a pane collapsing, 4-5 breaks/s) */
     /* the family members TYPE reaches (FAM below; note 16): */
     /* rain on surfaces (rain): drizzle on a roof .. a downpour, bigger drops */
-    {"rainsurf", -10, -10, -10, {{"RATE", 25, 70, 120}, {"DROPS", 40, 64, 110}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"rainsurf", -10, -10, -10, {{"RATE", -20, 60, 120}, {"DROPS", 40, 64, 110}, {"AREA", -20, 50, 50}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 16, 4, 0, 0, 0, 0},
     /* lake ice (ice): a crack now and then .. a lake singing and booming */
-    {"lakeice", -30, -30, -30, {{"RATE", 8, 34, 90}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"lakeice", -30, -30, -30, {{"RATE", 8, 34, 90}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 16, 4, 0, 0, 0, 0},
     /* rolling balls and marbles (gravel): a ball pushed now and then .. marbles rolling about */
-    {"pebble", -5, -5, -5, {{"SPEED", 40, 64, 96}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+    {"pebble", -5, -5, -5, {{"SPEED", 40, 64, 96}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 0, 0,
      60, 20, 6, 0},
     /* a flame without crackle (fire): a candle .. a gas burner roaring in a draught */
-    {"candle", 30, 30, 30, {{"FLOW", 5, 15, 90}, {"DRAUGHT", 5, 20, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"candle", 30, 30, 30, {{"FLOW", 5, 15, 90}, {"DRAUGHT", 5, 20, 70}, {"SPUTTER", 30, 100, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 0, 8, 0, 0, 0, 0},
     /* singing dunes (sand): a slip below the threshold .. a booming avalanche */
-    {"sandsong", 0, 0, 0, {{"FLOW", 60, 100, 127}, {"STEADY", 50, 100, 127}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"sandsong", 0, 0, 0, {{"FLOW", 60, 100, 127}, {"STEADY", 50, 100, 127}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 8, 2, 0, 0, 0, 0},
     /* stone friction (minerals): a slow rub .. scraping hard and fast */
-    {"mineral", -45, -45, -45, {{"SPEED", 30, 64, 100}, {"PRESSURE", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"mineral", -45, -45, -45, {{"SPEED", 30, 64, 100}, {"PRESSURE", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 8, 2, 0, 0, 0, 0},
     /* rockfall (stones): a fall now and then .. falls every few seconds, bigger */
-    {"rockfall", 80, 80, 80, {{"VOLUME", 30, 64, 110}, {"FRAG", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+    {"rockfall", 80, 80, 80, {{"VOLUME", 0, 64, 110}, {"FRAG", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
      300, 100, 60, 1},
     /* ringing rocks (stones): a boulder struck now and then .. struck quickly */
     {"stonedrum", -50, -50, -50, {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
@@ -298,6 +300,7 @@ typedef struct {                    /* a caller of the population */
 typedef struct {                    /* a bird of the population: persistent, its own voice and songs */
     int32_t f_off, r_l2, gain;      /* its pitch (log2 Q16 re its type), distance (log2 m Q16), gain (Q12) */
     uint32_t seed, wait;            /* its songs' seed; samples to its next song */
+    uint32_t sung;                  /* samples of the song now */
     uint8_t voice, songs, active, near;
 } birdm_t;
 
@@ -333,7 +336,9 @@ typedef struct {
     uint8_t lvl_v, part_v;          /* LEVEL and PARTICLES as last set (0: not set) */
     uint8_t hkeys, hbase, hpad, hon;  /* (hon: the player's key is down on the engine: held, COUNT > 0) */
     int8_t hcid, hfid;              /* the engine's own COUNT (its individuals) and FIELD (its far callers), -1: none */
-    uint8_t hcnt, hpart, hfld, hpad3;   /* the COUNT, PARTICLES and FIELD last sent to it */
+    uint8_t hcnt, hpart, hfld, hgate;   /* the COUNT, PARTICLES and FIELD last sent to it; the bout gate open */
+    uint16_t hgt;                   /* blocks to the gate's next turn */
+    uint8_t start, hpad4;           /* start: a first press (the population starts: INTENSITY at the fader) */
     uint16_t hrenew;                /* blocks to the next renewed key */
     uint8_t hoff, hpn, hpad2[2];    /* blocks to its release, its note */         /* keys the source holds on the hosted engine (k curves; the first is the player's) */
     int32_t hgain, last_out, hlp;        /* the hosted output gain (Q12, ramped), the last sample out (for a switch) */
@@ -398,6 +403,7 @@ static int32_t act_idx(const src_t *s) { return clampi(s->i_eff + knob(s, P_ACT)
  * SPREAD at INTENSITY 36, 64, 100, 127: a trickle under the drops .. a brook .. a river with its roar */
 #define WATER_ON (36 << 8)
 #define WATER_OFF ((8u * sizeof(voice_t) + 63u) & ~63u)   /* the stream's state, after the drops' 8 heroes */
+#define WATER_HEROES 8u             /* the stream's bubble heroes at most (CPU: its 16 cost ~500 us at the top) */
 static const int32_t WATER_AT[4] = { 36 << 8, 64 << 8, 100 << 8, 127 << 8 };
 static const int32_t WATER_G[4] = { -360, -100, -100, -150 };
 static const int32_t WATER_C[HOST_NC][4] = { {0, 30, 100, 127}, {0, 0, 40, 80}, {20, 30, 45, 60}, {80, 64, 55, 50},
@@ -424,13 +430,13 @@ static unsigned count_n(const src_t *s)
     return c > NI ? NI : c ? c : s->p[P_COUNT] ? 1u : 0u;
 }
 
-/* each individual's events at INTENSITY 0, 9, 64, 127 (log2 /s, Q16): a rain patch 0.2, 0.6, 500, 1500 (a stray drop ..
- * a downpour on it); a stone (rolling, or a pouring point) 0.05, 0.1, 1.25, 30; a drip point 1 / 40 s, 1 / 15 s, 1.5,
+/* each individual's events at INTENSITY 0, 9, 64, 127 (log2 /s, Q16): a rain patch 0.2, 0.3, 500, 1500 (a stray drop ..
+ * a downpour on it); a stone (rolling, or a pouring point) 0.05, 0.1, 1.25, 60 (the top a steady slide); a drip point 1 / 40 s, 1 / 15 s, 1.5,
  * 8 /s (ours: COUNT 64 = 8 of them at INTENSITY 64 as the old one-fader scale there) */
 static const int32_t IND_AT[4] = { 0, 9 << 8, 64 << 8, 127 << 8 };
 static const int32_t IND_Y[3][4] = {
-    { -152170, -45000, 587500, 691400 },     /* rain */
-    { -283000, -217700, 21100, 321600 },     /* stones */
+    { -152170, -110500, 587500, 691400 },    /* rain */
+    { -283000, -217700, 21100, 387000 },     /* stones */
     { -348800, -256000, 38300, 196600 },     /* water: drip points */
 };
 
@@ -526,6 +532,20 @@ static const fam_t FAM[] = {
     {PR_WIND, 64, H_MEMBER + 8, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},
 };
 #define NFAM (sizeof FAM / sizeof FAM[0])
+
+/* heroes at most for a hosted engine whose heroes are dear (FM-1 worst block under half the pool, ~870 us) */
+static const struct { const char *eng; uint8_t max; } HCAP[] = {
+    {"minerals", 3},                /* (~150 us a hero at ACTION's rub: 6 reached 1170 us at COUNT 127, 4 957 us) */
+};
+static unsigned host_heroes(const host_t *hd, unsigned v)
+{
+    unsigned i, k;
+    for (i = 0; hd && i < sizeof HCAP / sizeof HCAP[0]; i++) {
+        for (k = 0; hd->eng[k] && hd->eng[k] == HCAP[i].eng[k]; k++) { }   /* (no libc: the firmware) */
+        if (hd->eng[k] == HCAP[i].eng[k] && v > HCAP[i].max) return HCAP[i].max;
+    }
+    return v;
+}
 
 typedef char hmap_rows_ok[(sizeof HMAP / sizeof HMAP[0]) == (sizeof HOST / sizeof HOST[0]) ? 1 : -1];
 
@@ -877,6 +897,7 @@ static void stone(src_t *s, unsigned off, int near, int32_t vel, unsigned pre, i
 #define CGR_A 2600                  /* a far caller's click grain re its gain (calibrated by render against a hero) */
 #define LO_F 400u                   /* a small cicada's second band: ~0.4 x the carrier (x1000), */
 #define LO_Q 80u                    /* Q 5 (x16), */
+#define SMALL_HEROES 4u            /* small cicadas with a hero at most (each ~110 us on the FM-1: the rest call as grains) */
 #define LO_G 40                     /* its level (Q8 of the caller's gain; by render against the close-up) */
 
 /* the species (TYPE: 0 the preset's own; 1-42, 43-84, 85-127; note 16: the references are a close-up singing at
@@ -1074,7 +1095,7 @@ static void caller_render(src_t *s, voice_t *v, unsigned n)
 /* the population per block: how many call (INTENSITY), who swells in or fades, who has a hero, the bed, the sync */
 static void callers_block(src_t *s, uint32_t want_q8)
 {
-    unsigned i, want = (want_q8 + 128u) >> 8, calling = 0, sing_l = 0, kc;
+    unsigned i, want = (want_q8 + 128u) >> 8, calling = 0, sing_l = 0, kc, nheroes = 0;
     int32_t sx = 0, sy = 0, kpull;
     for (i = 0; i < NM; i++) sing_l += s->m[i].calling && s->m[i].song;
     /* chorus waves: the others' singing shortens a pause (contagion), more as the chorus grows (0 .. 2 blocks per
@@ -1088,7 +1109,13 @@ static void callers_block(src_t *s, uint32_t want_q8)
         member_t *m = &s->m[i];
         uint32_t th = i * 256u + 128u;
         int on = m->calling ? want_q8 + 96u > th : want_q8 > th + 96u;
-        if (on && !m->calling) { if (!m->fresh) member_new(s, m, 0); m->fresh = 0; m->calling = 1; }
+        if (on && !m->calling) {                             /* one arriving: somewhere in its pause (the chorus */
+            if (!m->fresh) {                                 /* builds as they come in, never all at once; the one */
+                member_new(s, m, 0);                         /* a key brings sings now) */
+                m->song = 0; m->bout = (uint16_t)(1u + tx_rand_below(&s->rng, bout_len(s, 0, m->pad)));
+            }
+            m->fresh = 0; m->calling = 1;
+        }
         if (!on && m->calling) m->calling = 0;
         if (m->calling) {                                    /* its bouts: songs and pauses; a pause is cut short */
             unsigned dec = 1u + (m->song ? 0u : (unsigned)((sing_l * (uint32_t)kc) >> 16));   /* by the others singing */
@@ -1122,6 +1149,7 @@ static void callers_block(src_t *s, uint32_t want_q8)
     }
     /* falling into step: the pull rises above a third of INTENSITY (0 .. ~0.6 of the phrase rate per block) */
     kpull = clampi(s->i_eff - (42 << 8), 0, 85 << 8) / 85;   /* Q8: 0 .. 256 */
+    for (i = 0; i < NM; i++) nheroes += s->m[i].voice != 0xFF;
     for (i = 0; i < NM; i++) {
         member_t *m = &s->m[i];
         int32_t sn, cs, t;
@@ -1153,7 +1181,10 @@ static void callers_block(src_t *s, uint32_t want_q8)
             m->pmod = fl + (int32_t)(((int64_t)b2 * (32767 - fl)) >> 15);
         }
         /* a hero: the swelling member takes one (stealing the quietest), the others wait for a free one */
-        if (m->voice == 0xFF && m->env > 0 && m->calling && m->song) caller_start(s, i, m->env < 2048);
+        if (m->voice == 0xFF && m->env > 0 && m->calling && m->song && (m->pad != 1u || nheroes < SMALL_HEROES)) {
+            caller_start(s, i, m->env < 2048);
+            nheroes += m->voice != 0xFF;
+        }
         if (m->voice == 0xFF && m->env > 0) {               /* no hero: its clicks as grains at its carrier (never */
             uint32_t acc = m->pad3 + tx_exp2(m->rate_l2) * 380u;   /* a noise bed); clicks per block, Q16 */
             int32_t a = (int32_t)(((int64_t)m->gain * CGR_A) >> 12);
@@ -1201,6 +1232,7 @@ static void bird_sing(src_t *s, unsigned bi, unsigned type, int steal, int32_t k
     tx_bird_song(&s->v[k].u.bv, type, b->seed, tx_rand_below(&s->rng, b->songs), tx_rand(&s->rng), b->f_off + key_l2,
                  g);
     b->voice = (uint8_t)k;
+    b->sung = 0;
     s->events++;
 }
 
@@ -1224,6 +1256,11 @@ static void birds_block(src_t *s, unsigned n)
         if (b->near) b->r_l2 = dist_l2(s) + tx_bird_near(type, a);   /* the key's bird: near only as the place fills */
         if (b->active && b->voice < NV && s->v[b->voice].kind == V_BIRD && (i >= want || s->run < 4096))
             tx_bird_stop(&s->v[b->voice].u.bv);              /* leaving: it ends the phrase it is singing */
+        if (b->voice < NV && s->v[b->voice].kind == V_BIRD && a < (32 << 8)) {   /* singing rarely: a phrase or */
+            uint32_t lim = 66150u << ((unsigned)(a >> 8) >> 3);   /* two (1.5 s at INTENSITY 0, x 2 every 8) */
+            b->sung += n;
+            if (b->sung > lim) tx_bird_stop(&s->v[b->voice].u.bv);
+        }
         if (!b->active || b->voice != 0xFF) continue;
         if (i >= want || s->run < 4096) { b->active = 0; continue; }   /* (a bird leaves after its song) */
         if (b->wait > n) { b->wait -= n; continue; }
@@ -1310,6 +1347,7 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
         unsigned n = (unsigned)clampi((int32_t)count_n(s), 1, s->hst->params[s->hcid].max), e;
         unsigned pp = s->part_v ? s->part_v : s->hst->particles_def;   /* (the lane's PARTICLES: the governor's) */
         if (pp > HOST_HEROES) pp = HOST_HEROES;
+        pp = host_heroes(s->hd, pp);
         if (pp > s->hst->particles_max) pp = s->hst->particles_max;
         if (force || n != s->hcnt) { s->hcnt = (uint8_t)n; s->hst->param(s->host, (uint8_t)s->hcid, (uint8_t)n); }
         if (force || pp != s->hpart) { s->hpart = (uint8_t)pp; s->hst->param(s->host, TX_PID_PARTICLES, (uint8_t)pp); }
@@ -1328,7 +1366,7 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
         }
         while (s->hkeys > want && s->hkeys > 1) { s->hkeys--; s->hst->key(s->host, (uint8_t)(s->hbase + HOST_KEYS[s->hkeys]), 0, 0); }
         if (!want) s->hkeys = 0;
-        if (s->hd->k0 && s->hkeys && !s->hrenew--) {                      /* renew one key: a singer leaves, a new one comes */
+        if ((s->hd->k0 & 1u) && s->hkeys && !s->hrenew--) {                      /* renew one key: a singer leaves, a new one comes */
             unsigned k = tx_rand_below(&s->rng, s->hkeys);   /* (any of them: no round) */
             uint8_t nt = (uint8_t)(k ? s->hbase + HOST_KEYS[k] : s->note);
             s->hst->key(s->host, nt, 0, 0);
@@ -1384,6 +1422,25 @@ static const host_t *host_for(const src_t *s, unsigned pre, const fam_t **fm, un
 
 /* the preset (or TYPE) changed: start its hosted engine (or bring the particle pools back); the old sound's last
  * sample decays */
+/* a held engine in bouts (k0 & 2): one individual held all the time is a bed at the bottom; so below INTENSITY 64
+ * it is held in bouts (~0.7 s, an exponential), off between them for on x (1 - p) / p, p its share on: 0.03 at 0 ..
+ * 1 at 64, rising as the square (a pour, a squeak, a flare, a bee passing now and then .. on all the time). A press opens a bout. */
+static uint32_t gate_draw(src_t *s, uint32_t mean)
+{
+    uint32_t b = (uint32_t)(((uint64_t)mean * ((tx_neglog2_q12(tx_rand(&s->rng)) * 2839u) >> 12)) >> 12);
+    return b < 20u ? 20u : b > 65535u ? 65535u : b;
+}
+static void host_gate(src_t *s)
+{
+    int32_t a = act_idx(s) >> 8;
+    uint32_t p = a >= 64 ? 4096u : 120u + (((uint32_t)(a * a) * 3976u) >> 12);   /* Q12 (square: LIFE's wander */
+                                                             /* near 0 stays rare) */
+    if (p >= 4096u) { s->hgate = 1; s->hgt = 0; return; }
+    if (s->hgt) { s->hgt--; return; }
+    s->hgate = (uint8_t)!s->hgate;
+    s->hgt = (uint16_t)gate_draw(s, s->hgate ? GATE_ON : (GATE_ON * (4096u - p)) / p);
+}
+
 static void host_switch(src_t *s, unsigned pre)
 {
     const fam_t *fm;
@@ -1418,11 +1475,12 @@ static void host_switch(src_t *s, unsigned pre)
             for (c = 0; c < HOST_NC && s->kid[i] >= 0; c++) if (s->hid[c] == s->kid[i]) s->kcur[i] = (int8_t)c;
         }
         if (s->lvl_v) ne->param(s->host, TX_PID_LEVEL, s->lvl_v);
-        if (s->part_v) ne->param(s->host, TX_PID_PARTICLES, s->part_v);
+        if (s->part_v) ne->param(s->host, TX_PID_PARTICLES, (uint8_t)host_heroes(hd, s->part_v));
         s->hcid = (int8_t)tx_param_find(ne, "COUNT");
         s->hfid = (int8_t)(s->hcid >= 0 ? tx_param_find(ne, "FIELD") : -1);
         host_apply(s, 1);
         s->hkeys = 0; s->hrenew = 258; s->hoff = 0;
+        s->hgate = 1; s->hgt = (uint16_t)gate_draw(s, GATE_ON);   /* (a sound switched on: a bout now) */
         tx_clu_init(&s->clu);                       /* (the first renewal after 1.5 s: past the fader's glide) */
         s->hon = 0;
         if (s->held && s->p[P_COUNT]) { ne->key(s->host, s->note, s->vel, 1); s->hkeys = 1; s->hon = 1; }
@@ -1453,6 +1511,7 @@ static void host_switch(src_t *s, unsigned pre)
                     s->wval[i] = 0xFF;
                 }
                 if (s->lvl_v) we->param(ws, TX_PID_LEVEL, s->lvl_v);
+                we->param(ws, TX_PID_PARTICLES, (uint8_t)(s->part_v && s->part_v < WATER_HEROES ? s->part_v : WATER_HEROES));
             }
         }
     }
@@ -1464,8 +1523,14 @@ static void life_block(src_t *s)
     int32_t tau = 482152 + (int32_t)s->p[P_TIME] * 4258;       /* log2 blocks: 1 s (172) .. 300 s (51680) */
     int32_t depth = (int32_t)s->p[P_LIFE];
     int32_t a = tx_life_step(&s->la, tau), sz = tx_life_step(&s->ls, tau), dd = tx_life_step(&s->ld, tau + 65536);
+    if (s->start) { s->start = 0; s->i_glide = (int32_t)s->p[P_INTENS] << 8; }   /* (starting: where the fader is) */
     s->i_glide += ((int32_t)s->p[P_INTENS] * 256 - s->i_glide) >> 6;   /* a fader move glides in (~1 s to 95 %) */
-    s->i_eff = clampi(s->i_glide + (((a * depth) >> 7) * 5 >> 4), 0, 127 << 8);   /* LIFE: +-40 at 127 */
+    {   /* LIFE: +-40 at 127, narrowing to none at the fader's ends (INTENSITY 0 stays the least active: the walk */
+        int32_t w = ((a * depth) >> 7) * 5 >> 4, edge = s->i_glide < (127 << 8) - s->i_glide ? s->i_glide   /* no */
+                                                                                          : (127 << 8) - s->i_glide;
+        if (edge < (32 << 8)) w = (int32_t)(((int64_t)w * (edge < 0 ? 0 : edge)) >> 13);   /* longer lifts it) */
+        s->i_eff = clampi(s->i_glide + w, 0, 127 << 8);
+    }
     s->life_s = (sz * depth) >> 8;                           /* +-0.25 octave at LIFE 127 */
     s->life_d = (dd * depth) >> 6;                           /* +-1 octave of distance */
 }
@@ -1504,7 +1569,9 @@ TX_AUDIO_CODE static void host_render(src_t *s, int32_t *mix, unsigned n)
     int32_t gdb, x = s->i_eff, a = s->hd->g0, b = s->hd->g64;
     life_block(s);
     {   /* COUNT to 0 and back while held: the player's key up / down on the engine (tails ring) */
-        int on = s->held && s->p[P_COUNT];
+        int on;
+        if (s->hd->k0 & 2u) host_gate(s);
+        on = s->held && s->p[P_COUNT] && (!(s->hd->k0 & 2u) || s->hgate);
         if (!on && s->hon) {
             s->hst->key(s->host, s->note, 0, 0);
             if (s->hpn != s->note) s->hst->key(s->host, s->hpn, 0, 0);
@@ -1576,10 +1643,26 @@ static void src_init(void *st, uint32_t seed)
     tx_vary_init(&s->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
+/* one of the individuals (rain, stones, water drops) acts now: an event of its own, where it is and as loud as its own
+ * events are, setting off its own (a stone's bounces); queued as stage 1's next event (src_render) */
+static void indiv_act(src_t *s)
+{
+    tx_clu_kid_t *k;
+    if (s->clu.nk >= TX_CLU_Q) return;
+    k = &s->clu.k[s->clu.nk++];
+    k->t = s->clu.now; k->lv = 0; k->gen = 0;
+    k->tag = (uint8_t)(s->ni > 1u ? tx_rand_below(&s->rng, s->ni) : 0u);
+    s->total++;
+}
+
 static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
     src_t *s = (src_t *)st;
+    if (on && vel && !s->held) { s->start = 1; s->clu.next_q8 = 0xFFFFFFFFu; }   /* a first press: the population starts
+                                                             * at the fader's INTENSITY, its first event after a gap of its
+                                                             * own (stage 1 draws it), never at once */
     if (s->hst) {                                            /* a hosted engine: its own keys */
+        if (on && vel && s->hd && (s->hd->k0 & 2u) && !s->hgate) { s->hgate = 1; s->hgt = (uint16_t)gate_draw(s, GATE_ON); }
         if (s->hd && s->hd->k127 && s->hon && s->hkeys) {    /* keys are individuals (COUNT holds them): another */
             if (on && vel) {                                 /* press is one of them acting afresh (a log thrown on, */
                 unsigned k = tx_rand_below(&s->rng, s->hkeys);   /* a singer starting again), never a new key: the */
@@ -1631,14 +1714,11 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
                 if (m->voice != 0xFF) { unsigned vi = m->voice; voice_cut(s, vi); tx_pool_free(&s->pool, vi); m->voice = 0xFF; }
                 m->calling = 0; m->fresh = 1;
             }
-        } else {
-            s->events = 0;
-            event(s, 0, TX_BLOCK, pre, 1, vel, 256u, 0);
-            clu_cfg(s, pre);
-            tx_clu_spawn(&s->clu, &s->rng, &s->cf, 0, 0, 0, 0);   /* a press sets off its own (a thrown stone's bounces) */
-        }
+        } else if (s->held > 1) indiv_act(s);               /* a press while the key is held: one of them acts now
+                                                             * (the first press only starts the population: no strike) */
         s->quiet = 0;
-    } else if (s->held) s->held--;
+    } else if (s->held && !--s->held && s->run < 30000 && (PRE[s->p[P_PRESET]].kind == 0 || PRE[s->p[P_PRESET]].kind == 3)
+               && s->p[P_COUNT]) indiv_act(s);              /* a tap (up before the population is going): one acts */
 }
 
 /* before the hero pool shrinks to lim: the louder heroes move below lim, so the ones cut are the quietest (the
@@ -1678,9 +1758,14 @@ static void keep_loudest(src_t *s, unsigned lim)
 static void src_param(void *st, uint8_t id, uint8_t val)
 {
     src_t *s = (src_t *)st;
-    if (s->hst && (id == TX_PID_PARTICLES || id == TX_PID_LEVEL)) s->hst->param(s->host, id, val);
-    if (s->hst && id == TX_PID_PARTICLES) s->hpart = val;  /* (host_apply raises it to COUNT where the engine counts) */
+    if (s->hst && id == TX_PID_LEVEL) s->hst->param(s->host, id, val);
+    if (s->hst && id == TX_PID_PARTICLES) {                  /* (the governor's: at most the engine's cap) */
+        s->hpart = (uint8_t)host_heroes(s->hd, val);
+        s->hst->param(s->host, id, s->hpart);
+    }
     if (s->wst && id == TX_PID_LEVEL) s->wst->param((uint8_t *)s->host + WATER_OFF, id, val);
+    if (s->wst && id == TX_PID_PARTICLES)                    /* (the stream's bubbles: the lane's, at most WATER_HEROES) */
+        s->wst->param((uint8_t *)s->host + WATER_OFF, id, (uint8_t)(val && val < WATER_HEROES ? val : WATER_HEROES));
     if (id == TX_PID_PARTICLES) s->part_v = val;
     if (id == TX_PID_LEVEL) s->lvl_v = val ? val : 1u;
     if (id == TX_PID_PARTICLES && s->hst) s->limit = (uint8_t)(val < 1u ? 1u : val > NV ? NV : val);

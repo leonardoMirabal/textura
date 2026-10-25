@@ -6,8 +6,8 @@
  * classic engine held / re-pressed as the player's quick lanes do (quickTick every 50 ms, quickPress's exponential
  * gaps). Through the mixer (centre pan, the output limiter), as the player renders a lane.
  *
- * Per sound, COUNT and ACTIVITY (the player's two faders; by default COUNT 1, 8, 64 individuals against ACTIVITY 9 =
- * step 1, 64, 127), SEEDS runs of SECS s after a 5 s start, each a new engine and generator seed. COUNT is given in
+ * Per sound, COUNT and ACTIVITY (the player's two faders; by default COUNT 1, 8, 64 individuals against ACTIVITY 0 = the
+ * rarest step, 9, 64, 127), SEEDS runs of SECS s after a 5 s start, each a new engine and generator seed. COUNT is given in
  * individuals and set as the source's COUNT knob (1 + 21 log2 n: 1, 8, 64 = knob 1, 64, 127; 0 = none); a classic
  * engine has no COUNT (its column reads "-" and its runs ignore it):
  *   ev/s     the engine's own event count (tx_stats_t.total) per second
@@ -20,13 +20,18 @@
  *            the seeds)
  * and the verdict, on the grid's two corners:
  *   the fewest and least active (the smallest COUNT at the lowest ACTIVITY) should be a lone event now and then:
- *     LONE (<= 2 events/s and >= 50 % gaps), else BUSY;
+ *     LONE (at ACTIVITY 0: <= 0.5 events/s and >= 80 % gaps; at a higher lowest ACTIVITY: <= 2 /s and >= 50 %), else BUSY;
  *   the most and most active (the largest COUNT at ACTIVITY 127) should be a cloud:
  *     CLOUD (dense: >= 15 events/s, no gaps, env <= 6 dB), DENSE (one of them short), EVENTS.
  * A last line per sound gives both corners (lone / cloud) and "ok" when both hold.
  *
- *   txactivity [-s SECS] [-n SEEDS] [-c N,N,..] [-a A,B,..] [-f SUBSTRING] [-p PARTICLES]
- *            (defaults 30 s, 3 seeds, COUNT 1,8,64, ACTIVITY 9,64,127, every sound; -c: COUNT in individuals, 0 = none;
+ * With -o, the lane's start instead (no 5 s warm-up): a sound switched on must not open louder than it goes on. Per run,
+ * momentary loudness (BS.1770, 400 ms every 100 ms): the loudest in the first second against, over the rest of the
+ * run, the 95th percentile of all moments and of the sounding ones (over -60 LUFS) and the loudest; LOUD when a seed's
+ * first second is over 1 dB above the 95th percentile of its sounding moments (a strike at the press), else ok.
+ *
+ *   txactivity [-o] [-s SECS] [-n SEEDS] [-c N,N,..] [-a A,B,..] [-f SUBSTRING] [-p PARTICLES]
+ *            (defaults 30 s, 3 seeds, COUNT 1,8,64, ACTIVITY 0,9,64,127, every sound; -c: COUNT in individuals, 0 = none;
  *            -p: the lane's PARTICLES set (the engine's maximum at most) instead of its default: does a bigger hero
  *            pool make the top a cloud?)
  * Timing (us, gov) needs the calibration (build/calib/run, make tx-calib); without it those columns read "-". */
@@ -78,6 +83,7 @@ static const quick_t QUICK[] = {
 static double factor;                                     /* FM-1 us per host us (0: no calibration) */
 static unsigned count_knob = 64;                         /* the run's COUNT knob (count_of: individuals -> knob) */
 static unsigned particles;                                /* -p: the lane's PARTICLES (0: the engine's default) */
+static int onset;                                         /* -o: the lane's start measured (no warm-up) */
 static int calib(const char *dir)                         /* (txbudget's) */
 {
     DIR *d = opendir(dir);
@@ -135,6 +141,8 @@ static int cmpd(const void *a, const void *b) { double x = *(const double *)a, y
 
 typedef struct {
     double evs, lu5, lu50, lu95, heroes, lim, drops, gaps, env, us, w8;
+    double m1, mp95, mpa, mmax;          /* -o: momentary loudness (400 ms): the loudest in the first second; after it, the
+                                     * 95th percentile, that of the moments something sounds (over -60 LUFS), the loudest */
     int cut;                        /* heroes the governor took away (-1: no timing) */
 } res_t;
 
@@ -169,7 +177,7 @@ static int run(const snd_t *s, unsigned act, uint32_t seed, unsigned secs, res_t
     bq_t ks[2], kh[2];
     double cur[3] = {0, 0, 0}, tick = 0, nextp = 0, relp = -1, t = 0;
     int curset[3] = {0, 0, 0}, pid[3] = {-1, -1, -1}, iid = -1;
-    uint32_t nb = (WARM_S + secs) * TX_FS / TX_BLOCK, w0 = WARM_S * TX_FS / TX_BLOCK, b, total0 = 0, drop = 0;
+    uint32_t warm = onset ? 0u : WARM_S, nb = (warm + secs) * TX_FS / TX_BLOCK, w0 = warm * TX_FS / TX_BLOCK, b, total0 = 0, drop = 0;
     uint32_t nfr = 0, nst = 0, rng = seed * 2654435761u + 12345u;
     int32_t L[TX_BLOCK], R[TX_BLOCK];
     double *fr = malloc(sizeof(double) * (secs * 100u + 8u)), *st = malloc(sizeof(double) * (secs * 10u + 8u));
@@ -279,6 +287,26 @@ static int run(const snd_t *s, unsigned act, uint32_t seed, unsigned secs, res_t
             a /= 300;
             st[nst++] = a > 1e-12 ? -0.691 + 10 * log10(a) : -120;
         }
+        if (onset) {                                  /* momentary: 400 ms (40 frames) every 100 ms */
+            double *mo = malloc(sizeof(double) * (nfr / 10u + 8u));
+            uint32_t nm = 0;
+            r->m1 = r->mmax = -120;
+            for (i = 40; i <= nfr && mo; i += 10) {
+                double a = 0, l;
+                for (j = i - 40; j < i; j++) a += fr[j];
+                l = a / 40 > 1e-12 ? -0.691 + 10 * log10(a / 40) : -120;
+                if (i <= 100) { if (l > r->m1) r->m1 = l; }
+                else if (i >= 140) { mo[nm++] = l; if (l > r->mmax) r->mmax = l; }
+            }
+            if (mo) {
+                uint32_t na = 0;
+                qsort(mo, nm, sizeof *mo, cmpd);
+                r->mp95 = nm ? mo[nm - 1 - nm / 20] : -120;
+                for (i = 0; i < nm; i++) na += mo[i] > -60;
+                r->mpa = na ? mo[nm - 1 - na / 20] : -120;
+                free(mo);
+            }
+        }
         qsort(st, nst, sizeof *st, cmpd);
         r->lu5 = nst ? st[nst / 20] : -120; r->lu50 = nst ? st[nst / 2] : -120; r->lu95 = nst ? st[nst - 1 - nst / 20] : -120;
         {   /* gaps and the envelope's spread, against the run's mean power */
@@ -313,7 +341,7 @@ static unsigned count_of(unsigned n)
 
 int main(int argc, char **argv)
 {
-    unsigned secs = 30, seeds = 3, acts[MAXA] = {9, 64, 127}, na = 3, cnts[MAXA] = {1, 8, 64}, nc = 3, i, si, ai, ci, sd;
+    unsigned secs = 30, seeds = 3, acts[MAXA] = {0, 9, 64, 127}, na = 4, cnts[MAXA] = {1, 8, 64}, nc = 3, i, si, ai, ci, sd;
     unsigned cmin = 0, cmax = 0, amin = 0, amax = 0;
     const char *filt = 0;
     for (i = 1; i < (unsigned)argc; i++) {
@@ -321,6 +349,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "-n") && i + 1 < (unsigned)argc) seeds = (unsigned)atoi(argv[++i]);
         else if (!strcmp(argv[i], "-f") && i + 1 < (unsigned)argc) filt = argv[++i];
         else if (!strcmp(argv[i], "-p") && i + 1 < (unsigned)argc) particles = (unsigned)atoi(argv[++i]);
+        else if (!strcmp(argv[i], "-o")) onset = 1;
         else if (!strcmp(argv[i], "-c") && i + 1 < (unsigned)argc) {
             char *p = argv[++i];
             for (nc = 0; nc < MAXA && *p; ) { cnts[nc++] = (unsigned)strtol(p, &p, 10); if (*p == ',') p++; else break; }
@@ -332,6 +361,35 @@ int main(int argc, char **argv)
     }
     if (!secs || !seeds || !na || !nc) return 2;
     if (calib("build/calib/run")) factor = 0;
+    if (onset) {                                          /* the lane's start against what follows */
+        printf("txactivity -o: each sound's lane started (key down, the generator on), its first second against the %u s after it;\n"
+               "momentary loudness (400 ms, every 100 ms), %u seeds: the first second's loudest, after it the 95th percentile\n"
+               "(all moments / the sounding ones, over -60 LUFS) and the loudest; LOUD when a seed's first second is over 1 dB\n"
+               "above the 95th percentile of its sounding moments\n", secs - 1u, seeds);
+        printf("%-15s %4s %4s | %7s %7s %7s %7s | %6s | %s\n", "sound", "CNT", "ACT", "first", "p95", "p95snd", "max", "rise", "verdict");
+        for (si = 0; si < NSND; si++) {
+            int classic = SND[si].pre[0] == '#';
+            if (filt && !strstr(SND[si].name, filt)) continue;
+            for (ci = 0; ci < nc; ci++) {
+                if (classic && ci) continue;
+                count_knob = count_of(cnts[ci]);
+                for (ai = 0; ai < na; ai++) {
+                    double m1 = 0, p95 = 0, pa = 0, mx = 0, rise = -1e9;
+                    char c[8];
+                    for (sd = 0; sd < seeds; sd++) {
+                        res_t x;
+                        if (run(&SND[si], acts[ai], 0x9E3779B9u * (sd + 1u) + si, secs, &x)) { printf("%s: failed\n", SND[si].name); return 1; }
+                        m1 += x.m1 / seeds; p95 += x.mp95 / seeds; pa += x.mpa / seeds; mx += x.mmax / seeds;
+                        if (x.m1 > -100 && x.m1 - x.mpa > rise) rise = x.m1 - x.mpa;
+                    }
+                    if (classic) snprintf(c, sizeof c, "-"); else snprintf(c, sizeof c, "%u", cnts[ci]);
+                    printf("%-15s %4s %4u | %7.1f %7.1f %7.1f %7.1f | %6.1f | %s\n", SND[si].name, c, acts[ai], m1, p95, pa, mx,
+                           rise < -99 ? 0.0 : rise, rise > 1.0 ? "LOUD" : "ok");
+                }
+            }
+        }
+        return 0;
+    }
     printf("txactivity: each sound as a lane in the player (the generator on), %u s x %u seeds per COUNT x ACTIVITY%s%s\n", secs, seeds,
            particles ? ", PARTICLES set (-p)" : "", factor > 0 ? "" : "; no calibration (make tx-calib): us / cut not measured");
     printf("%-15s %4s %4s | %8s %15s %13s %6s %6s %5s | %9s %3s | %s\n", "sound", "CNT", "ACT", "ev/s", "LUFS-S 5..95", "heroes/lim",
@@ -366,7 +424,8 @@ int main(int argc, char **argv)
                 {
                     const char *v = "";
                     char g[8], u[16], c[8];
-                    if ((ci == cmin || classic) && ai == amin) v = lone = a.evs <= 2.0 && a.gaps >= 50.0 ? "LONE" : "BUSY";
+                    if ((ci == cmin || classic) && ai == amin)   /* (at ACTIVITY 0: the player's rarest step, stricter) */
+                        v = lone = (acts[ai] ? a.evs <= 2.0 && a.gaps >= 50.0 : a.evs <= 0.5 && a.gaps >= 80.0) ? "LONE" : "BUSY";
                     if (ci == cmax && ai == amax) {
                         int dense = a.evs >= 15, full = a.gaps < 1.0, even = a.env <= 6.0;
                         v = cloud = dense && full && even ? "CLOUD" : dense + full + even >= 2 ? "DENSE" : "EVENTS";
