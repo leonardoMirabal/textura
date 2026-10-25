@@ -64,7 +64,7 @@ def main():
         page.wait_for_function("window.txTest && window.txTest.ready", timeout=20000)
         check(page.evaluate("window.crossOriginIsolated"), "served cross-origin isolated (audition/serve.py)")
         # the page opens on the landscape: the source on layer 1, lane mode on, the LANDSCAPE section first; one click
-        # starts three lanes (water, crickets, wind) that play on their own
+        # starts the landscape's first three sounds (Water: rain on water, rain on a roof, water drops) on their own
         st = page.evaluate("window.txTest.src()")
         yl = page.evaluate("""() => ['kb', 'src-panel', 'eng-panel'].map(i => document.getElementById(i).getBoundingClientRect().top)""")
         bars = page.eval_on_selector_all("#lanes-box .abar", "x => x.length")
@@ -75,17 +75,23 @@ def main():
         st = page.evaluate("window.txTest.src()")
         pk = page.evaluate("window.txTest.render(64)")
         names_l = page.evaluate("[0, 1, 2].map(k => document.querySelector(`#lanes-box .lane[data-k='${k}'] .lab`).textContent)")
-        check(all(st["run"][:3]) and st["step"][:3] == [5, 7, 4] and pk > 0 and "water" in names_l[0] and "crickets" in names_l[1]
-              and "wind" in names_l[2], f"Start a landscape: three lanes running ({names_l}), sounding (peak {pk})")
+        check(all(st["run"][:3]) and st["step"][:3] == [6, 8, 5] and pk > 0 and "rain on water" in names_l[0] and "roof" in names_l[1]
+              and "water drops" in names_l[2], f"Start a landscape: three sounds running ({names_l}), sounding (peak {pk})")
         bar = page.locator("#lanes-box .lane[data-k='1'] .abar")
-        bar.scroll_into_view_if_needed()                     # (the grid of sounds can push it below the fold)
+        bar.scroll_into_view_if_needed()
         bx = bar.bounding_box()
         page.mouse.click(bx["x"] + bx["width"] * 0.95, bx["y"] + bx["height"] / 2)   # the bar as a fader: the top step
         st = page.evaluate("window.txTest.src()")
-        check(st["lane"] == 1 and st["step"][1] == 14, f"an activity bar clicked: lane 2 at step {st['step'][1] + 1} of 15")
-        page.evaluate("window.txTest.sound(1, 'nightingale')")
-        g = page.eval_on_selector_all("#src-grid button.on", "b => b.map(x => x.textContent)")
-        check(g == ["nightingale"], f"a sound picked from the grid for the selected lane: {g}")
+        check(st["lane"] == 1 and st["step"][1] == 14, f"an activity bar clicked: lane 2 at step {st['step'][1]} of 14 (a full cloud)")
+        bx = bar.bounding_box()
+        page.mouse.click(bx["x"] + bx["width"] * 0.02, bx["y"] + bx["height"] / 2)   # the bottom: off
+        st = page.evaluate("window.txTest.src()")
+        check(not st["run"][1] and not st["held"][1] and st["step"][1] == 0, "the bar's bottom step: the sound off (silence)")
+        fm = page.evaluate("window.txTest.family(6)")
+        bt = page.eval_on_selector_all("#fam-box .snd button", "b => b.map(x => x.textContent)")
+        check(fm["names"][3] == "nightingale" and bt == fm["names"] and fm["snd"] == [0, 1, 2, 3] and not any(page.evaluate("window.txTest.src()")["run"]),
+              f"a landscape picked (Songbirds): every sound stopped, its sounds on the black keys {bt}")
+        page.evaluate("window.txTest.family(0)")
         page.evaluate("window.txTest.setLaneMode(false)")   # (the classic checks below: lane mode off, layers 2-4 off)
         for k in (1, 2, 3):
             page.evaluate(f"window.txTest.layerOff({k})")
@@ -320,15 +326,15 @@ def main():
             key = lambda n: page.click(f'#kb .key[data-n="{n}"]')
             kr = page.eval_on_selector_all("#kb .key", "k => [Math.min(...k.map(x => +x.dataset.n)), Math.max(...k.map(x => +x.dataset.n))]")
             check(kr == [60, 84], f"lane mode: the keyboard shows C4 .. C6 ({kr})")
-            key(61); key(74)                                 # C#4: lane 1; D5 (white step 9 of 15): INTENSITY 73, running
+            key(61); key(74)                                 # C#4: sound 1; D5 (white step 8 of 14): running
             st = page.evaluate("window.txTest.src()")
             g0 = page.evaluate("window.txTest.gen(0)")
             check(st["laneMode"] and st["lane"] == 0 and st["run"][0] and st["held"][0] and st["step"][0] == 8 and g0["on"]
-                  and st["lit"] == 9 and st["sel"] == [61], f"lane mode: lane 1 at step 9, its generator on ({g0}), {st['lit']} keys lit, selected {st['sel']}")
-            key(63); key(76)                                 # D#4: lane 2; E5: step 10; lane 1 keeps running and glows
+                  and st["lit"] == 8 and st["sel"] == [61], f"lane mode: sound 1 at step 8, its generator on ({g0}), {st['lit']} keys lit, selected {st['sel']}")
+            key(63); key(76)                                 # D#4: sound 2; E5: step 9; sound 1 keeps running and glows
             st = page.evaluate("window.txTest.src()")
-            check(st["lane"] == 1 and st["run"][0] and st["run"][1] and st["glow"] == [61] and st["sel"] == [63] and st["lit"] == 10,
-                  f"lane mode: lane 2 running beside lane 1 (selected {st['sel']}, glowing {st['glow']}, its own bar {st['lit']})")
+            check(st["lane"] == 1 and st["run"][0] and st["run"][1] and st["glow"] == [61] and st["sel"] == [63] and st["lit"] == 9,
+                  f"lane mode: sound 2 running beside sound 1 (selected {st['sel']}, glowing {st['glow']}, its own bar {st['lit']})")
             time.sleep(1.0)
             pk = page.evaluate("window.txTest.render(64)")
             check(pk > 0, f"lane mode: two lanes sound (peak {pk})")
@@ -349,22 +355,28 @@ def main():
             check(ng == 7 and g1["on"] and g1["state"][4] == 1 and g1["state"][2] > 3 and g1["state"][0] > 60,
                   f"the lane generator: 7 knobs, notes {g1['state'][2]} in 2 s, activity now {g1['state'][0]}")
             page.screenshot(path=os.path.join(OUT, "lanes.png"), full_page=True)
-            key(61)                                          # C#4: lane 1 selected again, its own bar shown
+            key(61)                                          # C#4: sound 1 selected again, its own bar shown
             st = page.evaluate("window.txTest.src()")
-            check(st["lane"] == 0 and st["lit"] == 9 and st["run"][0], f"lane mode: back to lane 1, its bar ({st['lit']} keys)")
-            key(61)                                          # tapped again while selected: lane 1 stops
+            check(st["lane"] == 0 and st["lit"] == 8 and st["run"][0], f"lane mode: back to sound 1, its bar ({st['lit']} keys)")
+            key(61)                                          # tapped again while selected: sound 1 off
             st = page.evaluate("window.txTest.src()")
-            check(not st["run"][0] and not st["held"][0] and st["run"][1], "lane mode: a selected lane's black key tapped again stops it")
+            check(not st["run"][0] and not st["held"][0] and st["run"][1], "lane mode: a selected sound's black key tapped again turns it off")
+            key(63); key(60)                                 # C4: the selected sound off
+            st = page.evaluate("window.txTest.src()")
+            check(not st["run"][1] and st["lit"] == 0, "lane mode: C4 turns the selected sound off")
+            key(70); key(72)                                 # A#4 (the 5th black key): Water's surf, in a free lane, C5 step 7
+            st = page.evaluate("window.txTest.src()")
+            check(any(e == "surf" and r for e, r in zip(st["eng"], st["run"])), f"lane mode: a black key past the fourth plays its sound ({st['eng']})")
             # quick lanes: an old engine in a lane, its own parameters on the fader (stream: FLOW), and a one-shot one
-            key(66)                                          # F#4: lane 3; put the stream there; C5 = step 8
+            key(66)                                          # F#4: sound 3 (water drops); put the stream there; C5 = step 7
             page.evaluate(f"window.txTest.selectEngine({names.index('stream')})")
             key(72)
             time.sleep(1.6)
             st = page.evaluate("window.txTest.src()")
             fl = st["quick"][2]["cur"].get("FLOW", -1)
-            check(st["eng"][2] == "stream" and st["run"][2] and st["held"][2] and abs(fl - (10 + 117 * 7 / 14)) < 30 and st["lit"] == 8,
+            check(st["eng"][2] == "stream" and st["run"][2] and st["held"][2] and abs(fl - (10 + 117 * 7 / 14)) < 30 and st["lit"] == 7,
                   f"quick lane: stream at step 8 holds itself, FLOW {fl:.1f} (68.5 at the fader, the generator wandering around it), {st['lit']} keys lit")
-            key(68)                                          # G#4: lane 4; thunder (one-shot: re-pressed at its rate)
+            key(68)                                          # G#4: sound 4 (stream); thunder there (one-shot: re-pressed at its rate)
             page.evaluate(f"window.txTest.selectEngine({names.index('thunder')})")
             key(84)                                          # C6: the most
             time.sleep(0.5)

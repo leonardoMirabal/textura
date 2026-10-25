@@ -111,6 +111,7 @@ async function init() {
   window.txTest.setLaneMode = setLaneMode;
   window.txTest.landscape = startLandscape;
   window.txTest.sound = laneSound;
+  window.txTest.family = f => { setFamily(f); return { fam, snd: [...laneSnd], names: FAMILIES[fam][1].map((_, i) => soundName(i)) }; };
   window.txTest.gov = (budget) => { if (budget) M._txw_gov_budget(budget); return [0, 1, 2, 3].map(k => [M._txw_gov_cur(k), M._txw_gov_user(k)]); };
   window.txTest.gen = k => ({ on: gen[k].on, state: genState(k), step: gen[k].step });
   window.txTest.midi = (st, d1, d2) => midiMsg({ data: [st, d1, d2] });
@@ -468,10 +469,26 @@ function setSlider(id, val) {                         // from MIDI CC (the edite
 }
 
 // ---- SOURCE (engine "source"): its preset, INTENSITY and PROXIMITY in a panel of their own; and LANE MODE, the keyboard
-// as planned for the FM-1: C4 .. C6, the black keys pick a lane (any engine: the source, or an old engine through
-// QUICK below), the 15 white keys are that lane's activity, the keys light up as the bar.
+// as planned for the FM-1: C4 .. C6. A landscape is one family of sounds: the black keys are its sounds (up to 10;
+// up to 4 play at once, one per lane), the 15 white keys the selected sound's activity, C4 off .. C6 a full cloud.
 let SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];   // (read from the PRESET help line)
-const LANE_PRESETS = [0, 2, 3, 1];                   // a new lane's preset: rain, cicadas, water drops, stones
+// a family's sounds: [name, source preset, TYPE] (TYPE reaches the preset's family members), or "#engine" (a classic)
+const FAMILIES = [
+  ["Water", [["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 64], ["water drops", "water", 0], ["#stream"], ["#surf"]]],
+  ["Stones & sand", [["stones", "stone cloud", 0], ["rockfall", "stone cloud", 32], ["ringing rocks", "stone cloud", 96],
+    ["gravel", "gravel", 0], ["marbles", "gravel", 96], ["sand", "sand", 0], ["singing dune", "sand", 96],
+    ["minerals", "minerals", 0], ["stone friction", "minerals", 96]]],
+  ["Ice & glass", [["ice", "ice", 0], ["lake ice", "ice", 96], ["glass", "glass", 0]]],
+  ["Fire & wood", [["fire", "fire", 0], ["flame", "fire", 96], ["wood", "wood", 0]]],
+  ["Wind & storm", [["wind", "wind", 0], ["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 64], ["#thunder"]]],
+  ["Insects", [["crickets", "crickets", 0], ["cicadas", "cicadas", 0], ["katydids", "katydids", 0], ["bees", "bees", 0]]],
+  ["Songbirds", ["songbird", "blackbird", "song thrush", "nightingale", "robin", "wren", "hermit thrush", "skylark",
+    "wood thrush", "reed warbler"].map(n => [n, n, 0])],
+  ["Wild birds", ["chirper", "crow", "gull", "curlew", "oystercatcher", "cuckoo", "woodpecker", "wood pigeon", "nightjar",
+    "bittern"].map(n => [n, n, 0])],
+];
+let fam = 0;
+const laneSnd = [-1, -1, -1, -1];                    // each lane's sound in the family (-1: none)
 const BLACKS = [], WHITES = [];
 const LANE_LO = 60, LANE_HI = 84;                  // lane mode: C4 .. C6 (15 white keys: the fader; 10 black: the lanes)
 for (let n = LANE_LO; n <= LANE_HI; n++) ([1, 3, 6, 8, 10].includes(n % 12) ? BLACKS : WHITES).push(n);
@@ -633,27 +650,87 @@ function laneStart(k, on) {                           // a lane plays on its own
   if (on) quickTick();
 }
 function laneSelect(i) {
-  if (i < 0 || i > 3) return;                        // (10 black keys; 4 lanes in the prototype)
+  if (i < 0 || i > 3) return;                        // (4 lanes: 4 sounds at once)
   lane = i;
-  if (layers[i].eng < 0) srcLayer(i, LANE_PRESETS[i]);   // an empty lane gets the source; any engine can be put there
+  if (layers[i].eng < 0) srcLayer(i, 0);             // an empty lane gets the source; any engine can be put there
   editLayer(i);
   showLanes();
   genPanel();
   gridMark();
 }
-function laneKey(n) {                                // a black key: pick its lane (tapped again: start / stop it); a white
-  const b = BLACKS.indexOf(n), w = WHITES.indexOf(n);   // key: the selected lane's activity, C4 least .. C6 massive
-  if (b >= 0) {
-    if (b > 3) return;
-    if (b === lane && layers[b].eng >= 0) { laneStart(b, !laneRun[b]); showSource(); return; }
-    laneSelect(b); return;
+function soundLoad(k, i) {                            // the family's sound i into lane k (stopped, at nothing)
+  const [nm, pre, type] = FAMILIES[fam][1][i];
+  if (laneRun[k]) laneStart(k, false);
+  gen[k].step = 0; quick[k].step = 0;
+  if (nm.startsWith("#")) {
+    let e = -1;
+    for (let q = 0; q < M._txw_count(); q++) if (S(M._txw_name(q)) === nm.slice(1)) e = q;
+    if (e >= 0) { const e0 = ed; editLayer(k); selectEngine(e); editLayer(e0); }
+  } else {
+    srcLayer(k);
+    const p = SRC_PRESETS.indexOf(pre);
+    if (p >= 0) srcSet(k, "PRESET", p);
+    if (srcIds.TYPE !== undefined) srcSet(k, "TYPE", type);
   }
+  laneSnd[k] = i;
+}
+function soundName(i) { const s = FAMILIES[fam][1][i]; return s ? s[0].replace("#", "") : "–"; }
+function soundKey(i) {                                // the family's sound i: select its lane (loading it into a free one)
+  let k = laneSnd.indexOf(i);
+  if (k >= 0 && k === lane && laneRun[k]) { laneStart(k, false); gen[k].step = 0; showSource(); return; }   // tapped again: off
+  if (k < 0) {                                        // a free lane, else the quietest playing one gives way
+    k = [0, 1, 2, 3].find(j => !laneRun[j] && j !== lane) ?? [0, 1, 2, 3].find(j => !laneRun[j]);
+    if (k === undefined) k = [0, 1, 2, 3].reduce((a, j) => laneStepOf(j) < laneStepOf(a) ? j : a, 0);
+    soundLoad(k, i);
+  }
+  laneSelect(k);
+}
+function setFamily(f) {                               // a landscape: one family; every lane stopped, its first sounds loaded
+  fam = f;
+  for (let k = 0; k < 4; k++) { if (laneRun[k] || srcHeld[k]) laneStart(k, false); laneSnd[k] = -1; }
+  for (let k = 0; k < 4 && k < FAMILIES[fam][1].length; k++) soundLoad(k, k);
+  famBar();
+  laneSelect(0);
+  showSource();
+}
+function famBar() {                                   // the landscape's families, and its sounds as the black keys
+  const box = $("fam-box");
+  if (!box) return;
+  box.hidden = !laneMode;
+  box.textContent = "";
+  const row = document.createElement("div");
+  row.className = "grp";
+  row.insertAdjacentHTML("beforeend", `<span class="small">Landscape</span>`);
+  FAMILIES.forEach(([nm], f) => {
+    const b = document.createElement("button");
+    b.textContent = nm; b.classList.toggle("on", f === fam);
+    b.onclick = () => { if (!ctx) startAudio(); setFamily(f); };
+    row.appendChild(b);
+  });
+  box.appendChild(row);
+  const row2 = document.createElement("div");
+  row2.className = "grp snd";
+  row2.insertAdjacentHTML("beforeend", `<span class="small">Sounds</span>`);
+  FAMILIES[fam][1].forEach((_, i) => {
+    const b = document.createElement("button"), k = laneSnd.indexOf(i);
+    b.textContent = soundName(i); b.title = `black key ${NAMES[BLACKS[i] % 12]}${Math.floor(BLACKS[i] / 12) - 1}`;
+    b.dataset.i = i;
+    b.classList.toggle("on", k >= 0 && laneRun[k]); b.classList.toggle("sel", k >= 0 && k === lane);
+    b.onclick = () => { if (!ctx) startAudio(); soundKey(i); };
+    row2.appendChild(b);
+  });
+  box.appendChild(row2);
+}
+function laneKey(n) {                                // a black key: one of the family's sounds (tapped again: off); a white
+  const b = BLACKS.indexOf(n), w = WHITES.indexOf(n);   // key: the selected sound's activity, C4 off .. C6 a full cloud
+  if (b >= 0) { if (b < FAMILIES[fam][1].length) soundKey(b); return; }
   if (w < 0) return;
   laneStep(lane, w);
 }
-function laneStep(k, w) {                             // a lane's activity step (the white keys, the bar)
+function laneStep(k, w) {                             // a lane's activity step (the white keys, the bar): 0 off .. 14 a cloud
+  if (w <= 0) { if (laneRun[k]) laneStart(k, false); gen[k].step = 0; quick[k].step = 0; showSource(); return; }
   const lane_ = lane; lane = k;
-  if (layers[lane].eng < 0) srcLayer(lane, LANE_PRESETS[lane]);
+  if (layers[lane].eng < 0) srcLayer(lane, 0);
   gen[lane].step = w;
   if (gen[lane].on) genSet(lane, "ACTIVITY", Math.round(w * 127 / 14));
   if (layers[lane].eng === srcEng) { srcFindIds(lane); if (!gen[lane].on) srcSet(lane, "INTENSITY", Math.round(w * 127 / 14)); }
@@ -664,6 +741,7 @@ function laneStep(k, w) {                             // a lane's activity step 
   showSource();
 }
 function laneStepOf(i) {                              // the fader's setting (with Notes on, the activity wanders around it)
+  if (!laneRun[i]) return 0;                         // (stopped: nothing)
   if (gen[i].on) return gen[i].step;
   if (layers[i].eng === srcEng) return srcIds ? Math.round(srcGet(i, "INTENSITY") * 14 / 127) : 0;
   return quick[i].step;
@@ -672,14 +750,16 @@ function showLanes() {                                // the LEDs: the bar on th
   document.querySelectorAll("#kb .key").forEach(k => k.classList.remove("lane-sel", "lane-glow", "lane-bar"));
   const box = $("lanes-box");
   box.textContent = "";
+  famBar();
+  $("src-grid").hidden = laneMode;                   // (lane mode: the landscape's sounds; otherwise every sound)
   if (!laneMode) return;
   for (let i = 0; i < 4; i++) {
-    const kb = document.querySelector(`#kb .key[data-n="${BLACKS[i]}"]`);
+    const kb = laneSnd[i] >= 0 ? document.querySelector(`#kb .key[data-n="${BLACKS[laneSnd[i]]}"]`) : null;
     if (kb) { kb.classList.toggle("lane-sel", i === lane); kb.classList.toggle("lane-glow", laneRun[i] && i !== lane); }
     const d = document.createElement("div");
     d.className = "lane" + (i === lane ? " sel" : "") + (laneRun[i] ? " run" : "");
     d.dataset.k = i;
-    d.innerHTML = `<span class="lab"></span><span class="abar" title="activity: click or drag (C4 .. C6)"><i class="mk"></i></span>`;
+    d.innerHTML = `<span class="lab"></span><span class="abar" title="activity: click or drag (C4 off .. C6 a full cloud)"><i class="mk"></i></span>`;
     const bar = d.querySelector(".abar");
     for (let w = 0; w < 15; w++) bar.insertAdjacentHTML("beforeend", `<b data-w="${w}"></b>`);
     d.querySelector(".lab").textContent = laneLabel(i);
@@ -694,7 +774,7 @@ function showLanes() {                                // the LEDs: the bar on th
     box.appendChild(d);
     laneBar(i);
   }
-  for (let w = 0, top = laneStepOf(lane); w <= top; w++) {   // the selected lane's bar (shown also while stopped)
+  for (let w = 1, top = laneStepOf(lane); w <= top; w++) {   // the selected lane's bar (C4 off: none lit)
     const kw = document.querySelector(`#kb .key[data-n="${WHITES[w]}"]`);
     if (kw) kw.classList.add("lane-bar");
   }
@@ -705,7 +785,7 @@ function setLaneMode(on) {
   buildKeyboard();                                   // lane mode shows C4 .. C6, otherwise the FM-1's F3 .. G5
   keyLabels();
   $("lanes").checked = on;
-  if (on) { for (let i = 2; i >= 0; i--) if (layers[i].eng < 0) srcLayer(i, LANE_PRESETS[i]); laneSelect(lane); }
+  if (on) setFamily(fam);
   else for (let i = 0; i < 4; i++) { if (laneRun[i] || srcHeld[i]) laneStart(i, false); M._txw_gen_on(i, 0, 1); }
   showSource();
 }
@@ -725,16 +805,16 @@ function laneBar(i) {                                // a lane's activity bar: t
   const d = document.querySelector(`#lanes-box .lane[data-k="${i}"]`);
   if (!d) return;
   const top = laneStepOf(i);
-  d.querySelectorAll(".abar b").forEach(b => b.classList.toggle("on", +b.dataset.w <= top));
+  d.querySelectorAll(".abar b").forEach(b => b.classList.toggle("on", +b.dataset.w <= top && top > 0));
   const mk = d.querySelector(".mk"), a = gen[i].on && laneRun[i] ? genState(i)[0] : -1;
   mk.style.display = a < 0 ? "none" : "";
   if (a >= 0) mk.style.left = `${(a / 127) * 100}%`;
 }
 function laneLabel(i) {                              // a lane's row: preset, activity step, running, the governor
-  const pre = layers[i].eng < 0 ? "–" : layers[i].eng === srcEng && srcIds ? SRC_PRESETS[srcGet(i, "PRESET")]
+  const pre = layers[i].eng < 0 ? "–" : laneSnd[i] >= 0 ? soundName(laneSnd[i]) : layers[i].eng === srcEng && srcIds ? SRC_PRESETS[srcGet(i, "PRESET")]
     : engName(i) + (QUICK[engName(i)] ? "" : " (no activity map)");
   const gc = M._txw_gov_cur(i), gu = M._txw_gov_user(i);
-  return `Lane ${i + 1}: ${pre} · ${laneStepOf(i) + 1}/15${laneRun[i] ? " · running" : " · stopped"}` +
+  return `${pre} · ${laneRun[i] ? `${laneStepOf(i)}/14` : "off"}` +
     (laneRun[i] && gc < gu ? ` · CPU: ${gc}/${gu} voices` : "");
 }
 function genReadout() {
@@ -778,6 +858,7 @@ function gridMark() {                                  // the selected lane's so
 }
 function laneSound(k, nm) {
   if (!ctx) startAudio();
+  laneSnd[k] = -1;
   if (nm.startsWith("#")) {                            // a classic engine in the lane (a quick lane)
     let i = -1;
     for (let q = 0; q < M._txw_count(); q++) if (S(M._txw_name(q)) === nm.slice(1)) i = q;
@@ -792,20 +873,10 @@ function laneSound(k, nm) {
   laneSelect(k);
   showSource();
 }
-function startLandscape() {                         // three lanes at once: water (step 6), crickets (8), wind (5)
+function startLandscape() {                         // the landscape's first three sounds at once: steps 6, 8, 5
   if (!ctx) startAudio();
   if (!laneMode) setLaneMode(true);
-  const plan = [[0, "water", 6], [1, "crickets", 8], [2, "wind", 5]];
-  for (const [k, name, step] of plan) {
-    srcLayer(k);
-    const pre = SRC_PRESETS.findIndex(t => t === name);
-    if (pre >= 0) srcSet(k, "PRESET", pre);
-    gen[k].step = step - 1;
-    genSet(k, "ACTIVITY", Math.round((step - 1) * 127 / 14));
-    srcSet(k, "INTENSITY", Math.round((step - 1) * 127 / 14));
-    if (laneRun[k]) laneStart(k, false);
-    laneStart(k, true);
-  }
+  [6, 8, 5].forEach((st, k) => { if (laneSnd[k] >= 0) laneStep(k, st); });
   laneSelect(0);
   showSource();
 }
@@ -869,7 +940,7 @@ document.addEventListener("keydown", e => {
     if (!e.repeat || c.startsWith("Arrow")) stepEngine(c === "BracketLeft" || c === "Minus" || c === "ArrowLeft" ? -1 : 1);
     return;
   }
-  if (laneMode && /^Digit[1-4]$/.test(c)) { e.preventDefault(); if (!e.repeat) laneSelect(+c.slice(5) - 1); return; }
+  if (laneMode && /^Digit[1-8]$/.test(c)) { e.preventDefault(); if (!e.repeat) setFamily(+c.slice(5) - 1); return; }
   const n = codeNote(c);
   if (n < 0) return;
   e.preventDefault();                                 // also stops a focused select's type-ahead

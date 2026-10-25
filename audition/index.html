@@ -56,6 +56,13 @@
   #lanes-box .abar b { background: var(--bg); border: 1px solid var(--line); border-radius: 2px; }
   #lanes-box .abar b.on { background: var(--lit); border-color: var(--lit); }
   #lanes-box .abar .mk { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--warn); pointer-events: none; }
+  #fam-box[hidden] { display: none; }
+  #fam-box .grp { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-bottom: 6px; }
+  #fam-box .grp .small { min-width: 80px; }
+  #fam-box button { padding: 4px 11px; }
+  #fam-box button.on { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+  #fam-box .snd button.sel { box-shadow: inset 0 0 0 2px var(--accent); }
+  #src-grid[hidden] { display: none; }
   #src-grid .grp { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-top: 4px; }
   #src-grid .grp .small { min-width: 64px; }
   #src-grid button { padding: 3px 9px; font-size: 13px; }
@@ -138,9 +145,9 @@
   <section class="panel" id="src-panel">
     <h2>Landscape <span class="small" id="src-layer"></span></h2>
     <div class="row" style="margin-bottom:8px">
-      <button id="landscape" class="primary" title="water, crickets and wind, each in its own lane, playing on their own">Start a landscape</button>
-      <span class="small"><b>How to:</b> the black keys pick a lane (or <kbd>1</kbd>–<kbd>4</kbd>), the white keys C4 … C6 set its activity
-        (C4 a little, C6 massive); tap a lane's black key again to start or stop it.</span>
+      <button id="landscape" class="primary" title="the landscape's first three sounds, playing on their own">Start a landscape</button>
+      <span class="small"><b>How to:</b> pick a landscape (or <kbd>1</kbd>–<kbd>8</kbd>); the black keys are its sounds, the white keys
+        C4 … C6 the chosen sound's activity: <b>C4 off</b>, then from a lone event to <b>C6 a full cloud</b>. Up to 4 sounds at once.</span>
     </div>
     <div class="row">
       <button id="src-run" title="keep the source going without holding a key">Run</button>
@@ -156,18 +163,20 @@
       <input type="range" id="src-prox" min="0" max="127" value="64" aria-label="proximity" style="flex:1; accent-color: var(--accent)">
       <span class="src-big" id="src-prox-v">64</span>
     </div>
-    <div id="src-grid"></div>
+    <div id="fam-box"></div>
     <div id="lanes-box"></div>
+    <div id="src-grid"></div>
     <div class="row" style="margin-top:8px">
       <label title="the lane's generator: pitched notes, a wandering, remembering activity around the fader"><input type="checkbox" id="gen-on" checked> Notes (the lane's generator)</label>
       <span class="small" id="gen-now"></span>
     </div>
     <div class="sliders" id="gen-sliders" style="margin-top:6px"></div>
-    <div class="hint">Lane mode: the keyboard shows C4 … C6. The 15 <b>white keys</b> are the selected lane's activity fader
-      (C4 the least, still sounding; C6 massive; a move glides in over ~1 s); the 10 <b>black keys</b> C#4 … A#5 pick a lane
-      (the first four here, or the number keys <kbd>1</kbd>–<kbd>4</kbd>); tapping the selected lane's black key again starts or
-      stops it. A running lane generates on its own (no key held). The white keys light up as the bar, the chosen lane's black
-      key is lit, the other running lanes' black keys glow. Computer letters (<kbd>Z</kbd> <kbd>X</kbd> octave) and a MIDI
+    <div class="hint">Lane mode: the keyboard shows C4 … C6. A <b>landscape</b> is one family of sounds (water, stones, birds …).
+      The 10 <b>black keys</b> C#4 … A#5 are its sounds, in the order of the Sounds row; tapping the chosen sound's key again turns it off.
+      The 15 <b>white keys</b> are the chosen sound's activity fader: C4 off (silence), D4 a lone event now and then, up to C6 a full
+      cloud (a move glides in over ~1 s). Up to 4 sounds play at once; a fifth takes the place of the quietest. A playing sound
+      generates on its own (no key held). The white keys light up as the bar, the chosen sound's black key is lit, the other
+      playing sounds' keys glow. Computer letters (<kbd>Z</kbd> <kbd>X</kbd> octave) and a MIDI
       keyboard (notes 60–84) play the same keys.</div>
   </section>
 

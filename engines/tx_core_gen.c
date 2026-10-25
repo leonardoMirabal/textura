@@ -3,7 +3,7 @@
 #include "tx_core_gen.h"
 
 const tx_param_t tx_gen_params[TX_GEN_NP] = {
-    {"ACTIVITY", 127, 64, "the lane's activity (the fader): how much happens; EVOLVE wanders around it (+-20)"},
+    {"ACTIVITY", 127, 64, "the lane's activity (the fader): how much happens; EVOLVE wanders around it (+-20, narrowing to none at 0 and 127)"},
     {"ROOT", 127, 60, "the lowest note of the lane (MIDI; 60 = C4): its pitch sets the source's size, as a key"},
     {"SPAN", 36, 12, "the lane's range above ROOT: 0 .. 36 semitones (chromatic)"},
     {"WANDER", 127, 64, "how the pitch moves: anywhere in the span .. a walk of 1-3 semitones (64) .. close to a drifting centre"},
@@ -99,7 +99,7 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
     tx_rng_t *r = &g->rng;
     unsigned k, ne = 0, ka = kact(g);
     int32_t ea = 0, ep = 0, base = (int32_t)g->p[TX_GEN_ACTIVITY] << 8, span = g->p[TX_GEN_SPAN];
-    int32_t aw, pw, ar, pr;
+    int32_t aw, pw, ar, pr, wid;
     uint32_t hz = horizon_s(g);
     if (max > TX_GEN_EV_MAX) max = TX_GEN_EV_MAX;
     /* the walks (walk k every 2^k blocks), the 1/f sums over the horizon's walks */
@@ -111,7 +111,9 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
     g->blk++;
     ea = (int32_t)(((int64_t)ea * INV_SQRT[ka]) >> 15);      /* sd ~1 (Q15) whatever the horizon */
     ep = (int32_t)(((int64_t)ep * INV_SQRT[ka]) >> 15);
-    aw = base + ((ea * 5120) >> 15);                         /* +-20 knob units */
+    wid = base < (127 << 8) - base ? base : (127 << 8) - base;   /* the wander narrows at the ends: 0 stays nothing, */
+    wid = wid < 5120 ? wid : 5120;                                  /* 127 stays the full cloud */
+    aw = base + ((ea * wid) >> 15);                          /* +-20 knob units */
     pw = (span << 7) + ((ep * (span << 6)) >> 15);           /* the centre +-SPAN / 4 (1 sd) */
     /* the memory: the recalled stretch, glided in and out (~3 s) */
     g->g += ((g->r_len ? 32767 : 0) - g->g) >> 9;
@@ -124,7 +126,7 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
         aw += (int32_t)(((int64_t)(ar - aw) * g->g) >> 15);
         pw += (int32_t)(((int64_t)(pr - pw) * g->g) >> 15);
     }
-    g->a = clamp32(aw, 0, 127 << 8);
+    g->a = clamp32(clamp32(aw, base - 3 * wid, base + 3 * wid), 0, 127 << 8);   /* (a recall stays near the fader) */
     if (pw < 0) pw = -pw;                                    /* a soft edge: the centre reflects, never sticks */
     if (pw > (span << 8)) pw = 2 * (span << 8) - pw;
     g->pc = clamp32(pw, 0, span << 8);
