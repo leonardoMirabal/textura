@@ -172,7 +172,10 @@ static void build(min_t *s, pair_t *v, uint32_t tc)
         own = vy ? g : 0;
     }
     for (sp = 0; sp < 2; sp++) {
-        int32_t f_l2 = tx_log2_q16(s->c) - 348773 - s->size_l2 - ((int32_t)v->note - 60) * 5461 + (tx_vary_tone(&s->vy) >> 2) + own;   /* 0.025 c / L */
+        int32_t f_l2 = tx_log2_q16(s->c) - 348773 - s->size_l2 + ((int32_t)v->note - 60) * 5461 + (tx_vary_tone(&s->vy) >> 2) + own;   /* 0.025 c / L */
+        f_l2 = f_l2 < 473745 ? 473745 : f_l2 > 887907 ? 887907 : f_l2;   /* a hand specimen: f1 150 Hz .. 12 kHz (keys up:
+                                                              * smaller; the sign was inverted, so a high key made a ~50 Hz
+                                                              * stone that rang for a minute) */
         if (sp) f_l2 += (int32_t)tx_rand_below(&r, 42000u) - 21000;   /* the second: x 0.8 .. 1.25 */
         for (k = 0; k < NMS; k++) {
             unsigned i = sp * NMS + k;
@@ -262,9 +265,9 @@ TX_AUDIO_CODE static void min_render(void *st, int32_t *mix, unsigned n)
             uint32_t per_q8 = (TX_FS << 8) / (300u + (uint32_t)v->vel * 10u);   /* ~300 .. 1570 /s */
             if (!held) v->rub = 0;
             unsigned sb;
-            for (sb = 0; v->rub && sb < n; sb += 64u) {     /* the impacts of each 64-sample slice, summed into */
-                int32_t sum = 0;                             /* one strike at its start (CPU: 4 per block) */
-                unsigned e1 = sb + 64u < n ? sb + 64u : n;
+            for (sb = 0; v->rub && sb < n; sb += 128u) {    /* the impacts of each 128-sample slice (2.9 ms), summed */
+                int32_t sum = 0;                             /* into one strike at its start (CPU: 2 per block) */
+                unsigned e1 = sb + 128u < n ? sb + 128u : n;
                 while ((v->next_q8 >> 8) < e1) {
                     int32_t x = (int32_t)(((int64_t)tx_neglog2_q12(tx_rand(&s->cloud.rng)) * 8192) >> 12);   /* alpha 1.5 */
                     int32_t a = (int32_t)(((int64_t)(v->a0 >> 3) * (int32_t)tx_exp2(-(x > 65536 * 6 ? 65536 * 6 : x) + (15 << 16))) >> 15);

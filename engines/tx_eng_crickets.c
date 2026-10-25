@@ -15,8 +15,9 @@
  *             last + s d + T + eps; SYNC = s (0: free, ~0.5: alternation, 1: synchrony); CV(eps) 0.06, t 60 ms.
  *   distance  level 1 / r (each cricket placed on the plane; the propagation delays feed the chorus).
  * Keys: carrier per caller, a quarter tone per key around the species' carrier at C4 (a "tuned field"); velocity =
- * proximity (+-1 octave of distance). FIELD: the distant chorus as a band of noise at the carrier, its envelope from
- * 8 virtual callers at the chirp rate (sounds while a key is held). */
+ * proximity (+-1 octave of distance). FIELD: the distant chorus: 8 far callers (each its own carrier +-3 % and
+ * rhythm +-10 %), their pulses pure (the air and the grass take the harmonics), FIELD loud (sounds while a key is held;
+ * it was a band of noise: the user, 2026-10-25, no hiss under the engines). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_vary.h"
@@ -53,6 +54,8 @@ static const tx_param_t PARAMS[NP] = {
 #define NSP 4u
 #define G_REF 4900                 /* gain at 1 m, Q15 (calibrated by render: the chord stays under full scale) */
 #define FADE 4u
+#define FAR_SH 12                  /* the far callers' pulse level: FIELD x LEVEL x 3 >> FAR_SH (Q15; by render: the FIELD
+                                    * at its old loudness) */
 
 typedef struct {
     uint16_t f0;                   /* carrier, Hz */
@@ -81,7 +84,10 @@ typedef struct {
 typedef struct {
     tx_cloud_t cloud;
     tx_chorus_t ch;
-    tx_noise_t bed;
+    tx_itone_t far[8];             /* the FIELD's far callers' pulses */
+    uint32_t finc[8];              /* their carriers */
+    int32_t fpc[8];                /* samples to their next pulse */
+    uint8_t fpl[8];                /* pulses left in their chirps */
     cricket_t c[NV];
     int16_t env[TX_ITONE_ENV + 1];
     tx_event_t ev[TX_CLOUD_EV_MAX];
@@ -134,7 +140,13 @@ static void set_param(crickets_t *s, unsigned id, unsigned v)
     s->p[id] = (uint8_t)v;
     switch (id) {
     case P_TEMP: set_timing(s); break;
-    case P_SPECIES: set_timing(s); tx_noise_band(&s->bed, sp_of(s)->f0, 128, TX_NOISE_BAND); break;
+    case P_SPECIES: {
+        unsigned i;
+        set_timing(s);
+        for (i = 0; i < 8; i++)                              /* the far callers' carriers: CV 3 % (N1) */
+            s->finc[i] = (uint32_t)(((uint64_t)sp_of(s)->f0 * 97391u * tx_exp2(((tx_gauss_q12(&s->cloud.rng) * 2789) >> 12) + (16 << 16))) >> 16);
+        break;
+    }
     case P_SYNC: tx_chorus_set(&s->ch, (int32_t)v * 258, s->ch.cv_q15, (uint32_t)s->ch.t_eff, (uint32_t)s->ch.x_len); break;
     case P_DIST: s->dist_l2 = -113738 + (int32_t)(v * 3482u); break;   /* log2(0.3 m) + v log2(100) / 127, Q16 */
     default: break;
@@ -151,8 +163,6 @@ static void crickets_init(void *st, uint32_t seed)
     tx_cloud_burst(&s->cloud, 1, 0);
     tx_cloud_rate(&s->cloud, 0);
     tx_chorus_init(&s->ch);
-    tx_noise_init(&s->bed, seed ^ 0xC41C7E75u);
-    tx_noise_flicker(&s->bed, 6000);
     tx_itone_env(s->env, 18022);                             /* the peak 0.55 through the pulse (recordings 0.41-0.61) */
     for (i = 0; i < NV; i++) s->c[i].em = 0xFF;
     for (i = 0; i < 8; i++) s->vph[i] = tx_rand(&s->cloud.rng);
@@ -268,20 +278,30 @@ TX_AUDIO_CODE static void crickets_render_raw(void *st, int32_t *mix, unsigned n
         tx_itone_add(&c->tone[1], s->env, mix, n);
         if (c->stop && !c->pl && !c->tone[0].on && !c->tone[1].on) { c->alive = 0; c->stop = 0; c->em = 0xFF; }
     }
-    {   /* FIELD: the distant chorus, a band at the carrier with the envelope of 8 virtual callers */
-        uint32_t cl = sp->pulses ? per * (sp->pulses - 1u) + len : len;
-        uint32_t duty = ((cl << 8) / ((uint32_t)call_T(s, 32768) / 256u + 1u)) << 16;   /* fraction of a call, 0.32 */
-        int32_t on = 0;
+    {   /* FIELD: the distant chorus, 8 far callers chirping at their own rates (each call a chirp of the species'
+         * pulses, pure: the harmonics lost on the way) */
+        int32_t g = held_any ? (int32_t)(((int64_t)s->p[P_FIELD] * s->level * 3) >> FAR_SH) : 0;
         for (i = 0; i < 8; i++) {
+            uint32_t ph = s->vph[i];
             s->vph[i] += s->vinc[i] + (s->vinc[i] >> 4) * (i & 3);   /* spread +-10 % (ours) */
-            on += s->vph[i] < duty;
+            if (s->vph[i] < ph && g && !s->fpl[i]) {         /* a call */
+                s->fpl[i] = sp->pulses ? sp->pulses : 1u;
+                s->fpc[i] = (int32_t)tx_rand_below(&s->cloud.rng, n);
+            }
+            while (s->fpl[i] && s->fpc[i] < (int32_t)n) {
+                int32_t a = (int32_t)(((int64_t)g * (24576 + (int32_t)tx_rand_below(&s->cloud.rng, 16384u))) >> 15);   /* each pulse its own level */
+                tx_itone_start(&s->far[i], s->finc[i], sp->glide, len, a > 32767 ? 32767 : a, 0, 0, (unsigned)s->fpc[i]);
+                s->fpl[i]--;
+                s->fpc[i] += (int32_t)per;
+            }
+            if (s->fpl[i]) s->fpc[i] -= (int32_t)n;
+            tx_itone_add(&s->far[i], s->env, mix, n);
         }
-        tx_noise_level(&s->bed, held_any ? (int32_t)(((int64_t)s->p[P_FIELD] * s->level * (2 + on)) >> 13) : 0);
-        tx_noise_add(&s->bed, mix, n);
     }
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
-        int32_t z = !tx_noise_quiet(&s->bed);
+        int32_t z = 0;
+        for (i = 0; i < 8; i++) z |= s->far[i].on | s->fpl[i];
         for (i = 0; i < NV; i++) z |= s->c[i].alive | s->c[i].tone[0].on | s->c[i].tone[1].on;
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
     }

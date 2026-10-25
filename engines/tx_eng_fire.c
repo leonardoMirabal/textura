@@ -5,8 +5,8 @@
  * holding keeps it burning (crackles at the MOIST rate); release lets it burn down (~3 s). Physics:
  *   roar     turbulent combustion, a monopole noise: broadband, peaking at f_pk 300-600 Hz and falling above (E11;
  *            alpha ~3 by ear, E1; big fires lower: small surface fires ~200 Hz, E35). Here noise -> a broad band-pass
- *            (Q 0.5) at f_pk 400 Hz (fire 0.1 m) .. 120 Hz (3 m), -6 dB/oct above, plus a faint hiss band at 2.5 kHz:
- *            campfire recordings are broad (100 Hz-16 kHz within ~10 dB) and their bed sits 7-14 dB under the
+ *            (Q 0.5) at f_pk 400 Hz (fire 0.1 m) .. 120 Hz (3 m), -6 dB/oct above (the faint 2.5 kHz hiss band is gone:
+ *            36 dB under the roar it changed no measure, and the user wants no hiss under the engines); campfire recordings are broad (100 Hz-16 kHz within ~10 dB) and their bed sits 7-14 dB under the
  *            crackle; and a 50 Hz band for the plume's slow turbulence (the recordings: -12..-26 dB re total at 40-100
  *            Hz; ours). The burning logs add as independent sources:
  *            gain ~ sqrt(sum of their heat).
@@ -71,7 +71,7 @@ typedef struct {
 
 typedef struct {
     tx_cloud_t cloud;
-    tx_noise_t roar, hiss, rumble; /* the roar band, the flame's hiss (2.5 kHz, Q 0.5), the plume's rumble (50 Hz) */
+    tx_noise_t roar, rumble;       /* the roar band, the plume's rumble (50 Hz) */
     tx_dcblock_t hp;
     tx_ireso_t bank[NB];
     tx_ireso_t hero[NH];
@@ -137,9 +137,6 @@ static void fire_init(void *st, uint32_t seed)
     tx_cloud_sizes(&s->cloud, 5734, RANGE_L2);               /* (aftershock sizes; the rest are redrawn) */
     s->cloud.after_stream = 1;
     tx_noise_init(&s->roar, seed ^ 0xF12EF12Eu);
-    tx_noise_init(&s->hiss, seed ^ 0x415541u);
-    tx_noise_band(&s->hiss, 2500, 8, TX_NOISE_BAND);
-    s->hiss.glide = 0;
     tx_noise_init(&s->rumble, seed ^ 0x2B3C4Du);
     tx_noise_band(&s->rumble, 50, 8, TX_NOISE_BAND);      /* the buoyant plume's slow turbulence, below 100 Hz */
     s->rumble.glide = 0;                                     /* (the recordings: -13..-25 dB re total at 40-80 Hz; ours) */
@@ -292,8 +289,6 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
         g = (int32_t)(((int64_t)g * s->level) >> 15);
         if (!any) g = 0;
         tx_noise_roar_add(&s->roar, g, s->buf, n);
-        tx_noise_level(&s->hiss, g >> 6);                    /* the hiss well under the roar, same flicker (ours) */
-        tx_noise_add(&s->hiss, s->buf, n);
         tx_noise_level(&s->rumble, g * 2);
         tx_noise_add(&s->rumble, s->buf, n);
     }
@@ -304,7 +299,7 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
-        int32_t z = any | s->roar.gain | !tx_noise_quiet(&s->hiss) | !tx_noise_quiet(&s->rumble) | s->hp.x1 | s->hp.y1;
+        int32_t z = any | s->roar.gain | !tx_noise_quiet(&s->rumble) | s->hp.x1 | s->hp.y1;
         for (i = 0; i < NB; i++) z |= !tx_ireso_quiet(&s->bank[i]);
         for (i = 0; i < NH; i++) z |= !tx_ireso_quiet(&s->hero[i]);
         s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);

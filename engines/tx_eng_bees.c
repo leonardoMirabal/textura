@@ -85,6 +85,11 @@ typedef struct {
     uint32_t f0;
     uint16_t dropped;
     tx_vary_t vy;
+    int32_t namp[2][TX_WING_HX];   /* a species change in the making: its harmonic amplitudes (front, side), */
+    int32_t nacc[2][TX_WING_N];    /* the sums so far, */
+    int32_t npk[2];                /* their peaks, */
+    uint16_t nrow, nf0;            /* the next row (TX_WING_N: none pending) and the new wingbeat */
+    uint8_t ran, pad2[3];          /* a block has run (before it, the wingbeat changes at once) */
 } bees_t;
 
 static uint32_t isqrt32(uint32_t x)
@@ -109,9 +114,29 @@ static void set_species(bees_t *s)
     for (k = 0; k < TX_WING_H; k++) side[k] = sp->h[k];
     side[0] = (int8_t)(side[0] - 20);                        /* sides: H1 -10 dB, H2 +2 dB (ours) */
     if (side[1] > -120) side[1] = (int8_t)(side[1] + 4);
-    tx_wing_table(s->front, sp->h, TX_WING_H);
-    tx_wing_table(s->side, side, TX_WING_H);
-    s->f0 = sp->f0;
+    if (!s->ran) s->f0 = sp->f0;                            /* (a fresh instance: its wingbeat at once, its tables over
+                                                              * the first 8 blocks too: no spike when SOURCE switches to
+                                                              * the bees; their first 46 ms are only the strokes' air) */
+    tx_wing_amps(s->namp[0], sp->h, TX_WING_H);              /* playing: the new tables are built over the next */
+    tx_wing_amps(s->namp[1], side, TX_WING_H);               /* blocks (render), the old ones sound meanwhile */
+    s->npk[0] = s->npk[1] = 1;
+    s->nrow = 0;
+    s->nf0 = sp->f0;
+}
+
+/* a block's share of a pending species change: 32 rows of each table; at the end the new tables and wingbeat */
+static void species_step(bees_t *s)
+{
+    unsigned r = s->nrow;
+    if (r >= TX_WING_N) return;
+    s->npk[0] = tx_wing_rows(s->nacc[0], s->namp[0], r, r + 32u, s->npk[0]);
+    s->npk[1] = tx_wing_rows(s->nacc[1], s->namp[1], r, r + 32u, s->npk[1]);
+    s->nrow = (uint16_t)(r + 32u);
+    if (s->nrow >= TX_WING_N) {
+        tx_wing_norm(s->front, s->nacc[0], s->npk[0]);
+        tx_wing_norm(s->side, s->nacc[1], s->npk[1]);
+        s->f0 = s->nf0;
+    }
 }
 
 static void set_param(bees_t *s, unsigned id, unsigned v)
@@ -278,6 +303,8 @@ TX_AUDIO_CODE static void bees_render(void *st, int32_t *mix, unsigned n)
     int32_t *buf = s->buf;
     uint16_t d0 = s->dropped;
     if (n > TX_BLOCK) n = TX_BLOCK;
+    s->ran = 1;
+    species_step(s);
     for (j = 0; j < n; j++) buf[j] = 0;
     k = tx_cloud_block(&s->cloud, s->ev, n);
     for (i = 0; i < k; i++) launch(s, &s->ev[i]);

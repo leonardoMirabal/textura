@@ -74,6 +74,8 @@ typedef struct {
     int32_t tlp, lp, lp2, hp;      /* tube loop low-pass, dry low-pass (two poles), dry high-pass state */
     int32_t lump, flick;           /* flow irregularity: slow (~1 Hz) and fast (~7 Hz) random log-rate (Q15) */
     int32_t flow;                  /* Q15 ramp */
+    int32_t sg, sgt;               /* the slug now: gain (Q15, ramped per block) and its target */
+    uint16_t sleft, spad;          /* blocks left in this slug (or gap) */
     uint32_t pph;                  /* pulse phase */
     int32_t stop;                  /* blocks the grains in the air still take to land */
     uint8_t em, note, vel, alive;
@@ -188,6 +190,32 @@ static void surface(sand_t *s, pour_t *v)
     }
 }
 
+/* the slugs' power compensation (log2, Q16) at intermittency I (Q15): 0.5 log2(1 + 8 I ln 2) for the gains, and
+ * 0.5 log2(1 / (1 - share of jams)) for the gaps (their share ~ I / 2 x ~1.5 / (1 + I / 2), ours: ~ I / 3) */
+static int32_t slug_comp(int32_t I)
+{
+    uint32_t x = 65536u + (uint32_t)(((int64_t)I * 363409) >> 15);   /* 1 + 5.545 I, Q16 */
+    uint32_t y = 65536u - (uint32_t)(I * 2 / 3);                     /* 1 - I / 3, Q16 */
+    int32_t a = (int32_t)(16u << 16) - (int32_t)(tx_neglog2_q12(x) << 4);   /* log2 x */
+    int32_t b = (int32_t)(16u << 16) - (int32_t)(tx_neglog2_q12(y) << 4);   /* log2 y (< 0) */
+    return (a - b) / 2;
+}
+
+/* a clump's gain (Q15 amplitude a scaled): grains fall in clusters of every size (a power law: most clumps a few grains,
+ * now and then a lump), so the pour ticks and rustles instead of hissing (the user, 2026-10-25: no flat hiss; the
+ * references' level spread 8-10 dB, ours was 1-2). 2^(-3 E), E exponential (capped at 16 / 3), +1.2 octaves: the mean
+ * power kept (E[2^(-6 E)] = 1 / (1 + 6 ln 2)); the loudest +1.2 octaves, the median -0.9 */
+static int32_t clump(uint32_t *x, int32_t a)
+{
+    uint32_t u, e;
+    *x ^= *x << 13; *x ^= *x >> 17; *x ^= *x << 5;
+    u = *x | 1u;
+    e = tx_neglog2_q12(u);                                   /* -log2 u, Q12: E / ln 2 */
+    e = (e * 2839u) >> 12;                                   /* x ln 2: E, Q12 */
+    if (e > 21845u) e = 21845u;
+    return (int32_t)(((int64_t)a * (int32_t)tx_exp2(77300 - (int32_t)(e * 48u) + (16 << 16))) >> 16);   /* 3 E x 16 = Q16 */
+}
+
 TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
 {
     sand_t *s = (sand_t *)st;
@@ -241,23 +269,50 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
             v->flick += (tx_rand_s15(r) - v->flick) >> 2;
             amp = (int32_t)(((int64_t)amp * tx_exp2(v->lump * 16 + v->flick * 4 + (16 << 16))) >> 16);
         }
+        {   /* the stream breaks into slugs (granular flow near jamming is intermittent: arches form and collapse, the
+             * bursts power-law sized; a wide neck flows on, still lumpy). Intermittency I from the neck's margin over
+             * 2.9 d (D0 / 2.9 d: 2 .. 8 -> I 1 .. 0.5): slugs of 17-200 ms, each 2^(-4 I E) loud (E exponential: most
+             * slugs a little under the mean, a few lumps well over), the mean power kept, and between slugs (chance I / 2)
+             * a jam of ~20-300 ms x I: silence (ours; the pour references: level sd 3-17 dB, lumps at 0.5-1 Hz; the
+             * user: no flat hiss) */
+            tx_rng_t *r = &s->cloud.rng;
+            uint32_t D0 = tx_exp2(s->d0_l2), kd = (tx_exp2(s->d_l2) * 29u / 10u) | 1u, rt = (D0 << 4) / kd;   /* Q4 */
+            int32_t I = rt <= 32u ? 32767 : rt >= 128u ? 16384 : 32767 - (int32_t)((rt - 32u) * 171u);   /* Q15 */
+            if (!v->sleft) {
+                uint32_t e = (tx_neglog2_q12(tx_rand(r) | 1u) * 2839u) >> 12;   /* E, Q12 */
+                if (e > 16384u) e = 16384u;
+                if (v->sgt && (int32_t)(tx_rand(r) >> 17) < (I >> 1)) {   /* a jam: silence for a while */
+                    v->sgt = 0;
+                    v->sleft = (uint16_t)(3u + (((e * (uint32_t)(I >> 7)) >> 12) * 17u >> 8) * 3u);
+                } else {
+                    int32_t k = (int32_t)(((e * (uint32_t)I) >> 15) * 64u);       /* 4 I E octaves, Q16 */
+                    v->sgt = (int32_t)tx_exp2(slug_comp(I) - k + (15 << 16));
+                    if (v->sgt > 65535) v->sgt = 65535;
+                    v->sleft = (uint16_t)(3u + tx_rand_below(r, 32u));
+                }
+            }
+            v->sleft--;
+            v->sg += (v->sgt - v->sg) >> 1;
+            amp = (int32_t)(((int64_t)amp * v->sg) >> 15);
+        }
         if (amp > 16383) amp = 16383;
         /* the shot train: clicks (rare) or noise of the same variance (dense) */
         x32 = s->cloud.rng.s;
         if (p16 < 16384) {
-            for (j = 0; j < n; j++) {
-                x32 ^= x32 << 13; x32 ^= x32 >> 17; x32 ^= x32 << 5;
-                x[j] = (int32_t)(x32 & 0xFFFFu) < p16 ? ((int32_t)(x32 >> 17) * amp) >> 14 : 0;   /* |a| x U(0, 2) */
+            for (j = 0; j < n; j += 32) {                    /* the grains arrive in clumps, each 0.7 ms its own size */
+                unsigned e = j + 32u < n ? j + 32u : n, q;
+                int32_t g = clump(&x32, amp);
+                for (q = j; q < e; q++) {
+                    x32 ^= x32 << 13; x32 ^= x32 >> 17; x32 ^= x32 << 5;
+                    x[q] = (int32_t)(x32 & 0xFFFFu) < p16 ? ((int32_t)(x32 >> 17) * g) >> 14 : 0;   /* |a| x U(0, 2) */
+                }
             }
         } else {
             int32_t sd = (int32_t)(((int64_t)amp * (int32_t)tx_exp2((int32_t)((log2_q16((uint32_t)p16) - (16 << 16)) / 2) + (16 << 16))) >> 16);
             if (sd > 16383) sd = 16383;                      /* the force at most +-1 full scale */
             for (j = 0; j < n; j += 32) {                    /* clumps: each 0.7 ms its own gain (+-1 oct, ours: */
                 unsigned e = j + 32u < n ? j + 32u : n, q;   /* grains arrive in clusters; references kurtosis 1-25) */
-                int32_t g;
-                x32 ^= x32 << 13; x32 ^= x32 >> 17; x32 ^= x32 << 5;
-                g = (int32_t)tx_exp2((int32_t)((x32 >> 16) & 0xFFFFu) * 2 - 98304 + (16 << 16));   /* 2^(-1.5 .. 0.5), Q16 */
-                g = (int32_t)(((int64_t)g * sd) >> 16);
+                int32_t g = clump(&x32, sd);
                 for (q = j; q < e; q++) {
                     x32 ^= x32 << 13; x32 ^= x32 >> 17; x32 ^= x32 << 5;
                     x[q] = (((int32_t)(x32 >> 17) - 16384) * g) >> 13;   /* uniform, sd ~ amp sqrt(p) x 2 / sqrt 3 */

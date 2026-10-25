@@ -2,14 +2,11 @@
 /* Textura WINGBEAT core: harmonic wavetables and the buzzer voice (tx_core_wingbeat.h). */
 #include "tx_core_wingbeat.h"
 
-#define TX_WING_HX 24u             /* harmonics in a table */
 
-void tx_wing_table(int16_t *tab, const int8_t *db2, unsigned nh)
+void tx_wing_amps(int32_t *amp, const int8_t *db2, unsigned nh)
 {
-    int32_t amp[TX_WING_HX], acc[TX_WING_N], peak = 1, last = 0;
-    int16_t sn[TX_WING_N];                                   /* one cycle of the sine: harmonic k is sn[(k i) mod N] */
-    unsigned k, i;
-    for (i = 0; i < TX_WING_N; i++) sn[i] = (int16_t)tx_sin_q15((uint32_t)i << 24);
+    int32_t last = 0;
+    unsigned k;
     if (nh > TX_WING_H) nh = TX_WING_H;
     for (k = 0; k < TX_WING_HX; k++) {                       /* 10^(dB / 20) = 2^(dB x 0.1661), Q15 */
         int32_t d2 = k < nh && db2[k] > -120 ? db2[k] / 2 : last - 2;   /* (dB x 2: half the given dB; then -1.2 dB) */
@@ -18,19 +15,37 @@ void tx_wing_table(int16_t *tab, const int8_t *db2, unsigned nh)
         last = d2;
         amp[k] = d2 < -120 ? 0 : (int32_t)tx_exp2((15 << 16) + d2 * 5443);   /* dB/2 x 2 x 0.1661 */
     }
-    nh = TX_WING_HX;
-    for (i = 0; i < TX_WING_N; i++) {
+}
+
+int32_t tx_wing_rows(int32_t *acc, const int32_t *amp, unsigned i0, unsigned i1, int32_t peak)
+{
+    int16_t sn[TX_WING_N];                                   /* one cycle of the sine: harmonic k is sn[(k i) mod N] */
+    unsigned k, i;
+    for (i = 0; i < TX_WING_N; i++) sn[i] = (int16_t)tx_sin_q15((uint32_t)i << 24);
+    for (i = i0; i < i1 && i < TX_WING_N; i++) {
         int32_t s = 0;
-        for (k = 0; k < nh; k++)                             /* sin((k + 1) 2 pi i / N), phases 0 */
-            s += (sn[((k + 1u) * i) & (TX_WING_N - 1u)] * amp[k]) >> 15;   /* (a load, not a sine: cheaper than the
-                                                              * 8 interpolated sines before, though 3x the harmonics) */
+        for (k = 0; k < TX_WING_HX; k++)                     /* sin((k + 1) 2 pi i / N), phases 0 */
+            s += (sn[((k + 1u) * i) & (TX_WING_N - 1u)] * amp[k]) >> 15;
         acc[i] = s;
         if (s > peak) peak = s;
         if (-s > peak) peak = -s;
     }
+    return peak;
+}
+
+void tx_wing_norm(int16_t *tab, const int32_t *acc, int32_t peak)
+{
+    unsigned i;
     if (peak < 1024) peak = 1024;
     for (i = 0; i < TX_WING_N; i++) tab[i] = (int16_t)(((acc[i] >> 4) * 32000) / (peak >> 4));   /* |acc| < 2^18 */
     tab[TX_WING_N] = tab[0];
+}
+
+void tx_wing_table(int16_t *tab, const int8_t *db2, unsigned nh)
+{
+    int32_t amp[TX_WING_HX], acc[TX_WING_N];
+    tx_wing_amps(amp, db2, nh);
+    tx_wing_norm(tab, acc, tx_wing_rows(acc, amp, 0, TX_WING_N, 1));
 }
 
 TX_AUDIO_CODE void tx_buzz_add(tx_buzz_t *b, const int16_t *front, const int16_t *side, int32_t g1, int32_t mix1,

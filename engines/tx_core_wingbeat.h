@@ -22,6 +22,7 @@
 
 #define TX_WING_N 256u
 #define TX_WING_H 8u
+#define TX_WING_HX 24u             /* harmonics in a table */
 
 typedef struct {
     uint32_t ph, inc;              /* phase, increment (the caller sets inc each block: f0 with Doppler) */
@@ -34,6 +35,11 @@ typedef struct {
 /* a table from harmonic levels: db[k] = level of harmonic k+1 in dB x 2 (int8: -128 = absent), the peak normalised
  * to 32000 */
 void tx_wing_table(int16_t *tab, const int8_t *db2, unsigned nh);
+/* the same in steps (control rate, spread over blocks by the caller: a whole table is ~3000 multiplies): the harmonic
+ * amplitudes amp[TX_WING_HX]; rows i0 .. i1 of the sum into acc[TX_WING_N], returning the running peak; the table */
+void tx_wing_amps(int32_t *amp, const int8_t *db2, unsigned nh);
+int32_t tx_wing_rows(int32_t *acc, const int32_t *amp, unsigned i0, unsigned i1, int32_t peak);
+void tx_wing_norm(int16_t *tab, const int32_t *acc, int32_t peak);
 /* render one buzzer into out: gain and mix move linearly from their current values to g1 / mix1 over the block */
 TX_AUDIO_CODE void tx_buzz_add(tx_buzz_t *b, const int16_t *front, const int16_t *side, int32_t g1, int32_t mix1,
                                int32_t *out, unsigned n);

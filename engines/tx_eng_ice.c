@@ -95,6 +95,8 @@ typedef struct {
     tx_vary_t vy;
     int32_t f1_l2;                 /* the last icicle's rod (log2 Hz Q16): its chunks ring above it */
     uint8_t rk, rd, pad2[2];       /* the clicks' colour now: high-pass shift, decay shift (per crack) */
+    uint16_t fzt;                  /* blocks of fizz left after a break */
+    uint32_t fnext;                /* samples to the next fizz pop */
 } ice_t;
 
 static unsigned cubes(const ice_t *s) { return s->p[P_ACTION] >= 64u; }
@@ -229,6 +231,7 @@ static void icicle(ice_t *s, const tx_event_t *e)
         tx_mode_strike(&s->thud[1], (int32_t)(((int64_t)(-a / 60) * th) >> 15));
     }
     crack_colour(s);
+    s->fzt = 172u;                                           /* ~1 s of fizz from the fresh break */
     s->bpush[e->offset] += a >> 6;                           /* the first crack; 1-4 more within ~20 ms follow as */
     for (c = 0, j = e->offset; c < 1u + (tx_rand(r) >> 30); c++) {   /* one-impact chunks (k = 4: no bounce) */
         chunk_t *h = 0;
@@ -333,21 +336,28 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
     any |= s->thud[0].amp | s->thud[1].amp;
     tx_modal_run(s->piece, NPC, s->buf, 0, n);
     for (i = 0; i < NPC; i++) any |= s->piece[i].amp;
-    s->fe += (((cubes(s) ? tx_cloud_held(&s->cloud) != 0 : any != 0) ? 32767 : 0) - s->fe) >> 5;   /* the fizz dies away
-                                                              * over ~0.5 s with the ice's ring (it stopped dead at
-                                                              * -45 dBFS: session 5's tails) */
+    /* the melt fizz: fresh breaks and wet chunks release their air for ~1 s, then the ice is quiet (it ran under every
+     * ring's tail before: a -90 dB bed between the breaks; the user, 2026-10-25: silence between events) */
+    if (s->fzt) s->fzt--;
+    s->fe += (((cubes(s) ? tx_cloud_held(&s->cloud) != 0 : s->fzt != 0) ? 32767 : 0) - s->fe) >> 5;   /* dies away over
+                                                              * ~0.5 s (session 5: no dead stop) */
     if (s->fe < 32) s->fe = 0;
-    if (s->fizz && s->fe) {                                  /* the melt fizz: sparse tiny pops */
-        uint32_t t = tx_rand_below(r, 200u);
-        int32_t lvl = (int32_t)(((((int64_t)s->fizz * s->level) >> 13) * s->fe) >> 15);
+    if (s->fizz && s->fe) {                                  /* separate pops (bubbles bursting at the melting surface:
+                                                              * 30 .. 300 /s by FIZZ, sizes alpha 1.5, each bubble its own
+                                                              * pitch 1-3 kHz (C8); was ~1300 /s: a hiss) */
+        uint32_t t = s->fnext;
+        int32_t lvl = (int32_t)(((((int64_t)s->fizz * s->level) >> 12) * s->fe) >> 15);   /* (+6 dB a pop: fewer) */
+        uint32_t gap = 44100u / (30u + s->fizz * 2u);
+        if (t < n) tx_ireso_set(&s->fz, 1000u + tx_rand_below(r, 2000u), 24);   /* this block's bubbles */
         while (t < n && nf < 64u) {
             int32_t x = (int32_t)(((int64_t)tx_neglog2_q12(tx_rand(r)) * 8192) >> 12);   /* alpha 1.5 */
             s->fo[nf] = (uint16_t)t;
             s->fa[nf] = (int16_t)(((int64_t)lvl * (int32_t)tx_exp2(-(x > 6 << 16 ? 6 << 16 : x) + (15 << 16))) >> 15) * ((tx_rand(r) & 1u) ? 1 : -1);
             nf++;
-            t += 4u + tx_rand_below(r, 60u);                 /* ~1300 /s (ours) */
+            t += 1u + (uint32_t)(((uint64_t)tx_neglog2_q12(tx_rand(r) | 1u) * gap * 2839u) >> 24);   /* exponential gaps */
         }
-    }
+        s->fnext = t - n;
+    } else s->fnext = tx_rand_below(r, 2000u);
     tx_ireso_add(&s->fz, s->fo, s->fa, nf, s->buf, n);
     any |= !tx_ireso_quiet(&s->fz);
     {   /* the clicks: a sharp spike and a short bright burst */
