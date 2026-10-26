@@ -10,8 +10,8 @@
 const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES] = { 60, 80, 220, 200, 1500, 50, 90, 70, 50, 60, 80, 150, 80, 100, 250, 120, 400, 150, 200, 100, 600 };
 const int32_t TX_BIRD_F0[TX_BIRD_TYPES] = { 731868, 771564, 596593, 641031, 666332,   /* 2.3, 3.5, 0.55, 0.88, 1.15 kHz */
                                             731868, 738796, 750467, 781796, 805288, 768824, 779340,
-                                            756990, 753784, 708692, 747028, 619395, 619395, 607920, 703288, 460218 };
-                                            /* 2.3, 2.5, 2.8, 3.9, 5.0, 3.4, 3.8, 3.0, 2.9, 1.8, 2.7, 0.7, 0.7 (the strike), 0.62, 1.7,
+                                            756990, 727570, 708692, 747028, 619395, 619395, 607920, 703288, 460218 };
+                                            /* 2.3, 2.5, 2.8, 3.9, 5.0, 3.4, 3.8, 3.0, 2.2, 1.8, 2.7, 0.7, 0.7 (the strike), 0.62, 1.7,
                                              * 0.13 kHz */
 
 enum { ST_BLACKBIRD, ST_THRUSH, ST_NIGHTINGALE, ST_ROBIN, ST_WREN, ST_HERMIT, ST_SKYLARK, ST_FINCH, ST_CROW, ST_OWL, ST_GULL,
@@ -69,7 +69,8 @@ static const sp_t SP[TX_BIRD_TYPES] = {
     /* 12 wood thrush: soft low notes, a loud fluted phrase (a few types per bird), a high two-voice trill; 2.0-5.9 kHz */
     {ST_WOODTHRUSH, -2400, 4000, 15, 50, 50, 140, 600, 120, 120, 24, 5, 6, 20, 400, 1500, 1, 52, 6, 0, 0, 200},
     /* 13 reed warbler: an endless chatter of scratchy and whistled syllables, each repeated 2-4 times; 2.3-5.8 kHz.
-     * Some birds sedge-like: fewer repeats, buzzy trills; refs 2.2-5.5 kHz, ~10-12 syllables /s, phrases 0.2-1 s */
+     * Some birds sedge-like: fewer repeats, buzzy trills; refs 2.2-5.5 kHz, ~10-12 syllables /s, phrases 0.2-1 s (their
+     * loud frames peak at 2.0-2.7 / 2.6-3.7 / 4.4-4.9 kHz, p10 / 50 / 90; ours were 3.7 / 4.9 / 5.9, 0.4 oct lower now) */
     {ST_WARBLER, -2000, 3000, 15, 70, 60, 150, 1400, 200, 30, 40, 24, 20, 80, 150, 700, 1, 40, 4, 0, 0, 600},
     /* 14 curlew: rising "cour-lee" calls in series, or the bubbling song: long rising notes (0.5-0.8 s, +0.5 oct from
      * ~1.5 kHz), a run of shorter rising ones with fast bubbling between, long falling notes to end (refs 1.4-2.2 kHz);
@@ -101,7 +102,7 @@ static const sp_t SP[TX_BIRD_TYPES] = {
 
 /* each type's level (Q6), by render: every bird preset at -30 LUFS at INTENSITY 64 (60 s, the mean of 3 seeds; with
  * the preset rows' trims) */
-static const uint16_t TRIM[TX_BIRD_TYPES] = { 240, 180, 112, 123, 421, 120, 166, 152, 145, 216, 82, 145, 182, 126, 100, 94, 125, 1430, 99, 404, 49 };
+static const uint16_t TRIM[TX_BIRD_TYPES] = { 240, 180, 112, 123, 421, 120, 166, 152, 145, 216, 82, 145, 182, 210, 100, 94, 125, 1430, 99, 404, 49 };
 
 /* SIZE: how far a type's birds range in size, the half range in octaves (Q16 per knob step: 512 = +-0.5 oct at the
  * ends). A bigger bird sings lower within what its kind spans (a jackdaw to a raven, a black-headed gull to a great
