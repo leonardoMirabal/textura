@@ -6,10 +6,10 @@
  * and the audition player run, linked as their own objects). Below both is platform.c: on the FM-1 the hardware; with
  * DINGHY_HOST tests/host.c, a fake FM-1 that runs a script and writes the screen (PPM) and the sound (WAV).
  *
- * Stage (UI-PLAN piece 4): the ten landscapes on four lanes (scape.c), the keys in LANDSCAPE and PLAY mode with their
- * LEDs (notes.c), the params table with its CC and NRPN (params.c), the screen in Frodhes' look with the LANDSCAPE,
- * MIXER, SOUND, DRIVE, FILTER, GRAIN and REVERB pages (ui.c); MIDI notes on channel 1 play the selected lane. The
- * tempo, the modulation and the scenes come next.
+ * Stage (UI-PLAN piece 7): the ten landscapes on four lanes (scape.c), the keys in LANDSCAPE and PLAY mode with their
+ * LEDs (notes.c), the params table with its CC and NRPN (params.c), the tempo clock (tempo.c), the LFOs and the mod
+ * matrix (mod.c), the scenes and the settings (scenes.c), the screen in Frodhes' look (ui.c); MIDI notes on channel 1
+ * play the selected lane, program changes pick a scene.
  *
  * Rules of the road (no FPU, no libgcc): integers only, no float, no 64-bit division. */
 #include <stdint.h>
@@ -71,6 +71,7 @@ static uint32_t tx_palette_index(const char *name)
 #include "params.c"
 #include "tempo.c"
 #include "mod.c"
+#include "scenes.c"
 #include "ui.c"
 
 /* ---- MIDI: notes on channel 1 play the selected lane, pitched; control changes reach the params table (a lane's on
@@ -87,6 +88,7 @@ static void tx_midi_poll(void)
         if (t == 0xB0u) { if (!p_cc(ch, d1, d2)) mod_cc_in(d1, d2); continue; }   /* (not ours: the mod wheel, MOD CC) */
         if (t == 0xD0u) { mod_at(d1); continue; }
         if (t == 0xA0u) { mod_at(d2); continue; }
+        if (t == 0xC0u && ch == 0u) { scn_pc(d1); continue; }   /* (program change: a scene, scenes.c) */
         if (ch != 0u) continue;
         if (t == 0x90u) ln_key(sc.sel, d1, d2 ? d2 : 0u, d2 != 0u);
         else if (t == 0x80u) ln_key(sc.sel, d1, 0, 0);
@@ -100,6 +102,7 @@ static void app_main(void)
     sc_init();
     p_init();
     mod_init();
+    scn_init();
     tempo_sync_publish();
     ui_splash();
     for (;;) {
@@ -113,6 +116,7 @@ static void app_main(void)
         p_poll();
         tempo_poll();
         mod_poll();
+        scn_poll();
         ui_draw();
         nt_leds(ui_btn_leds());
     }
@@ -120,11 +124,46 @@ static void app_main(void)
 
 #ifdef DINGHY_WEB
 EMSCRIPTEN_KEEPALIVE const char *web_page(void) { return G_TITLE[ui_g]; }   /* (web/app.js: the buttons' captions) */
+EMSCRIPTEN_KEEPALIVE const char *web_scene(void)  /* the scene loaded last ("U05 WATER", "-"; tests/web_check.py) */
+{
+    static char s[20];
+    if (scn_cur == 0xFF) { s[0] = '-'; s[1] = 0; } else scn_name_of(scn_cur, s);
+    return s;
+}
 #endif
 
 /* ---- the host's checks (tests/host.c: "expect state K V", "expect sound", "dump") */
 #ifdef DINGHY_HOST
-static int host_preset_check(char *msg, unsigned n) { (void)msg; (void)n; return 0; }   /* (no scenes yet) */
+static int host_preset_check(char *msg, unsigned n)   /* 0 if what plays is the scene loaded last (its lanes, records) */
+{
+    static scn_t now;
+    const scn_t *s = scn_ap;
+    uint32_t k, i, j;
+    if (scn_cur == 0xFF || !s || scn_busy()) { snprintf(msg, n, "%s", scn_busy() ? "a scene still loading" : "no scene loaded"); return scn_busy(); }
+    scn_capture(&now);
+    if (now.fam != s->fam) { snprintf(msg, n, "landscape %u, not %u", now.fam, s->fam); return 1; }
+    for (k = 0; k < SC_N; k++)
+        if (now.snd[k] != s->snd[k] || now.run[k] != s->run[k] || (s->run[k] && (now.cnt[k] != s->cnt[k] || now.step[k] != s->step[k])) ||
+            (s->snd[k] >= 0 && (now.vol[k] != s->vol[k] || now.pan[k] != s->pan[k]))) {
+            snprintf(msg, n, "lane %u: sound %d run %u count %u step %u vol %u pan %u, not %d %u %u %u %u %u", k + 1u, now.snd[k],
+                     now.run[k], now.cnt[k], now.step[k], now.vol[k], now.pan[k], s->snd[k], s->run[k], s->cnt[k], s->step[k], s->vol[k], s->pan[k]);
+            return 1;
+        }
+    for (i = 0; i < s->nrec; i++) {             /* every record holds (the cards: as set) */
+        for (j = 0; j < now.nrec && now.r[j].id != s->r[i].id; j++) {}
+        if (j == now.nrec || now.r[j].v != s->r[i].v) {
+            snprintf(msg, n, "id 0x%03X: %d, not %d", s->r[i].id, j == now.nrec ? -1 : now.r[j].v, s->r[i].v);
+            return 1;
+        }
+    }
+    for (j = 0; j < now.nrec; j++)              /* and no card set that the scene has not */
+        if (P_SCOPE(now.r[j].id) < SC_N && P_IDX(now.r[j].id) >= PL_CARD0 && P_IDX(now.r[j].id) < PL_CARD0 + SCD_MAX) {
+            for (i = 0; i < s->nrec && s->r[i].id != now.r[j].id; i++) {}
+            if (i == s->nrec) { snprintf(msg, n, "card 0x%03X set (%d), not in the scene", now.r[j].id, now.r[j].v); return 1; }
+        }
+    snprintf(msg, n, "%u records", s->nrec);
+    return 0;
+}
 static int host_sound_check(char *msg, unsigned n)   /* 0 if every lane runs the engine the landscape put there */
 {
     uint32_t k;
@@ -175,6 +214,11 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "running")) snprintf(v, n, "%d", tm_running());
     else if (!strcmp(key, "songpos")) snprintf(v, n, "%u", clk_sp);
     else if (!strcmp(key, "gsync")) snprintf(v, n, "%u", tm.gsync_smp);          /* the grain delay's echo, samples */
+    else if (!strcmp(key, "scene")) { char t[20]; if (scn_cur == 0xFF) snprintf(v, n, "-"); else { scn_name_of(scn_cur, t); snprintf(v, n, "%s", t); } }
+    else if (!strcmp(key, "loading")) snprintf(v, n, "%u", scn_busy());
+    else if (!strcmp(key, "saving")) snprintf(v, n, "%u", scn_sv_on);
+    else if (!strcmp(key, "savemode")) snprintf(v, n, "%u", scn_save_mode ? scn_save_slot + 1u : 0u);
+    else if (sscanf(key, "used%u%c", &k, &c) == 1 && k >= 1u && k <= SCN_NU) snprintf(v, n, "%u", scn_meta[k - 1u].used);
     else if (!strcmp(key, "mpos")) snprintf(v, n, "%u", mpos >> 8);               /* the song position (1/96 quarter) */
     else if (!strcmp(key, "routes")) snprintf(v, n, "%u", mbuf[mcur].nr);
     else if (sscanf(key, "lfo%u%c", &k, &c) == 1 && k < TX_LFO_N) snprintf(v, n, "%d", (int)mod_lfo[k].out);

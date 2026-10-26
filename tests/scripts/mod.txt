@@ -94,4 +94,28 @@
 4820 expect state msg LFO1_>_L1_HOW_ACTIVE_+20%
 4820 expect state routes 1
 4900 expect sound
-5000 end
+# the web panel's click: LFO latches learn (3 s, or until 800 ms after a card's last turn); LFO again: the LFO pages
+5000 web 1
+5100 btn 5
+5120 expect state page LANDSCAPE
+5120 expect state msg LEARN_LFO1:_TURN_A_CARD
+5120 expect led 5 1
+5200 turn 3 5
+5220 expect state routes 2
+5250 turn 3 5
+5270 expect state msg LFO1_>_L1_HOW_MANY_+10%
+5270 expect state routes 2
+5300 shot
+6200 expect led 5 0
+6300 turn 3 1
+6320 expect state routes 2
+6400 btn 5
+6420 btn 5
+6440 expect state page LFO_1/3
+# latched and left alone: 3 s, then the knobs are the page's again
+6500 btn 8
+6600 btn 5
+9700 expect led 5 0
+9800 web 0
+9900 expect sound
+10000 end

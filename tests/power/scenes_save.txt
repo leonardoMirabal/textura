@@ -1,0 +1,17 @@
+# the power cycle, run 1 (FRODHES_FLASH kept: make fw-test): a scene saved into U05, the settings (CLOCK AUTO, the
+# last scene) saved 2 s after their last change; run 2 (scenes_boot.txt) starts from that flash
+1700 btn 13
+1800 midi 0xB4 91 110
+1850 midi 0xB0 10 20
+1900 midi 0xB4 3 63
+2000 btn 9
+2050 turn 6 4
+2070 expect state savemode 5
+2100 btn 9
+2700 expect state saving 0
+2700 expect state scene U05_WATER
+2800 btn 7
+2820 btn 7
+2850 turn 2 3
+2870 expect state card0 AUTO
+6000 end

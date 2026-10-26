@@ -128,6 +128,11 @@ fw-test: $(FW)/lanes_test $(FW)/textura-host
 	fail=0; for s in tests/scripts/*.txt; do n=$$(basename $$s .txt); \
 	  if $(FW)/textura-host $(FW)/$$n $$s > $(FW)/$$n.log 2>&1; then echo "ok    host $$n"; \
 	  else echo "FAIL  host $$n ($(FW)/$$n.log)"; fail=1; fi; done; \
+	rm -f $(FW)/power.flash; \
+	if FRODHES_FLASH=$(FW)/power.flash $(FW)/textura-host $(FW)/power1 tests/power/scenes_save.txt > $(FW)/power1.log 2>&1 && \
+	   FRODHES_FLASH=$(FW)/power.flash $(FW)/textura-host $(FW)/power2 tests/power/scenes_boot.txt > $(FW)/power2.log 2>&1; \
+	then echo "ok    host power cycle (tests/power: a scene and the settings across a restart)"; \
+	else echo "FAIL  host power cycle ($(FW)/power1.log, power2.log)"; fail=1; fi; \
 	python3 -I tests/clock_check.py > $(FW)/clock.log 2>&1 && echo "ok    clock (tests/clock_check.py)" || { echo "FAIL  clock ($(FW)/clock.log)"; fail=1; }; \
 	exit $$fail
 

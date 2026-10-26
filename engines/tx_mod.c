@@ -90,7 +90,7 @@ TX_AUDIO_CODE static int32_t lfo_shape(tx_lfo_t *l, uint32_t inc, int wrap)
     case TX_LS_SMOOTH: {                        /* random points, eased between (WIDTH: linear .. a cosine) */
         int32_t lin = (int32_t)(u >> 1), e = (32768 - tx_sin_q15((ph >> 1) + 0x40000000u)) >> 1;
         if (wrap) { l->a = l->b; l->b = rnd_q15(l); }
-        e = lin + (e - lin) * (int32_t)w / 127;
+        e = lin + (((e - lin) * (int32_t)(w * 258u)) >> 15);   /* (w / 127: 32-bit products only, no 64-bit) */
         return l->a + ((((l->b - l->a) >> 1) * e) >> 14);
     }
     case TX_LS_DRIFT: {                         /* an Ornstein-Uhlenbeck walk, its time constant the rate, sd 0.4 */
@@ -127,12 +127,12 @@ TX_AUDIO_CODE static int32_t lfo_shape(tx_lfo_t *l, uint32_t inc, int wrap)
             int32_t x = l->x, y = l->y, z = l->z;
             l->x = x + ((10 * (y - x) * 328) >> 16);
             l->y = y + (((((x * (28672 - z)) >> 10) - y) * 328) >> 16);
-            l->z = z + (((((x * y) >> 10) - z * 8 / 3) * 328) >> 16);
+            l->z = z + (((((x * y) >> 10) - ((z * 2731) >> 10)) * 328) >> 16);   /* (z 8/3) */
             l->acc -= 30678337u; k++;
         }
         if (k == 16u) l->acc = 0;
         {
-            int32_t v = l->x * 8 / 5;
+            int32_t v = (l->x * 13107) >> 13;     /* (x 8/5) */
             return v > 32767 ? 32767 : v < -32767 ? -32767 : v;
         }
     }
@@ -157,7 +157,7 @@ TX_AUDIO_CODE void tx_lfo_block(tx_lfo_t *l, unsigned rate, unsigned level, uint
         uint32_t e = (inc >> 15) * l->jf + (((inc & 0x7FFFu) * l->jf) >> 15);
         l->ph += e;
         if (l->ph < old) {
-            int32_t d = rnd_q15(l) * (int32_t)l->p[TX_LP_JITTER] / 254;
+            int32_t d = (rnd_q15(l) * (int32_t)l->p[TX_LP_JITTER] * 129) >> 15;   /* (/ 254) */
             wrap = 1;
             l->jf = (uint32_t)(32768 + d);
             if (l->p[TX_LP_MODE] == TX_LM_ONESHOT) { l->held = 1; l->ph = 0xFFFFFFFFu; }
@@ -170,7 +170,7 @@ TX_AUDIO_CODE void tx_lfo_block(tx_lfo_t *l, unsigned rate, unsigned level, uint
         if (l->fade > 65536u) l->fade = 65536u;
     }
     if (level > 127u) level = 127u;
-    s = s * (int32_t)level / 127;
+    s = (s * (int32_t)(level * 258u + (level >> 6))) >> 15;   /* (level / 127) */
     l->out = (s * (int32_t)(l->fade >> 1)) >> 15;
     {                                           /* the ring: a value each 1/32 cycle */
         uint32_t pt = l->ph >> 27;

@@ -8,6 +8,8 @@ const ENCS = [["SELECT", 0], ["ALGORITHM", 1], ["PRESETS", 6], ["K1", 2], ["K2",
 const NKEYS = 27;                                   // F3 .. G5
 const KEYMAP = "awsedrfgyhujkolp;".split("");       // F3, F#3, G3 ... chromatic
 const STORE_KEY = "textura.settings";
+const SCENES_KEY = "textura.scenes";                 // the scene banks (web_hal.c fl_window_*)
+const b64 = b => { let s = ""; for (let i = 0; i < b.length; i += 8192) s += String.fromCharCode(...b.subarray(i, i + 8192)); return btoa(s); };
 
 let M = null, ctx = null, node = null, keysDown = 0, keysHeld = new Set();
 
@@ -29,6 +31,11 @@ var Module = window.Module = {
       if (s) {
         const b = Uint8Array.from(atob(s), c => c.charCodeAt(0));
         M.HEAPU8.set(b.subarray(0, 260), M._web_store());
+      }
+      const w = localStorage.getItem(SCENES_KEY);
+      if (w) {
+        const b = Uint8Array.from(atob(w), c => c.charCodeAt(0));
+        if (b.length === M._web_flw_len()) M.HEAPU8.set(b, M._web_flw_buf());
       }
     } catch (e) { /* private window: no storage */ }
     M._web_master(master);
@@ -74,6 +81,9 @@ function frame() {
       const b = new Uint8Array(M.HEAPU8.buffer, M._web_store(), 260);
       localStorage.setItem(STORE_KEY, btoa(String.fromCharCode(...b)));
     } catch (e) { }
+  }
+  if (M._web_flw_take_dirty()) {
+    try { localStorage.setItem(SCENES_KEY, b64(new Uint8Array(M.HEAPU8.buffer, M._web_flw_buf(), M._web_flw_len()))); } catch (e) { }
   }
   requestAnimationFrame(frame);
 }
@@ -134,11 +144,11 @@ const KNOBS = [["MASTER", -1, 50, 22, "VOLUME"], ["SELECT", 0, 200, 22, "PAGES"]
                ["ALGORITHM", 1, 200, 152, "LANDSCAPE·TYPE"], ["KNOB 1", 2, 685, 22, "CARD 1"], ["KNOB 2", 3, 800, 22, "CARD 2"],
                ["KNOB 3", 4, 915, 22, "CARD 3"], ["KNOB 4", 5, 1030, 22, "CARD 4"]];
 // the buttons' captions (the ones still to come are blank: envelopes and scenes)
-const HINT = { FX: "EFFECTS", SEL: "KEY MODE", ENV: "", LFO: "LFO", EDIT: "SOUND", GLO: "TEMPO", HOME: "LANDSCAPE", SAVE: "", ARP: "MATRIX",
+const HINT = { FX: "EFFECTS", SEL: "KEY MODE", ENV: "", LFO: "LEARN · AGAIN: LFO", EDIT: "SOUND", GLO: "TEMPO", HOME: "LANDSCAPE", SAVE: "SCENE · HOLD: UNDO", ARP: "MATRIX",
                SEQ: "", PLAY: "TAP · HOLD: RUN", REC: "ALL ON·OFF", "OCT−": "LANE", "OCT+": "LANE" };
 const HINT_ON = {                                    // what a button does on a given page (else HINT)
   LANDSCAPE: { HOME: "MIXER" }, MIXER: { HOME: "LANDSCAPE" }, SOUND: { EDIT: "DRIVE" }, GRAIN: { FX: "REVERB" }, TEMPO: { GLO: "MIDI" },
-  LFO: { LFO: "NEXT · HOLD: LEARN" },
+  LFO: { LFO: "NEXT" },
 };
 let shownPage = "";
 function captions() {                                // the page on the screen: the buttons' captions

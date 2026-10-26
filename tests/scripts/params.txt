@@ -19,7 +19,7 @@
 2200 turn 0 1
 2220 expect state page SOUND_2/2
 2220 expect state lab0 LIFE
-2220 expect state lab1 -
+2220 expect state lab1 WIND
 # lane 3, water drops: played by the source's own particles on this build, so the source's general cards
 2260 btn 1
 2300 btn 1
@@ -35,6 +35,7 @@
 2420 expect state lab0 SIZE
 2420 expect state lab1 HEIGHT
 2420 expect state lab2 POOL
+2420 expect state lab3 CAVE
 2420 expect state host3.5 100
 2500 turn 3 20
 2520 expect state card1 120

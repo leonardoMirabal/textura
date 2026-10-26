@@ -20,6 +20,8 @@
  *              selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP  MATRIX
  *   SEL        key mode: LANDSCAPE / PLAY      OCT- OCT+  LANDSCAPE mode: the lane; PLAY mode: the octave
  *   REC        LANDSCAPE mode: all lanes stop (remembered) / start again
+ *   SAVE       the save mode (scenes.c: PRESETS / K1 the user scene, SAVE again saves, HOME cancels); held 700 ms:
+ *              undo the last scene load            PRESETS  browse the scenes (loads 400 ms after the last detent)
  *   PLAY       (TX_BTN_TAP) a tap: TAP TEMPO (on the press); held 600 ms: the transport starts / stops (and that
  *              press's tap is taken back); its light: the beat
  * The cards' values are the params table's (params.c): the same ids MIDI reaches. */
@@ -414,7 +416,12 @@ static void draw_footer(void)
                                           "ALGORITHM: WHICH LFO", "ALGORITHM: WHICH SLOT",
                                           "PLAY: TAP, HOLD: START / STOP", "CLOCK OUT: OVER USB, LATER"};
     cv_begin(240, FT_H, FC_BG);
-    if (ui_msg_t && fm1_ms - ui_msg_t < MSG_MS) ft_c(15, ui_msg, FC_VAL);
+    if (scn_save_mode) {                   /* the save mode: where to */
+        char t[24], m[20];
+        p_strcpy(t, "SAVE TO ", 23); scn_name_of(SCN_NF + scn_save_slot, m); p_cat(t, m, 23);
+        ft_c(7, t, FC_VAL); ft_c(22, "SAVE: YES   HOME: NO", FC_DIM);
+    }
+    else if (ui_msg_t && fm1_ms - ui_msg_t < MSG_MS) ft_c(15, ui_msg, FC_VAL);
     else if (ui_g == G_LAND) {
         char t[32];
         p_strcpy(t, nt.mode == NT_PLAY ? "PLAY: KEYS INTO LANE " : "LANE ", 24);
@@ -453,6 +460,7 @@ static uint32_t ui_sig_of(uint32_t e)
     else if (e == E_FOOTER) {
         h = sig_mix(h, ui_msg_t && fm1_ms - ui_msg_t < MSG_MS ? ui_msg_t : 0u);
         h = sig_mix(h, nt.mode); h = sig_mix(h, sc.sel);
+        h = sig_mix(h, scn_save_mode ? scn_save_slot + 1u : 0u);
     } else if (e >= E_ROW0 && e < E_ROW0 + 4u) {
         k = e - E_ROW0;
         h = sig_mix(h, ui_hot_card == k && ui_hot_t && fm1_ms - ui_hot_t < HOT_MS);
@@ -576,8 +584,19 @@ static void ui_turn(uint32_t id, int32_t d)
     else v += d;
     p_set(id, clampi(v, 0, p_hi(id)));
 }
-/* LFO held: mod learn. A card turned routes the selected LFO onto it, the turn its depth */
+/* LFO held: mod learn. A card turned routes the selected LFO onto it, the turn its depth. The web panel (a mouse
+ * cannot hold LFO and turn a knob): a click on LFO away from the LFO pages latches learn for LATCH_MS or until a card
+ * turns; LFO again while latched: the LFO pages */
+#define LATCH_MS 3000u
 static uint8_t ui_lfo_down, ui_lfo_learned;
+#ifdef DINGHY_WEB
+static uint8_t ui_click_learn = 1;
+#else
+static uint8_t ui_click_learn;
+#endif
+static uint32_t ui_latch_t;                     /* the latch's start (0: off) */
+static void ui_click_learn_set(int on) { ui_click_learn = on != 0; ui_latch_t = 0; }
+static int ui_latched(void) { if (ui_latch_t && fm1_ms - ui_latch_t >= LATCH_MS) ui_latch_t = 0; return ui_latch_t != 0; }
 static void ui_learn(uint32_t k, int32_t d)
 {
     uint32_t id = NOID;
@@ -604,6 +623,8 @@ static void ui_knob(uint32_t k, int32_t d)
 {
     uint32_t l = sc.sel;
     if (ui_lfo_down) { ui_learn(k, d); return; }
+    if (ui_latched()) { ui_learn(k, d); ui_latch_t = fm1_ms - (LATCH_MS - 800u); if (!ui_latch_t) ui_latch_t = 1u; return; }
+                                                /* (latched: this turn's detents, until 800 ms after the last) */
     ui_hot(k);
     if (ui_g == G_MIX) {
         if (ui_sub == 0u) sc_volume(k, (uint32_t)clampi((int32_t)sc_vol_of(k) + d, 0, 127));
@@ -697,14 +718,27 @@ static void ui_input(uint32_t b, uint32_t rel)
     uint32_t i;
     for (i = 0; i < 7u; i++) d[i] = fm1_enc_take(i);
     if (ui_splash_on) for (i = 0; i < 7u; i++) if (d[i] || b) ui_splash_t = fm1_ms - UI_SPLASH_MS;
+    if (scn_input(b, rel, d[ENC_PRESETS], d[ENC_KNOB1])) {   /* (the save mode takes K1 and HOME) */
+        d[ENC_KNOB1] = 0;
+        b &= ~(1u << BTN_HOME | 1u << BTN_OCT_DOWN);
+    }
     if (b >> BTN_HOME & 1u) ui_goto(ui_g == G_LAND ? G_MIX : G_LAND, 0);
     if (b >> BTN_EDIT & 1u) ui_goto(ui_g == G_SOUND ? G_DRIVE : G_SOUND, 0);
     if (b >> BTN_FX & 1u) ui_goto(ui_g == G_GRAIN ? G_REVERB : G_GRAIN, 0);
     if (b >> BTN_GLO & 1u) ui_goto(ui_g == G_TEMPO ? G_MIDI : G_TEMPO, 0);
+    if (b & ~(1u << BTN_LFO)) ui_latch_t = 0;   /* (another button: learn unlatched) */
     if (b >> BTN_ARP & 1u) ui_goto(G_MATRIX, 0);
     if (b >> BTN_LFO & 1u) { ui_lfo_down = 1; ui_lfo_learned = 0; }   /* (LFO: its pages on the release, unless it learned) */
     if (rel >> BTN_LFO & 1u) {
-        if (ui_lfo_down && !ui_lfo_learned) ui_goto(G_LFO, ui_g == G_LFO ? (ui_sub + 1u) % 3u : 0u);
+        if (ui_lfo_down && !ui_lfo_learned) {
+            if (ui_click_learn && ui_g != G_LFO && !ui_latched()) {   /* (the web: latch learn) */
+                char t[32];
+                p_strcpy(t, "LEARN LFO", 31); { char n[2] = {(char)('1' + ui_lfo), 0}; p_cat(t, n, 31); }
+                p_cat(t, ": TURN A CARD", 31);
+                ui_latch_t = fm1_ms ? fm1_ms : 1u;
+                ui_say(t);
+            } else { ui_latch_t = 0; ui_goto(G_LFO, ui_g == G_LFO ? (ui_sub + 1u) % 3u : 0u); }
+        }
         ui_lfo_down = 0;
     }
     ui_play(b >> TX_BTN_TAP & 1u, rel >> TX_BTN_TAP & 1u);
@@ -725,6 +759,8 @@ static uint32_t ui_btn_leds(void)
     else if (ui_g <= G_FILTER) b |= 1u << BTN_EDIT;
     else if (ui_g <= G_REVERB) b |= 1u << BTN_FX;
     else if (ui_g == G_LFO) b |= 1u << BTN_LFO;
+    if (ui_latched()) b |= 1u << BTN_LFO;      /* (learn latched) */
+    if (scn_save_mode || (scn_sv_on && fm1_ms >> 7 & 1u)) b |= 1u << BTN_SAVE;   /* (the save mode; saving: blinking) */
     else if (ui_g == G_MATRIX) b |= 1u << BTN_ARP;
     else b |= 1u << BTN_GLO;
     if (tempo_beat_led()) b |= 1u << TX_BTN_TAP;

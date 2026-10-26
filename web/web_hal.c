@@ -86,6 +86,39 @@ static int settings_save(const void *p, uint32_t n)
 static int settings_save_start(const void *p, uint32_t n) { return settings_save(p, n); }   /* (at once: 0 done) */
 static int settings_save_poll(void) { return 0; }
 
+/* Textura: a window of the flash for the app's own records (the scene banks: scenes.c), WEB_FLW_LEN bytes from
+ * store.h's slots; the page keeps it in localStorage too (web_flw, web_flw_take_dirty) */
+#include "store.h"
+#define WEB_FLW_AT SLOTS_AT
+#define WEB_FLW_LEN 0x8000u
+static uint8_t web_flw[WEB_FLW_LEN], web_flw_ok, web_flw_dirty;
+static int web_flw_in(uint32_t at, uint32_t n)
+{
+    if (!web_flw_ok) { memset(web_flw, 0xFF, sizeof web_flw); web_flw_ok = 1; }
+    return at >= WEB_FLW_AT && n <= WEB_FLW_LEN && at - WEB_FLW_AT <= WEB_FLW_LEN - n;
+}
+static int fl_window_read(uint32_t at, void *p, uint32_t n)
+{
+    if (!web_flw_in(at, n)) return -1;
+    memcpy(p, web_flw + (at - WEB_FLW_AT), n);
+    return 0;
+}
+static int fl_window_erase(uint32_t at)
+{
+    if ((at & 0xFFFu) || !web_flw_in(at, 0x1000u)) return -1;
+    memset(web_flw + (at - WEB_FLW_AT), 0xFF, 0x1000u);
+    web_flw_dirty = 1;
+    return 0;
+}
+static int fl_window_write(uint32_t at, const void *p, uint32_t n)
+{
+    uint32_t i;
+    if (!web_flw_in(at, n)) return -1;
+    for (i = 0; i < n; i++) web_flw[at - WEB_FLW_AT + i] &= ((const uint8_t *)p)[i];
+    web_flw_dirty = 1;
+    return 0;
+}
+
 /* USB-MIDI in (Web MIDI or the page); MIDI out is dropped */
 static uint8_t mq[64][3];
 static uint32_t mq_w, mq_r;
@@ -162,6 +195,9 @@ EMSCRIPTEN_KEEPALIVE uint8_t *web_leds(void)              /* per id: 1 lit, 2 th
 }
 EMSCRIPTEN_KEEPALIVE uint8_t *web_store(void) { return web_store_buf; }
 EMSCRIPTEN_KEEPALIVE int web_store_take_dirty(void) { int d = web_store_dirty; web_store_dirty = 0; return d; }
+EMSCRIPTEN_KEEPALIVE uint8_t *web_flw_buf(void) { (void)web_flw_in(WEB_FLW_AT, 0); return web_flw; }
+EMSCRIPTEN_KEEPALIVE uint32_t web_flw_len(void) { return WEB_FLW_LEN; }
+EMSCRIPTEN_KEEPALIVE int web_flw_take_dirty(void) { int d = web_flw_dirty; web_flw_dirty = 0; return d; }
 
 int main(void)
 {

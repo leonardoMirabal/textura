@@ -4,7 +4,7 @@ firmware runs (the splash, then the LANDSCAPE page on the screen), ?selftest sta
 on-screen keys reach the firmware and its key LEDs come back (a black key selects a sound, a white key starts it), the
 knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
 tests/py/test_web_knobs.py), HOME turns to MIXER, EDIT to SOUND / DRIVE, FX to GRAIN / REVERB, GLO to TEMPO / MIDI, LFO to
-LFO, ARP to MATRIX (the captions follow), and the page fits a phone (390 px, no sideways scroll). Screenshots at desktop and phone width.
+LFO, ARP to MATRIX (the captions follow), SAVE saves a scene that a reload brings back, and the page fits a phone (390 px, no sideways scroll). Screenshots at desktop and phone width.
 
     make fw-web-check     (PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py)
 Outputs in build/web-check/. Exit 1 on any failure. The sound itself is not judged here (no ears)."""
@@ -56,6 +56,7 @@ COUNT_ENC = """() => { let real = Module._web_enc; window.__det = 0; window.__ma
       return real(id, d); }; } }); }"""
 LIT = "() => { const fb = new Uint16Array(Module.HEAPU8.buffer, Module._web_fb(), 240 * 240); let n = 0; for (const v of fb) if (v) n++; return n; }"
 PAGE = "() => { const p = Module.HEAPU8, a = Module._web_page(); let s = ''; for (let i = a; p[i]; i++) s += String.fromCharCode(p[i]); return s; }"
+SCENE = "() => { const p = Module.HEAPU8, a = Module._web_scene(); let s = ''; for (let i = a; p[i]; i++) s += String.fromCharCode(p[i]); return s; }"
 LED = "id => new Uint8Array(Module.HEAPU8.buffer, Module._web_leds(), 64)[id]"
 
 
@@ -126,12 +127,15 @@ def main():
         check(pg.evaluate(PAGE) == "MIDI", "GLO again: the MIDI page")
         # LFO: the LFO pages (the caption: the next one / learn); ARP: the MATRIX
         lfo, arp = pg.locator('button.b[data-name="LFO"]'), pg.locator('button.b[data-name="ARP"]')
-        check(lfo.locator("small").inner_text() == "LFO" and arp.locator("small").inner_text() == "MATRIX",
-              "LFO and ARP captions: LFO, MATRIX")
+        check(lfo.locator("small").inner_text() == "LEARN · AGAIN: LFO" and arp.locator("small").inner_text() == "MATRIX",
+              "LFO and ARP captions: LEARN · AGAIN: LFO, MATRIX")
+        lfo.click(delay=60)                            # (a click latches mod learn; a second one: the LFO pages)
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(PAGE) == "MIDI", "LFO click: learn latched, the page stays")
         lfo.click(delay=60)
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "LFO", "LFO: the LFO pages")
-        check(lfo.locator("small").inner_text() == "NEXT · HOLD: LEARN", "LFO's caption on LFO: NEXT · HOLD: LEARN")
+        check(lfo.locator("small").inner_text() == "NEXT", "LFO's caption on LFO: NEXT")
         pg.screenshot(path=os.path.join(OUT, "desktop-lfo.png"))
         arp.click(delay=60)
         pg.wait_for_timeout(300)
@@ -146,7 +150,24 @@ def main():
         check(pg.evaluate(WHEEL, [[100, 0, 0], [100, 0, 150], [100, 0, 150]]) == -6, "mouse wheel notches: 2 each")
         check(pg.evaluate(WHEEL, [[-1, 2, 0]]) == 8, "a page of wheel (deltaMode 2): 8 detents")
         check(pg.evaluate("window.__max") == 1, "one detent per call (the queue, at most 2 a frame)")
+        # SAVE, SAVE: the scene into U01 (the bank in localStorage); a reload boots into it
+        save = pg.locator('button.b[data-name="SAVE"]')
+        check(save.locator("small").inner_text() == "SCENE · HOLD: UNDO", "SAVE's caption: SCENE · HOLD: UNDO")
+        save.click(delay=60)
+        pg.wait_for_timeout(300)
+        save.click(delay=60)
+        pg.wait_for_timeout(1500)
+        check(pg.evaluate(SCENE) == "U01 WATER", f"SAVE, SAVE: U01 saved ({pg.evaluate(SCENE)})")
+        pg.wait_for_timeout(2500)                      # (the settings: 2 s after the last change)
+        check(pg.evaluate("!!localStorage.getItem('textura.scenes') && !!localStorage.getItem('textura.settings')"),
+              "the scene bank and the settings in localStorage")
         check(not errs, "no JavaScript errors" + (": " + "; ".join(errs) if errs else ""))
+        pg.reload()
+        pg.wait_for_function("window.Module && window.Module.calledRun", timeout=30000)
+        pg.click("#start")                             # (the lanes' engines switch in the audio callback)
+        pg.wait_for_timeout(1500)
+        check(pg.evaluate(SCENE) == "U01 WATER", f"a reload: U01 playing again ({pg.evaluate(SCENE)})")
+        pg.evaluate("localStorage.clear()")
         # ?selftest: the landscape started, its level, the screen
         st = b.new_page(viewport={"width": 1280, "height": 900})
         st.goto(url + "?selftest")

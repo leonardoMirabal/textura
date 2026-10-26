@@ -1,0 +1,76 @@
+# scenes: SAVE opens the save mode (PRESETS / K1 the user scene, SAVE again saves it, HOME cancels), the bank written a
+# slice a pass; MIDI PC on channel 1 loads (0 .. 9 the factory scenes F01 .. F10, 16 .. 31 the user's U01 .. U16);
+# SAVE held 700 ms undoes the last load (again: redo); PRESETS browses (loads 400 ms after the last detent). "expect
+# preset": what plays is the scene loaded last (its lanes and every record)
+1700 btn 13
+# a place of our own: reverb MIX (CC 91 on channel 5), lane 1 at 80 (CC 7), a card set, LFO 1 > L1 PAN, 100 BPM
+1800 midi 0xB4 91 100
+1850 midi 0xB0 7 80
+1870 midi 0xB0 14 30
+1900 btn 10
+1950 turn 2 1
+2000 turn 3 2
+2050 turn 4 30
+2080 midi 0xB4 3 38
+2100 btn 9
+2120 expect state savemode 1
+2120 expect led 9 1
+2150 turn 6 2
+2170 expect state savemode 3
+2200 shot
+# HOME: not saved
+2250 btn 8
+2270 expect state savemode 0
+2270 expect state msg NOT_SAVED
+2300 btn 9
+2320 turn 2 2
+2340 expect state savemode 3
+2400 btn 9
+2420 expect state saving 1
+2900 expect state saving 0
+2900 expect state msg SAVED_U03_WATER
+2900 expect state used3 1
+2900 expect state used1 0
+2900 expect state scene U03_WATER
+# PC 2: F03, the third landscape at its start
+3000 midi 0xC0 2 0
+3020 expect state loading 1
+3500 expect state loading 0
+3500 expect state scene F03_ICE_&_GLASS
+3500 expect state landscape Ice_&_glass
+3500 expect state routes 0
+3500 expect preset
+3500 expect sound
+# SAVE held: undo, back to what played (U03)
+3600 press 9
+4400 release 9
+4420 expect state msg UNDO
+4900 expect state scene U03_WATER
+4900 expect state landscape Water
+4900 expect state routes 1
+4900 expect state vol0 80
+4900 expect state bpm10 1000
+4900 expect preset
+4900 expect sound
+# F03 again, then PC 18: U03 from the bank
+5000 midi 0xC0 2 0
+5600 midi 0xC0 18 0
+6200 expect state scene U03_WATER
+6200 expect state landscape Water
+6200 expect state routes 1
+6200 expect state vol0 80
+6200 expect state p411 100
+6200 expect preset
+6200 expect sound
+# an empty user scene: nothing happens
+6300 midi 0xC0 20 0
+6320 expect state msg NO_SCENE_THERE
+# PRESETS: back one (F10), then on past the empty ones to U03
+6400 turn 6 -1
+6420 expect state msg F10_WILD_BIRDS
+6500 turn 6 1
+6520 expect state msg U03_WATER
+7400 expect state scene U03_WATER
+7400 expect preset
+7500 shot
+7600 end

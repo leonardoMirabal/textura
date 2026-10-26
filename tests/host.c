@@ -153,6 +153,35 @@ static int host_fl_check(const char *what, uint32_t at, uint32_t n)
     if (getenv("FRODHES_FLASHLOG")) printf("%6u ms  flash %s 0x%05X + %u ok\n", fm1_ms, what, at, n);
     return 0;
 }
+/* Textura: a window of the flash the app keeps its own records in (the scene banks: scenes.c), HOST_FLW_LEN bytes
+ * from store.h's slots, erased (0xFF) at the start; checked as above, kept in the FRODHES_FLASH file after the rest */
+#define HOST_FLW_AT SLOTS_AT
+#define HOST_FLW_LEN 0x8000u
+static uint8_t host_flw[HOST_FLW_LEN], host_flw_ok;
+static int host_flw_in(uint32_t at, uint32_t n)
+{
+    if (!host_flw_ok) { memset(host_flw, 0xFF, sizeof host_flw); host_flw_ok = 1; }
+    return at >= HOST_FLW_AT && n <= HOST_FLW_LEN && at - HOST_FLW_AT <= HOST_FLW_LEN - n;
+}
+static __attribute__((unused)) int fl_window_read(uint32_t at, void *p, uint32_t n)
+{
+    if (!host_flw_in(at, n)) return -1;
+    memcpy(p, host_flw + (at - HOST_FLW_AT), n);
+    return 0;
+}
+static __attribute__((unused)) int fl_window_erase(uint32_t at)
+{
+    if ((at & 0xFFFu) || !host_flw_in(at, 0x1000u) || host_fl_check("erase window", at, 0x1000u)) return -1;
+    memset(host_flw + (at - HOST_FLW_AT), 0xFF, 0x1000u);
+    return 0;
+}
+static __attribute__((unused)) int fl_window_write(uint32_t at, const void *p, uint32_t n)
+{
+    uint32_t i;
+    if (!host_flw_in(at, n) || host_fl_check("write window", at, n)) return -1;
+    for (i = 0; i < n; i++) host_flw[at - HOST_FLW_AT + i] &= ((const uint8_t *)p)[i];   /* (NOR: bits only clear) */
+    return 0;
+}
 
 static uint8_t host_usb_link = 1;                /* "T usblink 0": the USB cable out (frodhes.c usb_link) */
 static uint8_t host_usb_rec;                    /* "T usbrec 1": a computer reads the USB audio (nothing reads it since the split flash erase) */
@@ -234,6 +263,13 @@ static void host_flash_load(const char *path)
     }                                           /* else: a bad magic, length or CRC reads as nothing saved */
     memcpy(host_bank, img[1], sizeof host_bank);
     memcpy(sq_host_fl, img[3], sizeof sq_host_fl);
+    f = fopen(path, "rb");                      /* (Textura: the window after the five sectors, if the file has it) */
+    if (f) {
+        (void)host_flw_in(HOST_FLW_AT, 0);
+        if (!fseek(f, (long)sizeof img, SEEK_SET) && fread(host_flw, 1, sizeof host_flw, f) != sizeof host_flw)
+            memset(host_flw, 0xFF, sizeof host_flw);
+        fclose(f);
+    }
 }
 static void host_flash_save(const char *path)
 {
@@ -248,7 +284,9 @@ static void host_flash_save(const char *path)
     }
     memcpy(img[1], host_bank, sizeof host_bank);
     memcpy(img[3], sq_host_fl, sizeof sq_host_fl);
-    if (!(f = fopen(path, "wb")) || fwrite(img, 1, sizeof img, f) != sizeof img) { perror(path); exit(2); }
+    (void)host_flw_in(HOST_FLW_AT, 0);
+    if (!(f = fopen(path, "wb")) || fwrite(img, 1, sizeof img, f) != sizeof img ||
+        fwrite(host_flw, 1, sizeof host_flw, f) != sizeof host_flw) { perror(path); exit(2); }
     fclose(f);
 }
 
@@ -293,6 +331,7 @@ static void eng_host_report(void);              /* engine.c: the engines' host c
  *   T expect state K V   fails unless the state K (frodhes.c host_state: header, page, card0..3, oct, ...) reads V
  *                        (V: one word, '_' for a space)
  *   T usblink V          the USB link up (1, the default) or the cable out (0): the pitch bend resets (frodhes.c)
+ *   T web V            the web panel's LFO click (1: a click latches mod learn, as web/app.js; Textura)
  *   T usbrec V           a computer reads the USB audio (1) or not (0): the automatic saves go as without (fm1_flash.h fl_split_op)
  *   T dump               prints the state, one "@ T K V" line each (every page's cards, the parameters, LEDs ...)
  *   T end                stop; the exit code is the number of failed expects
@@ -307,7 +346,8 @@ static void eng_host_report(void);              /* engine.c: the engines' host c
  * With FRODHES_FLASH=FILE the flash is kept in FILE across runs (host_flash_load / host_flash_save). */
 enum { EV_KEYS, EV_BTN, EV_PRESS, EV_RELEASE, EV_TURN, EV_MIDI, EV_SHOT, EV_EXP_LED, EV_EXP_RMS, EV_EXP_PRESET,
        EV_EXP_SOUND, EV_EXP_STATE, EV_DUMP, EV_USBREC, EV_USBLINK, EV_VKEY, EV_TRS,
-       EV_VEL, EV_XKEY, EV_PAD, EV_FADER, EV_WHEEL, EV_PEDAL, EV_STALL, EV_RLOAD };
+       EV_VEL, EV_XKEY, EV_PAD, EV_FADER, EV_WHEEL, EV_PEDAL, EV_STALL, EV_RLOAD, EV_WEB };
+static void ui_click_learn_set(int on);          /* (Textura's ui.c: "T web V") */
 static int host_preset_check(char *msg, unsigned n);   /* frodhes.c: 0 if the panel is the shown preset */
 static int host_sound_check(char *msg, unsigned n);    /* frodhes.c: 0 if the engines run what the panel says */
 static int host_state(const char *key, char *val, unsigned n);   /* frodhes.c: 0 if K is known */
@@ -377,6 +417,7 @@ static void read_script(const char *path)
         else if (!strcmp(what, "renderload")) { e.kind = EV_RLOAD; sscanf(line, "%*u %*s %d", &e.a); }
         else if (!strcmp(what, "shot")) e.kind = EV_SHOT;
         else if (!strcmp(what, "dump")) e.kind = EV_DUMP;
+        else if (!strcmp(what, "web")) { e.kind = EV_WEB; sscanf(line, "%*u %*s %d", &e.a); }
         else if (!strcmp(what, "usblink")) { e.kind = EV_USBLINK; sscanf(line, "%*u %*s %d", &e.a); }
         else if (!strcmp(what, "usbrec")) { e.kind = EV_USBREC; sscanf(line, "%*u %*s %d", &e.a); }
         else if (!strcmp(what, "vkey")) { e.kind = EV_VKEY; sscanf(line, "%*u %*s %d %d", &e.a, &e.b); }
@@ -540,6 +581,7 @@ static void host_ms(void)
         case EV_DUMP: host_dump(); break;
         case EV_USBREC: host_usb_rec = e->a != 0; break;
         case EV_USBLINK: host_usb_link = e->a != 0; break;
+        case EV_WEB: ui_click_learn_set(e->a); break;
         case EV_VKEY: kv_host_vkey((uint32_t)e->a, (uint32_t)e->b); break;
         case EV_EXP_LED:
             if ((uint32_t)e->a >= 64u || host_led[e->a] != (uint8_t)e->b) {
