@@ -22,8 +22,9 @@
  *            the stones grow and are thrown harder; knocks beyond the heroes leave their attack residue (a slide).
  *   cicadas  1 .. 30 callers, each a tymbal voice as the cicadas engine's (ribs, glide, air sac), persistent members
  *            with their own carrier, rate, phrase and distance. The transition: falling into step. Above a third
- *            the callers' pulse groups couple (Kuramoto, the pull rising with ACTIVITY), so a big chorus pulses
- *            together. Callers beyond the heroes (the farthest, quietest first) join a bed: noise through a two-pole
+ *            the callers' pulse groups couple (Kuramoto, the pull rising with ACTIVITY to 80, then held), so a big
+ *            chorus pulses together; above 80 each group its own length (up to +-20 %): together, never one
+ *            clock. Callers beyond the heroes (the farthest, quietest first) join a bed: noise through a two-pole
  *            at their mean carrier, pulsed by their mean phrase, of the same power.
  * Loudness: each preset's trim puts ACTIVITY 64 at -26 LUFS (a key held 10 s at 3 m); a fader law (amplitude ~
  * amount^-1/4 around the middle, events only: ours) keeps the ends playable: rain -37 .. -20, stones -21 .. -15
@@ -374,6 +375,7 @@ typedef struct {                    /* a caller of the population */
     int8_t q_off, pad2;             /* its own tymbal Q (timbre), 1/32 octave; a small cicada: its call's age (0 .. 127) */
     uint16_t bout;                  /* blocks to the bout's end */
     uint16_t pad3;
+    uint16_t gmul, gpad;            /* this pulse group's length (the step x gmul, Q14; 0: 1) */
 } member_t;
 
 #define NB 16u                      /* birds in a lane at most (12 sing at the top) */
@@ -390,6 +392,7 @@ typedef struct { int32_t r_l2; int16_t sz; uint16_t life; } indiv_t;   /* its di
 
 typedef struct {
     tx_rng_t rng;
+    tx_rng_t grng;                  /* the cicadas' group lengths (own draws: the population as drawn) */
     tx_pool_t pool;
     tx_declick_t dc;
     tx_dcblock_t hp;
@@ -1282,7 +1285,7 @@ static void caller_render(src_t *s, voice_t *v, unsigned n)
 static void callers_block(src_t *s, uint32_t want_q8)
 {
     unsigned i, want = (want_q8 + 128u) >> 8, calling = 0, sing_l = 0, kc, nheroes = 0;
-    int32_t sx = 0, sy = 0, kpull;
+    int32_t sx = 0, sy = 0, kpull, gj;   /* (gj: the groups' length jitter, Q8) */
     for (i = 0; i < NM; i++) sing_l += s->m[i].calling && s->m[i].song;
     /* chorus waves: the others' singing shortens a pause (contagion), more as the chorus grows (0 .. 2 blocks per
      * block per singer, over the callers) */
@@ -1333,8 +1336,12 @@ static void callers_block(src_t *s, uint32_t want_q8)
             calling++;
         }
     }
-    /* falling into step: the pull rises above a third of ACTIVITY (0 .. ~0.6 of the phrase rate per block) */
-    kpull = clampi(s->i_eff - (42 << 8), 0, 85 << 8) / 85;   /* Q8: 0 .. 256 */
+    /* falling into step: the pull rises above a third of ACTIVITY (0 .. ~0.27 of the phrase rate per block) */
+    kpull = clampi(s->i_eff - (42 << 8), 0, 38 << 8) / 85;   /* Q8: 0 .. 114 (held from ACTIVITY 80 up) */
+    /* above ACTIVITY 80, each pulse group its own length, up to +-20 % at 127: a full chorus pulled into one clock
+     * stood 10-20 dB over every chorus recording's envelope line (refs: none .. 31 dB; ours 41-51 dB). Below 80
+     * (the default's whole LIFE range): as before */
+    gj = clampi(s->i_eff - (80 << 8), 0, 47 << 8) * 20 / (47 * 100);   /* Q8 fraction: 0 .. 51 (0.2) */
     for (i = 0; i < NM; i++) nheroes += s->m[i].voice != 0xFF;
     for (i = 0; i < NM; i++) {
         member_t *m = &s->m[i];
@@ -1343,7 +1350,13 @@ static void callers_block(src_t *s, uint32_t want_q8)
         sn = tx_sin_q15(m->pph); cs = tx_sin_q15(m->pph + 0x40000000u);
         t = calling > 1u ? (int32_t)((((int64_t)sx * cs - (int64_t)sy * sn) >> 10)) / (int32_t)calling : 0;   /* Q15 */
         t = clampi(t, -32767, 32767);
-        m->pph += m->pinc + (uint32_t)(int32_t)(((int64_t)(int32_t)(m->pinc >> 2) * t * kpull) >> 23);
+        {
+            uint32_t p0 = m->pph, inc = m->gmul ? (uint32_t)(((uint64_t)m->pinc * m->gmul) >> 14) : m->pinc;
+            m->pph += inc + (uint32_t)(int32_t)(((int64_t)(int32_t)(m->pinc >> 2) * t * kpull) >> 23);
+            if (gj && ((m->pph ^ p0) & 0x80000000u))
+                m->gmul = (uint16_t)(16384 + ((tx_rand_s15(&s->grng) * gj) >> 9));
+            else if (!gj) m->gmul = 0;
+        }
         sn = tx_sin_q15(m->pph);
         {   /* the phrase: pulse groups over the species' floor (0: a pulse train at full depth) */
             int32_t b2 = (int32_t)(((int64_t)sn * sn) >> 15), fl = CIC[m->pad & 3u].floor;   /* 0 .. 32767 */
@@ -1889,6 +1902,7 @@ static void src_init(void *st, uint32_t seed)
     unsigned i;
     for (i = 0; i < sizeof *s; i++) b[i] = 0;
     tx_rng_seed(&s->rng, seed);
+    tx_rng_seed(&s->grng, seed ^ 0x6C1CADAu);
     s->limit = 6;
     tx_pool_init(&s->pool, NV, s->limit);
     for (i = 0; i < NP; i++) s->p[i] = PARAMS[i].def;
