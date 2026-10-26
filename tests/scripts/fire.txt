@@ -1,0 +1,112 @@
+# the Fire landscape's SOUND cards (sound_cards.h, the approved study): the open fires SIZE, MOIST, DRAUGHT, WOOD /
+# ROAR, BURSTY, DIST; kindling and leaves MOIST first; the fireplace's ROAR third; embers MOIST, WOOD, BURSTY, DIST /
+# SIZE; the torch ROAR first; the flame (the candle) FLOW, DRAUGHT, SPUTTER, SLOPE / DIST. No general card (EXTRA,
+# SPACING, DEPTH do nothing on a fire)
+1700 turn 1 3
+2100 expect state landscape Fire
+2100 btn 13
+2200 expect state run0 1
+2300 expect state snd0 campfire
+2300 expect state snd1 bonfire
+2400 btn 6
+2450 expect state page SOUND_1/2
+2450 expect state sel 1
+2450 expect state lab0 SIZE
+2450 expect state lab1 MOIST
+2450 expect state lab2 DRAUGHT
+2450 expect state lab3 WOOD
+2500 turn 0 1
+2550 expect state lab0 ROAR
+2550 expect state lab1 BURSTY
+2550 expect state lab2 DIST
+2550 expect state lab3 -
+2600 btn 1
+2650 expect state sel 2
+2700 turn 0 -1
+2750 expect state lab0 SIZE
+2750 expect state lab1 MOIST
+2750 expect state lab2 DRAUGHT
+2750 expect state lab3 WOOD
+2800 btn 1
+2850 expect state sel 3
+2850 expect state snd2 fireplace
+2850 expect state lab0 SIZE
+2850 expect state lab1 MOIST
+2850 expect state lab2 ROAR
+2850 expect state lab3 WOOD
+2900 turn 0 1
+2950 expect state lab0 DRAUGHT
+2950 expect state lab1 BURSTY
+2950 expect state lab2 DIST
+2950 expect state lab3 -
+3000 turn 0 -1
+3050 btn 1
+3100 expect state sel 4
+3100 expect state snd3 embers
+3100 expect state lab0 MOIST
+3100 expect state lab1 WOOD
+3100 expect state lab2 BURSTY
+3100 expect state lab3 DIST
+3150 turn 0 1
+3200 expect state lab0 SIZE
+3200 expect state lab1 -
+3200 expect state lab2 -
+3200 expect state lab3 -
+3250 turn 0 -1
+3300 btn 0
+3320 btn 0
+3350 expect state sel 2
+3400 btn 8
+3450 turn 2 1
+3500 expect state snd1 kindling
+3550 btn 6
+3600 expect state lab0 MOIST
+3600 expect state lab1 SIZE
+3600 expect state lab2 DRAUGHT
+3600 expect state lab3 WOOD
+3650 btn 8
+3700 turn 2 1
+3750 expect state snd1 pine_fire
+3800 btn 6
+3850 expect state lab0 SIZE
+3850 expect state lab1 MOIST
+3850 expect state lab2 DRAUGHT
+3850 expect state lab3 WOOD
+3900 btn 8
+3950 turn 2 1
+4000 expect state snd1 leaves,_paper
+4050 btn 6
+4100 expect state lab0 MOIST
+4100 expect state lab1 SIZE
+4100 expect state lab2 DRAUGHT
+4100 expect state lab3 WOOD
+4150 btn 8
+4200 turn 2 1
+4250 expect state snd1 torch
+4300 btn 6
+4350 expect state lab0 ROAR
+4350 expect state lab1 DRAUGHT
+4350 expect state lab2 SIZE
+4350 expect state lab3 MOIST
+4400 turn 0 1
+4450 expect state lab0 WOOD
+4450 expect state lab1 DIST
+4450 expect state lab2 -
+4450 expect state lab3 -
+4500 turn 0 -1
+4550 btn 8
+4600 turn 2 1
+4650 expect state snd1 flame
+4700 btn 6
+4750 expect state lab0 FLOW
+4750 expect state lab1 DRAUGHT
+4750 expect state lab2 SPUTTER
+4750 expect state lab3 SLOPE
+4800 turn 0 1
+4850 expect state lab0 DIST
+4850 expect state lab1 -
+4850 expect state lab2 -
+4850 expect state lab3 -
+4900 turn 0 -1
+4950 expect state dropped 0
+5100 end

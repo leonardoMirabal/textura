@@ -26,7 +26,12 @@
  * Wind: the approved study's ranking (2026-10-26), four on the first page, by the place: the trees' FOLIAGE early, the
  * open places' EXPOSED (the wind's BUFFET); winter's and the desert's DRIFT; autumn's SKITTER (the dry leaves over the
  * ground). The source's EXTRA, SPACING and DEPTH do nothing on a wind, so no general
- * card is left. The gales in the Storm landscape keep their cards (by the sound's name). */
+ * card is left. The gales in the Storm landscape keep their cards (by the sound's name).
+ *
+ * Fire: the approved study's ranking (2026-10-26), four on the first page: SIZE, MOIST, DRAUGHT, WOOD on the open
+ * fires (MOIST first on kindling and leaves, where the wet is the sound), the fireplace's ROAR (the chimney's draw)
+ * third; embers MOIST, WOOD, BURSTY, DIST (no flame: no ROAR); the torch ROAR first. The flame is the candle: FLOW,
+ * DRAUGHT, SPUTTER, SLOPE. The source's EXTRA, SPACING and DEPTH do nothing on a fire, so no general card is left. */
 #ifndef TX_SOUND_CARDS_H
 #define TX_SOUND_CARDS_H
 #include <stdint.h>
@@ -85,6 +90,25 @@ static const scd_sound_t SCD[] = {
                                  DIST_CARD}},
     {"winter storm", "wind", 8, {W_GUST, W_EXPOSED, W_DRIFT, W_SCALE, W_WHOOSH, W_FOLIAGE, W_EDGE, DIST_CARD}},
     {"desert wind", "wind", 6, {W_DRIFT, W_GUST, W_EXPOSED, W_WHOOSH, W_FOLIAGE, DIST_CARD}},
+    /* Fire */
+#define F_SIZE {"SIZE", "SIZE", CK_HOST}
+#define F_MOIST {"MOIST", "MOIST", CK_HOST}
+#define F_DRAUGHT {"DRAUGHT", "DRAUGHT", CK_HOST}
+#define F_WOOD {"WOOD", "WOOD", CK_HOST}
+#define F_ROAR {"ROAR", "ROAR", CK_HOST}
+#define F_BURSTY {"BURSTY", "BURSTY", CK_HOST}
+#define F_OPEN {F_SIZE, F_MOIST, F_DRAUGHT, F_WOOD, F_ROAR, F_BURSTY, DIST_CARD}
+#define F_LIGHT {F_MOIST, F_SIZE, F_DRAUGHT, F_WOOD, F_ROAR, F_BURSTY, DIST_CARD}
+    {"campfire", "fire", 7, F_OPEN},
+    {"bonfire", "fire", 7, F_OPEN},
+    {"pine fire", "fire", 7, F_OPEN},
+    {"kindling", "fire", 7, F_LIGHT},
+    {"leaves, paper", "fire", 7, F_LIGHT},
+    {"fireplace", "fire", 7, {F_SIZE, F_MOIST, F_ROAR, F_WOOD, F_DRAUGHT, F_BURSTY, DIST_CARD}},
+    {"embers", "fire", 5, {F_MOIST, F_WOOD, F_BURSTY, DIST_CARD, F_SIZE}},
+    {"torch", "fire", 6, {F_ROAR, F_DRAUGHT, F_SIZE, F_MOIST, F_WOOD, DIST_CARD}},
+    {"flame", "candle", 5, {{"FLOW", "FLOW", CK_HOST}, {"DRAUGHT", "DRAUGHT", CK_HOST}, {"SPUTTER", "SPUTTER", CK_HOST},
+                            {"SLOPE", "SLOPE", CK_HOST}, DIST_CARD}},
     /* Storm's hail */
 #define HAIL_CARDS {{"STONES", "DROPS", CK_HOST}, {"AREA", "AREA", CK_HOST}, {"INSIDE", "INSIDE", CK_HOST}, \
                     {"RAIN", "RAIN", CK_HOST}, {"BOUNCE", "BOUNCE", CK_HOST}, DIST_CARD}
