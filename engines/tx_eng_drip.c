@@ -23,6 +23,7 @@
 #include "tx_core_cloud.h"
 #include "tx_core_bubble.h"
 #include "tx_core_pulse.h"
+#include "tx_core_grains.h"
 
 #define OUT_TRIM 6720               /* output gain, Q12 (+6.3 dB): max momentary (one velocity-100 press): -37.6 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
@@ -37,7 +38,7 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 0
 
-enum { P_SIZE, P_SCATTER, P_RATE, P_CLUMP, P_DEPTH, P_HEIGHT, P_CAVE, NP };
+enum { P_SIZE, P_SCATTER, P_RATE, P_CLUMP, P_DEPTH, P_HEIGHT, P_CAVE, P_DRIBBLE, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"SIZE", 127, 55, "bubble radius at C4: 0.25 .. 6 mm (pitch 13 kHz .. 550 Hz; keys: a semitone smaller each)"},
@@ -47,6 +48,7 @@ static const tx_param_t PARAMS[NP] = {
     {"DEPTH", 127, 40, "how deep bubbles pinch off: 0 = at the surface (all rise, plink) .. 127 = deep (no glide, softer)"},
     {"HEIGHT", 127, 48, "fall height: 1 cm .. 3 m (log) -> impact speed 0.4 .. 8.6 m/s: louder, harder click, faster bubble"},
     {"CAVE", 127, 0, "the space around: 0 = dry (open air) .. a cave's diffuse tail, T60 0.4 .. 4 s (log)"},
+    {"DRIBBLE", 127, 0, "run-off after rain: while a key is held, small drops along the whole edge, each its own: none .. 4 .. 1500 /s (log)"},
 };
 
 #define U_REF_Q8 330               /* 1.29 m/s (a 4 mm drop from 86 mm), m/s Q8: the reference level */
@@ -55,6 +57,15 @@ static const tx_param_t PARAMS[NP] = {
 #define SPLASH_L2 (13 << 16)       /* the splash at U_REF: 2^11 Q15 peak envelope (set against the references' 5-12 kHz) */
 #define SPLASH_C 18840             /* its two low-passes after the first difference, Q15: ~6 kHz each (a band 3 .. 10 kHz,
                                     * falling -6 dB/oct above: the references' 12 .. 20 kHz) */
+#define BB0L 2500u                 /* the dribble's grain bands, Hz: bubbles 2.5 .. 10 kHz (Q 14), splashes 400 .. 1500 ..
+                                    * 5000 .. 14000 Hz (Q 2.5; a grain's pitch log-uniform over them) */
+#define BB0H 10000u
+#define SPL_L2 565000              /* log2(400 Hz), Q16 */
+#define SPL_SPAN 336000            /* log2(14000 / 400), Q16 */
+#define BUBP 24u                   /* a plink with 1 drop in 4 */
+#define DR_L2 (13 << 16)            /* a faint far drop's grain, log2 Q15 */
+#define DR_SPAN (4 << 16)          /* .. the loudest 4 octaves (24 dB) over it */
+#define WALK 20                    /* the surges' walk step at CLUMP 127, log2 Q16 a block */
 #define CV_N 4u                    /* the cave: lines (half rate, 22.05 kHz) */
 static const uint16_t CV_LEN[CV_N] = { 439, 557, 673, 811 };   /* 20 .. 37 ms: mutually prime, ~10 m of rock */
 #define CV_TOT 2480u               /* their sum */
@@ -85,6 +96,10 @@ typedef struct {
                                                 * upsampling) */
     uint32_t cv_idle, cv_hold;     /* silent input samples so far; when to stop (2 T60) */
     int16_t cv[CV_TOT];            /* the lines, one after another (Q14: +-2 full scale) */
+    tx_grains_t gr;                /* the dribble: its small far drops as grains (tx_core_grains.h: never a noise bed) */
+    tx_rng_t dr_rng;               /* .. its own draws (the drops' stay as they were) */
+    uint32_t dr_rate;              /* .. its rate, drops /s Q8 (0: none) */
+    int32_t dr_w;                  /* .. its slow walk, log2 Q16 (the run-off comes and goes in surges) */
 } drip_t;
 
 static uint32_t isqrt32(uint32_t x)                          /* floor(sqrt(x)), control rate */
@@ -122,6 +137,7 @@ static void set_param(drip_t *s, unsigned id, unsigned v)
         if (s->u_q8 < 8u) s->u_q8 = 8u;
         break;
     }
+    case P_DRIBBLE: s->dr_rate = v ? tx_knob_exp(v, 1024u, 560000) : 0u; break;   /* 4 x 2^(8.55 v / 127) /s: 4 .. 1500, Q8 */
     case P_CAVE:
         if (v) {   /* T60 = 0.4 s x 2^(3.32 v / 127); a line of L samples (22.05 kHz) loses 60 dB x L / (T60 fs) */
             uint32_t t60 = tx_knob_exp(v, 410u, 217900);     /* ms: 400 .. 4000 (2^3.32: v x 1716 Q16) */
@@ -150,6 +166,12 @@ static void drip_init(void *st, uint32_t seed)
     tx_pool_init(&s->pool, TX_POOL_MAX, 12);
     tx_pulses_init(&s->clicks);
     tx_rng_seed(&s->sp_rng, seed ^ 0x5B1A5Bu);
+    tx_rng_seed(&s->dr_rng, seed ^ 0xD1BB1Eu);
+    tx_gr_init(&s->gr);
+    tx_gr_band(&s->gr, 0, BB0L, BB0H, 224, 256);              /* the small drops' bubbles (Q 14: plinks, never a hiss) */
+    tx_gr_band(&s->gr, 1, 400, 1500, 40, 24);               /* their splashes on the ground (Q 2.5) */
+    tx_gr_band(&s->gr, 2, 1500, 5000, 40, 400);
+    tx_gr_band(&s->gr, 3, 5000, 14000, 40, 1800);
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
@@ -314,6 +336,39 @@ TX_AUDIO_CODE static void cave(drip_t *s, int32_t *buf, unsigned n)
     s->cv_prev = prev;
 }
 
+/* the dribble: while a key is held, small drops at DRIBBLE's rate (Poisson, in surges: a slow walk of +-CLUMP), each a
+ * splash grain on the ground and, now and then, a small bubble's plink; their sizes and distances spread their levels
+ * (u^3: most faint, a few near and loud) */
+static uint32_t dr_exp(tx_rng_t *r, uint32_t mean)        /* an exponential draw of mean `mean` (its own draws) */
+{
+    uint64_t e = (uint64_t)((tx_neglog2_q12(tx_rand(r) | 1u) * 2839u) >> 12) * mean >> 12;
+    return e > 0xFFFFu ? 0xFFFFu : (uint32_t)e;
+}
+static void dribble(drip_t *s, unsigned n)
+{
+    tx_rng_t *r = &s->dr_rng;
+    uint32_t mu, mean, acc, k, i;
+    int32_t lu;
+    if (!s->dr_rate || !tx_cloud_held(&s->cloud)) return;
+    s->dr_w += (int32_t)(((int64_t)tx_rand_s15(r) * (WALK * (int32_t)s->p[P_CLUMP])) >> 15) - s->dr_w / 172;
+    mu = (uint32_t)(((uint64_t)s->dr_rate * tx_exp2(s->dr_w + (16 << 16))) >> 16) * n / 44100u;   /* this block, Q8 */
+    if (!mu) return;
+    mean = 65536u / mu;
+    lu = log2_q16(s->u_q8 < 8u ? 8u : s->u_q8) - log2_q16(U_REF_Q8);
+    for (k = 0, acc = dr_exp(r, mean); acc < 256u && k < 64u; k++, acc += dr_exp(r, mean)) {
+        uint32_t u = tx_rand(r) >> 16, u3 = ((u * u) >> 16) * u >> 16, off = tx_rand_below(r, n);
+        int32_t l2 = DR_L2 + (int32_t)(((int64_t)u3 * DR_SPAN) >> 16) + 2 * lu, a;
+        l2 = l2 > (15 << 16) ? (15 << 16) : l2;
+        a = (int32_t)(((int64_t)tx_exp2(l2) * s->level) >> 15);
+        i = tx_rand(r);
+        tx_gr_add(&s->gr, r, off, tx_exp2(SPL_L2 + (int32_t)(((i >> 16) * SPL_SPAN) >> 16)), (i & 1u) ? a : -a);   /* the splash */
+        if ((i >> 8 & 0xFFu) < BUBP) {                       /* a plink */
+            uint32_t f = tx_exp2(745000 + (int32_t)(((tx_rand(r) >> 16) * 131072u) >> 16));   /* 2.5 .. 10 kHz */
+            tx_gr_add(&s->gr, r, off + tx_rand_below(r, 64u), f, (i & 2u) ? a / 2 : -a / 2);
+        }
+    }
+}
+
 TX_AUDIO_CODE static void drip_render(void *st, int32_t *mix, unsigned n)
 {
     drip_t *s = (drip_t *)st;
@@ -325,6 +380,8 @@ TX_AUDIO_CODE static void drip_render(void *st, int32_t *mix, unsigned n)
     k = tx_cloud_block(&s->cloud, s->ev, n);
     tx_pool_tick(&s->pool);
     for (i = 0; i < k; i++) drop(s, &s->ev[i]);
+    dribble(s, n);
+    tx_gr_render(&s->gr, &s->dr_rng, buf, n);
     tx_bubbles_render(s->b, &s->pool, &s->dc, buf, n);
     tx_pulses_add(&s->clicks, buf, n);
     splash(s, buf, n);
@@ -336,7 +393,8 @@ TX_AUDIO_CODE static void drip_render(void *st, int32_t *mix, unsigned n)
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->last_dropped = (uint16_t)(s->cloud.last_dropped + (s->pool.rejected - rej0));
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !s->pool.alive && !tx_pulses_active(&s->clicks)
-                         && !s->dc.v && !s->hp.x1 && !s->hp.y1 && !s->sp_env && !s->sp_wait && !s->cv_on);
+                         && !s->dc.v && !s->hp.x1 && !s->hp.y1 && !s->sp_env && !s->sp_wait && !s->cv_on
+                         && tx_gr_quiet(&s->gr));
 }
 
 static void drip_stats(const void *st, tx_stats_t *o)

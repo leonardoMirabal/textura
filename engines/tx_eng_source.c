@@ -295,10 +295,11 @@ static const host_t HOST[] = {
     {"drip", -135, -135, -135, {{"RATE", 0, 38, 88}, {"HEIGHT", 95, 100, 105}, {"SIZE", 70, 70, 70}, {"CLUMP", 0, 0, 0},
                      {"DEPTH", 30, 30, 30}, {"CAVE", 64, 64, 64}}, 4, 12, 8, 0, 0, 0, 0},   /* (k0 4: each drip point its own: they
                                                                      * begin at their own pace, not as a burst) */
-    /* eaves dripping (water): after the rain, a drop off the eaves into a puddle now and then .. dripping all along
-     * the gutter, in runs and quiet spells as the wind shakes it */
+    /* eaves dripping (water): the run-off after heavy rain, a dribble of small drops all along the edge (DRIBBLE, never
+     * a noise bed) under the bigger drips off the eaves, in runs and quiet spells as the wind shakes it; a thin
+     * dribble .. pouring off the gutter */
     {"drip", -105, -105, -105, {{"RATE", 0, 90, 120}, {"CLUMP", 60, 60, 70}, {"HEIGHT", 60, 64, 70}, {"SIZE", 45, 45, 45},
-                     {"SCATTER", 40, 40, 40}}, 4, 12, 8, 0, 0, 0, 0},
+                     {"SCATTER", 40, 40, 40}, {"DRIBBLE", 80, 115, 127}}, 4, 12, 8, 0, 0, 0, 0},
     /* a brook (water): a little gurgle now and then .. a babbling brook .. a rushing one (COUNT: the riffles heard) */
     {"stream", -113, -113, -113, {{"FLOW", 0, 64, 95}, {"EDDY", 18, 21, 30}, {"NEAR", 80, 64, 50}, {"SPREAD", 80, 64, 45},
                              {"ROAR", 0, 0, 30}, {"SIZE", 90, 90, 90}}, 2, 8, 2, 0, 0, 0, 0},
