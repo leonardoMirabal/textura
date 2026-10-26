@@ -121,10 +121,11 @@ static const surf_t SURF[NSURF] = {
 
 /* the ice kinds' surfaces (as SURF; fitted to the hail references; ours): the top open (ice clicks are bright) */
 static const surf_t HSURF_T[4] = {
-    /* a metal roof under hail */
-    {{-7, -3, -12, -12, -18, -24, -30, -30}, 20, {215, 436, 527, 2083}, 300, -52, 26, -20, 120, -50, 0, 160, 16, 0},
-    /* a car: thin steel panels over the cabin's cavity: low panel modes, a bright clank 1-4 kHz */
-    {{16, 22, 20, 18, 12, 8, 0, -4}, 16, {140, 210, 300, 450}, 60, -30, 20, -40, 80, -50, 0, 160, 14, 0},
+    /* a metal roof under hail: the sheet drumming between its purlins (~70 Hz), the low bands up (the references' 63-250 Hz) */
+    {{8, 9, -2, -6, -18, -24, -30, -30}, 20, {70, 215, 436, 2083}, 300, -40, 26, -20, 120, -50, 0, 160, 8, 0},
+    /* a car: thin steel panels over the cabin's cavity: low panel modes (90-300 Hz), a clank 1-4 kHz, no shatter heard
+     * (the references: dark, their lows 125-500 Hz) */
+    {{26, 28, 22, 18, 12, 8, 0, -4}, 16, {90, 140, 210, 300}, 60, -18, 0, -40, 80, -50, 0, 80, 6, 0},
     /* leaves */
     {{-30, -30, -30, -45, -45, -45, -45, -40}, 10, {180, 260, 390, 560}, 6, -70, 26, -26, 80, -70, 0, 160, 12, 0},
     /* a window under sleet: the pellets' ticks in the air, little of the pane (the top 11 kHz: the references fall
@@ -132,10 +133,13 @@ static const surf_t HSURF_T[4] = {
     {{-30, -30, -30, -30, -30, -30, -30, -30}, 16, {64, 118, 172, 662}, 120, -60, 20, 0, 160, -60, 0, 110, 14, 0},
 };
 #define NHK 4u
+static const uint8_t H_SG[4] = { 128, 128, 0, 48 };   /* ice: the fall's surges by kind, x 2^(+-2) at 128 and
+                                    * full (sd ~0.6 octave of the rate; the leaves' reference is steady) */
+#define HSHIFT 6                   /* their tau, 2^6 blocks: 0.37 s (the references' 0.5-4 Hz modulation) */
 #define SLEET_NEAR 8u               /* sleet: full pulses a block at most (the pellets are tiny: the rest far; CPU) */
 static const surf_t *const HSURF[NHK] = { &HSURF_T[0], &HSURF_T[1], &HSURF_T[2], &HSURF_T[3] };
 static const uint8_t H_E[NHK] = { 115, 102, 128, 77 };    /* restitution, Q8 (0.45, 0.4, 0.5: on through the leaves, 0.3) */
-static const int8_t H_LVL[NHK] = { -7, -28, 10, -1 };     /* level, dB (by render: -24 .. -27 LUFS at RATE 90) */
+static const int8_t H_LVL[NHK] = { -9, -7, 10, -1 };     /* level, dB (by render: -24 .. -27 LUFS at RATE 90) */
 static const uint16_t H_D[2][NC] = { {5000, 10000, 18000, 30000}, {1500, 2500, 3500, 5000} };   /* um */
 static const uint8_t H_DD[2][NC] = { {5, 6, 10, 14}, {10, 10, 10, 20} };   /* the classes' widths (mm; sleet 0.1 mm) */
 #define A_REF_H 24000              /* a 1 cm hailstone's push at 9 m/s (Q15 force units; set by render) */
@@ -168,9 +172,11 @@ typedef struct {
     int32_t level;
     uint16_t dropped, pad2;
     tx_vary_t vy;
-    uint8_t hk, nbq, lite, nbl;
-    uint8_t bsc, bmax, pad4[2];    /* BOUNCE: the restitution's scale (Q7), the landings a stone has after its first */    /* the ice kind (0: rain), bounces in flight; the lite surface (hosted: 4 bands,
+    uint8_t hk, nbq, lite, nbl;    /* the ice kind (0: rain), bounces in flight; the lite surface (hosted: 4 bands,
                                     * no panel modes), the bands run */
+    uint8_t bsc, bmax, pad4[2];    /* BOUNCE: the restitution's scale (Q7), the landings a stone has after its first */
+    int32_t surge;                 /* ice: the fall's surges (hail comes in bursts: Q15, AR(1) 0.37 s; ours, set to the
+                                    * references' 0.5-4 Hz modulation) */
     uint32_t hv[NC];               /* the stones' fall speed by class, mm/s (the bounces' flights) */
     bounce_t bnc[NBQ];
 } rain_t;
@@ -518,9 +524,14 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
     }
     for (j = 0; j < n; j++) fb[j] = 0;
     nlim = s->hk == NHK && s->limit > SLEET_NEAR ? SLEET_NEAR : s->limit;   /* (sleet: its tiny pellets, CPU) */
+    if (s->hk) {                                             /* ice: the fall surging */
+        s->surge += ((tx_rand_s15(r) * 3) >> (HSHIFT / 2 + 2)) - (s->surge >> HSHIFT);
+        s->surge = s->surge > 32767 ? 32767 : s->surge < -32767 ? -32767 : s->surge;
+    }
     if (s->wet) {
+        uint32_t sg = s->hk ? tx_exp2(((s->surge * (int32_t)H_SG[s->hk - 1u]) >> 5) + (12 << 16)) : 4096u;   /* Q12 */
         for (c = 0; c < NC; c++) {
-            uint32_t lam = (uint32_t)(((uint64_t)s->lam_q8[c] * (uint32_t)s->wet) >> 15);
+            uint32_t lam = (uint32_t)(((((uint64_t)s->lam_q8[c] * (uint32_t)s->wet) >> 15) * sg) >> 12);
             uint32_t mu_q8 = (lam >> 4) * n / 2756u;           /* drops expected in this block, Q8 (fs / 16 = 2756) */
             int32_t a = (int32_t)(((int64_t)s->amp[c] * s->level) >> 15);
             int32_t mom = (int32_t)(((uint64_t)(uint32_t)a * s->len[c] * s->mtab) >> 15);   /* a far drop's momentum (Q15 x samples) */
