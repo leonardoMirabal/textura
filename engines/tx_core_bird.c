@@ -50,8 +50,9 @@ static const sp_t SP[TX_BIRD_TYPES] = {
     {ST_OWL, -200, 200, 400, 600, 900, 1200, 200, 24, 0, 4, 4, 2, 2, 2500, 4000, 1, 64, 12, 2, 0, 150},
     /* 4 gull: the long call */
     {ST_GULL, -250, 250, 170, 240, 250, 350, 1600, 224, 0, 4, 4, 1, 2, 2000, 6000, 0, 12, 24, 0, 774228, 1000},   /* (cavity 3.6 kHz, wide: the colony's 4 kHz band) */
-    /* 5 blackbird: fluted low whistles 1.5-3.2 kHz, then a quiet high twitter; strophes ~2 s, 1-5 s apart */
-    {ST_BLACKBIRD, -2700, 3400, 14, 80, 120, 450, 1230, 110, 50, 24, 16, 2, 6, 1500, 10000, 1, 48, 5, 0, 0, 300},
+    /* 5 blackbird: fluted low whistles 1.6-3.2 kHz, then a quiet high twitter; strophes ~2 s, 1-5 s apart, 4-12 a bout
+     * (the references have nothing in the 1.0-1.6 kHz band) */
+    {ST_BLACKBIRD, -2100, 3400, 14, 80, 120, 450, 1230, 110, 50, 24, 16, 4, 12, 1200, 5000, 1, 48, 5, 0, 0, 300},
     /* 6 song thrush: 2.8-8 kHz, a phrase of 1-4 notes repeated 2-4 x, phrases ~0.75 s, ~0.9 s apart, long bouts */
     {ST_THRUSH, -2400, 4300, 15, 140, 80, 200, 1100, 130, 40, 32, 24, 6, 16, 300, 1100, 1, 44, 4, 0, 0, 350},
     /* 7 nightingale: 1.6-5.9 kHz; strophes ~1.7 s: soft notes, a swelling whistle or a rattling trill, an end note */
@@ -99,7 +100,7 @@ static const sp_t SP[TX_BIRD_TYPES] = {
 
 /* each type's level (Q6), by render: every bird preset at -30 LUFS at INTENSITY 64 (60 s, the mean of 3 seeds; with
  * the preset rows' trims) */
-static const uint16_t TRIM[TX_BIRD_TYPES] = { 240, 180, 112, 123, 421, 157, 123, 152, 145, 216, 82, 145, 182, 126, 100, 94, 125, 1430, 99, 404, 49 };
+static const uint16_t TRIM[TX_BIRD_TYPES] = { 240, 180, 112, 123, 421, 120, 123, 152, 145, 216, 82, 145, 182, 126, 100, 94, 125, 1430, 99, 404, 49 };
 
 /* SIZE: how far a type's birds range in size, the half range in octaves (Q16 per knob step: 512 = +-0.5 oct at the
  * ends). A bigger bird sings lower within what its kind spans (a jackdaw to a raven, a black-headed gull to a great
@@ -360,14 +361,15 @@ static void phrase_start(tx_bird_voice_t *v)
         for (i = 0; i < m; i++) {
             unsigned c = tx_rand_below(&pr, 20u);
             if (c < 6u) seg(v, SYL(C_NOTE, rb(&pr, 0, ns - 1u)), 1, rb(&pr, 0, 20), lvl(&pr, 10), 255, 0);   /* a grace note */
-            seg(v, SYL(c == 19u ? C_NOTE : C_WHISTLE, rb(&pr, 0, ns - 1u)), 1, rb(&pr, 5, 50), 255, 255, 0);
+            seg(v, SYL(c == 19u ? C_NOTE : C_WHISTLE, rb(&pr, 0, ns - 1u)), 1, rb(&pr, 0, 15), 255, 255, 0);   /* (legato: the
+                                                              * references' gaps inside a strophe 5-20 / 30 ms, median 10) */
         }
         if (tx_rand_below(&v->rng, 8u)) {                    /* the bird's habit: how long, how loud, a pause before */
             uint32_t h = mix(v->seed, 0x77u), t = rb(&v->rng, 1, 3) + (h & 3u), tl = 20u + ((h >> 4) & 63u);
             if (m && (h & 0x300u)) v->seg[v->nseg - 1u].gap = (uint8_t)rb(&v->rng, 40, 170);   /* 80 .. 340 ms */
             for (i = 0; i < t; i++) {
                 unsigned c = tx_rand_below(&v->rng, 3u);
-                seg(v, fresh(v, c == 0 ? C_HARSH : c == 1 ? C_TRILL : C_NOTE), rb(&v->rng, 1, 4), rb(&v->rng, 12, 35),
+                seg(v, fresh(v, c == 0 ? C_HARSH : c == 1 ? C_TRILL : C_NOTE), rb(&v->rng, 1, 4), rb(&v->rng, 3, 12),
                     rb(&v->rng, tl, tl + 40u), 255, 8);
             }
         }
