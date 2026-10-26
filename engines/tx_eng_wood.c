@@ -15,7 +15,8 @@
  *            moisture lowers Q and the crack rate and dulls the clicks (ours).
  *   creak    stick-slip (W7, CREAK core): slips at PITCH (+-15 % jitter below 20 Hz) into 3 resonators on the
  *            piece's first modes (Q 12, ours), in bursts (a slow random envelope, ours). Two creak recordings slip at
- *            ~260 and ~490 Hz with body peaks 0.5-1.6 / 2.8-3.2 kHz.
+ *            ~260 and ~490 Hz with body peaks 0.5-1.6 / 2.8-3.2 kHz. A tree trunk groans: discrete groans at random
+ *            gaps (ours, after recordings of trees creaking in the wind: 15-35 slips /s).
  * Keys: the piece's length (a semitone per key); velocity = how hard it is bent (crack sizes, creak level). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
@@ -74,25 +75,30 @@ typedef struct {
     uint8_t twigs;                 /* pieces per press (a step on twigs: each its own) */
     uint8_t thud;                  /* 1: the hands jerk at the snap (a low thud; none for a foot on twigs) */
     uint16_t out;                  /* its level, Q8 */
+    uint8_t groan;                 /* the creak in discrete groans 0.4 .. 1.4 s, at random gaps 0.3 s + this mean,
+                                    * 0.1 s (0: one long creak wandering while bent) */
 } wkind_t;
 static const wkind_t WK[NWOOD] = {
-    {160, 5500, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384},   /* spruce (the four species: dry wood fails brittle, a */
-    {120, 4500, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384},   /* faint creak before the snap; their references are */
-    {110, 4300, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384},   /* breaks: creak 128 was 2.13 from them, 1.45 now with */
-    {80, 4000, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384},    /* the next branch below. Second pass: a dry branch bends
+    {160, 5500, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384, 0},   /* spruce (the four species: dry wood fails brittle, a */
+    {120, 4500, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384, 0},   /* faint creak before the snap; their references are */
+    {110, 4300, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384, 0},   /* breaks: creak 128 was 2.13 from them, 1.45 now with */
+    {80, 4000, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384, 0},    /* the next branch below. Second pass: a dry branch bends
                                                               * nearly silent, so a quarter of the precursor cracks
                                                               * (the references: silent 88 % of the time between the
                                                               * snaps, ours 40 %), and the hand snaps pieces half as
                                                               * long as SIZE's (thin branches: their snaps 5-6 kHz,
                                                               * ours 3.7 kHz before) */
-    {40, 3000, 0, 0, 0, 1, 128, 0, 128, 1, 0, 287},        /* green branch (+1 dB: its level as before the next
+    {40, 3000, 0, 0, 0, 1, 128, 0, 128, 1, 0, 287, 0},        /* green branch (+1 dB: its level as before the next
                                                               * branch came sooner) */
-    /* tree trunk: a live trunk or a bough rubbing in the wind: long slow groans of stick-slip (the references: 1-3 kHz,
-     * a creak every ~2-4 s) on a big wet body, a fibre ticking now and then, never a snap */
-    {40, 3000, 131072, 114688, -65536, 0, 255, 2, 8, 1, 1, 256},
+    /* tree trunk: a live trunk or a bough swaying in the wind: groans of slow stick-slip on a big wet body, a fibre
+     * ticking now and then, never a snap. Second pass, against recordings of trees creaking: groans 0.5 .. 1.2 s,
+     * 7 .. 10 a minute, 4 .. 6 s apart, their slips 15 .. 35 /s (a ratchet, not a singing creak: ours slipped at ~90 /s,
+     * one creak wandering on for 10 s), most of the body under 1 kHz: the slips at ~30 Hz, the creak's body 7/8 oct
+     * over f1 (was 1 3/4), groans each its own, a gust (a press) starting a third of them, fewer fibre ticks */
+    {40, 3000, 131072, 57344, -163840, 0, 255, 2, 2, 1, 1, 362, 60},
     /* twigs underfoot: a step snaps a few short dry twigs within ~0.1 s (the references: 5-12 kHz, a step a second,
      * ~6 snaps a second, nothing between the steps) */
-    {120, 5000, -98304, 0, 0, 2, 0, 0, 64, 3, 0, 256},
+    {120, 5000, -98304, 0, 0, 2, 0, 0, 64, 3, 0, 256, 0},
 };
 static const uint16_t BAR_R[NMW] = {1024, 2823, 5534, 9147, 13665};   /* free-free, Q10 */
 
@@ -109,6 +115,7 @@ typedef struct {
     uint32_t f1;
     uint8_t em, note, vel, alive, held, snapped, rel, rk;    /* rel: how fast the hands let go (the creak's fade, 2^-rel per block) */
     uint8_t rd, pad2[3];                                     /* rk, rd: its cracks' burst corner and decay shifts */
+    uint32_t gt;                   /* (groaning kinds) blocks to the groan's end or the next groan */
 } piece_t;
 
 typedef struct {
@@ -249,7 +256,9 @@ static void take(wood_t *s, const tx_event_t *e)
     p->tau = s->k->snap == 2u ? 882u + tx_rand_below(&s->cloud.rng, 3529u)   /* a step: 20 .. 100 ms (ours) */
            : s->k->snap && s->tau_s ? s->tau_s - (s->tau_s >> 2) + (uint32_t)(((uint64_t)s->tau_s * (tx_rand(&s->cloud.rng) >> 16)) >> 17) : 0u;   /* +-25 % (ours) */ p->next_q8 = 0; p->snapped = 0;
     for (k = 0; k < NAF; k++) p->af[k] = 0;
-    p->cenv = 0; p->cgoal = 32767;
+    p->cenv = 0; p->cgoal = s->k->groan ? 0 : 32767;
+    p->gt = !s->k->groan || tx_rand_below(&s->cloud.rng, 3u) == 0u ? 1u   /* a gust: a third groan at once, the rest */
+          : 52u + (tx_cloud_exp_q8(&s->cloud, (uint32_t)s->k->groan * 4410u << 8) >> 16);   /* after a gap */
     p->rel = (uint8_t)(2u + tx_rand_below(&s->cloud.rng, 5u));   /* let go in ~20 .. 300 ms (ours) */
     p->em = e->emitter; p->note = e->note; p->vel = e->vel; p->alive = 1; p->held = 1;
 }
@@ -380,8 +389,16 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
             p->t += n;
             {   /* the creak: bursts while bent (a slow envelope toward a random goal, ours) */
                 int32_t lvl;
-                if (p->held && !p->snapped && (tx_rand(r) >> (26u + s->k->slow)) == 0) p->cgoal = (int32_t)(tx_rand(r) >> 17);
-                p->cenv += (p->cgoal - p->cenv) >> (p->held ? 4u + s->k->slow : p->rel);
+                if (s->k->groan) {                           /* a trunk groans: each its own strength and length, at
+                                                              * random gaps (the references: groans 0.5 .. 1.2 s, 2 .. 9 s
+                                                              * apart), swelling and dying in ~50 ms */
+                    if (p->held && !p->snapped) {
+                        if (p->gt > 1u) p->gt--;
+                        else if (p->cgoal) { p->cgoal = 0; p->gt = 52u + (tx_cloud_exp_q8(&s->cloud, (uint32_t)s->k->groan * 4410u << 8) >> 16); }
+                        else { p->cgoal = 8192 + (int32_t)tx_rand_below(r, 24576u); p->gt = 43u + tx_rand_below(r, 130u); }
+                    }
+                } else if (p->held && !p->snapped && (tx_rand(r) >> (26u + s->k->slow)) == 0) p->cgoal = (int32_t)(tx_rand(r) >> 17);
+                p->cenv += (p->cgoal - p->cenv) >> (p->held ? (s->k->groan ? 3u : 4u + s->k->slow) : p->rel);
                 lvl = (int32_t)(((int64_t)p->cenv * ((s->p[P_CREAK] * s->k->creak) >> 7) * (40 + p->vel)) >> 15);   /* Q15-ish slip size */
                 lvl = (int32_t)(((int64_t)lvl * s->level) >> 15);
                 lvl = (int32_t)(((int64_t)lvl * (35348 - (int32_t)s->p[P_MOIST] * 129)) >> 15);   /* wet: water lubricates
