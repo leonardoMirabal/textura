@@ -61,7 +61,7 @@ static const tx_param_t PARAMS[NP] = {
 #define NSTEP 4u                   /* footsteps crunching at once */
 enum { K_ICICLES, K_CUBES, K_CRYSTALS, K_SNOW };
 /* each kind's level re the icicles', Q8 (by render: on the icicles' loudness) */
-static const uint16_t K_OUT[4] = {256, 256, 256, 91};
+static const uint16_t K_OUT[4] = {256, 256, 256, 192};   /* (snow 91 -> 192: its crunch in segments, the same loudness) */
 
 static const uint16_t ROD_R[NMB] = {1024, 2823, 5534, 9147};      /* free-free, Q10 */
 static const uint16_t GLS_R[NMB] = {1024, 2734, 5171, 8141};      /* the glass recording's ratios, Q10 */
@@ -85,6 +85,8 @@ typedef struct {                   /* a step into snow: the bonds between the gr
     uint32_t next;                 /* samples to its next grain bond breaking */
     int32_t a;                     /* its loudness */
     uint32_t pk;                   /* the foot's peak (heel down), samples */
+    uint32_t segend;               /* the crunch's present segment ends here (samples into the step) */
+    int32_t sg;                    /* and its gain, Q15 */
     uint8_t alive, pad[3];
 } step_t;
 
@@ -326,7 +328,7 @@ static void step(ice_t *s, const tx_event_t *e)
     if (!f) { s->dropped++; return; }
     f->len = 6615u + tx_rand_below(r, 8820u);                /* 0.15 .. 0.35 s */
     f->pk = f->len / 5u + tx_rand_below(r, f->len / 5u);     /* the heel down at 20 .. 40 % */
-    f->t = 0; f->next = e->offset; f->a = a; f->alive = 1;
+    f->t = 0; f->next = e->offset; f->a = a; f->alive = 1; f->segend = 0; f->sg = 32767;
     tx_mode_strike(&s->thud[0], a / 24);
     tx_mode_strike(&s->thud[1], -a / 48);
 }
@@ -348,6 +350,14 @@ static void crunch(ice_t *s, unsigned n)
             x = (int32_t)(((int64_t)tx_neglog2_q12(tx_rand(r)) * 8192) >> 12);   /* alpha 1.5 */
             c = (int32_t)(((int64_t)(f->a >> 7) * (int32_t)tx_exp2(-(x > 5 << 16 ? 5 << 16 : x) + (15 << 16))) >> 15);
             c = (int32_t)(((int64_t)c * (int32_t)env) >> 15);
+            if (tt >= f->segend) {                           /* the snowpack gives way in segments, not grain by grain:
+                                                              * each 20 .. 80 ms, its own strength, a third of them
+                                                              * near silent (the references: 15-16 crunch segments /s;
+                                                              * ours lacked 2-3 dB of their 10-40 Hz modulation) */
+                f->segend = tt + 900u + tx_rand_below(r, 2600u);
+                f->sg = (tx_rand(r) >> 16) < 21000u ? 1000 : 8192 + (int32_t)tx_rand_below(r, 24576u);
+            }
+            c = (int32_t)(((int64_t)c * f->sg) >> 15);
             if ((tx_rand(r) >> 16) < (tt << 16) / f->len) {   /* a crisp bond: a bare 2-sample click, more of them as
                                                               * the foot rolls (the heel compacts, dull; the bonds snap
                                                               * later; ours). The references (snow steps / walk) have
