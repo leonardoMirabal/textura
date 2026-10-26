@@ -35,6 +35,8 @@ typedef struct {
     uint8_t track, q, dlen, closed; /* the tract: tracking cavity, its Q (x16), the trachea (samples), a closed beak */
     int32_t oec;                    /* a fixed cavity (log2 Hz Q16) or a tracking offset */
     uint16_t jsd;                   /* the tension's roughness, Q16 log2 per step */
+    uint8_t breath;                 /* the air's turbulence noise, riding the note past the tract (Q5 re the voice; 0:
+                                     * none) */
 } sp_t;
 
 static const sp_t SP[TX_BIRD_TYPES] = {
@@ -82,9 +84,11 @@ static const sp_t SP[TX_BIRD_TYPES] = {
      * most quickening toward the end (refs: the last quarter's interval 0.7-0.8 of the first), a few slowing; rolls
      * ~5 s apart in a bout */
     {ST_WOODPECKER, -150, 150, 6, 9, 6, 9, 0, 224, 0, 4, 4, 2, 8, 3000, 9000, 0, 48, 6, 0, 625918, 2000},
-    /* 18 wood pigeon: a phrase of a short rising coo, a short coo, one long coo (0.9-1.4 s, falling 0.1-0.45 oct) and a
-     * short low one, ~650 Hz, 2.5-3.4 s apart, 3-5 in a bout; soft, hollow: a closed bill, an inflated throat */
-    {ST_PIGEON, -300, 300, 80, 250, 900, 1400, 400, 60, 0, 4, 4, 3, 5, 700, 1500, 1, 56, 14, 2, 0, 100},
+    /* 18 wood pigeon: a phrase of a short rising coo, a short coo, one long coo (0.9-1.4 s, falling 0.07-0.22 oct) and a
+     * short low one, ~650 Hz, 2.5-3.4 s apart, 3-5 in a bout; soft, hollow: a closed bill, an inflated throat. Breathy:
+     * the references' coos carry a noise from 1.2 to 12 kHz that follows them (envelope corr 0.97-0.99, -29 .. -40 dB
+     * under the coo's band, 75 dB over the gaps), on a steady pitch (2-4 cents of jitter) */
+    {ST_PIGEON, -300, 300, 80, 250, 900, 1400, 400, 60, 0, 4, 4, 3, 5, 700, 1500, 1, 56, 14, 2, 0, 100, 160},
     /* 19 nightjar: the churr, a dry mechanical trill of short pulses (~30-40 /s) for minutes, its rate and level
      * shifting every few seconds (the bird turning its head); now and then wing claps */
     {ST_NIGHTJAR, -300, 300, 8, 12, 8, 12, 300, 110, 0, 4, 4, 3, 12, 0, 60, 0, 24, 8, 0, 700465, 3000},   /* (refs: peak 1.6-2.0 kHz, 25.6-28.6 pulses /s) */
@@ -257,12 +261,13 @@ static void syl_make(tx_bird_voice_t *v)
         len_ms = rb(&r, S->dlo, S->dhi); rel = rs(&r, S->flo, S->fhi); k0 = k1 = S->kmax; amp = lvl(&r, 3);
         break;
     case C_HOO:                                              /* the pigeon's short coos (idx 0 rising, 1 level, 3 low) */
-        len_ms = rb(&r, S->dlo, S->dhi); rel = rs(&r, -150, 150) - ((g->id & 3u) == 3u ? 1229 : 0);
+        len_ms = rb(&r, S->dlo, S->dhi); rel = rs(&r, -150, 150) - ((g->id & 3u) == 3u ? 600 : 0);
         df = (g->id & 3u) == 0u ? rs(&r, 400, 1200) : rs(&r, -500, 0); arch = rs(&r, 0, 300);
         k0 = k1 = rs(&r, S->kmax / 2, S->kmax); amp = lvl(&r, 6);
         break;
     case C_HOOO:                                             /* its long coo, slowly falling */
-        len_ms = rb(&r, S->llo, S->lhi); rel = rs(&r, -100, 100); df = rs(&r, -2048, -800); arch = rs(&r, 100, 500);
+        len_ms = rb(&r, S->llo, S->lhi); rel = rs(&r, -100, 100); df = rs(&r, -900, -300); arch = rs(&r, 100, 500);   /* (refs:
+                                                              * the loud coos' pitch spans 0.17 oct, p10 .. p90; was 0.6) */
         k0 = rs(&r, S->kmax / 2, S->kmax); k1 = rs(&r, 0, S->kmax / 2); amp = 255;
         break;
     case C_CHURR:                                            /* a churr pulse: short, dry, rich */
@@ -624,7 +629,7 @@ void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigne
     v->verb = (uint8_t)(int8_t)clampi(rs(&br, -1, 1) + kstep(v->ctl[K_LENGTH], 32), -3, 3);   /* shorter or longer
                                                               * phrases (LENGTH: +-2 notes) */
     v->pamp = 255;
-    v->track = S->track; v->closed = S->closed; v->oec_l2 = S->oec;
+    v->track = S->track; v->closed = S->closed; v->oec_l2 = S->oec; v->breath = S->breath; v->nz = mix(v->seed, 23u);
     size_l2 = size_l2 < -65536 ? -65536 : size_l2 > 65536 ? 65536 : size_l2;
     if (!v->track) v->oec_l2 += size_l2;                     /* a bigger bird, a bigger throat (a bigger tree) */
     if (S->style == ST_WOODPECKER) v->oec_l2 += rs(&br, -32768, 32768);   /* its own tree: +-0.5 oct */
@@ -827,6 +832,7 @@ TX_AUDIO_CODE int tx_bird_render(tx_bird_voice_t *v, int32_t *out, unsigned n)
             const tx_bird_syl_t *s = &v->s;
             int32_t f, k, a0, a1v, fi, ta = 0;
             uint32_t inc, inc2 = 0;
+            int32_t bk;
             unsigned m = 16u, q, si, sf, sh = v->closed > 1u ? 17u : 15u;
             if (m > n - j) m = n - j;
             if (m > s->len - v->pos) m = s->len - v->pos;
@@ -840,6 +846,7 @@ TX_AUDIO_CODE int tx_bird_render(tx_bird_voice_t *v, int32_t *out, unsigned n)
             inc = tx_exp2(f + L2_INC);
             if (s->two_amp) { int32_t f2 = f + s->two_l2 * 16; if (f2 < 784190 + 65536) { inc2 = tx_exp2(f2 + L2_INC); ta = s->two_amp; } }
             si = (unsigned)k >> 5; sf = ((unsigned)k & 31u) << 3;
+            bk = v->breath ? (((((a0 + a1v) >> 3) * v->breath) >> 5) * g) >> 15 : 0;   /* the breath's scale this step */
             if (si >= 7u) { si = 6u; sf = 256u; }
             for (q = 0; q < m; q++, j++) {
                 const int16_t *t0 = TX_SYRINX + si * 257u, *t1 = t0 + 257;
@@ -856,6 +863,13 @@ TX_AUDIO_CODE int tx_bird_render(tx_bird_voice_t *v, int32_t *out, unsigned n)
                 y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
                 y2 = y1; y1 = y;
                 last = (((v->closed ? y : y - x1) >> 1) * g) >> 1; x1 = y;   /* the beak (or a closed one) */
+                if (bk) {                                    /* the breath: a band of noise (~0.45 .. 0.9 kHz corners,
+                                                              * -6 dB / oct on both sides), riding the note */
+                    v->nz = v->nz * 1664525u + 1013904223u;
+                    v->bz += (((int32_t)v->nz >> 17) - v->bz) >> 3;
+                    v->bh += (v->bz - v->bh) >> 4;
+                    last += ((v->bz - v->bh) * bk) >> (sh - 15u);   /* (< 2^30) */
+                }
                 out[j] += last;
             }
             v->pos += m;

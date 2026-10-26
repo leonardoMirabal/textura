@@ -52,7 +52,8 @@ typedef struct {
     uint8_t nph, type, sp, closed;  /* phrases left in the song, the type, the species, a closed beak */
     uint8_t dlen, dp, track, sub;
     uint8_t singing, song, recent[2];
-    uint8_t pace, verb, pamp, pad2; /* the bird's pace (gaps x pace / 128) and verbosity (+- notes), the phrase's level (Q8) */
+    uint8_t pace, verb, pamp, breath;   /* the bird's pace (gaps x pace / 128) and verbosity (+- notes), the phrase's level
+                                     * (Q8), its breath noise (Q5; 0: none) */
     int8_t ctl[4];                  /* the player's TEMPO, LENGTH, VARIETY, EXCITE (tx_bird_ctl_t) */
     uint16_t pgap;                  /* the gap after this phrase (2 ms) */
     int16_t plev;                   /* the phrase's pitch level, Q12 octaves */
@@ -67,6 +68,8 @@ typedef struct {
     int32_t y1, y2, x1;             /* its state, the radiation's last input */
     int32_t gain;                   /* Q12: level x distance x the type's trim */
     int32_t last;                   /* the last output (a declick when cut) */
+    int32_t bz, bh;                 /* the breath: its noise low-passed, and the slower low-pass taken off (a band) */
+    uint32_t nz;                    /* its generator */
     tx_rng_t rng;                   /* the rendition's own draws */
     int32_t dl[TX_BIRD_DL];
 } tx_bird_voice_t;
