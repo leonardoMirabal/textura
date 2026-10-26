@@ -57,6 +57,9 @@ static const tx_param_t PARAMS[NP] = {
 #define NM 5u                     /* (6 until note 18: the 6th mode of slab / boulder, -14 dB and above most
                                     * mallets' force spectrum, dropped for CPU) */
 #define NMAT 9u
+#define CULL_SH 10u                /* a mode stops 60 dB under its strike (2^-10): a ringing rock (Q 2000) rang to the
+                                    * modal floor, -81 dB, ~5.4 s a strike; the last 21 dB, inaudible under the next
+                                    * strikes, were a quarter of its cost */
 #define A_REF 48000000             /* a mode's amplitude for a 2 m/s stone-hammer hit (Q30: -27 dBFS; by render) */
 
 static const uint16_t MAT_Q[NMAT] = {180, 300, 100, 185, 150, 2000, 160, 175, 4000};
@@ -214,14 +217,18 @@ static void hit(drum_t *s, const tx_event_t *e, unsigned *which)
     unsigned i;
     uint32_t ratio[NM], tc;
     int32_t gain[NM], lv, ev, a, x;
+    int stolen = 0;
     if (!s->p[P_VARY])                                       /* the same stone: a restrike adds to its ring */
         for (i = 0; i < s->limit && !v; i++) if (s->v[i].alive && s->v[i].note == e->note) v = &s->v[i];
     for (i = 0; i < s->limit && !v; i++) if (!s->v[i].alive) v = &s->v[i];
-    if (!v) {                                                /* steal the quietest */
+    if (!v) {                                                /* steal the quietest: its ring goes on in the new stone's
+                                                              * modes, phase-continuous (the strike adds to it), never cut:
+                                                              * a ringing rock's quietest, at the top, is only ~9 dB under
+                                                              * the new strike */
         int32_t lo = 0x7FFFFFFF;
         for (i = 0; i < s->limit; i++) { int32_t l = voice_level(&s->v[i]); if (l < lo) { lo = l; v = &s->v[i]; } }
         s->dropped++;
-        if (v) { unsigned k; for (k = 0; k < NM; k++) v->m[k].amp = 0; v->alive = 0; }
+        stolen = 1;
     }
     if (!v) return;
     *which = (unsigned)(v - s->v);
@@ -243,7 +250,8 @@ static void hit(drum_t *s, const tx_event_t *e, unsigned *which)
     }
     {
         unsigned n = modes(s, e->note, ratio, gain);
-        if (!v->alive || v->note != e->note) { unsigned k; for (k = 0; k < NM; k++) v->m[k].amp = 0; }
+        if (stolen) { unsigned k; for (k = n; k < NM; k++) v->m[k].amp = 0; }
+        else if (!v->alive || v->note != e->note) { unsigned k; for (k = 0; k < NM; k++) v->m[k].amp = 0; }
         tune(s, v, ratio, n, e->note, v->q_eff);
         v->young = 1;
         {   /* each mode's weight; one under 1/128 of the strongest (-42 dB) is not run (CPU, note 18) */
@@ -315,7 +323,10 @@ TX_AUDIO_CODE static void drum_render(void *st, int32_t *mix, unsigned n)
         unsigned m, live = 0;
         if (!v->alive) continue;
         render_voice(s, v, n);
-        for (m = 0; m < v->nm; m++) live |= v->m[m].amp != 0;
+        for (m = 0; m < v->nm; m++) {
+            if (v->m[m].amp < (v->a0 >> CULL_SH)) v->m[m].amp = 0;
+            live |= v->m[m].amp != 0;
+        }
         if (!live && v->moff[0] == 0xFFFF && v->moff[1] == 0xFFFF) v->alive = 0;
     }
     if (s->res) {                                            /* residue: noise x e^(-t / 3 ms) */

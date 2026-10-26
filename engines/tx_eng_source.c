@@ -644,6 +644,7 @@ static const fam_t FAM[] = {
 
 /* heroes at most for a hosted engine whose heroes are dear (FM-1 worst block under half the pool, ~870 us) */
 static const struct { const char *eng; uint8_t max; } HCAP[] = {
+    {"stonedrum", 4},               /* (ringing rocks ring ~4 s: 6 heroes reached w8 ~1000 us at ACTIVITY 127, 4 ~640 us) */
     {"minerals", 3},                /* (~150 us a hero at ACTION's rub: 6 reached 1170 us at COUNT 127, 4 957 us) */
     {"surf", 6},                    /* (shingle's top: 8 heroes reached ~940 us on the FM-1, 18 us a hero) */
     {"stream", 8},                  /* (a brook's or a waterfall's top: 16 heroes reached ~1100 us, 10 ~900 us; as

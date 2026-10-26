@@ -479,7 +479,7 @@ const FAMILIES = [
   ["Water", [["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 50], ["water drops", "water", 0],
     ["cave drips", "water", 16], ["eaves dripping", "water", 32], ["brook", "water", 48], ["bubbling spring", "water", 64],
     ["waterfall", "water", 80], ["waves on sand", "water", 96], ["waves on shingle", "water", 112]]],
-  ["Stones & sand", [["stones", "stone cloud", 0], ["rockfall", "stone cloud", 32], ["ringing rocks", "stone cloud", 96],
+  ["Stones & sand", [["stones", "stone cloud", 0], ["rockfall", "stone cloud", 32], ["ringing rocks", "stone cloud", 100],
     ["gravel", "gravel", 0], ["marbles", "gravel", 96], ["sand", "sand", 0], ["singing dune", "sand", 96],
     ["minerals", "minerals", 0], ["stone friction", "minerals", 96]]],
   ["Ice & glass", [["icicles", "ice", 8], ["ice in a glass", "ice", 24], ["frost tinkling", "ice", 40], ["snow underfoot", "ice", 56],
