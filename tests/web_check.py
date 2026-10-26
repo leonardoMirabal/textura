@@ -3,8 +3,8 @@
 firmware runs (the splash, then the LANDSCAPE page on the screen), ?selftest starts the landscape and it sounds, the
 on-screen keys reach the firmware and its key LEDs come back (a black key selects a sound, a white key starts it), the
 knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
-tests/py/test_web_knobs.py), HOME turns to MIXER, EDIT to SOUND / DRIVE, FX to GRAIN / REVERB, GLO to TEMPO / MIDI
-(the captions follow), and the page fits a phone (390 px, no sideways scroll). Screenshots at desktop and phone width.
+tests/py/test_web_knobs.py), HOME turns to MIXER, EDIT to SOUND / DRIVE, FX to GRAIN / REVERB, GLO to TEMPO / MIDI, LFO to
+LFO, ARP to MATRIX (the captions follow), and the page fits a phone (390 px, no sideways scroll). Screenshots at desktop and phone width.
 
     make fw-web-check     (PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py)
 Outputs in build/web-check/. Exit 1 on any failure. The sound itself is not judged here (no ears)."""
@@ -124,6 +124,19 @@ def main():
         glo.click(delay=60)
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "MIDI", "GLO again: the MIDI page")
+        # LFO: the LFO pages (the caption: the next one / learn); ARP: the MATRIX
+        lfo, arp = pg.locator('button.b[data-name="LFO"]'), pg.locator('button.b[data-name="ARP"]')
+        check(lfo.locator("small").inner_text() == "LFO" and arp.locator("small").inner_text() == "MATRIX",
+              "LFO and ARP captions: LFO, MATRIX")
+        lfo.click(delay=60)
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(PAGE) == "LFO", "LFO: the LFO pages")
+        check(lfo.locator("small").inner_text() == "NEXT · HOLD: LEARN", "LFO's caption on LFO: NEXT · HOLD: LEARN")
+        pg.screenshot(path=os.path.join(OUT, "desktop-lfo.png"))
+        arp.click(delay=60)
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(PAGE) == "MATRIX", "ARP: the MATRIX page")
+        pg.screenshot(path=os.path.join(OUT, "desktop-matrix.png"))
         home.click(delay=60)
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "LANDSCAPE", "HOME: back to LANDSCAPE")

@@ -22,6 +22,9 @@
 static void kv_host_vkey(uint32_t k, uint32_t raw) { (void)k; (void)raw; }   /* (tests/host.c "vkey": no key velocity scan yet) */
 #endif
 #include "platform.c"
+#define LN_MOD                                  /* lanes.c calls the modulation (mod.c) at each block and note */
+static void mod_block(void);
+static void mod_key_isr(uint32_t k, uint32_t vel);
 #include "lanes.c"
 
 #define TX_PALETTE "RED"                        /* the default colour */
@@ -67,6 +70,7 @@ static uint32_t tx_palette_index(const char *name)
 #include "notes.c"
 #include "params.c"
 #include "tempo.c"
+#include "mod.c"
 #include "ui.c"
 
 /* ---- MIDI: notes on channel 1 play the selected lane, pitched; control changes reach the params table (a lane's on
@@ -80,7 +84,9 @@ static void tx_midi_poll(void)
         if (st >= 0xF8u) { (void)tempo_clock(st, (uint32_t)d1 | (uint32_t)d2 << 8, src); continue; }   /* (d1 d2: the
                                                  * arrival and the pulse count, as platform.c stamps them) */
         if (st == 0xF2u) { tempo_spp((uint32_t)(d1 & 127u) | (uint32_t)(d2 & 127u) << 7, src); continue; }
-        if (t == 0xB0u) { (void)p_cc(ch, d1, d2); continue; }
+        if (t == 0xB0u) { if (!p_cc(ch, d1, d2)) mod_cc_in(d1, d2); continue; }   /* (not ours: the mod wheel, MOD CC) */
+        if (t == 0xD0u) { mod_at(d1); continue; }
+        if (t == 0xA0u) { mod_at(d2); continue; }
         if (ch != 0u) continue;
         if (t == 0x90u) ln_key(sc.sel, d1, d2 ? d2 : 0u, d2 != 0u);
         else if (t == 0x80u) ln_key(sc.sel, d1, 0, 0);
@@ -93,6 +99,7 @@ static void app_main(void)
     ln_init();
     sc_init();
     p_init();
+    mod_init();
     tempo_sync_publish();
     ui_splash();
     for (;;) {
@@ -105,6 +112,7 @@ static void app_main(void)
         sc_poll();
         p_poll();
         tempo_poll();
+        mod_poll();
         ui_draw();
         nt_leds(ui_btn_leds());
     }
@@ -126,15 +134,15 @@ static int host_sound_check(char *msg, unsigned n)   /* 0 if every lane runs the
     for (k = 0; k < SC_N; k++) {                /* the chain plays the effects' values the table holds */
         uint32_t i;
         for (i = 0; i < TX_DR_NP; i++)
-            if (ln.fx.drive[k].p[i] != pv_lane[k][PL_DRIVE0 + i]) { snprintf(msg, n, "lane %u drive %u: %u, not %u", k + 1u, i, ln.fx.drive[k].p[i], pv_lane[k][PL_DRIVE0 + i]); return 1; }
+            if (ln.fx.drive[k].p[i] != pv_lane[k][PL_DRIVE0 + i] && !mod_holds(PID(k, PL_DRIVE0 + i))) { snprintf(msg, n, "lane %u drive %u: %u, not %u", k + 1u, i, ln.fx.drive[k].p[i], pv_lane[k][PL_DRIVE0 + i]); return 1; }
         for (i = 0; i < TX_FL_NP; i++)
-            if (ln.fx.filter[k].p[i] != pv_lane[k][PL_FILTER0 + i]) { snprintf(msg, n, "lane %u filter %u: %u, not %u", k + 1u, i, ln.fx.filter[k].p[i], pv_lane[k][PL_FILTER0 + i]); return 1; }
+            if (ln.fx.filter[k].p[i] != pv_lane[k][PL_FILTER0 + i] && !mod_holds(PID(k, PL_FILTER0 + i))) { snprintf(msg, n, "lane %u filter %u: %u, not %u", k + 1u, i, ln.fx.filter[k].p[i], pv_lane[k][PL_FILTER0 + i]); return 1; }
     }
     for (k = 0; k < TX_GD_NP; k++)
-        if (ln.fx.gd.p[k] != pv_glob[PG_GRAIN0 + k]) { snprintf(msg, n, "grain %u: %u, not %u", k, ln.fx.gd.p[k], pv_glob[PG_GRAIN0 + k]); return 1; }
+        if (ln.fx.gd.p[k] != pv_glob[PG_GRAIN0 + k] && !mod_holds(PID(P_GLOBAL, PG_GRAIN0 + k))) { snprintf(msg, n, "grain %u: %u, not %u", k, ln.fx.gd.p[k], pv_glob[PG_GRAIN0 + k]); return 1; }
     if (ln.fx.gd.sync != tm.gsync_smp) { snprintf(msg, n, "grain sync %u, not %u", ln.fx.gd.sync, tm.gsync_smp); return 1; }
     for (k = 0; k < TX_RV_NP; k++)
-        if (ln.fx.rev.p[k] != pv_glob[PG_REVERB0 + k]) { snprintf(msg, n, "reverb %u: %u, not %u", k, ln.fx.rev.p[k], pv_glob[PG_REVERB0 + k]); return 1; }
+        if (ln.fx.rev.p[k] != pv_glob[PG_REVERB0 + k] && !mod_holds(PID(P_GLOBAL, PG_REVERB0 + k))) { snprintf(msg, n, "reverb %u: %u, not %u", k, ln.fx.rev.p[k], pv_glob[PG_REVERB0 + k]); return 1; }
     return 0;
 }
 static int host_state(const char *key, char *v, unsigned n)
@@ -167,6 +175,10 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "running")) snprintf(v, n, "%d", tm_running());
     else if (!strcmp(key, "songpos")) snprintf(v, n, "%u", clk_sp);
     else if (!strcmp(key, "gsync")) snprintf(v, n, "%u", tm.gsync_smp);          /* the grain delay's echo, samples */
+    else if (!strcmp(key, "mpos")) snprintf(v, n, "%u", mpos >> 8);               /* the song position (1/96 quarter) */
+    else if (!strcmp(key, "routes")) snprintf(v, n, "%u", mbuf[mcur].nr);
+    else if (sscanf(key, "lfo%u%c", &k, &c) == 1 && k < TX_LFO_N) snprintf(v, n, "%d", (int)mod_lfo[k].out);
+    else if (sscanf(key, "live%x%c", &k, &c) == 1) { int32_t x; snprintf(v, n, "%d", mod_live(k, &x) ? (int)x : -1); }
     else if (!strcmp(key, "gdsync")) snprintf(v, n, "%u", ln.fx.gd.sync);         /* as the chain has it */
     else if (sscanf(key, "lab%u%c", &k, &c) == 1 && k < 4u) snprintf(v, n, "%s", ui_row_id(k) != NOID ? p_lab(ui_row_id(k)) : "-");
     else if (sscanf(key, "card%u%c", &k, &c) == 1 && k < 4u) {   /* the value as the card writes it */

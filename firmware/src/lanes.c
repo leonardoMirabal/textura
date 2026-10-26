@@ -144,6 +144,9 @@ static void ln_event(const ln_ev_t *v)
     switch (v->kind) {
     case LN_EV_KEY:
         if (k < LN_N && ln.mix.e[k]) ln.mix.e[k]->key(ln.mix.st[k], v->a, v->b, v->c);
+#ifdef LN_MOD
+        if (k < LN_N && v->c) mod_key_isr(k, v->b);   /* (the LFOs' triggers, VELOCITY, RANDOM) */
+#endif
         break;
     case LN_EV_PARAM:
         if (k < LN_N && ln.mix.e[k]) ln.mix.e[k]->param(ln.mix.st[k], v->a, v->b);
@@ -208,6 +211,9 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
 {
     uint32_t k, j;
     while (ln.qr != ln.qw) { ln_event(&ln.q[ln.qr % LN_QN]); ln.qr++; }
+#ifdef LN_MOD
+    mod_block();                                /* the modulation: the LFOs, the matrix, its targets set (mod.c) */
+#endif
     tx_mix_begin(&ln.mix, n);
     for (k = 0; k < LN_N; k++) {
 #ifdef LN_CLOCK_US
@@ -219,7 +225,12 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
             uint8_t in;
             unsigned ne = tx_gen_block(&ln.gen[k], n, ev, TX_GEN_EV_MAX, &in), q;
             if (ln.int_id[k] >= 0) ln.mix.e[k]->param(ln.mix.st[k], (uint8_t)ln.int_id[k], in);
-            for (q = 0; q < ne && !ln.gen_mute[k]; q++) ln.mix.e[k]->key(ln.mix.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
+            for (q = 0; q < ne && !ln.gen_mute[k]; q++) {
+                ln.mix.e[k]->key(ln.mix.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
+#ifdef LN_MOD
+                if (ev[q].vel) mod_key_isr(k, ev[q].vel);
+#endif
+            }
         }
         tx_mix_slot_render(&ln.mix, k, n);
 #ifdef LN_CLOCK_US

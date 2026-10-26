@@ -30,6 +30,7 @@
 #include "tx_core_mix.h"
 #include "tx_core_chamber.h"
 #include "tx_fx.h"
+#include "tx_mod.h"
 
 #define FM1_WORST_US 3620.0        /* as txbench: Frodhes' worst block on the FM-1 at the pinned revision */
 #define FR_SKIP_BLOCKS 20u
@@ -269,6 +270,49 @@ static double fx_cost(int kind, unsigned type, unsigned decay)
     return v[nv * 3 / 4];                                /* (flat costs: the 75th percentile, robust to the host's bursts) */
 }
 
+/* ---- the modulation (tx_mod.h): the 8 LFOs at one SHAPE and RATE (JITTER 127, synced or free) and the matrix's sum
+ * over n routes (every source, every SPREAD), a block's cost on the FM-1 (as fx_cost: the 75th percentile of the
+ * per-block minima) */
+static double mod_cost(unsigned shape, unsigned rate, unsigned sync, unsigned nr)
+{
+    static tx_lfo_t l[TX_LFO_N];
+    static tx_mod_rt_t rt[64];
+    static uint64_t t[MAXR][1500];
+    static double v[1500];
+    static int32_t sum[64];
+    int16_t ext[8] = {12000, -5000, 30000, 700, 9000, -20000, 16000, 32767};
+    unsigned r, b, n, nb = 1500, nv = 0;
+    uint32_t pos;
+    for (r = 0; r <= runs; r++) {
+        for (n = 0; n < TX_LFO_N; n++) {
+            tx_lfo_init(&l[n], n, 1234u + n);
+            tx_lfo_param(&l[n], TX_LP_SHAPE, shape); tx_lfo_param(&l[n], TX_LP_RATE, rate);
+            tx_lfo_param(&l[n], TX_LP_SYNC, sync); tx_lfo_param(&l[n], TX_LP_JITTER, 127);
+            tx_lfo_param(&l[n], TX_LP_WIDTH, 90);
+        }
+        for (n = 0; n < 64u; n++) {
+            rt[n].depth = (int16_t)(n & 1u ? -20000 : 24000); rt[n].src = (uint8_t)(n % 16u);
+            rt[n].t = (uint8_t)n; rt[n].lag = (uint8_t)(n * 7u % 256u); rt[n].hi = 127;
+        }
+        pos = 0;
+        for (b = 0; b < nb; b++) {
+            uint64_t t0 = tx_now_ns();
+            for (n = 0; n < 64u; n++) sum[n] = 0;
+            for (n = 0; n < TX_LFO_N; n++) tx_lfo_block(&l[n], rate, 127, pos);
+            tx_mod_sum(rt, nr, l, ext, sum);
+            if (r) t[r - 1][b] = tx_now_ns() - t0;
+            pos = (pos + (1610612736u / 22050u) * 256u) % (TX_POS_WRAP << 8);   /* (120 BPM) */
+        }
+    }
+    for (b = 300; b < nb; b++) {
+        uint64_t m = t[0][b];
+        for (r = 1; r < runs; r++) if (t[r][b] < m) m = t[r][b];
+        v[nv++] = m / 1000.0 * factor;
+    }
+    qsort(v, nv, sizeof v[0], fxc_cmp);
+    return v[nv * 3 / 4];
+}
+
 int main(int argc, char **argv)
 {
     const tx_engine_t *src = tx_engine_find("source");
@@ -450,6 +494,26 @@ int main(int argc, char **argv)
         }
         printf("   the reverb's worst TYPE %.0f us of the effects reserve (%.0f us, CHAMBER's %.0f folded in: it is a TYPE now)\n",
                worst, FX_RESERVE_US + chamber, chamber);
+    }
+    {   /* the modulation: in the interrupt every block, from the effects reserve */
+        static const char *const SN[TX_LS_N] = {"SINE", "TRI", "SAW UP", "SAW DOWN", "SQUARE", "PULSE", "S&H", "SMOOTH",
+                                                "DRIFT", "GUSTS", "CHAOS", "STEPS"};
+        double worst = 0, c;
+        unsigned sh;
+        printf("\n5. modulation (FM-1 us a block: the 8 LFOs, all one SHAPE, JITTER 127, + the matrix's sum; tx_mod.h)\n");
+        for (sh = 0; sh < TX_LS_N; sh++) {
+            double f = mod_cost(sh, 127, 0, 64), y = mod_cost(sh, 64, 10, 64);   /* (SYNC 10: 1/4) */
+            c = f > y ? f : y;
+            if (c > worst) worst = c;
+            printf("   8 x %-9s free 20 Hz / synced 1/4, 64 routes          %5.0f / %5.0f us  (%4.1f %%)\n", SN[sh], f, y,
+                   100 * c / BLOCK_US);
+        }
+        c = mod_cost(TX_LS_SMOOTH, 64, 0, 0);
+        printf("   the defaults (8 x SMOOTH 0.1 Hz), no routes / 16 / 64 routes   %5.0f / %5.0f / %5.0f us\n", c,
+               mod_cost(TX_LS_SMOOTH, 64, 0, 16), mod_cost(TX_LS_SMOOTH, 64, 0, 64));
+        printf("   worst %.0f us (%.1f %%) of the effects reserve (%.0f us); + the firmware's target pass (131 targets, at\n"
+               "   most 8 parameter sends a block: the engines' own parameter calls, already in their costs)\n",
+               worst, 100 * worst / BLOCK_US, FX_RESERVE_US + chamber);
     }
     printf("\nEstimates from host times x the calibration (+-30 %%); the FM-1 decides at the port (whole-interrupt "
            "counters, CC 116). Platform figures are Frodhes' 0.9.5 measurements; Textura's own come at S4.\n");

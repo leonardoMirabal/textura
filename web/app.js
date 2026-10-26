@@ -133,11 +133,12 @@ $("start").onclick = startAudio;
 const KNOBS = [["MASTER", -1, 50, 22, "VOLUME"], ["SELECT", 0, 200, 22, "PAGES"], ["PRESETS", 6, 50, 152, "SCENES"],
                ["ALGORITHM", 1, 200, 152, "LANDSCAPE·TYPE"], ["KNOB 1", 2, 685, 22, "CARD 1"], ["KNOB 2", 3, 800, 22, "CARD 2"],
                ["KNOB 3", 4, 915, 22, "CARD 3"], ["KNOB 4", 5, 1030, 22, "CARD 4"]];
-// the buttons' captions (the ones still to come are blank: the modulation and scenes pieces)
-const HINT = { FX: "EFFECTS", SEL: "KEY MODE", ENV: "", LFO: "", EDIT: "SOUND", GLO: "TEMPO", HOME: "LANDSCAPE", SAVE: "", ARP: "",
+// the buttons' captions (the ones still to come are blank: envelopes and scenes)
+const HINT = { FX: "EFFECTS", SEL: "KEY MODE", ENV: "", LFO: "LFO", EDIT: "SOUND", GLO: "TEMPO", HOME: "LANDSCAPE", SAVE: "", ARP: "MATRIX",
                SEQ: "", PLAY: "TAP · HOLD: RUN", REC: "ALL ON·OFF", "OCT−": "LANE", "OCT+": "LANE" };
 const HINT_ON = {                                    // what a button does on a given page (else HINT)
   LANDSCAPE: { HOME: "MIXER" }, MIXER: { HOME: "LANDSCAPE" }, SOUND: { EDIT: "DRIVE" }, GRAIN: { FX: "REVERB" }, TEMPO: { GLO: "MIDI" },
+  LFO: { LFO: "NEXT · HOLD: LEARN" },
 };
 let shownPage = "";
 function captions() {                                // the page on the screen: the buttons' captions

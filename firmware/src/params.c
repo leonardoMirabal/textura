@@ -11,6 +11,9 @@
  *           16 .. 25  REVERB (tx_fx_reverb_params order)
  *           32 .. 36  TEMPO: BPM (40 .. 240) FINE (BPM in tenths) STATUS (read only) TRANSPORT TAP (over 63: a tap)
  *           40 .. 43  MIDI: CLOCK (INT MASTER FOLLOW AUTO) CLK IN USB, CLK IN TRS, CLK OUT (read only: later)
+ *   5       LFO n (0..7): n x 16 + SHAPE RATE SYNC MODE PHASE WIDTH JITTER FADE RESTART LEVEL (tx_lfo_params order),
+ *           10 NOW 11 ROUTES (read only)
+ *   7       the matrix: slot (0..15) x 4 + SOURCE TARGET DEPTH SPREAD; 64 MOD CC
  * The lane model's entries (SOUND .. PAN) are the landscape's (scape.c); the cards set the lane's engine (or its
  * hosted engine); the effects are kept here and sent to lanes.c's chain; the tempo's and the clock's are tempo.c's.
  *
@@ -44,6 +47,9 @@ static void p_cat(char *d, const char *s, uint32_t max) { uint32_t n = 0; while 
 #define P_SCOPE(id) ((id) >> 8)
 #define P_IDX(id) ((id) & 0xFFu)
 #define P_LANE_ANY 0xFu                         /* a page's card: "the selected lane" (resolved when drawn / turned) */
+#define P_LFO 5u                                /* the LFOs: n x 16 + param (mod.c) */
+#define P_MAT 7u                                /* the matrix: slot x 4 + SOURCE TARGET DEPTH SPREAD, 64 MOD CC (mod.c) */
+#define NOID_P 0xFFFFu
 enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_DRIVE0 = 32, PL_FILTER0 = 36, PL_NUM = 42 };
 enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_N_ = 26, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN, PG_TAP,
        PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT };
@@ -59,6 +65,15 @@ static const char *const N_REVERB[] = {"OFF", "ROOM", "HALL", "INFINITE", "DARK"
 static const char *const N_SHIFT[] = {"+OCT", "+5TH", "+OCT+5", "-OCT"};
 static const char *const N_CLOCK[] = {"INT", "MASTER", "FOLLOW", "AUTO"};
 
+/* mod.c (included after this file) */
+static int mod_valid(uint32_t id);
+static const char *mod_lab(uint32_t id);
+static int32_t mod_hi(uint32_t id);
+static int32_t mod_get(uint32_t id);
+static void mod_set(uint32_t id, int32_t v);
+static const char *mod_text(uint32_t id, char *t);
+static int mod_choice(uint32_t id);
+static int mod_holds(uint32_t id);
 /* tempo.c (included after this file) */
 static const char *tempo_div_name(uint32_t g);
 static uint32_t tempo_bpm10(void);
@@ -179,6 +194,7 @@ static void p_card_set(uint32_t k, uint32_t i, uint32_t v)
     if (i >= c->n) return;
     if (v > c->hi[i]) v = c->hi[i];
     c->cv[i] = (uint8_t)v;
+    if (mod_holds(PID(k, PL_CARD0 + i))) return;   /* (modulated: the base only; mod.c sets it) */
     x = c->kind[i] & CK_INV ? c->hi[i] - v : v;
     if (c->kind[i] & CK_HOST) ln_host(k, c->id[i], x, 0);
     else ln_param(k, c->id[i], x);
@@ -201,6 +217,7 @@ static int p_valid(uint32_t id)
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
     if (p_fx_desc(id) || p_gx(id)) return 1;
+    if (s == P_LFO || s == P_MAT) return mod_valid(id);
     if (s >= P_LANES) return 0;
     if (i <= PL_PAN) return 1;
     return i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX && i - PL_CARD0 < p_cards(s)->n;
@@ -212,6 +229,7 @@ static const char *p_lab(uint32_t id)
     static const char *const L[] = {"SOUND", "HOW MANY", "HOW ACTIVE", "LEVEL", "PAN"};
     if (d) return d->name;
     if (p_gx(id)) return p_gx(id)->lab;
+    if ((s == P_LFO || s == P_MAT) && mod_valid(id)) return mod_lab(id);
     if (s < P_LANES && i <= PL_PAN) return L[i];
     if (s < P_LANES && i >= PL_CARD0 && i - PL_CARD0 < p_cards(s)->n) return p_cards(s)->lab[i - PL_CARD0];
     return "";
@@ -222,6 +240,7 @@ static int32_t p_hi(uint32_t id)
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
     if (d) return d->max;
     if (p_gx(id)) return p_gx(id)->hi;
+    if (s == P_LFO || s == P_MAT) return mod_valid(id) ? mod_hi(id) : 0;
     if (s >= P_LANES) return 0;
     if (i == PL_SOUND) return LS[sc.fam].n - 1;
     if (i == PL_COUNT) return LS_NCNT - 1;
@@ -233,6 +252,7 @@ static int32_t p_hi(uint32_t id)
 static uint32_t p_fmt(uint32_t id)
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
+    if (s == P_LFO || s == P_MAT) return mod_choice(id) ? F_ENUM : F_NUM;
     if (s < P_LANES) {
         if (i == PL_SOUND) return F_SOUND;
         if (i == PL_COUNT) return F_COUNT;
@@ -262,6 +282,7 @@ static const char *const *p_names(uint32_t id)
 static int32_t p_get(uint32_t id)
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
+    if (s == P_LFO || s == P_MAT) return mod_valid(id) ? mod_get(id) : 0;
     if (s == P_GLOBAL) {
         switch (i) {
         case PG_GSYNC: return (int32_t)tm_get(TG_GSYNC);
@@ -291,6 +312,7 @@ static void p_set(uint32_t id, int32_t v)
     int32_t hi = p_hi(id);
     if (!p_valid(id)) return;
     v = v < 0 ? 0 : v > hi ? hi : v;
+    if (s == P_LFO || s == P_MAT) { mod_set(id, v); return; }
     if (s == P_GLOBAL && p_gx(id)) {        /* the tempo's and the clock's */
         switch (i) {
         case PG_GSYNC: tempo_gsync((uint32_t)v); break;
@@ -306,6 +328,7 @@ static void p_set(uint32_t id, int32_t v)
     }
     if (s == P_GLOBAL) {
         pv_glob[i] = (uint8_t)v;
+        if (mod_holds(id)) return;              /* (modulated: the base only) */
         if (i < PG_REVERB0) ln_fx(LN_FX_GRAIN, 0, i - PG_GRAIN0, (uint32_t)v);
         else ln_fx(LN_FX_REVERB, 0, i - PG_REVERB0, (uint32_t)v);
         return;
@@ -319,6 +342,7 @@ static void p_set(uint32_t id, int32_t v)
     }
     if (i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX) { p_card_set(s, i - PL_CARD0, (uint32_t)v); return; }
     pv_lane[s][i] = (uint8_t)v;
+    if (mod_holds(id)) return;
     if (i >= PL_FILTER0) ln_fx(LN_FX_FILTER, s, i - PL_FILTER0, (uint32_t)v);
     else ln_fx(LN_FX_DRIVE, s, i - PL_DRIVE0, (uint32_t)v);
 }
@@ -328,6 +352,7 @@ static const char *p_text(uint32_t id, char *t)
     int32_t v = p_get(id);
     uint32_t f = p_fmt(id);
     t[0] = 0;
+    if (P_SCOPE(id) == P_LFO || P_SCOPE(id) == P_MAT) return mod_text(id, t);
     switch (f) {
     case F_ENUM: p_strcpy(t, p_names(id)[v], 10); return 0;
     case F_ONOFF: p_strcpy(t, v ? "ON" : "OFF", 4); return 0;
@@ -408,7 +433,13 @@ static const p_cc_t P_CC_GLOBAL[] = {
     {3, PG_BPM}, {9, PG_TAP}, {80, PG_RUN},
 };
 /* a 7-bit value onto a parameter's range (0 .. hi): 127 always reaches hi */
-static int32_t p_scale7(uint32_t id, uint32_t v) { int32_t hi = p_hi(id); return hi == 127 ? (int32_t)v : ((int32_t)v * hi + 63) / 127; }
+static int32_t p_scale7(uint32_t id, uint32_t v)
+{
+    int32_t hi = p_hi(id);
+    if (P_SCOPE(id) == P_MAT && P_IDX(id) < 64u && P_IDX(id) % 4u == 2u)   /* a slot's DEPTH: 64 = 0 % */
+        return v <= 64u ? ((int32_t)v * 100 + 32) / 64 : 100 + (((int32_t)v - 64) * 100 + 31) / 63;
+    return hi == 127 ? (int32_t)v : ((int32_t)v * hi + 63) / 127;
+}
 static struct { uint8_t msb[5], lsb[5], on[5]; } p_nrpn;
 static uint32_t p_touched;                      /* (the screen: a parameter MIDI changed, id + 1) */
 static void p_midi_set(uint32_t id, int32_t v) { if (p_valid(id)) { p_set(id, v); p_touched = id + 1u; } }

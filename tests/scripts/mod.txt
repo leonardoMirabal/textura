@@ -1,0 +1,97 @@
+# modulation: LFO = the LFO pages (again: the next), ALGORITHM the LFO; ARP = MATRIX, ALGORITHM the slot; a route moves
+# its target around the base the panel keeps ("live<hex id>": the value now, -1 = not modulated); LFO held + a card
+# turned = mod learn, turned back to 0 = the slot freed; NRPN on scope 5 (LFO n*16 + p) and 7 (slot*4 + q, DEPTH 64 = 0)
+1700 btn 13
+1800 btn 5
+1820 expect state page LFO_1/3
+1820 expect state lab0 SHAPE
+1820 expect state card0 SMOOTH
+1820 expect state card1 9.5_s
+1820 expect state card2 FREE
+1820 expect state card3 FREE
+1820 expect led 5 1
+1900 turn 1 1
+1920 expect state card0 DRIFT
+1920 expect state msg LFO_2
+1950 turn 1 -1
+2000 btn 5
+2020 expect state page LFO_2/3
+2020 expect state lab2 JITTER
+2020 expect state card2 15_%
+2050 btn 5
+2070 expect state page LFO_3/3
+2070 expect state lab2 NOW
+2070 expect state lab3 ROUTES
+2070 expect state card3 0
+2100 shot
+# LFO 1 fast (15 Hz) so the test sees it move
+2150 btn 5
+2170 turn 3 60
+2190 expect state card1 15_Hz
+# MATRIX slot 1: LFO 1 > L1 PAN +30 % (its values now: 64 +- 30, sampled; the host runs the same every time)
+2300 btn 10
+2320 expect state page MATRIX
+2320 expect state lab0 SOURCE
+2320 expect state card0 NONE
+2320 expect led 10 1
+2400 turn 2 1
+2450 turn 3 2
+2500 turn 4 30
+2520 expect state card0 LFO_1
+2520 expect state card1 L1_PAN
+2520 expect state card2 +30_%
+2520 expect state routes 1
+2600 expect state p004 64
+2600 expect state live004 77
+2800 expect state live004 40
+3000 expect state live004 45
+3000 expect state p004 64
+3050 expect sound
+3100 shot
+# mod learn on MIXER 1/2: LFO held, K1 (L1 LEVEL) turned 12: a second route; the page stays
+3200 btn 8
+3220 btn 8
+3240 expect state page MIXER_1/2
+3300 press 5
+3350 turn 2 12
+3400 release 5
+3420 expect state page MIXER_1/2
+3420 expect state msg LFO1_>_L1_LEVEL_+12%
+3420 expect state routes 2
+3420 expect state vol0 100
+3450 shot
+3500 expect sound
+# NRPN: slot 1's DEPTH to 64 = 0 %: its route gone, L1 PAN back at its base
+4000 midi 0xB0 99 7
+4010 midi 0xB0 98 2
+4020 midi 0xB0 6 64
+4100 expect state routes 1
+4100 expect state live004 -1
+4100 expect state pan0 64
+4100 expect sound
+# learn turned back to 0: the slot freed, L1 LEVEL at its base
+4200 press 5
+4250 turn 2 -12
+4300 release 5
+4320 expect state msg LFO1_>_L1_LEVEL_OFF
+4320 expect state routes 0
+4320 expect state live003 -1
+4320 expect state vol0 100
+# NRPN scope 5: LFO 1's SHAPE (127 = the last, STEPS)
+4400 midi 0xB0 99 5
+4410 midi 0xB0 98 0
+4420 midi 0xB0 6 127
+4500 btn 5
+4520 expect state page LFO_1/3
+4520 expect state card0 STEPS
+4600 expect sound
+# learn on LANDSCAPE: K3 = the selected lane's HOW ACTIVE
+4650 btn 8
+4700 press 5
+4750 turn 4 20
+4800 release 5
+4820 expect state page LANDSCAPE
+4820 expect state msg LFO1_>_L1_HOW_ACTIVE_+20%
+4820 expect state routes 1
+4900 expect sound
+5000 end

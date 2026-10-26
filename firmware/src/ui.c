@@ -9,12 +9,15 @@
  * element's content and marks the ones that differ.
  *
  *   SELECT     the pages, in order: LANDSCAPE, MIXER 1/2 (levels) 2/2 (pans), SOUND 1..n (the selected lane's sound:
- *              its cards, four a page), DRIVE, FILTER 1/2 2/2, GRAIN 1/3 .. 3/3, REVERB 1/3 .. 3/3, TEMPO, MIDI
+ *              its cards, four a page), DRIVE, FILTER 1/2 2/2, GRAIN 1/3 .. 3/3, REVERB 1/3 .. 3/3, LFO 1/3 .. 3/3,
+ *              MATRIX, TEMPO, MIDI
  *   ALGORITHM  LANDSCAPE: the landscape (loaded 300 ms after the last detent); SOUND: the lane's sound; DRIVE: its
- *              type; FILTER: its type; GRAIN: FREEZE (up on, down off); REVERB: its type
+ *              type; FILTER: its type; GRAIN: FREEZE (up on, down off); REVERB: its type; LFO: which (1..8); MATRIX:
+ *              which slot (1..16)
  *   K1..K4     LANDSCAPE: the selected lane's SOUND, HOW MANY, HOW ACTIVE, VOLUME; MIXER: lanes 1..4; else the cards
  *   HOME       LANDSCAPE (again: MIXER)        EDIT  SOUND (again: DRIVE)        FX  GRAIN (again: REVERB)
- *   GLO        TEMPO (again: MIDI)
+ *   GLO        TEMPO (again: MIDI)                 LFO  the LFO pages; held + a card turned: mod learn (the
+ *              selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP  MATRIX
  *   SEL        key mode: LANDSCAPE / PLAY      OCT- OCT+  LANDSCAPE mode: the lane; PLAY mode: the octave
  *   REC        LANDSCAPE mode: all lanes stop (remembered) / start again
  *   PLAY       (TX_BTN_TAP) a tap: TAP TEMPO (on the press); held 600 ms: the transport starts / stops (and that
@@ -30,15 +33,17 @@
 #define TX_BTN_TAP BTN_PLAY                     /* TAP TEMPO is the PLAY button, as in Frodhes (the user, 2026-10-25) */
 
 /* the pages: a group (SELECT walks through each group's sub-pages, then the next group) */
-enum { G_LAND, G_MIX, G_SOUND, G_DRIVE, G_FILTER, G_GRAIN, G_REVERB, G_TEMPO, G_MIDI, G_N };
-static const char *const G_TITLE[G_N] = {"LANDSCAPE", "MIXER", "SOUND", "DRIVE", "FILTER", "GRAIN", "REVERB", "TEMPO",
-                                         "MIDI"};
-static const uint8_t G_NSUB[G_N] = {1, 2, 0, 1, 2, 3, 3, 1, 1};   /* (SOUND: as many as its cards need) */
+enum { G_LAND, G_MIX, G_SOUND, G_DRIVE, G_FILTER, G_GRAIN, G_REVERB, G_LFO, G_MATRIX, G_TEMPO, G_MIDI, G_N };
+static const char *const G_TITLE[G_N] = {"LANDSCAPE", "MIXER", "SOUND", "DRIVE", "FILTER", "GRAIN", "REVERB", "LFO",
+                                         "MATRIX", "TEMPO", "MIDI"};
+static const uint8_t G_NSUB[G_N] = {1, 2, 0, 1, 2, 3, 3, 3, 1, 1, 1};   /* (SOUND: as many as its cards need) */
 #define LA P_LANE_ANY
 #define NOID 0xFFFFu
 /* the effects' pages: a parameter per knob, the selected lane's (LA) or a global */
-static const uint8_t G_FX0[G_N] = {0, 0, 0, 0, 1, 3, 6, 9, 10};
-static const uint16_t FX_IDS[11][4] = {
+static const uint8_t G_FX0[G_N] = {0, 0, 0, 0, 1, 3, 6, 9, 12, 13, 14};
+#define LFO_ANY(p) PID(P_LFO, 0xF0u | (p))        /* the selected LFO's (ui_lfo) */
+#define MAT_ANY(q) PID(P_MAT, 0xF0u | (q))        /* the selected slot's (ui_slot) */
+static const uint16_t FX_IDS[15][4] = {
     {PID(LA, PL_DRIVE0 + TX_DR_AMOUNT), PID(LA, PL_DRIVE0 + TX_DR_TONE), PID(LA, PL_DRIVE0 + TX_DR_MIX), PID(LA, PL_DRIVE0 + TX_DR_TYPE)},
     {PID(LA, PL_FILTER0 + TX_FL_TYPE), PID(LA, PL_FILTER0 + TX_FL_FREQ), PID(LA, PL_FILTER0 + TX_FL_RESO), PID(LA, PL_FILTER0 + TX_FL_LFO)},
     {PID(LA, PL_FILTER0 + TX_FL_RATE), PID(LA, PL_FILTER0 + TX_FL_SHAPE), NOID, NOID},
@@ -48,6 +53,10 @@ static const uint16_t FX_IDS[11][4] = {
     {PID(P_GLOBAL, PG_REVERB0 + TX_RV_TYPE), PID(P_GLOBAL, PG_REVERB0 + TX_RV_MIX), PID(P_GLOBAL, PG_REVERB0 + TX_RV_DECAY), PID(P_GLOBAL, PG_REVERB0 + TX_RV_TONE)},
     {PID(P_GLOBAL, PG_REVERB0 + TX_RV_PREDELAY), PID(P_GLOBAL, PG_REVERB0 + TX_RV_SIZE), PID(P_GLOBAL, PG_REVERB0 + TX_RV_MOD), PID(P_GLOBAL, PG_REVERB0 + TX_RV_LOWCUT)},
     {PID(P_GLOBAL, PG_REVERB0 + TX_RV_SHIMMER), PID(P_GLOBAL, PG_REVERB0 + TX_RV_SHIFT), NOID, NOID},
+    {LFO_ANY(TX_LP_SHAPE), LFO_ANY(TX_LP_RATE), LFO_ANY(TX_LP_SYNC), LFO_ANY(TX_LP_MODE)},
+    {LFO_ANY(TX_LP_PHASE), LFO_ANY(TX_LP_WIDTH), LFO_ANY(TX_LP_JITTER), LFO_ANY(TX_LP_FADE)},
+    {LFO_ANY(TX_LP_RESTART), LFO_ANY(TX_LP_LEVEL), LFO_ANY(ML_NOW), LFO_ANY(ML_ROUTES)},
+    {MAT_ANY(MQ_SRC), MAT_ANY(MQ_TGT), MAT_ANY(MQ_DEPTH), MAT_ANY(MQ_SPREAD)},
     {PID(P_GLOBAL, PG_BPM), PID(P_GLOBAL, PG_FINE), PID(P_GLOBAL, PG_STATUS), PID(P_GLOBAL, PG_RUN)},
     {PID(P_GLOBAL, PG_CLOCK), PID(P_GLOBAL, PG_INUSB), PID(P_GLOBAL, PG_INTRS), PID(P_GLOBAL, PG_OUT)},
 };
@@ -59,6 +68,7 @@ static const uint16_t FX_IDS[11][4] = {
 enum { E_HEADER = 0, E_TITLE = 1, E_ROW0 = 2, E_FOOTER = 6, E_N = 7 };
 
 static uint8_t ui_g, ui_sub;                    /* the page: its group, its sub-page */
+static uint8_t ui_lfo, ui_slot;                 /* the LFO and the matrix slot ALGORITHM picked */
 static uint32_t ui_dirty, ui_last_draw, ui_sig[E_N], ui_sig_t;
 static char ui_msg[32];
 static uint32_t ui_msg_t;
@@ -151,7 +161,13 @@ static uint32_t ui_nsub(uint32_t g)             /* a group's sub-pages */
     return G_NSUB[g];
 }
 static int ui_lane_page(void) { return ui_g == G_SOUND || ui_g == G_DRIVE || ui_g == G_FILTER; }
-static uint32_t ui_id_lane(uint32_t id) { return P_SCOPE(id) == LA ? PID(sc.sel, P_IDX(id)) : id; }
+static uint32_t ui_id_lane(uint32_t id)         /* a page's id made concrete: the selected lane, LFO, slot */
+{
+    if (P_SCOPE(id) == LA) return PID(sc.sel, P_IDX(id));
+    if (P_SCOPE(id) == P_LFO && P_IDX(id) >= 0xF0u) return PID(P_LFO, ui_lfo * 16u + (P_IDX(id) & 15u));
+    if (P_SCOPE(id) == P_MAT && P_IDX(id) >= 0xF0u) return PID(P_MAT, ui_slot * 4u + (P_IDX(id) & 15u));
+    return id;
+}
 /* the parameter knob k turns on this page (NOID: none) */
 static uint32_t ui_row_id(uint32_t k)
 {
@@ -184,7 +200,20 @@ static void draw_header(void)
         if (nt.oct) { char o[4] = {' ', nt.oct < 0 ? '-' : '+', (char)('0' + (nt.oct < 0 ? -nt.oct : nt.oct)), 0}; p_cat(m, o, 11); }
         x -= aa_text_w(&AF_S, m); aa_text(x, S_TOP(10), &AF_S, m, UI_ACC, FC_BG); x -= 6;
     }
-    if (ui_lane_page()) {
+    if (ui_g == G_LFO || ui_g == G_MATRIX) {    /* "LFO 3  SMOOTH", "SLOT 4  LFO 1 > L2 SIZE" */
+        char l[8], t[24];
+        int32_t xl;
+        if (ui_g == G_LFO) { p_strcpy(l, "LFO ", 4); l[4] = (char)('1' + ui_lfo); l[5] = 0; }
+        else { p_strcpy(l, "SLOT ", 5); p_fmt_int(l + 5, ui_slot + 1); }
+        xl = aa_text(10, S_TOP(10), &AF_S, l, UI_ACC, FC_BG) + 6;
+        if (ui_g == G_LFO) (void)p_text(PID(P_LFO, ui_lfo * 16u + TX_LP_SHAPE), nm);
+        else {
+            (void)p_text(PID(P_MAT, ui_slot * 4u + MQ_SRC), nm); p_cat(nm, " > ", 31);
+            (void)p_text(PID(P_MAT, ui_slot * 4u + MQ_TGT), t); p_cat(nm, t, 31);
+        }
+        ui_fit(nm, x - xl - 4);
+        aa_text(xl, S_TOP(10), &AF_S, nm, FC_VAL, FC_BG);
+    } else if (ui_lane_page()) {
         char l[8] = {'L', 'A', 'N', 'E', ' ', (char)('1' + sc.sel), 0};
         int32_t xl = aa_text(10, S_TOP(10), &AF_S, l, UI_ACC, FC_BG) + 6;
         p_upper(nm, sc.snd[sc.sel] >= 0 ? sc_sound_name(sc.sel) : "-", 30);
@@ -289,9 +318,11 @@ static void cd_edge(int32_t ex, const int16_t *bx, uint32_t nb)
         if (!free_row && y0 >= 0) { if (y - y0 >= CD_MINSEG) cv_rect(ex, y0, 2, y - y0, mt.edge); y0 = -1; }
     }
 }
+static int32_t ui_card_live = -1;               /* the card being drawn is modulated: its value now (-1: not) */
 static void draw_card(uint32_t k, const char *lab, const char *v, const char *unit, int32_t val, int32_t hi, uint32_t look)
 {
     char kk[3] = {'K', (char)('1' + k), 0}, l[32];
+    int32_t live = ui_card_live;
     int hot = ui_hot_card == k && ui_hot_t && fm1_ms - ui_hot_t < HOT_MS;
     const int32_t ltop = CD_BASE - AF_S.asc, vtop = CD_BASE - AF_L.asc;
     int big = aa_covers(&AF_L, v) && aa_text_w(&AF_L, v) <= CD_VR - CD_PAD - CD_LABMIN;
@@ -299,7 +330,9 @@ static void draw_card(uint32_t k, const char *lab, const char *v, const char *un
     int filled;
     if (look <= LK_MID && hi > 0) fw = (int32_t)RW_W * clampi(val, 0, hi) / hi;
     filled = look == LK_FILL && fw > CD_PAD;
-    p_strcpy(l, lab, 31);
+    ui_card_live = -1;
+    if (live >= 0) { l[0] = '~'; p_strcpy(l + 1, lab, 30); }   /* (modulated: "~" and a marker at its value now) */
+    else p_strcpy(l, lab, 31);
     ui_fit(l, CD_VR - vw - CD_GAP - CD_PAD);
     lw = aa_text_w(&AF_S, l);
     cv_begin(RW_W, RW_H, C_BLACK);
@@ -315,6 +348,10 @@ static void draw_card(uint32_t k, const char *lab, const char *v, const char *un
     if (look == LK_SEG && hi >= 1 && (uint32_t)hi < CD_SEGMAX) {   /* a choice: hi + 1 segments, the chosen lit */
         int32_t i, n = hi + 1, x0 = CD_PAD, w = CD_VR - CD_PAD, sw = (w - 2 * (n - 1)) / n;
         for (i = 0; i < n; i++) cv_rect(x0 + i * (sw + 2), RW_H - 6, sw, 3, i == val ? mt.edge : CD_SEGDIM);
+    }
+    if (live >= 0 && hi > 0) {                  /* the live value: a tick at the top and the bottom */
+        int32_t x = clampi((int32_t)RW_W * clampi(live, 0, hi) / hi - 1, 0, (int32_t)RW_W - 3);
+        cv_rect(x, 0, 3, 4, FC_VAL); cv_rect(x, RW_H - 4, 3, 4, FC_VAL);
     }
     if (look == LK_LED) cv_rect(CD_VR + CD_UGAP + 6, CD_BASE - 10, 10, 10, val ? mt.edge : CD_SEGDIM);
     if (filled) {                               /* a strong fill under the K tag / label: lighter greys */
@@ -353,6 +390,7 @@ static void draw_row(uint32_t k)
     if (ui_g == G_LAND) { draw_strip(k); return; }
     if (ui_g == G_MIX) {
         ui_mix_label(k, l);
+        { int32_t lv; if (mod_live(PID(k, ui_sub ? PL_PAN : PL_LEVEL), &lv)) ui_card_live = lv; }
         if (ui_sub == 0u) { p_fmt_int(v, (int32_t)sc_vol_of(k)); draw_card(k, l, v, 0, (int32_t)sc_vol_of(k), 127, LK_FILL); }
         else { ui_pan_text(sc.pan[k], v); draw_card(k, l, v, 0, sc.pan[k], 127, LK_MID); }
         return;
@@ -361,7 +399,11 @@ static void draw_row(uint32_t k)
     if (id == NOID) { cv_begin(RW_W, RW_H, C_BLACK); cv_blit(RW_X, RW_Y0 + RW_DY * k); return; }
     {
         const char *u = p_text(id, v);
-        draw_card(k, p_lab(id), v, u, p_get(id), p_hi(id), ui_look(id));
+        int32_t lv, val = p_get(id), hi = p_hi(id);
+        uint32_t look = ui_look(id);
+        if (P_SCOPE(id) == P_LFO && P_IDX(id) % 16u == ML_NOW) { look = LK_MID; hi = 64; }   /* (NOW: from the middle) */
+        if (mod_live(id, &lv)) ui_card_live = lv;
+        draw_card(k, p_lab(id), v, u, val, hi, look);
     }
 }
 
@@ -369,6 +411,7 @@ static void draw_footer(void)
 {
     static const char *const HINT[G_N] = {"", "", "ALGORITHM: THE SOUND", "ALGORITHM: THE DRIVE'S TYPE",
                                           "ALGORITHM: THE FILTER'S TYPE", "ALGORITHM: FREEZE", "ALGORITHM: THE REVERB'S TYPE",
+                                          "ALGORITHM: WHICH LFO", "ALGORITHM: WHICH SLOT",
                                           "PLAY: TAP, HOLD: START / STOP", "CLOCK OUT: OVER USB, LATER"};
     cv_begin(240, FT_H, FC_BG);
     if (ui_msg_t && fm1_ms - ui_msg_t < MSG_MS) ft_c(15, ui_msg, FC_VAL);
@@ -380,6 +423,15 @@ static void draw_footer(void)
         ft_c(22, "SOUND   MANY   ACTIVE   VOLUME", FC_DIM);
     } else if (ui_g == G_MIX) ft_c(19, ui_sub == 0u ? "K1-K4: THE LANES' LEVELS" : "K1-K4: THE LANES' PANS", FC_DIM);
     else if (ui_g == G_SOUND && sc.snd[sc.sel] < 0) ft_c(19, "NO SOUND ON THIS LANE", FC_DIM);
+    else if (ui_g == G_LFO) { ft_c(7, HINT[ui_g], FC_DIM); ft_c(22, "HOLD LFO + TURN A CARD: LEARN", FC_DIM); }
+    else if (ui_g == G_MATRIX && mslot[ui_slot].src && mslot[ui_slot].tgt) {   /* the slot's target now: a bar */
+        int32_t lv, id = (int32_t)mod_tgt_pid(mslot[ui_slot].tgt, mod_tgt_lanes(mslot[ui_slot].tgt) < 4u ? mod_tgt_lanes(mslot[ui_slot].tgt) : 0u);
+        ft_c(7, mod_cc_learn ? "SEND A CC: MOD CC" : HINT[ui_g], FC_DIM);
+        if (mod_live((uint32_t)id, &lv) && p_hi((uint32_t)id) > 0) {
+            int32_t w = 200 * clampi(lv, 0, p_hi((uint32_t)id)) / p_hi((uint32_t)id);
+            cv_rect(20, 20, 200, 4, CD_SEGDIM); cv_rect(20, 20, w, 4, mt.edge);
+        }
+    }
     else ft_c(19, HINT[ui_g], FC_DIM);
     cv_blit(0, FT_Y);
 }
@@ -391,6 +443,11 @@ static uint32_t ui_sig_of(uint32_t e)
     uint32_t h = 2166136261u, k;
     h = sig_mix(h, ui_g); h = sig_mix(h, ui_sub);
     if (ui_lane_page()) { h = sig_mix(h, sc.sel); h = sig_mix(h, (uint32_t)sc.snd[sc.sel]); h = sig_mix(h, sc.fam); }
+    if (ui_g == G_LFO || ui_g == G_MATRIX) {
+        h = sig_mix(h, ui_lfo); h = sig_mix(h, ui_slot);
+        if (e == E_HEADER) { h = sig_mix(h, mod_lfo[ui_lfo].p[TX_LP_SHAPE]); h = sig_mix(h, mslot[ui_slot].src); h = sig_mix(h, mslot[ui_slot].tgt); }
+        if (e == E_FOOTER) { int32_t lv; h = sig_mix(h, mod_cc_learn); if (ui_g == G_MATRIX && mslot[ui_slot].tgt) h = sig_mix(h, mod_live((uint32_t)mod_tgt_pid(mslot[ui_slot].tgt, mod_tgt_lanes(mslot[ui_slot].tgt) < 4u ? mod_tgt_lanes(mslot[ui_slot].tgt) : 0u), &lv) ? (uint32_t)lv : 0xFFFFu); }
+    }
     if (e == E_HEADER) { h = sig_mix(h, sc.fam_want); h = sig_mix(h, sc.fam_pend); h = sig_mix(h, nt.mode); h = sig_mix(h, (uint32_t)nt.oct); }
     else if (e == E_TITLE) h = sig_mix(h, ui_nsub(ui_g));
     else if (e == E_FOOTER) {
@@ -402,12 +459,15 @@ static uint32_t ui_sig_of(uint32_t e)
         if (ui_g <= G_MIX) {
             h = sig_mix(h, sc.fam); h = sig_mix(h, (uint32_t)sc.snd[k]); h = sig_mix(h, sc.run[k]);
             h = sig_mix(h, sc_vol_of(k)); h = sig_mix(h, sc.pan[k]);
+            if (ui_g == G_MIX) { int32_t lv; h = sig_mix(h, mod_live(PID(k, ui_sub ? PL_PAN : PL_LEVEL), &lv) ? (uint32_t)lv / 4u + 1u : 0u); }
             if (ui_g == G_LAND) { h = sig_mix(h, sc_cnt_of(k)); h = sig_mix(h, ui_lane_act(k)); h = sig_mix(h, k == sc.sel); }
         } else {
             uint32_t id = ui_row_id(k);
             h = sig_mix(h, id);
             if (id != NOID) h = sig_mix(h, (uint32_t)p_get(id));
             if (ui_g == G_GRAIN) { h = sig_mix(h, tm.gsync); h = sig_mix(h, tm.gsync_half); }   /* (TIME: the division) */
+            if (id != NOID) { int32_t lv; if (mod_live(id, &lv)) h = sig_mix(h, (uint32_t)(lv * 32 / (p_hi(id) ? p_hi(id) : 1)) + 1000u); }
+            if (ui_g == G_MATRIX || ui_g == G_LFO) { h = sig_mix(h, sc.sel); h = sig_mix(h, (uint32_t)sc.snd[sc.sel]); }
             if (ui_g >= G_TEMPO) { h = sig_mix(h, tempo_bpm10()); h = sig_mix(h, (uint32_t)clk_follows()); h = sig_mix(h, clk_src); }
         }
     }
@@ -516,9 +576,34 @@ static void ui_turn(uint32_t id, int32_t d)
     else v += d;
     p_set(id, clampi(v, 0, p_hi(id)));
 }
+/* LFO held: mod learn. A card turned routes the selected LFO onto it, the turn its depth */
+static uint8_t ui_lfo_down, ui_lfo_learned;
+static void ui_learn(uint32_t k, int32_t d)
+{
+    uint32_t id = NOID;
+    int s;
+    static const uint8_t LAND[4] = {0xFF, PL_COUNT, PL_ACTIVE, PL_LEVEL};   /* (LANDSCAPE: K2..K4, the selected lane's) */
+    if (ui_g == G_MIX) id = PID(k, ui_sub ? PL_PAN : PL_LEVEL);
+    else if (ui_g == G_LAND) { if (LAND[k] != 0xFF) id = PID(sc.sel, LAND[k]); }
+    else id = ui_row_id(k);
+    ui_lfo_learned = 1;
+    s = id == NOID ? -1 : mod_learn(ui_lfo, id, d);
+    if (s == -1) { ui_say("NOT A MOD TARGET"); return; }
+    if (s == -2) { ui_say("MATRIX FULL"); return; }
+    {                                           /* "LFO3 > L2 SIZE +24%" */
+        char t[40], v[24];
+        p_strcpy(t, "LFO", 3); { char n[2] = {(char)('1' + ui_lfo), 0}; p_cat(t, n, 39); } p_cat(t, " > ", 39);
+        mod_tgt_text(mod_tgt_of(id), v); p_cat(t, v, 39); p_cat(t, " ", 39);
+        if (!mslot[s].src) p_cat(t, "OFF", 39);
+        else { (void)p_text(PID(P_MAT, (uint32_t)s * 4u + MQ_DEPTH), v); p_cat(t, v, 39); p_cat(t, "%", 39); }
+        ui_say(t);
+    }
+    ui_hot(k);
+}
 static void ui_knob(uint32_t k, int32_t d)
 {
     uint32_t l = sc.sel;
+    if (ui_lfo_down) { ui_learn(k, d); return; }
     ui_hot(k);
     if (ui_g == G_MIX) {
         if (ui_sub == 0u) sc_volume(k, (uint32_t)clampi((int32_t)sc_vol_of(k) + d, 0, 127));
@@ -557,6 +642,14 @@ static void ui_algorithm(int32_t d)
         sc_sound_turn(d > 0 ? 1 : -1);
         p_upper(t, sc_sound_name(sc.sel), 31);
         ui_say(t);
+        return;
+    }
+    if (ui_g == G_LFO || ui_g == G_MATRIX) {   /* which LFO, which slot */
+        char t[12];
+        if (ui_g == G_LFO) { ui_lfo = (uint8_t)clampi((int32_t)ui_lfo + (d > 0 ? 1 : -1), 0, TX_LFO_N - 1); ui_say_n("LFO", ui_lfo + 1); }
+        else { ui_slot = (uint8_t)clampi((int32_t)ui_slot + (d > 0 ? 1 : -1), 0, MOD_NS - 1); ui_say_n("SLOT", ui_slot + 1); }
+        (void)t;
+        ui_all();
         return;
     }
     if (ui_g == G_DRIVE) id = ui_id_lane(ALG_DRIVE);
@@ -608,6 +701,12 @@ static void ui_input(uint32_t b, uint32_t rel)
     if (b >> BTN_EDIT & 1u) ui_goto(ui_g == G_SOUND ? G_DRIVE : G_SOUND, 0);
     if (b >> BTN_FX & 1u) ui_goto(ui_g == G_GRAIN ? G_REVERB : G_GRAIN, 0);
     if (b >> BTN_GLO & 1u) ui_goto(ui_g == G_TEMPO ? G_MIDI : G_TEMPO, 0);
+    if (b >> BTN_ARP & 1u) ui_goto(G_MATRIX, 0);
+    if (b >> BTN_LFO & 1u) { ui_lfo_down = 1; ui_lfo_learned = 0; }   /* (LFO: its pages on the release, unless it learned) */
+    if (rel >> BTN_LFO & 1u) {
+        if (ui_lfo_down && !ui_lfo_learned) ui_goto(G_LFO, ui_g == G_LFO ? (ui_sub + 1u) % 3u : 0u);
+        ui_lfo_down = 0;
+    }
     ui_play(b >> TX_BTN_TAP & 1u, rel >> TX_BTN_TAP & 1u);
     if (b >> BTN_SEL & 1u) { nt_mode_set(nt.mode == NT_PLAY ? NT_LANDSCAPE : NT_PLAY); ui_say(nt.mode == NT_PLAY ? "KEYS: PLAY" : "KEYS: LANDSCAPE"); }
     if (b >> BTN_OCT_DOWN & 1u) { if (nt.mode == NT_PLAY) nt_oct_step(-1); else ui_lane_step(-1); }
@@ -625,6 +724,8 @@ static uint32_t ui_btn_leds(void)
     if (ui_g <= G_MIX) b |= 1u << BTN_HOME;
     else if (ui_g <= G_FILTER) b |= 1u << BTN_EDIT;
     else if (ui_g <= G_REVERB) b |= 1u << BTN_FX;
+    else if (ui_g == G_LFO) b |= 1u << BTN_LFO;
+    else if (ui_g == G_MATRIX) b |= 1u << BTN_ARP;
     else b |= 1u << BTN_GLO;
     if (tempo_beat_led()) b |= 1u << TX_BTN_TAP;
     if (nt.mode == NT_PLAY) b |= 1u << BTN_SEL;
