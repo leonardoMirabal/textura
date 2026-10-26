@@ -39,7 +39,8 @@ static const tx_param_t PARAMS[NP] = {
  * than a gale, their bands not all swelling together (the references' 100 ms level spans 3 .. 10 dB; the ridge's and
  * the desert's 20) */
 #define O(t) ((t) * 6554)                 /* tenths of an octave -> Q16 */
-typedef struct { int16_t us, tim, trim; tx_wkind_t k; } kind_t;   /* (the offsets need int32: see tx_wkind_t) */
+typedef struct { int16_t us, tim, trim; tx_wkind_t k; uint8_t lpc; } kind_t;   /* (the offsets need int32: see tx_wkind_t;
+                                                              * lpc: a low-pass on the whole, 1 - e^(-2 pi fc / fs) Q8, 0: none) */
 #define NK 10u
 static const kind_t KINDS[NK] = {
     /*            gsz  grt   kr lull |  rg       ro      rbw |  lg       lr lsh  lhp       lo lut   lp |  bg |  wg   wr wq0 wq1       wo   wt |  em   fl |    r2 | sk sut sr */
@@ -48,16 +49,18 @@ static const kind_t KINDS[NK] = {
     /* a breeze in tall grass: blades swishing (fewer, longer flaps, darker), waves of wind across the field (long, broad
      * whooshes, higher), little at the ground */
     {180, 64, 26433, {75, 45, 200, 3, 140, O(-5), O(20), 900, O(-10), 8, 500, O(-12), 0, 512, 90, 200, 400, 12, 19, O(10), 420, 0, 0, O(10), 0, 0, 0, 0}},
-    /* pines: the needles' smooth hiss (dense, tiny flaps, high), soughing in slow swells, sheltered under the canopy */
-    {230, 120, 15407, {132, 50, 150, 2, 110, O(-4), O(20), 520, O(30), 5, 1500, O(-5), 0, 512, 50, 140, 150, 16, 24, O(15), 420, 100, 75, O(10), 0, 0, 0, 0}},
+    /* pines: the needles' smooth hiss (dense, tiny flaps, high), soughing in slow swells, sheltered under the canopy:
+     * the needles take the highs (the references fall 11 dB from 1 to 4 kHz; ours rose 2 dB): a 1 kHz low-pass */
+    {230, 120, 29700, {132, 50, 150, 2, 110, O(-4), O(20), 520, O(30), 5, 1500, O(-5), 0, 512, 50, 140, 150, 16, 24, O(15), 420, 100, 75, O(10), 0, 0, 0, 0}, 34},
     /* leafy trees: leaves rattling and flapping (bigger, mid-bright), gusts sweeping through the canopy */
     {230, 96, 9500, {96, 64, 256, 3, 170, O(0), O(20), 460, O(0), 8, 600, O(2), 0, 512, 110, 300, 300, 16, 30, O(7), 300, 80, 0, 0, 0, 0, 0, 0}},
     /* an open plain or moor: no trees, the low broad roar of the air over open ground, buffeting, gusts moaning past */
     {256, 153, 6195, {153, 128, 256, 3, 300, O(-4), O(30), 70, O(-10), 6, 800, O(-5), 0, 512, 430, 215, 200, 30, 50, O(-10), 300, 150, 0, O(10), 0, 0, 0, 0}},
     /* a sea wind on the coast: strong and steady (little turbulence, long slow swells), a broad bright roar, spray hiss */
     {280, 76, 6803, {72, 37, 150, 1, 300, O(3), O(35), 110, O(40), 4, 2000, O(5), 0, 512, 120, 200, 60, 16, 24, O(5), 500, 20, 50, O(10), 0, 0, 0, 0}},
-    /* a gale on a ridge: violent sudden gusts and deep lulls, a deep roar over the rock, howling gusts, heavy buffeting */
-    {330, 150, 1589, {200, 300, 500, 9, 500, O(-6), O(25), 40, O(0), 6, 1000, O(0), 0, 512, 1500, 400, 300, 48, 96, O(-5), 300, 300, 1000, O(5), 0, 0, 0, 0}},
+    /* a gale on a ridge: violent sudden gusts and deep lulls, a deep roar over the rock, howling gusts, heavy buffeting
+     * (gusts twice as often and rising twice as fast: the reference's 1-6 Hz modulation; a brighter roar) */
+    {330, 150, 1763, {200, 600, 1000, 9, 500, O(-2), O(25), 40, O(0), 6, 1000, O(0), 0, 512, 1500, 400, 300, 48, 96, O(-5), 300, 300, 1000, O(10), 0, 0, 0, 0}},
     /* a gusty autumn day: calm, then a gust and dry leaves crackling (sparse, big, bright, ~u^3) and skittering over the
      * ground above 4 m/s, in runs */
     {230, 228, 6582, {270, 80, 350, 6, 100, O(0), O(20), 400, O(-40), 9, 1200, O(6), 0, 768, 250, 250, 250, 19, 40, O(8), 256, 80, 150, O(10), 128, 64, 1024, 0}},
@@ -74,6 +77,7 @@ typedef struct {
     int32_t buf[TX_BLOCK];
     uint8_t p[NP], held, quiet, kind, pad;
     uint16_t dropped;
+    int32_t lz;                    /* the canopy's low-pass */
 } wind_t;
 
 static void apply(wind_t *s)
@@ -149,6 +153,11 @@ TX_AUDIO_CODE static void wind_render(void *st, int32_t *mix, unsigned n)
     for (j = 0; j < n; j++) s->buf[j] = 0;
     tx_wind_block(&s->w, s->buf, n);
     tx_trim(s->buf, n, (OUT_TRIM * KINDS[s->kind].trim) >> 12);
+    if (KINDS[s->kind].lpc) {                                /* under a canopy: the needles scatter the highs */
+        int32_t y = s->lz, c = KINDS[s->kind].lpc;
+        for (j = 0; j < n; j++) { y += ((s->buf[j] - y) >> 8) * c; s->buf[j] = y; }
+        s->lz = y;
+    }
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->quiet = (uint8_t)(!s->held && tx_wind_quiet(&s->w) && !(s->hp.x1 | s->hp.y1));
 }
