@@ -23,6 +23,9 @@
  * and the verdict, on the grid's two corners:
  *   the fewest and least active (the smallest COUNT at the lowest ACTIVITY) should be a lone event now and then:
  *     LONE (at ACTIVITY 0: <= 0.5 events/s and >= 80 % gaps; at a higher lowest ACTIVITY: <= 2 /s and >= 50 %), else BUSY;
+ *     long events (over 2 s each: the sounding time / the events, the events as above: a cicada's chorus, a blackbird's
+ *     song, a wave) are judged by their rate and pauses instead: LONE at <= 0.1 events/s with pauses <= 30 s (the silent
+ *     time / the events: a run holds one to three of them, too few for a median);
  *     SILENT when no seed's 95th percentile reaches -90 LUFS (30 s of nothing: the user's rule, only C4 is off);
  *   the most and most active (the largest COUNT at ACTIVITY 127) should be a cloud:
  *     CLOUD (dense: >= 15 events/s, no gaps, env <= 6 dB), DENSE (one of them short), EVENTS.
@@ -502,6 +505,9 @@ int main(int argc, char **argv)
                     {   /* (the events: the engine's, or its bouts where fewer: a gurgle of many bubbles is one) */
                         double ev = a.bouts < a.evs ? a.bouts : a.evs;
                         v = lone = l95 < -90 ? "SILENT"      /* (COUNT 1 is one individual now and then, never none) */
+                                 : ev > 0 && (100.0 - a.gaps) / 100.0 / ev > 2.0   /* (long events: their rate and */
+                                   ? (ev <= 0.1 && a.gaps / 100.0 / ev <= 30.0 ? "LONE" : "BUSY")   /* pauses, not the
+                                                             * share of silence) */
                                  : (acts[ai] ? ev <= 2.0 && a.gaps >= 50.0 : ev <= 0.5 && a.gaps >= 80.0) ? "LONE" : "BUSY";
                     }
                     if (ci == cmax && ai == amax && (ci != cmin || ai != amin)) {   /* (one cell: the lone verdict) */
