@@ -207,7 +207,7 @@ static const clu_pre_t CLU[NPRE] = {
 #define HOST_NK 8u                  /* character maps per hosted engine (HMAP): the card's knobs, ACTIVITY and PROXIMITY aside */
 #define GATE_ON 120u                /* a bout held, mean blocks (0.7 s) */
 #define HOST_HEROES 12u             /* an engine counting its own individuals: heroes at most (CPU: half the pool) */
-#define HOST_BYTES 12544u           /* the largest hosted engine's state (sand 12 464 B) */
+#define HOST_BYTES 12544u           /* the largest hosted engine's state (sand 12 528 B) */
 typedef struct { const char *name; int8_t v0; uint8_t v64, v127; } curve_t;   /* (v0 < 0: off until the line crosses 0) */
 typedef struct {
     const char *eng; int16_t g0, g64, g127; curve_t c[HOST_NC]; uint8_t k0, k64, k127;

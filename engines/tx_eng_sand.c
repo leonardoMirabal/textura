@@ -75,8 +75,9 @@ typedef struct {
     int32_t lump, flick;           /* flow irregularity: slow (~1 Hz) and fast (~7 Hz) random log-rate (Q15) */
     int32_t flow;                  /* Q15 ramp */
     int32_t sg, sgt;               /* the slug now: gain (Q15, ramped per block) and its target */
-    uint16_t sleft, spad;          /* blocks left in this slug (or gap) */
+    uint16_t sleft, phold;         /* blocks left in this slug (or gap); blocks the flow runs unpulsed */
     uint32_t pph;                  /* pulse phase */
+    uint16_t pmul, pdg;            /* this pulse's period (the step x pmul) and depth, Q15 (0.71 .. 1.41, 0.3 .. 1.3) */
     int32_t stop;                  /* blocks the grains in the air still take to land */
     uint8_t em, note, vel, alive;
     uint8_t c_surf, c_size, c_note, c_ok;   /* the surface computed for (SURFACE, SIZE, note) */
@@ -162,7 +163,7 @@ static void pour(sand_t *s, const tx_event_t *e)
     for (i = 0; i < s->limit && !v; i++) if (s->v[i].alive && s->v[i].note == e->note) v = &s->v[i];
     for (i = 0; i < s->limit && !v; i++) if (!s->v[i].alive) v = &s->v[i];
     if (!v) { s->dropped++; return; }
-    if (!v->alive) { clear(v); v->pph = tx_rand(&s->cloud.rng); }
+    if (!v->alive) { clear(v); v->pph = tx_rand(&s->cloud.rng); v->pmul = v->pdg = 32768; v->phold = 0; }
     v->alive = 1; v->em = e->emitter; v->note = e->note; v->vel = e->vel;
 }
 
@@ -268,9 +269,28 @@ TX_AUDIO_CODE static void sand_render(void *st, int32_t *mix, unsigned n)
         }
         amp = (int32_t)(((int64_t)amp * A_REF >> 12) * v->flow >> 15);
         amp = (int32_t)(((int64_t)amp * s->level) >> 15);
-        /* the pulse (~4 Hz, jittered): the flow pumps */
-        v->pph += 99728636u + (uint32_t)(tx_rand_s15(&s->cloud.rng) * 900);
-        mpul = 32768 - (int32_t)(((32768 + tx_sin_q15(v->pph)) >> 1) * s->pulse >> 15);
+        /* the pulse (~4 Hz, jittered): the flow pumps. Each pulse its own period (within +-0.5 oct, log-uniform)
+         * and depth (0.3 .. 1.3): a clogging flow, never a steady 4 Hz line (it was one: 12-14 dB over the
+         * envelope's floor at PULSE 127) */
+        {
+            uint32_t ph0 = v->pph, st = (uint32_t)(((uint64_t)99728636u * (uint32_t)v->pmul) >> 15);
+            if (v->phold) v->phold--;                        /* flowing freely a while: no pulse */
+            else {
+                v->pph += st + (uint32_t)(((int64_t)tx_rand_s15(&s->cloud.rng) * (int32_t)(st >> 2)) >> 15);   /* +-25 % */
+                if (v->pph < ph0 && s->pulse) {      /* (PULSE 0: no draws, the flow as it was) */
+                    v->pmul = (uint16_t)tx_exp2((15 << 16) + (int32_t)tx_rand_s15(&s->cloud.rng));
+                    v->pdg = (uint16_t)(9830u + tx_rand_below(&s->cloud.rng, 32768u));
+                    if (tx_rand_below(&s->cloud.rng, 5u) < 2u) {   /* 2 in 5: the jam clears, a free run of 30 ms +
+                                                              * exp(150 ms), at most 1 s (the pulses come in bouts) */
+                        uint32_t h = 5u + (tx_cloud_exp_q8(&s->cloud, 26u << 8) >> 8);
+                        v->phold = (uint16_t)(h > 172u ? 172u : h);
+                        v->pph = 0;                          /* (at the wrap: the mean flow, no step in the gain) */
+                    }
+                }
+            }
+        }
+        mpul = 32768 - (int32_t)(((int64_t)((32768 + tx_sin_q15(v->pph)) >> 1) * s->pulse * (int32_t)v->pdg) >> 30);
+        if (mpul < 0) mpul = 0;
         amp = (int32_t)(((int64_t)amp * mpul) >> 15);
         {   /* a real pour is lumpy (references: rms std 3-17 dB, slow 0.5-1 Hz swings and fast flutter): the rate wanders
              * log-normally, +-0.6 oct slow and +-0.4 oct fast (ours, set against the references) */
