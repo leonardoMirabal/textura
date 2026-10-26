@@ -109,10 +109,8 @@ static const allow_t ALLOW[] = {
 #define NALLOW (sizeof ALLOW / sizeof ALLOW[0])
 
 /* ---- open findings: known, a fix to come; reported as "open", not failed, so the audit guards everything else */
-static const allow_t OPEN[] = {
-    {"sparks", 2, "a held key fires one gap's N-wave through the fixed body: every tick alike but its level"},
-};
-#define NOPEN (sizeof OPEN / sizeof OPEN[0])
+static const allow_t OPEN[1] = {{0, 0, 0}};            /* none open now: entries as ALLOW's, NOPEN their count */
+#define NOPEN 0u
 
 static unsigned secs = 33, nseeds = 6, verbose, detail;
 static const char *filter;

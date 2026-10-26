@@ -16,6 +16,12 @@
  *            held.
  *   body     what the spark jumps to (ours): a shared bank of 4 band-pass resonators (1.2 / 2.7 / 4.4 / 6.5 kHz,
  *            Q 3-20), each fed with input gain 1 / Q so its peak gain is 1 (bank headroom).
+ *   no two alike (ours): each spark breaks down its own way: its channel's length +-SPK_GAP (so its N-wave's width),
+ *            where it lands within the sample (a sub-sample onset, its energy kept), the N-wave's tail SPK_TAIL .. 1
+ *            of its head (the channel's angle to the listener), its re-strikes (one discharge in three a single
+ *            stroke, else one or two more as the charge recovers, 0.05 .. 0.5 ms apart, each 0.15 .. 0.7 of the
+ *            first), and where it strikes the body: each mode's drive -SPK_MODE .. +SPK_MODE dB, of either sign (the
+ *            mode's shape at that spot). Drawn from a stream of its own: the discharges' times stay the cloud's.
  * Level law (a DELIBERATE choice, approved 2026-10-20): the physical P_s T^2 spans ~70 dB over the GAP range, which
  * would make a small tick inaudible next to a big crack; the gap's part is applied at half its dB, distance at its
  * full law. */
@@ -54,6 +60,12 @@ static const tx_param_t PARAMS[NP] = {
 #define KLEN 24u                   /* spark kernel length, samples */
 #define TICK_REF_L2 (14 << 16)     /* doublet amplitude of the reference spark (d 4 mm, r0, v100): 2^14 Q15 */
 #define SPARK_MAX 32u
+#define SPK_GAP 22938              /* the channel's length per spark: +-0.35 oct, Q16 (log2 d) */
+#define SPK_TAIL 24576             /* the N-wave's tail re its head: 0.75 .. 1, Q15 */
+#define SPK_MODE 6                 /* the body's modes driven -6 .. +6 dB by where the spark strikes */
+#define SPK_DT 226000u             /* a re-strike after 2 .. ~22 samples (0.05 .. 0.5 ms; log2 span, Q16) */
+#define SPK_RE_LO 4915             /* a re-strike at 0.15 .. 0.7 of the first stroke, Q15 */
+#define SPK_RE_HI 22938
 
 TX_AUDIO_DATA static const uint16_t BODY_HZ[NB] = { 1200, 2700, 4400, 6500 };
 
@@ -69,6 +81,8 @@ typedef struct {
     int32_t corona, cor_g;         /* corona target and current gain, Q15 */
     int32_t c_lp1, c_lp2, c_pend;  /* corona filter state, pending negative half */
     uint32_t rng_c;                /* corona shot PRNG (separate from the cloud's) */
+    uint32_t rng_s;                /* each spark's own breakdown (separate from the cloud's) */
+    int32_t gin[NB];               /* the body's modes' drive by where the last spark struck, Q8 */
     uint8_t p[NP], limit, quiet, sparks;
     int32_t level;                 /* Q15 */
     int32_t gap_l2;                /* log2(d at C4 / 1 mm), Q16 */
@@ -121,6 +135,9 @@ static void sparks_init(void *st, uint32_t seed)
     tx_cloud_sizes(&s->cloud, 6144, 6u << 12);               /* discharge energies: alpha 1.5 over 6 octaves */
     s->rng_c = seed * 2654435761u + 0x1234567u;
     if (!s->rng_c) s->rng_c = 1;
+    s->rng_s = seed * 2246822519u + 0x5A4B3C2Du;
+    if (!s->rng_s) s->rng_s = 1;
+    for (i = 0; i < NB; i++) s->gin[i] = 256;
     s->limit = 16;
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
@@ -142,13 +159,21 @@ static void sparks_param(void *st, uint8_t id, uint8_t val)
     else set_param(s, id, val);
 }
 
+static uint32_t xs(uint32_t *r) { uint32_t x = *r; x ^= x << 13; x ^= x >> 17; x ^= x << 5; return *r = x; }
+
 /* one discharge -> its kernel in tick[] */
 static void spark(sparks_t *s, const tx_event_t *e)
 {
     int32_t d_l2 = s->gap_l2 - ((int32_t)e->note - 60) * 2731 + ((int32_t)e->vel - 100) * 1638   /* 2^(1/24) / key */
                  - tx_vary_tone(&s->vy);                  /* the character: brighter = a narrower gap */
-    int32_t t_l2, p_l2, a_l2, x, y1 = 0, y2 = 0, c, a;
-    uint32_t fc, k;
+    int32_t t_l2, p_l2, a_l2, x, y1 = 0, y2 = 0, c, a, b, h0, h1, h2;
+    uint32_t fc, k, u = xs(&s->rng_s), v = xs(&s->rng_s), ph, i, j, m, off;
+    int32_t a0;
+    d_l2 += (int32_t)((u >> 16) * (2u * SPK_GAP) >> 16) - SPK_GAP;   /* this spark's channel */
+    for (i = 0; i < NB; i++)                                 /* where it strikes the body: each mode's drive */
+        s->gin[i] = (int32_t)(tx_exp2((int32_t)((((v >> (8u * i)) & 255u) * (2u * SPK_MODE * 10885u)) >> 8)
+                                      + (8 << 16) - SPK_MODE * 10885))   /* (10885: 1 dB in log2 Q16) */
+                    * ((u >> (12u + i)) & 1u ? -1 : 1);       /* the mode's shape at that spot: either sign */
     if (d_l2 < -131072) d_l2 = -131072;                      /* 0.25 .. 32 mm */
     if (d_l2 > 327680) d_l2 = 327680;
     t_l2 = 65536 + (4 * (d_l2 + 65536)) / 5 + s->len_l2;     /* log2(T / 1 us) = 1 + 0.8 log2(d / 0.5 mm) + len */
@@ -160,19 +185,40 @@ static void spark(sparks_t *s, const tx_event_t *e)
     a = (int32_t)(((uint64_t)tx_exp2(a_l2) * (uint32_t)s->level) >> 15);
     if (a > 32767) a = 32767;
     if (a < 2) return;
+    a0 = a;
     /* the N-wave's peak 0.33 / T as two one-pole low-passes: f = 0.33e6 / T_us Hz, c = 1 - exp(-2 pi f / fs) */
     fc = tx_exp2((int32_t)(1201413 - t_l2));                 /* log2(330000) = 18.33, Q16 -> Hz */
     if (fc > 19000u) fc = 19000u;
     c = 16384 - (int32_t)tx_exp2((14 << 16) - (int32_t)(fc * 862u >> 6));   /* Q14 */
-    for (k = 0; k < KLEN; k++) {
-        x = k == 0 ? a : k == 1 ? -a : 0;
-        y1 += ((x - y1) * c) >> 14;
-        y2 += ((y1 - y2) * c) >> 14;
-        s->tick[e->offset + k] += y2 * 256;                  /* Q15 -> Q23 */
+    /* the strokes: the gap breaks down, and as the charge recovers it may re-strike once or twice */
+    for (m = 1u + xs(&s->rng_s) % 3u, j = 0, off = e->offset; j < m; j++) {
+        if (j) {
+            uint32_t w = xs(&s->rng_s);
+            off += tx_exp2((1 << 16) + (int32_t)(((w >> 16) * SPK_DT) >> 16));   /* 2 .. ~22 samples, log-uniform */
+            if (off >= TX_BLOCK) break;                      /* (within the carry) */
+            a = (int32_t)(((uint32_t)a0 * (SPK_RE_LO + (((w & 0xFFFFu) * (SPK_RE_HI - SPK_RE_LO)) >> 16))) >> 15);
+            u = w;
+        }
+        /* the doublet [+a, -b] at a sub-sample onset (linear between samples), its tail b = a x SPK_TAIL .. 1 */
+        ph = (u >> 4) & 255u;
+        {   /* the split keeps the doublet's energy: x sqrt(2 / (6 p^2 - 6 p + 2)), p the onset's fraction */
+            uint32_t en = 6u * ph * ph + 131072u - 1536u * ph;   /* Q16: 0.5 .. 2 */
+            int32_t sc = (int32_t)tx_exp2((((17 << 16) - log2_q16(en)) >> 1) + (12 << 16));   /* Q12: 1 .. 2 */
+            a = (a * sc) >> 12;
+        }
+        b = (int32_t)(((uint32_t)a * (SPK_TAIL + (((u & 15u) * (32768u - SPK_TAIL)) >> 4))) >> 15);
+        h0 = (a * (int32_t)(256u - ph)) >> 8;
+        h1 = ((a * (int32_t)ph) >> 8) - ((b * (int32_t)(256u - ph)) >> 8);
+        h2 = -((b * (int32_t)ph) >> 8);
+        y1 = y2 = 0;
+        for (k = 0; k < KLEN; k++) {
+            x = k == 0 ? h0 : k == 1 ? h1 : k == 2 ? h2 : 0;
+            y1 += ((x - y1) * c) >> 14;
+            y2 += ((y1 - y2) * c) >> 14;
+            s->tick[off + k] += y2 * 256;                    /* Q15 -> Q23 */
+        }
     }
 }
-
-static uint32_t xs(uint32_t *r) { uint32_t x = *r; x ^= x << 13; x ^= x >> 17; x ^= x << 5; return *r = x; }
 
 TX_AUDIO_CODE static void sparks_render(void *st, int32_t *mix, unsigned n)
 {
@@ -195,7 +241,7 @@ TX_AUDIO_CODE static void sparks_render(void *st, int32_t *mix, unsigned n)
         int32_t wet = wv > 32767u ? 32767 : (int32_t)wv, dry = 32768 - (wet >> 1), g[NB];   /* more of the body */
         for (j = 0; j < n; j++) buf[j] = (t[j] >> 15) * dry + (((t[j] & 0x7FFF) * dry) >> 15);
         for (i = 0; i < NB; i++) g[i] = wet >> 4;            /* Q11 */
-        if (wet) tx_svf_bank_add(s->body, s->f, s->q, g, NB, t, buf, n);
+        if (wet) tx_svf_bank_add_g(s->body, s->f, s->q, s->gin, g, NB, t, buf, n);
         else for (i = 0; i < NB; i++) s->body[i].low = s->body[i].band = 0;
     } else
         for (j = 0; j < n; j++) buf[j] = 0;
