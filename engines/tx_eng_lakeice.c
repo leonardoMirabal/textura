@@ -65,9 +65,11 @@ typedef struct {
 static const lkind_t LK[4] = {
     {0, 0, 0, 16, 1, 0, 0, 0, 256, 256},                    /* fresh lake ice */
     {0, 0, 48000, 16, 1, 0, 0, 0, 256, 256},                /* sea ice */
-    /* a lake booming far off: 4 x farther (long whistling sweeps, the air wave late and dull), 2 x thicker, its
-     * booms (the sheet's thermal cracks thumping it) 4 x louder, half as often (the references: rumbling ice) */
-    {131072, 65536, 0, 64, 1, 0, 0, 0, 128, 512},
+    /* a lake booming far off: 6.4 x farther (long whistling sweeps, the air wave late and dull; second pass: 4 x was
+     * nearer than the references, texd 2.28 -> 2.16; 10 x lost the busy end's fused cloud), 2 x thicker, its booms
+     * (the sheet's thermal cracks thumping it) 4 x louder, half as often (the references: rumbling ice); +4.3 dB for
+     * the farther cracks (its loudness kept) */
+    {175672, 65536, 0, 64, 1, 0, 0, 0, 128, 834},
     /* thin ice underfoot: 8 x thinner (2.5 mm .. 4 cm: the sweeps fast and high, the tone high), at the feet; a step
      * breaks 4 or so within ~0.25 s, no boom (the references: walking on thin ice, 1.5-10 kHz, a step a second) */
     {0, -196608, 20000, 0, 4, 250, 1, 0, 256, 80},
