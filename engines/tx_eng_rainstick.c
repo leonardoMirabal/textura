@@ -12,7 +12,7 @@
  *   tube     the tube's air column, closed at both ends: modes f_n = n c / 2L (n = 1..3, gains 1, 0.7, 0.5), driven
  *            by the raw pin impacts (broadband force impulses) (granular flow in a pipe couples to the tube's acoustic modes: G24 / G25 silo music).
  *            Each key is a stick of its own length: a semitone up = 2^(1/12) shorter.
- *   pulse    narrow-tube grain flow is intermittent (~4 Hz, G21): an optional flow pulsation, jittered.
+ *   pulse    narrow-tube grain flow is intermittent (~4 Hz, G21): an optional flow pulsation, each pulse its own period and depth.
  * Velocity = tilt: faster flow and harder clicks. No rain-stick measurement exists: the pin count, tube Q
  * and gains are ours. */
 #include "tx_engine.h"
@@ -58,6 +58,8 @@ typedef struct {
     int32_t f[NT];
     int32_t res;                   /* reservoir, Q16 (65536 = all seeds at the top) */
     uint32_t pph;                  /* pulse phase */
+    int32_t pmul, pdg;             /* this pulse's period (the step x pmul) and depth, Q15 */
+    uint32_t phold;                /* blocks the flow runs unpulsed (between bouts of pulses) */
     int32_t tone;                  /* this turn's seed resonance against GRAIN's, log2 Q16 (the press's tone) */
     uint16_t t60, tilt;            /* this turn: the settling T60 (ms), the tilt (flow x, Q8) */
     uint8_t em, note, vel, alive;
@@ -170,7 +172,7 @@ static void turn(stick_t *s, const tx_event_t *e)
         cut(s, v);
     }
     v->alive = 1; v->em = e->emitter; v->note = e->note; v->vel = e->vel; v->res = 65536;
-    v->pph = tx_rand(&s->cloud.rng);
+    v->pph = tx_rand(&s->cloud.rng); v->pmul = v->pdg = 32768; v->phold = 0;
     character(s, v);
     {
         int32_t f1 = s->len_l2 + ((int32_t)e->note - 60) * 5461;
@@ -195,8 +197,26 @@ static void flow(stick_t *s, voice_t *v)
         int32_t e = (int32_t)tx_exp2(E_L2) / 16129 * (int32_t)(vel * vel), m;
         tx_shaker_objects(&v->sh, n_q4, (int32_t)(((uint32_t)BASE_Q11 * (uint32_t)s->level) >> 15));
         tx_shaker_decay(&v->sh, v->t60, 31457);              /* flat: the seeds in transit settle; decay 0.96 */
-        v->pph += 24932159u * 4u + (uint32_t)((int32_t)tx_rand_s15(&s->cloud.rng) * 900);   /* ~4 Hz +-30 % */
-        m = 32768 + ((tx_sin_q15(v->pph) * s->pulse) >> 15);
+        {   /* ~4 Hz, each pulse its own period (within +-0.5 oct, log-uniform) and depth (0.3 .. 1.3): a clogging
+             * flow, never a steady line (it was one: 13-18 dB over the envelope's floor at the default PULSE) */
+            uint32_t ph0 = v->pph, st = (uint32_t)(((uint64_t)99728636u * (uint32_t)v->pmul) >> 15);
+            if (v->phold) v->phold--;                        /* flowing freely a while: no pulse */
+            else {
+                v->pph += st + (uint32_t)(((int64_t)tx_rand_s15(&s->cloud.rng) * (int32_t)(st >> 2)) >> 15);   /* +-25 % */
+                if (v->pph < ph0 && s->pulse) {      /* (PULSE 0: no draws, the flow as it was) */
+                    v->pmul = (int32_t)tx_exp2((15 << 16) + (int32_t)tx_rand_s15(&s->cloud.rng));
+                    v->pdg = 9830 + (int32_t)tx_rand_below(&s->cloud.rng, 32768u);
+                    if (tx_rand_below(&s->cloud.rng, 5u) < 2u) {   /* 2 in 5: the jam clears, a free run of 30 ms +
+                                                              * exp(150 ms), at most 1 s (the pulses come in bouts) */
+                        uint32_t h = 5u + (tx_cloud_exp_q8(&s->cloud, 26u << 8) >> 8);
+                        v->phold = h > 172u ? 172u : h;
+                        v->pph = 0;                          /* (at the wrap: the mean flow, no step in the gain) */
+                    }
+                }
+            }
+        }
+        m = 32768 + (int32_t)(((int64_t)tx_sin_q15(v->pph) * s->pulse * v->pdg) >> 30);
+        if (m < 0) m = 0;
         tx_shaker_energy(&v->sh, (int32_t)(((int64_t)e * m) >> 15));
         v->res -= (int32_t)(dr ? dr : 1u);
         if (v->res < 0) v->res = 0;
