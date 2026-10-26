@@ -99,7 +99,7 @@ static const sp_t SP[TX_BIRD_TYPES] = {
 
 /* each type's level (Q6), by render: every bird preset at -30 LUFS at INTENSITY 64 (60 s, the mean of 3 seeds; with
  * the preset rows' trims) */
-static const uint16_t TRIM[TX_BIRD_TYPES] = { 240, 180, 112, 123, 421, 157, 123, 152, 176, 216, 82, 145, 182, 126, 100, 94, 125, 1430, 99, 404, 49 };
+static const uint16_t TRIM[TX_BIRD_TYPES] = { 240, 180, 112, 123, 421, 157, 123, 152, 145, 216, 82, 145, 182, 126, 100, 94, 125, 1430, 99, 404, 49 };
 
 /* SIZE: how far a type's birds range in size, the half range in octaves (Q16 per knob step: 512 = +-0.5 oct at the
  * ends). A bigger bird sings lower within what its kind spans (a jackdaw to a raven, a black-headed gull to a great
@@ -418,8 +418,8 @@ static void phrase_start(tx_bird_voice_t *v)
             unsigned c = tx_rand_below(&pr, 20u), cls = c < 9u ? C_NOTE : c < 14u ? C_SWEEP : c < 17u ? C_TRILL : C_HARSH;
             unsigned id = rb(&pr, 0, ns - 1u) + (ns > 255u ? 256u : 0u);
             if (S->style == ST_ROBIN && i == 0u && (tx_rand(&pr) & 3u) == 0u) cls = C_WHISTLE;
-            seg(v, SYL(cls, id), cls == C_TRILL ? rb(&pr, 2, 4) : 1, S->style == ST_ROBIN ? rb(&pr, 25, 80) : rb(&pr, 15, 50), S->style == ST_ROBIN ? lvl(&pr, 12) : 255, 255, 0);
-        }
+            seg(v, SYL(cls, id), cls == C_TRILL ? rb(&pr, 2, 4) : 1, S->style == ST_ROBIN ? rb(&pr, 0, 15) : rb(&pr, 15, 50), S->style == ST_ROBIN ? lvl(&pr, 12) : 255, 255, 0);
+        }   /* (the robin's notes run on: the references' gaps inside a strophe 5-20 ms, median 10; were 30-56) */
         break;
     case ST_WREN:                                            /* its song type: notes, then trill after trill */
         tx_rng_seed(&pr, mix(v->seed, v->song < 4u ? 0x5000u + v->song % S->nphr : 0x5100u + v->song));
