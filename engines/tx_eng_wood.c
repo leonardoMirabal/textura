@@ -109,6 +109,7 @@ typedef struct {
     piece_t pc[NP_];
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t buf[TX_BLOCK], bpush[TX_BLOCK];
+    int32_t lz;                    /* twigs: the litter's low-pass */
     uint16_t eo[NEVB], co[NEVB];
     int16_t ea[NEVB], ca[NEVB];
     int32_t res, res_x1;
@@ -131,7 +132,9 @@ static void set_param(wood_t *s, unsigned id, unsigned v)
     s->k = &WK[r];
     s->c = s->k->c;
     s->q_x16 = (uint32_t)s->k->q * 16u * (32768u - (uint32_t)s->p[P_MOIST] * 155u) >> 15;   /* wet: Q x 0.4 */
-    tx_cloud_burst(&s->cloud, s->k->twigs, s->k->twigs > 1u ? 100u : 0u);
+    tx_cloud_burst(&s->cloud, s->k->snap == 2u ? 1u + ((127u - s->p[P_LOAD]) * 3u + 64u) / 127u : s->k->twigs,
+                   s->k->twigs > 1u ? 100u : 0u);   /* (twigs: LOAD is the step's weight, inverted: 1 .. 4 twigs a step;
+                                                     * the defaults' 40: 3) */
     switch (id) {
     case P_LOAD: s->tau_s = v >= 127u ? 0u : (uint32_t)(((uint64_t)tx_knob_exp(v, 77u, 314000) * TX_FS) >> 8); break;   /* 0.3 .. 8 s */
     case P_SIZE: s->size_l2 = -217706 + (int32_t)(v * 1714u); break;   /* log2(0.1 m) + v log2(10) / 127 */
@@ -209,7 +212,8 @@ static void take(wood_t *s, const tx_event_t *e)
     }
     {   /* no two pieces alike: the grain's loss (Q x 2^+-1) and the grip (sigma0 5 .. 80 /s) are this piece's */
         uint32_t q = tx_vary_scale(s->q_x16, tx_rand_s15(&s->cloud.rng) * 2);
-        uint32_t grip = (5u + tx_rand_below(&s->cloud.rng, 76u)) * 256u;
+        uint32_t grip = (5u + tx_rand_below(&s->cloud.rng, 76u) + (s->k->snap == 2u && s->p[P_CREAK] > 25u ? (s->p[P_CREAK] - 25u) * 2u : 0u)) * 256u;   /* (twigs:
+                                                              * the litter holds them: up to +200 /s) */
     for (k = 0; k < NMW; k++) {
         uint32_t f = (p->f1 * BAR_R[k]) >> 10;
         p->m[k].inc = f < 20000u ? f * 97391u : 0u;
@@ -220,8 +224,10 @@ static void take(wood_t *s, const tx_event_t *e)
     {
         static const uint16_t CR[NR] = {1024, 1536, 2823};   /* creak body: f1, 1.5 f1 (ours), f2 */
         for (k = 0; k < NR; k++) {
-            uint32_t f = (uint32_t)(((uint64_t)p->f1 * CR[k] * tx_exp2(s->k->crf + (16 << 16))) >> 26);
-            tx_ireso_set(&p->cr[k], f > 18000u ? 18000u : f, 192);   /* Q 12 (ours) */
+            uint32_t f = (uint32_t)(((uint64_t)p->f1 * CR[k] * tx_exp2(s->k->crf - ((int32_t)s->p[P_MOIST] - 20) * 129 + (16 << 16))) >> 26);
+            tx_ireso_set(&p->cr[k], f > 18000u ? 18000u : f, (uint32_t)(207 - (int32_t)s->p[P_MOIST] * 3 / 4));   /* Q 12 (ours); wet: the
+                                                              * wood softer and lossier (moisture lowers the modulus and
+                                                              * raises the loss): -0.2 oct, Q 6.6 at MOIST 127; as HEAD at 20 */
             p->cr[k].g = k ? 140 : 200;
             p->cr[k].zlim = 32;
         }
@@ -367,6 +373,9 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
                 p->cenv += (p->cgoal - p->cenv) >> (p->held ? 4u + s->k->slow : p->rel);
                 lvl = (int32_t)(((int64_t)p->cenv * ((s->p[P_CREAK] * s->k->creak) >> 7) * (40 + p->vel)) >> 15);   /* Q15-ish slip size */
                 lvl = (int32_t)(((int64_t)lvl * s->level) >> 15);
+                lvl = (int32_t)(((int64_t)lvl * (35348 - (int32_t)s->p[P_MOIST] * 129)) >> 15);   /* wet: water lubricates
+                                                              * the slip, less stick-slip (ours): -5.4 dB at MOIST 127, 0 at
+                                                              * the default 20 */
                 if (p->tau && !p->snapped) {                 /* the fibres slip more as the load builds: the creak grows
                                                               * with t / tau (a quick snap creaks briefly; at the top the
                                                               * creak hid the snaps: note 17) */
@@ -416,6 +425,12 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
         }
         s->res = e; s->res_x1 = e ? x1 : 0;
         any |= e;
+    }
+    if (s->k->snap == 2u && s->p[P_CREAK] > 25u) {                 /* twigs: CREAK is the litter's depth; its pores take the
+                                                              * highs (one pole: off at the default 25 .. a ~1.4 kHz corner at 127) */
+        int32_t y = s->lz, a = 32767 - ((int32_t)s->p[P_CREAK] - 25) * 250;
+        for (j = 0; j < n; j++) { y += (int32_t)(((int64_t)(s->buf[j] - y) * a) >> 15); s->buf[j] = y; }
+        s->lz = y;
     }
     tx_vary_block(&s->vy, s->buf, n);
     tx_trim(s->buf, n, (OUT_TRIM * s->k->out) >> 8);
