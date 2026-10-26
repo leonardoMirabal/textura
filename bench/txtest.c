@@ -1019,19 +1019,27 @@ static uint32_t fx_run_rev(unsigned t, unsigned d, unsigned secs, int zero, int3
 typedef struct { double d2[GS_W], lv[GS_W], click; unsigned nw; } gs_res_t;
 static int32_t *gs_chord;
 static unsigned gs_len;
+#define GS_REV 0x40u                /* pid | GS_REV: a REVERB control (on HALL, MIX 64), else the GRAIN DELAY's */
+static unsigned gs_max(unsigned pid) { return pid & GS_REV ? tx_fx_reverb_params[pid & ~GS_REV].max : tx_fx_grain_params[pid].max; }
+static void gs_set(tx_fx_t *fx, unsigned pid, unsigned v)
+{
+    if (pid & GS_REV) tx_fx_reverb_param(&fx->rev, pid & ~GS_REV, v);
+    else tx_fx_grain_param(&fx->gd, pid, v);
+}
 static void gs_render(tx_fx_t *fx, unsigned pid, int mix64, char mode, unsigned a, unsigned b, gs_res_t *r)
 {
-    unsigned mx = tx_fx_grain_params[pid].max, nsw = 2u * mx, blk, j, i = 0;
+    unsigned mx = gs_max(pid), nsw = 2u * mx, blk, j, i = 0;
     int32_t L[TX_BLOCK], R[TX_BLOCK], pl[2] = {0, 0}, pr[2] = {0, 0};
     unsigned s0 = (2000u - 3u) * 441u / 10u, s1 = (2000u + 30u) * 441u / 10u;
     memset(r, 0, sizeof *r);
     tx_fx_init(fx);
-    if (mix64) tx_fx_grain_param(&fx->gd, TX_GD_MIX, 64);
+    if (pid & GS_REV) { tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, TX_RVT_HALL); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 64); }
+    else if (mix64) tx_fx_grain_param(&fx->gd, TX_GD_MIX, 64);
     for (blk = 0; blk * TX_BLOCK < gs_len; blk++) {
         unsigned ms = (unsigned)(blk * 256u * 1000u / 44100u), v = a;
         if (mode == 'w' && ms >= 1000u) { unsigned s = (ms - 1000u) / 20u; v = s >= nsw ? 0 : s <= mx ? s : nsw - s; }
         if (mode == 'f') v = ms >= 2000u ? b : a;
-        tx_fx_grain_param(&fx->gd, pid, v);
+        gs_set(fx, pid, v);
         for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = gs_chord[blk * TX_BLOCK + j];
         tx_fx_bus(fx, L, R, TX_BLOCK);
         for (j = 0; j < TX_BLOCK; j++, i++) {
@@ -1055,7 +1063,7 @@ static void gs_render(tx_fx_t *fx, unsigned pid, int mix64, char mode, unsigned 
 static void gs_sweep(tx_fx_t *fx, unsigned pid, int mix64, double *zip, double *jump)
 {
     static gs_res_t sw, st[5];
-    unsigned mx = tx_fx_grain_params[pid].max, k, w, nw = (2u * mx * 20u * 441u / 10u) / 1024u;
+    unsigned mx = gs_max(pid), k, w, nw = (2u * mx * 20u * 441u / 10u) / 1024u;
     gs_render(fx, pid, mix64, 'w', 0, 0, &sw);
     for (k = 0; k < 5u; k++) gs_render(fx, pid, mix64, 's', mx * k / 4u, 0, &st[k]);
     *zip = *jump = 0;
@@ -1111,6 +1119,21 @@ static void check_fx_grain_controls(tx_fx_t *fx)
     }
     snprintf(msg, sizeof msg, "grain delay, GRAIN flipped 0 <-> 127: a click %.2fx the held settings' (10 at most)", wc);
     verdict("fx", "grain-flip", wc <= 10.0, msg, 0);
+    /* the reverb's PREDELAY (HALL, MIX 64): swept, and flipped 0 <-> 127 (no click, zipper or level step; the trans
+     * after a move is the tail's interference with the shifted send on held tones: a time, as delay TIME) */
+    gs_sweep(fx, GS_REV | TX_RV_PREDELAY, 0, &zip, &jump);
+    for (t = 0, wc = 0; t < 2u; t++) {
+        unsigned a = t ? 127u : 0u, b = t ? 0u : 127u;
+        double ref;
+        gs_render(fx, GS_REV | TX_RV_PREDELAY, 0, 'f', a, b, &mv);
+        gs_render(fx, GS_REV | TX_RV_PREDELAY, 0, 's', a, 0, &h0);
+        gs_render(fx, GS_REV | TX_RV_PREDELAY, 0, 's', b, 0, &h1);
+        ref = h0.click > h1.click ? h0.click : h1.click;
+        if (mv.click / (ref > 1.0 ? ref : 1.0) > wc) wc = mv.click / (ref > 1.0 ? ref : 1.0);
+    }
+    snprintf(msg, sizeof msg, "reverb PREDELAY swept 0 .. 127 .. 0: a level step %.2f dB past the statics' (1.5 at most), "
+             "zipper %.2f; flipped 0 <-> 127: a click %.2fx", jump, zip, wc);
+    verdict("fx", "predelay", jump <= 1.5 && zip <= 2.0 && wc <= 10.0, msg, 0);
     free(gs_chord);
 }
 static void check_fx(FILE *update)

@@ -160,10 +160,10 @@ static void predelay(tx_fx_reverb_t *r, int32_t *x, uint32_t tgt)   /* one contr
         r->pd[r->pd_w & (TX_PD_LEN - 1u)] = x[j];
         if (r->pd_fill < TX_PD_LEN) r->pd_fill++;               /* (a tap behind what was written reads 0: no memset) */
         a = r->pd_d < r->pd_fill ? r->pd[(r->pd_w - r->pd_d) & (TX_PD_LEN - 1u)] : 0;
-        if (r->pd_x) {                                          /* 256 samples from the old tap to the new one */
+        if (r->pd_x) {                                          /* 2048 samples (46 ms) from the old tap to the new one */
             int32_t b = r->pd_d0 < r->pd_fill ? r->pd[(r->pd_w - r->pd_d0) & (TX_PD_LEN - 1u)] : 0;
-            a = b + (int32_t)(((int64_t)(a - b) * (int32_t)(r->pd_x << 7)) >> 15);
-            if (++r->pd_x > 256u) r->pd_x = 0;
+            a = b + (int32_t)(((int64_t)(a - b) * (int32_t)(r->pd_x << 4)) >> 15);
+            if (++r->pd_x > 2048u) r->pd_x = 0;
         }
         x[j] = a;
         r->pd_w++;
