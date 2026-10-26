@@ -408,7 +408,8 @@ typedef struct {
     int8_t hreg;                    /* and spacing */
     uint8_t tlo, tspan, tpad;       /* TYPE's range for the kind now: its value = (TYPE - tlo) x 127 / tspan */
     uint8_t lvl_v, part_v;          /* LEVEL and PARTICLES as last set (0: not set) */
-    uint8_t hkeys, hbase, hpad, hon;  /* (hon: the player's key is down on the engine: held, COUNT > 0) */
+    uint8_t hkeys, hbase, hhot, hon;  /* (hon: the player's key is down on the engine: held, COUNT > 0; hhot: its
+                                     * heroes as cut for a fast press clock, HOT; 0: none) */
     int8_t hcid, hfid;              /* the engine's own COUNT (its individuals) and FIELD (its far callers), -1: none */
     uint8_t hcnt, hpart, hfld, hgate;   /* the COUNT, PARTICLES and FIELD last sent to it; the bout gate open */
     uint16_t hgt;                   /* blocks to the gate's next turn */
@@ -1490,6 +1491,21 @@ static uint32_t host_rate(src_t *s)
     return (uint32_t)(2560u << 8) / tx_exp2(l + (8 << 16)) ;   /* 10 / mean, Q8 (mean in 0.1 s, Q8) */
 }
 
+/* heroes at most while an event engine's presses come fast (the dear top corner only: the defaults never reach it) */
+static const struct { const char *eng; uint16_t r_q8; uint8_t max; } HOT[] = {
+    {"ice", 512, 3},                /* (icicles over 2 presses /s: at ACTIVITY or COUNT 127 with SPACING 0, 6 heroes
+                                     * reached w8 ~900-2100 us on the FM-1 est., 3 ~660-730; the defaults press ~0.5 /s) */
+};
+static unsigned host_hot(const host_t *hd, uint32_t r_q8)
+{
+    unsigned i, k;
+    for (i = 0; i < sizeof HOT / sizeof HOT[0]; i++) {
+        for (k = 0; hd->eng[k] && hd->eng[k] == HOT[i].eng[k]; k++) { }   /* (no libc: the firmware) */
+        if (hd->eng[k] == HOT[i].eng[k]) return r_q8 > HOT[i].r_q8 ? HOT[i].max : 0u;
+    }
+    return 0u;
+}
+
 /* an event engine's presses: stage 1's clock (tx_core_cluster.h: the preset's runs and the breaks one break sets off;
  * a child's level step moves the velocity), at most one press per block; a strike's key is released after 150 ms */
 static void host_clock(src_t *s)
@@ -1501,7 +1517,13 @@ static void host_clock(src_t *s)
     if (s->hoff && !--s->hoff) s->hst->key(s->host, s->hpn, 0, 0);
     clu_cfg_row(s, s->hclu, s->hreg);
     if (!s->hon) s->clu.nk = 0;                              /* (cut: no queued presses) */
-    tx_clu_block(&s->clu, &s->rng, &s->cf, s->hon ? (uint32_t)(((uint64_t)host_rate(s) * count_q8(s)) >> 11) : 0u);
+    {
+        uint32_t rq = s->hon ? (uint32_t)(((uint64_t)host_rate(s) * count_q8(s)) >> 11) : 0u;
+        unsigned cut = host_hot(s->hd, rq), base = host_heroes(s->hd, s->part_v ? s->part_v : s->hst->particles_def);
+        if (cut && base > cut && s->hhot != cut) { s->hhot = (uint8_t)cut; s->hst->param(s->host, TX_PID_PARTICLES, (uint8_t)cut); }
+        else if (!cut && s->hhot) { s->hhot = 0; s->hst->param(s->host, TX_PID_PARTICLES, (uint8_t)base); }
+        tx_clu_block(&s->clu, &s->rng, &s->cf, rq);
+    }
     while ((off = tx_clu_next(&s->clu, &s->rng, &s->cf, TX_BLOCK, &ce)) >= 0) if (!got) { got = 1; lv = ce.lv; }
     tx_clu_end(&s->clu, TX_BLOCK);
     if (got && s->hon) {                                     /* (presses: each an individual's event, COUNT / 8 x) */
@@ -1688,7 +1710,7 @@ static void host_switch(src_t *s, unsigned pre)
         s->hcid = (int8_t)tx_param_find(ne, "COUNT");
         s->hfid = (int8_t)(s->hcid >= 0 ? tx_param_find(ne, "FIELD") : -1);
         host_apply(s, 1);
-        s->hkeys = 0; s->hrenew = 258; s->hoff = 0;
+        s->hkeys = 0; s->hrenew = 258; s->hoff = 0; s->hhot = 0;
         s->hgate = 2; s->hgt = (uint16_t)gate_draw(s, GATE_ON);   /* (a sound switched on: the gate's phase drawn at
                                                              * the next block; a bout's length ready for it) */
         tx_clu_init(&s->clu);                       /* (the first renewal after 1.5 s: past the fader's glide) */
@@ -2021,7 +2043,7 @@ static void src_param(void *st, uint8_t id, uint8_t val)
     if (s->hst && id == TX_PID_LEVEL) s->hst->param(s->host, id, val);
     if (s->hst && id == TX_PID_PARTICLES) {                  /* (the governor's: at most the engine's cap) */
         s->hpart = (uint8_t)host_heroes(s->hd, val);
-        s->hst->param(s->host, id, s->hpart);
+        s->hst->param(s->host, id, s->hhot && s->hpart > s->hhot ? s->hhot : s->hpart);   /* (a cut kept: HOT) */
     }
     if (s->wst && id == TX_PID_LEVEL) s->wst->param((uint8_t *)s->host + WATER_OFF, id, val);
     if (s->wst && id == TX_PID_PARTICLES)                    /* (the stream's bubbles: the lane's, at most WATER_HEROES) */
