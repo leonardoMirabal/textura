@@ -282,7 +282,7 @@ static void stone(unsigned k, uint32_t d_um, uint32_t *v_mm, uint32_t *len, int3
         int32_t l = (3 * (ld - 870820) + (lv - 860859)) / 4;
         *amp = (int32_t)tx_exp2(log2_q16(A_REF_H) + (l > (1 << 16) ? (1 << 16) : l));
     }
-    *fca = (int32_t)corner_a(20000u);
+    *fca = (int32_t)corner_a(20000u);   /* (every ice class: one corner, one far pass) */
 }
 
 static void rates(rain_t *s)
@@ -465,7 +465,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
 {
     rain_t *s = (rain_t *)st;
     tx_rng_t *r = &s->cloud.rng;
-    unsigned k, i, j, c, nexp = 0, nlim;
+    unsigned k, i, j, c, nexp = 0, nlim, farall = 0;
     int32_t *ex = s->ex, *buf = s->buf, *fb = s->fb, any = 0;
     uint16_t d0 = s->dropped;
     if (n > TX_BLOCK) n = TX_BLOCK;
@@ -569,11 +569,12 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
                 } else {                                     /* far: its momentum at once, through the corner below */
                     int32_t m = (int32_t)(((int64_t)mom * sz) >> 15);
                     m = (int32_t)(((int64_t)m * s->amp_t[u] * fg) >> 23);
-                    buf[off] += m;                           /* (buf: this class's impulses, Q15) */
+                    buf[off] += m;                           /* (buf: this class's impulses, ice: every class's; Q15) */
                     far++;
                 }
                 if (!s->hk || c >= 2u || (y & 3u) == 0u) splash(s, y, off, (ad * fg) >> 8);   /* (ice: the big ones shatter) */
             }
+            if (s->hk) { farall |= far; if (c) s->flp[c] = 0; continue; }   /* (ice: one pass below) */
             lp = s->flp[c];
             if (!far && !lp) continue;                       /* (no far drop and the corner at rest: nothing to add) */
             for (j = 0; j < n; j++) {                        /* the far drops through their class's corner */
@@ -584,6 +585,18 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
             }
             if (!far && lp > -16 && lp < 16) lp = 0;
             s->flp[c] = lp;
+        }
+        if (s->hk && (farall || s->flp[0])) {               /* ice: the far stones of every class through the one
+                                                              * corner (the four classes' sum, one pass: CPU) */
+            int32_t lp = s->flp[0], fa = s->fca[0];
+            for (j = 0; j < n; j++) {
+                int32_t d = buf[j] - lp;
+                lp += MUL15(d, fa);
+                ex[j] += lp * 64;
+                buf[j] = 0;
+            }
+            if (!farall && lp > -16 && lp < 16) lp = 0;
+            s->flp[0] = lp;
         }
         if (s->drip_q8) {                                    /* the drips: each its own size, fall and place */
             uint32_t mu_q8 = (uint32_t)(((uint64_t)s->drip_q8 * (uint32_t)s->wet * n) >> 15), d = 0;
