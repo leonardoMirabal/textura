@@ -298,6 +298,22 @@ static const host_t HOST[] = {
     {"surf", -100, -100, -100, {{"HEIGHT", 0, 50, 100}, {"PERIOD", 127, 80, 40}, {"BACKWASH", 50, 58, 66}, {"DIST", 40, 40, 40},
                      {"FLOOR", 40, 40, 40}, {"STRIKE", 0, 0, 0}, {"SHORE", 127, 127, 127}}, 0, 10, 0, 0, 0, 0, 0},
 };
+
+/* the loud hosted sounds' nearest gain, Q12 (the rest: 32767, the source's own cap): their peaks at ACTIVITY 127 a few
+ * metres nearer than their own place stay under 16x full scale (txtest's max scene, every seed); the levels farther
+ * out are their own. At 0.5 m (PROXIMITY 127) and ACTIVITY 127: fire -5.2 dB (under the 32767 it was held at), gravel
+ * -2.5, bees -2.9, glass -5.9 (under their 1 / r); after the output limiter ~1-2 LU quieter, the defaults unchanged */
+typedef struct { const char *eng; uint16_t g; } near_t;
+static const near_t NEAR[] = {{"fire", 18000}, {"gravel", 22100}, {"bees", 10500}, {"glass", 12500}};
+static uint16_t host_near(const char *eng)
+{
+    unsigned i, k;
+    for (i = 0; i < sizeof NEAR / sizeof NEAR[0]; i++) {
+        for (k = 0; NEAR[i].eng[k] && NEAR[i].eng[k] == eng[k]; k++) ;
+        if (NEAR[i].eng[k] == eng[k]) return NEAR[i].g;
+    }
+    return 32767;
+}
 #define H_MEMBER 12u                 /* the first member row */
 
 typedef struct {
@@ -412,6 +428,7 @@ typedef struct {
     int32_t cur_r, cur_sz;          /* the individual of the event being made (cur_on) */
     uint32_t ev_est;                /* rain: its events a block lately (Q8), for the thinning (EV_BLK) */
     uint32_t owe_q8;                /* rain: the drops held back by EV_HARD, carried by the next kept one (Q8) */
+    uint16_t hnear, pad_n;          /* the hosted sound's nearest gain (Q12; 0: 32767) */
     tx_clu_cfg_t cf;                /* its character at the activity now */
 } src_t;
 
@@ -1612,6 +1629,7 @@ static void host_switch(src_t *s, unsigned pre)
     s->last_out = 0;
     { uint8_t *b = (uint8_t *)s->host; for (i = 0; i < sizeof s->host; i++) b[i] = 0; }
     s->hst = ne; s->hd = hd;
+    s->hnear = hd ? host_near(hd->eng) : 32767;
     /* the particle presets' beds and filters start from silence (their last output went to the declick) */
     s->res = s->res_x1 = s->clp = 0;
     s->hp.x1 = s->hp.y1 = 0; s->vy.lp = 0; s->run = 0; s->hgain = 0;
@@ -1640,8 +1658,13 @@ static void host_switch(src_t *s, unsigned pre)
         s->hgate = 2; s->hgt = (uint16_t)gate_draw(s, GATE_ON);   /* (a sound switched on: the gate's phase drawn at
                                                              * the next block; a bout's length ready for it) */
         tx_clu_init(&s->clu);                       /* (the first renewal after 1.5 s: past the fader's glide) */
+        s->clu.next_q8 = 0xFFFFFFFFu;               /* (an event engine's first press after a gap of its own, as at
+                                                     * a first key: never a strike the moment the sound changes) */
         s->hon = 0;
-        if (s->held && s->p[P_COUNT] && !(hd->k0 & 2u)) { ne->key(s->host, s->note, s->vel, 1); s->hkeys = 1; s->hon = 1; }
+        if (s->held && s->p[P_COUNT] && !(hd->k0 & 2u)) {
+            if (!hd->e64) ne->key(s->host, s->note, s->vel, 1);   /* (an event engine: its clock starts, no strike of its */
+            s->hkeys = 1; s->hon = 1;                            /* own, as at a first press: never a strike at the key's */
+        }                                                    /* velocity the moment the sound changes) */
                                                              /* (in bouts: host_render presses it when the gate opens) */
         s->quiet = 0;
     } else {                                                 /* the particle presets: fresh pools */
@@ -1705,7 +1728,8 @@ TX_AUDIO_CODE static void hosted_out(src_t *s, const tx_engine_t *e, void *st, i
     for (j = 0; j < n; j++) s->buf[j] = 0;
     e->render(st, s->buf, n);
     g1 = (int32_t)tx_exp2((12 << 16) + TX_DB10(gdb) + 103872 - clampi(dist_l2(s), TX_PLACE_R_MIN, 14 << 16));
-    if (g1 > 32767) g1 = 32767;
+    if (g1 > (s->hnear ? (int32_t)s->hnear : 32767)) g1 = s->hnear ? (int32_t)s->hnear : 32767;   /* (a loud sound's own
+                                                             * nearest gain) */
     {   /* the air between: a one-pole whose corner falls with the distance (no change closer than ~10 m) */
         int32_t lp = s->hlp, al = tx_place_lp_q15(dist_l2(s));
         if (al < 32000) {

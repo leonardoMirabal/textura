@@ -10,7 +10,7 @@
  *   idle      a fresh instance renders exact zeros for 2 s and says quiet
  *   tail      after a tap the output reaches exact zero (quiet) within 30 s and stays zero
  *   quiet     each own parameter at 0 / 64 / 90 / 127 (2 seeds, v100 / v127): a tap is quiet within 20 s
- *   overflow  the worst-case scene runs without signed overflow (UBSan) and peaks under 2^27 (16x full scale, so 4
+ *   overflow  the worst-case scene (at 8 seeds) runs without signed overflow (UBSan) and peaks under 2^27 (16x full scale, so 4
  *             layers stay 4x inside int32); the chord scene at the default level stays under full scale
  *   cap       in the cap and max scenes the sounding particles never exceed the PARTICLES limit in force
  *   instance  two instances rendered block-interleaved give the same samples as each alone (no hidden globals)
@@ -82,7 +82,19 @@ static void on_block(void *u, uint32_t blk, const int32_t *mix, const tx_stats_t
     if (st->particles > a->maxp) a->maxp = st->particles;
 }
 
-static int run_scene(const tx_engine_t *e, const char *scene, acc_t *a, char hex[65])
+#define OVF_SEEDS 8u                  /* the overflow check: the max scene at seeds 1 .. 8 */
+/* engines whose max scene still peaks over 2^27 at some of those seeds (drip +26.5 dBFS, rockfall +26.1, stonedrum +24.6
+ * at seeds 1 .. 8): judged at the scene's own seed, as before, until their loud corners get headroom (TASKS) */
+static const char *const OVF_ONE[] = {"drip", "rockfall", "stonedrum"};
+static int ovf_one(const char *name)
+{
+    unsigned i;
+    for (i = 0; i < sizeof OVF_ONE / sizeof OVF_ONE[0]; i++) if (!strcmp(OVF_ONE[i], name)) return 1;
+    return 0;
+}
+
+/* a scene at its own seed (seed 0) or at the one given */
+static int run_scene_seed(const tx_engine_t *e, const char *scene, acc_t *a, char hex[65], uint32_t seed)
 {
     tx_script_t *s = malloc(sizeof *s);
     void *st = tx_state_new(e);
@@ -90,10 +102,16 @@ static int run_scene(const tx_engine_t *e, const char *scene, acc_t *a, char hex
     tx_limit_init(&a->lim);
     tx_sha256_init(&a->sha);
     if (tx_scene_load(s, e, scene)) { free(s); free(st); return -1; }
+    if (seed) s->seed = seed;
     tx_script_run(e, st, s, on_block, a);
     tx_sha256_hex(&a->sha, hex);
     free(s); free(st);
     return 0;
+}
+
+static int run_scene(const tx_engine_t *e, const char *scene, acc_t *a, char hex[65])
+{
+    return run_scene_seed(e, scene, a, hex, 0);
 }
 
 /* ---- baseline file: "<sha256>  <engine>-<scene>" per line */
@@ -194,9 +212,25 @@ static void check_engine(const tx_engine_t *e, FILE *update)
         free(st);
     }
     if (!run_scene(e, "max", &a, hex)) {
-        snprintf(msg, sizeof msg, "max scene peak %.1f dBFS (limit +24.1), %u samples over full scale (info)",
-                 a.peak ? 20.0 * log10(a.peak / 8388608.0) : -999.0, a.over_fs);
-        verdict(n, "overflow", a.peak < (1 << 27), msg, 0);
+        int32_t pk = a.peak;                         /* the peak over OVF_SEEDS seeds (one draw can be lucky) */
+        unsigned over = a.over_fs, k, wk = 1;
+        for (k = 2; k <= OVF_SEEDS; k++) {
+            acc_t b;
+            char h2[65];
+            if (run_scene_seed(e, "max", &b, h2, k)) continue;
+            if (b.peak > pk) { pk = b.peak; wk = k; }
+            if (b.over_fs > over) over = b.over_fs;
+        }
+        if (ovf_one(n)) {                            /* (still judged at the scene's own seed: see OVF_ONE) */
+            snprintf(msg, sizeof msg, "max scene peak %.1f dBFS (limit +24.1; over %u seeds %.1f dBFS at seed %u, not judged yet), "
+                     "%u samples over full scale (info)", a.peak ? 20.0 * log10(a.peak / 8388608.0) : -999.0, OVF_SEEDS,
+                     pk ? 20.0 * log10(pk / 8388608.0) : -999.0, wk, a.over_fs);
+            verdict(n, "overflow", a.peak < (1 << 27), msg, 0);
+        } else {
+            snprintf(msg, sizeof msg, "max scene peak %.1f dBFS over %u seeds (seed %u; limit +24.1), %u samples over full scale (info)",
+                     pk ? 20.0 * log10(pk / 8388608.0) : -999.0, OVF_SEEDS, wk, over);
+            verdict(n, "overflow", pk < (1 << 27), msg, 0);
+        }
         snprintf(msg, sizeof msg, "max scene: particles <= limit at every block (most %u)", a.maxp);
         verdict(n, "cap", !a.over_cap, msg, 0);
     } else verdict(n, "overflow", 0, "max scene does not load", 0);

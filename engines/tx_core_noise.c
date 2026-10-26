@@ -119,6 +119,17 @@ uint32_t tx_svf_gin_noise(uint32_t fc_hz, uint32_t q_x16)
     return r > 65535u ? 65535u : r;                          /* sqrt of Q16 = Q8 */
 }
 
+/* (f * h) >> 14 for f <= 2^14 and |h| up to 2^21 in 32-bit products, exactly (floor): h = 16 hh + hl; a mode driven far
+ * past its band's clamp can carry an h whose product with f overflows 32 bits */
+static inline int32_t svf_mul14(int32_t f, int32_t h)
+{
+    int32_t hh, hl, a;
+    h = h > 2097151 ? 2097151 : h < -2097151 ? -2097151 : h;
+    hh = h >> 4; hl = h & 15;
+    a = f * hh;
+    return (a >> 10) + ((16 * (a & 1023) + f * hl) >> 14);
+}
+
 TX_AUDIO_CODE void tx_svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
                                      const int32_t *g_q11, unsigned nr, const int32_t *in, int32_t *out, unsigned n)
 {
@@ -160,7 +171,8 @@ TX_AUDIO_CODE void tx_svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, c
                 d = ef[i] >> 14;
                 ef[i] -= d * 16384;
                 h = ((x * gi[i]) >> 8) - lo[i] - d;
-                bd[i] += (fi[i] * h) >> 14;
+                if (h > 131071 || h < -131071) bd[i] += svf_mul14(fi[i], h);   /* (past 2^17: fi * h split, exact) */
+                else bd[i] += (fi[i] * h) >> 14;
                 bd[i] = bd[i] > (1 << 17) ? (1 << 17) : bd[i] < -(1 << 17) ? -(1 << 17) : bd[i];
                 y += (bd[i] * g[i]) >> 3;
             }
