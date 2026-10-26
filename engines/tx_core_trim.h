@@ -29,4 +29,20 @@ TX_AUDIO_CODE static inline void tx_trim_add(const int32_t *x, int32_t *mix, uns
     for (j = 0; j < n; j++) mix[j] += tx_trim1(x[j], g_q12);
 }
 
+/* an engine's loud corner (every key at once, many big events landing together) kept inside 16x full scale: above 8x
+ * (+18 dBFS) a quarter of the excess, at most TX_HEAD_MAX (~+22.6 dBFS; a DC blocker after it may add a little). One
+ * press at an engine's defaults never gets near it (raw peaks about 0 dBFS by design), so those renders are unchanged;
+ * the output limiter after does the rest */
+#define TX_HEAD_KNEE (1 << 26)
+#define TX_HEAD_MAX ((1 << 27) - (1 << 25))
+TX_AUDIO_CODE static inline void tx_headroom(int32_t *x, unsigned n)
+{
+    unsigned j;
+    for (j = 0; j < n; j++) {
+        int32_t v = x[j];
+        if (v > TX_HEAD_KNEE) { v = TX_HEAD_KNEE + ((v - TX_HEAD_KNEE) >> 2); x[j] = v > TX_HEAD_MAX ? TX_HEAD_MAX : v; }
+        else if (v < -TX_HEAD_KNEE) { v = -TX_HEAD_KNEE - ((-TX_HEAD_KNEE - v) >> 2); x[j] = v < -TX_HEAD_MAX ? -TX_HEAD_MAX : v; }
+    }
+}
+
 #endif

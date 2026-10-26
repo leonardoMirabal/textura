@@ -287,6 +287,7 @@ TX_AUDIO_CODE static void rock_render(void *st, int32_t *mix, unsigned n)
     }
     tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);
+    tx_headroom(buf, n);                                     /* (the biggest falls, nearest: the ground boom saturated) */
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

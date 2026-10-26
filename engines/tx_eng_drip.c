@@ -332,6 +332,7 @@ TX_AUDIO_CODE static void drip_render(void *st, int32_t *mix, unsigned n)
     tx_vary_block(&s->vy, buf, n);
     cave(s, buf, n);
     tx_trim(buf, n, OUT_TRIM);
+    tx_headroom(buf, n);                                     /* (every key, the biggest bubbles at once) */
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->last_dropped = (uint16_t)(s->cloud.last_dropped + (s->pool.rejected - rej0));
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !s->pool.alive && !tx_pulses_active(&s->clicks)
