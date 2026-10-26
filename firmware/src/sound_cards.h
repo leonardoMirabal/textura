@@ -42,7 +42,8 @@
  *
  * Songbirds: the approved study's ranking (2026-10-26), one page for all ten, the source's own birds: SIZE (the bird's
  * size: its song's pitch), DEPTH (one bird at DIST .. birds near and far at once), DIST, VARY (= SPREAD: the birds
- * alike .. each its own pitch). Their own physical cards (tempo, song length, variety) wait for the bird's parameters.
+ * alike .. each its own pitch). The wild birds (approved 2026-10-26) the same four. Their own physical cards
+ * (tempo, song length, variety) wait for the bird's parameters.
  *
  * Stones & sand: the approved study's ranking (2026-10-26). The stones are the source's own particles: SIZE, GROUND
  * (= HARD: stone on stone .. soft ground), RING (= TONE: the stones' Q), CLUMPS (= SPACING). Ringing rocks' STONE is
@@ -169,6 +170,17 @@ static const scd_sound_t SCD[] = {
     {"skylark", 0, 4, SB_CARDS},
     {"wood thrush", 0, 4, SB_CARDS},
     {"reed warbler", 0, 4, SB_CARDS},
+    /* Wild birds */
+    {"chirper", 0, 4, SB_CARDS},
+    {"crow", 0, 4, SB_CARDS},
+    {"gull", 0, 4, SB_CARDS},
+    {"curlew", 0, 4, SB_CARDS},
+    {"oystercatcher", 0, 4, SB_CARDS},
+    {"cuckoo", 0, 4, SB_CARDS},
+    {"woodpecker", 0, 4, SB_CARDS},
+    {"wood pigeon", 0, 4, SB_CARDS},
+    {"nightjar", 0, 4, SB_CARDS},
+    {"bittern", 0, 4, SB_CARDS},
     /* Stones & sand */
 #define S_H(n) {#n, #n, CK_HOST}
 #define S_S(l, p) {l, p, 0}
