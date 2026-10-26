@@ -39,7 +39,8 @@ typedef struct {                    /* a syllable: the gestures */
     uint8_t k0, k1, kb;             /* shape at the start and end (0 .. 224: 8 shapes Q5), the break position (Q8; 0 none) */
     uint8_t amp;                    /* level, Q8 */
     uint8_t am_hz, am_depth;        /* tremolo: rate (Hz) and depth (Q8) */
-    uint8_t two_amp, pad;           /* the second voice's level (Q8; 0 none) */
+    uint8_t two_amp;                /* the second voice's level (Q8; 0 none) */
+    int8_t spot;                    /* a woodpecker's strike: where the bill lands, its ring's shift (1/256 oct) */
 } tx_bird_syl_t;
 
 typedef struct { uint16_t id; uint8_t n, gap, amp, cres; int8_t lev, pad; } tx_bird_seg_t;   /* n x syllable id, gap (2 ms),

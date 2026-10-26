@@ -167,6 +167,9 @@ static uint16_t pgap_of(const tx_bird_voice_t *v, uint32_t ms)   /* a gap betwee
 }
 
 /* ---- a syllable: its type from the bird's seed (the repertoire), this rendition's variation from v->rng */
+#define SPOT 20                     /* a woodpecker's strike: the ring +-0.08 oct by where the bill lands (1/256 oct;
+                                     * the drum references: successive strikes' rings 23 .. 111 cents apart, median) */
+#define KLO 5                       /* its burst's brightness: kmax x 5/8 .. 1 by the bill's angle */
 static void syl_make(tx_bird_voice_t *v)
 {
     const sp_t *S = &SP[v->sp];
@@ -175,7 +178,7 @@ static void syl_make(tx_bird_voice_t *v)
     tx_rng_t r;
     unsigned cls = g->id >> 11;
     int32_t span = S->fhi - S->flo, rel = 0, df = 0, arch = 0, k0 = 0, k1 = 0, kb = 0, amp = 255, amh = 0, amd = 0;
-    int32_t two = 0, twa = 0, a;
+    int32_t two = 0, twa = 0, spot = 0, a;
     uint32_t len_ms = 100;
     tx_rng_seed(&r, mix(v->seed, g->id + ((uint32_t)v->sp << 16)));
     switch (cls) {
@@ -262,6 +265,10 @@ static void syl_make(tx_bird_voice_t *v)
         break;
     case C_KNOCK:                                            /* a beak strike: a short, rich burst (the tree rings it) */
         len_ms = rb(&r, S->dlo, S->dhi); rel = rs(&r, S->flo, S->fhi); k0 = k1 = S->kmax; amp = lvl(&r, 3);
+        spot = rs(&v->rng, -SPOT, SPOT);                     /* each strike its own: where the bill lands on the bark
+                                                              * shifts the ring, its angle the burst's brightness (the
+                                                              * references: no two strikes of a roll alike) */
+        k0 = rs(&v->rng, S->kmax * KLO / 8, S->kmax); k1 = rs(&v->rng, S->kmax * KLO / 8, S->kmax);
         break;
     case C_HOO:                                              /* the pigeon's short coos (idx 0 rising, 1 level, 3 low) */
         len_ms = rb(&r, S->dlo, S->dhi); rel = rs(&r, -150, 150) - ((g->id & 3u) == 3u ? 600 : 0);
@@ -312,7 +319,7 @@ static void syl_make(tx_bird_voice_t *v)
     s->df = (int16_t)(df < -8000 ? -8000 : df > 8000 ? 8000 : df); s->arch = (int16_t)arch;
     s->k0 = (uint8_t)(k0 < 0 ? 0 : k0 > 224 ? 224 : k0); s->k1 = (uint8_t)(k1 < 0 ? 0 : k1 > 224 ? 224 : k1); s->kb = (uint8_t)kb;
     s->amp = (uint8_t)(a < 1 ? 1 : a > 255 ? 255 : a); s->am_hz = (uint8_t)amh; s->am_depth = (uint8_t)amd;
-    s->two_l2 = (int16_t)two; s->two_amp = (uint8_t)twa;
+    s->two_l2 = (int16_t)two; s->two_amp = (uint8_t)twa; s->spot = (int8_t)spot;
     v->pos = 0;
 }
 
@@ -874,7 +881,7 @@ TX_AUDIO_CODE int tx_bird_render(tx_bird_voice_t *v, int32_t *out, unsigned n)
             at(v, v->pos, &f, &k, &a0);
             at(v, v->pos + m, &fi, &k, &a1v);
             if (!(v->sub++ & 3u) || v->pos == 0u) {          /* the cavity, every 64 samples (and at a syllable's start) */
-                uint32_t fc = tx_exp2(v->track ? f + v->oec_l2 : v->oec_l2);
+                uint32_t fc = tx_exp2(v->track ? f + v->oec_l2 : v->oec_l2 + s->spot * 256);
                 tx_ireso_coefs(fc > 12000u ? 12000u : fc, (uint32_t)v->oec_q, &a1, &a2, &b0);
             }
             inc = tx_exp2(f + L2_INC);
