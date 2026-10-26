@@ -44,7 +44,7 @@ enum { P_DENSITY, P_SIZE, P_SPREAD, P_MINERAL, P_HARD, P_CLUMP, P_ROOM, NP };
 static const tx_param_t PARAMS[NP] = {
     {"DENSITY", 127, 70, "hits per second per key: 0.3 .. 40 (log)"},
     {"SIZE", 127, 64, "piece length at C4: 3 .. 60 cm (log): f1 ~ 0.13 c / L (a 15 cm granite flake ~3.7 kHz)"},
-    {"SPREAD", 127, 40, "mixed sizes: all alike .. +-1.5 octaves"},
+    {"SPREAD", 127, 40, "mixed sizes: all alike .. +-3 octaves (sd)"},
     {"MINERAL", 127, 30, "granite (Q 180) | marble 300 | slate 185 | flint 160 | obsidian 175 | quartz 2000"},
     {"HARD", 127, 0, "stone on stone (bright clinks) .. on wood .. on soft ground (dull knocks)"},
     {"CLUMP", 127, 16, "timing: random (Poisson) .. in runs and quiet spells"},
@@ -112,7 +112,7 @@ static void set_param(cloud_t *s, unsigned id, unsigned v)
     switch (id) {
     case P_DENSITY: tx_cloud_rate(&s->cloud, tx_knob_exp(v, 77u, 452312)); break;   /* 0.3 .. 40 /s (7.06 oct), Q8 */
     case P_SIZE: s->size_l2 = -332212 + (int32_t)(v * 2224u); break;    /* log2(0.03 m) + v log2(20) / 127, Q16 */
-    case P_SPREAD: s->spread = (int32_t)v * 774; break;                 /* +-SD in octaves, Q16: 0 .. 1.5 */
+    case P_SPREAD: s->spread = (int32_t)v * 774; break;                 /* SD / 2 in octaves, Q16: 0 .. 1.5 */
     case P_MINERAL: { unsigned r = (v * NMIN) >> 7; s->q_x16 = MIN_Q[r] * 16u; s->c = MIN_C[r]; break; }
     case P_HARD:                                         /* the pieces themselves: ~10x lighter than a hammer */
         tx_mallet_mix(&s->mallet, (int32_t)v * 258);      /* (t_c x 0.4: a 2 cm-edge flake meeting stone ~80 us) */

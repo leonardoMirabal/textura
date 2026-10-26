@@ -2,8 +2,8 @@
 /* Textura CHORUS core: when each caller of an insect chorus calls.
  *
  * Callers reset their rhythm when they hear a neighbour (inhibitory resetting, N19 Eq. 1): a caller i calls at its
- * own period T_i (+ a noise eps, SD = CV x T); when caller j's call reaches i (j's call time + the propagation delay
- * l / v between them) at d = arrival - i's last call, i's next call moves to
+ * own period T_i (+ a noise eps, SD = 2 CV x T: tx_gauss_q12 is SD 2); when caller j's call reaches i (j's call
+ * time + the propagation delay l / v between them) at d = arrival - i's last call, i's next call moves to
  *        next_i = last_i + s d + T_i + eps_i,
  * unless the stimulus is masked: it arrives while i is still calling (d < the call length x) or too late to change a
  * call already committed (within the effector delay t of i's next call). N19's defaults: T 500 ms, t 60 ms,
@@ -27,7 +27,7 @@ typedef struct {
     tx_caller_t c[TX_CHORUS_MAX];
     int32_t x[TX_CHORUS_MAX], y[TX_CHORUS_MAX];    /* positions, mm */
     uint16_t dly[TX_CHORUS_MAX][TX_CHORUS_MAX];    /* propagation delays, samples (symmetric) */
-    int32_t s_q15, cv_q15, t_eff, x_len;           /* N19: s, CV of eps, effector delay t and call length x (samples) */
+    int32_t s_q15, cv_q15, t_eff, x_len;           /* N19: s, CV of eps (its SD 2 x), effector delay t, call length x */
     uint32_t now;
 } tx_chorus_t;
 

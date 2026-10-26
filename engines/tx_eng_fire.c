@@ -331,7 +331,7 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
             int32_t aa = a;                                  /* impulsive: kurtosis 200-2600; ours) */
             /* no two crackles alike (note 14: the recordings' per-crackle centroid spreads 0.8-2 octaves, ours 0.35): the
              * fracture's own front (a click 1 .. 10 samples wide: flat to 16 kHz .. dull above ~4 kHz; bigger cracks
-             * blunter) and how much of it the wood rings (the bank's share +-1 octave, sd) */
+             * blunter) and how much of it the wood rings (the bank's share +-2 octaves, sd) */
             int32_t gb = tx_gauss_q12(r) * 16, bw, dr;
             uint32_t w;
             int own = sz >= HERO_L2 + s->k->hero * (RANGE_L2 >> 4) && nh < HERO_BLK && pop(s, e->offset, a, e->note, sz);   /* its own ring: the bank a */
@@ -340,7 +340,7 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
             gb = gb > (2 << 16) ? (2 << 16) : gb < -(3 << 16) ? -(3 << 16) : gb;
             bw = (int32_t)tx_exp2(gb + (16 << 16));   /* Q16 */
             uint32_t q;
-            dr = tx_gauss_q12(r) * 16 - 22713;               /* and how dry its snap: +-1 octave (sd), power kept */
+            dr = tx_gauss_q12(r) * 16 - 22713;               /* and how dry its snap: +-2 octaves (sd), power kept */
             dr = dr > (2 << 16) ? (2 << 16) : dr < -(3 << 16) ? -(3 << 16) : dr;
             dr = (int32_t)tx_exp2(dr + (12 << 16));          /* Q12 */
             w = s->k->wmin + tx_rand_below(r, 6u) + (sz > (RANGE_L2 * 3) / 4 ? tx_rand_below(r, 4u) : 0u);

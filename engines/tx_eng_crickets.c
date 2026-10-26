@@ -160,7 +160,7 @@ static void set_param(crickets_t *s, unsigned id, unsigned v)
     case P_SPECIES: {
         unsigned i;
         set_timing(s);
-        for (i = 0; i < 8; i++)                              /* the far callers' carriers: CV 3 % (N1) */
+        for (i = 0; i < 8; i++)                              /* the far callers' carriers: CV 6 % (N1) */
             s->finc[i] = (uint32_t)(((uint64_t)sp_of(s)->f0 * 97391u * tx_exp2(((tx_gauss_q12(&s->cloud.rng) * 2789) >> 12) + (16 << 16))) >> 16);
         break;
     }
@@ -266,9 +266,9 @@ static void individual(crickets_t *s, unsigned ci, uint8_t note, uint8_t vel, in
     s->ch.y[ci] = (tx_sin_q15((uint32_t)ang) * (rr >> 4)) >> 11;
     c->gain = (int32_t)((uint32_t)G_REF * 1000u / (uint32_t)(rr < 300 ? 300 : rr));
     f_l2 = ((int32_t)note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3);   /* a quarter tone per key (2^(1/24), Q16); the character (warmer = higher, faster) */
-    f_l2 += (tx_gauss_q12(r) * (near ? 930 : 2789)) >> 12;   /* each its own carrier: the field CV 3 % (N1: 4.8-5.3 kHz),
-                                                              * the key's own 1 % (it stays on its key) */
-    /* no two crickets alike (note 17): its own pulse length (CV 10 %), glide (CV 30 %), H2 (sd 3 dB), and a
+    f_l2 += (tx_gauss_q12(r) * (near ? 930 : 2789)) >> 12;   /* each its own carrier: the field CV 6 % (N1: 4.8-5.3 kHz),
+                                                              * the key's own 2 % (it stays on its key) */
+    /* no two crickets alike (note 17): its own pulse length (CV 20 %), glide (CV 60 %), H2 (sd 6 dB), and a
      * pulse more or fewer per chirp (field crickets 3-5) */
     c->lf = 32768 + ((tx_gauss_q12(r) * 3277) >> 12);
     c->gl = 32768 + ((tx_gauss_q12(r) * 9830) >> 12);
@@ -278,7 +278,7 @@ static void individual(crickets_t *s, unsigned ci, uint8_t note, uint8_t vel, in
     if (c->lf > 37683) c->lf = 37683;                        /* (pulses at most 15 % longer: the same) */
     c->pk = (int8_t)((int32_t)tx_rand_below(r, 3u) - 1);
     c->inc = (uint32_t)(((uint64_t)sp->f0 * 97391u * tx_exp2(f_l2 + (16 << 16))) >> 16);
-    c->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);        /* own period: CV 5 % (ours) */
+    c->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);        /* own period: CV 10 % (ours) */
     c->alive = 1; c->stop = 0; c->em = em; c->keyed = (uint8_t)(em != 0xFF); c->note = note; c->pl = 0; c->linger = 0;
     if (near == 1) bout_start(s, ci, 0);
     else { c->sing = 0; c->bl = 1u + ((tx_pop_pause(&LAW, r, act(s)) * (1u + tx_rand_below(r, 255u))) >> 8); tx_chorus_stop(&s->ch, ci); }
@@ -375,7 +375,8 @@ TX_AUDIO_CODE static void crickets_render_raw(void *st, int32_t *mix, unsigned n
         }                                                                                        /* hard stop) */
         held_any |= c->alive && !c->stop;
         while (c->pl && c->pc < (int32_t)n) {
-            /* each pulse its own: level SD ~3 dB, length CV 8 %, spacing 5 % (the recordings: 2.4-4.8 dB, 0.1) */
+            /* each pulse its own: level x (1 + 0.7 sd: +4.6 / -10 dB), length CV 16 %, spacing 10 % (the recordings:
+             * 2.4-4.8 dB, 0.1) */
             int32_t g = (int32_t)(((int64_t)c->gain * s->level) >> 15), jv;
             uint32_t ln;
             g = (int32_t)(((int64_t)g * (32768 + ((tx_gauss_q12(&s->cloud.rng) * 2867) >> 10))) >> 15);

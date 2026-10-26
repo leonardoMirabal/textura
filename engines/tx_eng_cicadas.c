@@ -160,7 +160,7 @@ static void spawn(cicadas_t *s, const tx_event_t *e)
         if (!c) { s->dropped++; continue; }
         f_l2 = s->car_l2 + ((int32_t)e->note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3);  /* a quarter tone per key; the character */
         if (k) {
-            f_l2 += (tx_gauss_q12(r) * 3718) >> 12;          /* carrier CV 4 % */
+            f_l2 += (tx_gauss_q12(r) * 3718) >> 12;          /* carrier CV 8 % */
             rl2 += 38336 + (int32_t)tx_rand_below(r, 92736u);   /* 1.5 .. 4 x farther */
         }
         c->f = tx_exp2(f_l2);
@@ -169,7 +169,7 @@ static void spawn(cicadas_t *s, const tx_event_t *e)
         rr = (int32_t)tx_exp2(rl2 + (10 << 16));             /* mm */
         c->gain = (int32_t)((uint32_t)G_REF * 1000u / (uint32_t)(rr < 300 ? 300 : rr));
         {
-            int32_t rt = s->rate_l2 + (k ? (tx_gauss_q12(r) * 4648) >> 12 : 0);   /* rate CV 5 % */
+            int32_t rt = s->rate_l2 + (k ? (tx_gauss_q12(r) * 4648) >> 12 : 0);   /* rate CV 10 % */
             c->per_q8 = (TX_FS << 7) / tx_exp2(rt) ;          /* fs / (2 R), Q8 */
         }
         if (!c->alive) { c->next_q8 = k ? tx_rand_below(r, 65535u) % (c->per_q8 * 2u) : 0; c->env = 0; c->npend = 0; }

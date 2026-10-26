@@ -195,7 +195,7 @@ static void shake(gravel_t *s, const tx_event_t *e)
         tx_shaker_objects(&v->sh, s->n_q4,
                           (int32_t)(((uint64_t)tx_exp2(BASE_L2 + amp_l2 + (11 << 16)) * (uint32_t)s->level) >> 15));
         {
-            int32_t jt = tx_gauss_q12(&s->cloud.rng) * 8;     /* the step's length: sd 1/2 octave (refs: CV 0.75) */
+            int32_t jt = tx_gauss_q12(&s->cloud.rng) * 8;     /* the step's length: sd 1 octave (refs: CV 0.75) */
             jt = jt > (3 << 15) ? (3 << 15) : jt < -(3 << 15) ? -(3 << 15) : jt;
             tx_shaker_decay(&v->sh, (uint32_t)(((uint64_t)s->t60 * tx_exp2(jt + (16 << 16))) >> 16), 32113);
         }

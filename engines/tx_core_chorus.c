@@ -23,7 +23,8 @@ void tx_chorus_init(tx_chorus_t *ch)
     uint8_t *p = (uint8_t *)ch;
     unsigned i;
     for (i = 0; i < sizeof *ch; i++) p[i] = 0;
-    tx_chorus_set(ch, 16384, 1966, 2646, 2205);              /* s 0.5, CV 0.06, t 60 ms, x 50 ms (N19) */
+    tx_chorus_set(ch, 16384, 1966, 2646, 2205);              /* s 0.5, cv 0.06, t 60 ms, x 50 ms (N19); eps's
+                                                              * SD 0.12 (the draw is SD 2) */
 }
 
 void tx_chorus_set(tx_chorus_t *ch, int32_t s_q15, int32_t cv_q15, uint32_t t_eff, uint32_t x_len)

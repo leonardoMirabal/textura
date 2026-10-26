@@ -50,7 +50,7 @@ enum { P_SPECIES, P_JITTER, P_PEGS, P_TEMP, P_COUNT, P_SYNC, P_DIST, P_ACT, P_FI
 
 static const tx_param_t PARAMS[NP] = {
     {"SPECIES", 127, 0, "true katydid rasp 4.5 kHz | katydid Panacanthus 5 kHz (tonal) | grasshopper C. biguttulus 6.6 kHz | C. brunneus 9.7 kHz"},
-    {"JITTER", 127, 12, "strike timing SD: 0 .. 50 % of an interval: a pure tone .. a broadband rasp"},
+    {"JITTER", 127, 12, "strike timing SD: 0 .. 100 % of an interval: a pure tone .. a broadband rasp"},
     {"PEGS", 127, 50, "grasshoppers: peg impacts within a pulse 1.5 .. 6 kHz (log; N30 >= 1.5 kHz)"},
     {"TEMP", 127, 76, "temperature 10 .. 35 C: call and syllable rhythm (Q10 2); the spectrum stays"},
     {"COUNT", 64, 0, "singers in the grass while a key is held: 0 = one per key held .. 64 (the first at the key, the others farther out on an area law, each its own distance, carrier and period; past PARTICLES heroes the rest are FIELD's)"},
@@ -201,7 +201,7 @@ static void set_param(katy_t *s, unsigned id, unsigned v)
     s->p[id] = (uint8_t)v;
     switch (id) {
     case P_SPECIES: case P_TEMP: set_rhythm(s); break;
-    case P_JITTER: s->jit = (int32_t)v * 129; break;                     /* SD, Q15: 0 .. 0.5 */
+    case P_JITTER: s->jit = (int32_t)v * 129; break;                     /* SD / 2, Q15: 0 .. 0.5 (draw SD 2) */
     case P_PEGS: s->peg_l2 = 691208 + (int32_t)(v * 1032u); break;       /* log2(1500 Hz) + v x 2 oct / 127 */
     case P_SYNC: tx_chorus_set(&s->ch, (int32_t)v * 258, s->ch.cv_q15, (uint32_t)s->ch.t_eff, (uint32_t)s->ch.x_len); break;
     case P_DIST: s->dist_l2 = -113738 + (int32_t)(v * 3482u); break;     /* log2(0.3 m) + v log2(100) / 127 */
@@ -318,9 +318,9 @@ static void individual(katy_t *s, unsigned vi, uint8_t note, uint8_t vel, int ne
     s->ch.y[vi] = (tx_sin_q15((uint32_t)ang) * (rr >> 4)) >> 11;
     v->gain = (int32_t)((uint32_t)G_REF * 1000u / (uint32_t)(rr < 300 ? 300 : rr));
     f_l2 = ((int32_t)note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3);   /* the character (warmer = higher, faster) */
-    f_l2 += (tx_gauss_q12(r) * (near ? 930 : 2789)) >> 12;   /* individuals: CV 3 % (ours); the key's own 1 % */
-    /* no two singers alike (note 17): its syllables' length (x 1.5, x/ 1.35: the references' katydid syllables 140-320 ms),
-     * 2-4 syllables per call ("katy-did", "katy-didn't"), its teeth's unevenness (x/ 1.4: a cleaner or raspier
+    f_l2 += (tx_gauss_q12(r) * (near ? 930 : 2789)) >> 12;   /* individuals: CV 6 % (ours); the key's own 2 % */
+    /* no two singers alike (note 17): its syllables' length (x 1.5, x/ 1.8 sd: the references' katydid syllables 140-320 ms),
+     * 2-4 syllables per call ("katy-did", "katy-didn't"), its teeth's unevenness (x/ 2 sd: a cleaner or raspier
      * file) */
     v->tq = (uint16_t)(tx_exp2(((tx_gauss_q12(r) * (sp->katydid == 2u ? 6554 : 28000)) >> 12) + (8 << 16) + (sp->katydid == 2u ? 0 : 39000)));
     if (v->tq < 128u) v->tq = 128u;
@@ -337,7 +337,7 @@ static void individual(katy_t *s, unsigned vi, uint8_t note, uint8_t vel, int ne
     v->r2.g = sp->katydid == 1u ? (sp->l2 >> 7) * 10 : sp->katydid ? 550 : (sp->l2 * 5) >> 8;   /* the upper level; katydid: x 10 for */
     v->r3.g = sp->katydid == 2u ? 625 : 0;              /* the references' 11-18 kHz band, -10 dB, with the syllables */
                                                                       /* the low mode's build-up (by render) */
-    v->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);       /* own period CV 5 % (ours) */
+    v->tf = 32768 + ((tx_gauss_q12(r) * 1638) >> 12);       /* own period CV 10 % (ours) */
     v->alive = 1; v->stop = 0; v->em = em; v->keyed = (uint8_t)(em != 0xFF); v->note = note; v->in_call = 0; v->linger = 0;
     if (near == 1) bout_start(s, vi, 0);
     else { v->sing = 0; v->bl = 1u + ((tx_pop_pause(&LAW, r, act(s)) * (1u + tx_rand_below(r, 255u))) >> 8); tx_chorus_stop(&s->ch, vi); }
@@ -411,7 +411,7 @@ static void far_draw(katy_t *s, far_t *f)
     if (rl2 > 9 << 16) rl2 = 9 << 16;
     rr = (int32_t)tx_exp2(rl2 + (10 << 16));
     f->amp = (int32_t)((uint32_t)FAR_G[(s->p[P_SPECIES] * NSP) >> 7] * 1000u / (uint32_t)(rr < 300 ? 300 : rr));
-    f_l2 = ((int32_t)s->knote - 60) * 2731 + ((tx_gauss_q12(r) * 2789) >> 12);   /* the field: CV 3 % */
+    f_l2 = ((int32_t)s->knote - 60) * 2731 + ((tx_gauss_q12(r) * 2789) >> 12);   /* the field: CV 6 % */
     hz = (uint32_t)(((uint64_t)sp->f1 * tx_exp2(f_l2 + (16 << 16))) >> 16);
     if (hz > 16000u) hz = 16000u;
     f->inc = hz * 97391u;                                    /* 2^32 / fs per Hz */
@@ -427,7 +427,7 @@ static void far_draw(katy_t *s, far_t *f)
     if (f->len < 160u) f->len = 160u;
     if (f->len > 420u) f->len = 420u;
     f->nsyl = sp->katydid == 2u ? (uint8_t)(2u + tx_rand_below(r, 4u)) : sp->katydid ? 1u : (uint8_t)sp->nsyl;
-    hz = sp->katydid == 2u ? (TOOTH_HZ * tx_exp2(((tx_gauss_q12(r) * 4096) >> 12) + (16 << 16))) >> 16 : 0u;   /* +-1/4 oct */
+    hz = sp->katydid == 2u ? (TOOTH_HZ * tx_exp2(((tx_gauss_q12(r) * 4096) >> 12) + (16 << 16))) >> 16 : 0u;   /* sd 1/8 oct */
     f->tr = (uint16_t)(sp->katydid == 2u ? ms10(s, 10000u / (hz ? hz : 1u)) : ms10(s, sp->pspc));   /* tooth groups | pulses */
     if (f->tr < 8u) f->tr = 8u;
     f->sing = 0; f->syl = 0; f->sln = 0; f->on = 1;
@@ -479,10 +479,10 @@ TX_AUDIO_CODE static void far_block(katy_t *s, int32_t *mix, unsigned n, int hel
                     for (k = 0; k < nb && o < (int32_t)n && m < NEV; k++) {
                         int32_t y = (x * (nb - k)) / nb;
                         s->fo[m] = (uint16_t)o; s->fa[m] = (int16_t)(y > 32767 ? 32767 : y); m++;
-                        o += bp + (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * bp) >> 16);   /* +-10 % */
+                        o += bp + (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * bp) >> 16);   /* sd 12.5 % */
                     }
                 }
-                f->ni += (int32_t)f->tr + (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * f->tr) >> 15);   /* +-20 % */
+                f->ni += (int32_t)f->tr + (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * f->tr) >> 15);   /* sd 25 % */
                 continue;
             }
             if (f->syl && f->nx < (int32_t)n) {              /* a syllable */
@@ -517,10 +517,10 @@ TX_AUDIO_CODE static void far_block(katy_t *s, int32_t *mix, unsigned n, int hel
     if (m || !tx_ireso_quiet(&s->fr1) || !tx_ireso_quiet(&s->fr2)) tx_ireso_add2(&s->fr1, &s->fr2, s->fo, s->fa, m, mix, n);
 }
 
-/* the strike interval: the period x (1 + JITTER x a normal draw), at least 1/4 of it */
+/* the strike interval: the period x (1 + 2 JITTER x a normal draw: tx_gauss_q12 is SD 2), at least 1/4 of it */
 static int32_t interval_q8(katy_t *s, int32_t per_q8, uint32_t jq)
 {
-    int32_t j = sp_of(s)->katydid == 2u && s->jit < 6554 ? 6554 : s->jit;   /* a rasp: uneven teeth (SD >= 20 %) */
+    int32_t j = sp_of(s)->katydid == 2u && s->jit < 6554 ? 6554 : s->jit;   /* a rasp: uneven teeth (SD >= 40 %) */
     j = (int32_t)(((int64_t)j * jq) >> 8);
     int32_t d = (int32_t)(((int64_t)tx_gauss_q12(&s->cloud.rng) * j) >> 15);   /* Q12 */
     int32_t q = per_q8 + (int32_t)(((int64_t)per_q8 * d) >> 12);
