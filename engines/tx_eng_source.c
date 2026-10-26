@@ -87,6 +87,8 @@ static const tx_param_t PARAMS[NP] = {
 #define NM 32u                      /* members (callers) */
 #define NPEND 40u
 #define EVMAX 24u                   /* explicit heroes started per block */
+#define EV_BLK 28u                  /* rain: explicit events a block at most, on average (3400 /s; clumped rain's children
+                                     * count too): above, each is kept at random and stands for the ones thinned out */
 #define RATE_CAP 2500u              /* explicit events per second at most: above, each stands for several (rain; its grains) */
 
 typedef struct {
@@ -404,6 +406,7 @@ typedef struct {
     indiv_t ind[NI];                /* the events' individuals (rain patches, stones, drip points), ni drawn */
     uint8_t ni, cur_on, ipad[2];
     int32_t cur_r, cur_sz;          /* the individual of the event being made (cur_on) */
+    uint32_t ev_est;                /* rain: its events a block lately (Q8), for the thinning (EV_BLK) */
     tx_clu_cfg_t cf;                /* its character at the activity now */
 } src_t;
 
@@ -603,6 +606,7 @@ static const fam_t FAM[] = {
 /* heroes at most for a hosted engine whose heroes are dear (FM-1 worst block under half the pool, ~870 us) */
 static const struct { const char *eng; uint8_t max; } HCAP[] = {
     {"minerals", 3},                /* (~150 us a hero at ACTION's rub: 6 reached 1170 us at COUNT 127, 4 957 us) */
+    {"surf", 6},                    /* (shingle's top: 8 heroes reached ~940 us on the FM-1, 18 us a hero) */
     {"stream", 8},                  /* (a brook's or a waterfall's top: 16 heroes reached ~1100 us, 10 ~900 us; as
                                      * WATER_HEROES, the rest go to the bed) */
 };
@@ -2023,12 +2027,19 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     /* the events of this block in time order: immigrants and the children due (tx_core_cluster.h); each an individual's
      * (a child its parent's) */
     {
-        unsigned guard = 0, cn = count_n(s);
+        unsigned guard = 0, cn = count_n(s), nev = 0;
         tx_clu_ev_t ce;
         int off;
+        uint32_t keep = 65536u, wk = w_q8;                   /* rain thinned: kept at random (Q16), each standing for 1 / keep */
+        if (pa == PR_RAIN && s->ev_est > (EV_BLK << 8)) {
+            keep = (EV_BLK << 24) / s->ev_est;                /* (32-bit: ev_est <= 64 << 8, w_q8 well under 2^16) */
+            wk = (w_q8 > 65535u ? 65535u : w_q8) * (s->ev_est >> 4) / (EV_BLK << 4);
+        }
         s->clu.itag = (uint8_t)(cn > 1u ? tx_rand_below(r, cn) : 0u);
         while (guard++ < (pa == PR_RAIN ? 64u : 112u) && (off = tx_clu_next(&s->clu, r, &s->cf, n, &ce)) >= 0) {
             unsigned pre = pa;
+            nev++;
+            if (keep < 65536u && pre == PR_RAIN && (tx_rand(r) >> 16) >= keep) { if (!ce.kid) s->total++; continue; }
             if (eb && !ce.kid && (!ea || (tx_rand(r) >> 17) < (uint32_t)w)) pre = pb;
             if (pre == pa && ea && ce.tag < s->ni) {         /* its place: a stone's or a drip point's where it is; a rain */
                 const indiv_t *d = &s->ind[ce.tag];          /* patch's drops over the ground around, most far (the */
@@ -2037,12 +2048,13 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
                 s->cur_sz = (int32_t)d->sz * 16;
                 s->cur_on = 1;
             }
-            event(s, (unsigned)off, n, pre, 0, 100, pre == PR_RAIN ? w_q8 : 256u, ce.lv);
+            event(s, (unsigned)off, n, pre, 0, 100, pre == PR_RAIN ? wk : 256u, ce.lv);
             s->cur_on = 0;
             if (!ce.kid) s->total++;
             s->clu.itag = (uint8_t)(cn > 1u ? tx_rand_below(r, cn) : 0u);
         }
         tx_clu_end(&s->clu, n);
+        s->ev_est = (uint32_t)((int32_t)s->ev_est + (((int32_t)(nev << 8) - (int32_t)s->ev_est) >> 3));   /* (~8 blocks) */
     }
     /* callers (cicadas): their number, weighted by the morph */
     {

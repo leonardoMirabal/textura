@@ -53,13 +53,19 @@ static const tx_param_t PARAMS[NP] = {
 #define NBRK 3u                    /* breakers sounding at once (one wave train) */
 #define NBRK_MAX 10u               /* .. with more trains (COUNT): 3 + 1 a train past the first */
 #define NTR 8u                     /* wave trains at most (COUNT) */
-#define NB 8u                      /* roar bands */
+#define NB 4u                      /* roar bands (CPU: 4 wide bands fitted to the 8 octave bands' sum) */
 #define NH 16u                     /* bubble heroes */
 #define ROAR_REF 4000              /* roar band gain for a 1 m wave at its peak (Q11 units; calibrated by render) */
 
-static const uint16_t BAND_HZ[NB] = { 63, 125, 250, 500, 1000, 2000, 4000, 7000 };
-static const int16_t BAND_DB[NB] = { -9, -3, 0, 0, -2, -5, -10, -16 };   /* L38: flat 100-1600 Hz, -5..-6 dB / oct above
-                                                                       * 2 kHz; 63 Hz from HEIGHT (L38) */
+/* the roar's spectrum (L38): flat 100-1600 Hz, -5..-6 dB / oct above 2 kHz, the 63 Hz band from HEIGHT (L38); first
+ * as 8 octave bands (Q 1.4) of -9 (HEIGHT) -3 0 0 -2 -5 -10 -16 dB at 63 .. 7000 Hz, now as 4 two-octave bands at
+ * Q 0.9 whose gains (least squares on the complex sum, the same noise in) give the same response within 2 dB per
+ * third-octave (1 dB rms) for half the cost */
+static const uint16_t BAND_HZ[NB] = { 63, 250, 1000, 4000 };
+static const uint16_t BAND_G[NB] = { 4559, 7160, 5288, 1790 };   /* Q12 (1.113 1.748 1.291 0.437); the 63 Hz one at
+                                                                  * HEIGHT 64, +-6 dB over HEIGHT */
+#define ROAR_Q 18204                /* 16384 / 0.9 */
+#define ROAR_GIN_Q16 14u            /* Q x 16 for the noise gain */
 
 typedef struct {
     uint32_t t;                    /* samples since this breaker started (the approach) */
@@ -123,7 +129,7 @@ static void set_param(surf_t *s, unsigned id, unsigned v)
     if (id == P_HEIGHT) {
         s->h_l2 = -113800 + (int32_t)(v * 1720u);            /* log2(0.3 m) .. log2(3 m) */
         set_pipe(s);
-        s->rg[0] = (int32_t)(((int64_t)db_q15(BAND_DB[0] + (int32_t)v * 12 / 127) * ROAR_REF) >> 15);   /* -9 .. +3 dB */
+        s->rg[0] = (int32_t)(((int64_t)db_q15((int32_t)v * 12 / 127 - 6) * ROAR_REF * BAND_G[0]) >> 27);   /* -6 .. +6 dB */
         s->hg = (int32_t)tx_exp2((15 << 16) + ((int32_t)v - 64) * 860);   /* the break's level ~ sqrt(height): +-5 dB (ours:
                                                               * a 10 x higher wave plays 10 dB louder, not 20: playable) */
     }
@@ -150,8 +156,8 @@ static void surf_init(void *st, uint32_t seed)
     tx_pool_init(&s->pool, NH, s->limit);
     for (i = 0; i < NB; i++) {
         s->rf[i] = tx_svf_coef(BAND_HZ[i]);
-        s->rgin[i] = (int32_t)tx_svf_gin_noise(BAND_HZ[i], 22u);   /* Q 1.4: octave bands */
-        s->rg[i] = (int32_t)(((int64_t)db_q15(BAND_DB[i]) * ROAR_REF) >> 15);
+        s->rgin[i] = (int32_t)tx_svf_gin_noise(BAND_HZ[i], ROAR_GIN_Q16);
+        s->rg[i] = (ROAR_REF * (int32_t)BAND_G[i]) >> 12;
     }
     s->x32 = seed * 2654435761u + 5u;
     if (!s->x32) s->x32 = 1;
@@ -321,7 +327,7 @@ TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
                                                               * low bands take ~x 17 inside (unit noise power at Q 1.4) */
                 }
             }
-            tx_svf_bank_add_g(s->roar, s->rf, 11916, s->rgin, gb, NB, nz, buf, n);   /* q 1 / 1.4 */
+            tx_svf_bank_add_g(s->roar, s->rf, ROAR_Q, s->rgin, gb, NB, nz, buf, n);
         }
         if (!any && tx_svf_bank_quiet(s->roar, NB)) for (i = 0; i < NB; i++) s->roar[i].low = s->roar[i].band = s->roar[i].ef = 0;
         {   /* the cloud's fizz: bubble heroes at ~150 / s at a full wave's peak, 0.5 .. 4 mm, mostly deep */
@@ -377,8 +383,7 @@ TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
                     rt += (int32_t)(((int64_t)ca * (int32_t)(u * u >> 10)) >> 10);
                 }
                 if (!rt) continue;
-                x32 ^= x32 << 13; x32 ^= x32 >> 17; x32 ^= x32 << 5;
-                x = (int32_t)(x32 >> 17) - 16384;
+                x = (int32_t)((x32 >> 16) & 0x7FFFu) - 16384;   /* (the same draw's upper half: one a sample) */
                 x1 += (x - x1) >> 4;                         /* a stone's knock: noise high-passed (~0.4 kHz) and */
                 y += (x - x1 - y) >> 2;                      /* low-passed (~1.8 kHz): the references' shingle peaks at
                                                               * 0.5-1.3 kHz and falls above 3 kHz */
