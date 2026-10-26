@@ -450,9 +450,10 @@ int main(int argc, char **argv)
             if (c.mean < cmin) cmin = c.mean;
             snprintf(names + strlen(names), sizeof names - strlen(names), "%s%s %.0f/%.0f", j ? ", " : "", l->lane, c.mean, c.worst8);
         }
-        printf("   %-7s typical %5.0f us, worst %5.0f us: %s of the planned pool (%0.f) | lanes of this mix that fit, typical:"
-               " %u (planned) / %u (device) (11 at most)\n           (%s)\n", mx->name, typ, w8,
-               w8 <= pool4p ? "inside" : typ <= pool4p ? "typical inside, worst over" : "over", pool4p,
+        printf("   %-7s typical %5.0f us, worst %5.0f us: %s of the planned pool (%0.f), %s of the device pool (%.0f: the"
+               " governor's) | lanes of this mix that fit, typical: %u (planned) / %u (device) (11 at most)\n           (%s)\n",
+               mx->name, typ, w8, w8 <= pool4p ? "inside" : typ <= pool4p ? "typical inside, worst over" : "over", pool4p,
+               w8 <= pool4d ? "inside" : typ <= pool4d ? "typical inside, worst over" : "over", pool4d,
                (unsigned)(4.0 * pool11p / typ), (unsigned)(4.0 * pool11d / typ), names);
     }
     {   /* the effects: each one's cost, the chain against the effects reserve */
