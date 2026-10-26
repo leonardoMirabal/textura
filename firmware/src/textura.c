@@ -25,6 +25,12 @@ static void kv_host_vkey(uint32_t k, uint32_t raw) { (void)k; (void)raw; }   /* 
 #define LN_MOD                                  /* lanes.c calls the modulation (mod.c) at each block and note */
 static void mod_block(void);
 static void mod_key_isr(uint32_t k, uint32_t vel);
+#ifdef DINGHY_HOST
+#define LN_COST_EST                             /* the governor's costs: the host's stand-in (lanes.c) */
+#else
+#define LN_CLOCK() fm1_ticks()                  /* the governor's costs: timed on the FM-1's 24 MHz clock */
+#define LN_CLOCK_US(d) ((uint32_t)(d) / FM1_TICKS_PER_US)
+#endif
 #include "lanes.c"
 
 #define TX_PALETTE "RED"                        /* the default colour */
@@ -198,6 +204,10 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "oct")) snprintf(v, n, "%d", nt.oct);
     else if (!strcmp(key, "msg")) snprintf(v, n, "%s", ui_msg_t && fm1_ms - ui_msg_t < MSG_MS ? ui_msg : "");
     else if (!strcmp(key, "dropped")) snprintf(v, n, "%u", ln.dropped);
+    else if (!strcmp(key, "govus")) snprintf(v, n, "%u", ln_gov_us());            /* the governor: the pool's cost */
+    else if (!strcmp(key, "govpool")) snprintf(v, n, "%u", ln.gov.budget);
+    else if (!strcmp(key, "govcut")) { for (i = 0, k = 0; k < SC_N; k++) i += ln_gov_cur(k) < ln_gov_user(k); snprintf(v, n, "%u", i); }   /* lanes cut */
+    else if (sscanf(key, "gov%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", ln_gov_cur(k));   /* heroes now */
     else if (sscanf(key, "lane%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%s", ln_engine(k) ? ln_engine(k)->name : "-");
     else if (sscanf(key, "snd%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%s", sc_sound_name(k));
     else if (sscanf(key, "cnt%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc_cnt_of(k));
@@ -237,6 +247,10 @@ static int host_state(const char *key, char *v, unsigned n)
     else return 1;
     return 0;
 }
+#ifndef DINGHY_WEB
+static void host_gov_pool(uint32_t us) { ln.gov.budget = us ? us : LN_GOV_POOL_US; }   /* "T govpool US" (0: the
+                                                         * device's): a smaller pool, to watch the governor act */
+#endif
 static void host_dump(void)
 {
     static const char *const K[] = {"app", "palette", "splash", "page", "landscape", "sel", "mode", "oct", "dropped",

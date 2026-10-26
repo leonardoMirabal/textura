@@ -620,29 +620,75 @@ static void check_gen(void)
     }
 }
 
-/* ---- GOV: the CPU governor. Three lanes over budget: it takes heroes from the quietest lane first, one every 8
- * blocks, never below 2; back under 3/4 of the budget it gives one back a second, the loudest lane first, up to each
- * lane's own setting; and a source asked for fewer heroes keeps its loudest (the quietest go: tx_eng_source) */
+/* ---- GOV: the CPU governor (v2). Lanes whose cost is base + per x heroes: over the pool it cuts where a hero saves
+ * the most per level lost (the quiet, dear lane first), learns that a lane whose heroes cost nothing is not worth
+ * cutting, counts the inserts (tx_gov_fixed), never goes under 2; back under 3/4 of the pool it gives every hero back
+ * (the loudest lane first), then lifts the lanes with a ceiling while the pool has room, without ever bringing the
+ * next cut; and a source asked for fewer heroes keeps its loudest (the quietest go: tx_eng_source) */
+static void gov_run(tx_gov_t *g, const uint32_t *base, const uint32_t *per, const uint32_t *lvl, unsigned blocks,
+                    unsigned *cuts, int *first, unsigned *ups)
+{
+    uint8_t on[4] = {1, 1, 1, 1};
+    uint32_t cost[4], b;
+    unsigned k;
+    for (b = 0; b < blocks; b++) {
+        int x;
+        for (k = 0; k < 4; k++) cost[k] = base[k] + per[k] * g->cur[k] + (b * 7u + k * 13u) % 23u;   /* (a little noise) */
+        x = tx_gov_block(g, cost, lvl, on);
+        if (x >= 0 && g->cur[x] < 255u) {
+            if (cuts && b && ((g->avg >> 3) > g->budget || g->hold == 8)) { if (*first < 0) *first = x; (*cuts)++; }
+            else if (ups) (*ups)++;
+        }
+    }
+}
 static void check_gov(void)
 {
     tx_gov_t g;
-    uint32_t cost[3] = {1500, 1500, 1500}, lvl[3] = {300, 100, 200}, b, cuts = 0, first = 9;
-    uint8_t on[3] = {1, 1, 1};
-    char msg[220];
-    int ok = 1;
-    tx_gov_init(&g, 3, 3193);
-    tx_gov_user(&g, 0, 6); tx_gov_user(&g, 1, 6); tx_gov_user(&g, 2, 6);
-    for (b = 0; b < 200; b++) {                              /* 4500 us: over */
-        int k = tx_gov_block(&g, cost, lvl, on);
-        if (k >= 0) { cuts++; if (first == 9) first = (uint32_t)k; }
-    }
-    ok = first == 1 && g.cur[1] == TX_GOV_MIN && g.cur[0] >= g.cur[2] && g.cur[2] >= TX_GOV_MIN;
-    cost[0] = cost[1] = cost[2] = 500;                       /* 1500 us: well under */
-    for (b = 0; b < 172u * 30u; b++) tx_gov_block(&g, cost, lvl, on);
-    ok = ok && g.cur[0] == 6 && g.cur[1] == 6 && g.cur[2] == 6;
-    snprintf(msg, sizeof msg, "over budget: %u cuts, the quietest lane first (lane %u), none under %u; under: all back to 6 (%u %u %u)",
-             cuts, first + 1u, TX_GOV_MIN, g.cur[0], g.cur[1], g.cur[2]);
+    uint32_t base[4] = {200, 200, 200, 400}, per[4] = {60, 60, 20, 0}, lvl[4] = {300, 100, 200, 50}, tot, b;
+    unsigned cuts = 0, ups = 0, k;
+    int first = -1, ok;
+    char msg[300];
+    tx_gov_init(&g, 4, TX_GOV_POOL_PLANNED);
+    for (k = 0; k < 4; k++) tx_gov_user(&g, k, 8);
+    tx_gov_fixed(&g, 2, 200);                            /* lane 3 has a drive and a filter: +200 us */
+    /* 680 x 2 + 360 + 200 + 400 = 2320 us: over 1700 */
+    gov_run(&g, base, per, lvl, 1200u, &cuts, &first, 0);
+    for (tot = 0, k = 0; k < 4; k++) tot += base[k] + per[k] * g.cur[k] + g.fixed[k];
+    ok = g.cur[3] >= 7u && g.cur[1] <= g.cur[0] && g.cur[1] <= g.cur[2] && g.cur[1] < 8u && g.cur[1] >= TX_GOV_MIN
+         && tot <= TX_GOV_POOL_PLANNED + 23u * 4u;
+    snprintf(msg, sizeof msg, "over the pool (2320 of %u us): %u cuts, the quiet dear lane most (heroes now %u %u %u %u, "
+             "%u us); the lane whose heroes cost nothing lost at most the one that showed it (%u)", TX_GOV_POOL_PLANNED,
+             cuts, g.cur[0], g.cur[1], g.cur[2], g.cur[3], tot, g.cur[3]);
     verdict("gov", "lanes", ok, msg, 0);
+    base[0] = base[1] = base[2] = 50; base[3] = 100;     /* now well under: all back, then the headroom */
+    per[0] = per[1] = 30; per[2] = 10;
+    tx_gov_ceil(&g, 0, 12); tx_gov_ceil(&g, 2, 16); tx_gov_user(&g, 3, 8);   /* (lane 4 set afresh) */
+    gov_run(&g, base, per, lvl, 172u * 60u, 0, 0, &ups);
+    for (tot = 0, k = 0; k < 4; k++) tot += base[k] + per[k] * g.cur[k] + g.fixed[k];
+    ok = g.cur[1] == 8 && g.cur[3] >= 8 && g.cur[0] == 12 && g.cur[2] > 8 && g.cur[2] <= 16 && tot < TX_GOV_POOL_PLANNED / 4u * 3u + 23u * 4u;
+    cuts = 0;
+    gov_run(&g, base, per, lvl, 172u * 30u, &cuts, &first, 0);
+    ok = ok && !cuts;
+    snprintf(msg, sizeof msg, "under the pool: every hero back, then headroom to the ceilings (lane 1 12, lane 3 up to 16): "
+             "%u %u %u %u heroes, %u us (under 3/4 of the pool), then %u cuts in 30 s (no see-saw)",
+             g.cur[0], g.cur[1], g.cur[2], g.cur[3], tot, cuts);
+    verdict("gov", "headroom", ok, msg, 0);
+    {   /* one lane over half the pool on its own (the rest quiet): it gives heroes until it is under half */
+        tx_gov_t h;
+        uint32_t hb[4] = {300, 50, 50, 50}, hp[4] = {60, 10, 10, 10};
+        tx_gov_init(&h, 4, TX_GOV_POOL_PLANNED);
+        for (k = 0; k < 4; k++) tx_gov_user(&h, k, 12);
+        tx_gov_extra(&h, 30);                            /* (the modulation) */
+        cuts = 0; first = -1;
+        gov_run(&h, hb, hp, lvl, 172u * 10u, &cuts, &first, 0);
+        tot = hb[0] + hp[0] * h.cur[0];
+        ok = first == 0 && tot <= TX_GOV_POOL_PLANNED / 2u + 23u && tot + hp[0] > TX_GOV_POOL_PLANNED / 2u - 23u &&
+             h.cur[1] == 12 && h.cur[2] == 12 && h.cur[3] == 12;
+        snprintf(msg, sizeof msg, "a lane over half the pool alone (1020 of %u us, the total under it): %u cuts, all on it, "
+                 "now %u heroes, %u us; the others untouched (%u %u %u)", TX_GOV_POOL_PLANNED, cuts, h.cur[0], tot,
+                 h.cur[1], h.cur[2], h.cur[3]);
+        verdict("gov", "half", ok, msg, 0);
+    }
     {   /* the source keeps its loudest heroes when the pool shrinks */
         const tx_engine_t *e = tx_engine_find("source");
         if (e) {
@@ -1017,6 +1063,41 @@ static void check_fx(FILE *update)
          * holds) never silent, within 3 dB over 3 minutes (DRIFT 3.5: its random bends beat wider than the sines), 2 dB
          * once settled (its slow beating), bounded */
         verdict("fx", "freeze", lo > 0 && hi / lo < (t == TX_RVT_DRIFT ? 1.496 : 1.413) && hi2 / lo2 < 1.259 && pk < (1 << 23), msg, 0);
+    }
+    /* MIX turned under a ringing tail (SIZE AUTO) changes its level only, never its pitch: INFINITE's size is fixed,
+     * PLATE's latched while it rings. A burst, then silence; one run keeps MIX 64, the other moves it to 120 as the
+     * burst ends: the second tail must be the first scaled (the residue after the best gain under -40 dB) */
+    for (t = TX_RVT_INF; t < TX_RVT_N; t++) {
+        tx_fx_reverb_t *ra, *rb;
+        static int32_t La[TX_BLOCK], Ra[TX_BLOCK], Lb[TX_BLOCK], Rb[TX_BLOCK];
+        double sab = 0, saa = 0, sbb = 0, g, res;
+        uint32_t rng2 = 99u;
+        if (t == TX_RVT_DRIFT || t == TX_RVT_SWELL) continue;   /* (DRIFT bends by design; SWELL follows its send) */
+        ra = malloc(sizeof *ra); rb = malloc(sizeof *rb);
+        if (!ra || !rb) { free(ra); free(rb); break; }
+        tx_fx_reverb_init(ra); tx_fx_reverb_init(rb);
+        tx_fx_reverb_param(ra, TX_RV_TYPE, t); tx_fx_reverb_param(rb, TX_RV_TYPE, t);
+        tx_fx_reverb_param(ra, TX_RV_MIX, 64); tx_fx_reverb_param(rb, TX_RV_MIX, 64);
+        for (b = 0; b < 360u; b++) {
+            if (b == 30u) tx_fx_reverb_param(rb, TX_RV_MIX, 120);
+            for (j = 0; j < TX_BLOCK; j++) {
+                int32_t x = 0;
+                if (b < 30u) { rng2 = rng2 * 1664525u + 1013904223u; x = (int32_t)(rng2 >> 9) - (1 << 22); }
+                La[j] = Ra[j] = Lb[j] = Rb[j] = x;
+            }
+            tx_fx_reverb_process(ra, La, Ra, TX_BLOCK); tx_fx_reverb_process(rb, Lb, Rb, TX_BLOCK);
+            if (b >= 60u) for (j = 0; j < TX_BLOCK; j++) {
+                sab += (double)La[j] * Lb[j] + (double)Ra[j] * Rb[j];
+                saa += (double)La[j] * La[j] + (double)Ra[j] * Ra[j];
+                sbb += (double)Lb[j] * Lb[j] + (double)Rb[j] * Rb[j];
+            }
+        }
+        g = saa > 0 ? sab / saa : 0;
+        res = sbb > 0 ? (sbb - 2 * g * sab + g * g * saa) / sbb : 1;
+        snprintf(msg, sizeof msg, "%s, SIZE AUTO: MIX 64 -> 120 under its tail, the tail the same but %.2f dB (residue %.1f dB)",
+                 TN[t], 20 * log10(g > 0 ? g : 1e-9), 10 * log10(res > 1e-12 ? res : 1e-12));
+        verdict("fx", "mix pitch", saa > 0 && res < 1e-4, msg, 0);
+        free(ra); free(rb);
     }
     /* PLATE starts in O(1) over another TYPE's state: started over garbage = started over zeros */
     {

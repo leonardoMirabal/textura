@@ -33,6 +33,8 @@ typedef struct {
 void tx_fx_filter_init(tx_fx_filter_t *f);
 void tx_fx_filter_param(tx_fx_filter_t *f, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_filter_process(tx_fx_filter_t *f, int32_t *x, unsigned n);   /* mono Q23, in place */
+#define TX_FX_US_FILTER 96u        /* the filter's FM-1 cost a block, its dearest TYPE (make tx-budget section 4) */
+static inline uint32_t tx_fx_filter_us(const tx_fx_filter_t *f) { return f->p[TX_FL_TYPE] ? TX_FX_US_FILTER : 0u; }
 
 /* ---- DRIVE (per lane): Felucca's track drive as Frodhes' classic FDRV (TYPE 0) and Frodhes' four circuit TYPEs
  * (tx_fx_drive.c, tx_fx_drv_<type>.c; their state: tx_fx_drv.h) */
@@ -119,6 +121,7 @@ typedef struct {
     uint8_t rf[TX_BLOCK / CTL];                  /* ROOM: each control block's fade (0: none) */
     uint32_t rng;                                /* DRIFT: its walks' random numbers (never reseeded) */
     int32_t swe, swr;                            /* SWELL: the send's level (its envelope), the return's root gain (Q15) */
+    int32_t pz;                                  /* PLATE's AUTO size: MIX latched while it rings (-1: take MIX now) */
     int32_t pd[TX_PD_LEN];
     union { tx_hall_t h; tx_inf_t i; tx_plate_t p; struct { tx_chamber_t c; tx_hall_t h; } rm; } u;   /* (ROOM: the body + a short hall) */
 } tx_fx_reverb_t;
@@ -126,6 +129,7 @@ void tx_fx_reverb_init(tx_fx_reverb_t *r);
 void tx_fx_reverb_param(tx_fx_reverb_t *r, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *R, unsigned n);   /* Q23, adds */
 int tx_fx_reverb_quiet(const tx_fx_reverb_t *r);
+void tx_fx_reverb_relatch(tx_fx_reverb_t *r);   /* a whole sound loaded (a scene): PLATE's AUTO size from MIX at once */
 int tx_fx_reverb_frozen(const tx_fx_reverb_t *r);   /* holding its tail (SUSTAIN / FREEZE): never quiet */
 
 /* ---- the chain: TX_FX_LANES lane inserts and the reverb; the mix calls it through tx_mix_t's hooks */
@@ -143,5 +147,7 @@ void tx_fx_init(tx_fx_t *fx);
 TX_AUDIO_CODE void tx_fx_lane(void *fx, unsigned k, int32_t *x, unsigned n);          /* tx_mix_t.ins */
 TX_AUDIO_CODE void tx_fx_bus(void *fx, int32_t *L, int32_t *R, unsigned n);           /* tx_mix_t.bus */
 int tx_fx_bus_quiet(void *fx);                                                         /* tx_mix_t.busq */
+uint32_t tx_fx_lane_us(const tx_fx_t *fx, unsigned k);    /* lane k's inserts now, FM-1 us a block (the governor's
+                                                          * tx_gov_fixed: DRIVE tx_fx_drive_us + FILTER) */
 
 #endif

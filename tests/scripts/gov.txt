@@ -1,0 +1,19 @@
+# the CPU governor on the host (lanes.c: LN_COST_EST, the FM-1's costs stood in for by the heroes sounding): the
+# Water landscape plays on three lanes well inside the device's pool; a small pool cuts heroes on every playing
+# lane, and the full pool gives them all back, a hero a second
+1700 btn 13
+3000 expect state govpool 2500
+3000 expect state govcut 0
+3000 expect state gov0 6
+5000 govpool 200
+5000 expect state govpool 200
+9000 expect state govcut 3
+9000 expect rms > -70
+12000 govpool 0
+12000 expect state govpool 2500
+30000 expect state govcut 0
+30000 expect state gov0 6
+30000 expect state gov1 6
+30000 expect state gov2 6
+30000 expect state dropped 0
+31000 end

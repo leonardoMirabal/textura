@@ -191,10 +191,15 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
                 for (q = 0; q < ne && !gen_mute[k]; q++) mixer.e[k]->key(mixer.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
             }
             tx_mix_slot_render(&mixer, k, TX_BLOCK);
-            {   /* the governor's cost: this layer's block on the FM-1 (us) */
+            {   /* the governor's cost: this layer's block on the FM-1 (us), less its inserts (DRIVE, FILTER: given
+                 * apart, as the firmware's lanes.c: no hero buys them back) */
                 double us = (emscripten_get_now() - t0) * 1000.0 * gov_factor / 1000.0;
+                uint32_t f = tx_fx_lane_us(&fxc, (unsigned)k);
                 gov_cost[k] = us > 1e6 ? 1000000u : (uint32_t)us;
+                gov_cost[k] = gov_cost[k] > f ? gov_cost[k] - f : 0u;
                 gov_lvl[k] = (uint32_t)mixer.slot_peak[k];
+                gov_init();
+                tx_gov_fixed(&gov, (unsigned)k, mixer.e[k] ? f : 0u);
             }
             if (ret_g[k] || dc[k]) {                         /* the switched-out engine's fade, the decaying step */
                 int32_t g = ret_g[k], d = dc[k], last = 0;

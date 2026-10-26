@@ -8,7 +8,7 @@
  *               interrupt takes them at its next block
  *   interrupt   ln_block: the queue, then per lane its generator (tx_core_gen: the lane playing on its own, its
  *               activity and notes, as the player's) and one block of it, the effects, Q23 stereo; then the CPU
- *               governor (tx_core_gov.h) when the app gives it the lanes' costs (LN_CLOCK_US, below)
+ *               governor (tx_core_gov.h) when the app gives it the lanes' costs (LN_CLOCK or LN_COST_EST, below)
  *
  * A switched-out engine fades over 4 blocks (23 ms) in its own arena while the new one starts in the other, as the
  * player does, so a switch never clicks. This file knows nothing of the FM-1: tests/lanes_test.c runs it beside the
@@ -21,9 +21,20 @@
 
 #define LN_N TX_MIX_SLOTS                       /* lanes */
 #define LN_QN 128u                              /* queued events (a power of two) */
-#define LN_GOV_POOL_US 2500u                    /* the sources' CPU pool on the FM-1 (CLAUDE.md: ~2500 us a block) */
-/* LN_CLOCK_US(): the app's clock in us (the FM-1: its 24 MHz timer), for the governor's costs; without it (the host's
- * tests) the governor never acts, as the player's before its calibration */
+#define LN_GOV_POOL_US TX_GOV_POOL_DEVICE       /* the sources' CPU pool on the FM-1 (CLAUDE.md: ~2500 us a block) */
+/* The governor's costs, FM-1 us a block, from the app:
+ *   LN_CLOCK(), LN_CLOCK_US(d)   the device: its free-running clock (wrapping) and a difference of it in us; each
+ *                                lane's block is timed (less its inserts, which the governor is given apart) and so
+ *                                is the modulation
+ *   LN_COST_EST                  the host and the web (no FM-1 clock): a stand-in from the heroes sounding, the same
+ *                                every run, so the tests can rely on it
+ * Neither (tests/lanes_test.c): the governor never acts, as the player's before its calibration. */
+#if defined(LN_CLOCK) || defined(LN_COST_EST)
+#define LN_GOV
+#endif
+#define LN_EST_BASE 100u                        /* the stand-in: a lane's block, us, and each hero sounding more */
+#define LN_EST_HERO 20u                         /* (make tx-budget: 120..250 us typical, 5..60 a hero) */
+#define LN_EST_MOD 8u                           /* the modulation's stand-in, us (make tx-budget section 5: 4..30) */
 
 enum { LN_EV_KEY, LN_EV_PARAM, LN_EV_PAN, LN_EV_SWAP, LN_EV_OFF, LN_EV_FX, LN_EV_GEN_ON, LN_EV_GEN_PARAM,
        LN_EV_GEN_MUTE, LN_EV_HOST, LN_EV_GSYNC };
@@ -33,7 +44,8 @@ enum { LN_EV_KEY, LN_EV_PARAM, LN_EV_PAN, LN_EV_SWAP, LN_EV_OFF, LN_EV_FX, LN_EV
 const tx_engine_t *tx_source_hosted(const void *st);
 int tx_source_host_value(const void *st, unsigned id);
 void tx_source_host_param(void *st, unsigned id, unsigned val);
-enum { LN_FX_DRIVE, LN_FX_FILTER, LN_FX_REVERB, LN_FX_GRAIN };   /* ln_fx groups (as the player's txw_fx_param) */
+enum { LN_FX_DRIVE, LN_FX_FILTER, LN_FX_REVERB, LN_FX_GRAIN, LN_FX_RELATCH };   /* ln_fx groups (as the player's
+                                                 * txw_fx_param; RELATCH: a whole sound loaded, tx_fx_reverb_relatch) */
 typedef struct { uint8_t kind, lane, a, b, c; } ln_ev_t;
 
 static struct {
@@ -136,6 +148,18 @@ static int ln_host_value(uint32_t k, const tx_engine_t *src, const tx_engine_t *
 static int32_t ln_gen_activity(uint32_t k) { return k < LN_N ? ln.gen[k].a >> 8 : 0; }   /* 0..127, the walk now */
 static uint32_t ln_gov_cur(uint32_t k) { return k < LN_N ? ln.gov.cur[k] : 0u; }
 static uint32_t ln_gov_user(uint32_t k) { return k < LN_N ? ln.gov.user[k] : 0u; }
+static uint32_t ln_gov_us(void) { return ln.gov.avg >> 3; }   /* the pool's cost now, us (its ~8-block mean) */
+
+#ifdef LN_COST_EST
+/* the host's stand-in for a lane's block on the FM-1 (us): a base and its heroes sounding; nothing when quiet */
+static uint32_t ln_cost_est(uint32_t k)
+{
+    tx_stats_t s;
+    if (!ln.mix.e[k] || !ln.mix.e[k]->stats) return 0;
+    ln.mix.e[k]->stats(ln.mix.st[k], &s);
+    return s.quiet ? 0u : LN_EST_BASE + LN_EST_HERO * s.particles;   /* (quiet: it adds exact zeros, next to free) */
+}
+#endif
 
 /* ---- the interrupt side */
 static void ln_event(const ln_ev_t *v)
@@ -202,6 +226,7 @@ static void ln_event(const ln_ev_t *v)
         else if (v->a == LN_FX_FILTER && k < TX_FX_LANES) tx_fx_filter_param(&ln.fx.filter[k], v->b, v->c);
         else if (v->a == LN_FX_REVERB) tx_fx_reverb_param(&ln.fx.rev, v->b, v->c);
         else if (v->a == LN_FX_GRAIN) tx_fx_grain_param(&ln.fx.gd, v->b, v->c);
+        else if (v->a == LN_FX_RELATCH) tx_fx_reverb_relatch(&ln.fx.rev);
         break;
     }
 }
@@ -212,12 +237,22 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
     uint32_t k, j;
     while (ln.qr != ln.qw) { ln_event(&ln.q[ln.qr % LN_QN]); ln.qr++; }
 #ifdef LN_MOD
-    mod_block();                                /* the modulation: the LFOs, the matrix, its targets set (mod.c) */
+    {
+#ifdef LN_CLOCK
+        uint32_t t0 = LN_CLOCK();
+#endif
+        mod_block();                            /* the modulation: the LFOs, the matrix, its targets set (mod.c) */
+#ifdef LN_CLOCK
+        tx_gov_extra(&ln.gov, LN_CLOCK_US(LN_CLOCK() - t0));   /* (the pool carries it, no lane does) */
+#elif defined(LN_COST_EST)
+        tx_gov_extra(&ln.gov, LN_EST_MOD);
+#endif
+    }
 #endif
     tx_mix_begin(&ln.mix, n);
     for (k = 0; k < LN_N; k++) {
-#ifdef LN_CLOCK_US
-        uint32_t t0 = LN_CLOCK_US();
+#ifdef LN_CLOCK
+        uint32_t t0 = LN_CLOCK();
 #endif
         if (!ln.mix.e[k] && !ln.ret_g[k] && !ln.dc[k]) continue;
         if (ln.gen_on[k] && ln.mix.e[k]) {      /* the lane's generator: its activity and notes */
@@ -233,8 +268,17 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
             }
         }
         tx_mix_slot_render(&ln.mix, k, n);
-#ifdef LN_CLOCK_US
-        ln.gov_cost[k] = LN_CLOCK_US() - t0;    /* (the fade below is not the lane's: as the player) */
+#ifdef LN_GOV
+        {                                       /* (the fade below is not the lane's: as the player) */
+            uint32_t f = tx_fx_lane_us(&ln.fx, k);   /* its inserts (DRIVE, FILTER): apart, no hero buys them */
+#ifdef LN_CLOCK
+            uint32_t c = LN_CLOCK_US(LN_CLOCK() - t0);   /* (timed with the inserts: they are taken off) */
+            ln.gov_cost[k] = c > f ? c - f : 0u;
+#else
+            ln.gov_cost[k] = ln_cost_est(k);
+#endif
+            tx_gov_fixed(&ln.gov, k, ln.mix.e[k] ? f : 0u);
+        }
 #endif
         ln.gov_lvl[k] = (uint32_t)ln.mix.slot_peak[k];
         if (ln.ret_g[k] || ln.dc[k]) {          /* the switched-out engine's fade, the decaying step (as the player) */
@@ -255,7 +299,7 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
             if (!ln.ret_g[k]) ln.busy[k] = 0;   /* the arena is free again */
         }
     }
-#ifdef LN_CLOCK_US
+#ifdef LN_GOV
     {                                           /* the governor: over the pool, the quietest lane gives a hero */
         uint8_t on[LN_N];
         int pk;

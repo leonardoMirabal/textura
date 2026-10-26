@@ -228,6 +228,8 @@ static void scn_apply_poll(void)
         n++;
     }
     if (scn_ap_i >= scn_ap->nrec) {
+        if (ln_fx(LN_FX_RELATCH, 0, 0, 0)) return;   /* (the reverb's PLATE takes the new MIX's size at once; a full
+                                                     * queue: the next pass) */
         scn_ap_stage = 0;
         scn_cur = scn_ap_idx;
         ui_all();

@@ -10,7 +10,7 @@
 1920 expect state lab0 DROPS
 1920 expect state lab1 DIST
 1920 expect state lab2 SURFACE
-1920 expect state lab3 CLUMPS
+1920 expect state lab3 WIND
 1920 expect state card1 63
 2000 turn 2 10
 2020 expect state card0 74
@@ -18,17 +18,21 @@
 2100 shot
 2200 turn 0 1
 2220 expect state page SOUND_2/2
-2220 expect state lab0 LIFE
-2220 expect state lab1 WIND
-# lane 3, water drops: played by the source's own particles on this build, so the source's general cards
+2220 expect state lab0 CLUMPS
+2220 expect state lab1 LIFE
+# lane 3, water drops: the source's own drops, by their physical names (HEIGHT = HARD, POOL = TONE)
 2260 btn 1
 2300 btn 1
 2320 expect state sel 3
 2320 expect state page SOUND_2/2
-2320 expect state lab0 NEAR
+2320 expect state lab0 CLUMPS
+2320 expect state lab1 LIFE
+2320 expect state lab2 DIST
 2350 turn 0 -1
-2370 expect state lab1 SPREAD
-2370 expect state lab3 HARD
+2370 expect state lab0 SIZE
+2370 expect state lab1 HEIGHT
+2370 expect state lab2 POOL
+2370 expect state lab3 SCATTER
 # lane 4, cave drips: the drip's own (hosted) parameters, over the source's curves
 2400 btn 1
 2420 expect state sel 4

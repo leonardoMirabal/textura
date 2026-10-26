@@ -19,4 +19,55 @@
 8000 shot
 8100 expect sound
 8100 expect state dropped 0
-8200 end
+# the SOUND cards by the approved names (sound_cards.h; a card waits for its engine's parameter): thunder's JAGGED
+# (= TORT), HEIGHT; the storm's DIST, AGE, SURFACE; rain on a roof's SURFACE, DROPS, INSIDE, AREA
+8300 btn 6
+8350 expect state page SOUND
+8350 expect state lab0 JAGGED
+8350 expect state lab1 HEIGHT
+8350 expect state lab2 -
+8400 btn 0
+8450 expect state sel 3
+8450 expect state lab0 DIST
+8450 expect state lab1 AGE
+8450 expect state lab2 SURFACE
+8450 expect state lab3 -
+8500 btn 0
+8550 expect state sel 2
+8550 expect state page SOUND_1/2
+8550 expect state lab0 SURFACE
+8550 expect state lab1 DROPS
+8550 expect state lab2 INSIDE
+8550 expect state lab3 AREA
+# lane 2's next sounds (K1 on LANDSCAPE): the gales' GUST, SCALE, EXPOSED (= BUFFET), FOLIAGE / WHOOSH, EDGE, DIST; hail's
+# STONES (= DROPS), AREA, INSIDE, DIST
+8600 btn 8
+8650 turn 2 1
+8700 expect state snd1 ridge_gale
+8750 btn 6
+8800 expect state page SOUND_1/2
+8800 expect state lab0 GUST
+8800 expect state lab1 SCALE
+8800 expect state lab2 EXPOSED
+8800 expect state lab3 FOLIAGE
+8850 turn 0 1
+8900 expect state lab0 WHOOSH
+8900 expect state lab1 EDGE
+8900 expect state lab2 DIST
+8900 expect state lab3 -
+8950 btn 8
+9000 turn 2 2
+9050 expect state snd1 winter_storm
+9100 btn 6
+9150 expect state lab2 EXPOSED
+9200 btn 8
+9250 turn 2 3
+9300 expect state snd1 hail_on_a_roof
+9350 btn 6
+9400 expect state page SOUND
+9400 expect state lab0 STONES
+9400 expect state lab1 AREA
+9400 expect state lab2 INSIDE
+9400 expect state lab3 DIST
+9500 expect state dropped 0
+9600 end

@@ -15,7 +15,7 @@ const tx_param_t tx_fx_reverb_params[TX_RV_NP] = {
     {"DECAY", 127, 64, "hall: x0.5 .. x2 the time; infinite / dark / drift / swell: T60 4 .. 60 s, 120..126 sustain, 127 freeze; plate: T60 0.8 .. 6 s; room: the walls (127 = hard, long)"},
     {"TONE", 127, 64, "the tail's top: 0 dark .. 64 as designed .. 127 bright; room: the body's resonance"},
     {"PREDELAY", 127, 0, "before the reverb: 0 .. 80 ms"},
-    {"SIZE", 127, 0, "0 = from MIX (auto); 1..127 the size (room: 0.2 .. 3 m)"},
+    {"SIZE", 127, 0, "0 = auto (HALL, PLATE: from MIX; INFINITE: fixed); 1..127 the size (room: 0.2 .. 3 m)"},
     {"MOD", 127, 64, "the tail's slow wander (hall, infinite, plate; drift: its random bend): none .. 2x"},
     {"LOWCUT", 127, 0, "a high-pass on the send: off (0), 20 .. 800 Hz"},
     {"SHIMMER", 127, 0, "the tail shifted up and fed back into the reverb: none .. a rising, ringing halo"},
@@ -87,6 +87,13 @@ static void shimmer(tx_fx_reverb_t *r, const int32_t *mid)
     else if (r->shg < 32768) r->shg += ((32768 - r->shg) >> 9) + 1;
 }
 
+/* SIZE 0 = AUTO. HALL: from MIX, as always. The INFINITE kernel (INFINITE, DARK, DRIFT, SWELL): a fixed TX_RV_INF_AUTO,
+ * since a SIZE change glides its lines' lengths, a Doppler bend of the whole tail (-50 .. -250 cents while MIX moved
+ * 64 -> 120 under a held tail), and its tails ring for seconds .. for ever: MIX is the level only. PLATE: MIX, latched
+ * while the plate rings (pz; a size step moves its delays: MIX turned under a tail scrambled its pitch), taken anew
+ * from silence or when a whole sound loads (tx_fx_reverb_relatch). As Frodhes' fixes (its inf-size branch; its
+ * INFINITE size is 64, ours 90: our FREEZE check's size, the steadier hold) */
+#define TX_RV_INF_AUTO 90                       /* (MIX 90's old size: a FREEZE holds within 3 dB) */
 static void rev_begin(tx_fx_reverb_t *r, uint32_t t)
 {
     tx_fx_memset(r->m, 0, sizeof r->m); tx_fx_memset(r->s, 0, sizeof r->s); r->hp = r->he = 0;
@@ -94,7 +101,7 @@ static void rev_begin(tx_fx_reverb_t *r, uint32_t t)
     r->cur = (uint8_t)kern(t);
     if (r->cur == TX_RVT_HALL) tx_hall_start(&r->u.h);
     else if (r->cur == TX_RVT_INF) tx_inf_start(&r->u.i);
-    else if (r->cur == TX_RVT_PLATE) tx_plate_start(&r->u.p);
+    else if (r->cur == TX_RVT_PLATE) tx_plate_start(&r->u.p), r->pz = -1;
     else if (r->cur == TX_RVT_ROOM) { tx_chamber_init(&r->u.rm.c); tx_chamber_param(&r->u.rm.c, TX_CH_TAIL, 0); tx_hall_start(&r->u.rm.h); }
 }
 static int rev_active(const tx_fx_reverb_t *r)
@@ -114,7 +121,9 @@ void tx_fx_reverb_init(tx_fx_reverb_t *r)
     r->cur = TX_RVT_OFF;
     r->rng = 0x6C078965u;
     r->swr = 32768;
+    r->pz = -1;
 }
+void tx_fx_reverb_relatch(tx_fx_reverb_t *r) { *(volatile int32_t *)&r->pz = -1; }
 void tx_fx_reverb_param(tx_fx_reverb_t *r, unsigned id, unsigned v)
 {
     if (id < TX_RV_NP) r->p[id] = (uint8_t)(v > tx_fx_reverb_params[id].max ? tx_fx_reverb_params[id].max : v);
@@ -229,7 +238,7 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
                 tx_hall_run(&r->u.rm.h, in, shon ? r->sh : 0, 2 + (zv ? zv : 64) * 30 / 127 + r->off / 2, r->damp, md, om, os);
             else if (cur == TX_RVT_INF) {
                 tx_rev_ctl_t c;
-                c.decay = r->dk; c.damp = r->damp; c.size = zv ? zv : v; c.mod = r->p[TX_RV_MOD]; c.dark = dark;
+                c.decay = r->dk; c.damp = r->damp; c.size = zv ? zv : TX_RV_INF_AUTO; c.mod = r->p[TX_RV_MOD]; c.dark = dark;
                 c.drift = tgt == TX_RVT_DRIFT ? &r->rng : 0;
                 c.freeze = kern((uint32_t)tgt) != TX_RVT_INF || r->dk < 120 ? 0 : r->dk < 127 ? 1 : 2;
                 tx_rev_down(in, &r->hp, &r->he, r->x);
@@ -238,7 +247,8 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
                 if (tgt == TX_RVT_SWELL || r->swr != 32768) swell(r, tgt == TX_RVT_SWELL ? spk : 0, om, os);
             } else if (cur == TX_RVT_PLATE) {
                 tx_rev_ctl_t c;
-                c.decay = r->dk; c.damp = r->damp; c.size = zv ? zv : v; c.mod = r->p[TX_RV_MOD];
+                if (r->pz < 0 || !tx_plate_active(&r->u.p)) r->pz = v;   /* (AUTO: MIX's size, taken from silence) */
+                c.decay = r->dk; c.damp = r->damp; c.size = zv ? zv : r->pz; c.mod = r->p[TX_RV_MOD];
                 c.freeze = 0; c.dark = 0; c.drift = 0;
                 tx_rev_down(in, &r->hp, &r->he, r->x);
                 if (shon) for (i = 0; i < HL_NC; i++) r->x[i] += r->sh[i];
@@ -304,6 +314,10 @@ TX_AUDIO_CODE void tx_fx_lane(void *u, unsigned k, int32_t *x, unsigned n)
     if (k >= TX_FX_LANES) return;
     tx_fx_drive_process(&fx->drive[k], x, n);
     tx_fx_filter_process(&fx->filter[k], x, n);
+}
+uint32_t tx_fx_lane_us(const tx_fx_t *fx, unsigned k)
+{
+    return k < TX_FX_LANES ? tx_fx_drive_us(&fx->drive[k]) + tx_fx_filter_us(&fx->filter[k]) : 0u;
 }
 /* the grain delay's dynamic cap: the grains the effects reserve leaves after the reverb's TYPE (FM-1 us a block,
  * CPU-BUDGET.md section 8: the reverb's worst per TYPE, the delay's line + echo, a sounding grain) */

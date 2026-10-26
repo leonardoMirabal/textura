@@ -331,7 +331,8 @@ static void eng_host_report(void);              /* engine.c: the engines' host c
  *   T expect state K V   fails unless the state K (frodhes.c host_state: header, page, card0..3, oct, ...) reads V
  *                        (V: one word, '_' for a space)
  *   T usblink V          the USB link up (1, the default) or the cable out (0): the pitch bend resets (frodhes.c)
- *   T web V            the web panel's LFO click (1: a click latches mod learn, as web/app.js; Textura)
+ *   T web V              the web panel's LFO click (1: a click latches mod learn, as web/app.js; Textura)
+ *   T govpool US         the CPU governor's pool, us a block (0: the device's; Textura: to watch it act)
  *   T usbrec V           a computer reads the USB audio (1) or not (0): the automatic saves go as without (fm1_flash.h fl_split_op)
  *   T dump               prints the state, one "@ T K V" line each (every page's cards, the parameters, LEDs ...)
  *   T end                stop; the exit code is the number of failed expects
@@ -346,8 +347,9 @@ static void eng_host_report(void);              /* engine.c: the engines' host c
  * With FRODHES_FLASH=FILE the flash is kept in FILE across runs (host_flash_load / host_flash_save). */
 enum { EV_KEYS, EV_BTN, EV_PRESS, EV_RELEASE, EV_TURN, EV_MIDI, EV_SHOT, EV_EXP_LED, EV_EXP_RMS, EV_EXP_PRESET,
        EV_EXP_SOUND, EV_EXP_STATE, EV_DUMP, EV_USBREC, EV_USBLINK, EV_VKEY, EV_TRS,
-       EV_VEL, EV_XKEY, EV_PAD, EV_FADER, EV_WHEEL, EV_PEDAL, EV_STALL, EV_RLOAD, EV_WEB };
+       EV_VEL, EV_XKEY, EV_PAD, EV_FADER, EV_WHEEL, EV_PEDAL, EV_STALL, EV_RLOAD, EV_WEB, EV_GOVPOOL };
 static void ui_click_learn_set(int on);          /* (Textura's ui.c: "T web V") */
+static void host_gov_pool(uint32_t us);         /* (Textura's textura.c: "T govpool US") */
 static int host_preset_check(char *msg, unsigned n);   /* frodhes.c: 0 if the panel is the shown preset */
 static int host_sound_check(char *msg, unsigned n);    /* frodhes.c: 0 if the engines run what the panel says */
 static int host_state(const char *key, char *val, unsigned n);   /* frodhes.c: 0 if K is known */
@@ -418,6 +420,7 @@ static void read_script(const char *path)
         else if (!strcmp(what, "shot")) e.kind = EV_SHOT;
         else if (!strcmp(what, "dump")) e.kind = EV_DUMP;
         else if (!strcmp(what, "web")) { e.kind = EV_WEB; sscanf(line, "%*u %*s %d", &e.a); }
+        else if (!strcmp(what, "govpool")) { e.kind = EV_GOVPOOL; sscanf(line, "%*u %*s %d", &e.a); }
         else if (!strcmp(what, "usblink")) { e.kind = EV_USBLINK; sscanf(line, "%*u %*s %d", &e.a); }
         else if (!strcmp(what, "usbrec")) { e.kind = EV_USBREC; sscanf(line, "%*u %*s %d", &e.a); }
         else if (!strcmp(what, "vkey")) { e.kind = EV_VKEY; sscanf(line, "%*u %*s %d %d", &e.a, &e.b); }
@@ -582,6 +585,7 @@ static void host_ms(void)
         case EV_USBREC: host_usb_rec = e->a != 0; break;
         case EV_USBLINK: host_usb_link = e->a != 0; break;
         case EV_WEB: ui_click_learn_set(e->a); break;
+        case EV_GOVPOOL: host_gov_pool((uint32_t)e->a); break;
         case EV_VKEY: kv_host_vkey((uint32_t)e->a, (uint32_t)e->b); break;
         case EV_EXP_LED:
             if ((uint32_t)e->a >= 64u || host_led[e->a] != (uint8_t)e->b) {
