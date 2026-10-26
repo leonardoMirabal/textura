@@ -31,7 +31,13 @@
  * Fire: the approved study's ranking (2026-10-26), four on the first page: SIZE, MOIST, DRAUGHT, WOOD on the open
  * fires (MOIST first on kindling and leaves, where the wet is the sound), the fireplace's ROAR (the chimney's draw)
  * third; embers MOIST, WOOD, BURSTY, DIST (no flame: no ROAR); the torch ROAR first. The flame is the candle: FLOW,
- * DRAUGHT, SPUTTER, SLOPE. The source's EXTRA, SPACING and DEPTH do nothing on a fire, so no general card is left. */
+ * DRAUGHT, SPUTTER, SLOPE. The source's EXTRA, SPACING and DEPTH do nothing on a fire, so no general card is left.
+ *
+ * Insects: the approved study's ranking (2026-10-26). Crickets TEMP, CHORUS (their FIELD: the far chorus), SYNC; the
+ * katydid's RASP is its JITTER, the grasshopper's PEGS first. The cicadas are the source's own callers: their cards
+ * are its knobs by the cicada's names (SIZE the body, RING the tymbal's Q = TONE, BUZZ = HARD, DEPTH the chorus spread
+ * in distance). Bees: SWARM, SPEED, the swarm's wingbeat SPREAD. A SIZE (the body) for crickets and katydids waits for
+ * the engines' parameter. EXTRA, SPACING and DEPTH (but the cicadas') do nothing on an insect. */
 #ifndef TX_SOUND_CARDS_H
 #define TX_SOUND_CARDS_H
 #include <stdint.h>
@@ -109,6 +115,26 @@ static const scd_sound_t SCD[] = {
     {"torch", "fire", 6, {F_ROAR, F_DRAUGHT, F_SIZE, F_MOIST, F_WOOD, DIST_CARD}},
     {"flame", "candle", 5, {{"FLOW", "FLOW", CK_HOST}, {"DRAUGHT", "DRAUGHT", CK_HOST}, {"SPUTTER", "SPUTTER", CK_HOST},
                             {"SLOPE", "SLOPE", CK_HOST}, DIST_CARD}},
+    /* Insects */
+#define I_TEMP {"TEMP", "TEMP", CK_HOST}
+#define I_CHORUS {"CHORUS", "FIELD", CK_HOST}
+#define I_SYNC {"SYNC", "SYNC", CK_HOST}
+#define I_RASP {"RASP", "JITTER", CK_HOST}
+#define C_CARDS(a, b, c, d) {a, b, c, d, {"BUZZ", "HARD", 0}}
+#define C_SIZE {"SIZE", "SIZE", 0}
+#define C_RING {"RING", "TONE", 0}
+#define C_DEPTH {"DEPTH", "DEPTH", 0}
+#define B_CARDS {{"SWARM", "SWARM", CK_HOST}, {"SPEED", "SPEED", CK_HOST}, DIST_CARD, {"SPREAD", "SPREAD", CK_HOST}}
+    {"field cricket", "crickets", 4, {I_TEMP, I_CHORUS, I_SYNC, DIST_CARD}},
+    {"tree cricket", "crickets", 4, {I_TEMP, I_CHORUS, I_SYNC, DIST_CARD}},
+    {"mole cricket", "crickets", 4, {I_TEMP, I_CHORUS, DIST_CARD, I_SYNC}},
+    {"cicada", 0, 5, C_CARDS(C_SIZE, C_RING, C_DEPTH, DIST_CARD)},
+    {"small cicada", 0, 5, C_CARDS(C_SIZE, C_RING, C_DEPTH, DIST_CARD)},
+    {"cicada chorus", 0, 5, C_CARDS(C_DEPTH, C_SIZE, C_RING, DIST_CARD)},
+    {"katydid", "katydids", 5, {I_TEMP, I_RASP, I_CHORUS, DIST_CARD, I_SYNC}},
+    {"grasshopper", "katydids", 6, {{"PEGS", "PEGS", CK_HOST}, I_TEMP, I_RASP, DIST_CARD, I_CHORUS, I_SYNC}},
+    {"honeybee", "bees", 4, B_CARDS},
+    {"bumblebee", "bees", 4, B_CARDS},
     /* Storm's hail */
 #define HAIL_CARDS {{"STONES", "DROPS", CK_HOST}, {"AREA", "AREA", CK_HOST}, {"INSIDE", "INSIDE", CK_HOST}, \
                     {"RAIN", "RAIN", CK_HOST}, {"BOUNCE", "BOUNCE", CK_HOST}, DIST_CARD}

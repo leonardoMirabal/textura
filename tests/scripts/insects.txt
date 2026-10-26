@@ -1,0 +1,119 @@
+# the Insects landscape's SOUND cards (sound_cards.h, the approved study): crickets TEMP, CHORUS (FIELD), SYNC, DIST;
+# the cicadas the source's own knobs by their names: SIZE, RING (TONE), DEPTH, DIST / BUZZ (HARD); katydid TEMP, RASP
+# (JITTER), CHORUS, DIST / SYNC; grasshopper PEGS first; bees SWARM, SPEED, DIST, SPREAD. No general card
+1700 turn 1 7
+2100 expect state landscape Insects
+2100 btn 13
+2200 expect state run0 1
+2300 expect state snd0 field_cricket
+2300 expect state snd1 tree_cricket
+2300 expect state snd2 mole_cricket
+2300 expect state snd3 cicada
+2400 btn 6
+2450 expect state page SOUND
+2450 expect state sel 1
+2450 expect state lab0 TEMP
+2450 expect state lab1 CHORUS
+2450 expect state lab2 SYNC
+2450 expect state lab3 DIST
+2500 btn 1
+2550 expect state sel 2
+2550 expect state lab0 TEMP
+2550 expect state lab1 CHORUS
+2550 expect state lab2 SYNC
+2550 expect state lab3 DIST
+2600 btn 1
+2650 expect state sel 3
+2650 expect state lab0 TEMP
+2650 expect state lab1 CHORUS
+2650 expect state lab2 DIST
+2650 expect state lab3 SYNC
+2700 btn 1
+2750 expect state sel 4
+2750 expect state lab0 SIZE
+2750 expect state lab1 RING
+2750 expect state lab2 DEPTH
+2750 expect state lab3 DIST
+2800 turn 0 1
+2850 expect state lab0 BUZZ
+2850 expect state lab1 -
+2850 expect state lab2 -
+2850 expect state lab3 -
+2900 turn 0 -1
+2950 btn 0
+2970 btn 0
+3000 expect state sel 2
+3050 btn 8
+3100 turn 2 1
+3150 expect state snd1 small_cicada
+3200 btn 6
+3250 expect state lab0 SIZE
+3250 expect state lab1 RING
+3250 expect state lab2 DEPTH
+3250 expect state lab3 DIST
+3300 turn 0 1
+3350 expect state lab0 BUZZ
+3350 expect state lab1 -
+3350 expect state lab2 -
+3350 expect state lab3 -
+3400 turn 0 -1
+3450 btn 8
+3500 turn 2 1
+3550 expect state snd1 cicada_chorus
+3600 btn 6
+3650 expect state lab0 DEPTH
+3650 expect state lab1 SIZE
+3650 expect state lab2 RING
+3650 expect state lab3 DIST
+3700 turn 0 1
+3750 expect state lab0 BUZZ
+3750 expect state lab1 -
+3750 expect state lab2 -
+3750 expect state lab3 -
+3800 turn 0 -1
+3850 btn 8
+3900 turn 2 1
+3950 expect state snd1 katydid
+4000 btn 6
+4050 expect state lab0 TEMP
+4050 expect state lab1 RASP
+4050 expect state lab2 CHORUS
+4050 expect state lab3 DIST
+4100 turn 0 1
+4150 expect state lab0 SYNC
+4150 expect state lab1 -
+4150 expect state lab2 -
+4150 expect state lab3 -
+4200 turn 0 -1
+4250 btn 8
+4300 turn 2 1
+4350 expect state snd1 grasshopper
+4400 btn 6
+4450 expect state lab0 PEGS
+4450 expect state lab1 TEMP
+4450 expect state lab2 RASP
+4450 expect state lab3 DIST
+4500 turn 0 1
+4550 expect state lab0 CHORUS
+4550 expect state lab1 SYNC
+4550 expect state lab2 -
+4550 expect state lab3 -
+4600 turn 0 -1
+4650 btn 8
+4700 turn 2 1
+4750 expect state snd1 honeybee
+4800 btn 6
+4850 expect state lab0 SWARM
+4850 expect state lab1 SPEED
+4850 expect state lab2 DIST
+4850 expect state lab3 SPREAD
+4900 btn 8
+4950 turn 2 1
+5000 expect state snd1 bumblebee
+5050 btn 6
+5100 expect state lab0 SWARM
+5100 expect state lab1 SPEED
+5100 expect state lab2 DIST
+5100 expect state lab3 SPREAD
+5150 expect state dropped 0
+5300 end
