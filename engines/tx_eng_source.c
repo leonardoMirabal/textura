@@ -431,7 +431,8 @@ typedef struct {
     int32_t cur_r, cur_sz;          /* the individual of the event being made (cur_on) */
     uint32_t ev_est;                /* rain: its events a block lately (Q8), for the thinning (EV_BLK) */
     uint32_t owe_q8;                /* rain: the drops held back by EV_HARD, carried by the next kept one (Q8) */
-    uint16_t hnear, pad_n;          /* the hosted sound's nearest gain (Q12; 0: 32767) */
+    uint16_t hnear;                 /* the hosted sound's nearest gain (Q12; 0: 32767) */
+    uint8_t hskip, pad_n;           /* 1: the hosted sound was switched in for this block (it renders from the next) */
     tx_clu_cfg_t cf;                /* its character at the activity now */
 } src_t;
 
@@ -1675,6 +1676,7 @@ static void host_switch(src_t *s, unsigned pre)
         }                                                    /* velocity the moment the sound changes) */
                                                              /* (in bouts: host_render presses it when the gate opens) */
         s->quiet = 0;
+        s->hskip = 1;                                        /* (its first render: the next block) */
     } else {                                                 /* the particle presets: fresh pools */
         s->hst = 0; s->hd = 0;
         tx_pool_init(&s->pool, NV, pool_lim(s));
@@ -1760,6 +1762,16 @@ TX_AUDIO_CODE static void host_render(src_t *s, int32_t *mix, unsigned n)
     tx_stats_t st;
     int32_t gdb, x = s->i_eff, a = s->hd->g0, b = s->hd->g64;
     life_block(s);
+    if (s->hskip) {                                          /* the block the sound was switched in: its state set up */
+        unsigned j;                                          /* there (the clear, init, curves), its first render from */
+        s->hskip = 0;                                        /* the next block: the two costs never in one block (5.8 ms */
+        for (j = 0; j < n; j++) s->buf[j] = 0;               /* of the new sound later; the last one's declick on) */
+        tx_declick_run(&s->dc, s->buf, n);
+        for (j = 0; j < n; j++) { mix[j] += s->buf[j]; s->buf[j] = 0; }
+        s->now += n;
+        s->quiet = 0;
+        return;
+    }
     {   /* COUNT to 0 and back while held: the player's key up / down on the engine (tails ring) */
         int on;
         if (s->hd->k0 & 2u) host_gate(s);
