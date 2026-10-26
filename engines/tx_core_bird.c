@@ -86,7 +86,7 @@ static const sp_t SP[TX_BIRD_TYPES] = {
      * fixed resonance, its own pitch per bird's tree: refs 540-1030 Hz, ringing ~5 ms); rolls of 6-30 strikes, 17-23 /s,
      * most quickening toward the end (refs: the last quarter's interval 0.7-0.8 of the first), a few slowing; rolls
      * ~5 s apart in a bout */
-    {ST_WOODPECKER, -150, 150, 6, 9, 6, 9, 0, 224, 0, 4, 4, 2, 8, 3000, 9000, 0, 48, 6, 0, 625918, 2000},
+    {ST_WOODPECKER, -150, 150, 6, 9, 6, 9, 0, 224, 0, 4, 4, 2, 8, 3000, 9000, 0, 255, 6, 0, 625918, 2000},
     /* 18 wood pigeon: a phrase of a short rising coo, a short coo, one long coo (0.9-1.4 s, falling 0.07-0.22 oct) and a
      * short low one, ~650 Hz, 2.5-3.4 s apart, 3-5 in a bout; soft, hollow: a closed bill, an inflated throat. Breathy:
      * the references' coos carry a noise from 1.2 to 12 kHz that follows them (envelope corr 0.97-0.99, -29 .. -40 dB
@@ -528,11 +528,13 @@ static void phrase_start(tx_bird_voice_t *v)
             uint32_t g = 44u + ((h >> 5) & 15u) + (uint32_t)rs(&v->rng, -2, 6);   /* 1 / (16 .. 23 /s), ms; each roll its own */
             int32_t dg = (int32_t)(3u + ((h >> 12) & 3u)) + rs(&v->rng, -1, 1);   /* 2 .. 7 ms per third */
             if (mix(v->seed, 33u) & 3u) dg = -dg;            /* three birds in four quicken */
-            uint32_t n1 = n / 3u, n2 = n / 3u;
-            v->plev = 0;
+            uint32_t n1 = n / 4u, n2 = n / 3u, n3 = n > n1 + n2 + 1u ? (n - n1 - n2) / 2u : 1u, n4 = n > n1 + n2 + n3 ? n - n1 - n2 - n3 : 1u;
+            v->plev = 0;                                     /* the strikes swell in, hold, and tire toward the end (the
+                                                              * references: the last third 2 .. 8 dB under the loudest) */
             seg(v, SYL(C_KNOCK, 0), n1 ? n1 : 1u, g - 7u, 230, 160, 0);
             seg(v, SYL(C_KNOCK, 1), n2 ? n2 : 1u, (uint32_t)((int32_t)g + dg) - 7u, 255, 255, 0);
-            seg(v, SYL(C_KNOCK, 2), n - n1 - n2 ? n - n1 - n2 : 1u, (uint32_t)((int32_t)g + 2 * dg) - 7u, 190, 255, 0);
+            seg(v, SYL(C_KNOCK, 2), n3, (uint32_t)((int32_t)g + 2 * dg) - 7u, 200, 255, 0);
+            seg(v, SYL(C_KNOCK, 2), n4, (uint32_t)((int32_t)g + 2 * dg) - 7u, 120, 255, 0);
         }
         break;
     case ST_PIGEON:                                          /* its phrase: coo, coo, a long COOO, a low coo */

@@ -140,7 +140,7 @@ static const preset_t PRE[NPRE] = {
     {4, 14, 0, 0, 1100, 0},        /* curlew (an estuary) */
     {4, 15, 0, 0, 920, 0},        /* oystercatcher (a beach) */
     {4, 16, 0, 0, 240, 0},        /* cuckoo (spring) */
-    {4, 17, 0, 0, 520, 0},     /* woodpecker (drumming, a forest) */
+    {4, 17, 0, 0, 217, 0},     /* woodpecker (drumming, a forest; -7.6 dB for its tree's longer ring, Q 16) */
     {4, 18, 0, 0, 205, 0},     /* wood pigeon */
     {4, 19, 0, 0, 410, 0},     /* nightjar (a heath at night) */
     {4, 20, 0, 0, 410, 0},     /* bittern (a reedbed) */
