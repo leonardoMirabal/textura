@@ -1137,6 +1137,35 @@ static void check_fx(FILE *update)
         verdict("fx", "plate", ra && rb && !diff && nzs, msg, 0);
         free(ra); free(rb);
     }
+    /* hot inputs (a lane peaks to 16 x full scale, the bus more): a square of 16 x into every DRIVE TYPE at AMOUNT 127
+     * and every reverb TYPE (this build traps a signed overflow): PLATE's input one-pole (Frodhes' BUGHUNT #22) and
+     * BHLUE's PRE (from 4 x) overflowed */
+    {
+        static const unsigned PER[3] = {1u, 3u, 50u};
+        unsigned q, k;
+        for (q = 0; q < 3u; q++)
+            for (k = 0; k < TX_DRT_N + TX_RVT_N - 1u; k++) {
+                tx_fx_init(fx);
+                if (k < TX_DRT_N) {
+                    tx_fx_drive_param(&fx->drive[0], TX_DR_TYPE, k);
+                    tx_fx_drive_param(&fx->drive[0], TX_DR_AMOUNT, 127);
+                    tx_fx_filter_param(&fx->filter[0], TX_FL_TYPE, 1u + k);
+                    tx_fx_filter_param(&fx->filter[0], TX_FL_RESO, 127);
+                } else {
+                    tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, k - TX_DRT_N + 1u);
+                    tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 127);
+                    tx_fx_reverb_param(&fx->rev, TX_RV_TONE, q ? 0 : 127);
+                }
+                for (b = 0; b < 100u; b++) {
+                    for (j = 0; j < TX_BLOCK; j++)
+                        y[j] = L[j] = R[j] = (b * TX_BLOCK + j) / PER[q] & 1u ? 1 << 27 : -(1 << 27);
+                    if (k < TX_DRT_N) tx_fx_lane(fx, 0, y, TX_BLOCK);
+                    else tx_fx_bus(fx, L, R, TX_BLOCK);
+                }
+            }
+        verdict("fx", "hot input", 1, "a 16 x square into every DRIVE TYPE (AMOUNT 127) and reverb TYPE: no overflow",
+                0);
+    }
     /* SWELL: 3 s played (the burst again and again), then silence: the wet part (out - in) after the playing against
      * during it, SWELL against INFINITE (DECAY 100): the tail held down while played, swelling in after */
     {

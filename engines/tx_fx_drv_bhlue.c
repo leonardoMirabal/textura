@@ -7,7 +7,7 @@
  * constant here (BHLUE_GF, generated: no RAM, nothing built at boot).
  *
  * Once a block (n <= TX_DRV_BLK, even), four passes, two samples per iteration where it pays:
- *   1  the two coupling high-passes (input, stage 2), x 2^12 (Q27; x clamped to +-2^18 first: 8 x full scale), and
+ *   1  the two coupling high-passes (input, stage 2), x 2^12 (Q27; x clamped first: BH_CLAMP, 3 x full scale), and
  *      the P shelf (sinc / cos: the clipper's two-sample average compensated)
  *   2  PRE: stage 1 x stage 2's linear gain, one biquad per AMOUNT step (b Q15, a Q28), held to +-64 V   -> u, in m
  *   3  the clipper with first-order antiderivative anti-aliasing (no divide: count-leading-zeros, the shared
@@ -21,7 +21,10 @@
 #define DRV_US_BHLUE 157u
 _Static_assert(BHLUE_AA, "BHLUE runs its anti-aliased kernel only");
 #define BHLUE_GSTEP 2                                    /* AMOUNT / TONE steps the rows move at most a block */
-#define BH_CLAMP (1 << 18)
+#define BH_CLAMP (3 << 15)                               /* 3 x full scale (Frodhes: 1 << 18, 8 x; a lane here
+                                                          * peaks to 16 x, and from 4 x at AMOUNT 127 PRE's sums pass
+                                                          * 2^63, at 8 x pass 1's xa - xa1 2^31: the same integers
+                                                          * up to 3 x) */
 #define BHM(a, b) ((int64_t)(a) * (b))
 #define BH_XMAX ((64 << 16) - 1)                          /* |u| held to the table's 64 V (PRE's own clamp) */
 /* the same hold before the >> 4: (u >> 4) in [-BH_XMAX, BH_XMAX] <=> u in [-16 BH_XMAX, 16 BH_XMAX + 15] */

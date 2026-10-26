@@ -217,7 +217,13 @@ static __attribute__((noinline)) int32_t pl_in(const int16_t *const *r, int16_t 
     int32_t b = *bw, act = 0;
     for (i = 0; i < HL_NC; i++) {
         int32_t y, d, v, u = in[i] + (in[i] >> 1);  /* the lines 1.5x hot: 3.5 dB less rounding noise */
-        b = u + sh_tz((b - u) * pb, 15);
+        int32_t e = b - u;
+        if ((uint32_t)(e + 82560) <= 165120u) b = u + sh_tz(e * pb, 15);
+        else {                                  /* (a send over ~1.7x full scale: (b - u) pb past 2^31; Frodhes' 0.9.6
+                                                 * fix, BUGHUNT #22, in 32 bits: the same integers, toward zero) */
+            int32_t lo = (e & 32767) * pb, q = (e >> 15) * pb + (lo >> 15);
+            b = u + q + (e < 0 && (lo & 32767));
+        }
         act |= u;
         y = b;
         PL_AP(0, 24576);
