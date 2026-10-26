@@ -77,28 +77,39 @@ typedef struct {
     uint16_t out;                  /* its level, Q8 */
     uint8_t groan;                 /* the creak in discrete groans 0.4 .. 1.4 s, at random gaps 0.3 s + this mean,
                                     * 0.1 s (0: one long creak wandering while bent) */
+    uint8_t casc;                  /* the snap's cascade: fibre bundles breaking one after another, 2 .. 2 + casc more
+                                    * cracks within 3 .. 45 ms, each within 3/4 decade of the first (0: one crack) */
+    uint8_t body;                  /* each crack's strike on the piece's modes, Q7 (the click itself unchanged) */
+    uint8_t tail;                  /* each crack's fizz: the fibres round it giving way in ticks (~260 /s, each up to this
+                                    * share of the crack, Q8, fading in ~45 ms; 0: none) */
 } wkind_t;
 static const wkind_t WK[NWOOD] = {
-    {160, 5500, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384, 0},   /* spruce (the four species: dry wood fails brittle, a */
-    {120, 4500, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384, 0},   /* faint creak before the snap; their references are */
-    {110, 4300, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384, 0},   /* breaks: creak 128 was 2.13 from them, 1.45 now with */
-    {80, 4000, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384, 0},    /* the next branch below. Second pass: a dry branch bends
+    {160, 5500, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 680, 0, 3, 64, 96},   /* spruce (the four species: dry wood fails brittle, a */
+    {120, 4500, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 680, 0, 3, 64, 96},   /* faint creak before the snap; their references are */
+    {110, 4300, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 680, 0, 3, 64, 96},   /* breaks: creak 128 was 2.13 from them, 1.45 now with */
+    {80, 4000, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 680, 0, 3, 64, 96},    /* the next branch below. Second pass: a dry branch bends
                                                               * nearly silent, so a quarter of the precursor cracks
                                                               * (the references: silent 88 % of the time between the
                                                               * snaps, ours 40 %), and the hand snaps pieces half as
                                                               * long as SIZE's (thin branches: their snaps 5-6 kHz,
-                                                              * ours 3.7 kHz before) */
-    {40, 3000, 0, 0, 0, 1, 128, 0, 128, 1, 0, 287, 0},        /* green branch (+1 dB: its level as before the next
+                                                              * ours 3.7 kHz before). Third: the references' cracks
+                                                              * are sharp clicks with a fizz of fibre ticks after them
+                                                              * and little ring (a crack's 20 dB fall 70 ms, its
+                                                              * centre 6 kHz; ours a ring of 30-40 ms at 3.7-4.8 kHz),
+                                                              * the snap 3 .. 6 cracks in ~40 ms: the ring -6 dB (the
+                                                              * level made up), a fizz at 3/8 of each crack, the snap
+                                                              * cascading (now 50 ms, 4.3-5.1 kHz) */
+    {40, 3000, 0, 0, 0, 1, 128, 0, 128, 1, 0, 287, 0, 0, 128, 0},        /* green branch (+1 dB: its level as before the next
                                                               * branch came sooner) */
     /* tree trunk: a live trunk or a bough swaying in the wind: groans of slow stick-slip on a big wet body, a fibre
      * ticking now and then, never a snap. Second pass, against recordings of trees creaking: groans 0.5 .. 1.2 s,
      * 7 .. 10 a minute, 4 .. 6 s apart, their slips 15 .. 35 /s (a ratchet, not a singing creak: ours slipped at ~90 /s,
      * one creak wandering on for 10 s), most of the body under 1 kHz: the slips at ~30 Hz, the creak's body 7/8 oct
      * over f1 (was 1 3/4), groans each its own, a gust (a press) starting a third of them, fewer fibre ticks */
-    {40, 3000, 131072, 57344, -163840, 0, 255, 2, 2, 1, 1, 362, 60},
+    {40, 3000, 131072, 57344, -163840, 0, 255, 2, 2, 1, 1, 362, 60, 0, 128, 0},
     /* twigs underfoot: a step snaps a few short dry twigs within ~0.1 s (the references: 5-12 kHz, a step a second,
      * ~6 snaps a second, nothing between the steps) */
-    {120, 5000, -98304, 0, 0, 2, 0, 0, 64, 3, 0, 256, 0},
+    {120, 5000, -98304, 0, 0, 2, 0, 0, 64, 3, 0, 256, 0, 0, 128, 0},
 };
 static const uint16_t BAR_R[NMW] = {1024, 2823, 5534, 9147, 13665};   /* free-free, Q10 */
 
@@ -116,6 +127,7 @@ typedef struct {
     uint8_t em, note, vel, alive, held, snapped, rel, rk;    /* rel: how fast the hands let go (the creak's fade, 2^-rel per block) */
     uint8_t rd, pad2[3];                                     /* rk, rd: its cracks' burst corner and decay shifts */
     uint32_t gt;                   /* (groaning kinds) blocks to the groan's end or the next groan */
+    int32_t tl;                    /* the fizz's tick size now (crack units: 0 = none) */
 } piece_t;
 
 typedef struct {
@@ -256,6 +268,7 @@ static void take(wood_t *s, const tx_event_t *e)
     p->tau = s->k->snap == 2u ? 882u + tx_rand_below(&s->cloud.rng, 3529u)   /* a step: 20 .. 100 ms (ours) */
            : s->k->snap && s->tau_s ? s->tau_s - (s->tau_s >> 2) + (uint32_t)(((uint64_t)s->tau_s * (tx_rand(&s->cloud.rng) >> 16)) >> 17) : 0u;   /* +-25 % (ours) */ p->next_q8 = 0; p->snapped = 0;
     for (k = 0; k < NAF; k++) p->af[k] = 0;
+    p->tl = 0;
     p->cenv = 0; p->cgoal = s->k->groan ? 0 : 32767;
     p->gt = !s->k->groan || tx_rand_below(&s->cloud.rng, 3u) == 0u ? 1u   /* a gust: a third groan at once, the rest */
           : 52u + (tx_cloud_exp_q8(&s->cloud, (uint32_t)s->k->groan * 4410u << 8) >> 16);   /* after a gap */
@@ -302,22 +315,31 @@ TX_AUDIO_CODE static void creak_res(tx_ireso_t *cr, const uint16_t *off, const i
 }
 
 /* a crack of piece p at offset o, energy x (Q12 log2 below the snap's): strike the modes, click */
-static void crack(wood_t *s, piece_t *p, unsigned o, int32_t x, unsigned *ne)
+static void click(wood_t *s, unsigned o, int32_t a)
 {
-    int32_t vl2 = ((int32_t)p->vel - 100) * 655;
-    int32_t a = (int32_t)(((int64_t)A_REF * (int32_t)tx_exp2(((-x * 16 + vl2) >> 1) + (15 << 16))) >> 15);   /* ~ sqrt(E) */
     int32_t dull = 32768 - (int32_t)s->p[P_MOIST] * 160;    /* wet: duller clicks (ours) */
-    a = (int32_t)(((int64_t)a * s->level) >> 15);
-    if (a < 4096) return;
-    if (*ne < 6u) {                                          /* <= 6 mode strikes per piece per block (CPU); the rest click */
-        s->eo[*ne] = (uint16_t)o; s->ea[*ne] = (int16_t)(a >> 15); (*ne)++;   /* (strikes of this block, in order) */
-    }
     s->bpush[o] += (int32_t)(((int64_t)(a >> 9) * dull) >> 15);   /* (+6 dB: twigs snap mostly as crack, note 17) */
-    s->rk = p->rk; s->rd = p->rd;                            /* (the burst takes the latest crack's colour) */
     {   /* the fracture front itself: a 2-sample spike (fibres break in microseconds: a sharp crack, ours) */
         int32_t sp = (int32_t)(((int64_t)(a >> 7) * dull) >> 15);
         s->buf[o] += sp;
         if (o + 1u < TX_BLOCK) s->buf[o + 1u] -= sp >> 1;
+    }
+}
+
+static void crack(wood_t *s, piece_t *p, unsigned o, int32_t x, unsigned *ne)
+{
+    int32_t vl2 = ((int32_t)p->vel - 100) * 655;
+    int32_t a = (int32_t)(((int64_t)A_REF * (int32_t)tx_exp2(((-x * 16 + vl2) >> 1) + (15 << 16))) >> 15);   /* ~ sqrt(E) */
+    a = (int32_t)(((int64_t)a * s->level) >> 15);
+    if (a < 4096) return;
+    if (*ne < 6u) {                                          /* <= 6 mode strikes per piece per block (CPU); the rest click */
+        s->eo[*ne] = (uint16_t)o; s->ea[*ne] = (int16_t)(((a >> 15) * s->k->body) >> 7); (*ne)++;   /* (strikes of this block, in order) */
+    }
+    s->rk = p->rk; s->rd = p->rd;                            /* (the burst takes the latest crack's colour) */
+    click(s, o, a);
+    if (s->k->tail) {                                        /* the fizz after it */
+        int32_t t = (int32_t)(((int64_t)a * s->k->tail) >> 8);
+        if (t > p->tl) p->tl = t;
     }
 }
 
@@ -368,7 +390,18 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
                     }
                     for (a = 0; a < 16; a++) c2 += bits >> a & 1u;   /* binomial(16, 1/2): mean 8 */
                     if (s->k->snap == 2u) c2 >>= 2;                  /* (a thin twig: ~2, within 0.5 s: ours) */
-                    for (a = 0; a < c2 && a < NAF; a++) {
+                    {   /* the cascade: the fibre bundles left break one after another within ~45 ms (the references:
+                         * 3 .. 6 sharp cracks over 20 .. 50 ms, near as loud as the first), in the first slots */
+                        unsigned nc = s->k->casc ? 2u + tx_rand_below(r, s->k->casc + 1u) : 0u, q;
+                        for (q = 0; q < nc && q < NAF; q++) {
+                            p->af[q] = 132u + tx_rand_below(r, 1853u);   /* 3 .. 45 ms */
+                            p->afs[q] = -1 - (int32_t)tx_rand_below(r, 10205u);   /* 0 .. 3/4 decade under; < 0: a
+                                                                                   * fibre crack, no strike on the modes */
+                        }
+                        c2 += nc;
+                        a = nc;
+                    }
+                    for (; a < c2 && a < NAF; a++) {
                         uint32_t l = tx_neglog2_q12(tx_rand(r)), t;
                         int64_t xx = ((int64_t)l * 6019) >> 12;      /* / (p - 1) = / 0.68, Q12 */
                         if (xx > 13 << 12) xx = 13 << 12;
@@ -383,10 +416,24 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
             if (!p->held) p->cgoal = 0;
             for (a = 0; a < NAF; a++)                        /* aftershocks due */
                 if (p->af[a]) {
-                    if (p->af[a] <= n) { crack(s, p, p->af[a] - 1u, p->afs[a], &ne); p->af[a] = 0; }
+                    if (p->af[a] <= n) {
+                        unsigned none = 6u;                  /* (a fibre crack: the click alone) */
+                        if (p->afs[a] < 0) crack(s, p, p->af[a] - 1u, -1 - p->afs[a], &none);
+                        else crack(s, p, p->af[a] - 1u, p->afs[a], &ne);
+                        p->af[a] = 0;
+                    }
                     else p->af[a] -= n;
                 }
             p->t += n;
+            if (p->tl) {                                     /* the fizz: ticks at random, each u^2 of its size now */
+                unsigned c = tx_rand_below(r, 4u);
+                while (c--) {
+                    int32_t u = (int32_t)(tx_rand(r) >> 17);
+                    click(s, tx_rand_below(r, n), (int32_t)(((int64_t)p->tl * ((u * u) >> 15)) >> 15));
+                }
+                p->tl -= p->tl >> 3;                         /* (~45 ms) */
+                if (p->tl < 4096) p->tl = 0;
+            }
             {   /* the creak: bursts while bent (a slow envelope toward a random goal, ours) */
                 int32_t lvl;
                 if (s->k->groan) {                           /* a trunk groans: each its own strength and length, at
@@ -420,7 +467,7 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
             {   /* done: released (or snapped), no aftershock left, the creak faded */
                 unsigned left = 0;
                 for (a = 0; a < NAF; a++) left |= p->af[a] != 0;
-                if ((!p->held || p->snapped) && !left && p->cenv < 64) { p->alive = 0; p->em = 0xFF; }
+                if ((!p->held || p->snapped) && !left && !p->tl && p->cenv < 64) { p->alive = 0; p->em = 0xFF; }
             }
         } else
             creak_res(p->cr, 0, 0, 0, s->buf, n);
