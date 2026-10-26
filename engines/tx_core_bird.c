@@ -53,7 +53,7 @@ static const sp_t SP[TX_BIRD_TYPES] = {
     /* 5 blackbird: fluted low whistles 1.6-3.2 kHz, then a quiet high twitter; strophes ~2 s, 1-5 s apart, 4-12 a bout
      * (the references have nothing in the 1.0-1.6 kHz band) */
     {ST_BLACKBIRD, -2100, 3400, 14, 80, 120, 450, 1230, 110, 50, 24, 16, 4, 12, 1200, 5000, 1, 48, 5, 0, 0, 300},
-    /* 6 song thrush: 1.6-5.2 kHz, a phrase of 1-4 notes repeated 2-4 x, phrases ~0.75 s, ~0.9 s apart, long bouts (the
+    /* 6 song thrush: 1.6-5.2 kHz, a phrase of 1-2 notes repeated 2-4 x, phrases ~0.75 s, ~0.9 s apart, long bouts (the
      * references' loud frames peak at 2.3 / 2.9-3.8 / 5.7-7.5 kHz, p10 / 50 / 90; ours were 4.1 / 5.4 / 7.3) */
     {ST_THRUSH, -2400, 4300, 15, 140, 80, 200, 1100, 130, 40, 32, 24, 6, 16, 300, 1100, 1, 44, 4, 0, 0, 350},
     /* 7 nightingale: 1.6-5.9 kHz; strophes ~1.7 s: soft notes, a swelling whistle or a rattling trill, an end note */
@@ -376,11 +376,12 @@ static void phrase_start(tx_bird_voice_t *v)
             }
         }
         break;
-    case ST_THRUSH:                                          /* a phrase of 1-4 notes, repeated 2-4 times */
+    case ST_THRUSH:                                          /* a phrase of 1-2 notes, repeated 2-4 times */
         pid = pick(v, S->nphr);
         tx_rng_seed(&pr, mix(v->seed, 0x5000u + pid));
         v->plev = (int16_t)rs(&pr, -300, 300);
-        m = rb(&pr, 1, 4);
+        m = rb(&pr, 1, 2);                                   /* (second pass: 1-4 gave the references' onset count
+                                                              * x 1.5-2, gaps median 70-80 ms against 120-140) */
         for (i = 0; i < m; i++) {
             unsigned c = tx_rand_below(&pr, 20u), cls = c < 10u ? C_NOTE : c < 14u ? C_TRILL : c < 17u ? C_SWEEP : C_HARSH;
             seg(v, SYL(cls, rb(&pr, 0, ns - 1u)), cls == C_TRILL ? rb(&pr, 2, 4) : 1, rb(&pr, 0, 15), 255, 255, 0);   /* (the
@@ -488,7 +489,9 @@ static void phrase_start(tx_bird_voice_t *v)
                 unsigned c = tx_rand_below(&pr, 20u), cls = c < 7u ? C_HARSH : c < 13u ? C_NOTE : c < 17u ? C_TRILL : C_SWEEP;
                 unsigned id = fr ? 256u + rb(&pr, 0, 1791u) : rb(&pr, 0, ns - 1u);
                 if (sedge && cls == C_HARSH && (tx_rand(&pr) & 3u) == 0u) seg(v, SYL(C_HARSH, id), rb(&v->rng, 8, 20), rb(&v->rng, 8, 20), 200, 255, 0);
-                else seg(v, SYL(cls, id), sedge ? rb(&v->rng, 1, 2) : rb(&v->rng, 2, 4), rb(&v->rng, 35, 80), lvl(&pr, 10), 255, 0);
+                else seg(v, SYL(cls, id), sedge ? rb(&v->rng, 1, 2) : rb(&v->rng, 2, 4), rb(&v->rng, 80, 180), lvl(&pr, 10), 255, 0);   /* (second pass: the
+                                                              * references' syllables 0.1-0.3 s apart, a third of the
+                                                              * gaps 150-300 ms; ours were 35-80 ms, a twentieth) */
             }
         }
         break;
@@ -600,7 +603,9 @@ static int advance(tx_bird_voice_t *v)
     v->si = 0;
     if (v->mrep > 1u) {                                      /* the phrase again (a thrush), never quite the same */
         v->mrep--;
-        v->wait = gap + ms_n(v, rb(&v->rng, 20, 90));
+        v->wait = gap + ms_n(v, SP[v->sp].style == ST_THRUSH ? rb(&v->rng, 100, 300) : rb(&v->rng, 20, 90));   /* (a
+                                                              * thrush's motif again after 0.1-0.3 s: the references'
+                                                              * gaps 150-300 ms a fifth of all, ours were a tenth) */
         v->plev = (int16_t)(v->plev + rs(&v->rng, -150, 150));
         syl_make(v);
         return 1;

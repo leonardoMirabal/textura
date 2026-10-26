@@ -129,14 +129,15 @@ static const preset_t PRE[NPRE] = {
     {4, 2, 0, 0, 1630, 0},          /* crow */
     {4, 4, 0, 0, 860, 0},          /* gull */
     {4, 5, 0, 0, 410, 0},          /* blackbird (levels trimmed inside the bird core) */
-    {4, 6, 0, 0, 410, 0},          /* song thrush */
+    {4, 6, 0, 0, 520, 0},          /* song thrush (+2.1 dB: fewer notes, the level kept) */
     {4, 7, 0, 0, 410, 0},          /* nightingale */
     {4, 8, 0, 0, 410, 0},          /* robin */
     {4, 9, 0, 0, 410, 0},          /* wren */
     {4, 10, 0, 0, 410, 0},         /* hermit thrush */
     {4, 11, 0, 0, 410, 0},         /* skylark */
     {4, 12, 0, 0, 205, 0},         /* wood thrush */
-    {4, 13, 0, 0, 1300, 0},        /* reed warbler (a wetland; some birds sedge-like) */
+    {4, 13, 0, 0, 1640, 0},        /* reed warbler (a wetland; some birds sedge-like; +2 dB: slower chatter, the
+                                    * level kept) */
     {4, 14, 0, 0, 1100, 0},        /* curlew (an estuary) */
     {4, 15, 0, 0, 920, 0},        /* oystercatcher (a beach) */
     {4, 16, 0, 0, 240, 0},        /* cuckoo (spring) */
