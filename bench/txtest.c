@@ -1011,6 +1011,108 @@ static uint32_t fx_run_rev(unsigned t, unsigned d, unsigned secs, int zero, int3
     free(r);
     return end;
 }
+/* the GRAIN DELAY under a moving control (the control sweep's checks, the grain cases): a chord (C3 E4 G4 A4 C5,
+ * struck at 0.5 s, harmonics 1..4, ~4 s decay) through the bus; one control static, swept 0 -> max -> 0 (a step
+ * every 20 ms from 1 s) or flipped at 2 s. Per 1024-sample window from 1 s: the largest second difference (L, R) and
+ * the level; the largest second difference from 3 ms before the flip to 30 ms after it */
+#define GS_W 300u
+typedef struct { double d2[GS_W], lv[GS_W], click; unsigned nw; } gs_res_t;
+static int32_t *gs_chord;
+static unsigned gs_len;
+static void gs_render(tx_fx_t *fx, unsigned pid, int mix64, char mode, unsigned a, unsigned b, gs_res_t *r)
+{
+    unsigned mx = tx_fx_grain_params[pid].max, nsw = 2u * mx, blk, j, i = 0;
+    int32_t L[TX_BLOCK], R[TX_BLOCK], pl[2] = {0, 0}, pr[2] = {0, 0};
+    unsigned s0 = (2000u - 3u) * 441u / 10u, s1 = (2000u + 30u) * 441u / 10u;
+    memset(r, 0, sizeof *r);
+    tx_fx_init(fx);
+    if (mix64) tx_fx_grain_param(&fx->gd, TX_GD_MIX, 64);
+    for (blk = 0; blk * TX_BLOCK < gs_len; blk++) {
+        unsigned ms = (unsigned)(blk * 256u * 1000u / 44100u), v = a;
+        if (mode == 'w' && ms >= 1000u) { unsigned s = (ms - 1000u) / 20u; v = s >= nsw ? 0 : s <= mx ? s : nsw - s; }
+        if (mode == 'f') v = ms >= 2000u ? b : a;
+        tx_fx_grain_param(&fx->gd, pid, v);
+        for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = gs_chord[blk * TX_BLOCK + j];
+        tx_fx_bus(fx, L, R, TX_BLOCK);
+        for (j = 0; j < TX_BLOCK; j++, i++) {
+            double dl = fabs((double)L[j] - 2.0 * pl[1] + pl[0]), dr = fabs((double)R[j] - 2.0 * pr[1] + pr[0]), d = dl > dr ? dl : dr;
+            if (i >= 2u && i >= s0 + 2u && i < s1 && d > r->click) r->click = d;
+            if (i >= 44100u) {
+                unsigned w = (i - 44100u) / 1024u;
+                if (w < GS_W) {
+                    if (i - 44100u - w * 1024u >= 2u && d > r->d2[w]) r->d2[w] = d;
+                    r->lv[w] += ((double)L[j] * L[j] + (double)R[j] * R[j]) / 2048.0;
+                    if (w + 1u > r->nw && i - 44100u - w * 1024u == 1023u) r->nw = w + 1u;
+                }
+            }
+            pl[0] = pl[1]; pl[1] = L[j]; pr[0] = pr[1]; pr[1] = R[j];
+        }
+    }
+    for (j = 0; j < r->nw; j++) r->lv[j] = 10.0 * log10(r->lv[j] + 1e-9);
+}
+/* the worst zipper (the sweep's second difference over the statics', per window) and level jump (a window-to-window
+ * step past the statics' own, dB) over the sweep */
+static void gs_sweep(tx_fx_t *fx, unsigned pid, int mix64, double *zip, double *jump)
+{
+    static gs_res_t sw, st[5];
+    unsigned mx = tx_fx_grain_params[pid].max, k, w, nw = (2u * mx * 20u * 441u / 10u) / 1024u;
+    gs_render(fx, pid, mix64, 'w', 0, 0, &sw);
+    for (k = 0; k < 5u; k++) gs_render(fx, pid, mix64, 's', mx * k / 4u, 0, &st[k]);
+    *zip = *jump = 0;
+    if (nw > sw.nw) nw = sw.nw;
+    for (w = 0; w < nw; w++) {
+        double ref = 1.0, js = 0;
+        for (k = 0; k < 5u; k++) {
+            if (st[k].d2[w] > ref) ref = st[k].d2[w];
+            if (w && fabs(st[k].lv[w] - st[k].lv[w - 1]) > js) js = fabs(st[k].lv[w] - st[k].lv[w - 1]);
+        }
+        if (sw.d2[w] / ref > *zip) *zip = sw.d2[w] / ref;
+        if (w && sw.lv[w] > -100.0 + 10.0 * log10(70368744177664.0) && fabs(sw.lv[w] - sw.lv[w - 1]) - js > *jump)
+            *jump = fabs(sw.lv[w] - sw.lv[w - 1]) - js;
+    }
+}
+static void check_fx_grain_controls(tx_fx_t *fx)
+{
+    static const int notes[5] = {48, 64, 67, 69, 72};
+    static gs_res_t mv, h0, h1;
+    double zip, jump, ph[5][4] = {{0}}, wc = 0;
+    char msg[200];
+    unsigned i, k, h, t;
+    gs_len = 7u * 44100u / TX_BLOCK * TX_BLOCK;
+    gs_chord = malloc(gs_len * sizeof *gs_chord);
+    if (!gs_chord) return;
+    for (i = 0; i < gs_len; i++) {
+        double tt = i / 44100.0, s = 0;
+        if (tt >= 0.5)
+            for (k = 0; k < 5u; k++)
+                for (h = 0; h < 4u; h++) {
+                    ph[k][h] += 440.0 * pow(2.0, (notes[k] - 69) / 12.0) * (h + 1) / 44100.0;
+                    s += 0.06 / (h + 1) * exp(-(tt - 0.5) * (1.0 + h) / 4.0) * sin(6.283185307179586 * ph[k][h]);
+                }
+        gs_chord[i] = (int32_t)lrint(s * 8388608.0);
+    }
+    gs_sweep(fx, TX_GD_MIX, 0, &zip, &jump);
+    snprintf(msg, sizeof msg, "grain delay, MIX swept 0 .. 127 .. 0 on a ringing chord: zipper %.2f (2 at most)", zip);
+    verdict("fx", "mix-sweep", zip <= 2.0, msg, 0);
+    gs_sweep(fx, TX_GD_GRAINS, 1, &zip, &jump);
+    snprintf(msg, sizeof msg, "grain delay, GRAINS swept 1 .. 16 .. 1: zipper %.2f (2 at most)", zip);
+    verdict("fx", "grains-sweep", zip <= 2.0, msg, 0);
+    gs_sweep(fx, TX_GD_TIME, 1, &zip, &jump);
+    snprintf(msg, sizeof msg, "grain delay, TIME swept 0 .. 127 .. 0: a level step %.2f dB past the statics' (1.5 at most), zipper %.2f", jump, zip);
+    verdict("fx", "time-sweep", jump <= 1.5 && zip <= 2.0, msg, 0);
+    for (t = 0; t < 2u; t++) {                              /* GRAIN 0 -> 127 and back at 2 s */
+        unsigned a = t ? 127u : 0u, b = t ? 0u : 127u;
+        double ref;
+        gs_render(fx, TX_GD_GRAIN, 1, 'f', a, b, &mv);
+        gs_render(fx, TX_GD_GRAIN, 1, 's', a, 0, &h0);
+        gs_render(fx, TX_GD_GRAIN, 1, 's', b, 0, &h1);
+        ref = h0.click > h1.click ? h0.click : h1.click;
+        if (mv.click / (ref > 1.0 ? ref : 1.0) > wc) wc = mv.click / (ref > 1.0 ? ref : 1.0);
+    }
+    snprintf(msg, sizeof msg, "grain delay, GRAIN flipped 0 <-> 127: a click %.2fx the held settings' (10 at most)", wc);
+    verdict("fx", "grain-flip", wc <= 10.0, msg, 0);
+    free(gs_chord);
+}
 static void check_fx(FILE *update)
 {
     static const char *const TN[TX_RVT_N] = {"off", "room", "hall", "infinite", "dark", "drift", "swell", "plate"};
@@ -1287,6 +1389,7 @@ static void check_fx(FILE *update)
         }
         snprintf(msg, sizeof msg, "grain delay, 16 pitched grains asked with INFINITE on: at most %u sounding (cap %u)", maxact, fx->gd.cap);
         verdict("fx", "cap", maxact <= fx->gd.cap && fx->gd.cap < 16u && maxact > 0, msg, 0);
+        check_fx_grain_controls(fx);
     }
     /* the DRIVE TYPEs: zeros in, zeros out; AMOUNT 0 glides out to the lane untouched; a TYPE change while it
      * sounds fades through (no step); TSH8 on one lane at a time */

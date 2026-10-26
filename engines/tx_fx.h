@@ -68,6 +68,8 @@ typedef struct {
     int32_t rate;                  /* Q16 a sample (negative: reversed) */
     int16_t gl, gr;                /* pan, Q15 */
     uint8_t on;                    /* sounding (its window not ended) */
+    uint32_t vp;                   /* its window's phase at the block's start (the shared clock's, or its own while
+                                   * it finishes a window begun on the clock before GRAINS moved) */
 } tx_gd_grain_t;
 typedef struct {
     uint8_t p[TX_GD_NP];
@@ -87,6 +89,7 @@ typedef struct {
     uint8_t on;                                  /* running (MIX up, or its fade out) */
     uint32_t fill;                               /* samples written since it came on (older reads are 0) */
     int32_t mix;                                 /* MIX, gliding (Q15) */
+    int32_t gbl;                                 /* GRAIN, gliding (Q15) */
     tx_gd_grain_t g[TX_GD_MAXG];
     uint32_t sync;                               /* the echo's delay from the tempo, samples (0: TIME's) */
 } tx_fx_grain_t;
