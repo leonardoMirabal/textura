@@ -40,7 +40,8 @@ void tx_chorus_start(tx_chorus_t *ch, unsigned i, int32_t T, uint32_t first);
 static inline void tx_chorus_stop(tx_chorus_t *ch, unsigned i) { ch->c[i].alive = 0; }
 /* the calls of the next n samples in time order: who[k], off[k] (k < cap); then the clock moves on by n */
 unsigned tx_chorus_block(tx_chorus_t *ch, tx_rng_t *rng, unsigned n, uint8_t *who, uint16_t *off, unsigned cap);
-/* a normal draw, Q12 (sum of 4 uniforms, SD 1.0 = 4096) */
+/* a normal-ish draw (sum of 4 uniforms), Q12 with SD 2.0: 8192, not 4096 (+-28376 at most: 3.46 SD); a draw of SD 1.0 is
+ * tx_gauss_q12(r) >> 1 */
 int32_t tx_gauss_q12(tx_rng_t *r);
 
 #endif

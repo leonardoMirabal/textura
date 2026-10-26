@@ -6,7 +6,8 @@ int32_t tx_gauss_q12(tx_rng_t *r)
 {
     uint32_t a = tx_rand(r), b = tx_rand(r);
     int32_t s = (int32_t)((a >> 16) + (a & 0xFFFFu) + (b >> 16) + (b & 0xFFFFu)) - 131072;
-    return (s * 7094) >> 15;                                 /* the sum's SD is 37837: x 4096 / 37837 */
+    return (s * 7094) >> 15;                                 /* the sum's SD is 37837: x 8192 / 37837 (SD 2.0 in Q12;
+                                                              * every use is tuned to it, so it stays) */
 }
 
 static uint32_t isqrt32(uint32_t x)
