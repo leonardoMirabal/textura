@@ -359,8 +359,12 @@ def main():
             gv = page.evaluate("window.txTest.gov(60)")      # the CPU governor: a tiny budget makes it take heroes
             time.sleep(1.5)
             gv = page.evaluate("window.txTest.gov(0)")
-            pk2 = page.evaluate("window.txTest.render(64)")
-            cut = [k for k in (0, 1) if gv[k][0] < gv[k][1]]
+            pk2 = 0
+            for _ in range(8):                               # up to 3 s: a lake laps with pauses between its waves
+                pk2 = max(pk2, page.evaluate("window.txTest.render(64)"))
+                if pk2 > 0:
+                    break
+            cut =[k for k in (0, 1) if gv[k][0] < gv[k][1]]
             page.evaluate("window.txTest.gov(100000)")       # plenty of budget: the heroes come back, one a second
             time.sleep(3.5)
             gv2 = page.evaluate("window.txTest.gov(0)")
