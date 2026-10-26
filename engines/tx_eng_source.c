@@ -198,7 +198,10 @@ static const clu_pre_t CLU[NPRE] = {
  * event engine): each press goes to one of COUNT distinct keys (up to 8), at random: COUNT pebbles. With k0 & 1, a
  * held key, picked at random, is pressed afresh after
  * 3 s + an exponential wait (mean 7 s; no clock): a singer leaves and a new one comes with the parameters of now (these engines read them at a press; a
- * fire's logs just burn: a press there would throw a new log on, its burst louder than the fire it lands in). */
+ * fire's logs just burn: a press there would throw a new log on, its burst louder than the fire it lands in). k0 & 32 (an
+ * engine with its own weather, the wind): LIFE's walk on the activity at a quarter, and the bouts read the fader alone
+ * (the engine's own gusts and lulls already move it; the full walk on top swung a held wind by +-7 dB and, wandering
+ * under 64, cut it into bouts at the default). */
 #define HOST_NC 7u
 #define HOST_NK 8u                  /* character maps per hosted engine (HMAP): the card's knobs, ACTIVITY and PROXIMITY aside */
 #define GATE_ON 120u                /* a bout held, mean blocks (0.7 s) */
@@ -214,9 +217,11 @@ typedef struct {
 static const host_t HOST[] = {
     /* wind: a lone gust now and then (never a dead calm: COUNT 0 is the silence) .. a breeze .. a storm: gustier, more
      * gusts passing, more buffeting; an edge tone only now and then in the strong gusts. In bouts below ACTIVITY 64
-     * (k0 2): light air comes in puffs with lulls between */
-    {"wind", 100, -73, -120, {{"WIND", 20, 64, 127}, {"GUST", 40, 70, 110}, {"WHOOSH", 30, 64, 90}, {"BUFFET", 30, 48, 80},
-                    {"EDGE", 0, 12, 28}}, 3, 1, 4, 0, 0, 0, 0},
+     * (k0 2): light air comes in puffs with lulls between; the held key is never pressed afresh (each press is a gust: a
+     * renewal every ~10 s was a train of big gusts no knob moved); its own weather (k0 32); 3 dB up
+     * with it (the renewed gusts had carried the level) */
+    {"wind", 130, -43, -90, {{"WIND", 20, 64, 127}, {"GUST", 40, 70, 110}, {"WHOOSH", 30, 64, 90}, {"BUFFET", 30, 48, 80},
+                    {"EDGE", 0, 12, 28}}, 34, 1, 4, 0, 0, 0, 0},
     /* stream: a trickle of plinks .. a babbling brook .. a torrent: bigger gulping bubbles, eddies, the low roar */
     {"stream", -42, -42, -42, {{"FLOW", 10, 70, 105}, {"ROAR", 0, 0, 50}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
                             {"SPREAD", 80, 64, 45}}, 0, 0, 0, 0, 0, 0, 0},
@@ -1604,7 +1609,7 @@ static uint32_t gate_draw(src_t *s, uint32_t mean)
 }
 static void host_gate(src_t *s)
 {
-    int32_t a = act_idx(s) >> 8;
+    int32_t a = ((s->hd->k0 & 32u) ? s->i_glide : act_idx(s)) >> 8;   /* (k0 & 32: the fader alone) */
     uint32_t p = a >= 64 ? 4096u : 120u + (((uint32_t)(a * a) * 3976u) >> 12);   /* Q12 (square: LIFE's wander */
                                                              /* near 0 stays rare) */
     if (p >= 4096u) { s->hgate = 1; s->hgt = 0; return; }
@@ -1721,6 +1726,7 @@ static void life_block(src_t *s)
         int32_t w = ((a * depth) >> 7) * 5 >> 4, edge = s->i_glide < (127 << 8) - s->i_glide ? s->i_glide   /* no */
                                                                                           : (127 << 8) - s->i_glide;
         if (edge < (32 << 8)) w = (int32_t)(((int64_t)w * (edge < 0 ? 0 : edge)) >> 13);   /* longer lifts it) */
+        if (s->hd && (s->hd->k0 & 32u)) w /= 4;              /* (an engine with its own weather: a quarter) */
         s->i_eff = clampi(s->i_glide + w, 0, 127 << 8);
     }
     s->life_s = (sz * depth) >> 8;                           /* +-0.25 octave at LIFE 127 */

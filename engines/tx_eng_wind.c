@@ -14,7 +14,7 @@
 
 #define OUT_TRIM 3250               /* output gain, Q12: a key held at the defaults is -26 LUFS */
 
-enum { P_WIND, P_GUST, P_FOLIAGE, P_BUFFET, P_WHOOSH, P_EDGE, P_SCALE, P_KIND, P_DRIFT, NP };
+enum { P_WIND, P_GUST, P_FOLIAGE, P_BUFFET, P_WHOOSH, P_EDGE, P_SCALE, P_KIND, P_DRIFT, P_SKITTER, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"WIND", 127, 64, "mean wind speed: 0 calm (silence) .. 28 m/s (^1.5: 0.5 m/s at 9, 10 at 64: a breath now and then .. a storm)"},
@@ -28,39 +28,44 @@ static const tx_param_t PARAMS[NP] = {
                      "a sea wind on the coast | a gale on a ridge | a gusty autumn day | a winter storm | a desert wind"},
     {"DRIFT", 127, 64, "what the wind lifts, where it does (a winter storm's snow, a desert's sand): none .. +-3 octaves of the place's own "
                       "(a fine hiss rising with the gusts over its threshold speed)"},
+    {"SKITTER", 127, 64, "dry leaves tumbling over the ground, where there are (a gusty autumn day): none, then x 1/4 .. "
+                        "x 4 the place's own (runs of clicks over 4 m/s, louder as it blows harder)"},
 };
 
 /* the kinds (a place each: what the wind blows through and how it moves there; ours, set against the references):
  * the speed's top (x, Q8), the turbulence (x, Q8), the level (Q12: -26 LUFS at the defaults; grass and pines a little
- * under, the storms a little over), then the core's paths (tx_wkind_t; r2 0 = the rush's top at 6 dB / octave) */
+ * under, the storms a little over), then the core's paths (tx_wkind_t; r2 0 = the rush's top at 6 dB / octave). The
+ * gusts, the turbulence and the flutter are set against the references at the defaults: most places blow steadier
+ * than a gale, their bands not all swelling together (the references' 100 ms level spans 3 .. 10 dB; the ridge's and
+ * the desert's 20) */
 #define O(t) ((t) * 6554)                 /* tenths of an octave -> Q16 */
 typedef struct { int16_t us, tim, trim; tx_wkind_t k; } kind_t;   /* (the offsets need int32: see tx_wkind_t) */
 #define NK 10u
 static const kind_t KINDS[NK] = {
     /*            gsz  grt   kr lull |  rg       ro      rbw |  lg       lr lsh  lhp       lo lut   lp |  bg |  wg   wr wq0 wq1       wo   wt |  em   fl |    r2 | sk sut sr */
     /* wind: ground and trees, the all-round one */
-    {256, 256, 4096, {256, 256, 256, 3, 256, O(0), O(20), 256, O(0), 7, 400, O(0), 0, 512, 256, 256, 256, 19, 40, O(0), 256, 256, 256, 0, 0, 0, 0, 0}},
+    {256, 153, 5530, {153, 64, 256, 3, 256, O(0), O(20), 256, O(0), 7, 400, O(0), 0, 512, 256, 256, 256, 19, 40, O(0), 256, 256, 128, 0, 0, 0, 0, 0}},
     /* a breeze in tall grass: blades swishing (fewer, longer flaps, darker), waves of wind across the field (long, broad
      * whooshes, higher), little at the ground */
-    {180, 256, 18707, {300, 300, 200, 3, 140, O(-5), O(20), 900, O(-10), 8, 500, O(-12), 0, 512, 90, 200, 400, 12, 19, O(10), 420, 0, 300, O(10), 0, 0, 0, 0}},
+    {180, 64, 26433, {75, 45, 200, 3, 140, O(-5), O(20), 900, O(-10), 8, 500, O(-12), 0, 512, 90, 200, 400, 12, 19, O(10), 420, 0, 0, O(10), 0, 0, 0, 0}},
     /* pines: the needles' smooth hiss (dense, tiny flaps, high), soughing in slow swells, sheltered under the canopy */
-    {230, 200, 15407, {220, 200, 150, 2, 110, O(-4), O(20), 520, O(30), 5, 1500, O(-5), 0, 512, 50, 140, 150, 16, 24, O(15), 420, 100, 150, O(10), 0, 0, 0, 0}},
+    {230, 120, 15407, {132, 50, 150, 2, 110, O(-4), O(20), 520, O(30), 5, 1500, O(-5), 0, 512, 50, 140, 150, 16, 24, O(15), 420, 100, 75, O(10), 0, 0, 0, 0}},
     /* leafy trees: leaves rattling and flapping (bigger, mid-bright), gusts sweeping through the canopy */
-    {230, 256, 7208, {256, 256, 256, 3, 170, O(0), O(20), 460, O(0), 8, 600, O(2), 0, 512, 110, 300, 300, 16, 30, O(7), 300, 80, 350, 0, 0, 0, 0, 0}},
+    {230, 96, 9500, {96, 64, 256, 3, 170, O(0), O(20), 460, O(0), 8, 600, O(2), 0, 512, 110, 300, 300, 16, 30, O(7), 300, 80, 0, 0, 0, 0, 0, 0}},
     /* an open plain or moor: no trees, the low broad roar of the air over open ground, buffeting, gusts moaning past */
-    {256, 256, 4921, {256, 256, 256, 3, 300, O(-4), O(30), 70, O(-10), 6, 800, O(-5), 0, 512, 430, 260, 200, 30, 50, O(0), 300, 150, 250, O(10), 0, 0, 0, 0}},
+    {256, 153, 6195, {153, 128, 256, 3, 300, O(-4), O(30), 70, O(-10), 6, 800, O(-5), 0, 512, 430, 215, 200, 30, 50, O(-10), 300, 150, 0, O(10), 0, 0, 0, 0}},
     /* a sea wind on the coast: strong and steady (little turbulence, long slow swells), a broad bright roar, spray hiss */
-    {280, 128, 6276, {120, 150, 150, 1, 300, O(3), O(35), 110, O(40), 4, 2000, O(5), 0, 512, 120, 200, 60, 16, 24, O(5), 500, 20, 100, O(10), 0, 0, 0, 0}},
+    {280, 76, 6803, {72, 37, 150, 1, 300, O(3), O(35), 110, O(40), 4, 2000, O(5), 0, 512, 120, 200, 60, 16, 24, O(5), 500, 20, 50, O(10), 0, 0, 0, 0}},
     /* a gale on a ridge: violent sudden gusts and deep lulls, a deep roar over the rock, howling gusts, heavy buffeting */
-    {330, 640, 1500, {900, 300, 500, 9, 300, O(-12), O(25), 40, O(0), 6, 1000, O(0), 0, 512, 900, 400, 300, 48, 96, O(-5), 300, 300, 500, O(5), 0, 0, 0, 0}},
+    {330, 150, 1589, {200, 300, 500, 9, 500, O(-6), O(25), 40, O(0), 6, 1000, O(0), 0, 512, 1500, 400, 300, 48, 96, O(-5), 300, 300, 1000, O(5), 0, 0, 0, 0}},
     /* a gusty autumn day: calm, then a gust and dry leaves crackling (sparse, big, bright, ~u^3) and skittering over the
      * ground above 4 m/s, in runs */
-    {230, 380, 4770, {450, 320, 350, 6, 100, O(0), O(20), 400, O(-40), 9, 1200, O(6), 0, 768, 250, 250, 250, 19, 40, O(8), 256, 80, 300, O(10), 128, 64, 1024, 0}},
+    {230, 228, 6582, {270, 80, 350, 6, 100, O(0), O(20), 400, O(-40), 9, 1200, O(6), 0, 768, 250, 250, 250, 19, 40, O(8), 256, 80, 150, O(10), 128, 64, 1024, 0}},
     /* a winter storm: bare branches, a low roar (the references: 400-500 Hz centroid), blowing snow a faint hiss over
      * 7 m/s (~u^3), howling gusts, buffeting */
-    {320, 220, 4150, {300, 300, 400, 2, 260, O(-12), O(20), 100, O(20), 6, 3000, O(10), 112, 768, 320, 400, 350, 40, 80, O(-8), 300, 250, 250, O(5), 0, 0, 0, 0}},
+    {320, 82, 7380, {112, 75, 400, 2, 260, O(-12), O(20), 100, O(20), 6, 3000, O(10), 112, 768, 320, 160, 350, 40, 80, O(-18), 300, 250, 0, O(5), 0, 0, 0, 0}},
     /* a desert wind: sand lifting over 5 m/s, its grains ticking and hissing (~u^3, bright), no plants */
-    {256, 180, 7479, {200, 256, 256, 1, 120, O(0), O(20), 1600, O(30), 4, 4000, O(30), 80, 768, 100, 200, 100, 19, 30, O(5), 256, 60, 250, O(10), 0, 0, 0, 0}},
+    {256, 250, 4775, {300, 256, 256, 1, 120, O(0), O(20), 1600, O(30), 4, 4000, O(30), 80, 768, 100, 200, 100, 19, 30, O(5), 256, 60, 100, O(10), 0, 0, 0, 0}},
 };
 
 typedef struct {
@@ -79,6 +84,8 @@ static void apply(wind_t *s)
     w->k = k->k;
     if (k->k.lut && s->p[P_DRIFT] != 64u)                   /* DRIFT: the lifted snow or sand, x 2^(+-3) (0: none) */
         w->k.lg = s->p[P_DRIFT] ? (int16_t)(((int32_t)k->k.lg * (int32_t)tx_exp2(((int32_t)s->p[P_DRIFT] - 64) * 3072 + (12 << 16))) >> 12) : 0;
+    if (k->k.sk && s->p[P_SKITTER] != 64u)                  /* SKITTER: the leaves on the ground, x 2^(+-2) (0: none) */
+        w->k.sk = s->p[P_SKITTER] ? (int16_t)(((int32_t)k->k.sk * (int32_t)tx_exp2(((int32_t)s->p[P_SKITTER] - 64) * 2048 + (12 << 16))) >> 12) : 0;
     s->kind = (uint8_t)((s->p[P_KIND] * NK) >> 7);
     if (!v) w->U = 0;
     else {   /* 28 (v / 127)^1.5 m/s: 0.5 m/s at 9 (calm air, a breath now and then), 10 at 64, 28 at 127 */

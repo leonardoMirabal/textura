@@ -25,7 +25,7 @@
  *
  * Wind: the approved study's ranking (2026-10-26), four on the first page, by the place: the trees' FOLIAGE early, the
  * open places' EXPOSED (the wind's BUFFET); winter's and the desert's DRIFT; autumn's SKITTER (the dry leaves over the
- * ground, left out until the engine has it). The source's EXTRA, SPACING and DEPTH do nothing on a wind, so no general
+ * ground). The source's EXTRA, SPACING and DEPTH do nothing on a wind, so no general
  * card is left. The gales in the Storm landscape keep their cards (by the sound's name). */
 #ifndef TX_SOUND_CARDS_H
 #define TX_SOUND_CARDS_H

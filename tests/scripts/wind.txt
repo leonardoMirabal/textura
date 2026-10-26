@@ -1,6 +1,6 @@
 # the Wind landscape's SOUND cards, by the place (sound_cards.h): the trees GUST, FOLIAGE, SCALE, EXPOSED (= BUFFET) /
 # WHOOSH, EDGE, DIST; grass GUST, SCALE, FOLIAGE, WHOOSH / EXPOSED, DIST; the open places GUST, EXPOSED ...; autumn
-# GUST, FOLIAGE, SCALE, EXPOSED (SKITTER third once the engine has it); the desert DRIFT, GUST, EXPOSED, WHOOSH. No
+# GUST, FOLIAGE, SKITTER, SCALE; the desert DRIFT, GUST, EXPOSED, WHOOSH. No
 # general card (EXTRA, SPACING, DEPTH do nothing on a wind)
 1700 turn 1 5
 2100 expect state landscape Wind
@@ -61,8 +61,8 @@
 3750 btn 6
 3800 expect state lab0 GUST
 3800 expect state lab1 FOLIAGE
-3800 expect state lab2 SCALE
-3800 expect state lab3 EXPOSED
+3800 expect state lab2 SKITTER
+3800 expect state lab3 SCALE
 3850 btn 8
 3900 turn 2 1
 3950 expect state snd1 winter_storm
