@@ -9,9 +9,9 @@
 /* mean pause between bouts at the middle of the fader (0.1 s), base pitches (log2 Hz Q16) */
 const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES] = { 60, 80, 220, 200, 1500, 50, 90, 70, 50, 60, 80, 150, 80, 100, 250, 120, 400, 150, 200, 100, 600 };
 const int32_t TX_BIRD_F0[TX_BIRD_TYPES] = { 731868, 771564, 596593, 641031, 666332,   /* 2.3, 3.5, 0.55, 0.88, 1.15 kHz */
-                                            731868, 771564, 750467, 781796, 805288, 768824, 779340,
+                                            731868, 738796, 750467, 781796, 805288, 768824, 779340,
                                             756990, 753784, 708692, 747028, 619395, 619395, 607920, 703288, 460218 };
-                                            /* 2.3, 3.5, 2.8, 3.9, 5.0, 3.4, 3.8, 3.0, 2.9, 1.8, 2.7, 0.7, 0.7 (the strike), 0.62, 1.7,
+                                            /* 2.3, 2.5, 2.8, 3.9, 5.0, 3.4, 3.8, 3.0, 2.9, 1.8, 2.7, 0.7, 0.7 (the strike), 0.62, 1.7,
                                              * 0.13 kHz */
 
 enum { ST_BLACKBIRD, ST_THRUSH, ST_NIGHTINGALE, ST_ROBIN, ST_WREN, ST_HERMIT, ST_SKYLARK, ST_FINCH, ST_CROW, ST_OWL, ST_GULL,
@@ -53,7 +53,8 @@ static const sp_t SP[TX_BIRD_TYPES] = {
     /* 5 blackbird: fluted low whistles 1.6-3.2 kHz, then a quiet high twitter; strophes ~2 s, 1-5 s apart, 4-12 a bout
      * (the references have nothing in the 1.0-1.6 kHz band) */
     {ST_BLACKBIRD, -2100, 3400, 14, 80, 120, 450, 1230, 110, 50, 24, 16, 4, 12, 1200, 5000, 1, 48, 5, 0, 0, 300},
-    /* 6 song thrush: 2.8-8 kHz, a phrase of 1-4 notes repeated 2-4 x, phrases ~0.75 s, ~0.9 s apart, long bouts */
+    /* 6 song thrush: 1.6-5.2 kHz, a phrase of 1-4 notes repeated 2-4 x, phrases ~0.75 s, ~0.9 s apart, long bouts (the
+     * references' loud frames peak at 2.3 / 2.9-3.8 / 5.7-7.5 kHz, p10 / 50 / 90; ours were 4.1 / 5.4 / 7.3) */
     {ST_THRUSH, -2400, 4300, 15, 140, 80, 200, 1100, 130, 40, 32, 24, 6, 16, 300, 1100, 1, 44, 4, 0, 0, 350},
     /* 7 nightingale: 1.6-5.9 kHz; strophes ~1.7 s: soft notes, a swelling whistle or a rattling trill, an end note */
     {ST_NIGHTINGALE, -3000, 4800, 15, 90, 40, 120, 1500, 140, 40, 40, 40, 3, 8, 1500, 4000, 1, 48, 5, 0, 0, 300},
@@ -100,7 +101,7 @@ static const sp_t SP[TX_BIRD_TYPES] = {
 
 /* each type's level (Q6), by render: every bird preset at -30 LUFS at INTENSITY 64 (60 s, the mean of 3 seeds; with
  * the preset rows' trims) */
-static const uint16_t TRIM[TX_BIRD_TYPES] = { 240, 180, 112, 123, 421, 120, 123, 152, 145, 216, 82, 145, 182, 126, 100, 94, 125, 1430, 99, 404, 49 };
+static const uint16_t TRIM[TX_BIRD_TYPES] = { 240, 180, 112, 123, 421, 120, 166, 152, 145, 216, 82, 145, 182, 126, 100, 94, 125, 1430, 99, 404, 49 };
 
 /* SIZE: how far a type's birds range in size, the half range in octaves (Q16 per knob step: 512 = +-0.5 oct at the
  * ends). A bigger bird sings lower within what its kind spans (a jackdaw to a raven, a black-headed gull to a great
@@ -381,7 +382,8 @@ static void phrase_start(tx_bird_voice_t *v)
         m = rb(&pr, 1, 4);
         for (i = 0; i < m; i++) {
             unsigned c = tx_rand_below(&pr, 20u), cls = c < 10u ? C_NOTE : c < 14u ? C_TRILL : c < 17u ? C_SWEEP : C_HARSH;
-            seg(v, SYL(cls, rb(&pr, 0, ns - 1u)), cls == C_TRILL ? rb(&pr, 2, 4) : 1, rb(&pr, 15, 50), 255, 255, 0);
+            seg(v, SYL(cls, rb(&pr, 0, ns - 1u)), cls == C_TRILL ? rb(&pr, 2, 4) : 1, rb(&pr, 0, 15), 255, 255, 0);   /* (the
+                                                              * references' gaps in a phrase: median 10 ms; were 30-100) */
         }
         v->mrep = (uint8_t)rb(&pr, 2, 4);
         i = tx_rand_below(&v->rng, 8u);
