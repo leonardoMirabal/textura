@@ -25,6 +25,8 @@ static void kv_host_vkey(uint32_t k, uint32_t raw) { (void)k; (void)raw; }   /* 
 #define LN_MOD                                  /* lanes.c calls the modulation (mod.c) at each block and note */
 static void mod_block(void);
 static void mod_key_isr(uint32_t k, uint32_t vel);
+static void mod_key_off_isr(uint32_t k);
+static void mod_lane_reset_isr(uint32_t k);
 #ifdef DINGHY_HOST
 #define LN_COST_EST                             /* the governor's costs: the host's stand-in (lanes.c) */
 #else
@@ -155,18 +157,20 @@ static int host_preset_check(char *msg, unsigned n)   /* 0 if what plays is the 
                      now.run[k], now.cnt[k], now.step[k], now.vol[k], now.pan[k], s->snd[k], s->run[k], s->cnt[k], s->step[k], s->vol[k], s->pan[k]);
             return 1;
         }
-    for (i = 0; i < s->nrec; i++) {             /* every record holds (the cards: as set) */
+    for (i = 0; i < s->nrec; i++) {             /* every record holds (the cards: as set; the rest: a value not
+                                                 * recorded is its default; the tempo: with SCENE TEMPO on) */
+        int32_t v;
+        if (P_SCOPE(s->r[i].id) == P_GLOBAL && P_IDX(s->r[i].id) == PG_FINE && !tm.scn_tempo) continue;
         for (j = 0; j < now.nrec && now.r[j].id != s->r[i].id; j++) {}
-        if (j == now.nrec || now.r[j].v != s->r[i].v) {
-            snprintf(msg, n, "id 0x%03X: %d, not %d", s->r[i].id, j == now.nrec ? -1 : now.r[j].v, s->r[i].v);
-            return 1;
-        }
+        v = j < now.nrec ? now.r[j].v : scn_def_of(s->r[i].id);
+        if (v != s->r[i].v) { snprintf(msg, n, "id 0x%03X: %d, not %d", s->r[i].id, v, s->r[i].v); return 1; }
     }
-    for (j = 0; j < now.nrec; j++)              /* and no card set that the scene has not */
-        if (P_SCOPE(now.r[j].id) < SC_N && P_IDX(now.r[j].id) >= PL_CARD0 && P_IDX(now.r[j].id) < PL_CARD0 + SCD_MAX) {
-            for (i = 0; i < s->nrec && s->r[i].id != now.r[j].id; i++) {}
-            if (i == s->nrec) { snprintf(msg, n, "card 0x%03X set (%d), not in the scene", now.r[j].id, now.r[j].v); return 1; }
-        }
+    for (j = 0; j < now.nrec; j++) {            /* and nothing set that the scene has not (a card, a value off its
+                                                 * default) */
+        if (P_SCOPE(now.r[j].id) == P_GLOBAL && P_IDX(now.r[j].id) == PG_FINE) continue;
+        for (i = 0; i < s->nrec && s->r[i].id != now.r[j].id; i++) {}
+        if (i == s->nrec) { snprintf(msg, n, "0x%03X set (%d), not in the scene", now.r[j].id, now.r[j].v); return 1; }
+    }
     snprintf(msg, n, "%u records", s->nrec);
     return 0;
 }
@@ -197,7 +201,10 @@ static int host_state(const char *key, char *v, unsigned n)
     if (!strcmp(key, "app")) snprintf(v, n, "%s", APP_NAME);
     else if (!strcmp(key, "palette")) snprintf(v, n, "%s", PALETTES[tx_palette_index(TX_PALETTE)].c[4] == C_HI ? TX_PALETTE : "?");
     else if (!strcmp(key, "splash")) snprintf(v, n, "%u", ui_splash_on);
-    else if (!strcmp(key, "page")) { if (ui_nsub(ui_g) > 1u) snprintf(v, n, "%s %u/%u", G_TITLE[ui_g], ui_sub + 1u, ui_nsub(ui_g)); else snprintf(v, n, "%s", G_TITLE[ui_g]); }
+    else if (!strcmp(key, "page")) {            /* (as the title: ENV's followers are FOLLOW) */
+        const char *g = ui_g == G_ENV && ui_env >= TX_ENV_N ? "FOLLOW" : G_TITLE[ui_g];
+        if (ui_nsub(ui_g) > 1u) snprintf(v, n, "%s %u/%u", g, ui_sub + 1u, ui_nsub(ui_g)); else snprintf(v, n, "%s", g);
+    }
     else if (!strcmp(key, "landscape")) snprintf(v, n, "%s", LS[sc.fam].name);
     else if (!strcmp(key, "sel")) snprintf(v, n, "%u", sc.sel + 1u);
     else if (!strcmp(key, "mode")) snprintf(v, n, "%s", nt.mode == NT_PLAY ? "PLAY" : "LANDSCAPE");
@@ -223,6 +230,9 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "pubs")) snprintf(v, n, "%u", tempo_pubs);
     else if (!strcmp(key, "running")) snprintf(v, n, "%d", tm_running());
     else if (!strcmp(key, "songpos")) snprintf(v, n, "%u", clk_sp);
+    else if (!strcmp(key, "clkout")) snprintf(v, n, "%u", clko_sent);           /* clock pulses sent (MASTER) */
+    else if (sscanf(key, "env%u%c", &k, &c) == 1 && k < TX_ENV_N) snprintf(v, n, "%d", mod_ext[ME_ENV1 + k]);   /* ENV 1, 2 now */
+    else if (sscanf(key, "fol%u%c", &k, &c) == 1 && k < TX_FOL_N) snprintf(v, n, "%d", mod_ext[ME_FOL1 + k]);   /* FOLLOW 1, 2 now */
     else if (!strcmp(key, "gsync")) snprintf(v, n, "%u", tm.gsync_smp);          /* the grain delay's echo, samples */
     else if (!strcmp(key, "scene")) { char t[20]; if (scn_cur == 0xFF) snprintf(v, n, "-"); else { scn_name_of(scn_cur, t); snprintf(v, n, "%s", t); } }
     else if (!strcmp(key, "loading")) snprintf(v, n, "%u", scn_busy());
@@ -254,7 +264,7 @@ static void host_gov_pool(uint32_t us) { ln.gov.budget = us ? us : LN_GOV_POOL_U
 static void host_dump(void)
 {
     static const char *const K[] = {"app", "palette", "splash", "page", "landscape", "sel", "mode", "oct", "dropped",
-                                    "bpm10", "beatsmp", "clklock", "clksrc", "pubs", "running", "songpos", "gsync", "gdsync"};
+                                    "bpm10", "beatsmp", "clklock", "clksrc", "pubs", "running", "songpos", "clkout", "gsync", "gdsync"};
     static const char *const L[] = {"lane", "snd", "cnt", "act", "run", "vol", "pan", "gen"};
     char v[48], key[12];
     uint32_t i, k;

@@ -2,16 +2,19 @@
 /* Scenes and the settings.
  *
  * A scene is everything a sound place is: the landscape, each lane's sound, HOW MANY, HOW ACTIVE, playing or not, its
- * level and pan, then a list of (parameter id, value) records: the lanes' cards (the ones set), drive and filter, the
- * grain delay and its SYNC, the reverb, the tempo, the eight LFOs and the matrix. By id, so a record of an older
- * firmware loads into a newer one (an id it lacks keeps its value; ids never change, params.c).
+ * level and pan, its name, then a list of (parameter id, value) records: the lanes' cards (the ones set), the tempo,
+ * and of drive and filter, the grain delay and its SYNC, the reverb, the eight LFOs, the envelopes, the followers and
+ * the matrix the values away from their defaults (scn_def_*). A load sets every one of those to its default first,
+ * then the scene's records over them, so a record of an older firmware loads into a newer one (an id it lacks gets
+ * its default; ids never change, params.c). The tempo is set only with SCENE TEMPO on (tempo.c).
  *
  *   factory   F01 .. F10: each landscape at its start, the effects and the modulation at their defaults
  *   user      U01 .. U16, in a bank of two copies written alternately (Frodhes' presets.c scheme): the older copy
  *             erased, the records written, the header last; the valid copy with the higher sequence loads, so a save
  *             cut short never loses the bank. Only the names stay in RAM; a record is read when it loads.
  *   PRESETS   browse F01 .. U16 (the empty user scenes skipped); the scene loads 400 ms after the last detent
- *   SAVE      the save mode: PRESETS / K1 pick the user scene, SAVE again saves, HOME (or OCT-) cancels
+ *   SAVE      the save mode: PRESETS / K1 pick the user scene, K2 the name's letter and K3 its character (the name
+ *             a used slot had, or the landscape's), SAVE again saves, HOME (or OCT-) cancels
  *   SAVE held 700 ms: undo the last load (again: redo)
  *   MIDI PC   on channel 1: 0 .. 9 F01 .. F10, 16 .. 31 U01 .. U16
  *
@@ -86,7 +89,7 @@ static uint8_t scn_cur = 0xFF;                  /* the scene loaded last (0xFF: 
 /* a load in progress */
 static const scn_t *scn_ap;
 static uint8_t scn_ap_stage;                    /* 0 idle, 1 the lanes set (waiting), 2 the records */
-static uint16_t scn_ap_i;
+static uint16_t scn_ap_i, scn_ap_d;            /* the next record; the next default (SCN_DEF_N: all sent) */
 static uint32_t scn_ap_t;
 static uint8_t scn_ap_idx = 0xFF;
 /* a save in progress */
@@ -95,6 +98,9 @@ static uint16_t scn_sv_step;                    /* sectors erased, then chunks w
 static uint32_t scn_sv_at, scn_sv_crc;
 /* browsing and the save mode */
 static uint8_t scn_cand = 0xFF, scn_save_mode, scn_save_slot;
+static char scn_nm[12];                         /* the save mode's name (11 characters), its letter, edited or not */
+static uint8_t scn_nm_pos, scn_nm_edit;
+static const char SCN_CHARS[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-&'.";
 static uint32_t scn_cand_t, scn_save_t;
 
 static void ui_say(const char *s);              /* ui.c */
@@ -109,17 +115,83 @@ static void scn_name_of(uint32_t idx, char *s)  /* "F03 FIRE", "U05 WATER", "U06
     else p_cat(s, "----", 16);
 }
 
-/* ---- capture: the scene that plays now */
+/* ---- the defaults a load starts from: the lanes' drive and filter, the grain delay and its SYNC, the reverb, the
+ * LFOs, the envelopes, the followers, the matrix (in that order; SCN_DEF_N of them) */
+#define SCN_DEF_LANE (TX_DR_NP + TX_FL_NP)
+#define SCN_DEF_GLOB (SC_N * SCN_DEF_LANE)
+#define SCN_DEF_LFO (SCN_DEF_GLOB + TX_GD_NP + 1u + TX_RV_NP)
+#define SCN_DEF_ENV (SCN_DEF_LFO + TX_LFO_N * TX_LP_N)
+#define SCN_DEF_FOL (SCN_DEF_ENV + TX_ENV_N * TX_EP_N)
+#define SCN_DEF_MAT (SCN_DEF_FOL + TX_FOL_N * TX_FP_N)
+#define SCN_DEF_N (SCN_DEF_MAT + MOD_NS * MQ_N + 1u)
+static uint8_t scn_lfo_def[TX_LFO_N][TX_LP_N];  /* (tx_lfo_init's, per LFO: taken at boot) */
+static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id */
+{
+    uint32_t k;
+    if (i < SCN_DEF_GLOB) {
+        k = i / SCN_DEF_LANE; i %= SCN_DEF_LANE;
+        return PID(k, i < TX_DR_NP ? PL_DRIVE0 + i : PL_FILTER0 + i - TX_DR_NP);
+    }
+    if (i < SCN_DEF_LFO) {
+        i -= SCN_DEF_GLOB;
+        return PID(P_GLOBAL, i < TX_GD_NP ? PG_GRAIN0 + i : i == TX_GD_NP ? PG_GSYNC : PG_REVERB0 + i - TX_GD_NP - 1u);
+    }
+    if (i < SCN_DEF_ENV) { i -= SCN_DEF_LFO; return PID(P_LFO, i / TX_LP_N * 16u + i % TX_LP_N); }
+    if (i < SCN_DEF_FOL) { i -= SCN_DEF_ENV; return PID(P_ENV, i / TX_EP_N * 16u + i % TX_EP_N); }
+    if (i < SCN_DEF_MAT) { i -= SCN_DEF_FOL; return PID(P_ENV, MV_FOL0 + i / TX_FP_N * 16u + i % TX_FP_N); }
+    i -= SCN_DEF_MAT;
+    return PID(P_MAT, i < MOD_NS * MQ_N ? i : MQ_CC);
+}
+static int32_t scn_def_of(uint32_t id)          /* an id's default (-1: none: the cards, the tempo) */
+{
+    uint32_t s = P_SCOPE(id), i = P_IDX(id);
+    if (s < SC_N) {
+        if (i >= PL_DRIVE0 && i < PL_DRIVE0 + TX_DR_NP) return tx_fx_drive_params[i - PL_DRIVE0].def;
+        if (i >= PL_FILTER0 && i < PL_FILTER0 + TX_FL_NP) return tx_fx_filter_params[i - PL_FILTER0].def;
+        return -1;
+    }
+    if (s == P_GLOBAL) {
+        if (i < PG_GRAIN0 + TX_GD_NP) return tx_fx_grain_params[i - PG_GRAIN0].def;
+        if (i == PG_GSYNC) return 0;
+        if (i >= PG_REVERB0 && i < PG_REVERB0 + TX_RV_NP) return tx_fx_reverb_params[i - PG_REVERB0].def;
+        return -1;
+    }
+    if (s == P_LFO) return i / 16u < TX_LFO_N && i % 16u < TX_LP_N ? scn_lfo_def[i / 16u][i % 16u] : -1;
+    if (s == P_ENV) {
+        if (mod_is_env(i)) return tx_env_params[i % 16u].def;
+        if (mod_is_fol(i)) return tx_fol_params[(i - MV_FOL0) % 16u].def;
+        return -1;
+    }
+    if (s == P_MAT) {
+        if (i == MQ_CC) return 2;
+        if (i >= MOD_NS * MQ_N) return -1;
+        return i % MQ_N == MQ_DEPTH ? 100 : i % MQ_N == MQ_SPREAD ? 32 : 0;
+    }
+    return -1;
+}
 static void scn_add(scn_t *s, uint32_t id, int32_t v)
 {
     if (s->nrec < SCN_REC_MAX) { s->r[s->nrec].id = (uint16_t)id; s->r[s->nrec].v = (int16_t)v; s->nrec++; }
 }
+static void scn_add_nd(scn_t *s, uint32_t id, int32_t v)   /* a record unless it is the default */
+{
+    if (scn_def_of(id) != v) scn_add(s, id, v);
+}
+static int scn_rec_of(const scn_t *s, uint32_t id)   /* the scene's record of id (-1: none) */
+{
+    uint32_t i;
+    for (i = 0; i < s->nrec; i++) if (s->r[i].id == id) return (int)i;
+    return -1;
+}
+
+/* ---- capture: the scene that plays now */
 static void scn_capture(scn_t *s)
 {
     uint32_t k, i;
     memset(s, 0, sizeof *s);
     s->ver = SCN_VER; s->used = 1; s->fam = sc.fam;
-    p_upper(s->name, LS[sc.fam].name, 11);
+    if (scn_cur != 0xFF && scn_cur >= SCN_NF && scn_meta[scn_cur - SCN_NF].used) memcpy(s->name, scn_meta[scn_cur - SCN_NF].name, 12);
+    else p_upper(s->name, LS[sc.fam].name, 11);
     for (k = 0; k < SC_N; k++) {
         p_cards_t *c = p_cards(k);
         s->snd[k] = sc.snd[k];
@@ -127,27 +199,16 @@ static void scn_capture(scn_t *s)
         s->step[k] = sc.step[k]; s->run[k] = sc.run[k];
         s->vol[k] = (uint8_t)sc_vol_of(k); s->pan[k] = sc.pan[k];
         for (i = 0; i < c->n; i++) if (c->cv[i] != 0xFF) scn_add(s, PID(k, PL_CARD0 + i), c->cv[i]);   /* (the ones set) */
-        for (i = 0; i < TX_DR_NP; i++) scn_add(s, PID(k, PL_DRIVE0 + i), pv_lane[k][PL_DRIVE0 + i]);
-        for (i = 0; i < TX_FL_NP; i++) scn_add(s, PID(k, PL_FILTER0 + i), pv_lane[k][PL_FILTER0 + i]);
     }
-    for (i = 0; i < TX_GD_NP; i++) scn_add(s, PID(P_GLOBAL, PG_GRAIN0 + i), pv_glob[PG_GRAIN0 + i]);
-    scn_add(s, PID(P_GLOBAL, PG_GSYNC), (int32_t)tm.gsync);
-    for (i = 0; i < TX_RV_NP; i++) scn_add(s, PID(P_GLOBAL, PG_REVERB0 + i), pv_glob[PG_REVERB0 + i]);
     scn_add(s, PID(P_GLOBAL, PG_FINE), (int32_t)tempo_bpm10() - 400);
-    for (k = 0; k < TX_LFO_N; k++) for (i = 0; i < TX_LP_N; i++) scn_add(s, PID(P_LFO, k * 16u + i), mod_lfo[k].p[i]);
-    for (k = 0; k < MOD_NS; k++) {
-        scn_add(s, PID(P_MAT, k * MQ_N + MQ_SRC), mslot[k].src); scn_add(s, PID(P_MAT, k * MQ_N + MQ_TGT), mslot[k].tgt);
-        scn_add(s, PID(P_MAT, k * MQ_N + MQ_DEPTH), mslot[k].depth); scn_add(s, PID(P_MAT, k * MQ_N + MQ_SPREAD), mslot[k].spread);
-    }
-    scn_add(s, PID(P_MAT, MQ_CC), mod_cc);
+    for (i = 0; i < SCN_DEF_N; i++) { uint32_t id = scn_def_id(i); scn_add_nd(s, id, p_get(id)); }
 }
-/* a factory scene: landscape f at its start (sc_start_landscape), the effects, the LFOs and the matrix at their
- * defaults; the tempo stays */
+/* a factory scene: landscape f at its start (sc_start_landscape), the effects and the modulation at their defaults;
+ * the tempo stays */
 static void scn_factory(scn_t *s, uint32_t f)
 {
     static const uint8_t C[3] = {2, 1, 1};
-    uint32_t k, i;
-    tx_lfo_t l;
+    uint32_t k;
     memset(s, 0, sizeof *s);
     s->ver = SCN_VER; s->used = 1; s->fam = (uint8_t)f;
     p_upper(s->name, LS[f].name, 11);
@@ -155,21 +216,7 @@ static void scn_factory(scn_t *s, uint32_t f)
         s->snd[k] = (int8_t)(k < LS[f].n ? (int32_t)k : -1);
         s->vol[k] = 100; s->pan[k] = 64;
         if (k < 3u && s->snd[k] >= 0) { s->cnt[k] = C[k]; s->step[k] = (uint8_t)sc_act_step(0); s->run[k] = 1; }
-        for (i = 0; i < TX_DR_NP; i++) scn_add(s, PID(k, PL_DRIVE0 + i), tx_fx_drive_params[i].def);
-        for (i = 0; i < TX_FL_NP; i++) scn_add(s, PID(k, PL_FILTER0 + i), tx_fx_filter_params[i].def);
-    }
-    for (i = 0; i < TX_GD_NP; i++) scn_add(s, PID(P_GLOBAL, PG_GRAIN0 + i), tx_fx_grain_params[i].def);
-    scn_add(s, PID(P_GLOBAL, PG_GSYNC), 0);
-    for (i = 0; i < TX_RV_NP; i++) scn_add(s, PID(P_GLOBAL, PG_REVERB0 + i), tx_fx_reverb_params[i].def);
-    for (k = 0; k < TX_LFO_N; k++) {
-        tx_lfo_init(&l, k, 1u);
-        for (i = 0; i < TX_LP_N; i++) scn_add(s, PID(P_LFO, k * 16u + i), l.p[i]);
-    }
-    for (k = 0; k < MOD_NS; k++) {
-        scn_add(s, PID(P_MAT, k * MQ_N + MQ_SRC), 0); scn_add(s, PID(P_MAT, k * MQ_N + MQ_TGT), 0);
-        scn_add(s, PID(P_MAT, k * MQ_N + MQ_DEPTH), 100); scn_add(s, PID(P_MAT, k * MQ_N + MQ_SPREAD), 32);
-    }
-    scn_add(s, PID(P_MAT, MQ_CC), 2);
+    }                                           /* (no records: every default comes with the load) */
 }
 
 /* ---- load: the lanes, then (their engines in) the records, a slice a pass */
@@ -208,7 +255,7 @@ static void scn_apply(const scn_t *s, uint32_t idx)
 {
     scn_ap = s; scn_ap_idx = (uint8_t)idx;
     scn_lanes(s);
-    scn_ap_stage = 1; scn_ap_t = fm1_ms; scn_ap_i = 0;
+    scn_ap_stage = 1; scn_ap_t = fm1_ms; scn_ap_i = 0; scn_ap_d = 0;
 }
 static int scn_busy(void) { return scn_ap_stage != 0; }
 static void scn_apply_poll(void)
@@ -221,12 +268,18 @@ static void scn_apply_poll(void)
         scn_ap_stage = 2;
     }
     if (scn_ap_stage != 2) return;
-    while (scn_ap_i < scn_ap->nrec && n < SCN_SLICE && ln.qw - ln.qr < LN_QN / 2u) {
+    while (scn_ap_d < SCN_DEF_N && n < SCN_SLICE && ln.qw - ln.qr < LN_QN / 2u) {   /* the defaults the scene has no
+                                                         * record of (theirs come next: no value set twice) */
+        uint32_t id = scn_def_id(scn_ap_d++);
+        if (scn_rec_of(scn_ap, id) < 0) { p_set(id, scn_def_of(id)); n++; }
+    }
+    while (scn_ap_d >= SCN_DEF_N && scn_ap_i < scn_ap->nrec && n < SCN_SLICE && ln.qw - ln.qr < LN_QN / 2u) {
         const scn_rec_t *r = &scn_ap->r[scn_ap_i++];
-        if (P_SCOPE(r->id) == P_GLOBAL && P_IDX(r->id) == PG_FINE) tempo_set10((uint32_t)(r->v + 400));
+        if (P_SCOPE(r->id) == P_GLOBAL && P_IDX(r->id) == PG_FINE) { if (tm.scn_tempo) tempo_set10((uint32_t)(r->v + 400)); }
         else if (p_valid(r->id)) p_set(r->id, r->v);
         n++;
     }
+    if (scn_ap_d < SCN_DEF_N) return;
     if (scn_ap_i >= scn_ap->nrec) {
         if (ln_fx(LN_FX_RELATCH, 0, 0, 0)) return;   /* (the reverb's PLATE takes the new MIX's size at once; a full
                                                      * queue: the next pass) */
@@ -296,9 +349,34 @@ static void scn_bank_load(void)
     else if (vb) { scn_bank = SCN_BANK_B; scn_seq = hb.seq; }
     scn_meta_load();
 }
+static void scn_nm_take(void)                   /* the name the save mode starts from: the slot's, or the landscape's */
+{
+    uint32_t i;
+    memset(scn_nm, 0, sizeof scn_nm);
+    if (scn_meta[scn_save_slot].used) memcpy(scn_nm, scn_meta[scn_save_slot].name, 11);
+    else p_upper(scn_nm, LS[sc.fam].name, 11);
+    for (i = 0; i < 11u; i++) if (!scn_nm[i]) scn_nm[i] = ' ';   /* (spaces to the end: any letter can be set) */
+}
+static void scn_nm_turn(int32_t dpos, int32_t dch)   /* K2: the letter; K3: its character */
+{
+    const int32_t n = (int32_t)sizeof SCN_CHARS - 1;
+    int32_t p = (int32_t)scn_nm_pos + dpos, j = 0;
+    scn_nm_pos = (uint8_t)(p < 0 ? 0 : p > 10 ? 10 : p);
+    if (!dch) return;
+    while (j < n && SCN_CHARS[j] != scn_nm[scn_nm_pos]) j++;
+    if (j == n) j = 0;                          /* (a character not on the list: from the space) */
+    j = (j + dch % n + n) % n;
+    scn_nm[scn_nm_pos] = SCN_CHARS[j];
+    scn_nm_edit = 1;
+}
 static void scn_save_start(uint32_t slot)       /* the scene that plays now into user scene slot */
 {
+    int32_t i;
     scn_capture(&scn_sv);
+    memset(scn_sv.name, 0, sizeof scn_sv.name);  /* the name as set (trailing spaces off; all spaces: the landscape's) */
+    memcpy(scn_sv.name, scn_nm, 11);
+    for (i = 10; i >= 0 && (scn_sv.name[i] == ' ' || !scn_sv.name[i]); i--) scn_sv.name[i] = 0;
+    if (i < 0) p_upper(scn_sv.name, LS[sc.fam].name, 11);
     scn_sv_slot = (uint8_t)slot;
     scn_sv_at = scn_bank == SCN_BANK_A ? SCN_BANK_B : SCN_BANK_A;   /* (the older copy) */
     scn_sv_step = 0; scn_sv_crc = 0xFFFFFFFFu; scn_sv_on = 1;
@@ -342,7 +420,7 @@ static void scn_save_poll(void)                 /* a step a pass: a sector erase
 
 /* ---- the panel: PRESETS, SAVE (tap: the save mode, held: undo), K1 and HOME in the save mode. 1: the input was
  * the save mode's (K1 and HOME taken) */
-static int scn_input(uint32_t b, uint32_t rel, int32_t d_presets, int32_t d_k1)
+static int scn_input(uint32_t b, uint32_t rel, int32_t d_presets, int32_t d_k1, int32_t d_k2, int32_t d_k3)
 {
     char s[20];
     if (b >> BTN_SAVE & 1u) scn_save_t = fm1_ms ? fm1_ms : 1u;
@@ -359,6 +437,7 @@ static int scn_input(uint32_t b, uint32_t rel, int32_t d_presets, int32_t d_k1)
                 uint32_t i;
                 for (i = 0; i < SCN_NU; i++) if (!scn_meta[i].used) { scn_save_slot = (uint8_t)i; break; }
             }
+            scn_nm_take(); scn_nm_pos = 0; scn_nm_edit = 0;
             ui_all();
             return 1;
         }
@@ -372,10 +451,12 @@ static int scn_input(uint32_t b, uint32_t rel, int32_t d_presets, int32_t d_k1)
         if (d) {
             int32_t v = (int32_t)scn_save_slot + d;
             scn_save_slot = (uint8_t)(v < 0 ? 0 : v > (int32_t)SCN_NU - 1 ? SCN_NU - 1u : (uint32_t)v);
+            if (!scn_nm_edit) scn_nm_take();    /* (a name being written stays) */
             ui_all();
         }
+        if (d_k2 || d_k3) { scn_nm_turn(d_k2, d_k3); ui_all(); }
         if ((b >> BTN_HOME | b >> BTN_OCT_DOWN) & 1u) { scn_save_mode = 0; ui_say("NOT SAVED"); ui_all(); }
-        return (d_k1 || (b >> BTN_HOME | b >> BTN_OCT_DOWN) & 1u) ? 1 : 0;
+        return 1;                               /* (the save mode takes K1 .. K3, HOME, OCT-) */
     }
     if (d_presets) {                            /* browse: the next scene (empty user ones skipped) */
         int32_t v0 = scn_cand != 0xFF ? scn_cand : scn_cur != 0xFF ? scn_cur : (int32_t)sc.fam, v = v0, step = d_presets > 0 ? 1 : -1;
@@ -395,7 +476,8 @@ static void scn_pc(uint32_t p)                  /* MIDI program change (channel 
 }
 
 /* ---- the settings: one small record, saved SET_SAVE_MS after its last change (the platform's split save) */
-typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, rsv[2]; uint16_t bpm10, rsv2; } tx_set_t;
+typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, scn_tempo, out_off; uint16_t bpm10, rsv2; } tx_set_t;
+                                                /* (scn_tempo, out_off: once spare bytes, 0 = as before: off, USB) */
 static tx_set_t set_saved, set_now;
 static uint8_t set_dirty, set_saving;
 static uint32_t set_t;
@@ -404,6 +486,7 @@ static void set_take(tx_set_t *s)
     memset(s, 0, sizeof *s);
     s->ver = SET_VER; s->scene = (uint8_t)(scn_cur == 0xFF ? 0u : scn_cur + 1u);
     s->clock = (uint8_t)tm.clock; s->in_usb = tm.in_usb; s->in_trs = tm.in_trs; s->bpm10 = (uint16_t)tempo_bpm10();
+    s->scn_tempo = tm.scn_tempo; s->out_off = (uint8_t)!tm.out_usb;
 }
 static void set_poll(void)
 {
@@ -423,9 +506,16 @@ static void set_poll(void)
 static void scn_init(void)
 {
     tx_set_t s;
+    uint32_t k, i;
+    for (k = 0; k < TX_LFO_N; k++) {            /* (the LFOs' defaults, as a factory scene has them) */
+        static tx_lfo_t l;
+        tx_lfo_init(&l, k, 1u);
+        for (i = 0; i < TX_LP_N; i++) scn_lfo_def[k][i] = l.p[i];
+    }
     scn_bank_load();
     if (!settings_load(&s, sizeof s) && s.ver == SET_VER) {
         tempo_mode(s.clock); tempo_port(1, s.in_usb); tempo_port(2, s.in_trs);
+        tempo_scene_flag(s.scn_tempo); tempo_out(!s.out_off);
         if (s.bpm10 >= 400u && s.bpm10 <= 2400u) tempo_set10(s.bpm10);
         set_saved = s;
         if (s.scene && s.scene <= SCN_N) (void)scn_load(s.scene - 1u);

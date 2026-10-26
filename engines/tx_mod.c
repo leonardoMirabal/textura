@@ -198,3 +198,142 @@ TX_AUDIO_CODE void tx_mod_sum(const tx_mod_rt_t *r, unsigned n, const tx_lfo_t *
         sum[r[i].t] += (c * (int32_t)r[i].hi) >> 7;
     }
 }
+
+/* ---- ENV */
+const tx_param_t tx_env_params[TX_EP_N] = {
+    {"TRIGGER", TX_ET_N - 1, TX_ET_KEY, "key (any lane's note) | lane 1..4's notes | lane 1..4's events | random | "
+                                        "LFO 1..8 rising through 0 | the transport's START"},
+    {"ATTACK", 127, 40, "1 ms .. 60 s, exponential"},
+    {"DECAY", 127, 70, "1 ms .. 60 s, exponential"},
+    {"RELEASE", 127, 80, "1 ms .. 60 s, exponential"},
+    {"SUSTAIN", 127, 64, "the level held while the notes are held (key and lane triggers)"},
+    {"CURVE", 127, 64, "linear .. eased (a fast start, as an exponential)"},
+    {"VARY", 127, 32, "each trigger: its times +-50 % and its peak down to half at most, at random"},
+    {"LOOP", 1, 0, "off | on: it starts again on its own after a random rest"},
+};
+static uint32_t ernd(uint32_t *r) { uint32_t x = *r; x ^= x << 13; x ^= x >> 17; x ^= x << 5; return *r = x; }
+uint32_t tx_env_ms(unsigned v) { return tx_exp2((int32_t)(v > 127u ? 127u : v) * 8191); }   /* 60000^(v / 127) */
+static uint32_t env_blocks_q8(const tx_env_t *e, unsigned id)    /* a stage's length in blocks (Q8), VARY applied */
+{
+    uint32_t msq8 = tx_exp2((int32_t)e->p[id] * 8191 + (8 << 16));   /* ms, Q8 */
+    uint32_t b = ((msq8 >> 4) * 2822u) >> 10;                         /* x 44100 / 256 / 1000 (2.756), Q8 */
+    return ((b >> 4) * (e->vf >> 4)) >> 4;                           /* x vf (Q12) */
+}
+static uint32_t env_inc(const tx_env_t *e, unsigned id)
+{
+    uint32_t b = env_blocks_q8(e, id);
+    return b <= 256u ? (1u << 24) : 0xFFFFFFFFu / b;                 /* Q24 a block (Q32 / Q8) */
+}
+void tx_env_init(tx_env_t *e, uint32_t seed)
+{
+    unsigned i;
+    uint8_t *b = (uint8_t *)e;
+    for (i = 0; i < sizeof *e; i++) b[i] = 0;
+    for (i = 0; i < TX_EP_N; i++) e->p[i] = tx_env_params[i].def;
+    e->rng = seed | 1u; e->vf = 4096; e->peak = 32767;
+}
+void tx_env_param(tx_env_t *e, unsigned id, unsigned v)
+{
+    if (id >= TX_EP_N) return;
+    e->p[id] = (uint8_t)(v > tx_env_params[id].max ? tx_env_params[id].max : v);
+}
+static void env_start(tx_env_t *e)                                    /* a trigger: the attack, from where it is */
+{
+    int32_t r = (int32_t)(ernd(&e->rng) >> 16) - 32768, q = (int32_t)(ernd(&e->rng) >> 17);
+    int32_t vy = e->p[TX_EP_VARY];
+    e->vf = (uint32_t)(4096 + ((r * vy * 258) >> 19));                /* +-50 % (x 258 >> 15: / 127, no division) */
+    e->peak = 32767 - ((q * vy * 258) >> 16);                         /* down to half */
+    e->stage = TX_ES_ATT; e->ph = 0; e->a = e->out; e->b = e->peak;
+}
+static void env_next(tx_env_t *e, unsigned stage, int32_t to)
+{
+    e->stage = (uint8_t)stage; e->ph = 0; e->a = e->out; e->b = to;
+}
+TX_AUDIO_CODE void tx_env_block(tx_env_t *e, unsigned trig, unsigned gate)
+{
+    unsigned t = e->p[TX_EP_TRIGGER], id;
+    uint32_t p, c = e->p[TX_EP_CURVE];
+    if (t == TX_ET_RANDOM && (e->stage == TX_ES_IDLE || e->stage == TX_ES_REL || e->stage == TX_ES_REST)) {
+        uint32_t gap = (env_blocks_q8(e, TX_EP_DECAY) >> 6) + 1u;    /* 4 x DECAY, blocks */
+        trig = ernd(&e->rng) % gap == 0u;
+    }
+    if (t >= TX_ET_EV1 && t < TX_ET_EV1 + 4u && (e->stage == TX_ES_ATT || e->stage == TX_ES_DEC)) trig = 0;
+    if (t != TX_ET_KEY && (t < TX_ET_LANE1 || t >= TX_ET_LANE1 + 4u)) gate = 0;
+    if (trig || (e->stage == TX_ES_IDLE && e->p[TX_EP_LOOP])) env_start(e);
+    switch (e->stage) {
+    case TX_ES_IDLE: e->out = 0; return;
+    case TX_ES_SUS:
+        e->out = e->b;
+        if (!gate) env_next(e, TX_ES_REL, 0);
+        return;
+    case TX_ES_REST:
+        if (e->rest) e->rest--;
+        else env_start(e);
+        if (e->stage == TX_ES_REST) return;
+        break;
+    }
+    id = e->stage == TX_ES_ATT ? TX_EP_ATTACK : e->stage == TX_ES_DEC ? TX_EP_DECAY : TX_EP_RELEASE;
+    e->ph += env_inc(e, id);
+    if (e->ph >= (1u << 24)) e->ph = 1u << 24;
+    p = e->ph >> 9;                                                    /* Q15 */
+    p += ((int32_t)(((p * (65536u - p)) >> 15) - p) * (int32_t)c * 258) >> 15;   /* CURVE: towards p (2 - p), eased */
+    e->out = e->a + (((e->b - e->a) * (int32_t)p) >> 15);
+    if (e->ph < (1u << 24)) return;
+    e->out = e->b;
+    if (e->stage == TX_ES_ATT) env_next(e, TX_ES_DEC, (e->peak * e->p[TX_EP_SUSTAIN] * 258) >> 15);
+    else if (e->stage == TX_ES_DEC) { if (gate) e->stage = TX_ES_SUS; else env_next(e, TX_ES_REL, 0); }
+    else if (e->p[TX_EP_LOOP]) {                                       /* LOOP: a random rest, then again */
+        e->stage = TX_ES_REST;
+        e->rest = (uint32_t)(((ernd(&e->rng) >> 16) * ((env_blocks_q8(e, TX_EP_DECAY) >> 7) + 1u)) >> 16);
+    } else e->stage = TX_ES_IDLE;
+}
+
+/* ---- FOLLOW */
+const tx_param_t tx_fol_params[TX_FP_N] = {
+    {"INPUT", TX_FI_N - 1, TX_FI_LEVEL1, "lane 1..4's level | lane 1..4's event rate | the mix's level | the grain "
+                                         "delay's grains sounding"},
+    {"ATTACK", 127, 30, "the rise: 5 ms .. 10 s, exponential"},
+    {"RELEASE", 127, 70, "the fall: 5 ms .. 10 s, exponential"},
+    {"GAIN", 127, 64, "x0 .. x2 (64: x1)"},
+};
+uint32_t tx_fol_ms(unsigned v) { return (5u * tx_exp2((int32_t)(v > 127u ? 127u : v) * 5660 + (8 << 16))) >> 8; }
+void tx_fol_init(tx_fol_t *f)
+{
+    unsigned i;
+    for (i = 0; i < TX_FP_N; i++) f->p[i] = tx_fol_params[i].def;
+    f->env = 0; f->out = 0;
+}
+void tx_fol_param(tx_fol_t *f, unsigned id, unsigned v)
+{
+    if (id >= TX_FP_N) return;
+    f->p[id] = (uint8_t)(v > tx_fol_params[id].max ? tx_fol_params[id].max : v);
+}
+TX_AUDIO_CODE void tx_fol_block(tx_fol_t *f, int32_t x)
+{
+    int32_t d, o;
+    uint32_t b, c;
+    x = x < 0 ? 0 : x > 32767 ? 32767 : x;
+    d = (x << 8) - f->env;                                             /* Q23 */
+    b = (tx_fol_ms(f->p[d > 0 ? TX_FP_ATTACK : TX_FP_RELEASE]) * 2822u) >> 6;   /* blocks, Q8 (ms x 0.1723) */
+    c = b <= 256u ? 65535u : (65536u * 256u) / b;                    /* the step a block, Q16 */
+    f->env += ((d >> 9) * (int32_t)c) >> 7;
+    o = ((f->env >> 8) * (int32_t)f->p[TX_FP_GAIN]) >> 6;
+    f->out = o > 32767 ? 32767 : o;
+}
+int32_t tx_fol_level_q15(uint32_t pk)             /* 20 log10(pk / 2^23) over -60 .. 0: log2 / 9.97 */
+{
+    int32_t l2;
+    if (pk >= (1u << 23)) return 32767;
+    if (!pk) return 0;
+    l2 = (int32_t)(32u << 12) - (int32_t)tx_neglog2_q12(pk) - (23 << 12);   /* log2(pk / 2^23), Q12, <= 0 */
+    l2 += 40820;                                                       /* + 9.966 (60 dB) */
+    return l2 <= 0 ? 0 : (l2 * 26303) >> 15;                          /* (x 32767 / 40820, no division) */
+}
+int32_t tx_fol_rate_q15(uint32_t ev_q8)           /* events a block (Q8) -> /s (x 172.3), log over 0.1 .. 1000 */
+{
+    uint32_t r10 = ev_q8 * 1723u / 256u;                               /* tenths of an event a second (x 10) */
+    int32_t l2;
+    if (r10 <= 1u) return 0;
+    l2 = (int32_t)(32u << 12) - (int32_t)tx_neglog2_q12(r10);         /* log2(rate x 10), Q12: 0 .. 13.29 */
+    return l2 >= 54426 ? 32767 : (l2 * 19728) >> 15;                 /* (x 32767 / 54426) */
+}

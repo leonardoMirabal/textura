@@ -67,6 +67,9 @@ static struct {
     uint32_t gen_seed[LN_N];                    /* set by ln_gen_on before its event */
     tx_gov_t gov;
     uint32_t gov_cost[LN_N], gov_lvl[LN_N];
+    int32_t lpk[LN_N];                          /* each lane's peak in its last block (Q23: the followers, the governor) */
+    uint16_t lev[LN_N];                         /* its engine's events in its last block (the envelopes, the followers) */
+    uint16_t lhero[LN_N];                       /* its heroes sounding after its last block */
 } ln;
 static uint8_t ln_arena[LN_N][2][TX_STATE_MAX] __attribute__((aligned(64)));
 
@@ -151,13 +154,12 @@ static uint32_t ln_gov_user(uint32_t k) { return k < LN_N ? ln.gov.user[k] : 0u;
 static uint32_t ln_gov_us(void) { return ln.gov.avg >> 3; }   /* the pool's cost now, us (its ~8-block mean) */
 
 #ifdef LN_COST_EST
-/* the host's stand-in for a lane's block on the FM-1 (us): a base and its heroes sounding; nothing when quiet */
+/* the host's stand-in for a lane's block on the FM-1 (us): a base and its heroes sounding (lhero: 0xFFFF quiet);
+ * nothing when quiet */
 static uint32_t ln_cost_est(uint32_t k)
 {
-    tx_stats_t s;
-    if (!ln.mix.e[k] || !ln.mix.e[k]->stats) return 0;
-    ln.mix.e[k]->stats(ln.mix.st[k], &s);
-    return s.quiet ? 0u : LN_EST_BASE + LN_EST_HERO * s.particles;   /* (quiet: it adds exact zeros, next to free) */
+    if (!ln.mix.e[k] || ln.lhero[k] == 0xFFFFu) return 0;   /* (quiet: it adds exact zeros, next to free) */
+    return LN_EST_BASE + LN_EST_HERO * ln.lhero[k];
 }
 #endif
 
@@ -170,6 +172,7 @@ static void ln_event(const ln_ev_t *v)
         if (k < LN_N && ln.mix.e[k]) ln.mix.e[k]->key(ln.mix.st[k], v->a, v->b, v->c);
 #ifdef LN_MOD
         if (k < LN_N && v->c) mod_key_isr(k, v->b);   /* (the LFOs' triggers, VELOCITY, RANDOM) */
+        else if (k < LN_N) mod_key_off_isr(k);
 #endif
         break;
     case LN_EV_PARAM:
@@ -191,6 +194,9 @@ static void ln_event(const ln_ev_t *v)
         ln.mix.st[k] = v->kind == LN_EV_SWAP ? ln_arena[k][ln.side[k]] : 0;
         ln.mix.slot_peak[k] = 0;
         ln.int_id[k] = -1;
+#ifdef LN_MOD
+        mod_lane_reset_isr(k);                  /* (its notes gone with it) */
+#endif
         if (ln.mix.e[k]) {
             const tx_engine_t *e = ln.mix.e[k];
             const char *a = e->name, *b = "source";
@@ -207,7 +213,12 @@ static void ln_event(const ln_ev_t *v)
         if (!v->a && ln.gen_on[k] && ln.mix.e[k]) {
             tx_gen_ev_t ev[TX_GEN_OFFS];
             unsigned ne = tx_gen_stop(&ln.gen[k], ev, TX_GEN_OFFS), q;
-            for (q = 0; q < ne; q++) ln.mix.e[k]->key(ln.mix.st[k], ev[q].note, 0, 0);
+            for (q = 0; q < ne; q++) {
+                ln.mix.e[k]->key(ln.mix.st[k], ev[q].note, 0, 0);
+#ifdef LN_MOD
+                mod_key_off_isr(k);
+#endif
+            }
         }
         ln.gen_on[k] = v->a;
         break;
@@ -254,7 +265,9 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
 #ifdef LN_CLOCK
         uint32_t t0 = LN_CLOCK();
 #endif
+        ln.lpk[k] = 0; ln.lev[k] = 0;
         if (!ln.mix.e[k] && !ln.ret_g[k] && !ln.dc[k]) continue;
+        ln.mix.slot_peak[k] = 0;                /* (a peak a block: the lane's own, before its old engine's fade) */
         if (ln.gen_on[k] && ln.mix.e[k]) {      /* the lane's generator: its activity and notes */
             tx_gen_ev_t ev[TX_GEN_EV_MAX];
             uint8_t in;
@@ -264,10 +277,17 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
                 ln.mix.e[k]->key(ln.mix.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
 #ifdef LN_MOD
                 if (ev[q].vel) mod_key_isr(k, ev[q].vel);
+                else mod_key_off_isr(k);
 #endif
             }
         }
         tx_mix_slot_render(&ln.mix, k, n);
+        ln.lpk[k] = ln.mix.slot_peak[k];
+        if (ln.mix.e[k] && ln.mix.e[k]->stats) {
+            tx_stats_t st;
+            ln.mix.e[k]->stats(ln.mix.st[k], &st);
+            ln.lev[k] = st.events; ln.lhero[k] = st.quiet ? 0xFFFFu : st.particles;
+        } else ln.lhero[k] = 0xFFFFu;
 #ifdef LN_GOV
         {                                       /* (the fade below is not the lane's: as the player) */
             uint32_t f = tx_fx_lane_us(&ln.fx, k);   /* its inserts (DRIVE, FILTER): apart, no hero buys them */

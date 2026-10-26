@@ -7,14 +7,17 @@
  *
  * Textura (from Frodhes v0.9.5's tempo.c): the tempo, TAP and the MIDI clock in as there; no scales, no arpeggiator
  * or sequencer, and no LFOs to lock yet (they come with the modulation: Frodhes' tempo_lock_poll then). Added:
- * - the CLOCK modes: INT (the tempo is the BPM and the taps; a clock in is ignored), MASTER (as INT here; sending the
- *   clock, over USB, comes after the MVP), FOLLOW (the clock's tempo only: the BPM and the taps change nothing, and
+ * - the CLOCK modes: INT (the tempo is the BPM and the taps; a clock in is ignored), MASTER (as INT, and the clock sent
+ *   out over USB when CLK OUT is USB: 24 pulses a beat from the main loop, each on its 1 ms tick, late ones caught up
+ *   in order, never dropped; START at the transport's start, its first pulse one pulse later; STOP at its stop; a
+ *   clock in is ignored, so one echoed back cannot drive it), FOLLOW (the clock's tempo only: the BPM and the taps change nothing, and
  *   without a clock the transport is stopped), AUTO (the clock's while one comes, else the BPM's; the default);
  * - each port's clock in on / off (CLK IN USB, CLK IN TRS): an off port's F8 FA FB FC F2 are dropped;
  * - the transport: PLAY held (ui.c) starts / stops it, START re-phases the beat; a clock's Start / Continue / Stop
  *   move it while that clock leads, and it goes on as it was when the clock goes;
- * - the grain delay's SYNC: its echo a division of the beat (halved until it fits the line: tm_gsync_half).
- * Not stored yet (the scenes and settings piece). */
+ * - the grain delay's SYNC: its echo a division of the beat (halved until it fits the line: tm_gsync_half);
+ * - SCENE TEMPO: a scene's load sets the tempo it was saved with (off: the tempo stays; scenes.c).
+ * The settings record keeps CLOCK, the ports, CLK OUT, SCENE TEMPO and the BPM (scenes.c). */
 
 static const uint16_t SYNC_UNITS[15] = {0, 12, 16, 24, 32, 36, 48, 64, 72, 96, 144, 192, 384, 768, 1536};
 static const char *const SYNC_NAMES[15] = {"FREE", "1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D",
@@ -27,7 +30,9 @@ static struct {
     uint8_t gsync;                              /* the grain delay's SYNC (an index into SYNC_UNITS; 0 FREE) */
     uint32_t gsync_smp, gsync_sent;             /* its echo, samples; as sent to the chain (0xFFFFFFFF: never) */
     uint8_t gsync_half;                         /* halved to fit the line */
-} tm = {1200, CLK_AUTO, 1, 1, 0, 0, 0, 0xFFFFFFFFu, 0};
+    uint8_t out_usb;                            /* CLK OUT: USB (MASTER sends the clock) */
+    uint8_t scn_tempo;                          /* SCENE TEMPO: a scene's load sets its tempo */
+} tm = {1200, CLK_AUTO, 1, 1, 0, 0, 0, 0xFFFFFFFFu, 0, 1, 0};
 static uint32_t tap_t[4], tap_n, beat_t0, beat_ms = 500;
 static uint32_t beat_k0;                     /* the pulse count (24 a beat) at beat_t0: the bars for the LFOs' lock */
 static uint32_t beat_smp = 22050;                                            /* samples a beat (the clock's, exact) */
@@ -290,6 +295,8 @@ static void tempo_port(int src, int on)
     if (src == 2) tm.in_trs = (uint8_t)(on != 0); else tm.in_usb = (uint8_t)(on != 0);
     if (!on && clk_src == src) { clk_lock = 0; clk_src = 0; tempo_clock_int(); }
 }
+static void tempo_out(uint32_t on) { tm.out_usb = (uint8_t)(on != 0); }
+static void tempo_scene_flag(uint32_t on) { tm.scn_tempo = (uint8_t)(on != 0); }
 static void tempo_gsync(uint32_t g) { tm.gsync = (uint8_t)(g > 14u ? 14u : g); tempo_sync_publish(); }
 /* the state of the clock, as the TEMPO page's STATUS writes it: "INT", "MASTER", "USB 120.0", "TRS 98.4", "WAITING" */
 static void tempo_status(char *t)
@@ -306,8 +313,30 @@ static void tempo_status(char *t)
 }
 /* every main-loop pass: a clock gone hands the tempo back (AUTO: the BPM's tempo; FOLLOW: it holds), and the delay's
  * echo the queue could not take is sent again */
+/* the clock out (MASTER, CLK OUT USB): 24 pulses a beat at the BPM, each sent on its ms (Q8 kept, so the beat is exact
+ * on average), at most CLKO_BURST a pass when the loop was held up (none dropped); START / STOP as the transport moves */
+#define CLKO_BURST 4u
+static uint8_t clko_on, clko_run;
+static uint32_t clko_next, clko_sent;           /* the next pulse (ms, Q8); pulses sent (the host tests) */
+static void tempo_clock_out(void)
+{
+    uint32_t per = 6400000u / tm.bpm10, now = fm1_ms << 8, n = 0;   /* a pulse: 60000 / 24 / BPM ms, Q8 */
+    if (tm.clock != CLK_MASTER || !tm.out_usb) {
+        if (clko_on && clko_run) midi_send(0xFC, 0, 0);   /* (stopped: whoever follows stops too) */
+        clko_on = 0; clko_run = 0;
+        return;
+    }
+    if (!clko_on) { clko_on = 1; clko_run = 0; clko_next = now + per; }
+    if (tm.run != clko_run) {
+        clko_run = tm.run;
+        midi_send(clko_run ? 0xFA : 0xFC, 0, 0);
+        if (clko_run) clko_next = (beat_t0 << 8) + per;   /* (the first pulse one pulse after START: the downbeat) */
+    }
+    while ((int32_t)(now - clko_next) >= 0 && n < CLKO_BURST) { midi_send(0xF8, 0, 0); clko_next += per; clko_sent++; n++; }
+}
 static void tempo_poll(void)
 {
+    tempo_clock_out();
     if (clk_owns && !clk_live() && tm.clock == CLK_AUTO && clk_last_ms && fm1_ms - clk_last_ms > 2000u) {
         /* (AUTO: the clock's last tempo stays 2 s, then the BPM's again) */
         clk_owns = 0;
@@ -335,6 +364,8 @@ static uint32_t tm_get(uint32_t what)           /* (params.c) */
     case TG_CLOCK: return tm.clock;
     case TG_INUSB: return tm.in_usb;
     case TG_INTRS: return tm.in_trs;
+    case TG_OUT: return tm.out_usb;
+    case TG_SCNTEMPO: return tm.scn_tempo;
     }
     return 0;
 }

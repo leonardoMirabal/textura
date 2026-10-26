@@ -262,16 +262,23 @@ def main():
         check(st1[5] > 0, f"engine switched with keys held: the new engine ({page.text_content('#eng-name')}) got them ({st1[5]} events)")
         page.evaluate("window.txTest.stepEngine(-1)")
         time.sleep(0.4)
+        # (deterministic: RATE 0 first, so no new particle lands in the fade; the cloud then only decays. Against the
+        # layer's own level: the fade's first block keeps most of the level of the block before (a cut drops it to 0),
+        # and its largest step, from the last sample before it, stays near the steps just before (a cut would jump by
+        # the level there, ~10x). Measured against the sounding cloud's whole run it failed now and then: a big new
+        # particle in the fade outdid the steps before it.)
+        page.evaluate("""() => { const s = document.querySelector('#sliders input[data-id="0"]'); s.value = 0; s.oninput(); }""")
         jumps = page.evaluate("""() => {
-            const a = window.txTest.renderCopy(16);       // the test engine sounding: its own largest sample step
+            const a = window.txTest.renderCopy(2);        // the test engine sounding, no new particles: its sample steps
             window.txTest.layerOff(0);
-            const b = window.txTest.renderCopy(8);        // switched off: the fade
+            const b = window.txTest.renderCopy(8);        // switched off: the fade, joined to the last sample before
             const step = x => { let m = 0; for (let i = 2; i < x.length; i += 2) m = Math.max(m, Math.abs(x[i] - x[i - 2])); return m; };
             const peak = x => x.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
-            return [step(a), step(b), peak(b.slice(-512))];
+            return [step(a), step(a.slice(-2).concat(b)), peak(b.slice(-512)), peak(a.slice(-512)), peak(b.slice(0, 512))];
         }""")
-        check(jumps[1] <= jumps[0] * 1.05 and jumps[2] == 0, f"a layer switched off fades, no click: largest step {jumps[1]:.4f} "
-              f"vs {jumps[0]:.4f} while sounding; silent after ({jumps[2]})")
+        check(jumps[3] > 0 and jumps[4] >= 0.3 * jumps[3] and jumps[1] <= jumps[0] * 1.5 and jumps[2] == 0,
+              f"a layer switched off fades, no click: level {jumps[4]:.4f} in its first block vs {jumps[3]:.4f} before, largest "
+              f"step {jumps[1]:.4f} vs {jumps[0]:.4f} just before; silent after ({jumps[2]})")
         pick(0)                                         # back to the test engine, every key pressed again
         page.mouse.up(); page.keyboard.up("KeyD"); page.keyboard.up("KeyJ")
         page.keyboard.down("KeyD"); page.keyboard.down("KeyJ")

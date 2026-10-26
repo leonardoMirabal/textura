@@ -55,6 +55,56 @@ uint32_t tx_lfo_period_ms(unsigned rate);        /* RATE -> its period in ms (th
 TX_AUDIO_CODE void tx_lfo_block(tx_lfo_t *l, unsigned rate, unsigned level, uint32_t pos);
 TX_AUDIO_CODE int32_t tx_lfo_lag(const tx_lfo_t *l, uint32_t lag_q8);   /* its value lag (1/32 cycles, Q8) ago */
 
+/* ---- ENV: an envelope, ATTACK DECAY (to SUSTAIN) RELEASE, each 1 ms .. 60 s; CURVE linear .. eased (a fast start,
+ * as an exponential); VARY: each trigger varies its times (+-50 %) and its peak (down to half) at random, so no two are
+ * alike; LOOP: once done it starts again after a random rest (0 .. 2 x DECAY), on its own. Unipolar, Q15 (0 .. 32767).
+ * The trigger is chosen by TRIGGER and detected by the caller (tx_env_block's trig); RANDOM fires on its own (a mean
+ * gap of 4 x DECAY), and EVENTS (a lane's particles) retrigger only once the attack and decay are done. The sustain
+ * holds while the caller's gate is open (KEY / LANE: notes held); other triggers have none: decay, then release. */
+#define TX_ENV_N 2u
+enum { TX_ET_KEY, TX_ET_LANE1, TX_ET_EV1 = TX_ET_LANE1 + 4, TX_ET_RANDOM = TX_ET_EV1 + 4, TX_ET_LFO1,
+       TX_ET_START = TX_ET_LFO1 + TX_LFO_N, TX_ET_N };
+enum { TX_EP_TRIGGER, TX_EP_ATTACK, TX_EP_DECAY, TX_EP_RELEASE, TX_EP_SUSTAIN, TX_EP_CURVE, TX_EP_VARY, TX_EP_LOOP,
+       TX_EP_N };   /* (append only) */
+extern const tx_param_t tx_env_params[TX_EP_N];
+enum { TX_ES_IDLE, TX_ES_ATT, TX_ES_DEC, TX_ES_SUS, TX_ES_REL, TX_ES_REST };
+typedef struct {
+    uint8_t p[TX_EP_N];
+    uint8_t stage;
+    uint32_t ph;                                 /* the stage's progress, Q24 */
+    int32_t a, b;                                /* the stage's start and end values (Q15) */
+    int32_t peak;                                /* this cycle's peak (VARY) */
+    uint32_t vf;                                 /* this cycle's time factor (VARY), Q12 */
+    uint32_t rest;                               /* LOOP: blocks before the next cycle */
+    uint32_t rng;
+    int32_t out;                                 /* the value now, Q15 */
+} tx_env_t;
+void tx_env_init(tx_env_t *e, uint32_t seed);
+void tx_env_param(tx_env_t *e, unsigned id, unsigned v);
+uint32_t tx_env_ms(unsigned v);                  /* ATTACK / DECAY / RELEASE -> ms (1 .. 60000) */
+/* one block: trig = the trigger came (an edge), gate = notes held (KEY / LANE triggers) */
+TX_AUDIO_CODE void tx_env_block(tx_env_t *e, unsigned trig, unsigned gate);
+
+/* ---- FOLLOW: an envelope follower. Its input (chosen by INPUT, measured by the caller, Q15: a lane's level or the
+ * mix's in dB over 60 dB, a lane's event rate over 0.1 .. 1000 a second, the grain delay's grains sounding) rises
+ * with ATTACK and falls with RELEASE (5 ms .. 10 s), times GAIN (64 = x1, 127 = x2). Unipolar, Q15. */
+#define TX_FOL_N 2u
+enum { TX_FI_LEVEL1, TX_FI_RATE1 = TX_FI_LEVEL1 + 4, TX_FI_MIX = TX_FI_RATE1 + 4, TX_FI_GRAIN, TX_FI_N };
+enum { TX_FP_INPUT, TX_FP_ATTACK, TX_FP_RELEASE, TX_FP_GAIN, TX_FP_N };   /* (append only) */
+extern const tx_param_t tx_fol_params[TX_FP_N];
+typedef struct {
+    uint8_t p[TX_FP_N];
+    int32_t env;                                 /* Q23 */
+    int32_t out;                                 /* Q15 */
+} tx_fol_t;
+void tx_fol_init(tx_fol_t *f);
+void tx_fol_param(tx_fol_t *f, unsigned id, unsigned v);
+uint32_t tx_fol_ms(unsigned v);                  /* ATTACK / RELEASE -> ms (5 .. 10000) */
+TX_AUDIO_CODE void tx_fol_block(tx_fol_t *f, int32_t x_q15);
+/* a level (a peak, Q23 full scale) -> Q15 over -60 .. 0 dBFS; an event count a block (Q8) -> Q15 over 0.1 .. 1000 /s */
+int32_t tx_fol_level_q15(uint32_t peak_q23);
+int32_t tx_fol_rate_q15(uint32_t ev_q8);
+
 /* the matrix's sum: route r adds depth (Q15, +-1) x its source (Q15) x the target's range (hi) to sum[r->t] (Q8 of
  * the target's units). Sources 0..7 are the LFOs (read lag 1/32 cycles later: SPREAD), 8.. ext[src - 8]. */
 typedef struct { int16_t depth; uint8_t src, t, lag, hi; } tx_mod_rt_t;

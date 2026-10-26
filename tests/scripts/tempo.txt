@@ -1,8 +1,9 @@
 # the tempo: GLO = TEMPO (again: MIDI); K1 the BPM, K2 a tenth; PLAY taps it (from the 3rd tap), held 600 ms the
 # transport (that press's tap taken back); the grain delay's SYNC on the beat (halved until it fits the line); CC 3 the
-# BPM on channel 5; the MIDI page: CLOCK, each port's clock in, clock out later
+# BPM on channel 5; TEMPO's 2nd page: SCENE TEMPO; the MIDI page: CLOCK, each port's clock in, the clock out (USB, in
+# MASTER: 24 pulses a beat)
 1700 btn 7
-1720 expect state page TEMPO
+1720 expect state page TEMPO_1/2
 1720 expect state lab0 BPM
 1720 expect state card0 120_BPM
 1720 expect state card1 120.0_BPM
@@ -53,18 +54,41 @@
 5700 turn 4 -12
 5720 expect state card2 FREE
 5740 expect state gdsync 0
-# GLO, GLO: MIDI
+# GLO, SELECT: SCENE TEMPO (off: a scene keeps the tempo that plays); GLO: MIDI
 5800 btn 7
+5810 turn 0 1
+5815 expect state page TEMPO_2/2
+5815 expect state lab0 SCENE_TEMPO
+5815 expect state card0 OFF
 5820 btn 7
 5840 expect state page MIDI
 5840 expect state lab0 CLOCK
 5840 expect state card0 AUTO
 5840 expect state card1 ON
-5840 expect state card3 USB,_LATER
+5840 expect state card3 USB
 5900 turn 2 -3
 5920 expect state card0 INT
 6000 turn 3 -1
 6020 expect state card1 OFF
 6100 shot
-6200 expect sound
-6200 end
+# MASTER: the clock out at 240 BPM, a pulse each 10.42 ms (the transport stopped: pulses, no START)
+6200 expect state clkout 0
+6200 turn 2 1
+6220 expect state card0 MASTER
+7220 expect state clkout 97
+# CLK OUT OFF: none more
+7300 turn 5 -1
+7320 expect state card3 OFF
+7400 expect state clkout 105
+8400 expect state clkout 105
+# on again, the transport started (PLAY held): START, then the pulses from the downbeat; INT: STOP, none more
+8500 turn 5 1
+8600 press 12
+9300 release 12
+9320 expect state running 1
+9400 turn 2 -1
+9420 expect state card0 INT
+9420 expect state clkout 191
+9900 expect state clkout 191
+9900 expect sound
+9900 end

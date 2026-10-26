@@ -9,10 +9,13 @@
  *           36 .. 41  FILTER TYPE FREQ RESO LFO RATE SHAPE  (tx_fx_filter_params order)
  *   global  0 .. 11   GRAIN DELAY (tx_fx_grain_params order)   12 its SYNC (tempo.c)
  *           16 .. 25  REVERB (tx_fx_reverb_params order)
- *           32 .. 36  TEMPO: BPM (40 .. 240) FINE (BPM in tenths) STATUS (read only) TRANSPORT TAP (over 63: a tap)
- *           40 .. 43  MIDI: CLOCK (INT MASTER FOLLOW AUTO) CLK IN USB, CLK IN TRS, CLK OUT (read only: later)
+ *           32 .. 37  TEMPO: BPM (40 .. 240) FINE (BPM in tenths) STATUS (read only) TRANSPORT TAP (over 63: a tap)
+ *                     SCENE TEMPO (a scene's load sets its tempo: on / off, in the settings)
+ *           40 .. 43  MIDI: CLOCK (INT MASTER FOLLOW AUTO) CLK IN USB, CLK IN TRS, CLK OUT (OFF / USB: MASTER sends)
  *   5       LFO n (0..7): n x 16 + SHAPE RATE SYNC MODE PHASE WIDTH JITTER FADE RESTART LEVEL (tx_lfo_params order),
  *           10 NOW 11 ROUTES (read only)
+ *   6       ENV n (0..1): n x 16 + TRIGGER ATTACK DECAY RELEASE SUSTAIN CURVE VARY LOOP (tx_env_params order);
+ *           FOLLOW n (0..1): 32 + n x 16 + INPUT ATTACK RELEASE GAIN (tx_fol_params order)
  *   7       the matrix: slot (0..15) x 4 + SOURCE TARGET DEPTH SPREAD; 64 MOD CC
  * The lane model's entries (SOUND .. PAN) are the landscape's (scape.c); the cards set the lane's engine (or its
  * hosted engine); the effects are kept here and sent to lanes.c's chain; the tempo's and the clock's are tempo.c's.
@@ -49,21 +52,24 @@ static void p_cat(char *d, const char *s, uint32_t max) { uint32_t n = 0; while 
 #define P_LANE_ANY 0xFu                         /* a page's card: "the selected lane" (resolved when drawn / turned) */
 #define P_LFO 5u                                /* the LFOs: n x 16 + param (mod.c) */
 #define P_MAT 7u                                /* the matrix: slot x 4 + SOURCE TARGET DEPTH SPREAD, 64 MOD CC (mod.c) */
+#define P_ENV 6u                                /* the envelopes: n x 16 + param; the followers: 32 + n x 16 + param (mod.c) */
+#define P_MODS(s) ((s) == P_LFO || (s) == P_ENV || (s) == P_MAT)   /* the modulation's scopes (mod.c's) */
 #define NOID_P 0xFFFFu
 enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_DRIVE0 = 32, PL_FILTER0 = 36, PL_NUM = 42 };
 enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_N_ = 26, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN, PG_TAP,
-       PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT };
+       PG_SCNTEMPO, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT };
 #define P_CH_GLOBAL 4u                          /* MIDI channel 5 (0-based 4) */
 
 /* how a value reads */
 enum { F_NUM, F_ENUM, F_ONOFF, F_SOUND, F_COUNT, F_ACTIVE, F_PAN, F_HZ_FL, F_HZ_LFO, F_MS_GD, F_MS_GS, F_MS_PD, F_SEMI,
-       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_CLKOUT };
+       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN };
 static const char *const N_DRIVE[] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
 static const char *const N_FILTER[] = {"OFF", "LP12", "LP18", "HP12", "HP18", "BP", "NOTCH"};
 static const char *const N_SHAPE[] = {"SINE", "TRI", "SAW UP", "SAW DN", "SQUARE", "RANDOM"};
 static const char *const N_REVERB[] = {"OFF", "ROOM", "HALL", "INFINITE", "DARK", "DRIFT", "SWELL", "PLATE"};
 static const char *const N_SHIFT[] = {"+OCT", "+5TH", "+OCT+5", "-OCT"};
 static const char *const N_CLOCK[] = {"INT", "MASTER", "FOLLOW", "AUTO"};
+static const char *const N_CLKOUT[] = {"OFF", "USB"};   /* (TRS: the FM-1's jack is an input only) */
 
 /* mod.c (included after this file) */
 static int mod_valid(uint32_t id);
@@ -85,7 +91,9 @@ static void tempo_mode(uint32_t m);
 static void tempo_port(int src, int on);
 static void tempo_gsync(uint32_t g);
 static void tempo_status(char *t);
-enum { TG_GSYNC, TG_HALF, TG_CLOCK, TG_INUSB, TG_INTRS };
+enum { TG_GSYNC, TG_HALF, TG_CLOCK, TG_INUSB, TG_INTRS, TG_OUT, TG_SCNTEMPO };
+static void tempo_out(uint32_t on);
+static void tempo_scene_flag(uint32_t on);
 static uint32_t tm_get(uint32_t what);
 /* the globals that are not an effect's: the tempo's and the clock's (tempo.c holds their values) */
 typedef struct { uint8_t idx; const char *lab; uint16_t hi; uint8_t fmt; } p_gx_t;
@@ -93,7 +101,7 @@ static const p_gx_t PGX[] = {
     {PG_GSYNC, "SYNC", 14, F_DIV}, {PG_BPM, "BPM", 200, F_BPM}, {PG_FINE, "FINE", 2000, F_BPM10},
     {PG_STATUS, "STATUS", 0, F_STATUS}, {PG_RUN, "TRANSPORT", 1, F_RUN}, {PG_TAP, "TAP", 127, F_NUM},
     {PG_CLOCK, "CLOCK", 3, F_ENUM}, {PG_INUSB, "CLK IN USB", 1, F_ONOFF}, {PG_INTRS, "CLK IN TRS", 1, F_ONOFF},
-    {PG_OUT, "CLK OUT", 0, F_CLKOUT},
+    {PG_OUT, "CLK OUT", 1, F_ENUM}, {PG_SCNTEMPO, "SCENE TEMPO", 1, F_ONOFF},
 };
 static const p_gx_t *p_gx(uint32_t id)
 {
@@ -225,7 +233,7 @@ static int p_valid(uint32_t id)
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
     if (p_fx_desc(id) || p_gx(id)) return 1;
-    if (s == P_LFO || s == P_MAT) return mod_valid(id);
+    if (P_MODS(s)) return mod_valid(id);
     if (s >= P_LANES) return 0;
     if (i <= PL_PAN) return 1;
     return i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX && i - PL_CARD0 < p_cards(s)->n;
@@ -237,7 +245,7 @@ static const char *p_lab(uint32_t id)
     static const char *const L[] = {"SOUND", "HOW MANY", "HOW ACTIVE", "LEVEL", "PAN"};
     if (d) return d->name;
     if (p_gx(id)) return p_gx(id)->lab;
-    if ((s == P_LFO || s == P_MAT) && mod_valid(id)) return mod_lab(id);
+    if (P_MODS(s) && mod_valid(id)) return mod_lab(id);
     if (s < P_LANES && i <= PL_PAN) return L[i];
     if (s < P_LANES && i >= PL_CARD0 && i - PL_CARD0 < p_cards(s)->n) return p_cards(s)->lab[i - PL_CARD0];
     return "";
@@ -248,7 +256,7 @@ static int32_t p_hi(uint32_t id)
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
     if (d) return d->max;
     if (p_gx(id)) return p_gx(id)->hi;
-    if (s == P_LFO || s == P_MAT) return mod_valid(id) ? mod_hi(id) : 0;
+    if (P_MODS(s)) return mod_valid(id) ? mod_hi(id) : 0;
     if (s >= P_LANES) return 0;
     if (i == PL_SOUND) return LS[sc.fam].n - 1;
     if (i == PL_COUNT) return LS_NCNT - 1;
@@ -260,7 +268,7 @@ static int32_t p_hi(uint32_t id)
 static uint32_t p_fmt(uint32_t id)
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
-    if (s == P_LFO || s == P_MAT) return mod_choice(id) ? F_ENUM : F_NUM;
+    if (P_MODS(s)) return mod_choice(id) ? F_ENUM : F_NUM;
     if (s < P_LANES) {
         if (i == PL_SOUND) return F_SOUND;
         if (i == PL_COUNT) return F_COUNT;
@@ -285,12 +293,12 @@ static const char *const *p_names(uint32_t id)
 {
     uint32_t i = P_IDX(id);
     if (P_SCOPE(id) < P_LANES) return i == PL_DRIVE0 + TX_DR_TYPE ? N_DRIVE : i == PL_FILTER0 + TX_FL_TYPE ? N_FILTER : N_SHAPE;
-    return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : i == PG_CLOCK ? N_CLOCK : N_SHIFT;
+    return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : i == PG_CLOCK ? N_CLOCK : i == PG_OUT ? N_CLKOUT : N_SHIFT;
 }
 static int32_t p_get(uint32_t id)
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
-    if (s == P_LFO || s == P_MAT) return mod_valid(id) ? mod_get(id) : 0;
+    if (P_MODS(s)) return mod_valid(id) ? mod_get(id) : 0;
     if (s == P_GLOBAL) {
         switch (i) {
         case PG_GSYNC: return (int32_t)tm_get(TG_GSYNC);
@@ -300,6 +308,8 @@ static int32_t p_get(uint32_t id)
         case PG_CLOCK: return (int32_t)tm_get(TG_CLOCK);
         case PG_INUSB: return (int32_t)tm_get(TG_INUSB);
         case PG_INTRS: return (int32_t)tm_get(TG_INTRS);
+        case PG_OUT: return (int32_t)tm_get(TG_OUT);
+        case PG_SCNTEMPO: return (int32_t)tm_get(TG_SCNTEMPO);
         }
         return i < PG_N_ ? pv_glob[i] : 0;
     }
@@ -320,7 +330,7 @@ static void p_set(uint32_t id, int32_t v)
     int32_t hi = p_hi(id);
     if (!p_valid(id)) return;
     v = v < 0 ? 0 : v > hi ? hi : v;
-    if (s == P_LFO || s == P_MAT) { mod_set(id, v); return; }
+    if (P_MODS(s)) { mod_set(id, v); return; }
     if (s == P_GLOBAL && p_gx(id)) {        /* the tempo's and the clock's */
         switch (i) {
         case PG_GSYNC: tempo_gsync((uint32_t)v); break;
@@ -331,6 +341,8 @@ static void p_set(uint32_t id, int32_t v)
         case PG_CLOCK: tempo_mode((uint32_t)v); break;
         case PG_INUSB: tempo_port(1, v); break;
         case PG_INTRS: tempo_port(2, v); break;
+        case PG_OUT: tempo_out((uint32_t)v); break;
+        case PG_SCNTEMPO: tempo_scene_flag((uint32_t)v); break;
         }
         return;
     }
@@ -360,7 +372,7 @@ static const char *p_text(uint32_t id, char *t)
     int32_t v = p_get(id);
     uint32_t f = p_fmt(id);
     t[0] = 0;
-    if (P_SCOPE(id) == P_LFO || P_SCOPE(id) == P_MAT) return mod_text(id, t);
+    if (P_MODS(P_SCOPE(id))) return mod_text(id, t);
     switch (f) {
     case F_ENUM: p_strcpy(t, p_names(id)[v], 10); return 0;
     case F_ONOFF: p_strcpy(t, v ? "ON" : "OFF", 4); return 0;
@@ -388,7 +400,6 @@ static const char *p_text(uint32_t id, char *t)
     case F_BPM10: { char d[2] = {(char)('0' + (v + 400) % 10), 0}; p_fmt_int(t, (v + 400) / 10); p_cat(t, ".", 15); p_cat(t, d, 15); return "BPM"; }
     case F_STATUS: tempo_status(t); return 0;
     case F_RUN: p_strcpy(t, v ? "RUN" : "STOP", 4); return 0;
-    case F_CLKOUT: p_strcpy(t, "USB, LATER", 11); return 0;
     case F_MS_GS: p_fmt_int(t, (int32_t)(((0xFFFFFFFFu / TX_FX_GD_SIZE[v]) * 10u + 220u) / 441u)); return "ms";
     case F_MS_PD: p_fmt_int(t, (v * 80 + 63) / 127); return "ms";
     case F_SEMI: { int32_t st = (v - 64) * 12 / 63; if (st > 0) { t[0] = '+'; p_fmt_int(t + 1, st); } else p_fmt_int(t, st); return "st"; }

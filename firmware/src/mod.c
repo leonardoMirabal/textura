@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura's modulation (UI-PLAN 6, the MVP's part): 8 LFOs (engines/tx_mod.c), a 16-slot matrix, the song position
- * the synced LFOs read, mod learn. Envelopes and followers come after the MVP.
+ * the synced LFOs read, mod learn; 2 envelopes and 2 followers (engines/tx_mod.c: tx_env, tx_fol).
  *
  * In the audio interrupt, at the start of each block (mod_block, from lanes.c after the queued events): the song
  * position steps on, the LFOs restart on their triggers and run, the matrix sums every route into its target
@@ -17,15 +17,24 @@
  *
  * Sources: LFO 1..8 (bipolar), VELOCITY (the last note), MOD WHEEL (CC 1), AFTERTOUCH, CC (MOD CC, learnable on the
  * MATRIX page), HOW ACTIVE (the target's lane; a global target: the selected lane's), RANDOM (a fresh value at each
- * note), CONSTANT. SPREAD (ALL LANES): lane k reads the source k x SPREAD later (up to 90 degrees of its cycle). */
+ * note), CONSTANT, ENV 1..2, FOLLOW 1..2 (appended: the stored numbers never change). SPREAD (ALL LANES): lane k
+ * reads the source k x SPREAD later (up to 90 degrees of its cycle; an LFO's only).
+ *
+ * The envelopes' triggers, each block: KEY (a note on any lane: a key or the generator's), LANE n (its notes, or its
+ * start), EVENTS n (the lane's particles in the last block), RANDOM (tx_env's own), LFO n rising through 0, START
+ * (the transport). Their sustain holds while the notes are held (KEY: any lane's, LANE n: that lane's; counted from
+ * the note on / off events, reset when the lane's engine changes). The followers' inputs: a lane's level or the
+ * mix's (the last block's peak, in dB), a lane's event rate, the grain delay's grains sounding. */
 #include "tx_mod.h"
 
 #define MOD_NS 16u                              /* slots */
 #define MOD_NT 64u                              /* targets at most (16 slots x 4 lanes) */
 #define MOD_NR 64u
 #define MOD_SENDS 8u                            /* set() calls a block at most (the cost's cap) */
-enum { MS_NONE, MS_LFO1, MS_VEL = 9, MS_MODW, MS_AT, MS_CC, MS_ACTIVE, MS_RANDOM, MS_CONST, MS_N };
-enum { ME_VEL, ME_MODW, ME_AT, ME_CC, ME_ACT1, ME_RANDOM = ME_ACT1 + 4, ME_CONST, ME_N };   /* mod_ext[] */
+enum { MS_NONE, MS_LFO1, MS_VEL = 9, MS_MODW, MS_AT, MS_CC, MS_ACTIVE, MS_RANDOM, MS_CONST, MS_ENV1, MS_FOL1 = MS_ENV1 + TX_ENV_N,
+       MS_N = MS_FOL1 + TX_FOL_N };   /* (append only: a scene stores the number) */
+enum { ME_VEL, ME_MODW, ME_AT, ME_CC, ME_ACT1, ME_RANDOM = ME_ACT1 + 4, ME_CONST, ME_ENV1, ME_FOL1 = ME_ENV1 + TX_ENV_N,
+       ME_N = ME_FOL1 + TX_FOL_N };   /* mod_ext[] */
 enum { MK_ENG, MK_HOST, MK_PAN, MK_FX, MK_ACT, MK_COUNT, MK_LRATE, MK_LLEVEL };
 #define MT_LANE_N 19u                           /* a lane's targets */
 #define MT_GRAIN0 (1u + 5u * MT_LANE_N)         /* 96 */
@@ -38,6 +47,10 @@ static const uint8_t MT_REV[8] = {TX_RV_MIX, TX_RV_DECAY, TX_RV_TONE, TX_RV_PRED
                                   TX_RV_LOWCUT, TX_RV_SHIMMER};
 
 static tx_lfo_t mod_lfo[TX_LFO_N];
+static tx_env_t mod_env[TX_ENV_N];
+static tx_fol_t mod_fol[TX_FOL_N];
+static int32_t m_lprev[TX_LFO_N];               /* (the LFOs' last values: an envelope's LFO n trigger) */
+static uint8_t m_held[4];                       /* notes held per lane (the envelopes' sustain) */
 static struct { uint8_t src, tgt, depth, spread; } mslot[MOD_NS];   /* depth 0 .. 200: -100 .. +100 % */
 static uint8_t mod_cc = 2;                      /* MOD CC (the CC source's number; 2: breath) */
 static volatile int16_t mod_ext[ME_N];
@@ -72,9 +85,44 @@ static volatile uint32_t mpos_snap_v;
 static void mod_key_isr(uint32_t k, uint32_t vel)   /* a note on (a key, the generator, a lane's start: lanes.c) */
 {
     m_trig |= 1u << (k & 3u);
+    if (m_held[k & 3u] < 255u) m_held[k & 3u]++;
     mod_ext[ME_VEL] = (int16_t)(vel > 127u ? 32767 : vel * 258u);
     m_rng ^= m_rng << 13; m_rng ^= m_rng >> 17; m_rng ^= m_rng << 5;
     mod_ext[ME_RANDOM] = (int16_t)(m_rng >> 17);
+}
+static void mod_key_off_isr(uint32_t k)        /* a note off (lanes.c) */
+{
+    if (m_held[k & 3u]) m_held[k & 3u]--;
+}
+static void mod_lane_reset_isr(uint32_t k) { m_held[k & 3u] = 0; }   /* the lane's engine changed: its notes gone */
+/* the envelopes and the followers, a block: their triggers and inputs (lanes.c's last block: ln.lpk, ln.lev) */
+static void mod_env_block(uint32_t trig, uint32_t start)
+{
+    uint32_t i, k, held = 0;
+    for (k = 0; k < 4u; k++) held |= (m_held[k] != 0) << k;
+    for (i = 0; i < TX_ENV_N; i++) {
+        tx_env_t *e = &mod_env[i];
+        uint32_t t = e->p[TX_EP_TRIGGER], tg = 0, gate = 0;
+        if (t == TX_ET_KEY) { tg = trig != 0; gate = held != 0; }
+        else if (t < TX_ET_LANE1 + 4u) { tg = trig >> (t - TX_ET_LANE1) & 1u; gate = held >> (t - TX_ET_LANE1) & 1u; }
+        else if (t < TX_ET_EV1 + 4u) tg = ln.lev[t - TX_ET_EV1] != 0;
+        else if (t >= TX_ET_LFO1 && t < TX_ET_LFO1 + TX_LFO_N) tg = m_lprev[t - TX_ET_LFO1] < 0 && mod_lfo[t - TX_ET_LFO1].out >= 0;
+        else if (t == TX_ET_START) tg = start;
+        tx_env_block(e, tg, gate);
+        mod_ext[ME_ENV1 + i] = (int16_t)e->out;
+    }
+    for (i = 0; i < TX_LFO_N; i++) m_lprev[i] = mod_lfo[i].out;
+    for (i = 0; i < TX_FOL_N; i++) {
+        tx_fol_t *f = &mod_fol[i];
+        uint32_t in = f->p[TX_FP_INPUT];
+        int32_t x;
+        if (in < TX_FI_RATE1) x = tx_fol_level_q15((uint32_t)ln.lpk[in - TX_FI_LEVEL1]);
+        else if (in < TX_FI_MIX) x = tx_fol_rate_q15((uint32_t)ln.lev[in - TX_FI_RATE1] << 8);
+        else if (in == TX_FI_MIX) x = tx_fol_level_q15((uint32_t)(ln.mix.raw_peak > 0 ? ln.mix.raw_peak : 0));
+        else x = (int32_t)(ln.fx.gd.act * 32767u / TX_GD_MAXG);
+        tx_fol_block(f, x);
+        mod_ext[ME_FOL1 + i] = (int16_t)f->out;
+    }
 }
 static void mod_apply(const mt_t *t, uint32_t v)
 {
@@ -116,6 +164,7 @@ static void mod_block(void)
             (start && l->p[TX_LP_RESTART])) tx_lfo_restart(l);
         tx_lfo_block(l, m_lmod >> i & 1u ? m_lrate[i] : l->p[TX_LP_RATE], m_lmod >> (i + 8u) & 1u ? m_llev[i] : l->p[TX_LP_LEVEL], mpos);
     }
+    mod_env_block(trig, start);
     if (mgen != m_seen) { m_seen = mgen; for (t = 0; t < MOD_NT; t++) m_last[t] = -1; m_lmod = 0; }
     if (!b->nt) return;
     for (t = 0; t < b->nt; t++) m_sum[t] = 0;
@@ -183,7 +232,8 @@ static uint32_t mod_tgt_of(uint32_t id)
 {
     uint32_t T, k = P_SCOPE(id) < P_LANES ? P_SCOPE(id) : 0u;
     for (T = 1; T < MT_N; T++) {
-        if (mod_tgt_lanes(T) == 4u) continue;
+        uint32_t l = mod_tgt_lanes(T);
+        if (l == 4u || (l < 4u && l != k)) continue;   /* (a lane's target: that lane's, not lane 1's) */
         if (mod_tgt_pid(T, k) == id) return T;
     }
     return 0;
@@ -278,6 +328,7 @@ static void mod_routes(void)
             r->lag = (uint8_t)(ln_ == 4u ? k * mslot[s].spread * 64u / 127u : 0u);   /* (8 ring steps = 90 degrees) */
             if (src <= TX_LFO_N) r->src = (uint8_t)(src - MS_LFO1);
             else if (src == MS_ACTIVE) r->src = (uint8_t)(TX_LFO_N + ME_ACT1 + (ln_ < 5u ? k : sc.sel));
+            else if (src >= MS_ENV1) r->src = (uint8_t)(TX_LFO_N + ME_ENV1 + (src - MS_ENV1));   /* (ENV, FOLLOW) */
             else r->src = (uint8_t)(TX_LFO_N + (src == MS_VEL ? ME_VEL : src == MS_MODW ? ME_MODW : src == MS_AT ? ME_AT :
                                                  src == MS_CC ? ME_CC : src == MS_RANDOM ? ME_RANDOM : ME_CONST));
         }
@@ -384,7 +435,16 @@ static const char *const N_LSYNC[TX_LFO_NSYNC] = {"FREE", "1/32T", "1/32", "1/16
     "1/8D", "1/4T", "1/4", "1/4D", "1/2T", "1/2", "1/2D", "1/1T", "1 BAR", "1D", "2 BAR", "4 BAR", "8 BAR", "16 BAR",
     "32 BAR", "64 BAR"};
 static const char *const N_MSRC[MS_N] = {"NONE", "LFO 1", "LFO 2", "LFO 3", "LFO 4", "LFO 5", "LFO 6", "LFO 7", "LFO 8",
-                                         "VELOCITY", "MOD WHEEL", "AFTERTCH", "CC", "ACTIVE", "RANDOM", "CONSTANT"};
+                                         "VELOCITY", "MOD WHEEL", "AFTERTCH", "CC", "ACTIVE", "RANDOM", "CONSTANT",
+                                         "ENV 1", "ENV 2", "FOLLOW 1", "FOLLOW 2"};
+static const char *const N_ETRIG[TX_ET_N] = {"KEY", "LANE 1", "LANE 2", "LANE 3", "LANE 4", "EVENTS 1", "EVENTS 2",
+    "EVENTS 3", "EVENTS 4", "RANDOM", "LFO 1", "LFO 2", "LFO 3", "LFO 4", "LFO 5", "LFO 6", "LFO 7", "LFO 8", "START"};
+static const char *const N_FIN[TX_FI_N] = {"LEVEL 1", "LEVEL 2", "LEVEL 3", "LEVEL 4", "RATE 1", "RATE 2", "RATE 3",
+                                           "RATE 4", "MIX", "GRAIN"};
+/* scope 6 (P_ENV): ENV n (0..1) at n x 16 + its param (tx_env_params order); FOLLOW n at 32 + n x 16 + its param */
+#define MV_FOL0 32u
+static int mod_is_env(uint32_t i) { return i < MV_FOL0 && i / 16u < TX_ENV_N && i % 16u < TX_EP_N; }
+static int mod_is_fol(uint32_t i) { return i >= MV_FOL0 && (i - MV_FOL0) / 16u < TX_FOL_N && (i - MV_FOL0) % 16u < TX_FP_N; }
 enum { ML_NOW = TX_LP_N, ML_ROUTES, ML_N };
 enum { MQ_SRC, MQ_TGT, MQ_DEPTH, MQ_SPREAD, MQ_N };
 #define MQ_CC 64u
@@ -393,6 +453,7 @@ static int mod_valid(uint32_t id)
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
     if (s == P_LFO) return i / 16u < TX_LFO_N && i % 16u < ML_N;
     if (s == P_MAT) return i < MOD_NS * MQ_N || i == MQ_CC;
+    if (s == P_ENV) return mod_is_env(i) || mod_is_fol(i);
     return 0;
 }
 static const char *mod_lab(uint32_t id)
@@ -401,6 +462,7 @@ static const char *mod_lab(uint32_t id)
                                         "LEVEL", "NOW", "ROUTES"};
     static const char *const Q[MQ_N] = {"SOURCE", "TARGET", "DEPTH", "SPREAD"};
     uint32_t i = P_IDX(id);
+    if (P_SCOPE(id) == P_ENV) return mod_is_env(i) ? tx_env_params[i % 16u].name : tx_fol_params[(i - MV_FOL0) % 16u].name;
     if (P_SCOPE(id) == P_LFO) return L[i % 16u];
     return i == MQ_CC ? "MOD CC" : Q[i % MQ_N];
 }
@@ -408,12 +470,14 @@ static int32_t mod_hi(uint32_t id)
 {
     static const uint8_t Q[MQ_N] = {MS_N - 1u, MT_N - 1u, 200, 127};
     uint32_t i = P_IDX(id);
+    if (P_SCOPE(id) == P_ENV) return mod_is_env(i) ? tx_env_params[i % 16u].max : mod_is_fol(i) ? tx_fol_params[(i - MV_FOL0) % 16u].max : 0;
     if (P_SCOPE(id) == P_LFO) return i % 16u < TX_LP_N ? tx_lfo_params[i % 16u].max : 0;
     return i == MQ_CC ? 119 : Q[i % MQ_N];
 }
 static int32_t mod_get(uint32_t id)
 {
     uint32_t i = P_IDX(id);
+    if (P_SCOPE(id) == P_ENV) return mod_is_env(i) ? mod_env[i / 16u].p[i % 16u] : mod_is_fol(i) ? mod_fol[(i - MV_FOL0) / 16u].p[(i - MV_FOL0) % 16u] : 0;
     if (P_SCOPE(id) == P_LFO) {
         const tx_lfo_t *l = &mod_lfo[(i / 16u) % TX_LFO_N];
         if (i % 16u == ML_NOW) return (l->out + 32768) >> 11;   /* (in 32 steps: the screen's redraws) */
@@ -437,6 +501,11 @@ static void mod_set(uint32_t id, int32_t v)
     uint32_t i = P_IDX(id);
     if (v < 0) v = 0;
     if (v > mod_hi(id)) v = mod_hi(id);
+    if (P_SCOPE(id) == P_ENV) {
+        if (mod_is_env(i)) tx_env_param(&mod_env[i / 16u], i % 16u, (uint32_t)v);
+        else if (mod_is_fol(i)) tx_fol_param(&mod_fol[(i - MV_FOL0) / 16u], (i - MV_FOL0) % 16u, (uint32_t)v);
+        return;
+    }
     if (P_SCOPE(id) == P_LFO) { if (i % 16u < TX_LP_N) tx_lfo_param(&mod_lfo[(i / 16u) % TX_LFO_N], i % 16u, (uint32_t)v); return; }
     if (i == MQ_CC) { mod_cc = (uint8_t)v; return; }
     switch (i % MQ_N) {
@@ -449,6 +518,7 @@ static void mod_set(uint32_t id, int32_t v)
 static int mod_choice(uint32_t id)              /* a choice (segments; turned a step a detent) */
 {
     uint32_t i = P_IDX(id) % 16u;
+    if (P_SCOPE(id) == P_ENV) return mod_is_env(P_IDX(id)) ? i == TX_EP_TRIGGER || i == TX_EP_LOOP : i == TX_FP_INPUT;
     if (P_SCOPE(id) == P_LFO) return i == TX_LP_SHAPE || i == TX_LP_SYNC || i == TX_LP_MODE || i == TX_LP_RESTART;
     return P_IDX(id) != MQ_CC && (P_IDX(id) % MQ_N == MQ_SRC || P_IDX(id) % MQ_N == MQ_TGT);
 }
@@ -456,6 +526,27 @@ static const char *mod_text(uint32_t id, char *t)
 {
     uint32_t i = P_IDX(id), v = (uint32_t)mod_get(id);
     t[0] = 0;
+    if (P_SCOPE(id) == P_ENV) {
+        uint32_t ms;
+        if (mod_is_env(i)) {
+            switch (i % 16u) {
+            case TX_EP_TRIGGER: p_strcpy(t, N_ETRIG[v % TX_ET_N], 10); return 0;
+            case TX_EP_LOOP: p_strcpy(t, v ? "ON" : "OFF", 4); return 0;
+            case TX_EP_ATTACK: case TX_EP_DECAY: case TX_EP_RELEASE: ms = tx_env_ms(v); break;
+            default: p_fmt_int(t, (int32_t)((v * 100u + 63u) / 127u)); return "%";
+            }
+        } else {
+            switch ((i - MV_FOL0) % 16u) {
+            case TX_FP_INPUT: p_strcpy(t, N_FIN[v % TX_FI_N], 10); return 0;
+            case TX_FP_GAIN: p_strcpy(t, "x", 1); { char n[8]; p_fmt_int(n, (int32_t)(v / 64u)); p_cat(t, n, 15); } p_cat(t, ".", 15);
+                { char n[4]; uint32_t c = v % 64u * 100u / 64u; n[0] = (char)('0' + c / 10u); n[1] = (char)('0' + c % 10u); n[2] = 0; p_cat(t, n, 15); } return 0;
+            default: ms = tx_fol_ms(v); break;
+            }
+        }
+        if (ms >= 10000u) { p_fmt_int(t, (int32_t)((ms + 500u) / 1000u)); return "s"; }
+        if (ms >= 1000u) { p_fmt_int(t, (int32_t)(ms / 1000u)); p_cat(t, ".", 15); { char d[2] = {(char)('0' + ms / 100u % 10u), 0}; p_cat(t, d, 15); } return "s"; }
+        p_fmt_int(t, (int32_t)ms); return "ms";
+    }
     if (P_SCOPE(id) == P_LFO) {
         const tx_lfo_t *l = &mod_lfo[(i / 16u) % TX_LFO_N];
         switch (i % 16u) {
@@ -496,11 +587,11 @@ static const char *mod_text(uint32_t id, char *t)
     p_fmt_int(t, (int32_t)(v * 90u / 127u)); return "deg";
 }
 
-/* ---- mod learn (ui.c: LFO held + a card turned): LFO n onto param id, its depth moved by d (%); 0 removes the slot.
+/* ---- mod learn (ui.c: LFO or ENV held + a card turned): the source onto param id, its depth moved by d (%); 0 removes the slot.
  * Returns the slot (or -1: not a target, -2: the matrix is full) */
-static int mod_learn(uint32_t n, uint32_t id, int32_t d)
+static int mod_learn(uint32_t src, uint32_t id, int32_t d)   /* src: an MS_ source (LFO n, ENV n, FOLLOW n) */
 {
-    uint32_t T = mod_tgt_of(id), s, src = MS_LFO1 + n;
+    uint32_t T = mod_tgt_of(id), s;
     int32_t dp;
     if (!T) return -1;
     for (s = 0; s < MOD_NS && !(mslot[s].src == src && mslot[s].tgt == T); s++) {}
@@ -518,6 +609,8 @@ static void mod_init(void)
 {
     uint32_t i;
     for (i = 0; i < TX_LFO_N; i++) tx_lfo_init(&mod_lfo[i], i, tx_seed());
+    for (i = 0; i < TX_ENV_N; i++) tx_env_init(&mod_env[i], tx_seed());
+    for (i = 0; i < TX_FOL_N; i++) tx_fol_init(&mod_fol[i]);
     for (i = 0; i < MOD_NS; i++) { mslot[i].depth = 100; mslot[i].spread = 32; }
     mod_ext[ME_CONST] = 32767;
 }
