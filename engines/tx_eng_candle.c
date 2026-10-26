@@ -9,6 +9,7 @@
  *   flicker  a buoyant flame puffs at f_p = 0.52 sqrt(g / D) (E14; a 2 cm candle 11.5 Hz, E13's 10-12 Hz): each
  *            flame's roar is amplitude-modulated at its own f_p. Lower keys are bigger flames (D x 2^(1/12) per
  *            semitone down), each flame detuned +-4 %. Still air flickers little, a draught much more.
+ *            Each puff its own period (+-0.75 oct) and depth: a broad peak around f_p, no steady line.
  *   bundle   close flames synchronise in phase, farther ones in counter-phase, far ones not at all (E12, a
  *            discontinuous transition): Kuramoto coupling per block, the lag 0 or pi set by SPACING (ours).
  *   sum      the flames' noises are independent Gaussian sources with the same spectrum, so their sum is one noise
@@ -66,6 +67,7 @@ typedef struct {
     uint32_t th, w;                /* flicker phase and its step per block */
     int32_t amp;                   /* Q15, ramps to the target (lit) or 0 */
     int32_t det;                   /* detune, Q15 fraction */
+    int32_t fmul, fdg;             /* this puff's period (the step x fmul) and depth, Q15 */
     uint8_t lit, note;
 } flame_t;
 
@@ -196,7 +198,7 @@ static int32_t flames(candle_t *s)
         const tx_emitter_t *e = &s->cloud.em[i];
         if (e->held && (!f->lit || f->note != e->note)) {
             if (!f->lit && f->amp == 0 && lit_count(s) >= s->limit) { s->dropped++; continue; }
-            if (!f->lit) { f->th = tx_rand(r); f->det = tx_rand_s15(r) / 8; }   /* +-4 % */
+            if (!f->lit) { f->th = tx_rand(r); f->det = tx_rand_s15(r) / 8; f->fmul = f->fdg = 32768; }   /* +-4 % */
             f->lit = 1; f->note = e->note;
             {
                 int32_t d = s->size_l2 - ((int32_t)e->note - 60) * 5461;
@@ -241,8 +243,17 @@ static int32_t flames(candle_t *s)
             c = (int32_t)(((f->w >> 15) * (uint32_t)s->kappa) >> 15) * c;   /* kappa w x mean sin */
         }
         jit = (int32_t)(((int64_t)tx_rand_s15(r) * s->draught) >> 16);   /* draught: +-50 % flicker jitter */
-        f->th += f->w + (uint32_t)((int32_t)(f->w >> 15) * jit) + (uint32_t)c;
-        m = 32768 + ((tx_sin_q15(f->th) * depth) >> 15);
+        {   /* each puff its own period (within +-0.75 oct of f_p's, log-uniform) and depth (0.3 .. 1.3): six flames
+             * flickering together were a steady 10-12 Hz tremolo, a line 15-19 dB over the envelope's floor (the
+             * candle recordings: none) */
+            uint32_t th0 = f->th, w = (uint32_t)(((uint64_t)f->w * (uint32_t)f->fmul) >> 15);
+            f->th += w + (uint32_t)((int32_t)(w >> 15) * jit) + (uint32_t)c;
+            if (f->th < th0 && (th0 - f->th) > 0x80000000u) {   /* a new puff (the phase wrapped, not pulled back) */
+                f->fmul = (int32_t)tx_exp2((15 << 16) + (int32_t)tx_rand_s15(r) * 3 / 2);
+                f->fdg = 9830 + (int32_t)tx_rand_below(r, 32768u);
+            }
+        }
+        m = 32768 + ((tx_sin_q15(f->th) * (int32_t)(((int64_t)depth * f->fdg) >> 15)) >> 15);
         {
             int32_t gm = (s->gust * ((s->draught >> 2) + 2400)) >> 10;   /* gust x 8 x draught, + a slow wander in still
                                                               * air (references: rms std 1.5-3 dB at 0.5-1.3 Hz) */
