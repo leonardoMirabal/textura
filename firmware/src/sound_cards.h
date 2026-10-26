@@ -37,7 +37,12 @@
  * katydid's RASP is its JITTER, the grasshopper's PEGS first. The cicadas are the source's own callers: their cards
  * are its knobs by the cicada's names (SIZE the body, RING the tymbal's Q = TONE, BUZZ = HARD, DEPTH the chorus spread
  * in distance). Bees: SWARM, SPEED, the swarm's wingbeat SPREAD. A SIZE (the body) for crickets and katydids waits for
- * the engines' parameter. EXTRA, SPACING and DEPTH (but the cicadas') do nothing on an insect. */
+ * the engines' parameter. EXTRA, SPACING and DEPTH (but the cicadas') do nothing on an insect.
+ *
+ * Stones & sand: the approved study's ranking (2026-10-26). The stones are the source's own particles: SIZE, GROUND
+ * (= HARD: stone on stone .. soft ground), RING (= TONE: the stones' Q), CLUMPS (= SPACING). Ringing rocks' STONE is
+ * the stonedrum's MATERIAL. Gravel's RATE, sand's ORIFICE and the dune's FLOW are the activity itself (on the keys).
+ * Sand's SIZE is its container's (a tray, a bulb, a tube). Rockfall's DIST is the source's PROXIMITY, as everywhere. */
 #ifndef TX_SOUND_CARDS_H
 #define TX_SOUND_CARDS_H
 #include <stdint.h>
@@ -135,6 +140,20 @@ static const scd_sound_t SCD[] = {
     {"grasshopper", "katydids", 6, {{"PEGS", "PEGS", CK_HOST}, I_TEMP, I_RASP, DIST_CARD, I_CHORUS, I_SYNC}},
     {"honeybee", "bees", 4, B_CARDS},
     {"bumblebee", "bees", 4, B_CARDS},
+    /* Stones & sand */
+#define S_H(n) {#n, #n, CK_HOST}
+#define S_S(l, p) {l, p, 0}
+    {"stones", 0, 6, {S_S("SIZE", "SIZE"), S_S("GROUND", "HARD"), S_S("RING", "TONE"), S_S("CLUMPS", "SPACING"),
+                      S_S("SPREAD", "SPREAD"), DIST_CARD}},
+    {"rockfall", "rockfall", 5, {S_H(VOLUME), S_H(HEIGHT), S_H(GROUND), S_H(FRAG), DIST_CARD}},
+    {"ringing rocks", "stonedrum", 8, {{"STONE", "MATERIAL", CK_HOST}, S_H(TUNE), S_H(MALLET), S_H(SHAPE),
+                                       S_H(DAMP), S_H(POS), S_H(VARY), DIST_CARD}},
+    {"gravel", "gravel", 5, {S_H(SIZE), S_H(AMOUNT), S_H(SHAKE), S_H(GROUND), DIST_CARD}},
+    {"marbles", "pebble", 7, {S_H(SIZE), S_H(SURFACE), S_H(ROUGH), S_H(SPEED), S_H(DRAG), S_H(ROUND), DIST_CARD}},
+    {"sand", "sand", 6, {S_H(GRAIN), S_H(SURFACE), S_H(HEIGHT), S_H(PULSE), S_H(SIZE), DIST_CARD}},
+    {"singing dune", "sandsong", 5, {S_H(GRAIN), S_H(SORTING), S_H(STEADY), DIST_CARD, S_H(DETUNE)}},
+    {"minerals", "minerals", 7, {S_H(MINERAL), S_H(SIZE), S_H(ACTION), S_H(HOLD), S_H(HUMID), S_H(VARY), DIST_CARD}},
+    {"stone friction", "mineral", 6, {S_H(ROUGH), S_H(STICK), S_H(PRESSURE), S_H(SPEED), S_H(SIZE), DIST_CARD}},
     /* Storm's hail */
 #define HAIL_CARDS {{"STONES", "DROPS", CK_HOST}, {"AREA", "AREA", CK_HOST}, {"INSIDE", "INSIDE", CK_HOST}, \
                     {"RAIN", "RAIN", CK_HOST}, {"BOUNCE", "BOUNCE", CK_HOST}, DIST_CARD}
