@@ -242,8 +242,12 @@ static const host_t HOST[] = {
     /* gravel: a few stones now and then .. footsteps on gravel .. a slide (many stones, long rattles) */
     {"gravel", 16, 16, 16, {{"RATE", 20, 59, 110}, {"AMOUNT", 20, 64, 120}, {"SHAKE", 20, 30, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 16, 4, 0, 0, 0, 0},
     /* katydids (COUNT: the engine's own, up to 16; they come and go on their own): a call now and then on a cold
-     * night .. singing on, warm, falling into step */
-    {"katydids", 0, 0, 0, {{"ACTIVITY", 0, 64, 127}, {"TEMP", 40, 76, 90}, {"SYNC", 40, 50, 64}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+     * night .. singing on, warm, falling into step. By default a chorus, as the references: the near ones singing on
+     * with short pauses, the far callers (FIELD) between their calls (the references' gaps 20-35 dB under the calls,
+     * never silent); -1.8 dB: the katydid and the grasshopper within 0.4 LU of the lone singers they were (agent D,
+     * 2026-10-26) */
+    {"katydids", -18, -18, -18, {{"ACTIVITY", 0, 110, 127}, {"TEMP", 40, 76, 90}, {"SYNC", 40, 50, 64}, {"FIELD", 0, 70, 90},
+                                 {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* bees: one bee wandering farther off, slower .. one at its ease .. a swarm of 8 close by */
     {"bees", -45, -45, -45, {{"SWARM", 0, 0, 64}, {"DIST", 90, 50, 30}, {"SPEED", 40, 64, 80}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 3, 10, 4, 0, 0, 0, 0},
     /* ice: an icicle breaking off now and then .. icicles falling every few seconds, more chunks each */

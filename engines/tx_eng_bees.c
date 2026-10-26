@@ -4,7 +4,8 @@
  * A key press lets an insect (and SWARM companions) fly; holding keeps it around; release lets it fly off (and fade
  * over ~1.5 s, ours). Physics:
  *   buzz     wingbeat f0 and harmonic levels per species (honeybee 230 Hz, H2 -2.5 / H3 -8 / H4 -19.5 dB: N13 / N29;
- *            hornet 107 Hz, H2 +0.5 .. H7 -23 dB: N29; bumblebee ~175 Hz, H2 -5 / H3 -10: N17 / N26; blowfly ~180 Hz,
+ *            hornet 107 Hz, H2 +0.5 .. H7 -23 dB: N29; bumblebee ~175 Hz, H2 -5 / H3 -10: N17 / N26 (both retuned to
+ *            the references, below); blowfly ~180 Hz,
  *            H2 -8 .. -12: N27; hoverfly 150 Hz and carpenter bee 118 Hz: N11 / N16 (their harmonics: ours)).
  *            Keys: C4 = the species' f0, 2^(1/24) per semitone (a "pitched bee" without reaching mosquito pitch).
  *   angle    H1 loudest in front, H2 at the sides (N22, N27): the side table has H1 -10 dB, H2 +2 dB (ours: N22's dB
@@ -39,7 +40,7 @@
 enum { P_SPECIES, P_SWARM, P_SPREAD, P_SPEED, P_DIST, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"SPECIES", 127, 0, "honeybee 230 Hz | blowfly 180 | bumblebee 175 | hoverfly 150 | carpenter bee 118 | hornet 107"},
+    {"SPECIES", 127, 0, "honeybee 230 Hz | blowfly 180 | bumblebee 140 | hoverfly 150 | carpenter bee 118 | hornet 107"},
     {"SWARM", 127, 0, "companions per key: 0 .. 7 (a swarm)"},
     {"SPREAD", 127, 64, "wingbeat spread across the swarm: CV 0 .. 10 % (5 % typical)"},
     {"SPEED", 127, 64, "flight speed: 0.2 .. 5 m/s (log): wander, Doppler +-0.06 .. 1.5 %"},
@@ -54,14 +55,22 @@ static const tx_param_t PARAMS[NP] = {
 #define R_MIN 60                   /* the level law stops at 6 cm (the insect's own size) */
 #define FADE_BLK 430u              /* fly-off fade, blocks (2.5 s; the level as (1 - t / T)^3) */
 
-typedef struct { uint16_t f0; int8_t h[TX_WING_H]; } species_t;
+typedef struct { uint16_t f0; int8_t h[TX_WING_H]; uint8_t nzq, lv; } species_t;   /* the turbulence, the level: Q7 */
 static const species_t SPECIES[NSP] = {           /* harmonic levels in dB x 2 (-128: absent) */
-    {230, {0, -5, -16, -39, -128, -128, -128, -128}},   /* honeybee (N29) */
-    {180, {0, -20, -36, -50, -60, -128, -128, -128}},   /* blowfly (N27: H2 -8 .. -12; higher ours) */
-    {175, {0, -10, -20, -30, -40, -128, -128, -128}},   /* bumblebee (N26 B. sylvarum; H4, H5 ours) */
-    {150, {0, -16, -30, -44, -128, -128, -128, -128}},  /* hoverfly (ours) */
-    {118, {0, -8, -20, -32, -44, -128, -128, -128}},    /* carpenter bee (ours) */
-    {107, {0, 1, -16, -30, -42, -48, -46, -128}},       /* hornet V. simillima (N29) */
+    {230, {0, -16, -28, -48, -128, -128, -128, -128}, 51, 115},   /* honeybee (N29's H2 -2.5 / H3 -8 dB are a bee
+                                                              * in front, tethered; the references, flying: H2 -4 ..
+                                                              * -11, H3 -13 .. -15 dB, the noise -28 .. -43: H2 -8,
+                                                              * H3 -14, H4 -24 dB, the turbulence -8 dB; agent D,
+                                                              * 2026-10-26) */
+    {180, {0, -20, -36, -50, -60, -128, -128, -128}, 128, 128},   /* blowfly (N27: H2 -8 .. -12; higher ours) */
+    {140, {0, -2, -4, -6, -8, -10, -12, -14}, 200, 177},   /* bumblebee (N26 B. sylvarum 175 Hz; the references,
+                                                              * ~122 Hz, the harmonics within
+                                                              * -5 dB to the 8th, centroid ~1 kHz against the honeybee's
+                                                              * ~0.5: a rich, rough buzz an octave under the honeybee's
+                                                              * brightness; the turbulence +3.9 dB; agent D, 2026-10-26) */
+    {150, {0, -16, -30, -44, -128, -128, -128, -128}, 128, 128},  /* hoverfly (ours) */
+    {118, {0, -8, -20, -32, -44, -128, -128, -128}, 128, 128},    /* carpenter bee (ours) */
+    {107, {0, 1, -16, -30, -42, -48, -46, -128}, 128, 128},       /* hornet V. simillima (N29) */
 };
 
 typedef struct {
@@ -121,7 +130,8 @@ static void set_species(bees_t *s)
     int8_t side[TX_WING_H];
     unsigned k;
     for (k = 0; k < TX_WING_H; k++) side[k] = sp->h[k];
-    side[0] = (int8_t)(side[0] - 20);                        /* sides: H1 -10 dB, H2 +2 dB (ours) */
+    side[0] = (int8_t)(side[0] - 8);                         /* sides: H1 -4 dB, H2 +2 dB (ours; at -10 dB H2 led
+                                                              * the honeybee: the references' H1 leads) */
     if (side[1] > -120) side[1] = (int8_t)(side[1] + 4);
     if (!s->ran) s->f0 = sp->f0;                            /* (a fresh instance: its wingbeat at once, its tables over
                                                               * the first 8 blocks too: no spike when SOURCE switches to
@@ -228,7 +238,7 @@ static void launch(bees_t *s, const tx_event_t *e)
         if (!b->bz.g) { b->bz.ph = tx_rand(r); b->bz.nr = tx_rand(r) | 1u; }
         b->lg = 32767; b->land = 0;
         b->bz.jit = (int16_t)(983 + tx_rand_below(r, 984u));   /* each stroke's period +-3 .. 6 % (wing-beat */
-        b->bz.nz = (int16_t)(9000 + tx_rand_below(r, 8000u));  /* irregularity); turbulence ~-14 .. -10 dB (ours) */
+        b->bz.nz = (int16_t)(((9000 + (int32_t)tx_rand_below(r, 8000u)) * SPECIES[(s->p[P_SPECIES] * NSP) >> 7].nzq) >> 7);   /* irregularity); turbulence ~-14 .. -10 dB (ours) */
         b->nz0 = b->bz.nz;
     }
 }
@@ -293,6 +303,7 @@ static void fly(bees_t *s, bug_t *b, int32_t *g1, int32_t *mix1)
     b->wob += ((32768 + ((gauss_q12(r) * 11) >> 1)) - b->wob) >> 4;   /* +-3 dB-ish slow wander */
     gm = (int32_t)(((int64_t)(G_REF * R_REF / (rr > R_MIN ? rr : R_MIN)) * b->wob) >> 15);
     gm = (int32_t)(((int64_t)gm * s->level) >> 15);
+    gm = (gm * SPECIES[(s->p[P_SPECIES] * NSP) >> 7].lv) >> 7;   /* (the species' level: the loudness it had) */
     gm = gm > 32767 ? 32767 : gm;
     {   /* at the flowers: now and then it lands (every ~3 s on average) for 0.3 .. 1.7 s, the buzz stopping and
          * starting again over ~0.1 s, the wingbeat slowing as it lands (ours; the references: a bumblebee at work comes and goes, with gaps) */

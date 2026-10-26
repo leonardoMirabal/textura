@@ -43,7 +43,7 @@
 #define VARY_DRIFT 60
 #define VARY_SPLIT 0
 
-enum { P_TEMP, P_SPECIES, P_COUNT, P_SYNC, P_DIST, P_FIELD, P_ACT, NP };
+enum { P_TEMP, P_SPECIES, P_COUNT, P_SYNC, P_DIST, P_FIELD, P_ACT, P_SIZE, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"TEMP", 127, 76, "air temperature 10 .. 35 C: chirp rate 40 .. 220 /min (Dolbear), pulses as fast"},
@@ -53,6 +53,7 @@ static const tx_param_t PARAMS[NP] = {
     {"DIST", 127, 50, "distance at velocity 100: 0.3 .. 30 m (log): level 1 / r; delays between callers"},
     {"FIELD", 127, 0, "the distant chorus behind (a band at the carrier): off .. loud"},
     {"ACTIVITY", 127, 100, "how much each one sings: a few chirps now and then (bouts ~1.5 s, pauses ~15 s) .. busy (runs of ~6 chirps, pauses ~1 s: never a steady beat); never faster: the rhythm is its own"},
+    {"SIZE", 127, 64, "body size: the carrier -0.5 .. +0.5 oct (bigger: lower); the rhythm stays"},
 };
 
 #define NV 32u
@@ -112,6 +113,7 @@ typedef struct {
     uint32_t vph[8], vinc[8];      /* the FIELD's virtual callers */
     uint8_t p[NP], limit, quiet;
     int32_t level, q15;            /* rate ratio to 25 C, Q15 */
+    int32_t sz_l2;                 /* SIZE's carrier shift, log2 Q16 */
     int32_t chirp_T;               /* the chirp period at TEMP, samples */
     int32_t dist_l2;
     uint16_t dropped;
@@ -161,11 +163,23 @@ static void set_param(crickets_t *s, unsigned id, unsigned v)
         unsigned i;
         set_timing(s);
         for (i = 0; i < 8; i++)                              /* the far callers' carriers: CV 6 % (N1) */
-            s->finc[i] = (uint32_t)(((uint64_t)sp_of(s)->f0 * 97391u * tx_exp2(((tx_gauss_q12(&s->cloud.rng) * 2789) >> 12) + (16 << 16))) >> 16);
+            s->finc[i] = (uint32_t)(((uint64_t)sp_of(s)->f0 * 97391u * tx_exp2(s->sz_l2 + ((tx_gauss_q12(&s->cloud.rng) * 2789) >> 12) + (16 << 16))) >> 16);
         break;
     }
     case P_SYNC: tx_chorus_set(&s->ch, (int32_t)v * 258, s->ch.cv_q15, (uint32_t)s->ch.t_eff, (uint32_t)s->ch.x_len); break;
     case P_DIST: s->dist_l2 = -113738 + (int32_t)(v * 3482u); break;   /* log2(0.3 m) + v log2(100) / 127, Q16 */
+    case P_SIZE: {                                           /* +-0.5 oct; the callers there now (and the far ones)
+                                                              * retuned with it */
+        int32_t l2 = (64 - (int32_t)v) * 512, d = l2 - s->sz_l2;
+        uint32_t k = tx_exp2(d + (16 << 16));
+        unsigned i;
+        s->sz_l2 = l2;
+        if (d) {
+            for (i = 0; i < NV; i++) if (s->c[i].alive) s->c[i].inc = (uint32_t)(((uint64_t)s->c[i].inc * k) >> 16);
+            for (i = 0; i < 8; i++) s->finc[i] = (uint32_t)(((uint64_t)s->finc[i] * k) >> 16);
+        }
+        break;
+    }
     default: break;
     }
 }
@@ -265,7 +279,7 @@ static void individual(crickets_t *s, unsigned ci, uint8_t note, uint8_t vel, in
     s->ch.x[ci] = (tx_sin_q15((uint32_t)ang + 0x40000000u) * (rr >> 4)) >> 11;
     s->ch.y[ci] = (tx_sin_q15((uint32_t)ang) * (rr >> 4)) >> 11;
     c->gain = (int32_t)((uint32_t)G_REF * 1000u / (uint32_t)(rr < 300 ? 300 : rr));
-    f_l2 = ((int32_t)note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3);   /* a quarter tone per key (2^(1/24), Q16); the character (warmer = higher, faster) */
+    f_l2 = ((int32_t)note - 60) * 2731 + (tx_vary_tone(&s->vy) >> 3) + s->sz_l2;   /* a quarter tone per key (2^(1/24), Q16); the character (warmer = higher, faster); the body (SIZE) */
     f_l2 += (tx_gauss_q12(r) * (near ? 930 : 2789)) >> 12;   /* each its own carrier: the field CV 6 % (N1: 4.8-5.3 kHz),
                                                               * the key's own 2 % (it stays on its key) */
     /* no two crickets alike (note 17): its own pulse length (CV 20 %), glide (CV 60 %), H2 (sd 6 dB), and a
@@ -306,7 +320,7 @@ static void spawn(crickets_t *s, const tx_event_t *e)
                                                              * the start was louder than what follows) */
         return;
     }
-    ki = (uint32_t)(((uint64_t)sp_of(s)->f0 * 97391u * tx_exp2(((int32_t)e->note - 60) * 2731 + (16 << 16))) >> 16);
+    ki = (uint32_t)(((uint64_t)sp_of(s)->f0 * 97391u * tx_exp2(((int32_t)e->note - 60) * 2731 + s->sz_l2 + (16 << 16))) >> 16);
     for (i = 0; i < s->limit; i++) {
         const cricket_t *c = &s->c[i];
         uint32_t d;
