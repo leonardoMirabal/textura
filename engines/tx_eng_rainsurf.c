@@ -36,7 +36,9 @@
  *            ~ the momentum's fourth root, D^0.75 V^0.25 (compressed as the rain's), the biggest at most x 2.
  *            A stone bounces (restitution e 0.3 .. 0.5): it lands again after 2 e V / g x (0.3 .. 1) (its angle), up to
  *            twice, each softer; through leaves it falls on to lower leaves after 50 .. 400 ms. The bigger stones
- *            shatter (the splash path: a spray of ice fragments); no drips, no water. Each kind its own surface, fitted
+ *            shatter (the splash path: a spray of ice fragments); no drips, no water. Ice is irregular: a stone meets
+ *            the surface at two or three points 0.05 .. 1 ms apart, a struck leaf flaps (a short noise burst), so no
+ *            two stones of a sparse fall ring alike (ours). Each kind its own surface, fitted
  *            to hail references (ours): the roof's steel ringing, the car's thin panels over the cabin (low modes
  *            140 .. 450 Hz, Q 60, a bright clank), leaves' crisp slaps, a window's pellets ticking (little body). */
 #include "tx_engine.h"
@@ -435,6 +437,39 @@ static void pulse(rain_t *s, unsigned off, uint32_t len, int32_t a)
     }
 }
 
+/* a hailstone's contact: ice is irregular, so a stone meets the surface at two or three points, 0.05 .. 1 ms
+ * apart (log-uniform), the later ones 0.15 .. 0.8 of the first. Each stone's own comb over the surface's response: a
+ * lone stone's ring no longer repeats one waveform (it did: 30-57 % of the pairs of a sparse fall correlated > 0.95) */
+#define LEAF_G 16384                /* a leaf's burst re the stone's push, Q15 (0.5) */
+static void contact(rain_t *s, tx_rng_t *r, unsigned off, uint32_t len, int32_t a, int sparse)
+{
+    uint32_t x = tx_rand(r);
+    unsigned i, m = 1u + (x & 1u);                           /* further contacts: 1 or 2 */
+    if (len) pulse(s, off, len, a); else s->ex[off] += a * 64;   /* (len 0: a far stone, its momentum at once, Q15) */
+    if (s->hk == 3u && sparse) {                             /* through leaves: the struck leaf flaps, a burst of its
+                                                              * own (0.45 .. 1.9 ms of noise, decaying): every leaf
+                                                              * another (a dense fall is a blur: none, CPU) */
+        unsigned j, L = 20u + (x >> 26);
+        if (off + L > TX_BLOCK + CARRY) L = TX_BLOCK + CARRY - off;   /* (the carry's end: >= 64 left) */
+        int32_t e = (int32_t)(((int64_t)a * LEAF_G) >> 15) >> 4, dk = 32768 - (int32_t)(98304u / L);
+        for (j = 0; j + 1u < L; j += 2u) {                   /* (two samples a draw; 32-bit products) */
+            uint32_t z = tx_rand(r);
+            s->ex[off + j] += ((int32_t)(int16_t)(z >> 16) * e) >> 5;
+            s->ex[off + j + 1u] += ((int32_t)(int16_t)z * e) >> 5;
+            e = MUL15(e, dk); e = MUL15(e, dk);
+        }
+    }
+    for (i = 0; i < m; i++) {
+        uint32_t y = tx_rand(r);
+        unsigned d = tx_exp2((int32_t)(((y >> 16) * 283u) >> 6) + (16 << 16)) >> 15;   /* 2 .. ~43 samples */
+        int32_t g = 4915 + (int32_t)(((y & 0xFFFFu) * 21299u) >> 16);   /* 0.15 .. 0.8, Q15 */
+        off += d;
+        if (off + (len ? len : 1u) > TX_BLOCK + CARRY) break;   /* (only whole contacts: none cut at the carry's end) */
+        if (len) pulse(s, off, len, (int32_t)(((int64_t)a * g) >> 15));
+        else s->ex[off] += (int32_t)(((int64_t)a * g) >> 15) * 64;
+    }
+}
+
 /* a drop's splash: 0.25 .. 2.8 x its push, log-uniform (one drop thuds, the next splashes bright: the references'
  * drops spread 1-2.6 octaves in centroid); its crown's droplets land over ~1 ms (the spray: below) */
 static void splash(rain_t *s, uint32_t r, unsigned off, int32_t a)
@@ -467,7 +502,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
 {
     rain_t *s = (rain_t *)st;
     tx_rng_t *r = &s->cloud.rng;
-    unsigned k, i, j, c, nexp = 0, nlim, farall = 0;
+    unsigned k, i, j, c, nexp = 0, nlim, farall = 0, sparse = 0;
     int32_t *ex = s->ex, *buf = s->buf, *fb = s->fb, any = 0;
     uint16_t d0 = s->dropped;
     if (n > TX_BLOCK) n = TX_BLOCK;
@@ -484,7 +519,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
             stone(s->hk, D, &v, &len, &a, &fca);
             a = a * e->vel * e->vel / 16129;                    /* (<= 2^16 x 2^14: 32-bit) */
             a = (int32_t)(((int64_t)a * s->level) >> 15);
-            pulse(s, e->offset, len, a);
+            contact(s, r, e->offset, len, a, 1);
             splash(s, tx_rand(r), e->offset, a);
             bounce(s, tx_rand(r), v, len, a, s->bmax);
             continue;
@@ -503,7 +538,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
             bounce_t b = s->bnc[i];
             if (b.t < n) {
                 uint32_t x = tx_rand(r);
-                pulse(s, b.t, b.len, b.a);
+                if (s->hk) contact(s, r, b.t, b.len, b.a, 1); else pulse(s, b.t, b.len, b.a);
                 if ((x & 3u) == 0u) splash(s, x, b.t, b.a >> 1);
                 if (s->hk && b.n) {                  /* it bounces again, its flight x e (the queue compacts in place) */
                     uint32_t e = (H_E[s->hk - 1u] * (uint32_t)s->bsc) >> 7, f;
@@ -529,6 +564,12 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
     if (s->hk) {                                             /* ice: the fall surging */
         s->surge += ((tx_rand_s15(r) * 3) >> (HSHIFT / 2 + 2)) - (s->surge >> HSHIFT);
         s->surge = s->surge > 32767 ? 32767 : s->surge < -32767 ? -32767 : s->surge;
+    }
+    if (s->hk) {                                             /* ice: under 64 stones a second the stones are heard one
+                                                              * by one (each its own contacts), over it a blur */
+        uint32_t t = 0;
+        for (c = 0; c < NC; c++) t += s->lam_q8[c] >> 8;
+        sparse = t < 64u;
     }
     if (s->wet) {
         uint32_t sg = s->hk ? tx_exp2(((s->surge * (int32_t)H_SG[s->hk - 1u]) >> 5) + (12 << 16)) : 4096u;   /* Q12 */
@@ -563,7 +604,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
                 if (u < s->near_n && nexp < nlim) {              /* near: a full pulse of its own length */
                     uint32_t len = (s->len[c] * (uint32_t)(sz >> 7)) >> 8;
                     if (len > CARRY) len = CARRY;
-                    pulse(s, off, len, ad);
+                    if (s->hk) contact(s, r, off, len, ad, sparse); else pulse(s, off, len, ad);
                     if (s->reb && off + s->tg[c] + len < TX_BLOCK + CARRY)   /* leaves: the rebound */
                         pulse(s, off + s->tg[c], len, (ad * s->reb) >> 8);
                     if (s->hk) bounce(s, y, s->hv[c], len, ad, s->bmax);
@@ -571,7 +612,9 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
                 } else {                                     /* far: its momentum at once, through the corner below */
                     int32_t m = (int32_t)(((int64_t)mom * sz) >> 15);
                     m = (int32_t)(((int64_t)m * s->amp_t[u] * fg) >> 23);
-                    buf[off] += m;                           /* (buf: this class's impulses, ice: every class's; Q15) */
+                    if (sparse) contact(s, r, off, 0u, m, 1);  /* (ice, a sparse fall: each far stone its
+                                                              * own contacts, straight in; dense, a blur: CPU) */
+                    else buf[off] += m;                      /* (buf: this class's impulses, ice: every class's; Q15) */
                     far++;
                 }
                 if (!s->hk || c >= 2u || (y & 3u) == 0u) splash(s, y, off, (ad * fg) >> 8);   /* (ice: the big ones shatter) */
