@@ -1370,10 +1370,10 @@ static void callers_block(src_t *s, uint32_t want_q8)
 }
 
 /* ---- birds: the population sings by turns, more and more often, then all at once (a dawn chorus) */
-static void bird_draw(src_t *s, birdm_t *b, int near)
+static void bird_draw(src_t *s, birdm_t *b, int near, unsigned type)
 {
     int32_t sp = (9830 * (int32_t)s->p[P_SPREAD]) / 64;      /* +-0.15 octave between birds */
-    b->f_off = knob(s, P_SIZE) * -2048 + (int32_t)(((int64_t)gauss(s) * sp) >> 12) + s->life_s / 4;
+    b->f_off = tx_bird_size(type, knob(s, P_SIZE)) + (int32_t)(((int64_t)gauss(s) * sp) >> 12) + s->life_s / 4;
     b->r_l2 = near ? dist_l2(s) : tx_place_draw(&s->rng, dist_l2(s), depth_l2(s));
     b->seed = tx_rand(&s->rng);
     b->songs = (uint8_t)(2u + tx_rand_below(&s->rng, 3u));
@@ -1390,9 +1390,11 @@ static uint32_t bird_pause(src_t *s, unsigned type)           /* samples to a bi
 static void bird_sing(src_t *s, unsigned bi, unsigned type, int steal, int32_t key_l2)
 {
     birdm_t *b = &s->bm[bi];
-    uint32_t f = tx_exp2(TX_BIRD_F0[type] + b->f_off), lv;
+    int32_t sz = tx_bird_size(type, knob(s, P_SIZE));
+    uint32_t f = tx_exp2(TX_BIRD_F0[type] + b->f_off - sz), lv;   /* (the air at its kind's pitch: SIZE keeps level) */
     int32_t g = (int32_t)(((int64_t)tx_place_gain_q12(b->r_l2) * tx_place_air_q15(f, b->r_l2)) >> 15);
     int k;
+    g = (int32_t)(((int64_t)g * tx_bird_size_gain(type, sz)) >> 12);
     g = (int32_t)(((int64_t)g * pre_trim(s, s->p[P_PRESET])) >> 12);
     g = (int32_t)(((int64_t)g * s->level) >> 15);
     lv = (uint32_t)(g < 1 ? 1 : g) << 14;
@@ -1401,7 +1403,7 @@ static void bird_sing(src_t *s, unsigned bi, unsigned type, int steal, int32_t k
     s->v[k].kind = V_BIRD; s->v[k].pre = (uint8_t)s->p[P_PRESET]; s->v[k].pad[0] = (uint8_t)bi; s->v[k].last = 0;
     s->total++;                                              /* (a song: the stats' event) */
     tx_bird_song(&s->v[k].u.bv, type, b->seed, tx_rand_below(&s->rng, b->songs), tx_rand(&s->rng), b->f_off + key_l2,
-                 g);
+                 sz, g);
     b->voice = (uint8_t)k;
     b->sung = 0;
     s->events++;
@@ -1419,7 +1421,7 @@ static void birds_block(src_t *s, unsigned n)
     for (i = 0; i < NB; i++) {
         birdm_t *b = &s->bm[i];
         if (i < want && !b->active && s->run > 4096) {
-            bird_draw(s, b, 0);
+            bird_draw(s, b, 0, type);
             b->r_l2 = tx_bird_dist(&s->rng, type, dist_l2(s), depth_l2(s), a);   /* most far, a few near */
             b->gain = tx_bird_band(type, b->seed, b->f_off);  /* (birds keep their band here) */
             b->active = 1; b->wait = tx_rand_below(&s->rng, 65535u) * 2u;

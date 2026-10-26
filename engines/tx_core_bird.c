@@ -97,6 +97,33 @@ static const sp_t SP[TX_BIRD_TYPES] = {
  * the preset rows' trims) */
 static const uint16_t TRIM[TX_BIRD_TYPES] = { 240, 180, 112, 123, 421, 157, 123, 152, 176, 216, 82, 145, 182, 126, 100, 94, 125, 1430, 99, 404, 49 };
 
+/* SIZE: how far a type's birds range in size, the half range in octaves (Q16 per knob step: 512 = +-0.5 oct at the
+ * ends). A bigger bird sings lower within what its kind spans (a jackdaw to a raven, a black-headed gull to a great
+ * black-backed, a lesser spotted woodpecker to a black one), never an octave out of its kind: the bittern's boom stays
+ * a boom */
+static const uint16_t SZR[TX_BIRD_TYPES] = { 512, 614, 614, 512, 614, 410, 410, 410, 410, 410, 410, 410, 410, 410, 512,
+                                             410, 410, 614, 512, 410, 512 };
+
+/* the level SIZE keeps (octaves of gain per octave of size, Q8; by render, P6, 8 seeds x 40 s at SIZE 0 .. 127): the
+ * scaled tract rings ~5 dB / octave louder as it grows, the open beak's radiation (+6 dB / octave) takes most of it
+ * back; closed bills keep it all */
+static const int16_t SZG[TX_BIRD_TYPES] = { -15, 31, -49, 200, -154, 15, -61, -51, 15, -51, -15, -3, -77, -15, -41,
+                                            -20, 215, -110, 207, -41, 64 };
+
+int32_t tx_bird_size(unsigned type, int32_t k)
+{
+    if (type >= TX_BIRD_TYPES) type = 0;
+    k = k < -64 ? -64 : k > 64 ? 64 : k;
+    return -k * (int32_t)SZR[type];
+}
+
+int32_t tx_bird_size_gain(unsigned type, int32_t size_l2)
+{
+    if (type >= TX_BIRD_TYPES) type = 0;
+    size_l2 = size_l2 < -65536 ? -65536 : size_l2 > 65536 ? 65536 : size_l2;
+    return (int32_t)tx_exp2((12 << 16) + ((SZG[type] * size_l2) >> 8));   /* Q12 */
+}
+
 static uint32_t mix(uint32_t a, uint32_t b)
 {
     a ^= b * 0x9E3779B1u; a ^= a >> 16; a *= 0x85EBCA6Bu; a ^= a >> 13; a *= 0xC2B2AE35u; a ^= a >> 16;
@@ -547,7 +574,7 @@ static int advance(tx_bird_voice_t *v)
 }
 
 void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigned song, uint32_t var_seed, int32_t f_off,
-                  int32_t gain)
+                  int32_t size_l2, int32_t gain)
 {
     tx_rng_t br;
     const sp_t *S;
@@ -566,11 +593,15 @@ void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigne
     v->verb = (uint8_t)(int8_t)rs(&br, -1, 1);               /* shorter or longer phrases */
     v->pamp = 255;
     v->track = S->track; v->closed = S->closed; v->oec_l2 = S->oec;
+    size_l2 = size_l2 < -65536 ? -65536 : size_l2 > 65536 ? 65536 : size_l2;
+    if (!v->track) v->oec_l2 += size_l2;                     /* a bigger bird, a bigger throat (a bigger tree) */
     if (S->style == ST_WOODPECKER) v->oec_l2 += rs(&br, -32768, 32768);   /* its own tree: +-0.5 oct */
     if (S->style == ST_NIGHTJAR) v->oec_l2 += rs(&br, -13107, 13107);     /* its own throat: +-0.2 oct */
     v->oec_q = (int32_t)(S->q * rb(&br, 75, 125) / 100u);
     v->jsd = (int32_t)(S->jsd * rb(&br, 70, 130) / 100u);
     i = S->dlen * rb(&br, 80, 120) / 100u;
+    i = (i * tx_exp2((12 << 16) - size_l2) + 2048u) >> 12;  /* a bigger bird, a longer trachea: its resonances keep
+                                                              * their place among the voice's harmonics */
     v->dlen = (uint8_t)(i < 2u ? 2u : i > TX_BIRD_DL ? TX_BIRD_DL : i);
     for (i = 0; i < TX_BIRD_DL; i++) v->dl[i] = 0;           /* a fresh tract: no state from another voice */
     v->dp = 0; v->y1 = v->y2 = v->x1 = 0; v->phase = v->phase2 = 0; v->jw = 0; v->last = 0;

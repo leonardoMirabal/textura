@@ -74,9 +74,14 @@ extern const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES];   /* mean pause between bout
 extern const int32_t TX_BIRD_F0[TX_BIRD_TYPES];       /* the type's base pitch, log2 Hz Q16 */
 
 /* start a song (a bout) of a bird: its seed is the individual (repertoire, voice), `song` a song type for the
- * species that keep a few (wren, chaffinch), var_seed this rendition's draws; pitch offset f_off (log2 Q16), gain (Q12) */
+ * species that keep a few (wren, chaffinch), var_seed this rendition's draws; pitch offset f_off (log2 Q16), of it
+ * size_l2 the bird's size (its throat and trachea scale with it, tx_bird_size), gain (Q12) */
 void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigned song, uint32_t var_seed, int32_t f_off,
-                  int32_t gain);
+                  int32_t size_l2, int32_t gain);
+/* SIZE (the knob's offset -64 .. 64) as the type's birds' pitch offset, log2 Q16: each kind its own range */
+int32_t tx_bird_size(unsigned type, int32_t k);
+/* the gain (Q12) that keeps a bird of that size as loud as its kind at SIZE 64 (its tract and beak scale with it) */
+int32_t tx_bird_size_gain(unsigned type, int32_t size_l2);
 /* ---- the flock: how a type's birds share time and space (the engine keeps the members and asks these; act is the
  * activity 0 .. 127 << 8). A few birds near and distinct over many farther, quieter ones; neighbours in one band take
  * turns (countersinging); crows answer crows, gulls set each other off (bursts and lulls); more birds as it rises. */
