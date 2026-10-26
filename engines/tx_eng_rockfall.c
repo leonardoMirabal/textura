@@ -7,7 +7,7 @@
  *   impact     the intact mass hits ~1.7 s later (R2), breaking up: one big hit and 2-5 follow-ups within ~1 s;
  *   free fall  silence, sqrt(2 h / g) (R2: 7.5 s for 271 m);
  *   fragments  impacts on the talus with a rate decaying over FRAG (4 .. 13 s; R2: ~40 s), 3 .. 80 per s,
- *              ~1 Hz surges (R5), sizes from a power law V^-beta (R4: 1.43 .. 2.27), and the rattle of the smallest bits
+ *              surges of ~1 s, each its own (R5), sizes from a power law V^-beta (R4: 1.43 .. 2.27), and the rattle of the smallest bits
  *              (SHAKER, PhISEM).
  * Every hit: loudness ~ momentum m v (R1), x sqrt(radiated share) (10^-6 soft marl .. 10^-3 hard rock, R1); a Hertz
  * contact of t_c ~ R v^-0.2 (0.25 m at 10 m/s = 1.3 ms; soft ground longer: ours) into the ground's low boom
@@ -62,6 +62,9 @@ typedef struct {
     int32_t l_main;                /* log2 amplitude of the main hit (Q16) */
     int32_t lr_main;               /* log2(R / 1 m) of the main block, Q16 */
     uint8_t phase, alive, hits, pad;
+    uint32_t sp, sinc, sel;        /* the talus's surges: their phase, its step per sample, the last event's time */
+    int32_t sdep;                  /* this surge's depth, Q15 */
+    tx_rng_t srng;                 /* the surges' own draws (seeded from the cloud's state, not drawn from it) */
 } fall_t;
 
 typedef struct {
@@ -184,6 +187,14 @@ static void hit(rock_t *s, unsigned off, int32_t lr, int32_t lv, int32_t l)
     }
 }
 
+/* the next surge of fragments: 0.4 .. 2.5 s (log-uniform), +-15 .. 50 % */
+static void surge_draw(fall_t *f)
+{
+    uint32_t u = tx_rand(&f->srng) >> 16;
+    f->sinc = (uint32_t)(((uint64_t)243481u * tx_exp2((16 << 16) - (int32_t)(((uint64_t)u * 173015u) >> 16))) >> 16);
+    f->sdep = 9830 + (int32_t)tx_rand_below(&f->srng, 22938u);
+}
+
 static void trigger(rock_t *s, const tx_event_t *e)
 {
     fall_t *f = 0;
@@ -208,6 +219,9 @@ static void trigger(rock_t *s, const tx_event_t *e)
     f->t_end = f->t_frag + s->frag_ms * 44u + s->frag_ms / 10u;
     f->next = tx_rand_below(&s->cloud.rng, 4410u);
     f->phase = 0; f->hits = 0; f->alive = 1;
+    tx_rng_seed(&f->srng, s->cloud.rng.s ^ 0x5E6E5u);  /* read, not drawn: the fall's other draws stay as they were */
+    f->sp = tx_rand(&f->srng); f->sel = 0;
+    surge_draw(f);
     (void)lv;
 }
 
@@ -232,10 +246,18 @@ static void fall_block(rock_t *s, fall_t *f, unsigned n, int32_t *talus_e)
             if (f->next >= f->t_imp + 44100u && f->next < f->t_frag) f->next = f->t_frag;
         } else if (f->next < f->t_frag) {
             f->next = f->t_frag;                             /* free fall: silence */
-        } else if (f->next < f->t_end) {                     /* fragments on the talus: rate decaying, ~1 Hz surges */
+        } else if (f->next < f->t_end) {                     /* fragments on the talus: rate decaying, in surges */
             uint32_t el = f->next - f->t_frag, span = f->t_end - f->t_frag;
             int32_t decay = 32768 - (int32_t)(((el >> 5) << 15) / ((span >> 5) ? (span >> 5) : 1u));   /* 1 .. 0 */
-            int32_t surge = 32768 + (tx_sin_q15(el * 97391u) >> 1);           /* ~1 Hz */
+            int32_t surge;
+            {   /* surges, each its own length (0.4 .. 2.5 s) and depth (+-15 .. 50 %): the debris comes in waves.
+                 * (A fixed 1 Hz sine was a beat: a line 15-17 dB over the envelope's floor in every fall) */
+                uint64_t d = (uint64_t)(el - f->sel) * f->sinc;
+                f->sel = el;
+                if ((uint64_t)f->sp + d >= 0x100000000ull) { f->sp = (uint32_t)((uint64_t)f->sp + d); surge_draw(f); }
+                else f->sp += (uint32_t)d;
+                surge = 32768 + (int32_t)(((int64_t)tx_sin_q15(f->sp) * f->sdep) >> 16);
+            }
             int32_t sz = tx_cloud_pareto(&s->cloud, s->beta_inv, 9 << 12);   /* volume: up to 9 octaves below (debris) */
             int32_t lfr = f->lr_main - 131072 - sz * 16 / 3;                  /* R ~ V^(1/3) */
             uint32_t gap;
