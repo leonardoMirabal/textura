@@ -87,6 +87,9 @@ static const tx_param_t PARAMS[NP] = {
 #define NM 32u                      /* members (callers) */
 #define NPEND 40u
 #define EVMAX 24u                   /* explicit heroes started per block */
+#define ST_HEROES 5u                /* the stone cloud's heroes at most: its pieces' modes cost ~58 us a hero on the
+                                     * FM-1, and 6 at SPACING 0 reached ~910 us in a block (over half the pool); the
+                                     * rest ring as grains */
 #define EV_BLK 28u                  /* rain: explicit events a block at most, on average (3400 /s; clumped rain's children
                                      * count too): above, each is kept at random and stands for the ones thinned out */
 #define EV_HARD 14u                 /* rain: explicit events in one block at most (a clumped burst's): the rest are carried
@@ -710,6 +713,11 @@ static void voice_cut(src_t *s, unsigned i)
 }
 
 /* take a hero for an event of level lv (Q30): a free one, else the quietest settled one if quieter; -1 = none */
+/* the heroes the own presets may have: the lane's PARTICLES, the stone cloud's at most ST_HEROES */
+static uint32_t pool_lim(const src_t *s)
+{
+    return s->p[P_PRESET] == PR_STONES && s->limit > ST_HEROES ? ST_HEROES : s->limit;
+}
 static int take(src_t *s, uint32_t lv)
 {
     uint32_t stolen;
@@ -1669,7 +1677,7 @@ static void host_switch(src_t *s, unsigned pre)
         s->quiet = 0;
     } else {                                                 /* the particle presets: fresh pools */
         s->hst = 0; s->hd = 0;
-        tx_pool_init(&s->pool, NV, s->limit);
+        tx_pool_init(&s->pool, NV, pool_lim(s));
         if (PRE[pre].kind == 0) grains_setup(s, pre);       /* (the members' memory: the grains) */
         else {
             for (i = 0; i < NM; i++) s->m[i].voice = 0xFF;
@@ -1984,8 +1992,8 @@ static void src_param(void *st, uint8_t id, uint8_t val)
     else if (id == TX_PID_PARTICLES) {
         uint32_t cut, i;
         s->limit = (uint8_t)(val < 1u ? 1u : val > NV ? NV : val);
-        keep_loudest(s, s->limit);                           /* (a lower limit lets the quietest go: the governor) */
-        cut = tx_pool_set_limit(&s->pool, s->limit);
+        keep_loudest(s, pool_lim(s));                        /* (a lower limit lets the quietest go: the governor) */
+        cut = tx_pool_set_limit(&s->pool, pool_lim(s));
         for (i = 0; i < s->pool.max; i++) if (cut & (1u << i)) voice_cut(s, i);
     } else if (id == TX_PID_LEVEL)
         s->level = tx_level_q15(val > 127u ? 127u : val);
