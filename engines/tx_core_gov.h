@@ -43,7 +43,8 @@ typedef struct {
     uint32_t extra;                 /* the pool's share no lane has (the modulation), us a block */
     uint32_t lavg[TX_GOV_LANES];    /* the lane's own cost, smoothed over ~32 blocks (us x 32) */
     uint32_t lsh[TX_GOV_LANES];     /* the lane's own cost over ~8 blocks (us x 8): a cut's before and after */
-    uint32_t lpre[TX_GOV_LANES];    /* its lsh when the measurement began */
+    uint32_t lpre[TX_GOV_LANES];    /* its lavg when the measurement began (x 32) */
+    uint32_t lsum[TX_GOV_LANES];    /* its cost summed since the last cut (TX_GOV_LEARN blocks: x 32) */
     uint16_t warm[TX_GOV_LANES];    /* blocks the lane has sounded (its means settled: TX_GOV_WARM) */
     uint32_t uph[TX_GOV_LANES];     /* us a hero saves, x 16 (0: not measured yet) */
 } tx_gov_t;
@@ -55,7 +56,7 @@ static inline void tx_gov_init(tx_gov_t *g, unsigned lanes, uint32_t budget_us)
     for (i = 0; i < TX_GOV_LANES; i++) {
         g->user[i] = g->cur[i] = g->ceil[i] = 0;          /* 0: not set (the engine's default) */
         g->extra = 0;
-        g->lcut[i] = g->lt[i] = 0; g->fixed[i] = g->lavg[i] = g->lsh[i] = g->lpre[i] = g->uph[i] = 0; g->warm[i] = 0;
+        g->lcut[i] = g->lt[i] = 0; g->fixed[i] = g->lavg[i] = g->lsh[i] = g->lpre[i] = g->lsum[i] = g->uph[i] = 0; g->warm[i] = 0;
     }
 }
 
@@ -108,10 +109,15 @@ static inline int tx_gov_block(tx_gov_t *g, const uint32_t *cost, const uint32_t
         g->lavg[k] += cost[k] - (g->lavg[k] >> 5);
         g->lsh[k] += cost[k] - (g->lsh[k] >> 3);
         if (g->warm[k] < 0xFFFFu) g->warm[k]++;
+        if (g->lt[k] && g->warm[k] >= TX_GOV_WARM / 2u) g->lsum[k] += cost[k];   /* (the window after the cut) */
         if (g->lt[k] && g->warm[k] >= TX_GOV_WARM / 2u && !--g->lt[k]) {   /* a cut measured: us a hero, blended
                                                          * in (half a time); a lane just started lets its means settle
-                                                         * first, so the reading is the cut's, not the start's */
-            uint32_t pre = g->lpre[k] << 1, now = g->lsh[k] << 1, d = pre > now ? (pre - now) / g->lcut[k] : 0;   /* (x 16) */
+                                                         * first, so the reading is the cut's, not the start's. Before:
+                                                         * the ~32-block mean at the cut; after: the mean of the
+                                                         * TX_GOV_LEARN blocks since (an 8-block mean on either side
+                                                         * read a lane whose cost swings, a stone avalanche, as a cut
+                                                         * that saved nothing, and its cuts stopped for good) */
+            uint32_t pre = g->lpre[k] >> 1, now = g->lsum[k] >> 1, d = pre > now ? (pre - now) / g->lcut[k] : 0;   /* (x 16) */
             uint32_t est = tx_gov_uph(g, k), hi = est * 4u + 64u;
             if (d > hi) d = hi;                          /* (one noisy reading moves it at most this far) */
             g->uph[k] = g->uph[k] ? (g->uph[k] + d) / 2u : d;   /* (the first reading replaces the guess) */
@@ -132,8 +138,8 @@ static inline int tx_gov_block(tx_gov_t *g, const uint32_t *cost, const uint32_t
             }
         if (pick >= 0) {
             g->cur[pick]--; g->hold = 8; g->calm = 0;
-            if (!g->lt[pick]) g->lpre[pick] = g->lsh[pick];
-            g->lcut[pick]++; g->lt[pick] = TX_GOV_LEARN;
+            if (!g->lt[pick]) g->lpre[pick] = g->lavg[pick];
+            g->lcut[pick]++; g->lt[pick] = TX_GOV_LEARN; g->lsum[pick] = 0;
             return pick;
         }
     }
@@ -155,8 +161,8 @@ static inline int tx_gov_block(tx_gov_t *g, const uint32_t *cost, const uint32_t
         }
         if (pick >= 0) {
             g->cur[pick]--; g->hold = 8;
-            if (!g->lt[pick]) g->lpre[pick] = g->lsh[pick];
-            g->lcut[pick]++; g->lt[pick] = TX_GOV_LEARN;
+            if (!g->lt[pick]) g->lpre[pick] = g->lavg[pick];
+            g->lcut[pick]++; g->lt[pick] = TX_GOV_LEARN; g->lsum[pick] = 0;
         }
         return pick;
     }
@@ -164,7 +170,9 @@ static inline int tx_gov_block(tx_gov_t *g, const uint32_t *cost, const uint32_t
         uint32_t hi = 0;
         if (++g->calm < 172u) return -1;
         g->calm = 0;
-        for (k = 0; k < g->n; k++) if (on[k] && g->cur[k] < g->user[k] && level[k] >= hi) { hi = level[k]; pick = (int)k; }
+        for (k = 0; k < g->n; k++)                       /* (a cut given back: never past half the pool on its own) */
+            if (on[k] && g->cur[k] < g->user[k] && level[k] >= hi &&
+                (g->lsh[k] >> 3) + g->fixed[k] + (tx_gov_uph(g, k) >> 4) < (g->budget >> 1)) { hi = level[k]; pick = (int)k; }
         if (pick < 0)
             for (k = 0; k < g->n; k++)
                 if (on[k] && g->cur[k] >= g->user[k] && g->cur[k] < g->ceil[k] && level[k] >= hi &&
