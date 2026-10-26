@@ -48,7 +48,12 @@
  * mode, TEMP its temperature (ringing .. wet), FIZZ the melt. CLUMPS is the source's SPACING (bursts .. apart): dead on
  * the lake ices, whose cracks keep their own clock. The lake ices' FAR is the engine's own DIST, the crack's distance
  * (longer sweeps, a later air wave), apart from DIST (= PROXIMITY: the listener's level and air). Lake ice's RATE is
- * the activity itself (on the keys). Glass: SIZE, RING (the Q), ENERGY (a crack .. a smash), HEIGHT, BOUNCE. */
+ * the activity itself (on the keys). Glass: SIZE, RING (the Q), ENERGY (a crack .. a smash), HEIGHT, BOUNCE.
+ *
+ * Wood: the approved study's ranking (2026-10-26). SIZE the piece's length (a twig .. a log), CREAK the stick-slip's
+ * strength, PITCH its slip rate (ratchety .. singing), MOIST dry .. wet; the green branch's MOIST before PITCH, the
+ * trunk's CREAK first (it creaks, it does not snap), the twigs underfoot SIZE and MOIST only. LOAD is the activity
+ * (ACTIVITY's own curve: how fast the load builds to the snap), WOOD the kind: neither is a card. */
 #ifndef TX_SOUND_CARDS_H
 #define TX_SOUND_CARDS_H
 #include <stdint.h>
@@ -174,6 +179,16 @@ static const scd_sound_t SCD[] = {
     {"glass pane", "glass", 6, {G_H(SIZE), G_H(RING), G_H(ENERGY), G_H(HEIGHT), G_H(BOUNCE), DIST_CARD}},
     {"bottles", "glass", 4, {G_H(SIZE), G_H(RING), G_CLUMPS, DIST_CARD}},
     {"shards settling", "glass", 5, {G_H(SIZE), G_H(RING), G_H(ENERGY), G_H(BOUNCE), DIST_CARD}},
+    /* Wood */
+#define WD_H(n) {#n, #n, CK_HOST}
+#define WD_TREE {WD_H(SIZE), WD_H(CREAK), WD_H(PITCH), WD_H(MOIST), DIST_CARD}
+    {"spruce", "wood", 5, WD_TREE},
+    {"pine", "wood", 5, WD_TREE},
+    {"maple", "wood", 5, WD_TREE},
+    {"oak", "wood", 5, WD_TREE},
+    {"green branch", "wood", 5, {WD_H(SIZE), WD_H(CREAK), WD_H(MOIST), WD_H(PITCH), DIST_CARD}},
+    {"tree trunk", "wood", 4, {WD_H(CREAK), WD_H(PITCH), WD_H(SIZE), DIST_CARD}},
+    {"twigs underfoot", "wood", 3, {WD_H(SIZE), WD_H(MOIST), DIST_CARD}},
     /* Storm's hail */
 #define HAIL_CARDS {{"STONES", "DROPS", CK_HOST}, {"AREA", "AREA", CK_HOST}, {"INSIDE", "INSIDE", CK_HOST}, \
                     {"RAIN", "RAIN", CK_HOST}, {"BOUNCE", "BOUNCE", CK_HOST}, DIST_CARD}
