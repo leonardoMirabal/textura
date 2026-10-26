@@ -133,6 +133,10 @@ static void set_param(ice_t *s, unsigned id, unsigned v)
     if (cubes(s) || kind(s) == K_CRYSTALS) tx_cloud_rate(&s->cloud, 256u + (uint32_t)s->p[P_AMOUNT] * 28u);   /* 1 .. 15 /s */
     else if (kind(s) == K_SNOW) tx_cloud_rate(&s->cloud, 128u + (uint32_t)s->p[P_AMOUNT] * 4u);   /* 0.5 .. 2.5 steps /s */
     else tx_cloud_rate(&s->cloud, 0);
+    tx_cloud_release(&s->cloud, kind(s) == K_ICICLES ? 0u : 9u);   /* cubes, crystals, snow: a press starts a shake, a
+                                                              * shower, a walk that thins out after the key (tau ~6 s); a
+                                                              * source's strike (its key up after 150 ms) played one clink
+                                                              * or one step, then silence */
     if (id == P_SIZE) s->size_l2 = (int32_t)v * 1714;        /* 0 .. +log2(8) (icicle 10-80 cm) / 0 .. 2 oct (glass) */
 }
 
@@ -343,7 +347,15 @@ static void crunch(ice_t *s, unsigned n)
             env = tt < f->pk ? (tt << 15) / f->pk : (((f->len - tt) << 10) / ((f->len - f->pk) >> 5));   /* Q15 */
             x = (int32_t)(((int64_t)tx_neglog2_q12(tx_rand(r)) * 8192) >> 12);   /* alpha 1.5 */
             c = (int32_t)(((int64_t)(f->a >> 7) * (int32_t)tx_exp2(-(x > 5 << 16 ? 5 << 16 : x) + (15 << 16))) >> 15);
-            s->bpush[f->next] += (int32_t)(((int64_t)c * (int32_t)env) >> 15);
+            c = (int32_t)(((int64_t)c * (int32_t)env) >> 15);
+            if ((tx_rand(r) >> 16) < (tt << 16) / f->len) {   /* a crisp bond: a bare 2-sample click, more of them as
+                                                              * the foot rolls (the heel compacts, dull; the bonds snap
+                                                              * later; ours). The references (snow steps / walk) have
+                                                              * more top: 4-8 kHz was 2-3 dB short without */
+                int32_t k = (tx_rand(r) & 1u) ? (c >> 2) : -(c >> 2);
+                s->spk[f->next] += k;
+                if (f->next + 1u < n) s->spk[f->next + 1u] -= k;
+            } else s->bpush[f->next] += c;
             gap = 8u + (uint32_t)(((uint64_t)tx_neglog2_q12(tx_rand(r) | 1u) * ((29u << 15) / (env + 1024u)) * 2839u) >> 24);
             f->next += gap;
         }

@@ -252,7 +252,9 @@ static const host_t HOST[] = {
     {"bees", -45, -45, -45, {{"SWARM", 0, 0, 64}, {"DIST", 90, 50, 30}, {"SPEED", 40, 64, 80}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 3, 10, 4, 0, 0, 0, 0},
     /* ice: an icicle breaking off now and then .. icicles falling every few seconds, more chunks each */
     {"ice", 175, 175, 100, {{"AMOUNT", 20, 64, 127}, {"FIZZ", 10, 20, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0,
-     300, 70, 3, 1},                /* (the top: a pile of icicles shattering, 3-5 breaks/s as the references) */
+     300, 20, 3, 1},                /* (the top: a pile of icicles shattering, 3-5 breaks/s as the references; the middle
+                                     * a press every ~2 s: was 7 s, icicles 2.25 from their references, 1.8 now; cubes,
+                                     * frost and snow, whose press starts a bout, were mostly silence) */
     /* wood: a branch taken and bent now and then, creaking .. load building faster, snapping every few seconds */
     {"wood", -35, -35, -35, {{"LOAD", 110, 40, 0}, {"CREAK", 15, 25, 30}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 10, 12, 0,
      300, 80, 4, 0},                /* (the top: a snap every ~0.4 s, each bend 0.3 s: a press sooner cuts the bend) */
@@ -261,7 +263,8 @@ static const host_t HOST[] = {
      100, 12, 2, 1},
     /* glass: a pane cracking now and then .. smashing every few seconds, harder */
     {"glass", 0, 0, 0, {{"ENERGY", 60, 100, 127}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 8, 0,
-     400, 90, 3, 1},                /* (the top: a pane collapsing, 4-5 breaks/s) */
+     400, 35, 3, 1},                /* (the top: a pane collapsing, 4-5 breaks/s; the middle a break every ~3.5 s, as the
+                                     * references: was 9 s, a pane 3.1 from them, 2.0 now) */
     /* the family members TYPE reaches (FAM below; note 16): */
     /* rain on surfaces (rain): drizzle on a roof .. a downpour, bigger drops */
     {"rainsurf", -10, -10, -10, {{"RATE", -20, 60, 120}, {"DROPS", 40, 64, 110}, {"AREA", -20, 50, 50}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 16, 4, 0, 0, 0, 0},

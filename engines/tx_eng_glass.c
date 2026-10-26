@@ -108,7 +108,12 @@ static void set_param(glass_t *s, unsigned id, unsigned v)
     case P_HEIGHT: s->h_l2 = -152170 + (int32_t)(v * 1709u); break;    /* log2(0.2 m) + v log2(10) / 127 */
     case P_KIND: s->kind = (uint8_t)(v * 3u >> 7); /* fall through: the stream */
     case P_ENERGY:                                                     /* shards: a held key keeps them settling */
-        tx_cloud_rate(&s->cloud, s->kind == K_SHARDS ? 512u + (uint32_t)s->p[P_ENERGY] * 12u : 0u);   /* 2 .. 8 /s */
+        tx_cloud_rate(&s->cloud, s->kind == K_SHARDS ? 512u + (uint32_t)s->p[P_ENERGY] * 12u   /* 2 .. 8 /s */
+                                 : s->kind == K_BOTTLES ? 256u + (uint32_t)s->p[P_ENERGY] * 10u : 0u);   /* bottles: a
+                                                              * crate jostled, 1 .. 6 knocks /s */
+        tx_cloud_release(&s->cloud, s->kind == K_PANE ? 0u : 9u);   /* bottles, shards: a press starts a bout that thins
+                                                              * out after the key (tau ~6 s); a source's strike (its key up
+                                                              * after 150 ms) played one knock, then silence */
         break;
     default: break;
     }
@@ -164,7 +169,9 @@ static void impact(glass_t *s, shard_t *h, unsigned o, int32_t v_mm)
         ringv_t *r = &s->rv[h->ring];
         unsigned k;
         for (k = 0; k < NMS; k++) if (r->m[k].inc) {
-            int32_t ak = s->kind == K_BOTTLES ? a >> (k == 1u ? 0 : 1) : a >> k;   /* (a bottle: its shell ring first) */
+            int32_t ak = s->kind == K_BOTTLES ? a >> (k == 1u ? 0 : k == 0u ? 2 : 1) : a >> k;   /* (a bottle: its shell ring
+                                                              * first; the whole bottle's bending -12 dB: the references'
+                                                              * 0.5 kHz octave 5-12 dB under ours) */
             tx_mode_strike(&r->m[k], (k & 1u) ? -ak : ak);
         }
         if (h->a > A_REF / 3 && s->kind == K_PANE)                                /* the floor: the big shards only, softly (ours; every */
@@ -252,7 +259,8 @@ static void glass_break(glass_t *s, const tx_event_t *e)
         if (add - (add >> 2) > s->shcap) s->shcap = add - (add >> 2);   /* (one break's envelope peaks at 0.63 x add) */
     }
     {   /* the blow knocks the frame / floor: the low body of the break (a recording's loudest moment, 65-180 Hz) */
-        int32_t b = (int32_t)(((int64_t)A_REF * 3 * s->level) >> 15);
+        int32_t b = (int32_t)(((int64_t)A_REF * 3 * s->level) >> 16);   /* (-6 dB: the 62-125 Hz octave was -9 .. -15 dB
+                                                              * of the whole, the references' -14 .. -29) */
         tx_mode_strike(&s->floor[0], b);
         tx_mode_strike(&s->floor[1], -b / 2);
     }
@@ -302,7 +310,8 @@ static void bottles(glass_t *s, const tx_event_t *e)
             h->ring = (uint8_t)rv;
         } else s->dropped++;
         h->a = (int32_t)(((int64_t)(A_REF * 3) * s->level) >> 15);   /* (by render: the pane's loudness) */
-        h->c = (int32_t)((((int64_t)A_REF * s->level) >> 15) >> 9);
+        h->c = (int32_t)((((int64_t)A_REF * s->level) >> 15) >> 4);   /* (glass on glass: a bright tick; the references
+                                                              * keep 8-16 kHz ~22 dB under the peak octave: was 9, -40) */
         h->t = e->offset;
         h->v = v0;
         h->k = (uint8_t)(6u - tx_rand_below(r, 4u));         /* 1 .. 4 knocks before it stops */
