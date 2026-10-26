@@ -32,7 +32,7 @@
 #include "tx_core_pulse.h"
 #include "tx_core_scrape.h"
 
-#define OUT_TRIM 14872               /* output gain, Q12 (+3.4 dB step 6, hand strokes; +5.0 dB): integrated (a key held 10 s): -31.0 LUFS at LEVEL 100 -> target -26 LUFS
+#define OUT_TRIM 15930               /* output gain, Q12 (+3.4 dB step 6, hand strokes; +5.0 dB; +0.6 dB the hand's rests): integrated (a key held 10 s): -31.0 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
 
 /* no two presses alike (tx_core_vary.h): press level VARY_LO .. VARY_HI, tilt +-VARY_TILT, drift +-VARY_DRIFT
@@ -74,8 +74,9 @@ typedef struct {
     uint32_t ph, sinc;             /* stick-slip phase and its step per sample */
     int32_t wander;                /* the hand's slow pressure wander (Q15, ~1 Hz; sd ~0.6 oct) */
     int32_t bq;                    /* the body's damping now: held = damped by the contact, free = the mineral's Q */
-    uint32_t sph, sinc2;           /* the hand's stroke: phase, step per block (back and forth, ~0.6-1.1 Hz) */
-    uint8_t em, note, vel, alive, honk, nm, pad[2];
+    uint32_t sph, sinc2;           /* the hand's stroke: phase, step per block (back and forth, 0.35-1.4 Hz) */
+    uint8_t em, note, vel, alive, honk, nm;
+    uint16_t hold;                 /* blocks the hand rests at a turn (0: stroking) */
 } voice_t;
 
 typedef struct {
@@ -95,6 +96,13 @@ typedef struct {
     uint16_t dropped;
     tx_vary_t vy;
 } mineral_t;
+
+/* a stroke's own rate: back and forth at 0.35 .. 1.4 Hz (log-uniform; each stroke 0.36 .. 1.4 s). Was 0.6 .. 0.9 Hz
+ * uniform: the strokes a steady 1.4-1.5 Hz beat in the envelope (13-22 dB over its floor, every seed) */
+static uint32_t stroke_inc(tx_rng_t *r)
+{
+    return (uint32_t)(((uint64_t)8726000u * tx_exp2((int32_t)(((tx_rand(r) >> 16) * 131072u) >> 16) + (16 << 16))) >> 16);
+}
 
 static void set_param(mineral_t *s, unsigned id, unsigned v)
 {
@@ -184,7 +192,8 @@ static void press(mineral_t *s, const tx_event_t *e)
         v->alive = 1;
         v->ph = tx_rand(&s->cloud.rng);
         v->sph = 0x40000000u;                                /* (the first stroke from full speed: the knock) */
-        v->sinc2 = 14984956u + (tx_rand(&s->cloud.rng) >> 16) * 114u;
+        v->sinc2 = stroke_inc(&s->cloud.rng);
+        v->hold = 0;
     }
     v->em = e->emitter; v->note = e->note; v->vel = e->vel;
     v->honk = 0;                                             /* F5: a light tap restores the groan */
@@ -217,7 +226,7 @@ static void control(mineral_t *s, voice_t *v)
     pl2 = s->press_l2 + ((int32_t)v->vel - 100) * 1638;      /* +-1 octave of force per 40 velocity */
     vl2 = s->speed_l2;
     {   /* the hand strokes back and forth (step 6: the friction references swell and fade with each stroke; ours was
-         * a steady wall): the speed follows |sin| of the stroke (~0.6-1.1 Hz, each stroke its own), never quite 0;
+         * a steady wall): the speed follows |sin| of the stroke (0.35-1.4 Hz, each stroke its own, resting now and then), never quite 0;
          * at the turns the stone slows, darkens and quiets (ours) */
         int32_t sv = tx_sin_q15(v->sph), lsv;
         uint32_t u;
@@ -225,9 +234,19 @@ static void control(mineral_t *s, voice_t *v)
         u = (uint32_t)(sv < 3277 ? 3277 : sv) << 17;         /* 0.1 .. 1, as a fraction of 2^32 */
         lsv = -(int32_t)(tx_neglog2_q12(u) << 4);            /* log2 of it, Q16 (-3.3 .. 0) */
         vl2 += lsv;
-        v->sph += v->sinc2;
-        if ((v->sph >> 31) != ((v->sph - v->sinc2) >> 31)) {   /* a turn: the next stroke's own rate */
-            v->sinc2 = 14984956u + (tx_rand(r) >> 16) * 114u;
+        if (v->hold) v->hold--;                              /* resting at a turn */
+        else {
+            v->sph += v->sinc2;
+            if ((v->sph >> 31) != ((v->sph - v->sinc2) >> 31)) {   /* a turn: the next stroke's own rate; now and
+                                                              * then the hand rests there (a third of the turns,
+                                                              * 0.1 s + exp(0.5 s), at most 3 s), re-grips, changes pace */
+                v->sinc2 = stroke_inc(r);
+                if (tx_rand_below(r, 3u) == 0u) {
+                    uint32_t h = 17u + (tx_cloud_exp_q8(&s->cloud, 86u << 8) >> 8);
+                    v->hold = (uint16_t)(h > 516u ? 516u : h);
+                    v->sph &= 0x80000000u;                   /* (at the turn: the slowest) */
+                }
+            }
         }
     }
     a_l2 = (pl2 + vl2) / 2;                                  /* force ~ sqrt(v F_N) against the reference */
