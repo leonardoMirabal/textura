@@ -63,7 +63,7 @@ static const sp_t SP[TX_BIRD_TYPES] = {
     /* 9 wren: loud fast trills 3.5-8 kHz (11-20 /s), a few song types each bird repeats before switching */
     {ST_WREN, -3200, 3000, 15, 100, 60, 120, 1200, 150, 20, 32, 6, 2, 5, 1500, 5000, 1, 40, 3, 0, 0, 300},
     /* 10 hermit thrush: a long pure note, then a flute-like cascade above it, two voices; each song at a new pitch */
-    {ST_HERMIT, -2000, 1200, 15, 60, 200, 350, 300, 60, 150, 20, 10, 3, 10, 1800, 4500, 1, 56, 6, 0, 0, 200},
+    {ST_HERMIT, -2000, 1200, 15, 60, 250, 450, 300, 60, 150, 20, 10, 3, 10, 1800, 4500, 1, 56, 6, 0, 0, 200},
     /* 11 skylark: endless warbling 2.6-5.1 kHz, ~11 syllables /s, glides, rolling buzzes */
     {ST_SKYLARK, -2600, 1700, 15, 100, 80, 180, 1600, 140, 30, 48, 24, 30, 120, 20, 110, 1, 44, 4, 0, 0, 350},
     /* 12 wood thrush: soft low notes, a loud fluted phrase (a few types per bird), a high two-voice trill; 2.0-5.9 kHz */
@@ -102,7 +102,7 @@ static const sp_t SP[TX_BIRD_TYPES] = {
 
 /* each type's level (Q6), by render: every bird preset at -30 LUFS at INTENSITY 64 (60 s, the mean of 3 seeds; with
  * the preset rows' trims) */
-static const uint16_t TRIM[TX_BIRD_TYPES] = { 240, 180, 112, 123, 421, 120, 166, 152, 145, 216, 82, 145, 182, 210, 100, 94, 125, 1430, 99, 404, 49 };
+static const uint16_t TRIM[TX_BIRD_TYPES] = { 240, 180, 112, 123, 421, 120, 166, 152, 145, 216, 69, 145, 182, 210, 100, 94, 125, 1430, 99, 404, 49 };
 
 /* SIZE: how far a type's birds range in size, the half range in octaves (Q16 per knob step: 512 = +-0.5 oct at the
  * ends). A bigger bird sings lower within what its kind spans (a jackdaw to a raven, a black-headed gull to a great
@@ -440,9 +440,12 @@ static void phrase_start(tx_bird_voice_t *v)
         tx_rng_seed(&pr, mix(v->seed, 0x5000u + pid));
         v->plev = (int16_t)rs(&pr, -1800, 1800);
         seg(v, SYL(C_INTRO, rb(&pr, 0, ns - 1u)), 1, rb(&pr, 10, 40), 255, 255, 0);
-        for (m = rb(&pr, 2, 4), i = 0; i < m; i++)
-            seg(v, SYL((tx_rand(&pr) & 1u) ? C_NOTE : C_TRILL, rb(&pr, 0, ns - 1u)), rb(&pr, 1, 3), rb(&pr, 8, 30),
+        for (m = rb(&pr, 3, 5), i = 0; i < m; i++) {         /* (refs: songs 1-1.75 s, the cascade's flute-like runs;
+                                                              * ours were ~0.6 s, now ~1.5) */
+            unsigned tr = (tx_rand(&pr) & 3u) != 0u;
+            seg(v, SYL(tr ? C_TRILL : C_NOTE, rb(&pr, 0, ns - 1u)), tr ? rb(&pr, 3, 6) : rb(&pr, 1, 2), rb(&pr, 8, 30),
                 rb(&pr, 120, 220), 255, rs(&pr, 1, 8));
+        }
         break;
     case ST_FINCH:
         tx_rng_seed(&pr, mix(v->seed, v->song < 4u ? 0x5000u + v->song % S->nphr : 0x5100u + v->song));
