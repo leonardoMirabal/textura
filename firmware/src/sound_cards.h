@@ -20,8 +20,8 @@
  *
  * Storm: the names and order of the approved study (2026-10-26): thunder's JAGGED is its TORT, the gales' EXPOSED the
  * wind's BUFFET, hail's STONES the rain's DROPS. Listed ahead of their engines, and left out until the engine has
- * the parameter by that name: rain on water's AREA, rain on a roof's EAVES and WIND, the storm's RAIN, WIND, FLASHES,
- * PASSING and INSIDE, thunder's GROUND, the winter storm's DRIFT, hail's and sleet's RAIN, hail's BOUNCE. Hail has no
+ * the parameter by that name: rain on water's AREA, rain on a roof's EAVES and WIND, the storm's RAIN, WIND, FLASHES
+ * and INSIDE, thunder's GROUND, the winter storm's DRIFT, hail's and sleet's RAIN, hail's BOUNCE. Hail has no
  * SURFACE card (its kind is the sound). The gales' cards are the same in the Wind landscape (by the sound's name). */
 #ifndef TX_SOUND_CARDS_H
 #define TX_SOUND_CARDS_H

@@ -31,7 +31,7 @@
 8450 expect state lab0 DIST
 8450 expect state lab1 AGE
 8450 expect state lab2 SURFACE
-8450 expect state lab3 -
+8450 expect state lab3 PASSING
 8500 btn 0
 8550 expect state sel 2
 8550 expect state page SOUND_1/2

@@ -14,7 +14,12 @@
  *            each flash at DIST x 2^(+-1) (nearer as INTENSITY rises), energy and height drawn per flash.
  * The end (the user, session 5: "ends super sharp, not natural"): released, the rain thins out over ~3-4 s (its
  * output faded, tau 0.74 s, its drops let go only at -54 dB) and the wind dies away over ~4-5 s; a thunder tail
- * is never cut: a new flash waits for the one still rolling (a press then strikes at once only after ~4 s). */
+ * is never cut: a new flash waits for the one still rolling (a press then strikes at once only after ~4 s).
+ * PASSING (0: the storm stays as INTENSITY sets it): a squall passing over, 1 .. 10 min from the press. Ours, after a
+ * squall line's time course: a calm, then the gust front (the wind first, sudden), the heavy convective rain a minute
+ * behind it with the flashes, the peak, then the trailing rain thinning (its drops smaller: AGE moves toward the
+ * stratiform) and the wind easing; light rain and a breeze stay after it. INTENSITY is the peak; each squall draws its
+ * own length (x/ 1.25) and stage times (+-0.04 of the length). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_cloud.h"
@@ -28,13 +33,14 @@ extern const tx_engine_t tx_eng_rainwater;
 extern const tx_engine_t tx_eng_rainsurf;
 void tx_rainsurf_lite(void *st, unsigned on);
 
-enum { P_INTENS, P_SURFACE, P_AGE, P_DIST, NP };
+enum { P_INTENS, P_SURFACE, P_AGE, P_DIST, P_PASSING, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"INTENSITY", 127, 64, "storm intensity: rain 0.5 .. 60 mm/h, wind 3 .. 20 m/s, flashes 1 .. 12 / min (nearer)"},
     {"SURFACE", 127, 70, "where the rain falls: water (#2) | leaves, tent, wood, glass, metal roof (#3)"},
     {"AGE", 127, 30, "storm age: young convective cell (big drops, loud) .. stratiform rain after it (fine drops)"},
     {"DIST", 127, 60, "distance of the thunder cell: 0.5 .. 15 km (log)"},
+    {"PASSING", 127, 0, "0: a steady storm | a squall passing over from the press: 1 .. 10 min (log; INTENSITY its peak)"},
 };
 
 #define ARENA 5920u                /* bytes for the rain engine's state (rain on water 4708, on surfaces 5920 with hail):
@@ -72,6 +78,10 @@ typedef struct {
     uint8_t p[NP], quiet, rain_on, dirty, lv;
     int32_t level;
     uint16_t dropped;
+    uint32_t sq_t, sq_len;         /* the squall (PASSING): samples since the press, its length in samples */
+    int16_t sq_d[4];               /* its stage times' offsets (Q15 of the length) */
+    uint8_t sq_held, sq_age, sq_tick, pad;   /* held last block; the AGE last sent; blocks to the next AGE update */
+    int32_t sq_r, sq_w;            /* the rain's and the wind's share now (Q15) */
 } storm_t;
 
 static void rain_set(storm_t *s, const char *name, uint8_t v)
@@ -103,6 +113,64 @@ static void rain_setup(storm_t *s)
     }
     e->param(s->arena, TX_PID_LEVEL, (uint8_t)(s->lv * 7u / 10u));   /* the rain -6 dB under the scene's level */
     s->dirty = 0;
+    s->sq_age = 0xFF; s->sq_tick = 0;                         /* (a squall's drops: sent again) */
+}
+
+/* the squall's stages: x (its time, Q15 of the length) between a and b -> 0 .. 32767 eased (smoothstep) */
+static int32_t sq_ease(int32_t x, int32_t a, int32_t b)
+{
+    uint32_t u, u2;
+    if (x <= a) return 0;
+    if (x >= b) return 32767;
+    u = (uint32_t)(((x - a) << 15) / (b - a));               /* (32-bit: x - a < 2^16) */
+    u2 = (u * u) >> 15;
+    return (int32_t)((u2 * (98304u - 2u * u)) >> 15);        /* u^2 (3 - 2u) */
+}
+/* the wind's and the rain's shares at x (Q15 of the length; past 1: the end's): the wind leads, the rain follows */
+static void sq_shares(const storm_t *s, int32_t x, int32_t *w, int32_t *r)
+{
+    int32_t up, dn;
+    up = sq_ease(x, 3277 + s->sq_d[0], 9830 + s->sq_d[0]);   /* the gust front: 0.10 .. 0.30 */
+    dn = sq_ease(x, 14746 + s->sq_d[1], 32767);              /* easing: 0.45 .. 1 */
+    *w = 3932 + (((32767 - 3932) * up) >> 15) - (((32767 - 4915) * dn) >> 15);   /* 0.12, 1, 0.15 after */
+    up = sq_ease(x, 5898 + s->sq_d[2], 11796 + s->sq_d[2]);  /* the rain: 0.18 .. 0.36 */
+    dn = sq_ease(x, 17039 + s->sq_d[3], 32767);              /* trailing: 0.52 .. 1 */
+    *r = 983 + (((32767 - 983) * up) >> 15) - (((32767 - 1311) * dn) >> 15);       /* 0.03, 1, 0.04 after */
+}
+static void sq_start(storm_t *s)                             /* a squall from now: its length and stages drawn */
+{
+    tx_rng_t *r = &s->cloud.rng;
+    uint32_t i, len_s = tx_exp2((int32_t)((uint32_t)(s->p[P_PASSING] - 1u) * 1725u) + 386897);   /* 60 .. 600 s */
+    len_s = (len_s * tx_exp2(((tx_rand_s15(r) * 42) >> 6) + (16 << 16))) >> 16;   /* x/ 1.25 (32-bit: < 2^26) */
+    s->sq_len = len_s * 44100u; s->sq_t = 0;
+    for (i = 0; i < 4u; i++) s->sq_d[i] = (int16_t)((tx_rand_s15(r) * 1311) >> 15);   /* +-0.04 */
+    s->sq_age = 0xFF; s->sq_tick = 0;
+}
+
+/* the squall's rain and wind now: its intensities from the shares, the rain's RATE mean (sent with the sheets), its
+ * drops moving toward the stratiform after the peak (AGE), each 0.25 s when changed */
+static void sq_block(storm_t *s, unsigned n, unsigned held)
+{
+    int32_t x, w, r, iw, ir;
+    if (held && !s->sq_held) sq_start(s);                   /* (a press: a squall from now) */
+    s->sq_held = (uint8_t)held;
+    if (held && s->sq_t < 2u * s->sq_len) s->sq_t += n;
+    x = (int32_t)(s->sq_t / ((s->sq_len >> 15) + 1u));      /* Q15 of the length */
+    sq_shares(s, x, &w, &r);
+    s->sq_w = w; s->sq_r = r;
+    iw = (s->p[P_INTENS] * w) >> 15; ir = (s->p[P_INTENS] * r) >> 15;
+    s->u_l2 = 103872 + iw * 1412;
+    s->rate0 = (uint8_t)(30 + ((ir * 87 * 258) >> 15));     /* (as rain_setup: x 87 / 127) */
+    if (s->rain && !s->sq_tick--) {
+        int32_t ae = s->p[P_AGE] + (((127 - s->p[P_AGE]) * sq_ease(x, 14746, 31130)) >> 15);   /* 0.45 .. 0.95 */
+        s->sq_tick = 43;
+        if ((uint8_t)ae != s->sq_age) {
+            uint8_t mix = (uint8_t)(110 - ((ae * 90 * 258) >> 15));
+            s->sq_age = (uint8_t)ae;
+            if (s->rain == &tx_eng_rainwater) { rain_set(s, "STORM", mix); rain_set(s, "WIND", (uint8_t)(iw >> 1)); }
+            else rain_set(s, "DROPS", mix);
+        }
+    }
 }
 
 static void set_param(storm_t *s, unsigned id, unsigned v)
@@ -111,6 +179,7 @@ static void set_param(storm_t *s, unsigned id, unsigned v)
     if (v > PARAMS[id].max) v = PARAMS[id].max;
     s->p[id] = (uint8_t)v;
     if (id == P_INTENS) s->u_l2 = 103872 + (int32_t)(v * 1412u);   /* log2(3 m/s) .. log2(20 m/s) (was x 1610: 26 m/s at the top) */
+    if (id == P_PASSING) { if (v) sq_start(s); s->sq_r = s->sq_w = 32767; }   /* (turned now: a squall from now) */
     s->dirty = 1;
 }
 
@@ -183,6 +252,7 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
         else strike(s, s->ev[i].vel);
     }
     if (s->pend && !s->fl.active) { strike(s, s->pend); s->pend = 0; }
+    if (s->p[P_PASSING]) sq_block(s, n, held);
     if (s->rain) {                                           /* the rain follows the storm, thinning out after it */
         int32_t r0 = s->rf, dr;
         if (held) s->rf += (32767 - s->rf + 7) >> 3;            /* (back in ~50 ms) */
@@ -199,7 +269,8 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
     if (!held && s->on < 64) s->on = 0;
     if (s->fl.active) s->fl_age += n;
     if (held) {                                              /* lightning: Poisson, 0.5 .. 8 / min */
-        uint32_t per_min_q8 = tx_knob_exp(s->p[P_INTENS], 256u, 234960);   /* 1 .. 12 / min, Q8 */
+        uint32_t per_min_q8 = tx_knob_exp(s->p[P_PASSING] ? (uint32_t)((s->p[P_INTENS] * s->sq_r) >> 15) : s->p[P_INTENS],
+                                          256u, 234960);    /* 1 .. 12 / min, Q8 (a squall: with its rain) */
         if (s->next > n) s->next -= n;
         else {
             if (s->next && !s->fl.active) strike(s, 64u + (tx_rand(r) >> 26));   /* (not over a rolling one) */
