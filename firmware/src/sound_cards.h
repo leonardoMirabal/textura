@@ -64,7 +64,8 @@
  *
  * Wood: the approved study's ranking (2026-10-26). SIZE the piece's length (a twig .. a log), CREAK the stick-slip's
  * strength, PITCH its slip rate (ratchety .. singing), MOIST dry .. wet; the green branch's MOIST before PITCH, the
- * trunk's CREAK first (it creaks, it does not snap), the twigs underfoot SIZE and MOIST only. LOAD is the activity
+ * trunk's CREAK first (it creaks, it does not snap), the twigs underfoot SIZE, MOIST, WEIGHT (the step: 1 .. 4 twigs)
+ * and DEPTH (the litter's: it takes the highs; the engine's LITTER, which the source leaves alone). LOAD is the activity
  * (ACTIVITY's own curve: how fast the load builds to the snap), WOOD the kind: neither is a card. */
 #ifndef TX_SOUND_CARDS_H
 #define TX_SOUND_CARDS_H
@@ -230,7 +231,7 @@ static const scd_sound_t SCD[] = {
     {"oak", "wood", 5, WD_TREE},
     {"green branch", "wood", 5, {WD_H(SIZE), WD_H(CREAK), WD_H(MOIST), WD_H(PITCH), DIST_CARD}},
     {"tree trunk", "wood", 4, {WD_H(CREAK), WD_H(PITCH), WD_H(SIZE), DIST_CARD}},
-    {"twigs underfoot", "wood", 3, {WD_H(SIZE), WD_H(MOIST), DIST_CARD}},
+    {"twigs underfoot", "wood", 5, {WD_H(SIZE), WD_H(MOIST), WD_H(WEIGHT), {"DEPTH", "LITTER", CK_HOST}, DIST_CARD}},
     /* Storm's hail */
 #define HAIL_CARDS {{"STONES", "DROPS", CK_HOST}, {"AREA", "AREA", CK_HOST}, {"INSIDE", "INSIDE", CK_HOST}, \
                     {"RAIN", "RAIN", CK_HOST}, {"BOUNCE", "BOUNCE", CK_HOST}, DIST_CARD}

@@ -38,7 +38,7 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 2
 
-enum { P_LOAD, P_WOOD, P_MOIST, P_CREAK, P_PITCH, P_SIZE, NP };
+enum { P_LOAD, P_WOOD, P_MOIST, P_CREAK, P_PITCH, P_SIZE, P_WEIGHT, P_LITTER, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"LOAD", 127, 40, "time to the snap while held: 0.3 .. 8 s (log); 127 = never (creaks and crackles only)"},
@@ -48,6 +48,8 @@ static const tx_param_t PARAMS[NP] = {
     {"CREAK", 127, 25, "stick-slip creak: off .. strong"},
     {"PITCH", 127, 70, "creak slip rate: 30 .. 800 Hz (log): ratchety .. singing (W7)"},
     {"SIZE", 127, 64, "piece length at C4: 10 .. 100 cm (log): f1 ~ 0.06 c / L"},
+    {"WEIGHT", 127, 80, "twigs underfoot: the step's weight, light .. heavy: 1 .. 4 twigs a step"},
+    {"LITTER", 127, 0, "twigs underfoot: the litter's depth, bare .. deep: it takes the highs and holds the twigs"},
 };
 
 #define NP_ 3u                     /* pieces (one per key; 3 at most: 4 snapping at once with creaks reached ~1140 us on the FM-1) */
@@ -74,11 +76,12 @@ typedef struct {
     uint16_t out;                  /* its level, Q8 */
 } wkind_t;
 static const wkind_t WK[NWOOD] = {
-    {160, 5500, 0, 0, 0, 1, 128, 0, 128, 1, 1, 256},       /* spruce */
-    {120, 4500, 0, 0, 0, 1, 128, 0, 128, 1, 1, 256},       /* pine */
-    {110, 4300, 0, 0, 0, 1, 128, 0, 128, 1, 1, 256},       /* maple */
-    {80, 4000, 0, 0, 0, 1, 128, 0, 128, 1, 1, 256},        /* oak */
-    {40, 3000, 0, 0, 0, 1, 128, 0, 128, 1, 0, 256},        /* green branch */
+    {160, 5500, 0, 0, 0, 1, 24, 0, 128, 1, 1, 256},        /* spruce (the four species: dry wood fails brittle, a */
+    {120, 4500, 0, 0, 0, 1, 24, 0, 128, 1, 1, 256},        /* faint creak before the snap; their references are */
+    {110, 4300, 0, 0, 0, 1, 24, 0, 128, 1, 1, 256},        /* breaks: creak 128 was 2.13 from them, 1.45 now with */
+    {80, 4000, 0, 0, 0, 1, 24, 0, 128, 1, 1, 256},         /* the next branch below) */
+    {40, 3000, 0, 0, 0, 1, 128, 0, 128, 1, 0, 287},        /* green branch (+1 dB: its level as before the next
+                                                              * branch came sooner) */
     /* tree trunk: a live trunk or a bough rubbing in the wind: long slow groans of stick-slip (the references: 1-3 kHz,
      * a creak every ~2-4 s) on a big wet body, a fibre ticking now and then, never a snap */
     {40, 3000, 131072, 114688, -65536, 0, 255, 2, 8, 1, 1, 256},
@@ -132,14 +135,18 @@ static void set_param(wood_t *s, unsigned id, unsigned v)
     s->k = &WK[r];
     s->c = s->k->c;
     s->q_x16 = (uint32_t)s->k->q * 16u * (32768u - (uint32_t)s->p[P_MOIST] * 155u) >> 15;   /* wet: Q x 0.4 */
-    tx_cloud_burst(&s->cloud, s->k->snap == 2u ? 1u + ((127u - s->p[P_LOAD]) * 3u + 64u) / 127u : s->k->twigs,
-                   s->k->twigs > 1u ? 100u : 0u);   /* (twigs: LOAD is the step's weight, inverted: 1 .. 4 twigs a step;
-                                                     * the defaults' 40: 3) */
+    tx_cloud_burst(&s->cloud, s->k->snap == 2u ? 1u + (s->p[P_WEIGHT] * 3u + 64u) / 127u : s->k->twigs,
+                   s->k->twigs > 1u ? 100u : 0u);   /* (twigs: WEIGHT, 1 .. 4 twigs a step;
+                                                     * the default 80: 3) */
     switch (id) {
     case P_LOAD: s->tau_s = v >= 127u ? 0u : (uint32_t)(((uint64_t)tx_knob_exp(v, 77u, 314000) * TX_FS) >> 8); break;   /* 0.3 .. 8 s */
     case P_SIZE: s->size_l2 = -217706 + (int32_t)(v * 1714u); break;   /* log2(0.1 m) + v log2(10) / 127 */
     default: break;
     }
+    tx_cloud_rate(&s->cloud, s->k->snap == 1u && s->tau_s ? (TX_FS * 512u) / (s->tau_s + TX_FS) : 0u);   /* a hand
+                                                              * that snaps branches takes the next as it goes: a new
+                                                              * one while held, at random, ~2 per bend + 1 s (the
+                                                              * references: 0.56 big snaps /s; ours 0.07-0.27 before) */
 }
 
 static void wood_init(void *st, uint32_t seed)
@@ -149,7 +156,6 @@ static void wood_init(void *st, uint32_t seed)
     unsigned i;
     for (i = 0; i < sizeof *s; i++) b[i] = 0;
     tx_cloud_init(&s->cloud, seed);
-    tx_cloud_rate(&s->cloud, 0);
     s->limit = 3;
     s->rk = 2; s->rd = 5;
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
@@ -212,8 +218,8 @@ static void take(wood_t *s, const tx_event_t *e)
     }
     {   /* no two pieces alike: the grain's loss (Q x 2^+-1) and the grip (sigma0 5 .. 80 /s) are this piece's */
         uint32_t q = tx_vary_scale(s->q_x16, tx_rand_s15(&s->cloud.rng) * 2);
-        uint32_t grip = (5u + tx_rand_below(&s->cloud.rng, 76u) + (s->k->snap == 2u && s->p[P_CREAK] > 25u ? (s->p[P_CREAK] - 25u) * 2u : 0u)) * 256u;   /* (twigs:
-                                                              * the litter holds them: up to +200 /s) */
+        uint32_t grip = (5u + tx_rand_below(&s->cloud.rng, 76u) + (s->k->snap == 2u ? s->p[P_LITTER] * 3u / 2u : 0u)) * 256u;   /* (twigs:
+                                                              * the litter holds them: up to +190 /s) */
     for (k = 0; k < NMW; k++) {
         uint32_t f = (p->f1 * BAR_R[k]) >> 10;
         p->m[k].inc = f < 20000u ? f * 97391u : 0u;
@@ -426,9 +432,9 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
         s->res = e; s->res_x1 = e ? x1 : 0;
         any |= e;
     }
-    if (s->k->snap == 2u && s->p[P_CREAK] > 25u) {                 /* twigs: CREAK is the litter's depth; its pores take the
-                                                              * highs (one pole: off at the default 25 .. a ~1.4 kHz corner at 127) */
-        int32_t y = s->lz, a = 32767 - ((int32_t)s->p[P_CREAK] - 25) * 250;
+    if (s->k->snap == 2u && s->p[P_LITTER]) {                 /* twigs: LITTER, its pores take the
+                                                              * highs (one pole: off at 0 .. a ~1.5 kHz corner at 127) */
+        int32_t y = s->lz, a = 32767 - (int32_t)s->p[P_LITTER] * 200;
         for (j = 0; j < n; j++) { y += (int32_t)(((int64_t)(s->buf[j] - y) * a) >> 15); s->buf[j] = y; }
         s->lz = y;
     }

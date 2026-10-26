@@ -1,5 +1,6 @@
 # the Wood landscape's SOUND cards (sound_cards.h, the approved study): the trees SIZE, CREAK, PITCH, MOIST / DIST;
-# the green branch MOIST before PITCH; the trunk CREAK, PITCH, SIZE, DIST; the twigs underfoot SIZE, MOIST, DIST
+# the green branch MOIST before PITCH; the trunk CREAK, PITCH, SIZE, DIST; the twigs underfoot SIZE, MOIST, WEIGHT,
+# DEPTH / DIST
 1700 turn 1 4
 2100 expect state landscape Wood
 2100 btn 13
@@ -87,7 +88,12 @@
 4550 btn 6
 4600 expect state lab0 SIZE
 4600 expect state lab1 MOIST
-4600 expect state lab2 DIST
-4600 expect state lab3 -
-4700 expect state dropped 0
+4600 expect state lab2 WEIGHT
+4600 expect state lab3 DEPTH
+4650 turn 0 1
+4700 expect state lab0 DIST
+4700 expect state lab1 -
+4700 expect state lab2 -
+4700 expect state lab3 -
+4750 expect state dropped 0
 4850 end
