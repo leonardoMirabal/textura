@@ -11,7 +11,8 @@
  *            Hz; ours). The burning logs add as independent sources:
  *            gain ~ sqrt(sum of their heat).
  *   flicker  the fire puffs at f_p = 0.52 sqrt(g / D) (E14: ~3 Hz for 30 cm, 1.6 Hz for 1 m): an amplitude
- *            modulation of the roar, depth and gusts by DRAUGHT, plus a ~1 Hz wander (E9's idea).
+ *            modulation of the roar, depth and gusts by DRAUGHT, plus a ~1 Hz wander (E9's idea). Each puff its
+ *            own period (+-0.75 oct) and depth: many flames out of step, a broad peak and no steady line.
  *   crackle  fracture: energies p(E) ~ E^-1.4 (E33 / E34: 1.37-1.45) over 3 decades, Omori aftershocks after each
  *            crackle (p 1.68, c 70 ms, sizes at most 1.7 decades below: E33; BURSTY = their mean count, E33 ~8 per
  *            main shock). Each crackle: a click into a shared bank (E32: peaks ~3.2 and ~7.2 kHz, a notch near
@@ -87,8 +88,10 @@ static const kind_t KINDS[NKIND] = {
     {0, 0, 128, 128, 128, 1, 128, 619512, 283116, 900, 0, 64, 0, 0, 128, 16, 0, 128, 50, 0, 6, 7, 0, 0, 899},
     /* bonfire: a big pile, a deep heavy roar (the references: centroid 10.9-13 kHz, the bed 7 dB under the
      * crackle), denser crackle, its pops lower (from 1 kHz) and rarer (the CPU: denser crackle, fewer heroes); the
-     * roar loud and half an octave lower (the references: -12 dB at 200 Hz, +8 at 600 against the campfire's) */
-    {768, -1, 90, 130, 128, 1, 128, 655360, 294912, 1000, 6, 1400, -8, 0, 150, 16, 30, 200, 40, 0, 7, 8, 0, 0, 174},
+     * roar loud and half an octave lower (the references: -12 dB at 200 Hz, +8 at 600 against the campfire's), its
+     * peak 3/4 oct under SIZE's; crackle sizes over the full range; the pile (~1.2 m) puffs slower (fspd 9: ~1.5 Hz)
+     * and shallower (its many flames average out: the references show no puffing line) */
+    {768, -1, 128, 130, 128, 1, 128, 655360, 294912, 1000, 6, 1400, -12, 0, 60, 9, 30, 200, 40, 0, 7, 8, 0, 0, 246},
     /* fireplace: the chimney's draw a low rumble (the references: 63-125 Hz dominant, 25 dB down by 250 Hz; 200-1000
      * Hz 25-30 dB under the total) swelling slowly (0.5-3 Hz), the fire a sharp crackle in the hearth; the roar
      * goes up the flue (hardly heard), the low pops of settling logs rare */
@@ -146,6 +149,7 @@ typedef struct {
     int16_t amp[NEV], hamp[NH];
     uint8_t hnum[NH];
     uint32_t fph, fw;              /* the flicker phase and its step per block */
+    int32_t fmul, fdg;             /* this puff's period (its step x fmul) and depth, Q15 */
     int32_t wander, gust, gtg;     /* ~1 Hz wander and gusts (now, and where they head), Q12 / Q15 */
     uint32_t rate, rcap;           /* the crackle rate per log before the draught, and its most (Q8 /s) */
     int32_t szg;                   /* the roar's gain for the fire's size, Q15 */
@@ -227,6 +231,7 @@ static void fire_init(void *st, uint32_t seed)
     uint8_t *b = (uint8_t *)st;
     unsigned i;
     for (i = 0; i < sizeof *s; i++) b[i] = 0;
+    s->fmul = s->fdg = 32768;
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 6, 400);                       /* the throw: 6 crackles over ~0.4 s (ours) */
     tx_cloud_sizes(&s->cloud, 5734, RANGE_L2);               /* (aftershock sizes; the rest are redrawn) */
@@ -401,7 +406,16 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
     {   /* flicker (E14) + wander + gusts (DRAUGHT) -> the roar gain, sqrt of the summed heat */
         int32_t d = s->p[P_DRAUGHT] * 258, am, sq, wd;
         uint32_t x = (uint32_t)heat;                         /* <= 8 x 2^15 */
-        s->fph += s->fw + (uint32_t)(((int64_t)tx_rand_s15(r) * (int32_t)(s->fw >> 3)) >> 15);   /* phase jitter */
+        {   /* the puffs: a fire is many flames puffing out of step, so each puff is its own: its period at random
+             * within +-0.75 oct of f_p's (log-uniform), its depth 0.3 .. 1.3; a broad peak around f_p, never a
+             * steady line (the recordings: no line, peaks only ~10-30 x the floor of the 0.5-8 Hz modulation) */
+            uint32_t ph0 = s->fph, st = (uint32_t)(((uint64_t)s->fw * (uint32_t)s->fmul) >> 15);
+            s->fph += st + (uint32_t)(((int64_t)tx_rand_s15(r) * (int32_t)(st >> 3)) >> 15);   /* phase jitter */
+            if (s->fph < ph0) {                              /* a new puff (the phase at 0: no step in the gain) */
+                s->fmul = (int32_t)tx_exp2((15 << 16) + (int32_t)tx_rand_s15(r) * 3 / 2);
+                s->fdg = 9830 + (int32_t)tx_rand_below(r, 32768u);
+            }
+        }
         s->wander += (tx_gauss_q12(r) * 4 - s->wander) >> 5;   /* ~1 Hz */
         wd = (s->wander * (2048 + (d >> 3))) >> 12;          /* (a chimney's draw swells it deeper) */
         if (s->k->chim) wd *= s->k->chim;
@@ -415,6 +429,7 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
         {
             int32_t fd = 6554 + (d >> 1);
             if (s->k->flick != 128u) fd = (fd * s->k->flick) >> 7;
+            fd = (int32_t)(((int64_t)fd * s->fdg) >> 15);
             am = 32768 + (int32_t)(((int64_t)tx_sin_q15(s->fph) * fd) >> 15)
                        + wd + (int32_t)(((int64_t)s->gust * d) >> 15);
         }
