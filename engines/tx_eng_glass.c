@@ -310,7 +310,8 @@ static void bottles(glass_t *s, const tx_event_t *e)
             h->ring = (uint8_t)rv;
         } else s->dropped++;
         h->a = (int32_t)(((int64_t)(A_REF * 3) * s->level) >> 15);   /* (by render: the pane's loudness) */
-        h->c = (int32_t)((((int64_t)A_REF * s->level) >> 15) >> 4);   /* (glass on glass: a bright tick; the references
+        h->a = (int32_t)(((int64_t)h->a * 28200) >> 15);    /* (-1.3 dB: more knocks, the level kept) */
+        h->c = (int32_t)(((((int64_t)A_REF * s->level) >> 15) >> 4) * 28200 >> 15);   /* (glass on glass: a bright tick; the references
                                                               * keep 8-16 kHz ~22 dB under the peak octave: was 9, -40) */
         h->t = e->offset;
         h->v = v0;
@@ -377,8 +378,17 @@ TX_AUDIO_CODE static void glass_render(void *st, int32_t *mix, unsigned n)
             unsigned o = h->t;
             impact(s, h, o, h->v);
             h->k++;
+            if (s->kind == K_BOTTLES) {                      /* held in a hand or a crate: knocked again as it jiggles,
+                                                              * 60 .. 225 ms later (log-uniform), each 0.4 .. 0.9 as fast,
+                                                              * no tumble (second pass: the references' gaps median
+                                                              * 230 ms, a third under 150 ms; ours bounced off at BOUNCE's
+                                                              * e ~0.3: one knock and a tick 30 ms later, gaps 370-420 ms) */
+                h->v = (int32_t)(((int64_t)h->v * (13107 + (int32_t)tx_rand_below(&s->cloud.rng, 16384u))) >> 15);
+                if (h->v < 50 || h->k > 6) { h->alive = 0; break; }
+                h->t += (uint32_t)((2646u * (uint64_t)tx_exp2((int32_t)tx_rand_below(&s->cloud.rng, 124518u) + (16 << 16))) >> 16);
+                continue;
+            }
             h->v = (int32_t)(((int64_t)h->v * s->e_q15) >> 15);
-            if (s->kind == K_BOTTLES && (h->v < 50 || h->k > 6)) { h->alive = 0; break; }   /* (held in hand: no tumble) */
             if (h->v < 50 || (h->k > 6 && h->k < 16)) {     /* bounced out: it settles, tumbles, slides into others: */
                 uint32_t l;                                  /* 0-6 late knocks, Omori-like (c 0.2 s, p 1.5) over */
                 if (h->k >= 16 + 6 || (tx_rand(&s->cloud.rng) >> 28) == 0) { h->alive = 0; break; }   /* ~3 s (ours) */
