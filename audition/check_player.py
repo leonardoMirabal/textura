@@ -64,7 +64,7 @@ def main():
         page.wait_for_function("window.txTest && window.txTest.ready", timeout=20000)
         check(page.evaluate("window.crossOriginIsolated"), "served cross-origin isolated (audition/serve.py)")
         # the page opens on the landscape: the source on layer 1, lane mode on, the LANDSCAPE section first; one click
-        # starts the landscape's first three sounds (Water: rain on water, rain on a roof, water drops) on their own
+        # starts the landscape's first three sounds (Water: rain on water, lake lapping, water drops) on their own
         st = page.evaluate("window.txTest.src()")
         yl = page.evaluate("""() => ['kb', 'src-panel', 'eng-panel'].map(i => document.getElementById(i).getBoundingClientRect().top)""")
         bars = page.eval_on_selector_all("#lanes-box .abar", "x => x.length")
@@ -75,7 +75,7 @@ def main():
         st = page.evaluate("window.txTest.src()")
         pk = page.evaluate("window.txTest.render(64)")
         names_l = page.evaluate("[0, 1, 2].map(k => document.querySelector(`#lanes-box .lane[data-k='${k}'] .lab`).textContent)")
-        check(all(st["run"][:3]) and st["step"][:3] == [3, 1, 1] and st["cnt"][:3] == [2, 1, 1] and pk > 0 and "rain on water" in names_l[0] and "roof" in names_l[1]
+        check(all(st["run"][:3]) and st["step"][:3] == [3, 1, 1] and st["cnt"][:3] == [2, 1, 1] and pk > 0 and "rain on water" in names_l[0] and "lake" in names_l[1]
               and "water drops" in names_l[2], f"Start a landscape: three sounds running ({names_l}), sounding (peak {pk})")
         bar = page.locator("#lanes-box .lane[data-k='1'] .abar:not(.cbar)")
         cbar = page.locator("#lanes-box .lane[data-k='1'] .abar.cbar")

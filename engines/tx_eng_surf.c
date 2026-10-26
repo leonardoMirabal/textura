@@ -18,7 +18,7 @@
  * into a wave period (its first breaker 0.1 .. 0.6 periods on). COUNT: wave trains along the shore, each with
  * its own timing (random phase, the same period and jitter) and size (farther: -1 .. -7 dB): more breakers.
  *
- * WATER 1, a lake (ours, against recordings of lake shores and of a moored hull): short wind waves (PERIOD 0.6 .. 4 s
+ * WATER 1, a lake (ours, against recordings of lake shores and of a moored hull): short wind waves (PERIOD 0.6 .. 3.3 s, to 12 s in a calm,
  * on average, no period kept: each train's waves at random; trains farther -14 .. -1 dB), in groups (a slow walk of
  * their size, +-5 dB). No
  * approach, roar, whoomph or backwash: each wave is a burst of small splashes, the 4 bands' noise each its own (its
@@ -50,7 +50,7 @@
 enum { P_PERIOD, P_HEIGHT, P_CHOP, P_BACKWASH, P_DIST, P_FLOOR, P_STRIKE, P_COUNT, P_SHORE, P_WATER, P_FACE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"PERIOD", 127, 70, "wave period: 6 .. 15 s (+-20 % wave to wave; a lake: 0.6 .. 4 s on average, at random)"},
+    {"PERIOD", 127, 70, "wave period: 6 .. 15 s (+-20 % wave to wave; a lake: 0.6 .. 3.3 s on average, at random, then up to 12 s: a calm)"},
     {"HEIGHT", 127, 64, "breaker height 0.3 .. 3 m (log): louder (-5 .. +5 dB), longer, lower whoomph (80 .. 30 Hz), more rumble"},
     {"CHOP", 127, 64, "wave-to-wave variety: regular .. +-10 dB (L37) and +-40 % timing (a lake: its sizes and groups; its timing is always at random)"},
     {"BACKWASH", 127, 64, "the backwash after each wave: none .. -8 dB under the break (64) .. as loud (water draining back through sand or shingle)"},
@@ -234,7 +234,7 @@ static void surf_param(void *st, uint8_t id, uint8_t val)
 }
 
 /* a new breaker: its size from the velocity and CHOP (+-10 dB at most, L37) */
-static void launch(surf_t *s, uint32_t vel)
+static brk_t *launch(surf_t *s, uint32_t vel)
 {
     tx_rng_t *r = &s->cloud.rng;
     brk_t *b = 0;
@@ -270,6 +270,7 @@ static void launch(surf_t *s, uint32_t vel)
     } else
         b->t_plunge = 30000u + tx_rand_below(r, 22000u);     /* the approach: 0.7 .. 1.2 s */
     b->alive = 1; b->kicked = 0;
+    return b;
 }
 
 /* a breaker's envelopes at time t (samples): the roar (Q15) and the backwash (Q15) */
@@ -384,10 +385,17 @@ TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
     }
     {   /* the sea: breakers every PERIOD while a key is held */
         unsigned held = tx_cloud_held(&s->cloud);
-        uint32_t T = s->p[P_WATER] ? 26460u + s->p[P_PERIOD] * 1181u   /* a lake: 0.6 .. 4 s */
-                                   : 6u * 44100u + s->p[P_PERIOD] * 3125u;   /* 6 .. 15 s */
-        if (held && !s->sea)                                 /* the press already sent one; or (STRIKE 0) the sea */
+        uint32_t T = !s->p[P_WATER] ? 6u * 44100u + s->p[P_PERIOD] * 3125u   /* 6 .. 15 s */
+                   : s->p[P_PERIOD] <= 100u ? 26460u + s->p[P_PERIOD] * 1181u   /* a lake: 0.6 .. 3.3 s */
+                   : 144560u + (s->p[P_PERIOD] - 100u) * 14246u;   /* .. 12 s: a calm, a lap now and then */
+        if (held && !s->sea) {                               /* the press already sent one; or (STRIKE 0) the sea */
             s->next = s->p[P_STRIKE] ? 6u * 44100u : T / 10u + tx_rand_below(r, T / 2u);   /* is partway into a period */
+            if (s->p[P_WATER] && !s->p[P_STRIKE]) {          /* a lake is lapping already: a wave partway up the */
+                brk_t *b = launch(s, 40u + tx_rand_below(r, 61u));   /* shore or the hull (-8 .. 0 dB), the next at */
+                b->t = b->t_plunge / 2u + tx_rand_below(r, b->t_plunge / 2u);   /* random */
+                s->next = gap(s, T, 0);
+            }
+        }
         s->sea = (uint8_t)(held != 0);
         if (s->sea) {
             if (s->next > n) s->next -= n;

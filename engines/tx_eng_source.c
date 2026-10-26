@@ -319,7 +319,7 @@ static const host_t HOST[] = {
                      {"FLOOR", 40, 40, 40}, {"STRIKE", 0, 0, 0}, {"SHORE", 127, 127, 127}}, 0, 10, 0, 0, 0, 0, 0},
     /* lake lapping (water): ripples lapping now and then .. a lake's short waves in a breeze, higher and quicker
      * (TYPE: on a sloping shore .. against a hull or a jetty; COUNT: the engine's wave trains, up to 8) */
-    {"surf", -65, -65, -65, {{"WATER", 1, 1, 1}, {"STRIKE", 0, 0, 0}, {"HEIGHT", 0, 64, 110}, {"PERIOD", 110, 80, 50},
+    {"surf", -65, -65, -65, {{"WATER", 1, 1, 1}, {"STRIKE", 0, 0, 0}, {"HEIGHT", 0, 64, 110}, {"PERIOD", 127, 80, 50},
                      {"CHOP", 10, 10, 10}, {"DIST", 50, 30, 20}, {"FLOOR", 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
 };
 

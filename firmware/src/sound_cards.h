@@ -13,9 +13,10 @@
  * (SC_SRC_DEFAULT), a classic engine all its own parameters less those.
  *
  * Water: the names and order of the user's approved study (2026-10-26). The source's EXTRA knob is the sound's own
- * extra (CAVE on cave drips, ROAR on the streams, PERIOD on the waves); water drops are the source's own drops, their
+ * extra (CAVE on cave drips, ROAR on the streams, PERIOD on the waves and the lake); water drops are the source's own drops, their
  * HEIGHT and POOL on its HARD and TONE (the drip's splash is part of every drop, not a card); rain on water's HARD
- * above the middle is WIND. A card whose parameter this build's engine has not got is left out. Still to come with the engines: RAIN (rain's own rate apart
+ * above the middle is WIND. Lake lapping: FACE first (a shore .. a hull), then HEIGHT, PERIOD, DIST / CHOP (a lake
+ * has no backwash and no floor). A card whose parameter this build's engine has not got is left out. Still to come with the engines: RAIN (rain's own rate apart
  * from HOW ACTIVE), EAVES, DROP, SHORE, TRAINS.
  *
  * Storm: the names and order of the approved study (2026-10-26): thunder's JAGGED is its TORT, the gales' EXPOSED the
@@ -100,6 +101,8 @@ static const scd_sound_t SCD[] = {
                                   {"BACKWSH", "BACKWASH", CK_HOST}, {"CHOP", "CHOP", CK_HOST}, {"FLOOR", "FLOOR", CK_HOST}}},
     {"waves on shingle", "surf", 6, {{"HEIGHT", "HEIGHT", CK_HOST}, {"PERIOD", "EXTRA", 0}, {"DIST", "DIST", CK_HOST},
                                      {"BACKWSH", "BACKWASH", CK_HOST}, {"CHOP", "CHOP", CK_HOST}, {"FLOOR", "FLOOR", CK_HOST}}},
+    {"lake lapping", "surf", 5, {{"FACE", "FACE", CK_HOST}, {"HEIGHT", "HEIGHT", CK_HOST}, {"PERIOD", "EXTRA", 0},
+                                 {"DIST", "DIST", CK_HOST}, {"CHOP", "CHOP", CK_HOST}}},
     /* Storm */
     {"storm", 0, 8, {{"RAIN", "RAIN", 0}, {"WIND", "WIND", 0}, {"FLASHES", "FLASHES", 0}, {"DIST", "DIST", 0},
                      {"AGE", "AGE", 0}, {"SURFACE", "SURFACE", 0}, {"PASSING", "PASSING", 0}, {"INSIDE", "INSIDE", 0}}},

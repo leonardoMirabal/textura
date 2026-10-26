@@ -476,7 +476,7 @@ function setSlider(id, val) {                         // from MIDI CC (the edite
 let SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];   // (read from the PRESET help line)
 // a family's sounds: [name, source preset, TYPE] (TYPE reaches the preset's family members), or "#engine" (a classic)
 const FAMILIES = [
-  ["Water", [["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 50], ["water drops", "water", 0],
+  ["Water", [["rain on water", "rain on water", 0], ["lake lapping", "water", 120], ["water drops", "water", 0],
     ["cave drips", "water", 16], ["eaves dripping", "water", 32], ["brook", "water", 48], ["bubbling spring", "water", 64],
     ["waterfall", "water", 80], ["waves on sand", "water", 96], ["waves on shingle", "water", 112]]],
   ["Stones & sand", [["stones", "stone cloud", 0], ["rockfall", "stone cloud", 32], ["ringing rocks", "stone cloud", 100],
