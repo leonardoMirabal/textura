@@ -175,12 +175,18 @@ tx-libcalls:
 # the FM-1 with exactly this revision's code (9 voices); a later Frodhes (0.9.5: 10 voices, other effects and CCs)
 # runs another scene, so its host time would no longer match that figure. Change both together, never one.
 FRODHES_REV ?= e68d1a7
+# (the sources are taken into build/calib/fr.new and swapped in only when complete: a wrong FRODHES path or a failed
+# archive leaves build/calib/fr as it was)
 build/calib/frodhes: bench/calib/frcal_hook.h build/calib/rev-$(FRODHES_REV)
-	@rm -rf build/calib/fr && mkdir -p build/calib/fr
-	git -C $(FRODHES) archive --format=tar $(FRODHES_REV) firmware/src firmware/gen tests/host.c | tar -x -C build/calib/fr
-	@mv build/calib/fr/tests/host.c build/calib/fr/tests/host.orig
-	sed 's/app_audio(blk, HALF_FRAMES);/FRCAL_AUDIO(blk, HALF_FRAMES);/' build/calib/fr/tests/host.orig > build/calib/fr/tests/host.c && rm build/calib/fr/tests/host.orig
-	@grep -q FRCAL_AUDIO build/calib/fr/tests/host.c || { echo "host.c's app_audio call not found: calibration hook not applied"; exit 1; }
+	@git -C $(FRODHES) cat-file -e '$(FRODHES_REV)^{commit}' 2>/dev/null || \
+	  { echo "no commit $(FRODHES_REV) in $(FRODHES) (FRODHES=path to Frodhes' checkout): build/calib left as it is"; exit 1; }
+	@rm -rf build/calib/fr.new build/calib/fr.tar && mkdir -p build/calib/fr.new
+	git -C $(FRODHES) archive --format=tar -o $(CURDIR)/build/calib/fr.tar $(FRODHES_REV) firmware/src firmware/gen tests/host.c
+	tar -x -C build/calib/fr.new -f build/calib/fr.tar && rm build/calib/fr.tar
+	@mv build/calib/fr.new/tests/host.c build/calib/fr.new/tests/host.orig
+	sed 's/app_audio(blk, HALF_FRAMES);/FRCAL_AUDIO(blk, HALF_FRAMES);/' build/calib/fr.new/tests/host.orig > build/calib/fr.new/tests/host.c && rm build/calib/fr.new/tests/host.orig
+	@grep -q FRCAL_AUDIO build/calib/fr.new/tests/host.c || { echo "host.c's app_audio call not found: calibration hook not applied"; exit 1; }
+	@rm -rf build/calib/fr && mv build/calib/fr.new build/calib/fr
 	git -C $(FRODHES) log -1 --format='%h %ci' $(FRODHES_REV) > build/calib/frodhes.rev
 	$(CC) -O2 -Wall -Wno-unused-function -DDINGHY_HOST -DAPP_VER='"dev"' -include bench/calib/frcal_hook.h \
 	  -Ibuild/calib/fr/firmware/src -Ibuild/calib/fr/firmware/gen -o $@ build/calib/fr/firmware/src/frodhes.c -lm
