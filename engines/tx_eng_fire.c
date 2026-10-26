@@ -76,32 +76,35 @@ typedef struct {
     uint8_t catchk, burnk;         /* heat: catches 2^-catchk per block, burns down 2^-burnk */
     uint8_t fuel;                  /* 1: a piece burns out while held, the next catches after a while (flare-ups) */
     uint8_t hiss;                  /* resin: hiss bursts per log per 10 s (shaped events, no bed) */
-    uint16_t out;                  /* its level, Q8 (by render, 3 logs: a bonfire +3 dB over the campfire, embers -6;
-                                    * the rest on the campfire's loudness) */
+    uint16_t out;                  /* its level, Q8 (by render through the source at its defaults: a bonfire +3 dB over
+                                    * the campfire, embers -6; the rest on the campfire's loudness) */
 } kind_t;
 #define NKIND 8u
 static const kind_t KINDS[NKIND] = {
-    /* campfire: mixed logs (the engine as it was) */
-    {0, 0, 128, 128, 128, 1, 128, 619512, 283116, 900, 0, 128, 0, 0, 128, 16, 0, 128, 50, 6, 7, 0, 0, 256},
+    /* campfire: mixed logs; sparse sharp crackles over a quiet roar (the references: ~2 onsets /s, the roar half) */
+    {0, 0, 128, 128, 128, 1, 128, 619512, 283116, 900, 0, 64, 0, 0, 128, 16, 0, 128, 50, 6, 7, 0, 0, 899},
     /* bonfire: a big pile, a deep heavy roar (the references: centroid 10.9-13 kHz, the bed 7 dB under the
-     * crackle), denser crackle, its pops lower and rarer (the CPU: denser crackle, fewer heroes) */
-    {768, -1, 90, 130, 128, 1, 128, 604826, 294912, 600, 6, 320, 0, 0, 150, 16, 30, 200, 40, 7, 8, 0, 0, 90},
+     * crackle), denser crackle, its pops lower (from 1 kHz) and rarer (the CPU: denser crackle, fewer heroes); the
+     * roar loud and half an octave lower (the references: -12 dB at 200 Hz, +8 at 600 against the campfire's) */
+    {768, -1, 90, 130, 128, 1, 128, 655360, 294912, 1000, 6, 1400, -8, 0, 150, 16, 30, 200, 40, 7, 8, 0, 0, 174},
     /* fireplace: the chimney's draught a low rumble (the references: 125 Hz dominant), crackle with low pops of
      * settling logs, a quiet roar */
-    {0, 0, 128, 128, 115, 2, 100, 539290, 327680, 300, 1, 80, -5, 0, 64, 16, 0, 400, 110, 6, 7, 0, 0, 146},
-    /* embers: no flame: sparse bright ticks and tiny pops as they cool (3-8 kHz, the bed 29 dB under the ticks) */
-    {-717, -1, 90, 70, 150, 1, 160, 739752, 124518, 2500, -3, 0, 0, 0, 0, 16, 0, 0, 50, 6, 9, 0, 0, 290},
-    /* kindling, twigs: fast dense crackle at 3-5 kHz, nothing above ~12 kHz; a twig catches and burns down fast */
-    {768, -1, 90, 100, 115, 4, 40, 691454, 131072, 1500, 0, 60, 8, 0, 150, 16, 0, 60, 50, 4, 6, 0, 0, 128},
-    /* pine: resin pops, louder and burstier, and short hisses of gas from the resin (events, no bed) */
-    {77, 2, 150, 125, 128, 1, 128, 643156, 229376, 900, -3, 128, 0, 0, 128, 16, 0, 128, 50, 6, 7, 0, 4, 256},
+    {0, 0, 128, 128, 115, 2, 100, 539290, 327680, 300, 1, 80, -5, 0, 64, 16, 0, 400, 110, 6, 7, 0, 0, 477},
+    /* embers: no flame: bright ticks and tiny pops as they cool (3-8 kHz), many of them faint (the full range), so
+     * the level never drops out between the loud ones (the references: 22 dB from p10 to p90; no bed) */
+    {1024, -1, 255, 70, 150, 1, 160, 739752, 124518, 2500, -3, 0, 0, 0, 0, 16, 0, 0, 50, 6, 9, 0, 0, 664},
+    /* kindling, twigs: a fast crackle at 3-5 kHz, nothing above ~12 kHz; a twig catches and burns down fast */
+    {384, -1, 90, 100, 115, 4, 40, 691454, 131072, 1500, 0, 60, 8, 0, 150, 16, 0, 60, 50, 4, 6, 0, 0, 454},
+    /* pine: resin pops, louder and burstier, and short hisses of gas from the resin (events, no bed); a quiet roar */
+    {77, 2, 150, 125, 128, 1, 128, 643156, 229376, 900, -3, 64, 0, 0, 128, 16, 0, 128, 50, 6, 7, 0, 4, 600},
     /* leaves, paper: a fast flicker of tiny crackles flat to 12 kHz, the flame fluttering, flaring and dying */
-    {563, 0, 80, 100, 128, 1, 256, 670356, 196608, 1200, 4, 180, 16, 0, 160, 64, 0, 64, 50, 3, 4, 1, 0, 147},
+    {563, 0, 80, 100, 128, 1, 256, 670356, 196608, 1200, 4, 180, 16, 0, 160, 64, 0, 64, 50, 3, 4, 1, 0, 337},
     /* torch: a roar flat to ~800 Hz and steeply down above, flapping in the wind (0.5-4 Hz), a sputter now and
-     * then */
-    {-640, 0, 110, 50, 128, 3, 40, 653118, 131072, 1000, 0, 450, 8, 800, 128, 16, 128, 160, 60, 5, 7, 0, 0, 387},
+     * then; the roar steady under the flaps (the gas torch reference: a steady roar) */
+    {-640, 0, 110, 50, 128, 3, 40, 653118, 131072, 1000, 0, 900, 8, 800, 32, 16, 128, 160, 60, 5, 7, 0, 0, 856},
 };
 
+#define D0_L2 (-217706 + 50 * 2531)   /* log2 of the default diameter (SIZE 50), Q16 */
 #define NLOG 8u
 #define NH 12u
 #define NB 4u                      /* the crackle bank: two pairs (green / dry) */
@@ -140,7 +143,9 @@ typedef struct {
     int16_t amp[NEV], hamp[NH];
     uint8_t hnum[NH];
     uint32_t fph, fw;              /* the flicker phase and its step per block */
-    int32_t wander, gust;          /* ~1 Hz wander and gusts, Q12 */
+    int32_t wander, gust, gtg;     /* ~1 Hz wander and gusts (now, and where they head), Q12 / Q15 */
+    uint32_t rate, rcap;           /* the crackle rate per log before the draught, and its most (Q8 /s) */
+    int32_t szg;                   /* the roar's gain for the fire's size, Q15 */
     uint8_t p[NP], limit, quiet;
     const kind_t *k;
     int32_t level, d_l2, pinv;
@@ -177,6 +182,10 @@ static void set_param(fire_t *s, unsigned id, unsigned v)
         tx_noise_tilt(&s->roar, s->k->tilt);                 /* -6 dB/oct above; a torch: steeper) */
         /* f_p = 0.52 sqrt(g / D) = 1.6287 / sqrt(D) Hz; the phase step per block: f_p x 256 / fs x 2^32 */
         s->fw = (uint32_t)(((uint64_t)tx_exp2(1656437 - s->d_l2 / 2) * s->k->fspd) >> 4);
+        /* a bigger fire burns more wood: the roar (the heat released) and the crackling surface ~ sqrt(D / D0), D0 the
+         * default 0.38 m (SIZE 50): -5.8 dB at 0.1 m .. +9 dB at 3 m */
+        s->szg = (int32_t)tx_exp2((s->d_l2 - D0_L2) / 2 + (15 << 16));
+        set_param(s, P_MOIST, s->p[P_MOIST]);
         break;
     }
     case P_MOIST: {                                          /* 1 .. 30 /s, Q8, re the kind */
@@ -185,6 +194,10 @@ static void set_param(fire_t *s, unsigned id, unsigned v)
             r = (uint32_t)(((uint64_t)r * tx_exp2(s->k->rate * 256 + (16 << 16))) >> 16);
             if (r > (64u << 8)) r = 64u << 8;                /* at most 64 /s a log (CPU: the densest kinds) */
         }
+        s->rcap = r > (32u << 8) ? r : 32u << 8;           /* (the CPU: SIZE and gusts: to 32 /s, or MOIST's) */
+        r = (uint32_t)(((uint64_t)r * (uint32_t)(s->szg ? s->szg : 32768)) >> 15);   /* (SIZE) */
+        if (r > s->rcap) r = s->rcap;
+        s->rate = r;
         tx_cloud_rate(&s->cloud, r);
         break;
     }
@@ -387,7 +400,13 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
         uint32_t x = (uint32_t)heat;                         /* <= 8 x 2^15 */
         s->fph += s->fw + (uint32_t)(((int64_t)tx_rand_s15(r) * (int32_t)(s->fw >> 3)) >> 15);   /* phase jitter */
         s->wander += (tx_gauss_q12(r) * 4 - s->wander) >> 5;   /* ~1 Hz */
-        s->gust += ((s->p[P_DRAUGHT] > 0 && (tx_rand(r) >> 24) < (uint32_t)s->p[P_DRAUGHT] >> 4 ? 8192 : 0) - s->gust) >> 4;
+        /* gusts (DRAUGHT): a gust comes now and then (~0.1 .. 1.4 /s), lasts ~0.5 .. 2 s, and blows harder in a draught;
+         * the roar follows it within ~0.1 s */
+        if (s->p[P_DRAUGHT] && (tx_rand(r) >> 20) < (uint32_t)s->p[P_DRAUGHT] / 8u + 1u)
+            s->gtg += 8192 + (int32_t)tx_rand_below(r, 16384u);
+        s->gtg -= (s->gtg >> 7) + (s->gtg > 0);
+        if (s->gtg > 32768) s->gtg = 32768;
+        s->gust += (s->gtg - s->gust) >> 4;
         {
             int32_t fd = 6554 + (d >> 1);
             if (s->k->flick != 128u) fd = (fd * s->k->flick) >> 7;
@@ -395,6 +414,14 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
                        + ((s->wander * (2048 + (d >> 3))) >> 12) + (int32_t)(((int64_t)s->gust * d) >> 15);
         }
         if (am < 0) am = 0;
+        {   /* the draught feeds the fire: the crackle quickens with the gusts and the wander (not with the flicker's
+             * cycle: no beat), x 0.25 .. 3 */
+            int32_t m = 32768 + ((s->wander * (2048 + (d >> 3))) >> 12) + (int32_t)(((int64_t)s->gust * d) >> 14);
+            uint32_t cr;
+            m = m < 8192 ? 8192 : m > 98304 ? 98304 : m;
+            cr = (uint32_t)(((uint64_t)s->rate * (uint32_t)m) >> 15);
+            tx_cloud_rate(&s->cloud, cr > s->rcap ? s->rcap : cr);
+        }
         if (s->k->flap) {                                    /* a torch in the wind: the flame swings to a new place at
                                                               * random moments (~3 /s, Poisson), ~50 ms to get there */
             if (!s->flapt) {
@@ -412,6 +439,7 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
             sq = (int32_t)((rr * 181u) >> 6);                /* sqrt(x 2^12) = 64 sqrt(x); sqrt(x / 2^15) in Q15 */
         }
         g = (int32_t)(((int64_t)ROAR_G * s->p[P_ROAR] >> 7) * sq >> 15);
+        g = (int32_t)(((int64_t)g * s->szg) >> 15);         /* (SIZE) */
         if (s->k->roar != 128u) g = (g * s->k->roar) >> 7;
         g = (int32_t)(((int64_t)g * am) >> 15);
         g = (int32_t)(((int64_t)g * s->level) >> 15);
@@ -419,6 +447,7 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
         tx_noise_roar_add(&s->roar, g, s->buf, n);
         {   /* the plume's (a chimney's) rumble: with the roar's own level, before the kind's roar share */
             int32_t gr = (int32_t)(((int64_t)ROAR_G * s->p[P_ROAR] >> 7) * sq >> 15);
+            gr = (int32_t)(((int64_t)gr * s->szg) >> 15);
             gr = (int32_t)(((int64_t)gr * am) >> 15);
             gr = (int32_t)(((int64_t)gr * s->level) >> 15);
             if (!any) gr = 0;
@@ -437,6 +466,7 @@ TX_AUDIO_CODE static void fire_render(void *st, int32_t *mix, unsigned n)
     for (i = 0; i < NH; i++) { tx_ireso_add(&s->hero[i], &s->hoff[i], &s->hamp[i], s->hnum[i], s->buf, n); s->hnum[i] = 0; }
     tx_vary_block(&s->vy, s->buf, n);
     tx_trim(s->buf, n, s->k->out == 256u ? OUT_TRIM : (OUT_TRIM * s->k->out) >> 8);
+    tx_headroom(s->buf, n);                                  /* (the sharp crackles of a big fire, many logs at once) */
     tx_dcblock_add(&s->hp, s->buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {

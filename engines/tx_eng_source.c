@@ -199,8 +199,8 @@ static const clu_pre_t CLU[NPRE] = {
  * held key, picked at random, is pressed afresh after
  * 3 s + an exponential wait (mean 7 s; no clock): a singer leaves and a new one comes with the parameters of now (these engines read them at a press; a
  * fire's logs just burn: a press there would throw a new log on, its burst louder than the fire it lands in). k0 & 32 (an
- * engine with its own weather, the wind): LIFE's walk on the activity at a quarter, and the bouts read the fader alone
- * (the engine's own gusts and lulls already move it; the full walk on top swung a held wind by +-7 dB and, wandering
+ * engine with its own weather, the wind, a fire): LIFE's walk on the activity at a quarter, and the bouts read the
+ * fader alone (the engine's own gusts and lulls already move it; the full walk on top swung a held wind by +-7 dB and, wandering
  * under 64, cut it into bouts at the default). */
 #define HOST_NC 7u
 #define HOST_NK 8u                  /* character maps per hosted engine (HMAP): the card's knobs, ACTIVITY and PROXIMITY aside */
@@ -226,9 +226,13 @@ static const host_t HOST[] = {
     {"stream", -42, -42, -42, {{"FLOW", 10, 70, 105}, {"ROAR", 0, 0, 50}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
                             {"SPREAD", 80, 64, 45}}, 0, 0, 0, 0, 0, 0, 0},
     /* fire: embers (a rare crackle, a faint roar) .. a campfire .. a blaze (a big fire, dense crackles in bursts, roar, gusts) */
-    {"fire", 110, 110, 80, {{"MOIST", 0, 25, 95}, {"SIZE", 8, 50, 100}, {"ROAR", -30, 28, 100}, {"DRAUGHT", 10, 30, 70},
-                          {"BURSTY", 0, 24, 40}}, 2, 26, 8, 0, 0, 0, 0},   /* (the top: no denser than the references, and
-                                                                     * under the output limiter: agent D, 2026-10-25) */
+    {"fire", 110, 110, 80, {{"MOIST", 0, 0, 95}, {"SIZE", 8, 50, 100}, {"ROAR", -30, 28, 100}, {"DRAUGHT", 10, 30, 70},
+                          {"BURSTY", 0, 24, 40}}, 34, 26, 4, 0, 0, 0, 0},   /* (the top: no denser than the references, and
+                                                                     * under the output limiter: agent D, 2026-10-25;
+                                                                     * its own weather and no bouts (k0 34: a fire
+                                                                     * does not stop and restart), 4 logs at most and
+                                                                     * MOIST's middle at 0: the references' ~2 crackles
+                                                                     * a second, 2026-10-26) */
     /* crickets (COUNT: the engine's own, up to 32): each singing now and then .. all the time, a little in step,
      * warmer (a little faster) */
     {"crickets", -12, -12, -12, {{"ACTIVITY", 0, 64, 127}, {"SYNC", 30, 40, 50}, {"TEMP", 70, 76, 84}, {0, 0, 0, 0},
@@ -1757,6 +1761,8 @@ TX_AUDIO_CODE static void hosted_out(src_t *s, const tx_engine_t *e, void *st, i
     d = (g1 - g0) / (int32_t)n;
     for (j = 0; j < n; j++) { s->buf[j] = tx_trim1(s->buf[j], g0 + d * (int32_t)j); }
     s->hgain = g1;
+    tx_headroom(s->buf, n);                                  /* (a loud sound's sharpest peaks, nearest: above 8x full
+                                                              * scale only, so a sound at its defaults is unchanged) */
     tx_declick_run(&s->dc, s->buf, n);
     for (j = 0; j < n; j++) mix[j] += s->buf[j];
     s->last_out = s->buf[n - 1];
