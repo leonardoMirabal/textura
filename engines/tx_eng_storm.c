@@ -26,6 +26,7 @@
 
 extern const tx_engine_t tx_eng_rainwater;
 extern const tx_engine_t tx_eng_rainsurf;
+void tx_rainsurf_lite(void *st, unsigned on);
 
 enum { P_INTENS, P_SURFACE, P_AGE, P_DIST, NP };
 
@@ -40,6 +41,15 @@ static const tx_param_t PARAMS[NP] = {
                                     * a rain engine that does not fit is silently left out, so txtest checks it */
 #define TB 128u                    /* the thunder's scratch, samples (rendered in pieces: the state fits its slot) */
 #define RAIN_P 8u                  /* the rain's PARTICLES inside the scene (the scene's CPU share) */
+#ifndef SHEET_IN
+#define SHEET_IN 24                /* the sheets' drive */
+#endif
+#ifndef SHEET_AMT
+#define SHEET_AMT 16               /* RATE steps at a full sheet (42 a decade) */
+#endif
+#ifndef SHEET_GUST
+#define SHEET_GUST 40              /* RATE steps at a full gust (+-40 %: 13107) */
+#endif
 #define WIND_REF 14000              /* the wind bed's gain at 10 m/s (Q15; calibrated by render) */
 
 typedef struct {
@@ -53,6 +63,9 @@ typedef struct {
     const tx_engine_t *rain;
     uint32_t seed, next;           /* samples to the next flash while the storm is on */
     int32_t on, gust, flut, u_l2;
+    int32_t sheet;                 /* rain sheets: the rate surging with the gusts, faster (Q15, AR(1) ~0.25 s) */
+    int8_t rid;                    /* the rain's RATE (its param id) */
+    uint8_t rate0, rtick, rsent;   /* the rain's mean RATE, blocks to its next update, the RATE last sent */
     int32_t rf;                    /* the rain's fade (Q15): 1 while held, falling after */
     uint32_t fl_age;               /* samples since the flash started */
     uint8_t pend;                  /* a pressed flash waiting for the rolling one (its velocity; 0 = none) */
@@ -78,8 +91,10 @@ static void rain_setup(storm_t *s)
         s->rain = e;
         e->init(s->arena, s->seed);
         e->param(s->arena, TX_PID_PARTICLES, RAIN_P);
+        if (e == &tx_eng_rainsurf) tx_rainsurf_lite(s->arena, 1);   /* (CPU: the lite surface under the wind) */
         s->rain_on = 0;
     }
+    s->rid = (int8_t)tx_param_find(e, "RATE"); s->rate0 = rate; s->rsent = 0xFF;
     rain_set(s, "RATE", rate);
     if (e == &tx_eng_rainwater) { rain_set(s, "STORM", mix); rain_set(s, "WIND", (uint8_t)(s->p[P_INTENS] / 2u)); }
     else {
@@ -95,7 +110,7 @@ static void set_param(storm_t *s, unsigned id, unsigned v)
     if (id >= NP) return;
     if (v > PARAMS[id].max) v = PARAMS[id].max;
     s->p[id] = (uint8_t)v;
-    if (id == P_INTENS) s->u_l2 = 103872 + (int32_t)(v * 1610u);   /* log2(3 m/s) .. log2(20 m/s) */
+    if (id == P_INTENS) s->u_l2 = 103872 + (int32_t)(v * 1412u);   /* log2(3 m/s) .. log2(20 m/s) (was x 1610: 26 m/s at the top) */
     s->dirty = 1;
 }
 
@@ -205,6 +220,18 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
         g = (int32_t)(((int64_t)g * s->on) >> 15);
         g = (int32_t)(((int64_t)g * s->level) >> 15);
         tx_noise_roar_add(&s->wind, s->on ? g : 0, buf, n);
+    }
+    if (s->rain && s->rid >= 0) {                            /* rain sheets: in a gust the rain comes in harder, in
+                                                              * waves of a second or so (ours: the references' 0.5-4 Hz) */
+        int32_t v;
+        s->sheet += ((tx_rand_s15(r) * SHEET_IN) >> 6) - (s->sheet >> 5);
+        s->sheet = s->sheet > 32767 ? 32767 : s->sheet < -32767 ? -32767 : s->sheet;
+        if (!s->rtick--) {
+            s->rtick = 1;
+            v = (int32_t)s->rate0 + ((s->gust * SHEET_GUST) >> 15) + ((s->sheet * SHEET_AMT) >> 15);
+            v = v < 0 ? 0 : v > 127 ? 127 : v;
+            if ((uint8_t)v != s->rsent) { s->rsent = (uint8_t)v; s->rain->param(s->arena, (uint8_t)s->rid, (uint8_t)v); }
+        }
     }
     if (s->fl.active) {                                      /* thunder over the rain: x 5 (set by render: a flash
                                                               * 2-3 km away stands well over the rain) */

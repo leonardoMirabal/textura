@@ -71,6 +71,7 @@ static const tx_param_t PARAMS[NP] = {
 #define NC 4u
 #define NB 12u
 #define NPANEL 4u
+#define LITE_NB 4u                  /* the lite surface's bands (one an octave over the 8 the bank runs; no panel modes) */
 #define NSURF 5u
 #define TABN 64u
 #define CARRY 64u
@@ -161,7 +162,8 @@ typedef struct {
     int32_t level;
     uint16_t dropped, pad2;
     tx_vary_t vy;
-    uint8_t hk, nbq, pad3[2];      /* the ice kind (0: rain), bounces in flight */
+    uint8_t hk, nbq, lite, nbl;    /* the ice kind (0: rain), bounces in flight; the lite surface (hosted: 4 bands,
+                                    * no panel modes), the bands run */
     uint32_t hv[NC];               /* the stones' fall speed by class, mm/s (the bounces' flights) */
     bounce_t bnc[NBQ];
 } rain_t;
@@ -198,13 +200,29 @@ static void surface(rain_t *s)
     int32_t lq = (log2_q16(a->pq) * (128 - (int32_t)fr) + log2_q16(b->pq) * (int32_t)fr) >> 7;
     uint32_t pq = tx_exp2(lq);
 #define MIX(x, y) (((int32_t)(x) * (128 - (int32_t)fr) + (int32_t)(y) * (int32_t)fr) >> 7)
-    s->bq = (int32_t)(65536u / (uint32_t)(q4 < 4 ? 4 : q4));          /* 16384 / Q */
-    for (i = 0; i < NB; i++) {
-        uint32_t hz = tx_exp2(473750 + (int32_t)i * 32768);  /* 150 Hz x 2^(i/2) .. 6.8 kHz */
-        s->bf[i] = tx_svf_coef(hz);
-        s->bgin[i] = (int32_t)tx_svf_gin_noise(hz, (uint32_t)q4 * 4u);
-        s->bg[i] = db_q11(MIX(a->g[i], b->g[i]) * 10 + ((int32_t)i - 9) * 30);   /* + 6 dB / oct: a plate radiates
+    if (q4 < 4) q4 = 4;
+    if (s->lite) {   /* the lite surface (a host's cheaper rain, under its own sounds): one band an octave, between two of
+                      * the grid's first 8 (the bank runs 8: TX_SVF_MAX), at their Q, the pair's gains summed (their
+                      * level, by render: within 1 dB on every surface) */
+        s->nbl = LITE_NB;
+        s->bq = (int32_t)(65536u / (uint32_t)q4);
+        for (i = 0; i < LITE_NB; i++) {
+            uint32_t hz = tx_exp2(473750 + (int32_t)i * 65536 + 16384);
+            s->bf[i] = tx_svf_coef(hz);
+            s->bgin[i] = (int32_t)tx_svf_gin_noise(hz, (uint32_t)q4 * 4u);
+            s->bg[i] = (db_q11(MIX(a->g[2 * i], b->g[2 * i]) * 10 + ((int32_t)(2 * i) - 9) * 30)
+                        + db_q11(MIX(a->g[2 * i + 1], b->g[2 * i + 1]) * 10 + ((int32_t)(2 * i + 1) - 9) * 30));
+        }
+    } else {
+        s->nbl = NB;
+        s->bq = (int32_t)(65536u / (uint32_t)q4);            /* 16384 / Q */
+        for (i = 0; i < NB; i++) {
+            uint32_t hz = tx_exp2(473750 + (int32_t)i * 32768);   /* 150 Hz x 2^(i/2) .. 6.8 kHz */
+            s->bf[i] = tx_svf_coef(hz);
+            s->bgin[i] = (int32_t)tx_svf_gin_noise(hz, (uint32_t)q4 * 4u);
+            s->bg[i] = db_q11(MIX(a->g[i], b->g[i]) * 10 + ((int32_t)i - 9) * 30);   /* + 6 dB / oct: a plate radiates
                                                               * better as f rises (below coincidence), then the surface */
+        }
     }
     s->pq = (int32_t)(16384u / (pq < 2u ? 2u : pq));
     for (i = 0; i < NPANEL; i++) {
@@ -334,6 +352,15 @@ static void set_param(rain_t *s, unsigned id, unsigned v)
         if (id != P_INSIDE) surface(s);
         s->olpa = (int32_t)corner_a(in < s->top ? in : s->top);
     } else rates(s);
+}
+
+/* a host's cheaper rain (the storm, under its wind and thunder): the lite surface (4 bands, no panel modes), about
+ * a third of the surface's cost; on = 1 after init, before the first render */
+void tx_rainsurf_lite(void *st, unsigned on)
+{
+    rain_t *s = (rain_t *)st;
+    s->lite = (uint8_t)(on != 0);
+    surface(s);
 }
 
 static void rain_init(void *st, uint32_t seed)
@@ -566,8 +593,8 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
         ex[j] += fb[j];
         any |= ex[j];
     }
-    tx_svf_bank_add_g(s->band, s->bf, s->bq, s->bgin, s->bg, NB, ex, buf, n);
-    tx_svf_bank_add_g(s->panel, s->pf, s->pq, s->pgin, s->pg, NPANEL, ex, buf, n);
+    tx_svf_bank_add_g(s->band, s->bf, s->bq, s->bgin, s->bg, s->nbl, ex, buf, n);
+    if (!s->lite) tx_svf_bank_add_g(s->panel, s->pf, s->pq, s->pgin, s->pg, NPANEL, ex, buf, n);   /* (lite: none, 0.2 dB) */
     {   /* a shelf: up to +24 dB over ~2 kHz (x + k (x - lp)), so the bands' own gains stay in their range (the surfaces'
          * upper octaves are 20-50 dB over a raindrop's force spectrum there); the splash's droplets in the air (d/dt: bright,
          * then the corner, 2 poles); the top's damping / inside (2 poles, 32-bit split products): one pass */
