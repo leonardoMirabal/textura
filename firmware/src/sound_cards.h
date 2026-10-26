@@ -21,7 +21,12 @@
  * Storm: the names and order of the approved study (2026-10-26): thunder's JAGGED is its TORT, the gales' EXPOSED the
  * wind's BUFFET, hail's STONES the rain's DROPS. Listed ahead of their engines, and left out until the engine has
  * the parameter by that name: rain on water's AREA, rain on a roof's EAVES and WIND, hail's and sleet's RAIN. Hail has no
- * SURFACE card (its kind is the sound). The gales' cards are the same in the Wind landscape (by the sound's name). */
+ * SURFACE card (its kind is the sound).
+ *
+ * Wind: the approved study's ranking (2026-10-26), four on the first page, by the place: the trees' FOLIAGE early, the
+ * open places' EXPOSED (the wind's BUFFET); winter's and the desert's DRIFT; autumn's SKITTER (the dry leaves over the
+ * ground, left out until the engine has it). The source's EXTRA, SPACING and DEPTH do nothing on a wind, so no general
+ * card is left. The gales in the Storm landscape keep their cards (by the sound's name). */
 #ifndef TX_SOUND_CARDS_H
 #define TX_SOUND_CARDS_H
 #include <stdint.h>
@@ -59,12 +64,28 @@ static const scd_sound_t SCD[] = {
     {"storm", 0, 8, {{"RAIN", "RAIN", 0}, {"WIND", "WIND", 0}, {"FLASHES", "FLASHES", 0}, {"DIST", "DIST", 0},
                      {"AGE", "AGE", 0}, {"SURFACE", "SURFACE", 0}, {"PASSING", "PASSING", 0}, {"INSIDE", "INSIDE", 0}}},
     {"thunder", 0, 3, {{"JAGGED", "TORT", 0}, {"HEIGHT", "HEIGHT", 0}, {"GROUND", "GROUND", 0}}},
-    {"ridge gale", "wind", 7, {{"GUST", "GUST", CK_HOST}, {"SCALE", "SCALE", CK_HOST}, {"EXPOSED", "BUFFET", CK_HOST},
-                               {"FOLIAGE", "FOLIAGE", CK_HOST}, {"WHOOSH", "WHOOSH", CK_HOST}, {"EDGE", "EDGE", CK_HOST},
-                               DIST_CARD}},
-    {"winter storm", "wind", 8, {{"GUST", "GUST", CK_HOST}, {"SCALE", "SCALE", CK_HOST}, {"EXPOSED", "BUFFET", CK_HOST},
-                                 {"FOLIAGE", "FOLIAGE", CK_HOST}, {"WHOOSH", "WHOOSH", CK_HOST}, {"EDGE", "EDGE", CK_HOST},
-                                 {"DRIFT", "DRIFT", CK_HOST}, DIST_CARD}},
+    /* Wind (and the gales in Storm) */
+#define W_GUST {"GUST", "GUST", CK_HOST}
+#define W_SCALE {"SCALE", "SCALE", CK_HOST}
+#define W_EXPOSED {"EXPOSED", "BUFFET", CK_HOST}
+#define W_FOLIAGE {"FOLIAGE", "FOLIAGE", CK_HOST}
+#define W_WHOOSH {"WHOOSH", "WHOOSH", CK_HOST}
+#define W_EDGE {"EDGE", "EDGE", CK_HOST}
+#define W_DRIFT {"DRIFT", "DRIFT", CK_HOST}
+#define W_TREES {W_GUST, W_FOLIAGE, W_SCALE, W_EXPOSED, W_WHOOSH, W_EDGE, DIST_CARD}
+#define W_OPEN {W_GUST, W_EXPOSED, W_SCALE, W_WHOOSH, W_FOLIAGE, W_EDGE, DIST_CARD}
+    {"wind", "wind", 7, W_TREES},
+    {"wind in pines", "wind", 7, W_TREES},
+    {"leafy trees", "wind", 7, W_TREES},
+    {"breeze in grass", "wind", 6, {W_GUST, W_SCALE, W_FOLIAGE, W_WHOOSH, W_EXPOSED, DIST_CARD}},
+    {"open moor", "wind", 7, W_OPEN},
+    {"ridge gale", "wind", 7, W_OPEN},
+    {"sea wind", "wind", 6, {W_GUST, W_EXPOSED, W_WHOOSH, W_SCALE, W_FOLIAGE, DIST_CARD}},
+    {"gusty autumn", "wind", 7, {W_GUST, W_FOLIAGE, {"SKITTER", "SKITTER", CK_HOST}, W_SCALE, W_EXPOSED, W_WHOOSH,
+                                 DIST_CARD}},
+    {"winter storm", "wind", 8, {W_GUST, W_EXPOSED, W_DRIFT, W_SCALE, W_WHOOSH, W_FOLIAGE, W_EDGE, DIST_CARD}},
+    {"desert wind", "wind", 6, {W_DRIFT, W_GUST, W_EXPOSED, W_WHOOSH, W_FOLIAGE, DIST_CARD}},
+    /* Storm's hail */
 #define HAIL_CARDS {{"STONES", "DROPS", CK_HOST}, {"AREA", "AREA", CK_HOST}, {"INSIDE", "INSIDE", CK_HOST}, \
                     {"RAIN", "RAIN", CK_HOST}, {"BOUNCE", "BOUNCE", CK_HOST}, DIST_CARD}
     {"hail on a roof", "rainsurf", 6, HAIL_CARDS},
