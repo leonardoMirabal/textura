@@ -266,7 +266,7 @@ static const host_t HOST[] = {
     /* whistling wires (wind): a breath (1.6 m/s) .. a gale (20 m/s); gusts deepen; at the top the strings lock in */
     {"aeolian", -78, -78, -78, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
     /* hail and sleet (rain): a lone stone now and then, a small patch heard .. a hailstorm hammering, bigger stones */
-    {"rainsurf", -55, -55, -55, {{"RATE", 34, 95, 127}, {"DROPS", 40, 64, 100}, {"AREA", 30, 50, 50}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0, 0, 0, 0, 0},
+    {"rainsurf", -125, -125, -125, {{"RATE", 34, 115, 127}, {"DROPS", 40, 64, 100}, {"AREA", 30, 90, 90}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0, 0, 0, 0, 0},
     /* drips in a cave (water): a drop into a pool now and then, from high up .. drip points all over, quicker (one per
      * 10 s .. 4 /s each, at random: a cave's drips are Poisson) */
     {"drip", -135, -135, -135, {{"RATE", 0, 38, 88}, {"HEIGHT", 95, 100, 105}, {"SIZE", 70, 70, 70}, {"CLUMP", 0, 0, 0},

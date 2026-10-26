@@ -20,9 +20,9 @@
  *   splash   a drop on a hard wet surface throws a crown of droplets: a bright tick (differentiated, low-passed at the
  *            surface's corner), its share drawn per drop (0.25 .. 2 x: no two drops alike), bigger on wet wood and
  *            metal, little on fabric and leaves (ours, fitted to the references' upper octaves).
- *   surface  a roof or a window is modally dense: a log grid of 12 bands (150 Hz .. 7 kHz, half-octave, Q 2-5) whose
+ *   surface  a roof or a window is modally dense: a log grid of 8 bands (150 Hz .. 1.7 kHz, half-octave, Q 2-5) whose
  *            gains are the surface's body (fitted per surface to the references: a tent's 0.3-2 kHz drum, a porch's
- *            boards, a window's coincidence near 2.7 kHz over its low panel, a metal roof's flat ring), plus 4
+ *            boards, a window's low panel (its coincidence near 2.7 kHz: the shelf's), a metal roof's flat ring), plus 4
  *            low panel modes at the surface's own frequencies and Q (tent membrane 70-230 Hz; glass Q 120; steel Q 300).
  *            SURFACE moves between the five continuously (bands, modes, splash interpolated).
  *   leaves   a water-repellent leaf gets a second, weaker push from the rebounding jet at 0.44 tau_g,
@@ -69,9 +69,11 @@ static const tx_param_t PARAMS[NP] = {
 };
 
 #define NC 4u
-#define NB 12u
+#define NB 8u                      /* the surface's bands (150 Hz .. 1.7 kHz; the bank runs 8 a call: the 4 above,
+                                    * to 6.8 kHz, never sounded and were dropped, 2026-10-26: the upper octaves are
+                                    * the shelf's and the splash's) */
 #define NPANEL 4u
-#define LITE_NB 4u                  /* the lite surface's bands (one an octave over the 8 the bank runs; no panel modes) */
+#define LITE_NB 4u                  /* the lite surface's bands (one an octave over the 8; no panel modes) */
 #define NSURF 5u
 #define TABN 64u
 #define CARRY 64u
@@ -105,29 +107,31 @@ typedef struct {
 } surf_t;
 static const surf_t SURF[NSURF] = {
     /* leaves: soft ticks, little body, a light mid-high patter */
-    {{-40, -19, -17, -31, -26, -30, -40, -40, 1, 20, 22, 13}, 10, {180, 260, 390, 560}, 6, -60, 26, -53, 55, -60, 51, 80, 7, 10},
+    {{-40, -19, -17, -31, -26, -30, -40, -40}, 10, {180, 260, 390, 560}, 6, -60, 26, -53, 55, -60, 51, 80, 7, 10},
     /* tent: the fabric drums 0.3-2 kHz, falls fast above 3 kHz; its membrane 70-230 Hz */
-    {{-40, -26, -6, -20, -17, -18, -29, -20, 2, 12, -1, -35}, 8, {69, 105, 160, 230}, 6, -60, 21, -70, 50, -60, 0, 28, 3, 11},
+    {{-40, -26, -6, -20, -17, -18, -29, -20}, 8, {69, 105, 160, 230}, 6, -60, 21, -70, 50, -60, 0, 28, 3, 11},
     /* wood (boards, shingles): distinct drops on wood, its body 1-2 kHz (the porch, darker above: the cleanest sound) */
-    {{7, -16, -11, -14, -14, -17, -27, -40, -40, -9, -1, 23}, 12, {120, 175, 250, 360}, 15, -60, 16, -9, 60, -60, 0, 90, 5, 10},
+    {{7, -16, -11, -14, -14, -17, -27, -40}, 12, {120, 175, 250, 360}, 15, -60, 16, -9, 60, -60, 0, 90, 5, 10},
     /* glass (a window): its panel low, the coincidence near 2.7 kHz, dull above */
-    {{19, 16, 12, -8, -2, -4, -3, -6, -1, -6, 15, -3}, 16, {64, 118, 172, 662}, 120, -51, 20, -40, 60, -60, 0, 140, 0, -5},
+    {{19, 16, 12, -8, -2, -4, -3, -6}, 16, {64, 118, 172, 662}, 120, -51, 20, -40, 60, -60, 0, 140, 0, -5},
     /* metal roof: flat 0.2-4 kHz, a steel ring (Q 300) at its panel modes */
-    {{-7, -3, -12, -12, -18, -24, -40, -40, 7, 8, 12, 0}, 20, {215, 436, 527, 2083}, 300, -60, 26, -59, 50, -60, 0, 60, 7, 7},
+    {{-7, -3, -12, -12, -18, -24, -40, -40}, 20, {215, 436, 527, 2083}, 300, -60, 26, -59, 50, -60, 0, 60, 7, 7},
 };
 
 /* the ice kinds' surfaces (as SURF; fitted to the hail references; ours): the top open (ice clicks are bright) */
 static const surf_t HSURF_T[4] = {
     /* a metal roof under hail */
-    {{-7, -3, -12, -12, -18, -24, -30, -30, 0, 8, 12, 6}, 20, {215, 436, 527, 2083}, 300, -52, 26, -20, 120, -50, 0, 160, 16, 0},
+    {{-7, -3, -12, -12, -18, -24, -30, -30}, 20, {215, 436, 527, 2083}, 300, -52, 26, -20, 120, -50, 0, 160, 16, 0},
     /* a car: thin steel panels over the cabin's cavity: low panel modes, a bright clank 1-4 kHz */
-    {{16, 22, 20, 18, 12, 8, 0, -4, -4, 0, 2, 0}, 16, {140, 210, 300, 450}, 60, -30, 20, -40, 80, -50, 0, 160, 14, 0},
+    {{16, 22, 20, 18, 12, 8, 0, -4}, 16, {140, 210, 300, 450}, 60, -30, 20, -40, 80, -50, 0, 160, 14, 0},
     /* leaves */
-    {{-30, -30, -30, -45, -45, -45, -45, -40, -18, 6, 22, 24}, 10, {180, 260, 390, 560}, 6, -70, 26, -26, 80, -70, 0, 160, 12, 0},
-    /* a window under sleet: the pellets' ticks in the air, little of the pane */
-    {{-30, -30, -30, -30, -30, -30, -30, -30, -30, -30, -30, -30}, 16, {64, 118, 172, 662}, 120, -60, 20, 0, 160, -60, 0, 160, 14, 0},
+    {{-30, -30, -30, -45, -45, -45, -45, -40}, 10, {180, 260, 390, 560}, 6, -70, 26, -26, 80, -70, 0, 160, 12, 0},
+    /* a window under sleet: the pellets' ticks in the air, little of the pane (the top 11 kHz: the references fall
+     * above 12 kHz) */
+    {{-30, -30, -30, -30, -30, -30, -30, -30}, 16, {64, 118, 172, 662}, 120, -60, 20, 0, 160, -60, 0, 110, 14, 0},
 };
 #define NHK 4u
+#define SLEET_NEAR 8u               /* sleet: full pulses a block at most (the pellets are tiny: the rest far; CPU) */
 static const surf_t *const HSURF[NHK] = { &HSURF_T[0], &HSURF_T[1], &HSURF_T[2], &HSURF_T[3] };
 static const uint8_t H_E[NHK] = { 115, 102, 128, 77 };    /* restitution, Q8 (0.45, 0.4, 0.5: on through the leaves, 0.3) */
 static const int8_t H_LVL[NHK] = { -7, -28, 10, -1 };     /* level, dB (by render: -24 .. -27 LUFS at RATE 90) */
@@ -152,6 +156,7 @@ typedef struct {
     uint32_t srng;   /* the splash: last input, its low-pass, its coefficient (Q15), gain (Q11); direct (Q11) */
     uint32_t lam_q8[NC];           /* arrivals per second over the AREA, Q8 */
     uint32_t drip_q8;              /* drips off the eaves / leaves per second, Q8 */
+    int32_t dtrim;                 /* DROPS' level (Q12): bigger drops and stones louder (see rates) */
     uint32_t len[NC];              /* pulse length (samples) */
     int32_t amp[NC], fca[NC];      /* pulse peak (Q15), the corner as a one-pole (Q15) */
     uint32_t tg[NC];               /* leaves: the rebound delay, samples */
@@ -201,9 +206,9 @@ static void surface(rain_t *s)
     uint32_t pq = tx_exp2(lq);
 #define MIX(x, y) (((int32_t)(x) * (128 - (int32_t)fr) + (int32_t)(y) * (int32_t)fr) >> 7)
     if (q4 < 4) q4 = 4;
-    if (s->lite) {   /* the lite surface (a host's cheaper rain, under its own sounds): one band an octave, between two of
-                      * the grid's first 8 (the bank runs 8: TX_SVF_MAX), at their Q, the pair's gains summed (their
-                      * level, by render: within 1 dB on every surface) */
+    if (s->lite || s->hk == NHK) {   /* the lite surface (a host's cheaper rain, under its own sounds; sleet, whose
+                      * window is flat over the grid): one band an octave, between two of the grid's 8, at their Q, the
+                      * pair's gains summed (their level, by render: within 1 dB on every surface) */
         s->nbl = LITE_NB;
         s->bq = (int32_t)(65536u / (uint32_t)q4);
         for (i = 0; i < LITE_NB; i++) {
@@ -217,7 +222,7 @@ static void surface(rain_t *s)
         s->nbl = NB;
         s->bq = (int32_t)(65536u / (uint32_t)q4);            /* 16384 / Q */
         for (i = 0; i < NB; i++) {
-            uint32_t hz = tx_exp2(473750 + (int32_t)i * 32768);   /* 150 Hz x 2^(i/2) .. 6.8 kHz */
+            uint32_t hz = tx_exp2(473750 + (int32_t)i * 32768);   /* 150 Hz x 2^(i/2) .. 1.7 kHz */
             s->bf[i] = tx_svf_coef(hz);
             s->bgin[i] = (int32_t)tx_svf_gin_noise(hz, (uint32_t)q4 * 4u);
             s->bg[i] = db_q11(MIX(a->g[i], b->g[i]) * 10 + ((int32_t)i - 9) * 30);   /* + 6 dB / oct: a plate radiates
@@ -279,6 +284,12 @@ static void rates(rain_t *s)
     int32_t la = -217706 + (int32_t)(s->p[P_AREA] * 3896u);   /* log2(0.1 m^2) + v log2(200) / 127 */
     int32_t shift = ((int32_t)s->p[P_DROPS] - 64) * 2048;     /* +-2 octaves of the size mix */
     unsigned c, k;
+    /* the level over DROPS: at one rain rate, smaller drops are many more (the volume ~ D^3) but each far quieter;
+     * the pushes are compressed (a fourth root), which left drizzle 4 dB over the default and a convective rain 3 dB
+     * under it: rain 0.12 dB a step (drizzle -8, convective +8 re the compressed sum: about -4 / +5 dB in all);
+     * stones 0.08 (big hail thuds: 3 .. 8 mm D0, about -8 / +5 dB in all) */
+    s->dtrim = (int32_t)tx_exp2((12 << 16) + ((int32_t)s->p[P_DROPS] - 64) * (s->hk ? 870 : 1306));   /* 0.08 / 0.12 dB:
+                                                                   * x 10885 / 1000 (log2 Q16 a dB is 10885) */
     if (s->hk) {   /* ice: stones per m^2 per s, the size mix exp(-D / D0) over the classes' widths */
         unsigned sl = s->hk == NHK;
         int32_t lf = sl ? 152170 + (int32_t)(s->p[P_RATE] * 4765u) : -65536 + (int32_t)(s->p[P_RATE] * 5143u);   /* log2 5 .. 3000 / 0.5 .. 500 */
@@ -440,7 +451,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
 {
     rain_t *s = (rain_t *)st;
     tx_rng_t *r = &s->cloud.rng;
-    unsigned k, i, j, c, nexp = 0;
+    unsigned k, i, j, c, nexp = 0, nlim;
     int32_t *ex = s->ex, *buf = s->buf, *fb = s->fb, any = 0;
     uint16_t d0 = s->dropped;
     if (n > TX_BLOCK) n = TX_BLOCK;
@@ -496,6 +507,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
         if (s->wet < 0) s->wet = 0;
     }
     for (j = 0; j < n; j++) fb[j] = 0;
+    nlim = s->hk == NHK && s->limit > SLEET_NEAR ? SLEET_NEAR : s->limit;   /* (sleet: its tiny pellets, CPU) */
     if (s->wet) {
         for (c = 0; c < NC; c++) {
             uint32_t lam = (uint32_t)(((uint64_t)s->lam_q8[c] * (uint32_t)s->wet) >> 15);
@@ -525,7 +537,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
                 unsigned off = ((x >> 16) * n) >> 16, u = x & (NAMP - 1u);
                 int32_t sz = (int32_t)tx_exp2((int32_t)((x >> 5) & 32767u) * 4 + (14 << 16));   /* its own size: 0.5 .. 2 x its class (log) */
                 int32_t ai = (int32_t)(((int64_t)a * sz) >> 15), ad = ai < 65536 ? (ai * s->amp_t[u]) >> 15 : ((ai >> 1) * s->amp_t[u]) >> 14;   /* (ice: ai to 2^17) */
-                if (u < s->near_n && nexp < s->limit) {      /* near: a full pulse of its own length */
+                if (u < s->near_n && nexp < nlim) {              /* near: a full pulse of its own length */
                     uint32_t len = (s->len[c] * (uint32_t)(sz >> 7)) >> 8;
                     if (len > CARRY) len = CARRY;
                     pulse(s, off, len, ad);
@@ -586,7 +598,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
         if (e < 32) e = 0;
         s->senv = e; s->srng = x;
     }
-    /* the surface: 12 bands + its panel modes, rung by the pushes and the splashes; the push heard directly; the
+    /* the surface: 8 bands + its panel modes, rung by the pushes and the splashes; the push heard directly; the
      * splash's droplets in the air above the bands */
     for (j = 0; j < n; j++) {
         buf[j] = MUL15(ex[j], s->dirg);
@@ -622,7 +634,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
     for (j = 0; j < CARRY; j++) { ex[j] = ex[n + j]; ex[n + j] = 0; }   /* the pulses' tails */
     for (j = CARRY; j < n; j++) ex[j] = 0;
     tx_vary_block(&s->vy, buf, n);
-    tx_trim(buf, n, s->otrim);
+    tx_trim(buf, n, (int32_t)(((int64_t)s->otrim * s->dtrim) >> 12));
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     {
