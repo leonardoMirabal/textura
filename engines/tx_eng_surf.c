@@ -16,7 +16,18 @@
  * air's high-cut and 1 / r (ours). FLOOR: the far surf along the shore, a steady roar under the waves while the sea is
  * on (ours: -12 dB; 0 for a beach heard alone). STRIKE 0: a press sends no breaker; the sea it holds starts partway
  * into a wave period (its first breaker 0.1 .. 0.6 periods on). COUNT: wave trains along the shore, each with
- * its own timing (random phase, the same period and jitter) and size (farther: -1 .. -7 dB): more breakers. */
+ * its own timing (random phase, the same period and jitter) and size (farther: -1 .. -7 dB): more breakers.
+ *
+ * WATER 1, a lake (ours, against recordings of lake shores and of a moored hull): short wind waves (PERIOD 0.6 .. 4 s
+ * on average, no period kept: each train's waves at random; trains farther -14 .. -1 dB), in groups (a slow walk of
+ * their size, +-5 dB). No
+ * approach, roar, whoomph or backwash: each wave is a burst of small splashes, the 4 bands' noise each its own (its
+ * own clumps, heavy-tailed: a few loud), each wave its own tilt and the bands' own lags (the run-up's body first, the
+ * foam fizzing on up to 1 s after). FACE: a sloping shore (the wash rises 0.15 .. 0.6 s, decays 0.5 s, flat 250 Hz -
+ * 8 kHz, the fizz's bubbles in it) .. a hull or a jetty (a slap: rising in 2 .. 8 ms, its highs gone in ~25 ms, its
+ * lows on ~0.2 s, then the water sloshing dark under it, -16 dB, 0.6 s). Air caught at the face rings as a few plops
+ * (2 .. 10 mm, 330 .. 1600 Hz), the trough's gurgle after them. The recordings: shore washes 0.13 .. 1 /s, flat; a
+ * hull's slaps ~2 /s, -20 dB in 270 ms, centroid ~850 Hz. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_vary.h"
@@ -36,18 +47,20 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 2
 
-enum { P_PERIOD, P_HEIGHT, P_CHOP, P_BACKWASH, P_DIST, P_FLOOR, P_STRIKE, P_COUNT, P_SHORE, NP };
+enum { P_PERIOD, P_HEIGHT, P_CHOP, P_BACKWASH, P_DIST, P_FLOOR, P_STRIKE, P_COUNT, P_SHORE, P_WATER, P_FACE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"PERIOD", 127, 70, "wave period: 6 .. 15 s (+-20 % wave to wave)"},
+    {"PERIOD", 127, 70, "wave period: 6 .. 15 s (+-20 % wave to wave; a lake: 0.6 .. 4 s on average, at random)"},
     {"HEIGHT", 127, 64, "breaker height 0.3 .. 3 m (log): louder (-5 .. +5 dB), longer, lower whoomph (80 .. 30 Hz), more rumble"},
-    {"CHOP", 127, 64, "wave-to-wave variety: regular .. +-10 dB (L37) and +-40 % timing"},
+    {"CHOP", 127, 64, "wave-to-wave variety: regular .. +-10 dB (L37) and +-40 % timing (a lake: its sizes and groups; its timing is always at random)"},
     {"BACKWASH", 127, 64, "the backwash after each wave: none .. -8 dB under the break (64) .. as loud (water draining back through sand or shingle)"},
     {"DIST", 127, 64, "distance: on the shore .. 300 m away (high-cut, quieter)"},
     {"FLOOR", 127, 64, "the far surf along the shore under the waves while the sea is on: none .. -12 dB (64) .. -6 dB"},
     {"STRIKE", 1, 1, "a press: 1 = a breaker now; 0 = presses only hold the sea, which starts partway into a wave period"},
     {"COUNT", 8, 1, "wave trains along the shore, each its own timing and size (farther ones smaller): 1 .. 8, more breakers"},
     {"SHORE", 127, 0, "the beach: sand (the backwash a soft hiss) .. shingle (the stones dragged back rattle and clatter)"},
+    {"WATER", 1, 0, "0 = the sea's breakers; 1 = a lake: short wind waves lapping, in groups (no breakers, no backwash)"},
+    {"FACE", 127, 0, "a lake's waves meet: a sloping shore (soft washes, plops) .. a hull or a jetty (dark short slaps, gurgles)"},
 };
 
 #define NBRK 3u                    /* breakers sounding at once (one wave train) */
@@ -72,6 +85,9 @@ typedef struct {
     uint32_t t_plunge;             /* the plunge (end of the approach) */
     int32_t a;                     /* its size factor (Q15, 1.0 = HEIGHT's wave) */
     uint8_t alive, kicked, pad[2];
+    uint16_t wb[NB];               /* a lake's wave: its own spectrum, the roar bands' weights (Q12): each runs up or
+                                    * slaps its own way, so the bands do not move as one */
+    uint16_t lag[NB];              /* .. and each band's own lag (samples): the body first, the foam's fizz after */
 } brk_t;
 
 typedef struct {
@@ -94,6 +110,11 @@ typedef struct {
     int32_t burst_a, olp, olpa, ga, h_l2, floor;
     int32_t hg;                    /* HEIGHT's level, Q15 (1 m: 1) */
     int32_t rt, rt_x1, rt_y;       /* the shingle's rattle: its click envelope, high-pass and low-pass states */
+    uint32_t xb[NB];               /* lake: each band's own noise (its own splashes, not the others') */
+    int32_t nlp[NB];               /* .. low-passed (3.2 x the band's centre: the band's skirt 12 dB / oct above, the
+                                    * slosh under a hull stays dark) */
+    int32_t grp;                   /* lake: the waves' group level (tenths of a dB), a slow walk wave to wave */
+    uint32_t fz;                   /* the fizz's rate, Q8 of the sea's */
     uint8_t p[NP], limit, quiet, sea;
     int32_t level;
     uint16_t dropped;
@@ -121,6 +142,29 @@ static void set_pipe(surf_t *s)
     s->pg[3] = 70;
 }
 
+/* the roar bands' gains: the sea's (HEIGHT sets the 63 Hz one), or a lake's wash (FACE: a shore's flat 250 Hz - 8 kHz
+ * .. a hull's dark slap, 125-500 Hz; a lake's 63 Hz band is not run: the references' lows under 100 Hz are their wind
+ * and their place, and it cost a fifth of the lake for 0.02 of texture distance) */
+static const uint16_t LAKE_G[2][NB] = { { 0, 4400, 5300, 2800 }, { 0, 20700, 8050, 10350 } };
+static const uint16_t LAG[2][NB] = { { 0, 8820, 26460, 44100 }, { 0, 0, 0, 0 } };   /* the bands' lags at most
+                                                              * (samples): a shore's foam fizzes on after the run-up, the
+                                                              * water drips off a hull after the slap */
+static void set_bands(surf_t *s)
+{
+    unsigned i;
+    if (!s->p[P_WATER]) {
+        for (i = 1; i < NB; i++) s->rg[i] = (ROAR_REF * (int32_t)BAND_G[i]) >> 12;
+        s->rg[0] = (int32_t)(((int64_t)db_q15((int32_t)s->p[P_HEIGHT] * 12 / 127 - 6) * ROAR_REF * BAND_G[0]) >> 27);   /* -6 .. +6 dB */
+        s->fz = 256u;
+        return;
+    }
+    for (i = 0; i < NB; i++) {
+        int32_t f = s->p[P_FACE], g = ((int32_t)LAKE_G[0][i] * (127 - f) + (int32_t)LAKE_G[1][i] * f) / 127;
+        s->rg[i] = (ROAR_REF * g) >> 12;
+    }
+    s->fz = 480u - (uint32_t)s->p[P_FACE] * 480u / 127u;     /* a shore's wash fizzes; under a hull none */
+}
+
 static void set_param(surf_t *s, unsigned id, unsigned v)
 {
     if (id >= NP) return;
@@ -129,10 +173,10 @@ static void set_param(surf_t *s, unsigned id, unsigned v)
     if (id == P_HEIGHT) {
         s->h_l2 = -113800 + (int32_t)(v * 1720u);            /* log2(0.3 m) .. log2(3 m) */
         set_pipe(s);
-        s->rg[0] = (int32_t)(((int64_t)db_q15((int32_t)v * 12 / 127 - 6) * ROAR_REF * BAND_G[0]) >> 27);   /* -6 .. +6 dB */
         s->hg = (int32_t)tx_exp2((15 << 16) + ((int32_t)v - 64) * 860);   /* the break's level ~ sqrt(height): +-5 dB (ours:
                                                               * a 10 x higher wave plays 10 dB louder, not 20: playable) */
     }
+    if (id == P_HEIGHT || id == P_WATER || id == P_FACE) set_bands(s);
     if (id == P_DIST) {
         uint32_t fc = tx_knob_exp(127u - v, 1500u, 196608);   /* 1.5 .. 12 kHz */
         s->olpa = 32768 - (int32_t)tx_exp2((15 << 16) - (int32_t)(fc * 862u >> 6));
@@ -157,10 +201,10 @@ static void surf_init(void *st, uint32_t seed)
     for (i = 0; i < NB; i++) {
         s->rf[i] = tx_svf_coef(BAND_HZ[i]);
         s->rgin[i] = (int32_t)tx_svf_gin_noise(BAND_HZ[i], ROAR_GIN_Q16);
-        s->rg[i] = (ROAR_REF * (int32_t)BAND_G[i]) >> 12;
     }
     s->x32 = seed * 2654435761u + 5u;
     if (!s->x32) s->x32 = 1;
+    for (i = 0; i < NB; i++) s->xb[i] = (s->x32 ^ (0x9E3779B9u * (i + 1u))) | 1u;
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
@@ -202,10 +246,29 @@ static void launch(surf_t *s, uint32_t vel)
     for (i = 0; i < nb; i++) if (!s->br[i].alive) { b = &s->br[i]; break; }
     if (!b) for (i = 0; i < nb; i++) if (s->br[i].t >= oldest) { oldest = s->br[i].t; b = &s->br[i]; }
     db = (int32_t)(((int64_t)tx_rand_s15(r) * s->p[P_CHOP]) >> 15) * 10 / 127;   /* +-10 dB */
+    if (s->p[P_WATER]) {                                     /* a lake: the waves come in groups and lulls (a slow walk,
+                                                              * ~+-5 dB at CHOP 64, the group ~4 waves) */
+        s->grp = s->grp * 3 / 4 + (int32_t)(((int64_t)tx_rand_s15(r) * (20 + s->p[P_CHOP])) >> 15);
+        s->grp = s->grp > 120 ? 120 : s->grp < -120 ? -120 : s->grp;   /* (+-12 dB at most) */
+        db += s->grp / 10;
+    }
     b->a = db_q15(db) * (int32_t)vel / 100;                  /* <= 2^17 x 127: 32-bit */
     b->a = (int32_t)(((int64_t)b->a * s->hg) >> 15);         /* (HEIGHT: <= x 1.8) */
     b->t = 0;
-    b->t_plunge = 30000u + tx_rand_below(r, 22000u);         /* the approach: 0.7 .. 1.2 s */
+    if (s->p[P_WATER]) {                                     /* a lake's wave: its tilt +-6 dB a band (two octaves), at
+                                                              * random; it runs up 0.15 .. 0.6 s on a shore, a hull's */
+        int32_t tl = (int32_t)(((int64_t)tx_rand_s15(r) * 60) >> 15);
+        for (i = 0; i < NB; i++) {
+            int32_t d = tl * (2 * (int32_t)i - 3) / 3 + (int32_t)(((int64_t)tx_rand_s15(r) * 120) >> 15);
+            b->wb[i] = (uint16_t)(db_q15(d / 10) >> 3);
+            b->lag[i] = (uint16_t)tx_rand_below(r, LAG[s->p[P_FACE] > 63u][i] + 1u);
+        }
+    }
+    if (s->p[P_WATER]) {
+        uint32_t f = s->p[P_FACE];                           /* slap 2 .. 8 ms */
+        b->t_plunge = ((6600u + tx_rand_below(r, 19800u)) * (127u - f) + (90u + tx_rand_below(r, 260u)) * f) / 127u;
+    } else
+        b->t_plunge = 30000u + tx_rand_below(r, 22000u);     /* the approach: 0.7 .. 1.2 s */
     b->alive = 1; b->kicked = 0;
 }
 
@@ -241,13 +304,75 @@ static void envs(const surf_t *s, const brk_t *b, int32_t *roar, int32_t *back)
     }
 }
 
+/* a lake's wave meeting the face: air caught as it folds or slaps, ringing as a few bubbles (f0 = 3.28 m/s / a), then
+ * the trough's gurgle, a short chain ~70 ms apart at random (ours): a shore 2 .. 5 mm (650 .. 1600 Hz), a hull 3 .. 10 mm
+ * (330 .. 1100 Hz), more of them under a hull */
+static void plops(surf_t *s, const brk_t *b)
+{
+    tx_rng_t *r = &s->cloud.rng;
+    uint32_t f = s->p[P_FACE], k = tx_rand_below(r, 2u + f * 2u / 127u), w = tx_rand_below(r, 2000u), stolen;
+    int32_t a = (int32_t)(((int64_t)b->a * s->level) >> 15);
+    for (; k; k--) {
+        int32_t a_l2 = 65536 + (int32_t)(f * 302u) + (int32_t)(((tx_rand(r) >> 16) * (86500u + f * 216u)) >> 16);
+        uint32_t env;
+        int slot;
+        env = (uint32_t)(((uint64_t)tx_exp2((24 << 16) + a_l2 * 3 / 2 - (int32_t)(tx_rand(r) >> 16) * 3) * (uint32_t)a) >> 15);
+        slot = tx_pool_take(&s->pool, env, &stolen);
+        if (slot < 0) { s->dropped++; continue; }
+        if (stolen) tx_declick_add(&s->dc, s->b[slot].last);
+        tx_bubble_start(&s->b[slot], a_l2, 3277u, env, w);
+        w += 440u + ((tx_neglog2_q12(tx_rand(r) | 1u) * 1834u) >> 12);   /* 10 ms + exponential, mean 60 ms: the
+                                                              * gurgle's pops clustered, not in a row */
+    }
+}
+
+/* a lake's wave in roar band i at time t (samples): its run-up (t / tp)^2, then its decay: a shore's wash tau 0.5 s;
+ * a hull's slap 0.12 s, its highs gone in ~25 ms and its lows ringing on, then the water sloshing under it (-16 dB, tau
+ * 0.6 s, in the low bands) */
+static const uint16_t KT_HULL[NB] = { 384, 256, 64, 24 };   /* a hull's decay per band, x / 256 */
+static const uint16_t WS_HULL[NB] = { 256, 192, 26, 0 };   /* .. its slosh per band, x / 256 */
+static int32_t lake_env(const surf_t *s, const brk_t *b, uint32_t t, unsigned i)
+{
+    uint32_t tp = b->t_plunge, f = s->p[P_FACE], tau, kq, dt;
+    int32_t e;
+    if (t < tp) {
+        int32_t q = (int32_t)((t << 15) / tp);
+        return (int32_t)(((int64_t)((q * q) >> 15) * b->a) >> 15);
+    }
+    tau = (22050u * (127u - f) + 5200u * f) / 127u;
+    tau = tau * ((256u * (127u - f) + KT_HULL[i] * f) / 127u) >> 8;
+    kq = 94548u * 1024u / tau;                               /* 1 / tau x log2 e, Q26 */
+    dt = t - tp;
+    e = dt >= 1006632960u / kq ? 0 : (int32_t)tx_exp2((15 << 16) - (int32_t)((dt * kq) >> 10));
+    if (f) {
+        int32_t ws = (int32_t)((f * 41u * WS_HULL[i]) >> 8);
+        uint32_t xs = dt > 200000u ? (15u << 16) + 1u : (dt * 3574u) >> 10;
+        e = (int32_t)(((int64_t)e * (32768 - ws)) >> 15) + (xs > (15u << 16) ? 0 : (int32_t)(((int64_t)tx_exp2((15 << 16) - (int32_t)xs) * ws) >> 15));
+    }
+    return (int32_t)(((int64_t)e * b->a) >> 15);
+}
+
+/* the time to a train's next wave: the period +-jit. A lake's short wind waves keep no period: each train's next
+ * after T E, E exponential (mean 1, at most 8): Poisson, its trains' arrivals together IOI CV ~1, never a beat (the
+ * period +-80 % gave 0.8 .. 0.9 with 8 trains; lulls of the wind, every train put off together, cut silences the
+ * references never have). Their groups are in their sizes (launch) */
+static uint32_t gap(surf_t *s, uint32_t T, int32_t jit)
+{
+    if (s->p[P_WATER]) {
+        uint32_t e = (tx_neglog2_q12(tx_rand(&s->cloud.rng) | 1u) * 2839u) >> 12;   /* E, Q12 (x ln 2) */
+        if (e > 8u * 4096u) e = 8u * 4096u;
+        return (uint32_t)(((uint64_t)T * e) >> 12);
+    }
+    return (uint32_t)((int64_t)T * (32768 + jit) >> 15);
+}
+
 TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
 {
     surf_t *s = (surf_t *)st;
     tx_rng_t *r = &s->cloud.rng;
     unsigned k, i, j, live = 0;
     int32_t *nz = s->nz, *pin = s->pin, *buf = s->buf, z;
-    uint64_t pr = 0, pb = 0;
+    uint64_t pr = 0, pb = 0, pq[NB] = { 0, 0, 0, 0 };
     uint32_t x32 = s->x32;
     uint16_t d0 = s->dropped;
     if (n > TX_BLOCK) n = TX_BLOCK;
@@ -259,7 +384,8 @@ TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
     }
     {   /* the sea: breakers every PERIOD while a key is held */
         unsigned held = tx_cloud_held(&s->cloud);
-        uint32_t T = 6u * 44100u + s->p[P_PERIOD] * 3125u;   /* 6 .. 15 s */
+        uint32_t T = s->p[P_WATER] ? 26460u + s->p[P_PERIOD] * 1181u   /* a lake: 0.6 .. 4 s */
+                                   : 6u * 44100u + s->p[P_PERIOD] * 3125u;   /* 6 .. 15 s */
         if (held && !s->sea)                                 /* the press already sent one; or (STRIKE 0) the sea */
             s->next = s->p[P_STRIKE] ? 6u * 44100u : T / 10u + tx_rand_below(r, T / 2u);   /* is partway into a period */
         s->sea = (uint8_t)(held != 0);
@@ -268,19 +394,20 @@ TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
             else {
                 int32_t jit = (int32_t)(((int64_t)tx_rand_s15(r) * (6554 + s->p[P_CHOP] * 52)) >> 15);   /* +-20 .. 40 % */
                 launch(s, 100u);
-                s->next = (uint32_t)((int64_t)T * (32768 + jit) >> 15);
+                s->next = gap(s, T, jit);
             }
             for (i = 1; i < NTR; i++) {                      /* the other trains (COUNT): along the shore, each its */
                 if (i >= s->p[P_COUNT]) { s->tnext[i] = 0; continue; }   /* own timing, farther ones smaller */
                 if (!s->tnext[i]) {                          /* joining: partway into its period */
                     s->tnext[i] = 1u + tx_rand_below(r, T);
-                    s->tvel[i] = (uint8_t)(45u + tx_rand_below(r, 46u));   /* 45 .. 90: -7 .. -1 dB */
+                    s->tvel[i] = (uint8_t)(s->p[P_WATER] ? 20u + tx_rand_below(r, 71u)   /* (a lake: 20 .. 90, -14 .. -1 dB) */
+                                                  : 45u + tx_rand_below(r, 46u));   /* 45 .. 90: -7 .. -1 dB */
                 }
                 if (s->tnext[i] > n) s->tnext[i] -= n;
                 else {
                     int32_t jit = (int32_t)(((int64_t)tx_rand_s15(r) * (6554 + s->p[P_CHOP] * 52)) >> 15);
                     launch(s, s->tvel[i]);
-                    s->tnext[i] = (uint32_t)((int64_t)T * (32768 + jit) >> 15);
+                    s->tnext[i] = gap(s, T, jit);
                     if (!s->tnext[i]) s->tnext[i] = 1u;
                 }
             }
@@ -290,23 +417,31 @@ TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
         brk_t *b = &s->br[i];
         int32_t er, eb;
         if (!b->alive) continue;
-        envs(s, b, &er, &eb);
+        if (s->p[P_WATER]) { er = lake_env(s, b, b->t, 1); eb = 0; }
+        else envs(s, b, &er, &eb);
         if (!b->kicked && b->t + n > b->t_plunge) {          /* the plunge: the whoomph and the jet */
             b->kicked = 1;
-            s->burst = 11025u;
-            s->burst_a = b->a;
+            if (!s->p[P_WATER]) { s->burst = 11025u; s->burst_a = b->a; }
+            else plops(s, b);                                /* a lake's wave: air caught at the face, plops and gurgles */
         }
         pr += (uint64_t)((int64_t)er * er);
+        if (s->p[P_WATER]) for (j = 1; j < NB; j++) {
+            int32_t ej = lake_env(s, b, b->t > b->lag[j] ? b->t - b->lag[j] : 0u, j);
+            int64_t w = ((int64_t)ej * b->wb[j]) >> 17;         /* (/ 32: the sum stays in 32 bits) */
+            pq[j] += (uint64_t)(w * w);
+            if (ej > er) er = ej;                            /* (it ends when its last band has: the lagged foam) */
+        }
         pb += (uint64_t)((int64_t)eb * eb);
         b->t += n;
-        if (b->kicked && b->t > b->t_plunge + 2u * 44100u && er < (b->a >> 7) && eb < (b->a >> 7)) b->alive = 0;   /* -42 dB */
+        if (b->kicked && b->t > b->t_plunge + (s->p[P_WATER] ? 35280u : 2u * 44100u) && er < (b->a >> 7) && eb < (b->a >> 7)) b->alive = 0;   /* -42 dB */
         live = 1;
     }
     {   /* the roar: white noise in ~1.5 ms clumps of random gain -> 8 octave bands (L38's shape) x the envelope */
         uint32_t e = (uint32_t)tx_exp2((int32_t)((32 << 16) - (int32_t)(tx_neglog2_q12((uint32_t)(pr > 0xFFFFFFFFull ? 0xFFFFFFFFull : pr)) << 4)) / 2);
         int32_t g = (int32_t)(((uint64_t)e * (uint32_t)s->level) >> 15), any = 0;
         int32_t gb[NB];
-        if (s->sea || s->floor) {                             /* the far surf along the shore: a floor at -12 dB (ours) */
+        if (!s->p[P_WATER] && (s->sea || s->floor)) {       /* the far surf along the shore: a floor at -12 dB (ours; a
+                                                              * lake: none) */
             s->floor += s->sea ? ((int32_t)s->p[P_FLOOR] * 128 - s->floor) >> 6 : -(s->floor >> 6);   /* (FLOOR 64: 8192) */
             if (!s->sea && s->floor < 64) s->floor = 0;
             pr += (uint64_t)((int64_t)s->floor * s->floor);
@@ -314,8 +449,47 @@ TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
             g = (int32_t)(((uint64_t)e * (uint32_t)s->level) >> 15);
         }
         if (!pr) g = 0;
-        for (i = 0; i < NB; i++) { gb[i] = (int32_t)(((int64_t)s->rg[i] * g) >> 15); any |= gb[i]; }
-        if (any || !tx_svf_bank_quiet(s->roar, NB)) {
+        for (i = 0; i < NB; i++) {
+            int32_t gi = g;
+            if (s->p[P_WATER]) {                             /* a lake: each band its waves' own sum */
+                uint32_t ei = pq[i] ? (uint32_t)tx_exp2((int32_t)((32 << 16) - (int32_t)(tx_neglog2_q12((uint32_t)(pq[i] > 0xFFFFFFFFull ? 0xFFFFFFFFull : pq[i])) << 4)) / 2) : 0u;
+                gi = (int32_t)(((uint64_t)ei * (uint32_t)s->level) >> 10);
+            }
+            gb[i] = (int32_t)(((int64_t)s->rg[i] * gi) >> 15); any |= gb[i];
+        }
+        if (s->p[P_WATER] && (any || !tx_svf_bank_quiet(s->roar, NB))) {
+            /* a lake: each band its own noise in clumps of its own (the lower band's longer: 5.8 .. 0.7 ms), their gains
+             * heavy-tailed, 2^(3 u^3 - 1.75): mostly faint, a few loud. The wash is many small splashes, each band's its
+             * own, not one roar */
+            static const uint16_t CL[NB] = { 512, 256, 64, 32 };
+            static const int32_t CD[NB] = { 196608, 196608, 196608, 196608 };   /* the clumps' spread, octaves (Q16) at u^3 */
+            static const int32_t LPA[NB] = { 0, 3730, 14000, 0 };   /* the noise's low-pass: 2 pi fc / fs, Q15 (800,
+                                                              * 3200 Hz; the top band none) */
+            for (i = 1; i < NB; i++) {                     /* (the 63 Hz band not run: LAKE_G) */
+                uint32_t xb = s->xb[i];
+                int32_t y = s->nlp[i], la = LPA[i];
+                for (j = 0; j < n; j += CL[i]) {
+                    unsigned q, end = j + CL[i] < n ? j + CL[i] : n;
+                    int32_t cg;
+                    xb ^= xb << 13; xb ^= xb >> 17; xb ^= xb << 5;
+                    {   uint32_t u = xb >> 16, u3 = ((u * u) >> 16) * u >> 16;   /* (u^3: mostly faint, a few loud) */
+                        int32_t l2 = (int32_t)(((int64_t)u3 * CD[i]) >> 16) - CD[i] / 4 - 65536;
+                        cg = gb[i] ? (int32_t)tx_exp2(l2 + (12 << 16)) : 0; }   /* Q12 */
+                    if (la) for (q = j; q < end; q++) {          /* (low-passed) */
+                        xb ^= xb << 13; xb ^= xb >> 17; xb ^= xb << 5;
+                        y += ((((((int32_t)(xb >> 16) - 32768) * cg) >> 7) - y) >> 8) * la >> 7;
+                        nz[q] = y;
+                    } else for (q = j; q < end; q++) {
+                        xb ^= xb << 13; xb ^= xb >> 17; xb ^= xb << 5;
+                        nz[q] = (((int32_t)(xb >> 16) - 32768) * cg) >> 7;
+                    }
+                }
+                s->xb[i] = xb;
+                s->nlp[i] = gb[i] || y <= -256 || y >= 256 ? y : 0;   /* (the shifts' floor would hold a small offset
+                                                              * for ever: the band never quiet) */
+                tx_svf_bank_add_g(&s->roar[i], &s->rf[i], ROAR_Q, &s->rgin[i], &gb[i], 1, nz, buf, n);
+            }
+        } else if (any || !tx_svf_bank_quiet(s->roar, NB)) {
             for (j = 0; j < n; j += 64) {
                 unsigned q, end = j + 64u < n ? j + 64u : n;
                 int32_t cg;
@@ -331,7 +505,7 @@ TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
         }
         if (!any && tx_svf_bank_quiet(s->roar, NB)) for (i = 0; i < NB; i++) s->roar[i].low = s->roar[i].band = s->roar[i].ef = 0;
         {   /* the cloud's fizz: bubble heroes at ~150 / s at a full wave's peak, 0.5 .. 4 mm, mostly deep */
-            uint32_t mu_q8 = (uint32_t)(((uint64_t)e * 225u) >> 15) * n / 256u;   /* expected in this block, Q8 */
+            uint32_t mu_q8 = (uint32_t)(((uint64_t)e * 225u) >> 15) * n / 256u * s->fz >> 8;   /* expected in this block, Q8 */
             uint32_t want = 0, acc, mean, stolen;
             if (mu_q8) {
                 mean = 65536u / mu_q8;
@@ -361,7 +535,7 @@ TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
                                                               * the references' 30-80 Hz bands sit under the roar */
         }
     }
-    tx_svf_bank_add_g(s->pipe, s->pf, 2048, s->pgin, s->pg, 4, pin, buf, n);
+    if (!s->p[P_WATER] || !tx_svf_bank_quiet(s->pipe, 4)) tx_svf_bank_add_g(s->pipe, s->pf, 2048, s->pgin, s->pg, 4, pin, buf, n);
     {   /* the backwash hiss */
         uint32_t e = pb ? (uint32_t)tx_exp2((int32_t)((32 << 16) - (int32_t)(tx_neglog2_q12((uint32_t)(pb > 0xFFFFFFFFull ? 0xFFFFFFFFull : pb)) << 4)) / 2) : 0u;
         int32_t g = (int32_t)(((uint64_t)e * s->p[P_BACKWASH] * 13u) >> 9);   /* (x 8: the backwash was 20 dB under the

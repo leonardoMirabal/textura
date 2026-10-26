@@ -79,7 +79,7 @@ static const tx_param_t PARAMS[NP] = {
     {"LOCK", 1, 0, "MIDI clock lock (a hook: stored, no effect until the clock sync is built)"},
     {"DIV", 9, 4, "beat division when locked: 1/1 1/2 1/4 1/8 1/16 1/32 1/4T 1/8T 1/16T, 9 = a probability per bar (a hook)"},
     {"GRID", 127, 0, "grid pull: the probability an event lands on the clock's grid (a hook)"},
-    {"TYPE", 127, 0, "the kind within the family: 0 = the preset's own; above, the hosted engine's own kinds over the range (wind: grass .. pines .. leafy trees .. a moor .. the coast .. a ridge .. autumn .. a winter storm .. a desert; crickets, katydids, bees: species; rain: surfaces 1 .. 99, hail and sleet 101 .. 127; water: drops 0, cave drips 16, eaves 32, a brook 48, a spring 64, a waterfall 80, waves on sand 96, on shingle 112; ice: icicles 8, cubes in a glass 24, frost 40, snow 56, lake ice 72, sea ice 88, a far lake booming 104, thin ice 120; glass: a pane 0, bottles 64, shards 110; wood: spruce .. green branch; minerals: granite .. quartz; sand: hand .. tube)"},
+    {"TYPE", 127, 0, "the kind within the family: 0 = the preset's own; above, the hosted engine's own kinds over the range (wind: grass .. pines .. leafy trees .. a moor .. the coast .. a ridge .. autumn .. a winter storm .. a desert; crickets, katydids, bees: species; rain: surfaces 1 .. 99, hail and sleet 101 .. 127; water: drops 0, cave drips 16, eaves 32, a brook 48, a spring 64, a waterfall 80, waves on sand 96, on shingle 112, a lake lapping on a shore 120 .. on a hull 127; ice: icicles 8, cubes in a glass 24, frost 40, snow 56, lake ice 72, sea ice 88, a far lake booming 104, thin ice 120; glass: a pane 0, bottles 64, shards 110; wood: spruce .. green branch; minerals: granite .. quartz; sand: hand .. tube)"},
     {"COUNT", 127, 64, "how many individuals at once, each its own distance, size and character: 0 none (silence; tails ring), 1 + 21 steps per doubling: 1, 22, 43, 64, 85, 106, 127 = 1, 2, 4, 8, 16, 32, 64 (rain: patches of rain, stones: rolling stones or pouring points, water: dripping points, cicadas, birds; hosted engines: their keys or presses)"},
 };
 
@@ -316,6 +316,10 @@ static const host_t HOST[] = {
     /* waves on shingle (water): the same sea on a stony beach close by: the backwash draining loud through the stones */
     {"surf", -100, -100, -100, {{"HEIGHT", 0, 50, 100}, {"PERIOD", 127, 80, 40}, {"BACKWASH", 50, 58, 66}, {"DIST", 40, 40, 40},
                      {"FLOOR", 40, 40, 40}, {"STRIKE", 0, 0, 0}, {"SHORE", 127, 127, 127}}, 0, 10, 0, 0, 0, 0, 0},
+    /* lake lapping (water): ripples lapping now and then .. a lake's short waves in a breeze, higher and quicker
+     * (TYPE: on a sloping shore .. against a hull or a jetty; COUNT: the engine's wave trains, up to 8) */
+    {"surf", -65, -65, -65, {{"WATER", 1, 1, 1}, {"STRIKE", 0, 0, 0}, {"HEIGHT", 0, 64, 110}, {"PERIOD", 110, 80, 50},
+                     {"CHOP", 10, 10, 10}, {"DIST", 50, 30, 20}, {"FLOOR", 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
 };
 
 /* the loud hosted sounds' nearest gain, Q12 (the rest: 32767, the source's own cap): their peaks at ACTIVITY 127 a few
@@ -619,6 +623,9 @@ static const kmap_t HMAP[][HOST_NK] = {
      * EXTRA (its card: PERIOD; up = longer) */
     {{"HEIGHT", P_SIZE, 64}, {"BACKWASH", P_TONE, 64}, {"CHOP", P_HARD, 64}, {"FLOOR", P_SPREAD, 64}, {"PERIOD", P_EXTRA, 64}},
     {{"HEIGHT", P_SIZE, 64}, {"BACKWASH", P_TONE, 64}, {"CHOP", P_HARD, 64}, {"FLOOR", P_SPREAD, 64}, {"PERIOD", P_EXTRA, 64}},
+    /* lake lapping: what the waves meet (TYPE: a shore .. a hull), height, chop; the period on EXTRA (its card:
+     * PERIOD; up = longer) */
+    {{"FACE", P_TYPE, 0}, {"HEIGHT", P_SIZE, 64}, {"CHOP", P_HARD, 64}, {"PERIOD", P_EXTRA, 64}},
 };
 
 /* the family members TYPE reaches (note 16: every family had members no knob could reach): TYPE from lo up to the
@@ -643,6 +650,8 @@ static const fam_t FAM[] = {
     {PR_WATER, 80, H_MEMBER + 14, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},   /* a waterfall */
     {PR_WATER, 96, H_MEMBER + 15, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},   /* waves on sand */
     {PR_WATER, 112, H_MEMBER + 16, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},   /* waves on shingle */
+    {PR_WATER, 120, H_MEMBER + 17, {{0, 0, 0}, 0, {0, 0, 0}, 0, 0, 0, 0, 0, {0, 0}, {0, 0}, 0}},   /* lake lapping: a
+                                                                     * shore 120 .. a hull 127 */
 };
 #define NFAM (sizeof FAM / sizeof FAM[0])
 
