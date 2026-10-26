@@ -128,18 +128,20 @@ static const surf_t HSURF_T[4] = {
     {{26, 28, 22, 18, 12, 8, 0, -4}, 16, {90, 140, 210, 300}, 60, -18, 0, -40, 80, -50, 0, 80, 6, 0},
     /* leaves */
     {{-30, -30, -30, -45, -45, -45, -45, -40}, 10, {180, 260, 390, 560}, 6, -70, 26, -26, 80, -70, 0, 160, 12, 0},
-    /* a window under sleet: the pellets' ticks in the air, little of the pane (the top 11 kHz: the references fall
-     * above 12 kHz) */
-    {{-30, -30, -30, -30, -30, -30, -30, -30}, 16, {64, 118, 172, 662}, 120, -60, 20, 0, 160, -60, 0, 110, 14, 0},
+    /* a window under sleet: the pellets' ticks in the air, little of the pane; no shelf, the top damped from 6 kHz
+     * (the references: +18 / +10 dB at 8 kHz re 500 Hz, falling above; ours had +5 dB too much at 1-2 kHz and above
+     * 8 kHz) */
+    {{-30, -30, -30, -30, -30, -30, -30, -30}, 16, {64, 118, 172, 662}, 120, -60, 20, 0, 160, -60, 0, 60, 0, 0},
 };
 #define NHK 4u
-static const uint8_t H_SG[4] = { 128, 128, 0, 48 };   /* ice: the fall's surges by kind, x 2^(+-2) at 128 and
-                                    * full (sd ~0.6 octave of the rate; the leaves' reference is steady) */
+static const uint8_t H_SG[4] = { 128, 128, 0, 128 };  /* ice: the fall's surges by kind, x 2^(+-2) at 128 and
+                                    * full (sd ~0.6 octave of the rate; the leaves' reference is steady; sleet comes
+                                    * in the wind's gusts: its references' 0.5-1 Hz modulation, 48 was 4 dB short) */
 #define HSHIFT 6                   /* their tau, 2^6 blocks: 0.37 s (the references' 0.5-4 Hz modulation) */
 #define SLEET_NEAR 8u               /* sleet: full pulses a block at most (the pellets are tiny: the rest far; CPU) */
 static const surf_t *const HSURF[NHK] = { &HSURF_T[0], &HSURF_T[1], &HSURF_T[2], &HSURF_T[3] };
 static const uint8_t H_E[NHK] = { 115, 102, 128, 77 };    /* restitution, Q8 (0.45, 0.4, 0.5: on through the leaves, 0.3) */
-static const int8_t H_LVL[NHK] = { -9, -7, 10, -1 };     /* level, dB (by render: -24 .. -27 LUFS at RATE 90) */
+static const int8_t H_LVL[NHK] = { -9, -7, 10, 7 };      /* level, dB (by render: -24 .. -27 LUFS at RATE 90) */
 static const uint16_t H_D[2][NC] = { {5000, 10000, 18000, 30000}, {1500, 2500, 3500, 5000} };   /* um */
 static const uint8_t H_DD[2][NC] = { {5, 6, 10, 14}, {10, 10, 10, 20} };   /* the classes' widths (mm; sleet 0.1 mm) */
 #define A_REF_H 24000              /* a 1 cm hailstone's push at 9 m/s (Q15 force units; set by render) */
