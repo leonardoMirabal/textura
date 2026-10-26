@@ -49,13 +49,14 @@ static const kind_t KINDS[NK] = {
     {256, 256, 4921, {256, 256, 256, 3, 300, O(-4), O(30), 70, O(-10), 6, 800, O(-5), 0, 512, 430, 260, 200, 30, 50, O(0), 300, 150, 250, O(10), 0, 0, 0, 0}},
     /* a sea wind on the coast: strong and steady (little turbulence, long slow swells), a broad bright roar, spray hiss */
     {280, 128, 6276, {120, 150, 150, 1, 300, O(3), O(35), 110, O(40), 4, 2000, O(5), 0, 512, 120, 200, 60, 16, 24, O(5), 500, 20, 100, O(10), 0, 0, 0, 0}},
-    /* a gale on a ridge: violent sudden gusts and deep lulls, a deep roar over the rock, howling gusts, buffeting */
-    {330, 480, 1500, {700, 300, 500, 7, 300, O(-9), O(25), 40, O(0), 6, 1000, O(0), 0, 512, 480, 400, 300, 48, 96, O(-5), 300, 300, 500, O(10), 0, 0, 0, 0}},
+    /* a gale on a ridge: violent sudden gusts and deep lulls, a deep roar over the rock, howling gusts, heavy buffeting */
+    {330, 640, 1500, {900, 300, 500, 9, 300, O(-12), O(25), 40, O(0), 6, 1000, O(0), 0, 512, 900, 400, 300, 48, 96, O(-5), 300, 300, 500, O(5), 0, 0, 0, 0}},
     /* a gusty autumn day: calm, then a gust and dry leaves crackling (sparse, big, bright, ~u^3) and skittering over the
      * ground above 4 m/s, in runs */
     {230, 380, 4770, {450, 320, 350, 6, 100, O(0), O(20), 400, O(-40), 9, 1200, O(6), 0, 768, 250, 250, 250, 19, 40, O(8), 256, 80, 300, O(10), 128, 64, 1024, 0}},
-    /* a winter storm: bare branches, blowing snow hissing over 7 m/s (~u^3), howling gusts, buffeting */
-    {320, 220, 3300, {300, 300, 400, 2, 260, O(-4), O(20), 750, O(20), 6, 3000, O(10), 112, 768, 320, 400, 350, 40, 80, O(-8), 300, 250, 250, O(10), 0, 0, 0, 0}},
+    /* a winter storm: bare branches, a low roar (the references: 400-500 Hz centroid), blowing snow a faint hiss over
+     * 7 m/s (~u^3), howling gusts, buffeting */
+    {320, 220, 4150, {300, 300, 400, 2, 260, O(-12), O(20), 100, O(20), 6, 3000, O(10), 112, 768, 320, 400, 350, 40, 80, O(-8), 300, 250, 250, O(5), 0, 0, 0, 0}},
     /* a desert wind: sand lifting over 5 m/s, its grains ticking and hissing (~u^3, bright), no plants */
     {256, 180, 7479, {200, 256, 256, 1, 120, O(0), O(20), 1600, O(30), 4, 4000, O(30), 80, 768, 100, 200, 100, 19, 30, O(5), 256, 60, 250, O(10), 0, 0, 0, 0}},
 };
