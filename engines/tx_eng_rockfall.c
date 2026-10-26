@@ -11,8 +11,11 @@
  *              (SHAKER, PhISEM).
  * Every hit: loudness ~ momentum m v (R1), x sqrt(radiated share) (10^-6 soft marl .. 10^-3 hard rock, R1); a Hertz
  * contact of t_c ~ R v^-0.2 (0.25 m at 10 m/s = 1.3 ms; soft ground longer: ours) into the ground's low boom
- * (3 modes 35 / 70 / 140 Hz, Q 3: ours, note 04's 30-150 Hz) plus a bright click on hard ground. Distance: 1 / r and
- * air absorption (a low-pass); far away the 70-120 Hz air-wave rumble stays (R7). */
+ * (3 modes 35 / 70 / 140 Hz, Q 3: ours, note 04's 30-150 Hz) plus a bright click on hard ground. Distance: 1 / r on
+ * everything (the hits and the talus alike: -40 dB from 30 m to 3 km) and air absorption (a low-pass: below ~150 Hz air
+ * takes well under 1 dB per km, so the far fall is its own low band, 1 / r quieter); beyond ~1 km the many ground and air
+ * paths smear that low band into the 70-120 Hz rumble (R7): a noise band led by the low-passed fall's own envelope, at
+ * most a quarter of it, so the rumble never outgrows the fall and the level only falls with distance. */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_vary.h"
@@ -41,10 +44,12 @@ static const tx_param_t PARAMS[NP] = {
     {"HEIGHT", 127, 50, "fall height: 5 .. 100 m (log): silence sqrt(2 h / g) 1 .. 4.5 s, impact speed sqrt(2 g h)"},
     {"FRAG", 127, 64, "fragmentation: a few big blocks (beta 1.4, 4 s) .. many small (beta 2.3, 13 s of tumbling talus)"},
     {"GROUND", 127, 80, "ground: soft (marl: dull, quiet) .. hard rock (bright, loud): radiated share 1e-6 .. 1e-3"},
-    {"DIST", 127, 40, "distance: 30 m .. 3 km (log): quieter, darker; far: the 70-120 Hz rumble"},
+    {"DIST", 127, 40, "distance: 30 m .. 3 km (log): 1 / r, darker (air); far: the low-passed fall smeared into a rumble"},
 };
 
 #define NF 3u
+#define DIST_REF_L2 458697         /* log2(127.9 m) Q16: DIST 40, the default: the hits' and the talus' reference */
+#define RUM_UNIT 2654              /* the rumble band's mean |x| per Q8 x Q15 of gain (339639 Q23 at 1.0), / 256 */
 #define NG 3u
 #define A_REF 36000                /* the main hit at the reference (1 m^3, 30 m fall, 150 m, hard): Q15 (calibrated) */
 
@@ -70,9 +75,10 @@ typedef struct {
     fall_t f[NF];
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t ex[TX_BLOCK], buf[TX_BLOCK];
-    int32_t lpa, lp1, lp2, rum, dhp;
+    int32_t lpa, lp1, lp2, rum, dhp;  /* rum: the low-passed fall's envelope (mean |x|, Q23) */
     uint8_t p[NP], limit, quiet, pad;
     int32_t level, vol_l2, h_l2, beta_inv, share_l2, dist_l2;
+    int32_t dist_g, rum_sh;        /* 1 / r (Q12, 1.0 at the default 128 m); the rumble's share (Q8) */
     uint32_t frag_ms;
     uint16_t dropped;
     tx_vary_t vy;
@@ -99,6 +105,11 @@ static void set_param(rock_t *s, unsigned id, unsigned v)
         fc = tx_exp2(1001000 - (2 * (s->dist_l2 - 321577)) / 3);           /* air: ~15 kHz at 30 m, (r)^-2/3 */
         fc = fc < 120u ? 120u : fc > 16000u ? 16000u : fc;
         s->lpa = 32768 - (int32_t)tx_exp2((15 << 16) - (int32_t)(fc * 862u >> 6));
+        s->dist_g = (int32_t)tx_exp2((12 << 16) - (s->dist_l2 - DIST_REF_L2));    /* 1 / r: 4.3 at 30 m .. 0.043 at 3 km */
+        {   /* the rumble's share of the fall's envelope: 0 up to ~1 km, then rising (log r) to 1/4 at 3 km */
+            int32_t far = s->dist_l2 - 653000;
+            s->rum_sh = far <= 0 ? 0 : far >= 104000 ? 64 : (far * 41) >> 16;   /* 64 / 104000 */
+        }
         break;
     }
     default: break;
@@ -184,9 +195,10 @@ static void trigger(rock_t *s, const tx_event_t *e)
     lr = (vl2 - 125000) / 3;                                 /* R = (3 V / 4 pi)^(1/3): log2(4 pi / 3) = 2.07 */
     lv = (s->h_l2 + 285000) / 2;                             /* v = sqrt(2 g h): log2(19.62) = 4.29 */
     f->lr_main = lr;
-    /* loudness ~ m v x sqrt(share) / r: against 1 m^3, 30 m fall (24.3 m/s), 150 m, share 1e-3 */
+    /* loudness ~ m v x sqrt(share) / r: against 1 m^3, 30 m fall (24.3 m/s), 150 m, share 1e-3; here at the
+     * reference distance (the default 128 m): the rest of 1 / r is the output's dist_g, after any hit saturates */
     f->l_main = (int32_t)(log2_q16(A_REF) + (vl2 - 0) + (lv - 301000) + (s->share_l2 + 653000) / 2
-                - (s->dist_l2 - 473750));
+                - (DIST_REF_L2 - 473750));
     f->t = 0;
     f->t_imp = 74970u;                                       /* 1.7 s (R2) */
     {   /* sqrt(2 h / g) s -> samples: log2(sqrt(2 / 9.81)) = -1.147 */
@@ -244,14 +256,14 @@ TX_AUDIO_CODE static void rock_render(void *st, int32_t *mix, unsigned n)
 {
     rock_t *s = (rock_t *)st;
     unsigned k, i, j;
-    int32_t *buf = s->buf, *ex = s->ex, te = 0, any = 0, rum = 0;
+    int32_t *buf = s->buf, *ex = s->ex, te = 0, any = 0;
     uint16_t d0 = s->dropped;
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) buf[j] = ex[j] = 0;
     k = tx_cloud_block(&s->cloud, s->ev, n);
     if (!k && s->quiet) return;                              /* silent and nothing new: nothing to compute */
     for (i = 0; i < k; i++) trigger(s, &s->ev[i]);
-    for (i = 0; i < NF; i++) if (s->f[i].alive) { fall_block(s, &s->f[i], n, &te); rum += s->f[i].alive; }
+    for (i = 0; i < NF; i++) if (s->f[i].alive) fall_block(s, &s->f[i], n, &te);
     tx_pulses_add(&s->pul, ex, n);
     for (j = 0; j < n; j++) any |= ex[j];
     /* the direct hits (darker with distance below) + the ground's boom */
@@ -279,9 +291,18 @@ TX_AUDIO_CODE static void rock_render(void *st, int32_t *mix, unsigned n)
         if (!any && lp1 > -64 && lp1 < 64 && lp2 > -64 && lp2 < 64 && tx_shaker_quiet(&s->talus)) lp1 = lp2 = 0;
         s->lp1 = lp1; s->lp2 = lp2;
     }
-    {
-        int32_t far = s->dist_l2 - 653000;                   /* beyond ~1 km */
-        int32_t g = rum && far > 0 ? (int32_t)(((int64_t)(far > 262144 ? 262144 : far) * s->level) >> 16) : 0;
+    tx_trim(buf, n, s->dist_g);                              /* 1 / r on everything: the hits, the ground, the talus */
+    {   /* far: the rumble, led by the low-passed fall (its mean |x| per block; held ~50 ms: the paths' spread) */
+        int32_t g = 0;
+        if (s->rum_sh) {
+            uint32_t m = 0;
+            for (j = 0; j < n; j++) m += (uint32_t)(buf[j] < 0 ? -buf[j] : buf[j]) >> 8;   /* < 2^19 each */
+            m = n ? (m / n) << 8 : 0;
+            s->rum = (int32_t)m > s->rum ? (int32_t)m : s->rum - (s->rum >> 3);
+            if (s->rum < 256) s->rum = 0;
+            g = (((s->rum >> 11) * 197) >> 8) * s->rum_sh;   /* / RUM_UNIT (2^11 x 256 / 197); Q15: mean |x| = rum x share */
+            if (g > (1 << 19)) g = 1 << 19;
+        } else s->rum = 0;
         tx_noise_level(&s->rumble, g);
         tx_noise_add(&s->rumble, buf, n);
     }

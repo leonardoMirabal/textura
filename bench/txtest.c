@@ -21,6 +21,7 @@
  * FX: off = untouched; silence in = exact silence out; each reverb TYPE's tail ends in exact zeros; FREEZE holds its level
  *     for 3 minutes; renders against the baselines (fx-*).
  * Keys: every engine over the SMK-37's keybed (notes 48..84) at v1 / v127: no overflow, quiet after.
+ * Distance: rockfall's DIST never makes a tap louder, nor its peak higher; under full scale from its default out.
  * Hosts: every engine run inside another (the source's hosted sounds, the storm's rain) fits its arena: one that does
  *        not is left out silently by its host, so it fails here.
  * Sources: no float / double / floating literal in engines/ (comments and strings stripped). */
@@ -958,6 +959,61 @@ static void check_keyrange(void)
     }
 }
 
+/* rockfall's DIST (30 m .. 3 km): a tap's level (mean square over 4 seeds, 15 s) never rises with distance (0.5 dB:
+ * seed noise), nor its peak, at the defaults and at the loud corner (VOLUME 127, v127, LEVEL 127); at the defaults the
+ * tap stays under full scale from the default distance out (nearer is 1 / r louder, as on every engine's DIST) */
+static void check_rockfall_dist(void)
+{
+    const tx_engine_t *e = tx_engine_find("rockfall");
+    void *st = e ? tx_state_new(e) : 0;
+    unsigned c, d, k, b, j, bad = 0, clip = 0, p_dist = 0;
+    char msg[200], where[64] = "";
+    if (!st) { verdict("rockfall", "dist", 0, "rockfall not found", 0); return; }
+    for (c = 0; c < 2; c++) {
+        double lmin = 1e9, pmin = 1e9, top = -999, ptop = -999;
+        for (d = 0; d <= 127; d++) {
+            double ms = 0, l, p;
+            int32_t mix[TX_BLOCK], pk = 0;
+            for (k = 0; k < 4; k++) {
+                e->init(st, 3 + 8 * k);
+                if (c) { e->param(st, 0, 127); e->param(st, TX_PID_LEVEL, 127); }
+                e->param(st, 4, (uint8_t)d);
+                e->key(st, 60, c ? 127 : 100, 1);
+                for (b = 0; b < 2584u; b++) {
+                    for (j = 0; j < TX_BLOCK; j++) mix[j] = 0;
+                    if (b == 26) e->key(st, 60, 0, 0);
+                    e->render(st, mix, TX_BLOCK);
+                    for (j = 0; j < TX_BLOCK; j++) {
+                        int32_t x = mix[j] < 0 ? -mix[j] : mix[j];
+                        double y = mix[j] / 8388608.0;
+                        ms += y * y;
+                        if (x > pk) pk = x;
+                    }
+                }
+            }
+            l = 10 * log10(ms + 1e-30);
+            p = 20 * log10(pk + 1.0);
+            if (!c && d >= 40 && pk >= TX_Q23) { if (!clip++) p_dist = d; }
+            if (l > lmin + 0.5 || p > pmin + 0.5) {
+                if (!bad++) snprintf(where, sizeof where, " (first: %s DIST %u: %+.1f dB)", c ? "loud" : "default", d,
+                                     l > lmin + 0.5 ? l - lmin : p - pmin);
+            }
+            if (l < lmin) lmin = l;
+            if (p < pmin) pmin = p;
+            if (!d) { top = l; ptop = p; }
+            if (d == 127) {
+                snprintf(msg, sizeof msg, "%s tap: DIST 127 against 0: level %.1f dB, peak %.1f dB (info)",
+                         c ? "loud-corner" : "default", l - top, p - ptop);
+                verdict("rockfall", "dist", 1, msg, 0);
+            }
+        }
+    }
+    snprintf(msg, sizeof msg, "DIST: %u level/peak rises over 0.5 dB%s, %u at full scale from DIST 40 (first DIST %u)",
+             bad, where, clip, p_dist);
+    verdict("rockfall", "dist", !bad && !clip, msg, 0);
+    free(st);
+}
+
 /* ---- the effects (tx_fx.h): off = the signal untouched; silence in = exact silence out with every effect on; each
  * reverb TYPE's tail ends in exact zeros (no DC left, nothing drifting); FREEZE holds its level for minutes; renders
  * against the baselines (fx-*). Input: a deterministic burst (noise and a decaying 220 Hz tone, -12 dBFS, 0.5 s) */
@@ -1534,7 +1590,7 @@ int main(int argc, char **argv)
     check_layers(update);
     check_fx(update);
     check_noise_core();
-    if (!update) { check_gen(); check_gov(); check_switch(); check_keyrange(); }
+    if (!update) { check_gen(); check_gov(); check_switch(); check_keyrange(); check_rockfall_dist(); }
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }
     printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);
     return fails ? 1 : 0;
