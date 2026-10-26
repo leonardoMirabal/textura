@@ -91,7 +91,7 @@ static void thunder_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 
 static void cut(thunder_t *s, unsigned i)
 {
-    tx_declick_add(&s->dc, s->fl[i].lp2 * s->fl[i].out_g);
+    tx_declick_add(&s->dc, tx_flash_now(&s->fl[i]));
     s->fl[i].active = 0;
     s->em[i] = 0xFF;
     s->next[i] = 0;

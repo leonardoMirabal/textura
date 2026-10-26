@@ -5,6 +5,8 @@
 #define STEP_CM 1600               /* 16 m (the channel model 8 m; the deflections do not depend on the step: 640 x 16 m reach the ground from 5 km) */
 #define XMAX 8191                  /* the excitation's bound (13 bits: S2 <= (2L)^2 / 2 x 2^13 < 2^31) */
 #define AREA_L2 10                 /* a segment's box area at 1 km, E_l 1e4 J/m: 2^10 (calibrated by render) */
+#define TH_KCAP 40u                /* the far roll: x r / 3.6 km up to 2.5 (+8 dB, tau 3.75 s) */
+#define TH_FSH 6                   /* the roll fades out (23 ms) 6 x 6 dB under its peak: a tap ends within 16 s */
 #define OUT_G 512                  /* output multiplier (|y| <= L x XMAX = 2.6e6: x 512 < 2^31) */
 
 static uint32_t isqrt32(uint32_t x)
@@ -75,10 +77,11 @@ static void grow(tx_flash_t *f, tx_rng_t *r)
      * stationary lines at fs / SMEAR and its harmonics (~170 / 340 / 520 Hz; session 5's spectrogram review) */
     m = m + (uint32_t)(((int32_t)m * (tx_rand_s15(r) >> 2)) >> 15);
     m = m < 1u ? 1u : m > TX_TH_SMEAR ? (TX_TH_SMEAR * 3u) / 5u + tx_rand_below(r, (TX_TH_SMEAR * 2u) / 5u) : m;
-    {   /* area: 1 / r to 3.6 km, 1 / r^2 beyond */
+    {   /* area: 1 / r to 3.6 km, 1 / r^2 beyond; scaled to the flash's distance (aref), its loss from there taken at
+         * the output (oatt): a far flash's excitation was a few units, and its whole steps a broadband hiss */
         uint32_t rm = rr / 100u;
-        a = (uint32_t)f->area0 * 1000u / (rm ? rm : 1u);
-        if (rm > 3600u) a = a * 3600u / rm;
+        a = (uint32_t)f->area0 * f->aref / (rm ? rm : 1u);
+        if (rm > 3600u) a = a * f->knee / rm;
         a = a > 32767u ? 32767u : a;
     }
     if (f->nseg < TX_TH_SEGS) {
@@ -102,6 +105,13 @@ void tx_flash_start(tx_flash_t *f, tx_rng_t *r, uint32_t dist_m, uint32_t height
     if (dist_m < 50u) dist_m = 50u;
     if (dist_m > 30000u) dist_m = 30000u;
     f->pz = (int32_t)(height_m * 100u);
+    f->aref = dist_m > 1000u ? dist_m : 1000u;
+    f->knee = dist_m > 3600u ? dist_m : 3600u;
+    {   /* the loss from 1 km to aref: 1 / r, then 1 / r^2 past 3.6 km (Q15) */
+        uint32_t at = 32768000u / f->aref;
+        if (f->aref > 3600u) at = at * 3600u / f->aref;
+        f->oatt = (int32_t)at;
+    }
     f->uz = -16384;
     f->lx = (int32_t)(dist_m * 100u);
     f->tmin = 0xFFFFFFFFu;
@@ -125,8 +135,19 @@ void tx_flash_start(tx_flash_t *f, tx_rng_t *r, uint32_t dist_m, uint32_t height
     {
         int32_t lc = (2 * (log2_q16(600u) - log2_q16(dist_m))) / 3;
         uint32_t fc = tx_exp2(lc + 653125);                  /* 1000 x 2^lc: log2(1000) = 9.966 */
-        fc = fc < 150u ? 150u : fc > 12000u ? 12000u : fc;
+        fc = fc < 60u ? 60u : fc > 12000u ? 12000u : fc;
         f->lpa = 32768 - (int32_t)tx_exp2((15 << 16) - (int32_t)(fc * 862u >> 6));
+    }
+    /* the roll beyond the shadow (ours): past ~3.6 km the direct sound falls as 1 / r^2 (the air bends it up over
+     * you) while the roll scattered by the air and the ground falls as 1 / r: relatively louder (x r / 3.6 km, +8 dB
+     * at most), slower (tau 1.5 s x the same, 3.75 s at most) and through the same air (its noise under f_c, 220 Hz at
+     * most). Nearer, the tail is as it was. */
+    {
+        uint32_t k = dist_m > 3600u ? (dist_m * 16u) / 3600u : 16u;   /* r / 3.6 km, Q4 */
+        k = k > TH_KCAP ? TH_KCAP : k;
+        f->tgain = (int32_t)(k * 16u);                       /* Q8: 256 .. 640 */
+        f->trel = (int32_t)(4096u / k);                      /* 256 (tau 1.5 s) .. 102 (3.75 s) */
+        f->ta = f->lpa < 1024 ? f->lpa : 1024;               /* 1024: 1 / 32, ~220 Hz */
     }
     f->out_g = OUT_G;
     f->st_t[0] = 0; f->st_g[0] = 32767; f->nst = 1;
@@ -178,7 +199,7 @@ TX_AUDIO_CODE void tx_flash_add(tx_flash_t *f, tx_rng_t *r, int32_t *out, unsign
          * (~200 Hz, two one-poles) following the output's envelope, which falls with tau 1.5 s (ours) */
         int32_t env = f->env, n1 = f->n1, n2 = f->n2;
         uint32_t nr = f->nr ? f->nr : 0x2545F491u;
-        int32_t L2 = f->l2, rc = f->recip, a = f->lpa, g = f->out_g;
+        int32_t L2 = f->l2, rc = f->recip, a = f->lpa, g = f->out_g, trel = f->trel, tgn = f->tgain, ta = f->ta, oa = f->oatt, epk = f->epk;
         int16_t *dl = f->dl;
         unsigned p = f->dlpos;
         for (j = 0; j < n; j++) {
@@ -191,29 +212,34 @@ TX_AUDIO_CODE void tx_flash_add(tx_flash_t *f, tx_rng_t *r, int32_t *out, unsign
             s2 += s1 - L2 * xo;                              /* sum k x[n-k], k = 0 .. 2L-1 (uses the old S1) */
             s1 += xc - xo;
             y = s1 - MUL15(s2, rc);                          /* the odd ramp +1 .. -1 */
-            lp1 += MUL15(y - lp1, a);
+            lp1 += MUL15(y * 64 - lp1, a);                   /* (the air's states x 64: a far flash is quiet and its
+                                                              * corner low, and whole steps were a broadband hiss) */
             lp2 += MUL15(lp1 - lp2, a);
             {
-                int32_t yo = lp2 * g, ay = (yo < 0 ? -yo : yo), u;
+                int32_t yo = lp2 * (g >> 6), ay = (yo < 0 ? -yo : yo), u;
                 ay = (ay > (1 << 26) ? (1 << 26) : ay) << 4;   /* (x 16: the fall's last steps are under -70 dBFS) */
-                env = ay > env ? env + ((ay - env) >> 6) : env - (env >> 16) - (env > 0);
+                env = ay > env ? env + ((ay - env) >> 6) : env - (((env >> 12) * trel) >> 12) - (env > 0);
+                if (env > epk) epk = env;
+                else if (!ay && env > 0 && env < (epk >> TH_FSH)) env -= (env >> 10) + 1;   /* (36 dB under its peak: a quick
+                                                              * fade, never a cut) */
                 nr ^= nr << 13; nr ^= nr >> 17; nr ^= nr << 5;
                 u = (int32_t)(nr >> 17) - 16384;
-                n1 += (u - n1) >> 5;
-                n2 += (n1 - n2) >> 5;
-                out[j] += yo + ((n2 * (env >> 16)) >> 1);    /* (calibrated by render) */
+                n1 += MUL15(u * 64 - n1, ta);                /* (x 64, as the air's) */
+                n2 += MUL15(n1 - n2, ta);
+                out[j] += MUL15(yo + (((((n2 >> 6) * (env >> 16)) >> 1) >> 8) * tgn), oa);   /* (calibrated by render;
+                                                              * x 32768: exact) */
             }
             any |= xc | s1 | s2;
         }
         f->dlpos = (uint16_t)p;
         if (!env) n1 = n2 = 0;
-        f->env = env; f->n1 = n1; f->n2 = n2; f->nr = nr;
+        f->env = env; f->epk = env ? epk : 0; f->n1 = n1; f->n2 = n2; f->nr = nr;
     }
     for (j = 0; j < TX_TH_SMEAR + 1u; j++) d[j] = d[n + j];  /* carry the boxes' far edges */
     for (; j < n + TX_TH_SMEAR + 1u; j++) d[j] = 0;
     f->x = x; f->s1 = s1; f->s2 = s2;
     f->clock = c0 + n;
-    if (!any && ((lp1 > -16 && lp1 < 16 && lp2 > -16 && lp2 < 16) || (lp1 == f->lp1 && lp2 == f->lp2)))
+    if (!any && ((lp1 > -1024 && lp1 < 1024 && lp2 > -1024 && lp2 < 1024) || (lp1 == f->lp1 && lp2 == f->lp2)))
         lp1 = lp2 = 0;                                       /* small, or frozen (the step rounds to zero) */
     f->lp1 = lp1; f->lp2 = lp2;
     if (f->clock > f->st_t[f->nst - 1] + f->tmax + TX_TH_SMEAR && !any && !lp1 && !lp2 && !x && !f->env) f->active = 0;

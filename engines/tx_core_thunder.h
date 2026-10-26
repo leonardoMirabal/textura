@@ -55,6 +55,10 @@ typedef struct {
     int32_t out_g;                 /* output multiplier (calibrated by render) */
     int32_t env, n1, n2;           /* the rolling tail: the output's envelope (slow release), its low noise */
     uint32_t nr;                   /* (the tail's noise state) */
+    int32_t trel, tgain, ta;       /* the tail by distance: release (Q12 of 1 / 2^12), gain (Q8), noise pole (Q15) */
+    uint32_t aref, knee;           /* the excitation's distance scale (m: the flash's, 1 km at least), the 1 / r^2 knee */
+    int32_t oatt;                  /* the distance's loss past aref, at the output (Q15, 32768: none) */
+    int32_t epk;                   /* the tail's envelope peak (the roll ends some dB under it) */
 } tx_flash_t;
 
 /* start a flash: distance (m), start height (m), tortuosity (Q8, 256 = the channel model), energy per length E_l (log2 of
@@ -64,5 +68,12 @@ void tx_flash_start(tx_flash_t *f, tx_rng_t *r, uint32_t dist_m, uint32_t height
 void tx_flash_restrike(tx_flash_t *f, int32_t gain_q15);      /* another stroke now (if room) */
 TX_AUDIO_CODE void tx_flash_add(tx_flash_t *f, tx_rng_t *r, int32_t *out, unsigned n);
 static inline int tx_flash_active(const tx_flash_t *f) { return f->active; }
+/* the direct sound's sample now, as tx_flash_add outputs it (the air's states are x 64; the distance's loss): for a
+ * declick when a flash is cut */
+static inline int32_t tx_flash_now(const tx_flash_t *f)
+{
+    int32_t o = f->lp2 * (f->out_g >> 6);
+    return ((o >> 15) * f->oatt) + (((o & 0x7FFF) * f->oatt) >> 15);
+}
 
 #endif
