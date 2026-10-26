@@ -89,6 +89,10 @@ static const tx_param_t PARAMS[NP] = {
 #define EVMAX 24u                   /* explicit heroes started per block */
 #define EV_BLK 28u                  /* rain: explicit events a block at most, on average (3400 /s; clumped rain's children
                                      * count too): above, each is kept at random and stands for the ones thinned out */
+#define EV_HARD 14u                 /* rain: explicit events in one block at most (a clumped burst's): the rest are carried
+                                     * by the next kept one (owe_q8). With XBIG: worst block ~650 us FM-1 at SIZE 127 +
+                                     * SPACING 0 (was ~2400), w8 under 600 */
+#define XBIG 1u                     /* rain: a big drop standing for several places this many more of them at most */
 #define RATE_CAP 2500u              /* explicit events per second at most: above, each stands for several (rain; its grains) */
 
 typedef struct {
@@ -407,6 +411,7 @@ typedef struct {
     uint8_t ni, cur_on, ipad[2];
     int32_t cur_r, cur_sz;          /* the individual of the event being made (cur_on) */
     uint32_t ev_est;                /* rain: its events a block lately (Q8), for the thinning (EV_BLK) */
+    uint32_t owe_q8;                /* rain: the drops held back by EV_HARD, carried by the next kept one (Q8) */
     tx_clu_cfg_t cf;                /* its character at the activity now */
 } src_t;
 
@@ -845,7 +850,18 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
             uint32_t at = off + 4410u + tx_rand_below(r, 6615u);
             bubble(s, a_l2, l, at, (tx_rand(r) & 1u) ? 6554u : 0u, r_l2, trim, pre, 0);
         }
-        if (w_q8 > 256u && (tx_rand(r) >> 24) < ((w_q8 - 256u) & 255u)) drop(s, tx_rand_below(r, n), n, 0, vel, pre, trim, w_q8 - 256u);
+        if (w_q8 > 256u) {                                   /* the big drops this one stands for: w - 1 of them (rounded at
+                                                             * random), at most XBIG placed in the block, the rest's power in
+                                                             * theirs (a chain of one more each, as before, ran up to w - 1
+                                                             * full drops in one block: the CPU's worst) */
+            uint32_t k = (w_q8 - 256u + (tx_rand(r) >> 24)) >> 8, m = k > XBIG ? XBIG : k;
+            int32_t tr = trim;
+            if (k > XBIG) tr = (trim * (int32_t)isqrt((k << 16) / XBIG)) >> 8;   /* (power kept; trim < 2^20, the root < 2^12) */
+            while (m--) {                                    /* (one draw per statement: see the clicks above) */
+                unsigned at = tx_rand_below(r, n);
+                drop(s, at, n, 0, vel, pre, tr, 256u);
+            }
+        }
     }
 }
 
@@ -2027,7 +2043,7 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     /* the events of this block in time order: immigrants and the children due (tx_core_cluster.h); each an individual's
      * (a child its parent's) */
     {
-        unsigned guard = 0, cn = count_n(s), nev = 0;
+        unsigned guard = 0, cn = count_n(s), nev = 0, nk = 0;
         tx_clu_ev_t ce;
         int off;
         uint32_t keep = 65536u, wk = w_q8;                   /* rain thinned: kept at random (Q16), each standing for 1 / keep */
@@ -2040,6 +2056,7 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
             unsigned pre = pa;
             nev++;
             if (keep < 65536u && pre == PR_RAIN && (tx_rand(r) >> 16) >= keep) { if (!ce.kid) s->total++; continue; }
+            if (pre == PR_RAIN && nk >= EV_HARD) { s->owe_q8 += wk; if (s->owe_q8 > (64u << 8)) s->owe_q8 = 64u << 8; if (!ce.kid) s->total++; continue; }
             if (eb && !ce.kid && (!ea || (tx_rand(r) >> 17) < (uint32_t)w)) pre = pb;
             if (pre == pa && ea && ce.tag < s->ni) {         /* its place: a stone's or a drip point's where it is; a rain */
                 const indiv_t *d = &s->ind[ce.tag];          /* patch's drops over the ground around, most far (the */
@@ -2048,7 +2065,8 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
                 s->cur_sz = (int32_t)d->sz * 16;
                 s->cur_on = 1;
             }
-            event(s, (unsigned)off, n, pre, 0, 100, pre == PR_RAIN ? wk : 256u, ce.lv);
+            if (pre == PR_RAIN) { nk++; event(s, (unsigned)off, n, pre, 0, 100, wk + s->owe_q8, ce.lv); s->owe_q8 = 0; }
+            else event(s, (unsigned)off, n, pre, 0, 100, 256u, ce.lv);
             s->cur_on = 0;
             if (!ce.kid) s->total++;
             s->clu.itag = (uint8_t)(cn > 1u ? tx_rand_below(r, cn) : 0u);
