@@ -66,6 +66,8 @@ typedef struct {
     int32_t oec_l2, oec_q;          /* the cavity: fixed (log2 Hz Q16) or, tracking, an offset re f0 (track 1) */
     int32_t a1, a2, b0;             /* the cavity's coefficients (Q14, Q14, Q15) */
     int32_t y1, y2, x1;             /* its state, the radiation's last input */
+    int32_t la1, la2, lb0, ly1, ly2;   /* a woodpecker's trunk: its low body, a second resonance under the ring (lb0 0:
+                                     * none, every other bird) */
     int32_t gain;                   /* Q12: level x distance x the type's trim */
     int32_t last;                   /* the last output (a declick when cut) */
     int32_t bz, bh;                 /* the breath: its noise low-passed, and the slower low-pass taken off (a band) */

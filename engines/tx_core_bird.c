@@ -85,7 +85,7 @@ static const sp_t SP[TX_BIRD_TYPES] = {
     /* 17 woodpecker: not a voice: the beak strikes its tree (a short rich burst, the strike) and the tree rings (the
      * fixed resonance, its own pitch per bird's tree: refs 540-1030 Hz, ringing ~5 ms); rolls of 6-30 strikes, 17-23 /s,
      * most quickening toward the end (refs: the last quarter's interval 0.7-0.8 of the first), a few slowing; rolls
-     * ~5 s apart in a bout */
+     * ~5 s apart in a bout; under the ring the trunk's low body, 2 oct down (tx_bird_song) */
     {ST_WOODPECKER, -150, 150, 6, 9, 6, 9, 0, 224, 0, 4, 4, 2, 8, 3000, 9000, 0, 255, 6, 0, 625918, 2000},
     /* 18 wood pigeon: a phrase of a short rising coo, a short coo, one long coo (0.9-1.4 s, falling 0.07-0.22 oct) and a
      * short low one, ~650 Hz, 2.5-3.4 s apart, 3-5 in a bout; soft, hollow: a closed bill, an inflated throat. Breathy:
@@ -658,6 +658,14 @@ void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigne
     for (i = 0; i < TX_BIRD_DL; i++) v->dl[i] = 0;           /* a fresh tract: no state from another voice */
     v->dp = 0; v->y1 = v->y2 = v->x1 = 0; v->phase = v->phase2 = 0; v->jw = 0; v->last = 0;
     v->a1 = v->a2 = v->b0 = 0;
+    v->la1 = v->la2 = v->lb0 = v->ly1 = v->ly2 = 0;
+    if (S->style == ST_WOODPECKER) {                         /* the trunk's low body, 2 oct under its ring (130 .. 270
+                                                              * Hz), Q 4 (second pass: the drum references' loud frames
+                                                              * 19-28 dB under their peak octave at 250 Hz, 15-32 at 125;
+                                                              * ours were 35-48 and 46-61) */
+        uint32_t fl = tx_exp2(v->oec_l2 - 131072);
+        tx_ireso_coefs(fl, 64u, &v->la1, &v->la2, &v->lb0);
+    }
     v->recent[0] = v->recent[1] = 0xFF;
     v->nph = (uint8_t)(S->style == ST_OWL ? ((mix(bird_seed, 9u) % 3u) ? 2u : 1u) : rb(&v->rng, S->plo, S->phi));
     if (S->style == ST_FINCH) v->nph = (uint8_t)((mix(bird_seed, 7u) & 3u) == 0u ? rb(&v->rng, 4, 14) : rb(&v->rng, 2, 6));   /* a sparrow's chirping; a chaffinch's songs and calls */
@@ -824,6 +832,16 @@ static void at(const tx_bird_voice_t *v, uint32_t pos, int32_t *f, int32_t *k, i
     *a = e;
 }
 
+/* a woodpecker's trunk: the strike's pressure through a second, low resonance, radiated by the trunk's surface (no
+ * beak's differencing), at 1300 / 4096 of the ring's scale (-10 dB) */
+TX_AUDIO_CODE static inline int32_t low(tx_bird_voice_t *v, int32_t pin, int32_t g)
+{
+    int32_t y = ((v->la1 * v->ly1 - v->la2 * v->ly2) >> 14) + ((v->lb0 * pin) >> 15);
+    y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
+    v->ly2 = v->ly1; v->ly1 = y;
+    return (((y * 81) >> 8) * g) >> 2;
+}
+
 TX_AUDIO_CODE int tx_bird_render(tx_bird_voice_t *v, int32_t *out, unsigned n)
 {
     unsigned j = 0;
@@ -838,6 +856,7 @@ TX_AUDIO_CODE int tx_bird_render(tx_bird_voice_t *v, int32_t *out, unsigned n)
                 y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
                 y2 = y1; y1 = y;
                 last = (((v->closed ? y : y - x1) >> 1) * g) >> 1; x1 = y;
+                if (v->lb0) last += low(v, pin, g);
                 out[j] += last;
             }
             v->wait -= m;
@@ -878,6 +897,7 @@ TX_AUDIO_CODE int tx_bird_render(tx_bird_voice_t *v, int32_t *out, unsigned n)
                 y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
                 y2 = y1; y1 = y;
                 last = (((v->closed ? y : y - x1) >> 1) * g) >> 1; x1 = y;   /* the beak (or a closed one) */
+                if (v->lb0) last += low(v, pin, g);
                 if (bk) {                                    /* the breath: a band of noise (~0.45 .. 0.9 kHz corners,
                                                               * -6 dB / oct on both sides), riding the note */
                     v->nz = v->nz * 1664525u + 1013904223u;
@@ -898,11 +918,13 @@ TX_AUDIO_CODE int tx_bird_render(tx_bird_voice_t *v, int32_t *out, unsigned n)
             y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
             y2 = y1; y1 = y;
             last = (((v->closed ? y : y - x1) >> 1) * g) >> 1; x1 = y;
+            if (v->lb0) last += low(v, 0, g);
             out[j] += last;
         }
         v->wait += n;                                        /* (the tail's length: rounding may hold a tiny cycle) */
-        if ((y1 > -4 && y1 < 4 && y2 > -4 && y2 < 4) || v->wait > 4410u) { y1 = y2 = 0; x1 = 0; }
+        if ((y1 > -4 && y1 < 4 && y2 > -4 && y2 < 4 && v->ly1 > -4 && v->ly1 < 4 && v->ly2 > -4 && v->ly2 < 4)
+            || v->wait > 4410u) { y1 = y2 = 0; x1 = 0; v->ly1 = v->ly2 = 0; }
     }
     v->y1 = y1; v->y2 = y2; v->x1 = x1; v->a1 = a1; v->a2 = a2; v->b0 = b0; v->last = last;
-    return v->singing || y1 || y2;                          /* (a cut tail: the engine declicks v->last) */
+    return v->singing || y1 || y2 || v->ly1 || v->ly2;                          /* (a cut tail: the engine declicks v->last) */
 }
