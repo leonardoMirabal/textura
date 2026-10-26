@@ -25,13 +25,15 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 5
 
-enum { P_DIST, P_ENERGY, P_TORT, P_HEIGHT, NP };
+enum { P_DIST, P_ENERGY, P_TORT, P_HEIGHT, P_GROUND, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"DIST", 127, 50, "distance to the flash at C4: 0.2 .. 20 km (log): level 1/r then 1/r^2, duller (air), longer N-waves"},
     {"ENERGY", 127, 64, "channel energy per length E_l: 1e4 .. 1e6 J/m (log): N-wave peak f_m 680 .. 68 Hz (Few), louder"},
     {"TORT", 127, 64, "tortuosity: deflection spread x 0.25 .. 4 of the natural spread (27 deg): smooth roll .. cracking claps"},
     {"HEIGHT", 127, 100, "channel start height: 0.5 .. 5 km (log): how long it rumbles (up to ~15 s)"},
+    {"GROUND", 127, 0, "the terrain: an open plain (0: no echo) .. a valley, mountains: the roll heard again off its sides, "
+                       "0.4 .. 2.5 s later, -14 .. -6 dB (one echo; two above 64)"},
 };
 
 #define NF 2u
@@ -141,6 +143,17 @@ static void flash(thunder_t *s, const tx_event_t *e)
         lv = lv > 32767 ? 32767 : lv;
         tx_flash_start(&s->fl[k], r, tx_exp2(dl2), tx_exp2(hl2), tq < 32u ? 32u : tq > 2048u ? 2048u : tq, el2, lv);
     }
+    if (s->p[P_GROUND]) {   /* the terrain's echoes (ours: a valley's sides or a mountain 70 .. 430 m off; the echo's
+                             * loss -14 dB at a hint of terrain .. -6 dB in a deep valley; a second one 4 dB under) */
+        int32_t g = s->p[P_GROUND], l2 = -152390 + (g * 87080) / 127;   /* -14 .. -6 dB (log2, 10885 a dB) */
+        uint32_t x = ((uint32_t)dl2 * 2654435761u) ^ (uint32_t)el2;   /* (drawn from this flash's own: the channel's
+                                                              * draws stay as they were) */
+        unsigned m, ne = g > 64 ? 2u : 1u;
+        for (m = 0; m < ne; m++, l2 -= 43540) {
+            x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+            tx_flash_echo(&s->fl[k], 17640u + (uint32_t)(((x >> 16) * 92610u) >> 16), (int32_t)tx_exp2(l2 + (15 << 16)));
+        }
+    }
     s->em[k] = e->emitter; s->note[k] = e->note;
     s->next[k] = 1323u + (tx_cloud_exp_q8(&s->cloud, 882u << 8) >> 8);   /* 30 ms + exp(20 ms) */
 }
@@ -160,7 +173,7 @@ TX_AUDIO_CODE static void thunder_render(void *st, int32_t *mix, unsigned n)
         if (!f->active) continue;
         if (s->next[i] && f->gen_done && f->clock >= s->next[i]) {   /* held: another return stroke */
             const tx_emitter_t *e = s->em[i] < TX_CLOUD_EMITTERS ? &s->cloud.em[s->em[i]] : 0;
-            if (e && e->held && e->note == s->note[i] && f->nst < TX_TH_STROKES) {
+            if (e && e->held && e->note == s->note[i] && f->nst - f->necho < 4u && f->nst < TX_TH_STROKES) {
                 tx_flash_restrike(f, 19661);
                 s->next[i] = f->clock + 1323u + (tx_cloud_exp_q8(&s->cloud, 882u << 8) >> 8);
             } else

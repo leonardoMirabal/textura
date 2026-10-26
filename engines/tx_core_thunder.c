@@ -160,7 +160,19 @@ void tx_flash_restrike(tx_flash_t *f, int32_t gain_q15)
     if (!f->active || f->nst >= TX_TH_STROKES) return;
     f->st_t[f->nst] = f->gen_done ? f->clock : 0;
     f->st_g[f->nst] = (int16_t)(gain_q15 > 32767 ? 32767 : gain_q15);
+    if (f->st_t[f->nst] > f->st_end) f->st_end = f->st_t[f->nst];
     f->nst++;
+}
+
+/* an echo off the terrain (a valley's sides, a mountain): the whole channel heard again, later and weaker (one
+ * reflection; the air's low-pass as the direct sound's) */
+void tx_flash_echo(tx_flash_t *f, uint32_t delay, int32_t gain_q15)
+{
+    if (!f->active || f->nst >= TX_TH_STROKES) return;
+    f->st_t[f->nst] = delay;
+    f->st_g[f->nst] = (int16_t)(gain_q15 > 32767 ? 32767 : gain_q15);
+    if (delay > f->st_end) f->st_end = delay;
+    f->nst++; f->necho++;
 }
 
 #define MUL15(a, b) ((((a) >> 15) * (b)) + ((((a) & 0x7FFF) * (b)) >> 15))
@@ -242,5 +254,5 @@ TX_AUDIO_CODE void tx_flash_add(tx_flash_t *f, tx_rng_t *r, int32_t *out, unsign
     if (!any && ((lp1 > -1024 && lp1 < 1024 && lp2 > -1024 && lp2 < 1024) || (lp1 == f->lp1 && lp2 == f->lp2)))
         lp1 = lp2 = 0;                                       /* small, or frozen (the step rounds to zero) */
     f->lp1 = lp1; f->lp2 = lp2;
-    if (f->clock > f->st_t[f->nst - 1] + f->tmax + TX_TH_SMEAR && !any && !lp1 && !lp2 && !x && !f->env) f->active = 0;
+    if (f->clock > f->st_end + f->tmax + TX_TH_SMEAR && !any && !lp1 && !lp2 && !x && !f->env) f->active = 0;
 }

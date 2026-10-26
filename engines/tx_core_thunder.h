@@ -26,7 +26,7 @@
 #define TX_TH_SEGS 640u            /* channel steps (16 m: up to 10 km of channel) */
 #define TX_TH_LMAX 640u            /* N-wave window 2L, samples */
 #define TX_TH_SMEAR 255u           /* the longest segment box, samples */
-#define TX_TH_STROKES 4u
+#define TX_TH_STROKES 6u          /* return strokes and terrain echoes (each re-emits the channel) */
 #define TX_TH_GEN 48u              /* channel steps grown per block (640 steps: ~77 ms before the first sound) */
 
 typedef struct {
@@ -36,7 +36,7 @@ typedef struct {
     int32_t d[TX_BLOCK + TX_TH_SMEAR + 1];   /* derivative of the excitation (the boxes' edges), with carry */
     uint32_t st_t[TX_TH_STROKES];  /* stroke starts on the flash clock */
     int16_t st_g[TX_TH_STROKES];   /* stroke gains, Q15 */
-    uint8_t nst, active, gen_done, pad;
+    uint8_t nst, active, gen_done, necho;   /* strokes (echoes among them), ...; echoes added */
     /* the channel grower */
     int32_t px, py, pz;            /* tip position, cm */
     int32_t ux, uy, uz;            /* step direction, Q14 (z up) */
@@ -55,6 +55,7 @@ typedef struct {
     int32_t out_g;                 /* output multiplier (calibrated by render) */
     int32_t env, n1, n2;           /* the rolling tail: the output's envelope (slow release), its low noise */
     uint32_t nr;                   /* (the tail's noise state) */
+    uint32_t st_end;               /* the latest stroke's start (the flash ends after it) */
     int32_t trel, tgain, ta;       /* the tail by distance: release (Q12 of 1 / 2^12), gain (Q8), noise pole (Q15) */
     uint32_t aref, knee;           /* the excitation's distance scale (m: the flash's, 1 km at least), the 1 / r^2 knee */
     int32_t oatt;                  /* the distance's loss past aref, at the output (Q15, 32768: none) */
@@ -66,6 +67,8 @@ typedef struct {
 void tx_flash_start(tx_flash_t *f, tx_rng_t *r, uint32_t dist_m, uint32_t height_m, uint32_t tort_q8, int32_t el_l2,
                     int32_t level_q15);
 void tx_flash_restrike(tx_flash_t *f, int32_t gain_q15);      /* another stroke now (if room) */
+void tx_flash_echo(tx_flash_t *f, uint32_t delay, int32_t gain_q15);   /* the channel again from the terrain, delay samples
+                                                              * after the first arrival (if room) */
 TX_AUDIO_CODE void tx_flash_add(tx_flash_t *f, tx_rng_t *r, int32_t *out, unsigned n);
 static inline int tx_flash_active(const tx_flash_t *f) { return f->active; }
 /* the direct sound's sample now, as tx_flash_add outputs it (the air's states are x 64; the distance's loss): for a

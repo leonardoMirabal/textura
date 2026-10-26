@@ -33,7 +33,7 @@ extern const tx_engine_t tx_eng_rainwater;
 extern const tx_engine_t tx_eng_rainsurf;
 void tx_rainsurf_lite(void *st, unsigned on);
 
-enum { P_INTENS, P_SURFACE, P_AGE, P_DIST, P_PASSING, NP };
+enum { P_INTENS, P_SURFACE, P_AGE, P_DIST, P_PASSING, P_RAIN, P_WIND, P_FLASH, P_INSIDE, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"INTENSITY", 127, 64, "storm intensity: rain 0.5 .. 60 mm/h, wind 3 .. 20 m/s, flashes 1 .. 12 / min (nearer)"},
@@ -41,6 +41,10 @@ static const tx_param_t PARAMS[NP] = {
     {"AGE", 127, 30, "storm age: young convective cell (big drops, loud) .. stratiform rain after it (fine drops)"},
     {"DIST", 127, 60, "distance of the thunder cell: 0.5 .. 15 km (log)"},
     {"PASSING", 127, 0, "0: a steady storm | a squall passing over from the press: 1 .. 10 min (log; INTENSITY its peak)"},
+    {"RAIN", 127, 64, "the rain over INTENSITY's (and a squall's): x 0.1 .. 10 of its rate (64: as the storm's)"},
+    {"WIND", 127, 64, "the wind over INTENSITY's (and a squall's): x 0.5 .. 2 of its speed, 28 m/s at most (level ~ u^3)"},
+    {"FLASHES", 127, 64, "lightning over INTENSITY's (and a squall's): none (0), x 0.25 .. 4 of its rate (a press still strikes)"},
+    {"INSIDE", 127, 0, "outside .. heard from indoors: walls and windows (16 kHz .. 300 Hz, down to -12 dB)"},
 };
 
 #define ARENA 5920u                /* bytes for the rain engine's state (rain on water 4708, on surfaces 5920 with hail):
@@ -56,6 +60,7 @@ static const tx_param_t PARAMS[NP] = {
 #ifndef SHEET_GUST
 #define SHEET_GUST 40              /* RATE steps at a full gust (+-40 %: 13107) */
 #endif
+#define MUL15(a, b) ((((a) >> 15) * (b)) + ((((a) & 0x7FFF) * (b)) >> 15))
 #define WIND_REF 14000              /* the wind bed's gain at 10 m/s (Q15; calibrated by render) */
 
 typedef struct {
@@ -82,12 +87,27 @@ typedef struct {
     int16_t sq_d[4];               /* its stage times' offsets (Q15 of the length) */
     uint8_t sq_held, sq_age, sq_tick, pad;   /* held last block; the AGE last sent; blocks to the next AGE update */
     int32_t sq_r, sq_w;            /* the rain's and the wind's share now (Q15) */
+    int32_t uw;                    /* WIND: the speed's offset (log2, Q16) */
+    int8_t roff, pad6[3];          /* RAIN: the rain's RATE offset (steps, 42 a decade) */
+    int32_t ia, ig, i1, i2;        /* INSIDE: the walls' low-pass (Q15; 0: outside), its loss (Q12), states */
 } storm_t;
 
 static void rain_set(storm_t *s, const char *name, uint8_t v)
 {
     int id = tx_param_find(s->rain, name);
     if (id >= 0) s->rain->param(s->arena, (uint8_t)id, v);
+}
+
+/* the rain's RATE with RAIN's offset, the rain on water's WIND with WIND's (both over INTENSITY's or a squall's) */
+static uint8_t rain_rate(const storm_t *s, int32_t v)
+{
+    v += s->roff;
+    return (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+}
+static uint8_t rain_wind(const storm_t *s, int32_t v)
+{
+    v += ((int32_t)s->p[P_WIND] - 64) / 2;
+    return (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
 }
 
 /* (re)choose the rain engine and push the scene's controls into it */
@@ -105,8 +125,8 @@ static void rain_setup(storm_t *s)
         s->rain_on = 0;
     }
     s->rid = (int8_t)tx_param_find(e, "RATE"); s->rate0 = rate; s->rsent = 0xFF;
-    rain_set(s, "RATE", rate);
-    if (e == &tx_eng_rainwater) { rain_set(s, "STORM", mix); rain_set(s, "WIND", (uint8_t)(s->p[P_INTENS] / 2u)); }
+    rain_set(s, "RATE", rain_rate(s, rate));
+    if (e == &tx_eng_rainwater) { rain_set(s, "STORM", mix); rain_set(s, "WIND", rain_wind(s, (int32_t)(s->p[P_INTENS] / 2u))); }
     else {
         rain_set(s, "DROPS", mix);
         rain_set(s, "SURFACE", (uint8_t)((s->p[P_SURFACE] - 22u) * 127u / 105u));
@@ -167,7 +187,7 @@ static void sq_block(storm_t *s, unsigned n, unsigned held)
         if ((uint8_t)ae != s->sq_age) {
             uint8_t mix = (uint8_t)(110 - ((ae * 90 * 258) >> 15));
             s->sq_age = (uint8_t)ae;
-            if (s->rain == &tx_eng_rainwater) { rain_set(s, "STORM", mix); rain_set(s, "WIND", (uint8_t)(iw >> 1)); }
+            if (s->rain == &tx_eng_rainwater) { rain_set(s, "STORM", mix); rain_set(s, "WIND", rain_wind(s, iw >> 1)); }
             else rain_set(s, "DROPS", mix);
         }
     }
@@ -180,6 +200,13 @@ static void set_param(storm_t *s, unsigned id, unsigned v)
     s->p[id] = (uint8_t)v;
     if (id == P_INTENS) s->u_l2 = 103872 + (int32_t)(v * 1412u);   /* log2(3 m/s) .. log2(20 m/s) (was x 1610: 26 m/s at the top) */
     if (id == P_PASSING) { if (v) sq_start(s); s->sq_r = s->sq_w = 32767; }   /* (turned now: a squall from now) */
+    if (id == P_RAIN) s->roff = (int8_t)(((int32_t)v - 64) * 42 / 64);   /* +-1 decade */
+    if (id == P_WIND) s->uw = ((int32_t)v - 64) * 1024;     /* +-1 octave */
+    if (id == P_INSIDE) {                                    /* 16 kHz .. 300 Hz (log), 0 .. -12 dB */
+        uint32_t fc = tx_exp2(915300 - ((int32_t)v - 1) * 2984);
+        s->ia = v ? 32768 - (int32_t)tx_exp2((15 << 16) - (int32_t)(fc * 862u >> 6)) : 0;
+        s->ig = (int32_t)tx_exp2((12 << 16) - (int32_t)v * 1028);   /* (-12 dB: log2 -1.99 at 127) */
+    }
     s->dirty = 1;
 }
 
@@ -268,9 +295,12 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
     s->on += held ? (32768 - s->on) >> 5 : -((s->on >> 7) + 1);   /* ~1 s build, ~4-5 s fade */
     if (!held && s->on < 64) s->on = 0;
     if (s->fl.active) s->fl_age += n;
-    if (held) {                                              /* lightning: Poisson, 0.5 .. 8 / min */
+    if (held && s->p[P_FLASH]) {                             /* lightning: Poisson, 0.5 .. 8 / min */
         uint32_t per_min_q8 = tx_knob_exp(s->p[P_PASSING] ? (uint32_t)((s->p[P_INTENS] * s->sq_r) >> 15) : s->p[P_INTENS],
                                           256u, 234960);    /* 1 .. 12 / min, Q8 (a squall: with its rain) */
+        if (s->p[P_FLASH] != 64u)                            /* FLASHES: x 2^(+-2) over it */
+            per_min_q8 = (per_min_q8 * tx_exp2(((int32_t)s->p[P_FLASH] - 64) * 2048 + (12 << 16))) >> 12;
+        if (!per_min_q8) per_min_q8 = 1;
         if (s->next > n) s->next -= n;
         else {
             if (s->next && !s->fl.active) strike(s, 64u + (tx_rand(r) >> 26));   /* (not over a rolling one) */
@@ -280,12 +310,13 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
     } else
         s->next = 0;
     {   /* the wind: ~u^3, gusting */
-        int32_t g;
+        int32_t g, ul = s->u_l2 + s->uw;                    /* (WIND over it: 28 m/s at most, as the wind's) */
         uint32_t al;
+        ul = ul > 315050 ? 315050 : ul;
         s->gust += ((tx_rand_s15(r) * 3) >> 6) - (s->gust >> 7);   /* AR(1), ~0.3 Hz */
         s->gust = s->gust > 13107 ? 13107 : s->gust < -13107 ? -13107 : s->gust;
         s->flut += (tx_rand_s15(r) - s->flut) >> 2;
-        al = tx_exp2(3 * (s->u_l2 - 217706 + (int32_t)(((int64_t)s->gust * 32768) >> 15) / 3) + (16 << 16));   /* (u / 10)^3, Q16 */
+        al = tx_exp2(3 * (ul - 217706 + (int32_t)(((int64_t)s->gust * 32768) >> 15) / 3) + (16 << 16));   /* (u / 10)^3, Q16 */
         g = (int32_t)(((uint64_t)al * WIND_REF) >> 16);
         g = (int32_t)(((int64_t)g * (32768 + (s->flut >> 2))) >> 15);
         g = (int32_t)(((int64_t)g * s->on) >> 15);
@@ -299,7 +330,7 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
         s->sheet = s->sheet > 32767 ? 32767 : s->sheet < -32767 ? -32767 : s->sheet;
         if (!s->rtick--) {
             s->rtick = 1;
-            v = (int32_t)s->rate0 + ((s->gust * SHEET_GUST) >> 15) + ((s->sheet * SHEET_AMT) >> 15);
+            v = (int32_t)s->rate0 + s->roff + ((s->gust * SHEET_GUST) >> 15) + ((s->sheet * SHEET_AMT) >> 15);
             v = v < 0 ? 0 : v > 127 ? 127 : v;
             if ((uint8_t)v != s->rsent) { s->rsent = (uint8_t)v; s->rain->param(s->arena, (uint8_t)s->rid, (uint8_t)v); }
         }
@@ -326,10 +357,24 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
             if (!s->fl.gen_done) break;                      /* (the channel grows TX_TH_GEN steps a block, not a piece) */
         }
     }
+    if (s->ia) {                                             /* INSIDE: through the walls and windows (two poles) */
+        int32_t a = s->ia, i1 = s->i1, i2 = s->i2;
+        for (j = 0; j < n; j++) {
+            i1 += MUL15(buf[j] - i1, a);
+            i2 += MUL15(i1 - i2, a);
+            buf[j] = i2;
+        }
+        {   /* (the last steps round to nothing: a step is 0 under 32768 / a, the second pole's twice that off) */
+            int32_t lim = 32768 / a + 1;
+            if (i1 > -lim && i1 < lim && i2 > -3 * lim && i2 < 3 * lim) i1 = i2 = 0;
+        }
+        s->i1 = i1; s->i2 = i2;
+        tx_trim(buf, n, s->ig);
+    } else s->i1 = s->i2 = 0;
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
-    z = s->hp.x1 | s->hp.y1 | s->on | s->wind.gain | s->fl.active | s->rf | s->pend;   /* (the rain: silent once faded) */
+    z = s->hp.x1 | s->hp.y1 | s->on | s->wind.gain | s->fl.active | s->rf | s->pend | s->i1 | s->i2;   /* (the rain: silent once faded) */
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
 }
 

@@ -56,7 +56,7 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 3
 
-enum { P_RATE, P_SURFACE, P_DROPS, P_AREA, P_INSIDE, P_HAIL, NP };
+enum { P_RATE, P_SURFACE, P_DROPS, P_AREA, P_INSIDE, P_HAIL, P_BOUNCE, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"RATE", 127, 70, "rain rate R: 0.1 .. 100 mm/h (log): drizzle .. downpour"},
@@ -66,6 +66,7 @@ static const tx_param_t PARAMS[NP] = {
     {"INSIDE", 127, 0, "outside .. inside under the roof (low-passed)"},
     {"HAIL", 127, 0, "rain (0) .. ice, 32 steps each: hail on a metal roof | hail on a car | hail in leaves | sleet on a window "
                      "(SURFACE then unused; RATE: stones per m^2, DROPS: their sizes)"},
+    {"BOUNCE", 127, 64, "ice: soft ground .. bouncing stones (restitution x 0.5 .. 1.5, landing again 1 .. 3 times)"},
 };
 
 #define NC 4u
@@ -167,7 +168,8 @@ typedef struct {
     int32_t level;
     uint16_t dropped, pad2;
     tx_vary_t vy;
-    uint8_t hk, nbq, lite, nbl;    /* the ice kind (0: rain), bounces in flight; the lite surface (hosted: 4 bands,
+    uint8_t hk, nbq, lite, nbl;
+    uint8_t bsc, bmax, pad4[2];    /* BOUNCE: the restitution's scale (Q7), the landings a stone has after its first */    /* the ice kind (0: rain), bounces in flight; the lite surface (hosted: 4 bands,
                                     * no panel modes), the bands run */
     uint32_t hv[NC];               /* the stones' fall speed by class, mm/s (the bounces' flights) */
     bounce_t bnc[NBQ];
@@ -353,6 +355,11 @@ static void set_param(rain_t *s, unsigned id, unsigned v)
     if (id >= NP) return;
     if (v > PARAMS[id].max) v = PARAMS[id].max;
     s->p[id] = (uint8_t)v;
+    if (id == P_BOUNCE) {                                    /* (64: e as the kind's, 2 landings more) */
+        s->bsc = (uint8_t)(64u + v);
+        s->bmax = (uint8_t)(1u + (2u * v + 63u) / 127u);
+        return;
+    }
     if (id == P_HAIL) {
         s->hk = (uint8_t)(v ? 1u + ((v * NHK) >> 7) : 0u);
         if (s->hk > NHK) s->hk = NHK;
@@ -437,7 +444,8 @@ static void bounce(rain_t *s, uint32_t r, uint32_t v_mm, uint32_t len, int32_t a
     bounce_t *b;
     uint32_t e, t;
     if (!left || s->nbq >= NBQ || a < 64) return;
-    e = H_E[s->hk - 1u];
+    e = (H_E[s->hk - 1u] * (uint32_t)s->bsc) >> 7;
+    e = e > 230u ? 230u : e;
     if (s->hk == 3u) t = 2205u + ((r >> 16) * 15435u >> 16);  /* 50 .. 400 ms */
     else t = ((((v_mm * e) >> 8) * 9u) * (77u + ((r >> 24) * 179u >> 8))) >> 8;   /* 2 e V / g x fs = 9 e V (x 0.3 .. 1) */
     b = &s->bnc[s->nbq++];
@@ -470,7 +478,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
             a = (int32_t)(((int64_t)a * s->level) >> 15);
             pulse(s, e->offset, len, a);
             splash(s, tx_rand(r), e->offset, a);
-            bounce(s, tx_rand(r), v, len, a, 2u);
+            bounce(s, tx_rand(r), v, len, a, s->bmax);
             continue;
         }
         {
@@ -490,7 +498,9 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
                 pulse(s, b.t, b.len, b.a);
                 if ((x & 3u) == 0u) splash(s, x, b.t, b.a >> 1);
                 if (s->hk && b.n) {                  /* it bounces again, its flight x e (the queue compacts in place) */
-                    uint32_t e = H_E[s->hk - 1u], f = s->hk == 3u ? 2205u + ((x >> 16) * 15435u >> 16) : (b.f * e) >> 8;
+                    uint32_t e = (H_E[s->hk - 1u] * (uint32_t)s->bsc) >> 7, f;
+                    e = e > 230u ? 230u : e;
+                    f = s->hk == 3u ? 2205u + ((x >> 16) * 15435u >> 16) : (b.f * e) >> 8;
                     bounce_t *nb = &s->bnc[q];
                     nb->t = b.t + f > n ? b.t + f - n : 0u; nb->f = f;
                     nb->a = (int32_t)((b.a * (int32_t)(e + 96u)) >> 9);
@@ -543,7 +553,7 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
                     pulse(s, off, len, ad);
                     if (s->reb && off + s->tg[c] + len < TX_BLOCK + CARRY)   /* leaves: the rebound */
                         pulse(s, off + s->tg[c], len, (ad * s->reb) >> 8);
-                    if (s->hk) bounce(s, y, s->hv[c], len, ad, 2u);
+                    if (s->hk) bounce(s, y, s->hv[c], len, ad, s->bmax);
                     nexp++;
                 } else {                                     /* far: its momentum at once, through the corner below */
                     int32_t m = (int32_t)(((int64_t)mom * sz) >> 15);

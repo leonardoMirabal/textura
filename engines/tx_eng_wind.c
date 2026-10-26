@@ -14,7 +14,7 @@
 
 #define OUT_TRIM 3250               /* output gain, Q12: a key held at the defaults is -26 LUFS */
 
-enum { P_WIND, P_GUST, P_FOLIAGE, P_BUFFET, P_WHOOSH, P_EDGE, P_SCALE, P_KIND, NP };
+enum { P_WIND, P_GUST, P_FOLIAGE, P_BUFFET, P_WHOOSH, P_EDGE, P_SCALE, P_KIND, P_DRIFT, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"WIND", 127, 64, "mean wind speed: 0 calm (silence) .. 28 m/s (^1.5: 0.5 m/s at 9, 10 at 64: a breath now and then .. a storm)"},
@@ -26,6 +26,8 @@ static const tx_param_t PARAMS[NP] = {
     {"SCALE", 127, 64, "the obstacles' size: big trees (lower) .. fine grass (higher), +-1 octave"},
     {"KIND", 127, 0, "the place, 13 steps each: wind | a breeze in tall grass | pines | leafy trees | an open plain or moor | "
                      "a sea wind on the coast | a gale on a ridge | a gusty autumn day | a winter storm | a desert wind"},
+    {"DRIFT", 127, 64, "what the wind lifts, where it does (a winter storm's snow, a desert's sand): none .. +-3 octaves of the place's own "
+                      "(a fine hiss rising with the gusts over its threshold speed)"},
 };
 
 /* the kinds (a place each: what the wind blows through and how it moves there; ours, set against the references):
@@ -75,6 +77,8 @@ static void apply(wind_t *s)
     int32_t v = s->p[P_WIND], g = s->p[P_GUST];
     const kind_t *k = &KINDS[(s->p[P_KIND] * NK) >> 7];
     w->k = k->k;
+    if (k->k.lut && s->p[P_DRIFT] != 64u)                   /* DRIFT: the lifted snow or sand, x 2^(+-3) (0: none) */
+        w->k.lg = s->p[P_DRIFT] ? (int16_t)(((int32_t)k->k.lg * (int32_t)tx_exp2(((int32_t)s->p[P_DRIFT] - 64) * 3072 + (12 << 16))) >> 12) : 0;
     s->kind = (uint8_t)((s->p[P_KIND] * NK) >> 7);
     if (!v) w->U = 0;
     else {   /* 28 (v / 127)^1.5 m/s: 0.5 m/s at 9 (calm air, a breath now and then), 10 at 64, 28 at 127 */
