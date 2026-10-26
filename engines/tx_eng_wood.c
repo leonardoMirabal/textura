@@ -76,10 +76,15 @@ typedef struct {
     uint16_t out;                  /* its level, Q8 */
 } wkind_t;
 static const wkind_t WK[NWOOD] = {
-    {160, 5500, 0, 0, 0, 1, 24, 0, 128, 1, 1, 256},        /* spruce (the four species: dry wood fails brittle, a */
-    {120, 4500, 0, 0, 0, 1, 24, 0, 128, 1, 1, 256},        /* faint creak before the snap; their references are */
-    {110, 4300, 0, 0, 0, 1, 24, 0, 128, 1, 1, 256},        /* breaks: creak 128 was 2.13 from them, 1.45 now with */
-    {80, 4000, 0, 0, 0, 1, 24, 0, 128, 1, 1, 256},         /* the next branch below) */
+    {160, 5500, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384},   /* spruce (the four species: dry wood fails brittle, a */
+    {120, 4500, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384},   /* faint creak before the snap; their references are */
+    {110, 4300, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384},   /* breaks: creak 128 was 2.13 from them, 1.45 now with */
+    {80, 4000, -65536, 0, 0, 1, 24, 0, 32, 1, 1, 384},    /* the next branch below. Second pass: a dry branch bends
+                                                              * nearly silent, so a quarter of the precursor cracks
+                                                              * (the references: silent 88 % of the time between the
+                                                              * snaps, ours 40 %), and the hand snaps pieces half as
+                                                              * long as SIZE's (thin branches: their snaps 5-6 kHz,
+                                                              * ours 3.7 kHz before) */
     {40, 3000, 0, 0, 0, 1, 128, 0, 128, 1, 0, 287},        /* green branch (+1 dB: its level as before the next
                                                               * branch came sooner) */
     /* tree trunk: a live trunk or a bough rubbing in the wind: long slow groans of stick-slip (the references: 1-3 kHz,
