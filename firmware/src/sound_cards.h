@@ -42,7 +42,13 @@
  * Stones & sand: the approved study's ranking (2026-10-26). The stones are the source's own particles: SIZE, GROUND
  * (= HARD: stone on stone .. soft ground), RING (= TONE: the stones' Q), CLUMPS (= SPACING). Ringing rocks' STONE is
  * the stonedrum's MATERIAL. Gravel's RATE, sand's ORIFICE and the dune's FLOW are the activity itself (on the keys).
- * Sand's SIZE is its container's (a tray, a bulb, a tube). Rockfall's DIST is the source's PROXIMITY, as everywhere. */
+ * Sand's SIZE is its container's (a tray, a bulb, a tube). Rockfall's DIST is the source's PROXIMITY, as everywhere.
+ *
+ * Ice & glass: the approved study's ranking (2026-10-26). The ice's SIZE is the icicle's length or the glass' lowest
+ * mode, TEMP its temperature (ringing .. wet), FIZZ the melt. CLUMPS is the source's SPACING (bursts .. apart): dead on
+ * the lake ices, whose cracks keep their own clock. The lake ices' FAR is the engine's own DIST, the crack's distance
+ * (longer sweeps, a later air wave), apart from DIST (= PROXIMITY: the listener's level and air). Lake ice's RATE is
+ * the activity itself (on the keys). Glass: SIZE, RING (the Q), ENERGY (a crack .. a smash), HEIGHT, BOUNCE. */
 #ifndef TX_SOUND_CARDS_H
 #define TX_SOUND_CARDS_H
 #include <stdint.h>
@@ -154,6 +160,20 @@ static const scd_sound_t SCD[] = {
     {"singing dune", "sandsong", 5, {S_H(GRAIN), S_H(SORTING), S_H(STEADY), DIST_CARD, S_H(DETUNE)}},
     {"minerals", "minerals", 7, {S_H(MINERAL), S_H(SIZE), S_H(ACTION), S_H(HOLD), S_H(HUMID), S_H(VARY), DIST_CARD}},
     {"stone friction", "mineral", 6, {S_H(ROUGH), S_H(STICK), S_H(PRESSURE), S_H(SPEED), S_H(SIZE), DIST_CARD}},
+    /* Ice & glass */
+#define G_H(n) {#n, #n, CK_HOST}
+#define G_CLUMPS {"CLUMPS", "SPACING", 0}
+#define G_LAKE {G_H(THICK), G_H(COLD), {"FAR", "DIST", CK_HOST}, DIST_CARD}
+    {"icicles", "ice", 6, {G_H(SIZE), G_H(TEMP), G_H(AMOUNT), G_H(FIZZ), G_CLUMPS, DIST_CARD}},
+    {"ice in a glass", "ice", 4, {G_H(SIZE), G_H(FIZZ), G_CLUMPS, DIST_CARD}},
+    {"frost tinkling", "ice", 3, {G_H(TEMP), G_CLUMPS, DIST_CARD}},
+    {"snow underfoot", "ice", 3, {G_H(TEMP), G_CLUMPS, DIST_CARD}},
+    {"lake ice", "lakeice", 4, G_LAKE},
+    {"frozen lake booming", "lakeice", 4, G_LAKE},
+    {"thin ice underfoot", "lakeice", 2, {G_H(THICK), DIST_CARD}},
+    {"glass pane", "glass", 6, {G_H(SIZE), G_H(RING), G_H(ENERGY), G_H(HEIGHT), G_H(BOUNCE), DIST_CARD}},
+    {"bottles", "glass", 4, {G_H(SIZE), G_H(RING), G_CLUMPS, DIST_CARD}},
+    {"shards settling", "glass", 5, {G_H(SIZE), G_H(RING), G_H(ENERGY), G_H(BOUNCE), DIST_CARD}},
     /* Storm's hail */
 #define HAIL_CARDS {{"STONES", "DROPS", CK_HOST}, {"AREA", "AREA", CK_HOST}, {"INSIDE", "INSIDE", CK_HOST}, \
                     {"RAIN", "RAIN", CK_HOST}, {"BOUNCE", "BOUNCE", CK_HOST}, DIST_CARD}

@@ -1,0 +1,105 @@
+# the Ice & glass landscape's SOUND cards (sound_cards.h, the approved study): icicles SIZE, TEMP, AMOUNT, FIZZ /
+# CLUMPS, DIST; the lake ices THICK, COLD, FAR (their own crack distance), DIST; glass SIZE, RING, ENERGY, HEIGHT ...
+1700 turn 1 2
+2100 expect state landscape Ice_&_glass
+2100 btn 13
+2200 expect state run0 1
+2300 expect state snd0 icicles
+2300 expect state snd1 ice_in_a_glass
+2300 expect state snd2 frost_tinkling
+2300 expect state snd3 snow_underfoot
+2400 btn 6
+2450 expect state sel 1
+2450 expect state lab0 SIZE
+2450 expect state lab1 TEMP
+2450 expect state lab2 AMOUNT
+2450 expect state lab3 FIZZ
+2500 turn 0 1
+2550 expect state lab0 CLUMPS
+2550 expect state lab1 DIST
+2550 expect state lab2 -
+2550 expect state lab3 -
+2600 turn 0 -1
+2650 btn 1
+2700 expect state sel 2
+2700 expect state lab0 SIZE
+2700 expect state lab1 FIZZ
+2700 expect state lab2 CLUMPS
+2700 expect state lab3 DIST
+2800 btn 1
+2850 expect state sel 3
+2850 expect state lab0 TEMP
+2850 expect state lab1 CLUMPS
+2850 expect state lab2 DIST
+2850 expect state lab3 -
+2950 btn 1
+3000 expect state sel 4
+3000 expect state lab0 TEMP
+3000 expect state lab1 CLUMPS
+3000 expect state lab2 DIST
+3000 expect state lab3 -
+3100 btn 0
+3120 btn 0
+3150 expect state sel 2
+3200 btn 8
+3250 turn 2 1
+3300 expect state snd1 lake_ice
+3350 btn 6
+3400 expect state lab0 THICK
+3400 expect state lab1 COLD
+3400 expect state lab2 FAR
+3400 expect state lab3 DIST
+3500 btn 8
+3550 turn 2 1
+3600 expect state snd1 frozen_lake_booming
+3650 btn 6
+3700 expect state lab0 THICK
+3700 expect state lab1 COLD
+3700 expect state lab2 FAR
+3700 expect state lab3 DIST
+3800 btn 8
+3850 turn 2 1
+3900 expect state snd1 thin_ice_underfoot
+3950 btn 6
+4000 expect state lab0 THICK
+4000 expect state lab1 DIST
+4000 expect state lab2 -
+4000 expect state lab3 -
+4100 btn 8
+4150 turn 2 1
+4200 expect state snd1 glass_pane
+4250 btn 6
+4300 expect state lab0 SIZE
+4300 expect state lab1 RING
+4300 expect state lab2 ENERGY
+4300 expect state lab3 HEIGHT
+4350 turn 0 1
+4400 expect state lab0 BOUNCE
+4400 expect state lab1 DIST
+4400 expect state lab2 -
+4400 expect state lab3 -
+4450 turn 0 -1
+4550 btn 8
+4600 turn 2 1
+4650 expect state snd1 bottles
+4700 btn 6
+4750 expect state lab0 SIZE
+4750 expect state lab1 RING
+4750 expect state lab2 CLUMPS
+4750 expect state lab3 DIST
+4850 btn 8
+4900 turn 2 1
+4950 expect state snd1 shards_settling
+5000 btn 6
+5050 expect state lab0 SIZE
+5050 expect state lab1 RING
+5050 expect state lab2 ENERGY
+5050 expect state lab3 BOUNCE
+5100 turn 0 1
+5150 expect state lab0 DIST
+5150 expect state lab1 -
+5150 expect state lab2 -
+5150 expect state lab3 -
+5200 turn 0 -1
+5300 expect state dropped 0
+5450 end
