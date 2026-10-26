@@ -190,8 +190,8 @@ static const clu_pre_t CLU[NPRE] = {
  * held key, picked at random, is pressed afresh after
  * 3 s + an exponential wait (mean 7 s; no clock): a singer leaves and a new one comes with the parameters of now (these engines read them at a press; a
  * fire's logs just burn: a press there would throw a new log on, its burst louder than the fire it lands in). */
-#define HOST_NC 6u
-#define HOST_NK 5u                  /* character maps per hosted engine (HMAP) */
+#define HOST_NC 7u
+#define HOST_NK 8u                  /* character maps per hosted engine (HMAP): the card's knobs, ACTIVITY and PROXIMITY aside */
 #define GATE_ON 120u                /* a bout held, mean blocks (0.7 s) */
 #define HOST_HEROES 12u             /* an engine counting its own individuals: heroes at most (CPU: half the pool) */
 #define HOST_BYTES 12544u           /* the largest hosted engine's state (sand 12 464 B) */
@@ -267,30 +267,30 @@ static const host_t HOST[] = {
     {"rainsurf", -55, -55, -55, {{"RATE", 34, 95, 127}, {"DROPS", 40, 64, 100}, {"AREA", 30, 50, 50}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0, 0, 0, 0, 0},
     /* drips in a cave (water): a drop into a pool now and then, from high up .. drip points all over, quicker (one per
      * 10 s .. 4 /s each, at random: a cave's drips are Poisson) */
-    {"drip", -75, -75, -75, {{"RATE", 0, 38, 88}, {"HEIGHT", 95, 100, 105}, {"SIZE", 70, 70, 70}, {"CLUMP", 0, 0, 0},
-                     {"DEPTH", 30, 30, 30}}, 4, 12, 8, 0, 0, 0, 0},   /* (k0 4: each drip point its own: they
+    {"drip", -135, -135, -135, {{"RATE", 0, 38, 88}, {"HEIGHT", 95, 100, 105}, {"SIZE", 70, 70, 70}, {"CLUMP", 0, 0, 0},
+                     {"DEPTH", 30, 30, 30}, {"CAVE", 64, 64, 64}}, 4, 12, 8, 0, 0, 0, 0},   /* (k0 4: each drip point its own: they
                                                                      * begin at their own pace, not as a burst) */
     /* eaves dripping (water): after the rain, a drop off the eaves into a puddle now and then .. dripping all along
      * the gutter, in runs and quiet spells as the wind shakes it */
-    {"drip", -25, -25, -25, {{"RATE", 0, 50, 100}, {"CLUMP", 100, 100, 110}, {"HEIGHT", 60, 64, 70}, {"SIZE", 45, 45, 45},
+    {"drip", -105, -105, -105, {{"RATE", 0, 90, 120}, {"CLUMP", 60, 60, 70}, {"HEIGHT", 60, 64, 70}, {"SIZE", 45, 45, 45},
                      {"SCATTER", 40, 40, 40}}, 4, 12, 8, 0, 0, 0, 0},
     /* a brook (water): a little gurgle now and then .. a babbling brook .. a rushing one (COUNT: the riffles heard) */
-    {"stream", -37, -37, -37, {{"FLOW", 0, 64, 95}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50}, {"SPREAD", 80, 64, 45},
-                             {"ROAR", 0, 0, 30}}, 2, 8, 2, 0, 0, 0, 0},
+    {"stream", -113, -113, -113, {{"FLOW", 0, 64, 95}, {"EDDY", 18, 21, 30}, {"NEAR", 80, 64, 50}, {"SPREAD", 80, 64, 45},
+                             {"ROAR", 0, 0, 30}, {"SIZE", 90, 90, 90}}, 2, 8, 2, 0, 0, 0, 0},
     /* a bubbling spring (water): water welling up through the sand, a gulp now and then .. bubbling on, bigger bubbles
      * close by */
-    {"stream", -82, -82, -82, {{"FLOW", 0, 15, 40}, {"SIZE", 60, 60, 66}, {"NEAR", 100, 100, 100}, {"EDDY", 60, 60, 70},
+    {"stream", -82, -82, -82, {{"FLOW", 0, 15, 40}, {"SIZE", 45, 45, 51}, {"NEAR", 100, 100, 100}, {"EDDY", 30, 30, 32},
                              {"SPREAD", 30, 30, 30}}, 2, 8, 2, 0, 0, 0, 0},
     /* a waterfall (water): a thin fall now and then .. pouring .. a big fall's roar from farther off */
-    {"stream", -120, -120, -120, {{"FLOW", 30, 90, 110}, {"ROAR", 20, 60, 90}, {"SIZE", 45, 45, 50}, {"NEAR", 40, 30, 20},
-                             {"EDDY", 30, 40, 50}}, 2, 6, 2, 0, 0, 0, 0},
+    {"stream", -100, -100, -100, {{"FLOW", 30, 95, 105}, {"ROAR", 0, 8, 18}, {"SIZE", 30, 30, 30}, {"NEAR", 20, 20, 20},
+                             {"EDDY", 10, 12, 14}, {"SPREAD", 127, 127, 127}}, 2, 6, 2, 0, 0, 0, 0},
     /* waves on a sandy beach (water): a small wave every 15 s .. breakers every 6 s, higher (COUNT: the engine's wave
      * trains along the shore, up to 8; past them higher); no far-surf floor, the sea starts partway into a period */
-    {"surf", -25, -25, -25, {{"HEIGHT", 0, 64, 110}, {"PERIOD", 127, 70, 30}, {"BACKWASH", 40, 50, 60}, {"DIST", 70, 64, 50},
+    {"surf", -25, -25, -25, {{"HEIGHT", 0, 64, 110}, {"PERIOD", 127, 70, 30}, {"BACKWASH", 20, 26, 32}, {"DIST", 70, 64, 50},
                      {"FLOOR", 0, 0, 0}, {"STRIKE", 0, 0, 0}}, 0, 10, 0, 0, 0, 0, 0},
     /* waves on shingle (water): the same sea on a stony beach close by: the backwash draining loud through the stones */
-    {"surf", -55, -55, -55, {{"HEIGHT", 0, 50, 100}, {"PERIOD", 127, 80, 40}, {"BACKWASH", 110, 115, 120}, {"DIST", 40, 40, 40},
-                     {"FLOOR", 0, 0, 0}, {"STRIKE", 0, 0, 0}}, 0, 10, 0, 0, 0, 0, 0},
+    {"surf", -100, -100, -100, {{"HEIGHT", 0, 50, 100}, {"PERIOD", 127, 80, 40}, {"BACKWASH", 50, 58, 66}, {"DIST", 40, 40, 40},
+                     {"FLOOR", 40, 40, 40}, {"STRIKE", 0, 0, 0}, {"SHORE", 127, 127, 127}}, 0, 10, 0, 0, 0, 0, 0},
 };
 #define H_MEMBER 12u                 /* the first member row */
 
@@ -388,6 +388,8 @@ typedef struct {
     int32_t i_glide;                /* ACTIVITY gliding to the fader, Q8 */
     int32_t trim_c;                 /* the callers' level now (pre_trim), Q12 */
     tx_life_t la, ls, ld;           /* LIFE: intensity, size, distance */
+    tx_life_t lw;                   /* the wind's gusts (rain on water: HARD) */
+    int32_t gust;                   /* their walk now, Q15 */
     int32_t life_s, life_d;         /* their offsets now (Q16 log2) */
     /* the beds: rain's two bands, stones' residue, the callers' chorus */
     int32_t res, res_x1;            /* the stones' attack residue */
@@ -484,7 +486,10 @@ static uint32_t pre_amount(const src_t *s, unsigned pre)
     if (q->kind == 1) return count_q8(s);
     if (q->kind == 0 || q->kind == 3) {
         const int32_t *y = IND_Y[pre == PR_RAIN ? 0 : pre == PR_STONES ? 1 : 2];
-        return (uint32_t)(((uint64_t)tx_exp2(pw4(IND_AT, y, a) + (8 << 16)) * count_q8(s)) >> 8);
+        int32_t w = pre == PR_RAIN && knob(s, P_HARD) > 0 ? (s->gust * knob(s, P_HARD)) / 12 : 0;   /* WIND (HARD over
+                                                             * the middle): the gusts swell and slacken the rain, up to
+                                                             * +-2.6 octaves of its rate at the walk's sd */
+        return (uint32_t)(((uint64_t)tx_exp2(pw4(IND_AT, y, a) + w + (8 << 16)) * count_q8(s)) >> 8);
     }
     {
         int32_t l = q->act_lo + (((q->act_oct >> 5) * a) / (127 << 8)) * 32;   /* 32-bit: < 2^30 */
@@ -552,16 +557,22 @@ static const kmap_t HMAP[][HOST_NK] = {
     {{"WIRE", P_SIZE, 64}, {"LOCK", P_TONE, 48}, {"GUST", P_HARD, 48}, {0, 0, 0}, {0, 0, 0}},
     /* hail: the kind (a metal roof, a car, leaves, sleet on a window), stone sizes, the area heard, inside */
     {{"HAIL", P_TYPE, 0}, {"DROPS", P_SIZE, 64}, {"AREA", P_SPREAD, 64}, {"INSIDE", P_TONE, -64}, {0, 0, 0}},
-    /* drips (cave, eaves): bubble size, fall height, deeper (softer), size spread */
-    {{"SIZE", P_SIZE, 64}, {"HEIGHT", P_HARD, 64}, {"DEPTH", P_TONE, -64}, {"SCATTER", P_SPREAD, 64}, {0, 0, 0}},
-    {{"SIZE", P_SIZE, 64}, {"HEIGHT", P_HARD, 64}, {"DEPTH", P_TONE, -64}, {"SCATTER", P_SPREAD, 64}, {0, 0, 0}},
-    /* streams (brook, spring, waterfall): bubble size, nearer, eddies, size spread */
-    {{"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {0, 0, 0}},
-    {{"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {0, 0, 0}},
-    {{"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {0, 0, 0}},
-    /* waves (sand, shingle): height, backwash, chop, distance */
-    {{"HEIGHT", P_SIZE, 64}, {"BACKWASH", P_TONE, 64}, {"CHOP", P_HARD, 64}, {"DIST", P_SPREAD, 64}, {0, 0, 0}},
-    {{"HEIGHT", P_SIZE, 64}, {"BACKWASH", P_TONE, 64}, {"CHOP", P_HARD, 64}, {"DIST", P_SPREAD, 64}, {0, 0, 0}},
+    /* drips (cave, eaves): bubble size, fall height, the pool (TONE up: shallower, the plinks rise; down: deep plops),
+     * size spread, rhythm (SPACING: random .. in runs; no steady end, the no-regular-beat rule); the cave's tail on
+     * EXTRA (its card: CAVE; 0 = dry) */
+    {{"SIZE", P_SIZE, 64}, {"HEIGHT", P_HARD, 64}, {"DEPTH", P_TONE, -64}, {"SCATTER", P_SPREAD, 64},
+     {"CLUMP", P_SPACING, 64}, {"CAVE", P_EXTRA, 64}},
+    {{"SIZE", P_SIZE, 64}, {"HEIGHT", P_HARD, 64}, {"DEPTH", P_TONE, -64}, {"SCATTER", P_SPREAD, 64},
+     {"CLUMP", P_SPACING, 64}},
+    /* streams (brook, spring, waterfall): bubble size, nearer the surface (babble), eddies (GURGLE), size spread; the
+     * low roar on EXTRA (its card: ROAR) */
+    {{"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {"ROAR", P_EXTRA, 64}},
+    {{"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {"ROAR", P_EXTRA, 64}},
+    {{"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {"ROAR", P_EXTRA, 64}},
+    /* waves (sand, shingle): height, backwash, chop, the far surf (FLOOR; distance is PROXIMITY's); the period on
+     * EXTRA (its card: PERIOD; up = longer) */
+    {{"HEIGHT", P_SIZE, 64}, {"BACKWASH", P_TONE, 64}, {"CHOP", P_HARD, 64}, {"FLOOR", P_SPREAD, 64}, {"PERIOD", P_EXTRA, 64}},
+    {{"HEIGHT", P_SIZE, 64}, {"BACKWASH", P_TONE, 64}, {"CHOP", P_HARD, 64}, {"FLOOR", P_SPREAD, 64}, {"PERIOD", P_EXTRA, 64}},
 };
 
 /* the family members TYPE reaches (note 16: every family had members no knob could reach): TYPE from lo up to the
@@ -790,7 +801,6 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
         if (d_q12 > 6 << 12) d_q12 = 6 << 12;
     }
     c = (int32_t)(((int64_t)(s->level) * g) >> 12);          /* click gain, Q15 x Q12 -> Q15 */
-    c = (int32_t)(((int64_t)c * (32768 + knob(s, P_HARD) * 400)) >> 15);
     if (c > 65535) c = 65535;                                /* +6 dB over full scale at most (a click at 0.25 m) */
     if (d_q12 < 4915) {                                      /* small: a type I bubble, half the time */
         if (tx_rand(r) & 1u) {
@@ -805,10 +815,12 @@ static void drop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, unsi
         int32_t a = (CLICK_M * c) >> 15;
         uint32_t k = w_q8 > 256u ? (w_q8 + (tx_rand(r) >> 24)) >> 8 : 1u;
         rclick(s, off, n, (tx_rand(r) & 1u) ? a : -a);
-        if ((tx_rand(r) >> 16) < RM_P)                       /* now and then a bubble too (the references' plinks) */
+        if ((tx_rand(r) >> 16) < RM_P - (knob(s, P_HARD) > 0 ? (uint32_t)knob(s, P_HARD) * 307u : 0u))   /* now and then a
+                                                             * bubble too (the references' plinks; in the wind, slanting
+                                                             * drops trap fewer: 0.6 .. 0.3) */
             rbubble(s, -RM_LV, off + 220u + tx_rand_below(r, 880u), r_l2, trim, pre, 0);
         if (w_q8 > 256u)                                     /* the drops this one stands for: their bubbles as grains */
-            rbubble(s, -RM_LV, off, r_l2, trim, pre, (((w_q8 - 256u) * RM_P) >> 16) + 1u);
+            rbubble(s, -RM_LV, off, r_l2, trim, pre, (((w_q8 - 256u) * (RM_P - (knob(s, P_HARD) > 0 ? (uint32_t)knob(s, P_HARD) * 307u : 0u))) >> 16) + 1u);
         if (k > 4u) { a = (int32_t)(((int64_t)a * (int32_t)isqrt(((k - 1u) << 16) / 3u)) >> 8); k = 4u; }   /* (3 grains */
         while (--k) {                                        /* for many, power kept; one draw per statement: C leaves the order of */
             unsigned at = tx_rand_below(r, n);               /* two draws in one expression open, and wasm and */
@@ -850,11 +862,12 @@ static void wdrop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, uns
     /* the fall: U / U_ref log-normal, sd ~0.6 octave (the references' level spread 6-11 dB), velocity for a press */
     lu = near ? ((vel - 100) * 1024) + (int32_t)(((int64_t)gauss(s) * 13107) >> 12) : (int32_t)(((int64_t)gauss(s) * 39322) >> 12);
     if (s->cur_on && !near) lu = lu / 2 + s->cur_sz / 2;   /* (a drip point: its own fall height, its drops alike) */
+    lu += knob(s, P_HARD) * 1024;                            /* HEIGHT: the fall, +-1 octave of the impact speed (~ x/ 4 the
+                                                             * height): the click +-12 dB, the plink +-6, quicker */
     lu = clampi(lu, -(3 << 16), 3 << 16);
     u_q8 = tx_exp2(lu + 549325);                            /* U_ref 1.29 m/s: log2(330) = 8.366 Q16 */
     /* the click: level ~ U^2, a soft impact (one-pole) */
     c = (int32_t)(((int64_t)s->level * g) >> 12);
-    c = (int32_t)(((int64_t)c * (32768 + knob(s, P_HARD) * 400)) >> 15);
     c = (int32_t)(((int64_t)c * (int32_t)tx_exp2(2 * lu + (15 << 16) - (2 << 16))) >> 15);   /* x (U/Uref)^2 / 4 */
     c = clampi(c, 0, 65535);
     {   /* the impact: a sharp zero-mean doublet straight into the block (broadband to 20 kHz, as the references' */
@@ -865,6 +878,9 @@ static void wdrop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, uns
     }
     /* the bubble: P ~0.9 above 1 m/s, falling to 0.2 at 0.3 m/s */
     p_bub = u_q8 >= 256u ? 62259u : u_q8 <= 77u ? 39321u : 39321u + (u_q8 - 77u) * 128u;   /* (drips: 0.6 .. 0.95) */
+    if (knob(s, P_TONE) > 32) p_bub = p_bub * (uint32_t)(96 - knob(s, P_TONE)) >> 6;   /* POOL (TONE): the top a film of
+                                                             * water: the crater has no depth to close over, a click and
+                                                             * less and less often a plink (to a half) */
     if ((tx_rand(r) >> 16) >= p_bub) return;
     sp = (65536 * (int32_t)s->p[P_SPREAD]) / 64;            /* +-SD 1 octave (references 1.1 .. 9 kHz, level sd 6-11 dB) */
     a_l2 = WD_A_L2 - knob(s, P_SIZE) * 2048 - ((int32_t)s->note - 60) * 5461 + s->life_s
@@ -872,7 +888,7 @@ static void wdrop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, uns
            + (s->cur_on ? s->cur_sz : 0);                   /* drip point: its own size, its drops alike */
     rel = a_l2 - WD_A_L2;
     rel = clampi(rel + rel / 2, -(3 << 16), 3 << 16);       /* amplitude ~ a^1.5 */
-    amp = WD_AMP_L2 + rel + clampi(lu, -(6 << 16), 5 << 15) + knob(s, P_TONE) * 1024;
+    amp = WD_AMP_L2 + rel + clampi(lu, -(6 << 16), 5 << 15);
     {   /* crater collapse: 25 ms x (1.4 / U)^1.75 for a deep pool (note 02), here x 0.25 (ours: drips into a shallow
          * pool or a basin, the references: click and plop together within a few ms), +-25 %, 1 .. 12 ms */
         int32_t l = 662300 - 131072 + (7 * (tx_place_log2(358u) - tx_place_log2(u_q8))) / 4;
@@ -881,8 +897,9 @@ static void wdrop(src_t *s, unsigned off, unsigned n, int near, int32_t vel, uns
         wait = wait < 44u ? 44u : wait > 529u ? 529u : wait;
         wait += off;
     }
-    /* most rise (xi 0.05 .. 0.15: the rising chirp), a third pinch off deeper (no glide, half as loud) */
-    if ((tx_rand(r) >> 16) < 43690u)
+    /* most rise (xi 0.05 .. 0.15: the rising chirp), a third pinch off deeper (no glide, half as loud); POOL (TONE)
+     * down: a deep pool, most pinch off deep (plops), up: a basin, nearly all rise (plinks) */
+    if ((int32_t)(tx_rand(r) >> 16) < clampi(43690 + knob(s, P_TONE) * 512, 8192, 60000))
         bubble(s, a_l2, amp, wait, 3277u + ((tx_rand(r) >> 16) * 6554u >> 16), r_l2, trim, pre, 0);
     else
         bubble(s, a_l2, amp - 65536, wait, 0, r_l2, trim, pre, 0);
@@ -1655,6 +1672,7 @@ static void life_block(src_t *s)
     }
     s->life_s = (sz * depth) >> 8;                           /* +-0.25 octave at LIFE 127 */
     s->life_d = (dd * depth) >> 6;                           /* +-1 octave of distance */
+    s->gust = tx_life_step(&s->lw, 482152 + (2 << 16));      /* gusts: a walk of ~4 s (T, T / 4, T / 16) */
 }
 
 /* the hosted engine's block: LIFE and the curves, its render, the preset's gain, out */
@@ -1763,6 +1781,7 @@ static void src_init(void *st, uint32_t seed)
     tx_life_init(&s->la, seed * 3u + 1u);
     tx_life_init(&s->ls, seed * 5u + 2u);
     tx_life_init(&s->ld, seed * 7u + 3u);
+    tx_life_init(&s->lw, seed * 11u + 5u);
     tx_vary_init(&s->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 

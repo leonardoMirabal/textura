@@ -35,7 +35,7 @@
  * start; one natural event early in one seed is not), else ok; t1, when it first sounds (a sound switched on should answer
  * within a few seconds). A classic one-shot lane's first strike comes after a random gap, as the player's quickNext.
  *
- *   txactivity [-o] [-s SECS] [-n SEEDS] [-c N,N,..] [-a A,B,..] [-f SUBSTRING] [-p PARTICLES]
+ *   txactivity [-w DIR] [-o] [-s SECS] [-n SEEDS] [-c N,N,..] [-a A,B,..] [-f SUBSTRING] [-p PARTICLES]
  *            (defaults 30 s, 3 seeds, COUNT 1,8,64, ACTIVITY 0,9,64,127, every sound; -c: COUNT in individuals, 0 = none;
  *            -p: the lane's PARTICLES set (the engine's maximum at most) instead of its default: does a bigger hero
  *            pool make the top a cloud?)
@@ -102,6 +102,30 @@ static const quick_t QUICK[] = {
 static double factor;                                     /* FM-1 us per host us (0: no calibration) */
 static unsigned count_knob = 64;                         /* the run's COUNT knob (count_of: individuals -> knob) */
 static unsigned particles;                                /* -p: the lane's PARTICLES (0: the engine's default) */
+static FILE *wavf;                                        /* -w DIR: each run's first seed written as a wav (mono L) */
+static uint32_t wavn;
+static const char *wavdir;
+static void wav_hdr(uint32_t n)
+{
+    uint8_t h[44] = {'R','I','F','F',0,0,0,0,'W','A','V','E','f','m','t',' ',16,0,0,0,1,0,1,0,0x44,0xAC,0,0,0x88,0x58,1,0,2,0,16,0,'d','a','t','a'};
+    uint32_t d = n * 2u, r = d + 36u;
+    unsigned k;
+    for (k = 0; k < 4; k++) { h[4 + k] = (uint8_t)(r >> (8 * k)); h[40 + k] = (uint8_t)(d >> (8 * k)); }
+    fseek(wavf, 0, SEEK_SET);
+    fwrite(h, 1, 44, wavf);
+}
+static void wav_open(const char *name, unsigned c, unsigned a)
+{
+    char p[512], nm[64];
+    unsigned k;
+    for (k = 0; name[k] && k < 63; k++) nm[k] = name[k] == ' ' || name[k] == ',' ? '_' : name[k];
+    nm[k] = 0;
+    snprintf(p, sizeof p, "%s/%s_c%u_a%u.wav", wavdir, nm, c, a);
+    wavf = fopen(p, "wb");
+    wavn = 0;
+    if (wavf) wav_hdr(0);
+}
+static void wav_close(void) { wav_hdr(wavn); fclose(wavf); wavf = 0; }
 static int onset;                                         /* -o: the lane's start measured (no warm-up) */
 static int calib(const char *dir)                         /* (txbudget's) */
 {
@@ -271,6 +295,13 @@ static int run(const snd_t *s, unsigned act, uint32_t seed, unsigned secs, res_t
         tx_mix_slot_render(&mx, 0, TX_BLOCK);
         dt = (tx_now_ns() - t0) / 1000.0;
         tx_mix_end(&mx, L, R, TX_BLOCK);
+        if (wavf && b >= w0) {
+            int16_t o[TX_BLOCK];
+            unsigned z;
+            for (z = 0; z < TX_BLOCK; z++) o[z] = (int16_t)(L[z] >> 8);   /* (Q23, limited to -1 dBFS) */
+            fwrite(o, 2, TX_BLOCK, wavf);
+            wavn += TX_BLOCK;
+        }
         e->stats(arena, &stt);
         cost[b] = dt * factor;
         if (factor > 0) {                                 /* the governor on this lane alone */
@@ -378,6 +409,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "-f") && i + 1 < (unsigned)argc) filt = argv[++i];
         else if (!strcmp(argv[i], "-p") && i + 1 < (unsigned)argc) particles = (unsigned)atoi(argv[++i]);
         else if (!strcmp(argv[i], "-o")) onset = 1;
+        else if (!strcmp(argv[i], "-w") && i + 1 < (unsigned)argc) wavdir = argv[++i];
         else if (!strcmp(argv[i], "-c") && i + 1 < (unsigned)argc) {
             char *p = argv[++i];
             for (nc = 0; nc < MAXA && *p; ) { cnts[nc++] = (unsigned)strtol(p, &p, 10); if (*p == ',') p++; else break; }
@@ -409,7 +441,9 @@ int main(int argc, char **argv)
                     char c[8];
                     for (sd = 0; sd < seeds; sd++) {
                         res_t x;
+                        if (wavdir && !sd) wav_open(SND[si].name, cnts[ci], acts[ai]);
                         if (run(&SND[si], acts[ai], 0x9E3779B9u * (sd + 1u) + si, secs, &x)) { printf("%s: failed\n", SND[si].name); return 1; }
+                        if (wavf) wav_close();
                         m1 += x.m1 / seeds; p95 += x.mp95 / seeds; pa += x.mpa / seeds; mx += x.mmax / seeds;
                         if (nr < 64) ts[nr] = x.t1 < 0 ? 999 : x.t1;
                         {
@@ -452,7 +486,9 @@ int main(int argc, char **argv)
                 double l5 = 1e9, l95 = -1e9;
                 int cut = -1;
                 for (sd = 0; sd < seeds; sd++) {
+                    if (wavdir && !sd) wav_open(SND[si].name, cnts[ci], acts[ai]);
                     if (run(&SND[si], acts[ai], 0x9E3779B9u * (sd + 1u) + si, secs, &x)) { printf("%s: failed\n", SND[si].name); return 1; }
+                    if (wavf) wav_close();
                     a.evs += x.evs / seeds; a.bouts += x.bouts / seeds; a.heroes += x.heroes / seeds; a.lim += x.lim / seeds; a.drops += x.drops / seeds;
                     a.gaps += x.gaps / seeds; a.env += x.env / seeds; a.us += x.us / seeds; a.w8 = fmax(a.w8, x.w8);
                     if (x.lu5 < l5) l5 = x.lu5;

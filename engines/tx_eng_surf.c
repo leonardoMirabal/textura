@@ -36,17 +36,18 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 2
 
-enum { P_PERIOD, P_HEIGHT, P_CHOP, P_BACKWASH, P_DIST, P_FLOOR, P_STRIKE, P_COUNT, NP };
+enum { P_PERIOD, P_HEIGHT, P_CHOP, P_BACKWASH, P_DIST, P_FLOOR, P_STRIKE, P_COUNT, P_SHORE, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"PERIOD", 127, 70, "wave period: 6 .. 15 s (+-20 % wave to wave)"},
-    {"HEIGHT", 127, 64, "breaker height 0.3 .. 3 m (log): louder, longer, lower whoomph (80 .. 30 Hz), more rumble"},
+    {"HEIGHT", 127, 64, "breaker height 0.3 .. 3 m (log): louder (-5 .. +5 dB), longer, lower whoomph (80 .. 30 Hz), more rumble"},
     {"CHOP", 127, 64, "wave-to-wave variety: regular .. +-10 dB (L37) and +-40 % timing"},
-    {"BACKWASH", 127, 64, "backwash hiss after each wave: none .. strong (water draining through sand or shingle)"},
+    {"BACKWASH", 127, 64, "the backwash after each wave: none .. -8 dB under the break (64) .. as loud (water draining back through sand or shingle)"},
     {"DIST", 127, 64, "distance: on the shore .. 300 m away (high-cut, quieter)"},
     {"FLOOR", 127, 64, "the far surf along the shore under the waves while the sea is on: none .. -12 dB (64) .. -6 dB"},
     {"STRIKE", 1, 1, "a press: 1 = a breaker now; 0 = presses only hold the sea, which starts partway into a wave period"},
     {"COUNT", 8, 1, "wave trains along the shore, each its own timing and size (farther ones smaller): 1 .. 8, more breakers"},
+    {"SHORE", 127, 0, "the beach: sand (the backwash a soft hiss) .. shingle (the stones dragged back rattle and clatter)"},
 };
 
 #define NBRK 3u                    /* breakers sounding at once (one wave train) */
@@ -85,6 +86,8 @@ typedef struct {
     uint8_t tvel[NTR];             /* the trains' sizes (velocity) */
     uint32_t x32, burst;           /* noise; samples of the whoomph burst left */
     int32_t burst_a, olp, olpa, ga, h_l2, floor;
+    int32_t hg;                    /* HEIGHT's level, Q15 (1 m: 1) */
+    int32_t rt, rt_x1, rt_y;       /* the shingle's rattle: its click envelope, high-pass and low-pass states */
     uint8_t p[NP], limit, quiet, sea;
     int32_t level;
     uint16_t dropped;
@@ -121,6 +124,8 @@ static void set_param(surf_t *s, unsigned id, unsigned v)
         s->h_l2 = -113800 + (int32_t)(v * 1720u);            /* log2(0.3 m) .. log2(3 m) */
         set_pipe(s);
         s->rg[0] = (int32_t)(((int64_t)db_q15(BAND_DB[0] + (int32_t)v * 12 / 127) * ROAR_REF) >> 15);   /* -9 .. +3 dB */
+        s->hg = (int32_t)tx_exp2((15 << 16) + ((int32_t)v - 64) * 860);   /* the break's level ~ sqrt(height): +-5 dB (ours:
+                                                              * a 10 x higher wave plays 10 dB louder, not 20: playable) */
     }
     if (id == P_DIST) {
         uint32_t fc = tx_knob_exp(127u - v, 1500u, 196608);   /* 1.5 .. 12 kHz */
@@ -139,7 +144,7 @@ static void surf_init(void *st, uint32_t seed)
     tx_cloud_burst(&s->cloud, 1, 0);
     tx_cloud_rate(&s->cloud, 0);
     tx_noise_init(&s->back, seed ^ 0xBAC4u);
-    tx_noise_band(&s->back, 3000, 11, TX_NOISE_BAND);
+    tx_noise_band(&s->back, 2000, 11, TX_NOISE_BAND);   /* (2 kHz: the references fall from 3 kHz up) */
     tx_noise_tilt(&s->back, 5000);
     s->limit = 8;
     tx_pool_init(&s->pool, NH, s->limit);
@@ -192,6 +197,7 @@ static void launch(surf_t *s, uint32_t vel)
     if (!b) for (i = 0; i < nb; i++) if (s->br[i].t >= oldest) { oldest = s->br[i].t; b = &s->br[i]; }
     db = (int32_t)(((int64_t)tx_rand_s15(r) * s->p[P_CHOP]) >> 15) * 10 / 127;   /* +-10 dB */
     b->a = db_q15(db) * (int32_t)vel / 100;                  /* <= 2^17 x 127: 32-bit */
+    b->a = (int32_t)(((int64_t)b->a * s->hg) >> 15);         /* (HEIGHT: <= x 1.8) */
     b->t = 0;
     b->t_plunge = 30000u + tx_rand_below(r, 22000u);         /* the approach: 0.7 .. 1.2 s */
     b->alive = 1; b->kicked = 0;
@@ -212,13 +218,16 @@ static void envs(const surf_t *s, const brk_t *b, int32_t *roar, int32_t *back)
         e = x > (15u << 16) ? 0 : (int32_t)tx_exp2((15 << 16) - (int32_t)x);
     }
     *roar = (int32_t)(((int64_t)e * b->a) >> 15);
-    {   /* backwash: from 1.5 s after the plunge, rising 0.8 s, decaying tau 1.5 s */
+    {   /* backwash: from 1.5 s after the plunge, rising 0.8 s, decaying tau 1.5 s (sand) .. 3 s (shingle: the
+         * stones go on rattling as the water drains down through them; ours, against the references) */
         int32_t w = 0;
         if (t > tp + 66150u) {
             uint32_t dt = t - tp - 66150u;
             if (dt < 35280u) w = (int32_t)(dt * 32768u / 35280u);
             else {
-                uint32_t x = dt > 1000000u ? (15u << 16) + 1u : ((dt - 35280u) * 1463u) >> 10;   /* / 1.5 s x log2 e */
+                uint32_t kb = 1463u * 127u / (127u + (uint32_t)s->p[P_SHORE]);   /* / 1.5 .. 3 s x log2 e (3.5 s outlived
+                                                             * a tap's 20 s) */
+                uint32_t x = dt > 1000000u ? (15u << 16) + 1u : ((dt - 35280u) * kb) >> 10;
                 w = x > (15u << 16) ? 0 : (int32_t)tx_exp2((15 << 16) - (int32_t)x);
             }
         }
@@ -346,14 +355,41 @@ TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
                                                               * the references' 30-80 Hz bands sit under the roar */
         }
     }
-    s->x32 = x32 ? x32 : 1u;
     tx_svf_bank_add_g(s->pipe, s->pf, 2048, s->pgin, s->pg, 4, pin, buf, n);
     {   /* the backwash hiss */
         uint32_t e = pb ? (uint32_t)tx_exp2((int32_t)((32 << 16) - (int32_t)(tx_neglog2_q12((uint32_t)(pb > 0xFFFFFFFFull ? 0xFFFFFFFFull : pb)) << 4)) / 2) : 0u;
-        int32_t g = (int32_t)(((uint64_t)e * s->p[P_BACKWASH] * 13u) >> 12);
+        int32_t g = (int32_t)(((uint64_t)e * s->p[P_BACKWASH] * 13u) >> 9);   /* (x 8: the backwash was 20 dB under the
+                                                              * break, inaudible; now -8 dB at 64, by render) */
+        int32_t sh = s->p[P_SHORE];
         g = (int32_t)(((int64_t)g * s->level) >> 15);
-        tx_noise_roar_add(&s->back, g, buf, n);
+        tx_noise_roar_add(&s->back, (int32_t)(((int64_t)g * (160 - sh)) >> 7), buf, n);   /* (shingle: less hiss, */
+        if (sh && (e || s->rt)) {                            /* the rattle instead) */
+            /* the shingle: stones dragged down the beach knock each other, a dense clatter of short bright clicks
+             * (~4000 /s at a full backwash, sizes u^2: most faint, a few loud; ours, against the references) */
+            int32_t rt = s->rt, x1 = s->rt_x1, y = s->rt_y;
+            uint32_t pc = (uint32_t)(((uint64_t)e * (uint32_t)sh) >> 9);   /* the chance per sample, Q16 (<= ~10 %) */
+            int32_t ca = g * sh * 2;                     /* (the loudest knock ~-6 dBFS at BACKWASH 127) */
+            for (j = 0; j < n; j++) {
+                int32_t x;
+                x32 ^= x32 << 13; x32 ^= x32 >> 17; x32 ^= x32 << 5;
+                if ((x32 & 0xFFFFu) < pc) {                  /* a knock: its size u^2 (most faint) */
+                    uint32_t u = x32 >> 22;                  /* 0 .. 1023 */
+                    rt += (int32_t)(((int64_t)ca * (int32_t)(u * u >> 10)) >> 10);
+                }
+                if (!rt) continue;
+                x32 ^= x32 << 13; x32 ^= x32 >> 17; x32 ^= x32 << 5;
+                x = (int32_t)(x32 >> 17) - 16384;
+                x1 += (x - x1) >> 4;                         /* a stone's knock: noise high-passed (~0.4 kHz) and */
+                y += (x - x1 - y) >> 2;                      /* low-passed (~1.8 kHz): the references' shingle peaks at
+                                                              * 0.5-1.3 kHz and falls above 3 kHz */
+                buf[j] += (int32_t)(((int64_t)y * rt) >> 15);
+                rt -= (rt >> 6) + 1;                         /* tau ~1.4 ms */
+                if (rt < 0) rt = 0;
+            }
+            s->rt = rt; s->rt_x1 = rt ? x1 : 0; s->rt_y = rt ? y : 0;
+        } else s->rt = s->rt_x1 = s->rt_y = 0;
     }
+    s->x32 = x32 ? x32 : 1u;
     tx_bubbles_render(s->b, &s->pool, &s->dc, buf, n);
     tx_pool_tick(&s->pool);
     tx_declick_run(&s->dc, buf, n);
@@ -373,7 +409,7 @@ TX_AUDIO_CODE static void surf_render(void *st, int32_t *mix, unsigned n)
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->cloud.last_dropped = (uint16_t)(s->cloud.last_dropped + (uint16_t)(s->dropped - d0));
     z = s->hp.x1 | s->hp.y1 | s->dc.v | (int32_t)s->pool.alive | s->olp | (int32_t)live | (int32_t)s->burst | s->back.gain
-        | !tx_svf_bank_quiet(s->roar, NB) | !tx_svf_bank_quiet(s->pipe, 4) | s->sea | s->floor;
+        | !tx_svf_bank_quiet(s->roar, NB) | !tx_svf_bank_quiet(s->pipe, 4) | s->sea | s->floor | s->rt;
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !z);
 }
 

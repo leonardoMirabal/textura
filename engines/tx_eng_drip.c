@@ -10,7 +10,11 @@
  *   bubble   after the crater collapses (25 ms at 1.4 m/s, 10 ms at 2.36 m/s: t ~ U^-1.75), with probability ~0.9
  *            in the regular-entrainment range (ours: falling off below 1 m/s); a BUBBLE hero, amplitude ~ a^1.5 x U;
  *            near the surface it rises (xi 0.05-0.15, cap 2 f0), deep ones (DEPTH) hold their pitch and are quieter;
- *   second   fast drops sometimes pinch off a second, bigger bubble (ours: irregular entrainment, P up to 0.4).
+ *   second   fast drops sometimes pinch off a second, bigger bubble (ours: irregular entrainment, P up to 0.4);
+ *   splash   the crown and the droplets it throws falling back: a burst of high noise (3 .. 10 kHz, 6 .. 12 ms), ~U^2 like
+ *            the impact (the references: 5 .. 12 kHz within 10 dB of the plink; ours had none, 20 .. 30 dB down).
+ * CAVE: the space around the pool, a diffuse tail (a 4-line feedback delay network at half rate, 20 .. 37 ms lines:
+ * a chamber of ~10 m, T60 0.4 .. 4 s; the walls' loss a low-pass in each line). 0 = dry, the open air.
  * U from the fall height (HEIGHT) for a 4 mm drop: U = V_T sqrt(1 - exp(-2 g h / V_T^2)), V_T = 8.83 m/s; the key
  * velocity scales U (100 = the HEIGHT's speed). */
 #include "tx_engine.h"
@@ -33,7 +37,7 @@
 #define VARY_DRIFT 40
 #define VARY_SPLIT 0
 
-enum { P_SIZE, P_SCATTER, P_RATE, P_CLUMP, P_DEPTH, P_HEIGHT, NP };
+enum { P_SIZE, P_SCATTER, P_RATE, P_CLUMP, P_DEPTH, P_HEIGHT, P_CAVE, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"SIZE", 127, 55, "bubble radius at C4: 0.25 .. 6 mm (pitch 13 kHz .. 550 Hz; keys: a semitone smaller each)"},
@@ -42,11 +46,18 @@ static const tx_param_t PARAMS[NP] = {
     {"CLUMP", 127, 40, "drip timing: 0 = random (cave, Poisson) .. 127 = in runs of quick drops and quiet spells"},
     {"DEPTH", 127, 40, "how deep bubbles pinch off: 0 = at the surface (all rise, plink) .. 127 = deep (no glide, softer)"},
     {"HEIGHT", 127, 48, "fall height: 1 cm .. 3 m (log) -> impact speed 0.4 .. 8.6 m/s: louder, harder click, faster bubble"},
+    {"CAVE", 127, 0, "the space around: 0 = dry (open air) .. a cave's diffuse tail, T60 0.4 .. 4 s (log)"},
 };
 
 #define U_REF_Q8 330               /* 1.29 m/s (a 4 mm drop from 86 mm), m/s Q8: the reference level */
 #define AMP_L2 (28 << 16)          /* a bubble of the SIZE radius at U_REF: 2^28 Q30 = -12 dBFS */
 #define CLICK_L2 (10 << 16)        /* the impact at U_REF: 2^10 Q15 = -30 dBFS */
+#define SPLASH_L2 (13 << 16)       /* the splash at U_REF: 2^11 Q15 peak envelope (set against the references' 5-12 kHz) */
+#define SPLASH_C 18840             /* its two low-passes after the first difference, Q15: ~6 kHz each (a band 3 .. 10 kHz,
+                                    * falling -6 dB/oct above: the references' 12 .. 20 kHz) */
+#define CV_N 4u                    /* the cave: lines (half rate, 22.05 kHz) */
+static const uint16_t CV_LEN[CV_N] = { 439, 557, 673, 811 };   /* 20 .. 37 ms: mutually prime, ~10 m of rock */
+#define CV_TOT 2480u               /* their sum */
 
 typedef struct {
     tx_cloud_t cloud;
@@ -65,6 +76,15 @@ typedef struct {
     uint32_t rise_p16;             /* probability that a bubble rises, Q16 */
     uint16_t last_dropped;
     tx_vary_t vy;
+    tx_rng_t sp_rng;               /* the splash's noise (its own: the drops' draws stay as they were) */
+    int32_t sp_env, sp_amp, sp_x1, sp_lp, sp_lp2;   /* the splash: envelope now (Q15), the next one's peak, its filter */
+    uint32_t sp_wait;              /* samples to the next splash (0: none pending) */
+    uint8_t sp_sh, cv_on;          /* the splash's decay shift; the cave running */
+    uint16_t cv_pos[CV_N];
+    int32_t cv_g[CV_N], cv_lp[CV_N], cv_prev;   /* per-line decay (Q15), wall low-passes, the last output (for the
+                                                * upsampling) */
+    uint32_t cv_idle, cv_hold;     /* silent input samples so far; when to stop (2 T60) */
+    int16_t cv[CV_TOT];            /* the lines, one after another (Q14: +-2 full scale) */
 } drip_t;
 
 static uint32_t isqrt32(uint32_t x)                          /* floor(sqrt(x)), control rate */
@@ -102,6 +122,18 @@ static void set_param(drip_t *s, unsigned id, unsigned v)
         if (s->u_q8 < 8u) s->u_q8 = 8u;
         break;
     }
+    case P_CAVE:
+        if (v) {   /* T60 = 0.4 s x 2^(3.32 v / 127); a line of L samples (22.05 kHz) loses 60 dB x L / (T60 fs) */
+            uint32_t t60 = tx_knob_exp(v, 410u, 217900);     /* ms: 400 .. 4000 (2^3.32: v x 1716 Q16) */
+            unsigned i;
+            for (i = 0; i < CV_N; i++) {
+                int32_t l2 = -(int32_t)((653100u * CV_LEN[i] / 22u) / t60);   /* log2 g = -9.966 L / (T60 fs), Q16
+                                                                     * (653100 = 9.966 x 65536; L / 22.05 kHz in ms) */
+                s->cv_g[i] = (int32_t)tx_exp2(l2 + (15 << 16));
+            }
+            s->cv_hold = t60 * 88u;                          /* 2 T60 in samples (44.1 per ms) */
+        }
+        break;
     default: break;
     }
 }
@@ -117,6 +149,7 @@ static void drip_init(void *st, uint32_t seed)
     tx_cloud_sizes(&s->cloud, 6144, 0);                      /* every drop the same "size": the key sets it */
     tx_pool_init(&s->pool, TX_POOL_MAX, 12);
     tx_pulses_init(&s->clicks);
+    tx_rng_seed(&s->sp_rng, seed ^ 0x5B1A5Bu);
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
@@ -176,6 +209,13 @@ static void drop(drip_t *s, const tx_event_t *e)
     dur = dur < 4u ? 4u : dur > 200u ? 200u : dur;
     tx_pulse_start(&s->clicks, TX_PULSE_SHAPE_NWAVE, dur,
                    (int32_t)(((uint64_t)tx_exp2(cl) * (uint32_t)s->level) >> 15), e->offset);
+    {   /* the splash: ~U^2 as the impact, a little after it (the crown rising), decaying 6 or 12 ms (the droplets falling back) */
+        int32_t sl = SPLASH_L2 + 2 * lu;
+        uint32_t a = tx_exp2(sl > (15 << 16) ? (15 << 16) : sl);
+        a = (uint32_t)(((uint64_t)a * (uint32_t)s->level) >> 15);
+        if ((int32_t)a > s->sp_amp || !s->sp_wait) { s->sp_amp = (int32_t)a; s->sp_wait = e->offset + 20u + tx_rand_below(&s->sp_rng, 60u); }
+        s->sp_sh = (uint8_t)(8u + (tx_rand(&s->sp_rng) >> 31));
+    }
     /* the bubble: P ~0.9 above 1 m/s, down to 0.2 at 0.3 m/s (ours) */
     p_bub = u >= 256u ? 58982u : u <= 77u ? 13107u : 13107u + (u - 77u) * 256u;
     if (!chance(s, p_bub)) return;
@@ -208,6 +248,72 @@ static void drop(drip_t *s, const tx_event_t *e)
     }
 }
 
+/* the splash into buf: first-differenced noise through a low-pass, times its envelope */
+TX_AUDIO_CODE static void splash(drip_t *s, int32_t *buf, unsigned n)
+{
+    int32_t env = s->sp_env, x1 = s->sp_x1, lp = s->sp_lp, lp2 = s->sp_lp2, x;
+    unsigned j, sh = s->sp_sh;
+    if (!env && (!s->sp_wait || s->sp_wait > n)) { if (s->sp_wait) s->sp_wait -= n; return; }   /* (none in this block) */
+    for (j = 0; j < n; j++) {
+        if (s->sp_wait && !--s->sp_wait) { if (!env) lp = lp2 = x1 = 0; if (s->sp_amp > env) env = s->sp_amp; s->sp_amp = 0; }
+        if (!env) continue;                                  /* (the filter restarts from rest: a stale state
+                                                             * under the envelope was a thump) */
+        x = tx_rand_s15(&s->sp_rng);
+        lp += ((x - x1) - lp) * SPLASH_C >> 15;
+        lp2 += (lp - lp2) * SPLASH_C >> 15;
+        x1 = x;
+        buf[j] += (lp2 * env) >> 6;                          /* Q15 x Q15 -> Q23, x 2 (|lp2| < 2^16: < 2^31) */
+        env -= (env >> sh) + 1;
+        if (env < 0) env = 0;
+    }
+    s->sp_env = env; s->sp_x1 = x1; s->sp_lp = lp; s->sp_lp2 = lp2;
+}
+
+/* the cave: buf at half rate into a 4-line FDN (Hadamard / 2, a decay and a wall low-pass per line), the tail added
+ * back (linear interpolation up); it stops 2 T60 after the input fell silent */
+TX_AUDIO_CODE static void cave(drip_t *s, int32_t *buf, unsigned n)
+{
+    unsigned j, i, any = 0, base[CV_N];
+    int32_t prev = s->cv_prev;
+    if (s->p[P_CAVE]) for (j = 0; j < n; j++) any |= (unsigned)buf[j];
+    if (!s->p[P_CAVE]) { if (s->cv_on) { for (j = 0; j < CV_TOT; j++) s->cv[j] = 0; s->cv_on = 0; s->cv_prev = 0;
+                                          for (i = 0; i < CV_N; i++) s->cv_lp[i] = 0; } return; }
+    if (any) { s->cv_idle = 0; s->cv_on = 1; }
+    else if (!s->cv_on) return;
+    else if ((s->cv_idle += n) > s->cv_hold) {
+        for (j = 0; j < CV_TOT; j++) s->cv[j] = 0;
+        for (i = 0; i < CV_N; i++) s->cv_lp[i] = 0;
+        s->cv_on = 0; s->cv_prev = 0;
+        return;
+    }
+    for (i = 0, j = 0; i < CV_N; j += CV_LEN[i], i++) base[i] = j;
+    for (j = 0; j + 1 < n; j += 2) {
+        int32_t in = (buf[j] + buf[j + 1]) >> 10, y[CV_N], h0, h1, h2, h3, o;   /* Q23 / 2 -> Q14 */
+        for (i = 0; i < CV_N; i++) {
+            int32_t v = s->cv[base[i] + s->cv_pos[i]];
+            s->cv_lp[i] += ((v - s->cv_lp[i]) * 20000) >> 15;   /* the walls: ~5 kHz at 22 kHz */
+            y[i] = s->cv_lp[i];
+        }
+        h0 = (y[0] + y[1] + y[2] + y[3]) >> 1; h1 = (y[0] - y[1] + y[2] - y[3]) >> 1;
+        h2 = (y[0] + y[1] - y[2] - y[3]) >> 1; h3 = (y[0] - y[1] - y[2] + y[3]) >> 1;
+        {
+            int32_t w[CV_N];
+            w[0] = ((h0 * s->cv_g[0]) >> 15) + in; w[1] = ((h1 * s->cv_g[1]) >> 15) + in;
+            w[2] = ((h2 * s->cv_g[2]) >> 15) - in; w[3] = ((h3 * s->cv_g[3]) >> 15) - in;
+            for (i = 0; i < CV_N; i++) {
+                int32_t v = w[i] > 32767 ? 32767 : w[i] < -32768 ? -32768 : w[i];
+                s->cv[base[i] + s->cv_pos[i]] = (int16_t)v;
+                if (++s->cv_pos[i] >= CV_LEN[i]) s->cv_pos[i] = 0;
+            }
+        }
+        o = (y[0] - y[1] + y[2] - y[3]) >> 1;                /* (the lines' sum / 2: the tail's level; Q14 -> Q23 below) */
+        buf[j] += ((prev + o) >> 1) * 512;
+        buf[j + 1] += o * 512;
+        prev = o;
+    }
+    s->cv_prev = prev;
+}
+
 TX_AUDIO_CODE static void drip_render(void *st, int32_t *mix, unsigned n)
 {
     drip_t *s = (drip_t *)st;
@@ -221,13 +327,15 @@ TX_AUDIO_CODE static void drip_render(void *st, int32_t *mix, unsigned n)
     for (i = 0; i < k; i++) drop(s, &s->ev[i]);
     tx_bubbles_render(s->b, &s->pool, &s->dc, buf, n);
     tx_pulses_add(&s->clicks, buf, n);
+    splash(s, buf, n);
     tx_declick_run(&s->dc, buf, n);
     tx_vary_block(&s->vy, buf, n);
+    cave(s, buf, n);
     tx_trim(buf, n, OUT_TRIM);
     tx_dcblock_add(&s->hp, buf, mix, n);
     s->last_dropped = (uint16_t)(s->cloud.last_dropped + (s->pool.rejected - rej0));
     s->quiet = (uint8_t)(tx_cloud_idle(&s->cloud) && !s->pool.alive && !tx_pulses_active(&s->clicks)
-                         && !s->dc.v && !s->hp.x1 && !s->hp.y1);
+                         && !s->dc.v && !s->hp.x1 && !s->hp.y1 && !s->sp_env && !s->sp_wait && !s->cv_on);
 }
 
 static void drip_stats(const void *st, tx_stats_t *o)
@@ -245,7 +353,7 @@ static void drip_stats(const void *st, tx_stats_t *o)
 /* the worst case: every hero, every key slot at the fastest rate, the biggest (longest) bubbles, the hardest drops */
 static const char SCENE_MAX[] =
     "0 particles 32\n0 param RATE 127\n0 param SIZE 127\n0 param HEIGHT 127\n0 param SCATTER 127\n"
-    "0 param DEPTH 0\n0 param CLUMP 127\n"
+    "0 param DEPTH 0\n0 param CLUMP 127\n0 param CAVE 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "500 on 53 127\n500 on 60 127\n500 on 67 127\n500 on 74 127\n"
     "1000 on 57 127\n1000 on 64 127\n1000 on 71 127\n1000 on 79 127\n"

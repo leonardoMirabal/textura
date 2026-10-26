@@ -13,7 +13,8 @@
  *   roar       a dense bubble cloud has collective low modes, ~ f0 / N^(1/3) (L8): a low band (100-600 Hz, Q 1.5, ours)
  *              ~ sqrt(rate) (L32: the flow raises mainly 125 Hz-2 kHz); ROAR, off by default.
  *   eddies     the flow is not steady: the bubble rate wanders with the eddies (two random processes, ~0.5 and ~4 Hz,
- *              depth EDDY; ours, set against the references' 1-2.4 dB rms swings).
+ *              depth EDDY; ours, set against the references' 1-2.4 dB rms swings), exponentially: up to +-2.8 octaves
+ *              of rate at 127 (a surging, gurgling flow).
  * Listening session 2 ("good water, but a wind sound mixed in"): the wind was the roar band, so ROAR defaults to 0
  * (water only; up for a big rushing stream). The water's own continuity now comes from the bubbles: FLOW 105 (~5 k / s),
  * sizes over 5 octaves (centre / 4 .. x 8) and amplitude ~ a^1/4 (the brook references: flat 0.5-5 kHz).
@@ -50,7 +51,7 @@ static const tx_param_t PARAMS[NP] = {
     {"SIZE", 127, 30, "bubble size at C4: radius 0.6 .. 8 mm (log): pitch centre 5.5 kHz .. 400 Hz (keys: a semitone)"},
     {"SPREAD", 127, 64, "size law gamma: 0.5 (many big bubbles: gulping) .. 2.3 (mostly small: fizzing)"},
     {"NEAR", 127, 64, "how near the surface they burst: deep (quiet, steady) .. near (loud, rising plinks: babble)"},
-    {"EDDY", 127, 30, "eddies: a steady flow .. gurgling (the rate wanders, ~0.5 and ~4 Hz)"},
+    {"EDDY", 127, 30, "eddies: a steady flow .. surging and gurgling (the rate wanders, ~0.5 and ~4 Hz: +-0.16 oct at 30 .. +-2.8 oct at 127)"},
     {"ROAR", 127, 0, "the bubble cloud's low roar (100-600 Hz): off (water only) .. a big rushing stream"},
 };
 
@@ -72,6 +73,8 @@ typedef struct {
     int32_t buf[TX_BLOCK];
     uint32_t bed_e;                /* this block's bed energy (sum A^2 fs / 4d, Q?) */
     int32_t size_l2, beta_q8, eddy_d, e1, e2, flow_on;
+    int32_t a_mean;                /* the bubbles' mean radius lately (log2 mm, Q16): the bed's centre */
+    int32_t bed_s;                 /* the bed's energy per sample, smoothed over the bubbles' ring (~25 ms) */
     uint32_t rate_q8;
     uint8_t p[NP], limit, quiet, spray_new;   /* (spray_new: the water starting, its first drop after a gap) */
     int32_t level;
@@ -94,12 +97,16 @@ static void set_param(stream_t *s, unsigned id, unsigned v)
     s->p[id] = (uint8_t)v;
     switch (id) {
     case P_FLOW: s->rate_q8 = tx_knob_exp(v, 30u << 8, 653057); break;     /* 30 .. 30 000 /s (9.97 oct) */
-    case P_SIZE: s->size_l2 = -48300 + (int32_t)(v * 1934u); break;        /* log2(0.6 mm) + v log2(13.3) / 127 */
+    case P_SIZE: s->size_l2 = -48300 + (int32_t)(v * 1934u); s->a_mean = s->size_l2; break;        /* log2(0.6 mm) + v log2(13.3) / 127 */
     case P_SPREAD:                                            /* alpha = gamma + 1, gamma 0.5 .. 2.3, over 4 oct */
         tx_cloud_sizes(&s->cloud, 6144u + v * 58u, 4u << 12);   /* over 4 octaves */
         break;
     case P_NEAR: s->beta_q8 = (int32_t)(20 * 256) - (int32_t)v * 35; break;   /* beta 20 .. 2.6 */
-    case P_EDDY: s->eddy_d = (int32_t)v * 180; break;                      /* depth 0 .. 0.7 (Q15) */
+    case P_EDDY:                                              /* depth ~ v^2 (the rate's log2 below) */
+        s->eddy_d = (int32_t)(v * v);
+        s->vy.drift = TX_DB10(VARY_DRIFT) * (int32_t)(v > 60u ? 60u : v) / 30;   /* the slow wander too: +-4 dB at the
+                                                             * default, a steady fall +-1.6 (refs: 2-3 dB from 10 to 90 %) */
+        break;
     default: break;
     }
 }
@@ -116,13 +123,13 @@ static void stream_init(void *st, uint32_t seed)
     tx_noise_init(&s->bed, seed ^ 0xB0BB1Eu);
     tx_noise_init(&s->roar, seed ^ 0x2041u);
     tx_pulses_init(&s->ticks);
-    s->limit = 16;
+    s->limit = 14;
     tx_pool_init(&s->pool, NH, s->limit);
+    tx_vary_init(&((stream_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);   /* (EDDY sets its drift) */
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
     s->spray_new = 1;
-    tx_vary_init(&((stream_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
 }
 
 /* the first key (none held) just starts the flow; a key while the water runs tips a stone in: the gulp (the gulp at
@@ -130,7 +137,9 @@ static void stream_init(void *st, uint32_t seed)
 static void stream_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 {
     tx_cloud_t *c = &((stream_t *)st)->cloud;
-    if (on && vel) tx_vary_press(&((stream_t *)st)->vy);
+    if (on && vel && ((stream_t *)st)->flow_on < 8192)      /* a new character from (near) silence only: a key while */
+        tx_vary_press(&((stream_t *)st)->vy);               /* the water runs joins the same water (each press redrew
+                                                             * the whole flow's level, -13 .. +1.5 dB: a fall jumped) */
     if (on && vel && !tx_cloud_held(c)) {
         uint8_t b = c->burst_n;
         c->burst_n = 0;
@@ -170,20 +179,26 @@ static void bubble(stream_t *s, const tx_event_t *e)
     uint32_t env, stolen;
     int slot;
     if (e->kind != TX_EV_STREAM) l += 65536;                 /* a stone tipped in: louder */
-    if (l < HERO_MIN_L2) {                                   /* quiet: into the bed (A^2 fs / 4d, in 2^-20 FS^2 s) */
+    s->a_mean += (a_l2 - s->a_mean) >> 6;                    /* (the key, SIZE and SPREAD in it: the bed sounds like them) */
+    if (l >= HERO_MIN_L2) {                                  /* loud enough: a hero, if one is free or quieter */
+        int32_t lh = l + A_REF_L2;
+        lh = lh > (29 << 16) ? (29 << 16) : lh;
+        env = (uint32_t)(((uint64_t)tx_exp2(lh) * (uint32_t)s->level) >> 15);
+        slot = tx_pool_take(&s->pool, env, &stolen);
+        if (slot >= 0) {
+            if (stolen) tx_declick_add(&s->dc, s->b[slot].last);
+            tx_bubble_start(&s->b[slot], a_l2, d_l2 > -9963 ? 6554u : 0u, env, e->offset);   /* D > 0.9: it rises */
+            return;
+        }
+        s->dropped++;                                        /* (no hero for it: it still sounds, in the bed; it was
+                                                              * lost: at a waterfall's rate most of the water went quiet) */
+    }
+    {   /* into the bed (A^2 fs / 4d, in 2^-20 FS^2 s) */
         uint32_t d = tx_bubble_damp_q8(a_l2) >> 8;            /* 1/s */
         int32_t a2 = 2 * (A_REF_L2 - (30 << 16) + l) + (20 << 16);   /* log2(A^2 / 2^-20) */
         uint32_t e2 = a2 < 0 ? 0u : tx_exp2(a2 > (30 << 16) ? (30 << 16) : a2);
         s->bed_e += (e2 / (d ? d : 1u)) * 11u;                /* x fs / 4 = 11025: x 11 (k samples) */
-        return;
     }
-    l += A_REF_L2;
-    l = l > (29 << 16) ? (29 << 16) : l;
-    env = (uint32_t)(((uint64_t)tx_exp2(l) * (uint32_t)s->level) >> 15);
-    slot = tx_pool_take(&s->pool, env, &stolen);
-    if (slot < 0) { s->dropped++; return; }
-    if (stolen) tx_declick_add(&s->dc, s->b[slot].last);
-    tx_bubble_start(&s->b[slot], a_l2, d_l2 > -9963 ? 6554u : 0u, env, e->offset);   /* D > 0.9: it rises */
 }
 
 /* the spray: a drop falls back into the stream at offset o of the block (a held key's note and velocity) */
@@ -222,9 +237,11 @@ TX_AUDIO_CODE static void stream_render(void *st, int32_t *mix, unsigned n)
         int32_t m;
         s->e1 += (tx_rand_s15(r) - s->e1) >> 6;              /* ~0.4 Hz */
         s->e2 += (tx_rand_s15(r) - s->e2) >> 3;              /* ~3.5 Hz */
-        m = (int32_t)(((int64_t)(s->e1 * 4 + s->e2 * 2) * s->eddy_d) >> 15);   /* the sd's ~ equal */
-        m = m > 30000 ? 30000 : m < -30000 ? -30000 : m;
-        tx_cloud_rate(&s->cloud, (uint32_t)(((uint64_t)s->rate_q8 * (uint32_t)(32768 + m)) >> 15));
+        /* the rate's log2 (Q16), sd ~0.16 octave at EDDY 30, 0.7 at 64, 2.8 at 127 (clamped at 3): the flow surges and slackens
+         * (it was a linear +-6 % at the default, +-25 % at most: inaudible, the parameter study) */
+        m = (int32_t)(((int64_t)(s->e1 * 4 + s->e2 * 2) * s->eddy_d) >> 10);   /* (the two sd's ~ equal) */
+        m = m > (3 << 16) ? (3 << 16) : m < -(3 << 16) ? -(3 << 16) : m;
+        tx_cloud_rate(&s->cloud, (uint32_t)(((uint64_t)s->rate_q8 * tx_exp2((16 << 16) + m)) >> 16));
     }
     k = tx_cloud_block(&s->cloud, s->ev, n);
     if (!k && s->quiet && !lvq) return;                      /* silent and nothing new (a key held: the flow starts) */
@@ -252,16 +269,24 @@ TX_AUDIO_CODE static void stream_render(void *st, int32_t *mix, unsigned n)
     {   /* the events over the per-block cap: as average bubbles into the bed */
         uint32_t over = s->cloud.last_dropped;
         if (over) {
-            uint32_t d = tx_bubble_damp_q8(s->size_l2) >> 8;
+            uint32_t d = tx_bubble_damp_q8(s->a_mean) >> 8;
             uint32_t e2 = tx_exp2(2 * (A_REF_L2 - (30 << 16) - (4 << 16)) + (20 << 16));   /* a typical deep one */
             s->bed_e += over * (e2 / (d ? d : 1u)) * 11u;
         }
     }
-    {   /* the bed: a band at the size centre, gain sqrt(energy per sample) (calibrated by render) */
-        uint32_t fc = tx_exp2(L2_FC(s->size_l2));
-        uint32_t g = isqrt_s(s->bed_e / n * 64u);            /* sqrt(sum / n): in 2^-10 FS (x 8) */
-        g = (uint32_t)(((uint64_t)g * 28000u * (uint32_t)s->level) >> 18);
-        tx_noise_band(&s->bed, fc, 16, TX_NOISE_BAND);
+    {   /* the bed: a band at the bubbles' mean size, gain sqrt(energy per sample) (calibrated by render; it was the
+         * size centre, an octave and more under the small bubbles a steep SPREAD draws: a waterfall's top went dull) */
+        uint32_t fc = tx_exp2(L2_FC(s->a_mean));
+        uint32_t g;
+        s->bed_s += (int32_t)(((s->bed_e > (1u << 22) ? (1u << 22) : s->bed_e) << 8) / n - (uint32_t)s->bed_s) >> 2;   /* (Q8:
+                                                             * it was whole units a sample, mostly 0 .. 6: the bed switched on
+                                                             * and off by 6 dB steps; smoothed: they ring on past their block) */
+        g = isqrt_s((uint32_t)s->bed_s << 8);                 /* sqrt(sum / n) x 32: in 2^-15 FS (x 8; it was in whole
+                                                             * 2^-10 steps, the bed's level a staircase) */
+        g = (uint32_t)(((uint64_t)g * 28000u * (uint32_t)s->level) >> 23);
+        tx_noise_band(&s->bed, fc, 8, TX_NOISE_BAND);
+        tx_noise_tilt(&s->bed, fc * 2u);                     /* (no bubble smaller than half the centre: -12 dB/oct
+                                                             * above, not the band's -6) */
         tx_noise_roar_add(&s->bed, (int32_t)(g > 500000u ? 500000u : g), buf, n);
     }
     {   /* the roar: the cloud's low modes, ~ sqrt(rate) while the stream flows */
@@ -307,6 +332,7 @@ static const char SCENE_MAX[] =
     "4000 end\n";
 
 const tx_engine_t tx_eng_stream = {
-    "stream", "#4 Stream / brook", NP, PARAMS, NH, 16, sizeof(stream_t), SCENE_MAX,
+    "stream", "#4 Stream / brook", NP, PARAMS, NH, 14, sizeof(stream_t), SCENE_MAX,   /* (14 heroes: the bed now sounds
+                                                             * every block, ~90 us at the top; 16 went over half the pool) */
     stream_init, stream_key, stream_param, stream_render, stream_stats,
 };
