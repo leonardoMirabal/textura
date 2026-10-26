@@ -42,8 +42,14 @@
  *
  * Songbirds: the approved study's ranking (2026-10-26), one page for all ten, the source's own birds: SIZE (the bird's
  * size: its song's pitch), DEPTH (one bird at DIST .. birds near and far at once), DIST, VARY (= SPREAD: the birds
- * alike .. each its own pitch). The wild birds (approved 2026-10-26) the same four. Their own physical cards
- * (tempo, song length, variety) wait for the bird's parameters.
+ * alike .. each its own pitch). The wild birds (approved 2026-10-26) the same four. Page 2 how they sing, on the
+ * source's free knobs (tx_core_bird tx_bird_ctl_t): TEMPO (SPACING: faster up), SONG (EXTRA: longer songs), VARIETY
+ * (TONE: a bigger repertoire, fewer repeats), EXCITE (HARD: an excited bird, shorter pauses, louder; the colony's
+ * birds answer more). A wild bird's cards by what it does: the crow's caw SERIES, the gull's CALLS and LONGCALL (its
+ * long call over the short ones), the curlew's BUBBLE (the bubbling song over the calls), the oystercatcher's PIPING,
+ * the cuckoo's CALLS in a series and its INTERVAL, the woodpecker's DRUM (the strike rate) and ROLL (its length), the
+ * pigeon's PHRASES, the nightjar's RATE (the churr's pulses), CHURR (its length) and SWITCH (how often it changes),
+ * the bittern's BOOMS in a bout. A knob that does nothing on a bird has no card.
  *
  * Stones & sand: the approved study's ranking (2026-10-26). The stones are the source's own particles: SIZE, GROUND
  * (= HARD: stone on stone .. soft ground), RING (= TONE: the stones' Q), CLUMPS (= SPACING). Ringing rocks' STONE is
@@ -159,28 +165,34 @@ static const scd_sound_t SCD[] = {
     {"honeybee", "bees", 4, B_CARDS},
     {"bumblebee", "bees", 4, B_CARDS},
     /* Songbirds */
-#define SB_CARDS {{"SIZE", "SIZE", 0}, {"DEPTH", "DEPTH", 0}, DIST_CARD, {"VARY", "SPREAD", 0}}
-    {"songbird", 0, 4, SB_CARDS},
-    {"blackbird", 0, 4, SB_CARDS},
-    {"song thrush", 0, 4, SB_CARDS},
-    {"nightingale", 0, 4, SB_CARDS},
-    {"robin", 0, 4, SB_CARDS},
-    {"wren", 0, 4, SB_CARDS},
-    {"hermit thrush", 0, 4, SB_CARDS},
-    {"skylark", 0, 4, SB_CARDS},
-    {"wood thrush", 0, 4, SB_CARDS},
-    {"reed warbler", 0, 4, SB_CARDS},
+#define SB_PAGE1 {"SIZE", "SIZE", 0}, {"DEPTH", "DEPTH", 0}, DIST_CARD, {"VARY", "SPREAD", 0}
+#define SB_SING {"TEMPO", "SPACING", 0}, {"SONG", "EXTRA", 0}, {"VARIETY", "TONE", 0}, {"EXCITE", "HARD", 0}
+    {"songbird", 0, 8, {SB_PAGE1, SB_SING}},
+    {"blackbird", 0, 8, {SB_PAGE1, SB_SING}},
+    {"song thrush", 0, 8, {SB_PAGE1, SB_SING}},
+    {"nightingale", 0, 8, {SB_PAGE1, SB_SING}},
+    {"robin", 0, 8, {SB_PAGE1, SB_SING}},
+    {"wren", 0, 8, {SB_PAGE1, SB_SING}},
+    {"hermit thrush", 0, 8, {SB_PAGE1, SB_SING}},
+    {"skylark", 0, 8, {SB_PAGE1, SB_SING}},
+    {"wood thrush", 0, 8, {SB_PAGE1, SB_SING}},
+    {"reed warbler", 0, 8, {SB_PAGE1, SB_SING}},
     /* Wild birds */
-    {"chirper", 0, 4, SB_CARDS},
-    {"crow", 0, 4, SB_CARDS},
-    {"gull", 0, 4, SB_CARDS},
-    {"curlew", 0, 4, SB_CARDS},
-    {"oystercatcher", 0, 4, SB_CARDS},
-    {"cuckoo", 0, 4, SB_CARDS},
-    {"woodpecker", 0, 4, SB_CARDS},
-    {"wood pigeon", 0, 4, SB_CARDS},
-    {"nightjar", 0, 4, SB_CARDS},
-    {"bittern", 0, 4, SB_CARDS},
+    {"chirper", 0, 8, {SB_PAGE1, SB_SING}},
+    {"crow", 0, 7, {SB_PAGE1, {"TEMPO", "SPACING", 0}, {"SERIES", "EXTRA", 0}, {"EXCITE", "HARD", 0}}},
+    {"gull", 0, 8, {SB_PAGE1,
+                    {"TEMPO", "SPACING", 0}, {"CALLS", "EXTRA", 0}, {"LONGCALL", "TONE", 0}, {"EXCITE", "HARD", 0}}},
+    {"curlew", 0, 8, {SB_PAGE1,
+                      {"TEMPO", "SPACING", 0}, {"SONG", "EXTRA", 0}, {"BUBBLE", "TONE", 0}, {"EXCITE", "HARD", 0}}},
+    {"oystercatcher", 0, 8, {SB_PAGE1,
+        {"TEMPO", "SPACING", 0}, {"SONG", "EXTRA", 0}, {"PIPING", "TONE", 0}, {"EXCITE", "HARD", 0}}},
+    {"cuckoo", 0, 8, {SB_PAGE1,
+                      {"TEMPO", "SPACING", 0}, {"CALLS", "EXTRA", 0}, {"INTERVAL", "TONE", 0}, {"EXCITE", "HARD", 0}}},
+    {"woodpecker", 0, 7, {SB_PAGE1, {"DRUM", "SPACING", 0}, {"ROLL", "EXTRA", 0}, {"EXCITE", "HARD", 0}}},
+    {"wood pigeon", 0, 7, {SB_PAGE1, {"TEMPO", "SPACING", 0}, {"PHRASES", "EXTRA", 0}, {"EXCITE", "HARD", 0}}},
+    {"nightjar", 0, 8, {SB_PAGE1,
+                        {"RATE", "SPACING", 0}, {"CHURR", "EXTRA", 0}, {"SWITCH", "TONE", 0}, {"EXCITE", "HARD", 0}}},
+    {"bittern", 0, 7, {SB_PAGE1, {"TEMPO", "SPACING", 0}, {"BOOMS", "EXTRA", 0}, {"EXCITE", "HARD", 0}}},
     /* Stones & sand */
 #define S_H(n) {#n, #n, CK_HOST}
 #define S_S(l, p) {l, p, 0}

@@ -1394,6 +1394,8 @@ static void bird_sing(src_t *s, unsigned bi, unsigned type, int steal, int32_t k
 {
     birdm_t *b = &s->bm[bi];
     int32_t sz = tx_bird_size(type, knob(s, P_SIZE));
+    tx_bird_ctl_t c;                                         /* how they sing: SPACING the tempo, EXTRA the song's length,
+                                                              * TONE the variety, HARD the excitement (the cards name them) */
     uint32_t f = tx_exp2(TX_BIRD_F0[type] + b->f_off - sz), lv;   /* (the air at its kind's pitch: SIZE keeps level) */
     int32_t g = (int32_t)(((int64_t)tx_place_gain_q12(b->r_l2) * tx_place_air_q15(f, b->r_l2)) >> 15);
     int k;
@@ -1405,8 +1407,10 @@ static void bird_sing(src_t *s, unsigned bi, unsigned type, int steal, int32_t k
     if ((k = take(s, lv)) < 0) return;
     s->v[k].kind = V_BIRD; s->v[k].pre = (uint8_t)s->p[P_PRESET]; s->v[k].pad[0] = (uint8_t)bi; s->v[k].last = 0;
     s->total++;                                              /* (a song: the stats' event) */
+    c.tempo = (int8_t)knob(s, P_SPACING); c.length = (int8_t)knob(s, P_EXTRA);
+    c.variety = (int8_t)knob(s, P_TONE); c.excite = (int8_t)knob(s, P_HARD);
     tx_bird_song(&s->v[k].u.bv, type, b->seed, tx_rand_below(&s->rng, b->songs), tx_rand(&s->rng), b->f_off + key_l2,
-                 sz, g);
+                 sz, &c, g);
     b->voice = (uint8_t)k;
     b->sung = 0;
     s->events++;
@@ -1447,9 +1451,11 @@ static void birds_block(src_t *s, unsigned n)
             if (b->voice != 0xFF) {
                 singing++;
                 unsigned idle = 0;
+                int32_t ex = knob(s, P_HARD) ? clampi(a + knob(s, P_HARD) * 256, 0, 127 << 8) : a;   /* (excited: they
+                                                    * answer as a busier flock would: the colony's call rate) */
                 for (j = 0; j < NB; j++) idle += j != i && s->bm[j].active && s->bm[j].voice == 0xFF;
                 for (j = 0; j < NB; j++)                     /* the others may answer */
-                    if (j != i && s->bm[j].active && s->bm[j].voice == 0xFF) s->bm[j].wait = tx_bird_answer(&s->rng, type, a, s->bm[j].wait, idle);
+                    if (j != i && s->bm[j].active && s->bm[j].voice == 0xFF) s->bm[j].wait = tx_bird_answer(&s->rng, type, ex, s->bm[j].wait, idle);
                 continue;
             }
         }

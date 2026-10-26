@@ -53,6 +53,7 @@ typedef struct {
     uint8_t dlen, dp, track, sub;
     uint8_t singing, song, recent[2];
     uint8_t pace, verb, pamp, pad2; /* the bird's pace (gaps x pace / 128) and verbosity (+- notes), the phrase's level (Q8) */
+    int8_t ctl[4];                  /* the player's TEMPO, LENGTH, VARIETY, EXCITE (tx_bird_ctl_t) */
     uint16_t pgap;                  /* the gap after this phrase (2 ms) */
     int16_t plev;                   /* the phrase's pitch level, Q12 octaves */
     uint32_t seed;                  /* the bird: its repertoire */
@@ -73,11 +74,18 @@ typedef struct {
 extern const uint16_t TX_BIRD_PAUSE[TX_BIRD_TYPES];   /* mean pause between bouts at the middle, 0.1 s */
 extern const int32_t TX_BIRD_F0[TX_BIRD_TYPES];       /* the type's base pitch, log2 Hz Q16 */
 
+/* how the player has the birds sing, each -64 .. 63 (0: the kind's own): TEMPO (faster up: +-0.5 oct of time; a
+ * woodpecker's drum rate, a nightjar's churr rate), LENGTH (longer songs up: x/ 2 the phrases in a bout, +-2 notes in a
+ * strophe; a woodpecker's roll, the bittern's booms, the cuckoo's calls in a series), VARIETY (a bigger repertoire up,
+ * fewer repeats, more new phrases; the nightjar's churr switches, the cuckoo's interval, the waders' and gull's songs
+ * over calls), EXCITE (an excited bird up: shorter pauses between phrases, quicker, louder phrases) */
+typedef struct { int8_t tempo, length, variety, excite; } tx_bird_ctl_t;
+
 /* start a song (a bout) of a bird: its seed is the individual (repertoire, voice), `song` a song type for the
  * species that keep a few (wren, chaffinch), var_seed this rendition's draws; pitch offset f_off (log2 Q16), of it
- * size_l2 the bird's size (its throat and trachea scale with it, tx_bird_size), gain (Q12) */
+ * size_l2 the bird's size (its throat and trachea scale with it, tx_bird_size), ctl the player's (0: none), gain (Q12) */
 void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigned song, uint32_t var_seed, int32_t f_off,
-                  int32_t size_l2, int32_t gain);
+                  int32_t size_l2, const tx_bird_ctl_t *ctl, int32_t gain);
 /* SIZE (the knob's offset -64 .. 64) as the type's birds' pitch offset, log2 Q16: each kind its own range */
 int32_t tx_bird_size(unsigned type, int32_t k);
 /* the gain (Q12) that keeps a bird of that size as loud as its kind at SIZE 64 (its tract and beak scale with it) */

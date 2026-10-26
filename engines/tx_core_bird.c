@@ -141,6 +141,24 @@ static uint32_t ms_n(const tx_bird_voice_t *v, uint32_t ms)   /* ms -> samples a
     return (((ms * 441u / 10u) >> 4) * (uint32_t)v->tempo) >> 8;
 }
 
+/* the player's (tx_bird_ctl_t) */
+enum { K_TEMPO, K_LENGTH, K_VARIETY, K_EXCITE };
+static int32_t clampi(int32_t x, int32_t lo, int32_t hi) { return x < lo ? lo : x > hi ? hi : x; }
+static uint32_t xk(uint32_t n, int32_t k, int32_t q)        /* n x 2^(k q / 65536), rounded (k 0: n itself) */
+{
+    return k ? (n * tx_exp2((12 << 16) + k * q) + 2048u) >> 12 : n;
+}
+static int32_t kstep(int32_t k, int32_t d)                  /* k / d, rounded away from 0 (+-64 / 32: +-2) */
+{
+    return (k + (k > 0 ? d / 2 : k < 0 ? -d / 2 : 0)) / d;
+}
+static uint16_t pgap_of(const tx_bird_voice_t *v, uint32_t ms)   /* a gap between phrases (2 ms): the bird's pace,
+                                                              * shorter as it is excited (x/ 1.4) */
+{
+    uint32_t g = xk((ms * v->pace) >> 8, -v->ctl[K_EXCITE], 512);
+    return (uint16_t)(g > 65535u ? 65535u : g);
+}
+
 /* ---- a syllable: its type from the bird's seed (the repertoire), this rendition's variation from v->rng */
 static void syl_make(tx_bird_voice_t *v)
 {
@@ -231,7 +249,8 @@ static void syl_make(tx_bird_voice_t *v)
         k0 = k1 = rs(&r, 0, S->kmax); amp = 255;
         break;
     case C_COO:                                              /* the second: lower by the bird's own interval, falling */
-        len_ms = rb(&r, S->llo, S->lhi); rel = rs(&r, -100, 100) + (int32_t)(mix(v->seed, 21u) & 511u) - 256 - 700 - (int32_t)(mix(v->seed, 22u) % 940u);
+        len_ms = rb(&r, S->llo, S->lhi); rel = rs(&r, -100, 100) + (int32_t)(mix(v->seed, 21u) & 511u) - 256 - 700 - (int32_t)(mix(v->seed, 22u) % 940u)
+                                           - v->ctl[K_VARIETY] * 10;   /* (VARIETY: the interval +-0.16 oct) */
         df = rs(&r, -500, -100); arch = rs(&r, 0, 150); k0 = k1 = rs(&r, 0, S->kmax); amp = rs(&r, 200, 245);
         break;
     case C_KNOCK:                                            /* a beak strike: a short, rich burst (the tree rings it) */
@@ -302,6 +321,8 @@ static void seg(tx_bird_voice_t *v, uint16_t id, uint32_t n, uint32_t gap_ms, ui
 static unsigned pick(tx_bird_voice_t *v, unsigned n)        /* a phrase type, not one of the last two */
 {
     unsigned p = 0, t;
+    n = xk(n, v->ctl[K_VARIETY], 2048);                      /* VARIETY: the repertoire x/ 4 */
+    if (n < 1u) n = 1u;
     for (t = 0; t < 6u; t++) {
         p = tx_rand_below(&v->rng, n);
         if (n < 4u || (p != v->recent[0] && p != v->recent[1])) break;
@@ -358,6 +379,7 @@ static void phrase_start(tx_bird_voice_t *v)
         v->mrep = (uint8_t)rb(&pr, 2, 4);
         i = tx_rand_below(&v->rng, 8u);
         if (i == 0u && v->mrep > 1u) v->mrep--; else if (i == 1u) v->mrep++;
+        if (v->ctl[K_VARIETY]) v->mrep = (uint8_t)clampi(v->mrep - kstep(v->ctl[K_VARIETY], 32), 1, 8);   /* fewer repeats */
         break;
     case ST_NIGHTINGALE:                                     /* soft notes, a swelling whistle or a trill, an end */
         pid = pick(v, S->nphr);
@@ -374,7 +396,7 @@ static void phrase_start(tx_bird_voice_t *v)
         break;
     case ST_ROBIN:                                           /* a strophe of varied thin notes: half of them new */
     case ST_SKYLARK:                                         /* (the lark: short phrases strung together, endlessly) */
-        if (tx_rand_below(&v->rng, 10u) < (S->style == ST_ROBIN ? 5u : 6u)) {
+        if ((int32_t)tx_rand_below(&v->rng, 10u) < (S->style == ST_ROBIN ? 5 : 6) + kstep(v->ctl[K_VARIETY], 16)) {
             uint32_t sd = tx_rand(&v->rng);
             tx_rng_seed(&pr, sd);
             ns = 1792u;                                      /* fresh: from the bird's endless store of variants */
@@ -395,7 +417,7 @@ static void phrase_start(tx_bird_voice_t *v)
         }
         break;
     case ST_WREN:                                            /* its song type: notes, then trill after trill */
-        tx_rng_seed(&pr, mix(v->seed, 0x5000u + v->song % S->nphr));
+        tx_rng_seed(&pr, mix(v->seed, v->song < 4u ? 0x5000u + v->song % S->nphr : 0x5100u + v->song));
         v->plev = (int16_t)rs(&pr, -150, 150);
         seg(v, SYL(C_NOTE, rb(&pr, 0, ns - 1u)), vary_n(v, rb(&pr, 2, 4)), rb(&pr, 40, 80), 220, 255, 0);
         for (m = rb(&pr, 4, 6), i = 0; i < m; i++) {
@@ -413,17 +435,17 @@ static void phrase_start(tx_bird_voice_t *v)
                 rb(&pr, 120, 220), 255, rs(&pr, 1, 8));
         break;
     case ST_FINCH:
-        tx_rng_seed(&pr, mix(v->seed, 0x5000u + v->song % S->nphr));
+        tx_rng_seed(&pr, mix(v->seed, v->song < 4u ? 0x5000u + v->song % S->nphr : 0x5100u + v->song));
         v->plev = (int16_t)rs(&pr, -180, 180);
         if ((mix(v->seed, 7u) & 3u) == 0u) {                 /* a house sparrow: chirps */
             seg(v, SYL(C_CHIRP, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 1, 3), rb(&v->rng, 30, 80), lvl(&v->rng, 12), 255, 0);
             if (tx_rand(&v->rng) & 1u) seg(v, SYL(C_CHIRP, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 1, 3), rb(&v->rng, 30, 80), lvl(&v->rng, 12), 255, 0);
-            v->pgap = (uint16_t)((rb(&v->rng, 400, 2000) * v->pace) >> 8);
+            v->pgap = pgap_of(v, rb(&v->rng, 400, 2000));
             v->pamp = (uint8_t)lvl(&v->rng, 9);
             return;
         } else if (v->nph > 1u && tx_rand_below(&v->rng, 10u) < 4u) {   /* between songs: its soft "pink" calls */
             seg(v, SYL(C_CHIRP, rb(&pr, 0, ns - 1u)), rb(&v->rng, 2, 5), rb(&v->rng, 300, 500), lvl(&v->rng, 10) * 2 / 5, 255, 8);
-            v->pgap = (uint16_t)((rb(&v->rng, 600, 2500) * v->pace) >> 8);
+            v->pgap = pgap_of(v, rb(&v->rng, 600, 2500));
             v->pamp = 255;
             return;
         } else {                                             /* a chaffinch: 2-3 falling trills and the flourish */
@@ -445,7 +467,7 @@ static void phrase_start(tx_bird_voice_t *v)
     case ST_WARBLER:                                         /* chatter: syllables in 2-4 x repeats; sedge-like: buzzes */
         {
             int sedge = (mix(v->seed, 13u) & 3u) == 0u;
-            unsigned fr = tx_rand_below(&v->rng, 10u) < 3u;
+            unsigned fr = (int32_t)tx_rand_below(&v->rng, 10u) < 3 + kstep(v->ctl[K_VARIETY], 16);   /* new ones */
             uint32_t sd = tx_rand(&v->rng);
             if (fr) tx_rng_seed(&pr, sd); else tx_rng_seed(&pr, mix(v->seed, 0x5000u + pick(v, S->nphr)));
             v->plev = (int16_t)rs(&pr, -150, 150);
@@ -459,7 +481,7 @@ static void phrase_start(tx_bird_voice_t *v)
         break;
     case ST_CURLEW:                                          /* calls in series, or the bubbling song */
         v->plev = (int16_t)rs(&v->rng, -150, 150);
-        if (tx_rand_below(&v->rng, 20u) < 13u)
+        if ((int32_t)tx_rand_below(&v->rng, 20u) < 13 - kstep(v->ctl[K_VARIETY], 16))   /* (VARIETY: the song more) */
             seg(v, SYL(C_CURLEE, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 1, 2), rb(&v->rng, 300, 500), lvl(&v->rng, 9), 255, 0);
         else {
             tx_rng_seed(&pr, mix(v->seed, 0x5000u + tx_rand_below(&v->rng, S->nphr)));
@@ -473,7 +495,7 @@ static void phrase_start(tx_bird_voice_t *v)
         break;
     case ST_OYSTER:                                          /* kleeps, or the piping display */
         v->plev = (int16_t)rs(&v->rng, -120, 120);
-        if (tx_rand_below(&v->rng, 4u))
+        if ((int32_t)tx_rand_below(&v->rng, 16u) >= 4 + kstep(v->ctl[K_VARIETY], 32))   /* (VARIETY: piping more) */
             seg(v, SYL(C_KLEEP, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 1, 3), rb(&v->rng, 60, 150), lvl(&v->rng, 12), 255, 0);
         else {
             seg(v, SYL(C_KLEEP, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 3, 6), rb(&v->rng, 150, 250), 230, 255, 0);
@@ -489,6 +511,7 @@ static void phrase_start(tx_bird_voice_t *v)
     case ST_WOODPECKER:                                      /* a roll at the bird's rate, quickening (a few slow down) */
         {
             uint32_t h = mix(v->seed, 31u), n = vary_n(v, 6u + (h & 15u) + tx_rand_below(&v->rng, 10u));   /* 6 .. 30 */
+            n = (uint32_t)clampi((int32_t)xk(n, v->ctl[K_LENGTH], 1024), 3, 90);   /* LENGTH: the roll x/ 2 */
             uint32_t g = 44u + ((h >> 5) & 15u) + (uint32_t)rs(&v->rng, -2, 6);   /* 1 / (16 .. 23 /s), ms; each roll its own */
             int32_t dg = (int32_t)(3u + ((h >> 12) & 3u)) + rs(&v->rng, -1, 1);   /* 2 .. 7 ms per third */
             if (mix(v->seed, 33u) & 3u) dg = -dg;            /* three birds in four quicken */
@@ -510,9 +533,10 @@ static void phrase_start(tx_bird_voice_t *v)
     case ST_NIGHTJAR:                                        /* a stretch of churr: segments at two rates and levels */
         {
             uint32_t h = mix(v->seed, 41u), g1 = 20u + (h & 7u), g2 = g1 + 4u + ((h >> 3) & 3u);   /* ms between pulses */
+            uint32_t sw = xk(4u, -v->ctl[K_VARIETY], 2048);   /* VARIETY: switching every 1 .. 16 segments */
             v->plev = (int16_t)rs(&v->rng, -60, 60);
             for (i = 0; i < TX_BIRD_SEG; i++) {
-                unsigned b2 = (i / 4u) & 1u;                 /* the rate switches every ~4 segments (a head turn) */
+                unsigned b2 = (i / (sw ? sw : 1u)) & 1u;    /* the rate switches every ~4 segments (a head turn) */
                 seg(v, SYL(C_CHURR, b2), 40, (b2 ? g2 : g1) + rb(&v->rng, 0, 2), b2 ? 150 + rb(&v->rng, 0, 60) : 200 + rb(&v->rng, 0, 55), 255, b2 ? -2 : 0);
             }
         }
@@ -534,7 +558,7 @@ static void phrase_start(tx_bird_voice_t *v)
         break;
     default:                                                 /* gull: mostly short calls; now and then the long call */
         v->plev = 0;
-        if (tx_rand_below(&v->rng, 10u) < 7u)
+        if ((int32_t)tx_rand_below(&v->rng, 10u) < 7 - kstep(v->ctl[K_VARIETY], 32))   /* (VARIETY: the long call) */
             seg(v, SYL(C_KYOW, rb(&v->rng, 0, ns - 1u)), rb(&v->rng, 1, 3), rb(&v->rng, 100, 300), lvl(&v->rng, 8), 255, 0);
         else {
             seg(v, SYL(C_GLONG, 0), 2, 120, 255, 255, 0);
@@ -543,9 +567,12 @@ static void phrase_start(tx_bird_voice_t *v)
         break;
     }
     v->plev = (int16_t)(v->plev + rs(&v->rng, -60, 60));
-    v->pgap = (uint16_t)((rb(&v->rng, S->pglo, S->pghi) * v->pace) >> 8);   /* (2 ms) */
+    v->pgap = pgap_of(v, rb(&v->rng, S->pglo, S->pghi));   /* (2 ms) */
     v->pamp = (uint8_t)lvl(&v->rng, 9);                    /* the bird turns: the phrase -9 .. 0 dB */
     if (S->style == ST_OYSTER) v->pamp = (uint8_t)lvl(&v->rng, 16);   /* (calling in flight, passing: -16 .. 0 dB) */
+    if (v->ctl[K_EXCITE] > 0) v->pamp = (uint8_t)(255 - (((255 - v->pamp) * (64 - v->ctl[K_EXCITE])) >> 6));   /* all out */
+    else if (v->ctl[K_EXCITE] < 0)                          /* calm: softer (-3.5 dB) */
+        v->pamp = (uint8_t)((v->pamp * (384 + 2 * v->ctl[K_EXCITE])) / 384);
 }
 
 /* the syllable ended: the next one, the phrase again, the next phrase, or the song is over (0) */
@@ -574,7 +601,7 @@ static int advance(tx_bird_voice_t *v)
 }
 
 void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigned song, uint32_t var_seed, int32_t f_off,
-                  int32_t size_l2, int32_t gain)
+                  int32_t size_l2, const tx_bird_ctl_t *ctl, int32_t gain)
 {
     tx_rng_t br;
     const sp_t *S;
@@ -588,9 +615,14 @@ void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigne
     v->type = (uint8_t)type; v->sp = (uint8_t)sp; v->seed = bird_seed; v->song = (uint8_t)song;
     v->f_off = f_off + rs(&br, -13107, 13107) + rs(&v->rng, -1300, 1300);   /* the bird's pitch (+-0.2 oct), today's (+-0.02) */
     v->tempo = (4096 + rs(&br, -614, 614)) * (4096 + rs(&v->rng, -200, 200)) >> 12;   /* +-15 %, +-5 % */
+    v->ctl[K_TEMPO] = ctl ? ctl->tempo : 0; v->ctl[K_LENGTH] = ctl ? ctl->length : 0;
+    v->ctl[K_VARIETY] = ctl ? ctl->variety : 0; v->ctl[K_EXCITE] = ctl ? ctl->excite : 0;
+    if (v->ctl[K_TEMPO] || v->ctl[K_EXCITE])               /* TEMPO +-0.5 oct of time, an excited bird quicker */
+        v->tempo = (int32_t)xk((uint32_t)v->tempo, -v->ctl[K_TEMPO] * 4 - v->ctl[K_EXCITE], 128);
     v->pace = (uint8_t)(S->style == ST_CUCKOO ? rb(&br, 112, 144) : rb(&br, 64, 255));   /* gaps between phrases x 0.5 .. 2
                                                               * (the cuckoo keeps its clock: +-12 %) */
-    v->verb = (uint8_t)(int8_t)rs(&br, -1, 1);               /* shorter or longer phrases */
+    v->verb = (uint8_t)(int8_t)clampi(rs(&br, -1, 1) + kstep(v->ctl[K_LENGTH], 32), -3, 3);   /* shorter or longer
+                                                              * phrases (LENGTH: +-2 notes) */
     v->pamp = 255;
     v->track = S->track; v->closed = S->closed; v->oec_l2 = S->oec;
     size_l2 = size_l2 < -65536 ? -65536 : size_l2 > 65536 ? 65536 : size_l2;
@@ -609,6 +641,12 @@ void tx_bird_song(tx_bird_voice_t *v, unsigned type, uint32_t bird_seed, unsigne
     v->recent[0] = v->recent[1] = 0xFF;
     v->nph = (uint8_t)(S->style == ST_OWL ? ((mix(bird_seed, 9u) % 3u) ? 2u : 1u) : rb(&v->rng, S->plo, S->phi));
     if (S->style == ST_FINCH) v->nph = (uint8_t)((mix(bird_seed, 7u) & 3u) == 0u ? rb(&v->rng, 4, 14) : rb(&v->rng, 2, 6));   /* a sparrow's chirping; a chaffinch's songs and calls */
+    if (S->style != ST_OWL && S->style != ST_WOODPECKER)    /* LENGTH: the phrases in a bout x/ 2 (a woodpecker: its roll) */
+        v->nph = (uint8_t)clampi((int32_t)xk(v->nph, v->ctl[K_LENGTH], 1024), 1, 255);
+    if (v->ctl[K_VARIETY] && (S->style == ST_WREN || S->style == ST_FINCH)
+        && (int32_t)tx_rand_below(&v->rng, 64u) < (v->ctl[K_VARIETY] < 0 ? -v->ctl[K_VARIETY] : v->ctl[K_VARIETY]))
+        v->song = (uint8_t)(v->ctl[K_VARIETY] < 0 ? 0u : 4u + tx_rand_below(&v->rng, 12u));   /* VARIETY: its first song
+                                                              * type again, or one more from its repertoire */
     phrase_start(v);
     syl_make(v);
     v->wait = 0; v->singing = 1;

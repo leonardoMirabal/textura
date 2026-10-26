@@ -1,5 +1,5 @@
-# the Wild birds landscape's SOUND cards (sound_cards.h, the approved study): one page for all ten, the
-# source's own birds: SIZE, DEPTH, DIST, VARY (SPREAD)
+# the Wild birds landscape's SOUND cards (sound_cards.h, the approved study): SIZE, DEPTH, DIST, VARY (SPREAD) for
+# all ten; page 2 each bird's own: its tempo (SPACING), song length (EXTRA), variety (TONE), excitement (HARD)
 1700 turn 1 9
 2100 expect state landscape Wild_birds
 2100 btn 13
@@ -9,80 +9,140 @@
 2300 expect state snd2 gull
 2300 expect state snd3 curlew
 2400 btn 6
-2450 expect state page SOUND
+2450 expect state page SOUND_1/2
 2450 expect state sel 1
 2450 expect state lab0 SIZE
 2450 expect state lab1 DEPTH
 2450 expect state lab2 DIST
 2450 expect state lab3 VARY
-2500 btn 1
-2550 expect state sel 2
-2550 expect state lab0 SIZE
-2550 expect state lab1 DEPTH
-2550 expect state lab2 DIST
-2550 expect state lab3 VARY
-2650 btn 1
-2700 expect state sel 3
-2700 expect state lab0 SIZE
-2700 expect state lab1 DEPTH
-2700 expect state lab2 DIST
-2700 expect state lab3 VARY
-2800 btn 1
-2850 expect state sel 4
-2850 expect state lab0 SIZE
-2850 expect state lab1 DEPTH
-2850 expect state lab2 DIST
-2850 expect state lab3 VARY
-2950 btn 0
-2970 btn 0
-3000 expect state sel 2
-3050 btn 8
-3100 turn 2 1
-3150 expect state snd1 oystercatcher
-3200 btn 6
-3250 expect state lab0 SIZE
-3250 expect state lab1 DEPTH
-3250 expect state lab2 DIST
-3250 expect state lab3 VARY
-3350 btn 8
-3400 turn 2 1
-3450 expect state snd1 cuckoo
-3500 btn 6
-3550 expect state lab0 SIZE
-3550 expect state lab1 DEPTH
-3550 expect state lab2 DIST
-3550 expect state lab3 VARY
-3650 btn 8
-3700 turn 2 1
-3750 expect state snd1 woodpecker
-3800 btn 6
-3850 expect state lab0 SIZE
-3850 expect state lab1 DEPTH
-3850 expect state lab2 DIST
-3850 expect state lab3 VARY
-3950 btn 8
-4000 turn 2 1
-4050 expect state snd1 wood_pigeon
-4100 btn 6
-4150 expect state lab0 SIZE
-4150 expect state lab1 DEPTH
-4150 expect state lab2 DIST
-4150 expect state lab3 VARY
-4250 btn 8
-4300 turn 2 1
-4350 expect state snd1 nightjar
-4400 btn 6
-4450 expect state lab0 SIZE
-4450 expect state lab1 DEPTH
-4450 expect state lab2 DIST
-4450 expect state lab3 VARY
-4550 btn 8
-4600 turn 2 1
-4650 expect state snd1 bittern
-4700 btn 6
-4750 expect state lab0 SIZE
-4750 expect state lab1 DEPTH
-4750 expect state lab2 DIST
-4750 expect state lab3 VARY
-4850 expect state dropped 0
-5000 end
+2500 turn 0 1
+2550 expect state lab0 TEMPO
+2550 expect state lab1 SONG
+2550 expect state lab2 VARIETY
+2550 expect state lab3 EXCITE
+2600 turn 0 -1
+2700 btn 1
+2750 expect state sel 2
+2750 expect state lab0 SIZE
+2750 expect state lab1 DEPTH
+2750 expect state lab2 DIST
+2750 expect state lab3 VARY
+2800 turn 0 1
+2850 expect state lab0 TEMPO
+2850 expect state lab1 SERIES
+2850 expect state lab2 EXCITE
+2850 expect state lab3 -
+2900 turn 0 -1
+3000 btn 1
+3050 expect state sel 3
+3050 expect state lab0 SIZE
+3050 expect state lab1 DEPTH
+3050 expect state lab2 DIST
+3050 expect state lab3 VARY
+3100 turn 0 1
+3150 expect state lab0 TEMPO
+3150 expect state lab1 CALLS
+3150 expect state lab2 LONGCALL
+3150 expect state lab3 EXCITE
+3200 turn 0 -1
+3300 btn 1
+3350 expect state sel 4
+3350 expect state lab0 SIZE
+3350 expect state lab1 DEPTH
+3350 expect state lab2 DIST
+3350 expect state lab3 VARY
+3400 turn 0 1
+3450 expect state lab0 TEMPO
+3450 expect state lab1 SONG
+3450 expect state lab2 BUBBLE
+3450 expect state lab3 EXCITE
+3500 turn 0 -1
+3600 btn 0
+3620 btn 0
+3650 expect state sel 2
+3700 btn 8
+3750 turn 2 1
+3800 expect state snd1 oystercatcher
+3850 btn 6
+3900 expect state lab0 SIZE
+3900 expect state lab1 DEPTH
+3900 expect state lab2 DIST
+3900 expect state lab3 VARY
+3950 turn 0 1
+4000 expect state lab0 TEMPO
+4000 expect state lab1 SONG
+4000 expect state lab2 PIPING
+4000 expect state lab3 EXCITE
+4050 turn 0 -1
+4150 btn 8
+4200 turn 2 1
+4250 expect state snd1 cuckoo
+4300 btn 6
+4350 expect state lab0 SIZE
+4350 expect state lab1 DEPTH
+4350 expect state lab2 DIST
+4350 expect state lab3 VARY
+4400 turn 0 1
+4450 expect state lab0 TEMPO
+4450 expect state lab1 CALLS
+4450 expect state lab2 INTERVAL
+4450 expect state lab3 EXCITE
+4500 turn 0 -1
+4600 btn 8
+4650 turn 2 1
+4700 expect state snd1 woodpecker
+4750 btn 6
+4800 expect state lab0 SIZE
+4800 expect state lab1 DEPTH
+4800 expect state lab2 DIST
+4800 expect state lab3 VARY
+4850 turn 0 1
+4900 expect state lab0 DRUM
+4900 expect state lab1 ROLL
+4900 expect state lab2 EXCITE
+4900 expect state lab3 -
+4950 turn 0 -1
+5050 btn 8
+5100 turn 2 1
+5150 expect state snd1 wood_pigeon
+5200 btn 6
+5250 expect state lab0 SIZE
+5250 expect state lab1 DEPTH
+5250 expect state lab2 DIST
+5250 expect state lab3 VARY
+5300 turn 0 1
+5350 expect state lab0 TEMPO
+5350 expect state lab1 PHRASES
+5350 expect state lab2 EXCITE
+5350 expect state lab3 -
+5400 turn 0 -1
+5500 btn 8
+5550 turn 2 1
+5600 expect state snd1 nightjar
+5650 btn 6
+5700 expect state lab0 SIZE
+5700 expect state lab1 DEPTH
+5700 expect state lab2 DIST
+5700 expect state lab3 VARY
+5750 turn 0 1
+5800 expect state lab0 RATE
+5800 expect state lab1 CHURR
+5800 expect state lab2 SWITCH
+5800 expect state lab3 EXCITE
+5850 turn 0 -1
+5950 btn 8
+6000 turn 2 1
+6050 expect state snd1 bittern
+6100 btn 6
+6150 expect state lab0 SIZE
+6150 expect state lab1 DEPTH
+6150 expect state lab2 DIST
+6150 expect state lab3 VARY
+6200 turn 0 1
+6250 expect state lab0 TEMPO
+6250 expect state lab1 BOOMS
+6250 expect state lab2 EXCITE
+6250 expect state lab3 -
+6300 turn 0 -1
+6450 expect state dropped 0
+6600 end
