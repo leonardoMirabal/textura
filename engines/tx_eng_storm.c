@@ -36,7 +36,9 @@ static const tx_param_t PARAMS[NP] = {
     {"DIST", 127, 60, "distance of the thunder cell: 0.5 .. 15 km (log)"},
 };
 
-#define ARENA 4800u                /* bytes for the rain engine's state (rain on water 4588, on surfaces 4324) */
+#define ARENA 5920u                /* bytes for the rain engine's state (rain on water 4708, on surfaces 5920 with hail):
+                                    * a rain engine that does not fit is silently left out, so txtest checks it */
+#define TB 128u                    /* the thunder's scratch, samples (rendered in pieces: the state fits its slot) */
 #define RAIN_P 8u                  /* the rain's PARTICLES inside the scene (the scene's CPU share) */
 #define WIND_REF 14000              /* the wind bed's gain at 10 m/s (Q15; calibrated by render) */
 
@@ -47,7 +49,7 @@ typedef struct {
     tx_flash_t fl;
     tx_dcblock_t hp;
     tx_event_t ev[TX_CLOUD_EV_MAX];
-    int32_t buf[TX_BLOCK], tb[TX_BLOCK];
+    int32_t buf[TX_BLOCK], tb[TB];
     const tx_engine_t *rain;
     uint32_t seed, next;           /* samples to the next flash while the storm is on */
     int32_t on, gust, flut, u_l2;
@@ -207,18 +209,23 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
     if (s->fl.active) {                                      /* thunder over the rain: x 5 (set by render: a flash
                                                               * 2-3 km away stands well over the rain) */
         int32_t *tb = s->tb;
-        for (j = 0; j < n; j++) tb[j] = 0;
-        tx_flash_add(&s->fl, r, tb, n);
-        for (j = 0; j < n; j++) {                            /* x 5, then a soft knee from -6 dBFS: a near crack */
-            int32_t v = tb[j] * 5, m = v < 0 ? -v : v;      /* saturates toward full scale, never past it */
-            if (m > (1 << 22)) {
-                uint32_t x = (uint32_t)(m - (1 << 22)), r;   /* excess over 0.5 FS: x / (1 + x / 0.5 FS) */
-                if (x > (1u << 25)) x = 1u << 25;
-                r = ((1u << 22) + x) >> 8;                   /* 32-bit: (x 2^6 / r) 2^8 = x 2^22 / (2^22 + x) */
-                m = (1 << 22) + (int32_t)(((x << 6) / r) << 8);
-                v = v < 0 ? -m : m;
+        unsigned o, m;
+        for (o = 0; o < n; o += m) {
+            m = n - o < TB ? n - o : TB;
+            for (j = 0; j < m; j++) tb[j] = 0;
+            tx_flash_add(&s->fl, r, tb, m);
+            for (j = 0; j < m; j++) {                        /* x 5, then a soft knee from -6 dBFS: a near crack */
+                int32_t v = tb[j] * 5, a = v < 0 ? -v : v;  /* saturates toward full scale, never past it */
+                if (a > (1 << 22)) {
+                    uint32_t x = (uint32_t)(a - (1 << 22)), q;   /* excess over 0.5 FS: x / (1 + x / 0.5 FS) */
+                    if (x > (1u << 25)) x = 1u << 25;
+                    q = ((1u << 22) + x) >> 8;               /* 32-bit: (x 2^6 / q) 2^8 = x 2^22 / (2^22 + x) */
+                    a = (1 << 22) + (int32_t)(((x << 6) / q) << 8);
+                    v = v < 0 ? -a : a;
+                }
+                buf[o + j] += v;
             }
-            buf[j] += v;
+            if (!s->fl.gen_done) break;                      /* (the channel grows TX_TH_GEN steps a block, not a piece) */
         }
     }
     tx_trim(buf, n, OUT_TRIM);
@@ -246,6 +253,16 @@ static const char SCENE_MAX[] =
     "0 on 60 127\n500 on 64 127\n1200 on 67 127\n2000 param SURFACE 0\n2500 on 72 127\n"
     "3500 off 60\n3500 off 64\n3500 off 67\n3500 off 72\n"
     "6000 end\n";
+
+/* the hosted rain engines that do not fit the arena (txtest: a rain left out would be silent, not an error); the
+ * first one's name in *bad */
+unsigned tx_storm_misfits(const char **bad)
+{
+    const tx_engine_t *const r[2] = { &tx_eng_rainwater, &tx_eng_rainsurf };
+    unsigned i, n = 0;
+    for (i = 0; i < 2u; i++) if (r[i]->state_bytes > ARENA) { if (!n) *bad = r[i]->name; n++; }
+    return n;
+}
 
 const tx_engine_t tx_eng_storm = {
     "storm", "#26 Storm (scene)", NP, PARAMS, 1, 1, sizeof(storm_t), SCENE_MAX,

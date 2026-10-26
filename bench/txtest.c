@@ -21,6 +21,8 @@
  * FX: off = untouched; silence in = exact silence out; each reverb TYPE's tail ends in exact zeros; FREEZE holds its level
  *     for 3 minutes; renders against the baselines (fx-*).
  * Keys: every engine over the SMK-37's keybed (notes 48..84) at v1 / v127: no overflow, quiet after.
+ * Hosts: every engine run inside another (the source's hosted sounds, the storm's rain) fits its arena: one that does
+ *        not is left out silently by its host, so it fails here.
  * Sources: no float / double / floating literal in engines/ (comments and strings stripped). */
 #include <dirent.h>
 #include <math.h>
@@ -1247,6 +1249,17 @@ static void check_fx(FILE *update)
     free(fx);
 }
 
+unsigned tx_source_misfits(const char **bad);
+unsigned tx_storm_misfits(const char **bad);
+static void check_hosts(void)
+{
+    const char *bad = "";
+    unsigned n = tx_source_misfits(&bad);
+    verdict("source", "hosts", !n, n ? "does not fit (or is unknown): " : "every hosted engine fits HOST_BYTES", n ? bad : 0);
+    bad = ""; n = tx_storm_misfits(&bad);
+    verdict("storm", "hosts", !n, n ? "rain engine over ARENA: " : "both rain engines fit ARENA", n ? bad : 0);
+}
+
 int main(int argc, char **argv)
 {
     unsigned k;
@@ -1261,6 +1274,7 @@ int main(int argc, char **argv)
         baseline_load();
     check_sources("engines");
     for (k = 0; tx_engines[k]; k++) check_engine(tx_engines[k], update);
+    check_hosts();
     if (!update) for (k = 0; tx_engines[k]; k++) check_variation(tx_engines[k]);
     check_chamber(update);
     check_layers(update);

@@ -2155,6 +2155,22 @@ static const char SCENE_MAX[] =
     "17000 param PRESET 15\n18000 param PRESET 16\n19000 param PRESET 17\n20000 param PRESET 18\n21000 param PRESET 19\n"
     "22000 off 60\n23000 end\n";
 
+/* the hosted engines that do not fit (txtest: a host left out would play as a particle preset or fall silent, not an
+ * error): every HOST row in the whole arena, the water's stream after the drops' heroes; the first one's name in *bad */
+unsigned tx_source_misfits(const char **bad)
+{
+    unsigned i, n = 0;
+    for (i = 0; i < sizeof HOST / sizeof HOST[0]; i++) {
+        const tx_engine_t *e = tx_engine_find(HOST[i].eng);
+        if (!e || e->state_bytes > HOST_BYTES) { if (!n) *bad = HOST[i].eng; n++; }
+    }
+    for (i = 0; i < NPRE; i++) if (PRE[i].kind == 3) {
+        const tx_engine_t *e = tx_engine_find(HOST[PRE[i].act_lo].eng);
+        if (!e || e->state_bytes > HOST_BYTES - WATER_OFF) { if (!n) *bad = HOST[PRE[i].act_lo].eng; n++; }
+    }
+    return n;
+}
+
 /* the dev view (the player's hosted block): the hosted engine playing now (0: none), and its own parameters read and
  * set directly. A value set here is an override: it wins over the source's curves, maps and COUNT until the sound
  * (PRESET or TYPE) changes, which clears every override. */
