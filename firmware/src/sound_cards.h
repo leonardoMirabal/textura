@@ -36,8 +36,13 @@
  * Insects: the approved study's ranking (2026-10-26). Crickets TEMP, CHORUS (their FIELD: the far chorus), SYNC; the
  * katydid's RASP is its JITTER, the grasshopper's PEGS first. The cicadas are the source's own callers: their cards
  * are its knobs by the cicada's names (SIZE the body, RING the tymbal's Q = TONE, BUZZ = HARD, DEPTH the chorus spread
- * in distance). Bees: SWARM, SPEED, the swarm's wingbeat SPREAD. A SIZE (the body) for crickets and katydids waits for
- * the engines' parameter. EXTRA, SPACING and DEPTH (but the cicadas') do nothing on an insect.
+ * in distance). Bees: SWARM, SPEED, the swarm's wingbeat SPREAD. The crickets' and katydids' SIZE (the body: the
+ * carrier +-0.5 oct, bigger is lower) on their second page. EXTRA, SPACING and DEPTH (but the cicadas') do nothing on
+ * an insect.
+ *
+ * Songbirds: the approved study's ranking (2026-10-26), one page for all ten, the source's own birds: SIZE (the bird's
+ * size: its song's pitch), DEPTH (one bird at DIST .. birds near and far at once), DIST, VARY (= SPREAD: the birds
+ * alike .. each its own pitch). Their own physical cards (tempo, song length, variety) wait for the bird's parameters.
  *
  * Stones & sand: the approved study's ranking (2026-10-26). The stones are the source's own particles: SIZE, GROUND
  * (= HARD: stone on stone .. soft ground), RING (= TONE: the stones' Q), CLUMPS (= SPACING). Ringing rocks' STONE is
@@ -136,21 +141,34 @@ static const scd_sound_t SCD[] = {
 #define I_CHORUS {"CHORUS", "FIELD", CK_HOST}
 #define I_SYNC {"SYNC", "SYNC", CK_HOST}
 #define I_RASP {"RASP", "JITTER", CK_HOST}
+#define I_SIZE {"SIZE", "SIZE", CK_HOST}
 #define C_CARDS(a, b, c, d) {a, b, c, d, {"BUZZ", "HARD", 0}}
 #define C_SIZE {"SIZE", "SIZE", 0}
 #define C_RING {"RING", "TONE", 0}
 #define C_DEPTH {"DEPTH", "DEPTH", 0}
 #define B_CARDS {{"SWARM", "SWARM", CK_HOST}, {"SPEED", "SPEED", CK_HOST}, DIST_CARD, {"SPREAD", "SPREAD", CK_HOST}}
-    {"field cricket", "crickets", 4, {I_TEMP, I_CHORUS, I_SYNC, DIST_CARD}},
-    {"tree cricket", "crickets", 4, {I_TEMP, I_CHORUS, I_SYNC, DIST_CARD}},
-    {"mole cricket", "crickets", 4, {I_TEMP, I_CHORUS, DIST_CARD, I_SYNC}},
+    {"field cricket", "crickets", 5, {I_TEMP, I_CHORUS, I_SYNC, DIST_CARD, I_SIZE}},
+    {"tree cricket", "crickets", 5, {I_TEMP, I_CHORUS, I_SYNC, DIST_CARD, I_SIZE}},
+    {"mole cricket", "crickets", 5, {I_TEMP, I_CHORUS, DIST_CARD, I_SYNC, I_SIZE}},
     {"cicada", 0, 5, C_CARDS(C_SIZE, C_RING, C_DEPTH, DIST_CARD)},
     {"small cicada", 0, 5, C_CARDS(C_SIZE, C_RING, C_DEPTH, DIST_CARD)},
     {"cicada chorus", 0, 5, C_CARDS(C_DEPTH, C_SIZE, C_RING, DIST_CARD)},
-    {"katydid", "katydids", 5, {I_TEMP, I_RASP, I_CHORUS, DIST_CARD, I_SYNC}},
-    {"grasshopper", "katydids", 6, {{"PEGS", "PEGS", CK_HOST}, I_TEMP, I_RASP, DIST_CARD, I_CHORUS, I_SYNC}},
+    {"katydid", "katydids", 6, {I_TEMP, I_RASP, I_CHORUS, DIST_CARD, I_SYNC, I_SIZE}},
+    {"grasshopper", "katydids", 7, {{"PEGS", "PEGS", CK_HOST}, I_TEMP, I_RASP, DIST_CARD, I_CHORUS, I_SYNC, I_SIZE}},
     {"honeybee", "bees", 4, B_CARDS},
     {"bumblebee", "bees", 4, B_CARDS},
+    /* Songbirds */
+#define SB_CARDS {{"SIZE", "SIZE", 0}, {"DEPTH", "DEPTH", 0}, DIST_CARD, {"VARY", "SPREAD", 0}}
+    {"songbird", 0, 4, SB_CARDS},
+    {"blackbird", 0, 4, SB_CARDS},
+    {"song thrush", 0, 4, SB_CARDS},
+    {"nightingale", 0, 4, SB_CARDS},
+    {"robin", 0, 4, SB_CARDS},
+    {"wren", 0, 4, SB_CARDS},
+    {"hermit thrush", 0, 4, SB_CARDS},
+    {"skylark", 0, 4, SB_CARDS},
+    {"wood thrush", 0, 4, SB_CARDS},
+    {"reed warbler", 0, 4, SB_CARDS},
     /* Stones & sand */
 #define S_H(n) {#n, #n, CK_HOST}
 #define S_S(l, p) {l, p, 0}

@@ -1,0 +1,88 @@
+# the Songbirds landscape's SOUND cards (sound_cards.h, the approved study): one page for all ten, the
+# source's own birds: SIZE, DEPTH, DIST, VARY (SPREAD)
+1700 turn 1 8
+2100 expect state landscape Songbirds
+2100 btn 13
+2200 expect state run0 1
+2300 expect state snd0 songbird
+2300 expect state snd1 blackbird
+2300 expect state snd2 song_thrush
+2300 expect state snd3 nightingale
+2400 btn 6
+2450 expect state page SOUND
+2450 expect state sel 1
+2450 expect state lab0 SIZE
+2450 expect state lab1 DEPTH
+2450 expect state lab2 DIST
+2450 expect state lab3 VARY
+2500 btn 1
+2550 expect state sel 2
+2550 expect state lab0 SIZE
+2550 expect state lab1 DEPTH
+2550 expect state lab2 DIST
+2550 expect state lab3 VARY
+2650 btn 1
+2700 expect state sel 3
+2700 expect state lab0 SIZE
+2700 expect state lab1 DEPTH
+2700 expect state lab2 DIST
+2700 expect state lab3 VARY
+2800 btn 1
+2850 expect state sel 4
+2850 expect state lab0 SIZE
+2850 expect state lab1 DEPTH
+2850 expect state lab2 DIST
+2850 expect state lab3 VARY
+2950 btn 0
+2970 btn 0
+3000 expect state sel 2
+3050 btn 8
+3100 turn 2 1
+3150 expect state snd1 robin
+3200 btn 6
+3250 expect state lab0 SIZE
+3250 expect state lab1 DEPTH
+3250 expect state lab2 DIST
+3250 expect state lab3 VARY
+3350 btn 8
+3400 turn 2 1
+3450 expect state snd1 wren
+3500 btn 6
+3550 expect state lab0 SIZE
+3550 expect state lab1 DEPTH
+3550 expect state lab2 DIST
+3550 expect state lab3 VARY
+3650 btn 8
+3700 turn 2 1
+3750 expect state snd1 hermit_thrush
+3800 btn 6
+3850 expect state lab0 SIZE
+3850 expect state lab1 DEPTH
+3850 expect state lab2 DIST
+3850 expect state lab3 VARY
+3950 btn 8
+4000 turn 2 1
+4050 expect state snd1 skylark
+4100 btn 6
+4150 expect state lab0 SIZE
+4150 expect state lab1 DEPTH
+4150 expect state lab2 DIST
+4150 expect state lab3 VARY
+4250 btn 8
+4300 turn 2 1
+4350 expect state snd1 wood_thrush
+4400 btn 6
+4450 expect state lab0 SIZE
+4450 expect state lab1 DEPTH
+4450 expect state lab2 DIST
+4450 expect state lab3 VARY
+4550 btn 8
+4600 turn 2 1
+4650 expect state snd1 reed_warbler
+4700 btn 6
+4750 expect state lab0 SIZE
+4750 expect state lab1 DEPTH
+4750 expect state lab2 DIST
+4750 expect state lab3 VARY
+4850 expect state dropped 0
+5000 end
