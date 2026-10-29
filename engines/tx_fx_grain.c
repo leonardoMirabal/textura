@@ -70,30 +70,45 @@ static inline int32_t gd_rd(const tx_fx_grain_t *d, uint32_t i)
     m = (int32_t)((uint32_t)m << 20) >> 20;                     /* the 12 bits, sign-extended */
     return (m * 4096) >> ((d->ex[k >> 1] >> ((k & 1u) << 2)) & 15u);
 }
-/* the line: x (Q22) written at d->w; every 16th sample its block is encoded (the shift from the block's peak) */
-static inline void gd_wr(tx_fx_grain_t *d, int32_t x)
+/* the line: n samples (Q22) written from d->w on, a block's worth at once (sample for sample as one at a time):
+ * each 16-sample block encoded when its last sample is in */
+static void gd_wrn(tx_fx_grain_t *d, const int32_t *x, unsigned n)
 {
     uint32_t w = d->w;
-    x = x > 8388607 ? 8388607 : x < -8388607 ? -8388607 : x;
-    d->stg[w & 15u] = x;
-    { int32_t a = x < 0 ? -x : x; if (a > d->stpk) d->stpk = a; }
-    if ((w & 15u) == 15u) {
-        uint32_t sh = 0, k, b0 = w - 15u, blk = b0 >> 4;
-        uint8_t *b = d->pk + ((b0 * 3u) >> 1);
-        while (sh < 12u && (d->stpk << (sh + 1u)) < (1 << 23)) sh++;   /* (12: below 2^11 every sample exact) */
-        d->ex[blk >> 1] = (uint8_t)((d->ex[blk >> 1] & (0xF0u >> ((blk & 1u) << 2))) | (sh << ((blk & 1u) << 2)));
-        for (k = 0; k < 16u; k += 2u, b += 3) {
-            int32_t m0 = (d->stg[k] * (1 << sh) + 2048) >> 12, m1 = (d->stg[k + 1u] * (1 << sh) + 2048) >> 12;
-            m0 = m0 > 2047 ? 2047 : m0 < -2048 ? -2048 : m0;
-            m1 = m1 > 2047 ? 2047 : m1 < -2048 ? -2048 : m1;
-            b[0] = (uint8_t)m0;
-            b[1] = (uint8_t)(((uint32_t)m0 >> 8 & 15u) | ((uint32_t)m1 << 4));
-            b[2] = (uint8_t)((uint32_t)m1 >> 4);
+    int32_t pk = d->stpk;
+    unsigned j = 0, t, k;
+    while (j < n) {
+        t = 16u - (w & 15u);
+        if (t > n - j) t = n - j;
+        for (k = 0; k < t; k++) {
+            int32_t v = x[j + k], a;
+            v = v > 8388607 ? 8388607 : v < -8388607 ? -8388607 : v;
+            d->stg[(w + k) & 15u] = v;
+            a = v < 0 ? -v : v;
+            if (a > pk) pk = a;
         }
-        d->stpk = 0;
+        w += t;
+        j += t;
+        if (!(w & 15u)) {                               /* the block's in: its shift from its peak, then 8 triples */
+            uint32_t sh = 0, b0 = w - 16u, blk = b0 >> 4;
+            uint8_t *b = d->pk + ((b0 * 3u) >> 1);
+            while (sh < 12u && (pk << (sh + 1u)) < (1 << 23)) sh++;
+            d->ex[blk >> 1] = (uint8_t)((d->ex[blk >> 1] & (0xF0u >> ((blk & 1u) << 2))) | (sh << ((blk & 1u) << 2)));
+            for (k = 0; k < 16u; k += 2u, b += 3) {
+                int32_t m0 = (d->stg[k] * (1 << sh) + 2048) >> 12, m1 = (d->stg[k + 1u] * (1 << sh) + 2048) >> 12;
+                m0 = m0 > 2047 ? 2047 : m0 < -2048 ? -2048 : m0;
+                m1 = m1 > 2047 ? 2047 : m1 < -2048 ? -2048 : m1;
+                b[0] = (uint8_t)m0;
+                b[1] = (uint8_t)(((uint32_t)m0 >> 8 & 15u) | ((uint32_t)m1 << 4));
+                b[2] = (uint8_t)((uint32_t)m1 >> 4);
+            }
+            pk = 0;
+            if (w >= TX_GD_N) w = 0;                    /* (TX_GD_N a multiple of 16: the wrap is a block's end) */
+        }
     }
-    d->w = w + 1u >= TX_GD_N ? 0u : w + 1u;
-    if (d->fill < TX_GD_N) d->fill++;
+    d->w = w;
+    d->stpk = pk;
+    d->fill = d->fill + n < TX_GD_N ? d->fill + n : TX_GD_N;
 }
 /* a * q (q Q15, |a| up to 2^24): two 32-bit products, exact to the bit (floored) */
 static inline int32_t mq15(int32_t a, int32_t q) { return (a >> 15) * q + (((a & 32767) * q) >> 15); }
@@ -156,14 +171,22 @@ static void gd_run(const tx_fx_grain_t *d, uint32_t s, unsigned cnt, int32_t *o)
 
 /* a sounding grain over m samples (from sample j0, its window phase ph before the first): its run of the line decoded
  * once (rate 1 from a whole sample: m samples; else the span its position covers, +1 for the interpolation), read
- * with a Q16 position in that run, windowed and placed into sl / sr */
+ * with a Q16 position in that run, windowed and placed into sl / sr. sl 0 (GRAIN at 0, the grains unheard): only its
+ * position moves, as far as the reads would have taken it */
 static void gd_seg(const tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t ph, uint32_t inc, unsigned j0, unsigned m,
                    int32_t *sl, int32_t *sr)
 {
     int32_t buf[2u * TX_BLOCK + 4u], gl = g->gl, gr = g->gr;
     unsigned j;
-    sl += j0;                                           /* (the run's first sample) */
-    sr += j0;
+    if (!sl) {
+        if (g->rate == 65536 && !g->frac) {
+            g->pos = g->pos + m >= TX_GD_N ? g->pos + m - TX_GD_N : g->pos + m;
+            return;
+        }
+    } else {
+        sl += j0;                                       /* (the run's first sample) */
+        sr += j0;
+    }
     if (g->rate == 65536 && !g->frac) {
         gd_run(d, g->pos, m, buf);
         g->pos = g->pos + m >= TX_GD_N ? g->pos + m - TX_GD_N : g->pos + m;
@@ -177,8 +200,9 @@ static void gd_seg(const tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t ph, uint32
     } else {
         int32_t r = g->rate, end = ((int32_t)g->frac + r * (int32_t)(m - 1u)) >> 16, lo = end < 0 ? end : 0;
         uint32_t base = lo < 0 ? gd_idx(g->pos, (uint32_t)-lo) : g->pos, P = g->frac + ((uint32_t)-lo << 16);
-        gd_run(d, base, (unsigned)((end > 0 ? end : 0) - lo + 2), buf);
-        for (j = 0; j < m; j++) {
+        if (!sl) P += (uint32_t)r * m;
+        else gd_run(d, base, (unsigned)((end > 0 ? end : 0) - lo + 2), buf);
+        for (j = 0; sl && j < m; j++) {
             int32_t wv, a = buf[P >> 16], x = a + mq15(buf[(P >> 16) + 1u] - a, (int32_t)((P & 0xFFFFu) >> 1));
             ph += inc;
             wv = TX_FX_HANN[ph >> 22];
@@ -232,6 +256,7 @@ TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int32_t *R,
     int32_t gnt = cap ? (int32_t)(65536u / (cap < 2u ? 2u : cap)) : 0;   /* the grains' level: 2 / sounding (Q15) */
     int32_t e[TX_BLOCK], sl[TX_BLOCK], sr[TX_BLOCK];
     unsigned act = 0;
+    int dry;
     if (n > TX_BLOCK) n = TX_BLOCK;
     if (!d->on) {
         if (!mv) return;
@@ -247,12 +272,14 @@ TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int32_t *R,
     }
     if (fbk > 33000) fbk = 33000;
     if (gb > 32768) gb = 32768;
+    dry = !gb && !d->gbl;                               /* GRAIN at 0 and settled: the grains move on unheard */
     w0 = d->w;
     /* the echo: the tap's run (and the old tap's, crossfading), each 0 where the line was not written yet */
     if (!d->tx && tgt != d->tap) { d->tap0 = d->tap; d->tap = tgt; d->tx = 1; }
     {
-        uint32_t i = gd_idx(w0, d->tap), ok = d->tap <= d->fill;
-        for (j = 0; j < n; j++) { e[j] = ok ? gd_rd(d, i) : 0; i = i + 1u >= TX_GD_N ? 0u : i + 1u; }
+        uint32_t ok = d->tap <= d->fill;
+        if (ok) gd_run(d, gd_idx(w0, d->tap), n, e);
+        else for (j = 0; j < n; j++) e[j] = 0;
         if (d->tx) {
             uint32_t i0 = gd_idx(w0, d->tap0), ok0 = d->tap0 <= d->fill;
             for (j = 0; j < n; j++) {
@@ -263,18 +290,24 @@ TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int32_t *R,
         }
     }
     /* the grains, voice by voice */
-    for (j = 0; j < n; j++) sl[j] = sr[j] = 0;
+    if (!dry) for (j = 0; j < n; j++) sl[j] = sr[j] = 0;
     for (k = 0; k < TX_GD_MAXG; k++)                    /* (past GRAINS: a sounding grain finishes its window) */
-        if (k < G || d->g[k].on) act += gd_voice(d, &d->g[k], d->ph + k * step, inc, n, k < cap && k < G, len, w0, sl, sr);
+        if (k < G || d->g[k].on)
+            act += gd_voice(d, &d->g[k], d->ph + k * step, inc, n, k < cap && k < G, len, w0, dry ? 0 : sl, dry ? 0 : sr);
     d->ph += inc * n;
-    /* the blend, the feedback into the line, the output */
+    /* the blend, the feedback into the line (gathered in sl, written after), the output */
+    {
+    uint32_t wj = w0, fj = d->fill;                     /* (the write index and the fill, sample by sample) */
     for (j = 0; j < n; j++) {
-        int32_t x = (L[j] >> 2) + (R[j] >> 2), gl, gr, wl, wr, f;   /* the mid, Q22 */
+        int32_t x = (L[j] >> 2) + (R[j] >> 2), wl, wr, f;   /* the mid, Q22 */
         if (d->gn != gnt) d->gn += d->gn < gnt ? (gnt - d->gn > 8 ? 8 : gnt - d->gn) : -(d->gn - gnt > 8 ? 8 : d->gn - gnt);
-        gl = mq15(sl[j], d->gn); gr = mq15(sr[j], d->gn);
-        if (d->gbl != gb) d->gbl += d->gbl < gb ? (gb - d->gbl > 16 ? 16 : gb - d->gbl) : -(d->gbl - gb > 16 ? 16 : d->gbl - gb);
-        wl = e[j] + mq15(gl - e[j], d->gbl);           /* the echo .. the grains (GRAIN glides: 46 ms end to end) */
-        wr = e[j] + mq15(gr - e[j], d->gbl);
+        if (dry) wl = wr = e[j];                        /* (GRAIN 0: the echo alone, exactly) */
+        else {
+            int32_t gl = mq15(sl[j], d->gn), gr = mq15(sr[j], d->gn);
+            if (d->gbl != gb) d->gbl += d->gbl < gb ? (gb - d->gbl > 16 ? 16 : gb - d->gbl) : -(d->gbl - gb > 16 ? 16 : d->gbl - gb);
+            wl = e[j] + mq15(gl - e[j], d->gbl);       /* the echo .. the grains (GRAIN glides: 46 ms end to end) */
+            wr = e[j] + mq15(gr - e[j], d->gbl);
+        }
         f = (wl >> 1) + (wr >> 1);                      /* the feedback: TONE, the soft knee, FEEDBACK, the DC block */
         d->lp = op15(d->lp, f, ta, &d->lpe);
         f = d->lp;
@@ -286,15 +319,19 @@ TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int32_t *R,
         if (d->wg != wgt) d->wg += d->wg < wgt ? (wgt - d->wg > 74 ? 74 : wgt - d->wg) : -(d->wg - wgt > 74 ? 74 : d->wg - wgt);
         x += f;
         if (d->wg != 32768) {                          /* FREEZE: the line keeps what it had here */
-            int32_t o = d->fill >= TX_GD_N ? gd_rd(d, d->w) : 0;
+            int32_t o = fj >= TX_GD_N ? gd_rd(d, wj) : 0;
             x = o + mq15(x - o, d->wg);
         }
         d->zrun = x ? 0 : d->zrun + 1u;
-        gd_wr(d, x);
+        sl[j] = x;
+        wj = wj + 1u >= TX_GD_N ? 0u : wj + 1u;
+        if (fj < TX_GD_N) fj++;
         if (d->mix != mixt) d->mix += d->mix < mixt ? (mixt - d->mix > 16 ? 16 : mixt - d->mix) : -(d->mix - mixt > 16 ? 16 : d->mix - mixt);
         L[j] += mq15(wl, d->mix) * 2;
         R[j] += mq15(wr, d->mix) * 2;
     }
+    }
+    gd_wrn(d, sl, n);
     d->act = (uint8_t)(n ? (act + n / 2u) / n : 0);
     if (!mv && !d->mix) d->on = 0;
 }
