@@ -9,6 +9,7 @@
  *           36 .. 41  FILTER TYPE FREQ RESO LFO RATE SHAPE  (tx_fx_filter_params order)
  *   global  0 .. 11   GRAIN DELAY (tx_fx_grain_params order)   12 its SYNC (tempo.c)
  *           16 .. 25  REVERB (tx_fx_reverb_params order)
+ *           26 .. 31  COMPRESSOR: COMP THR ATK REL RAT MKUP (tx_comp_params order; Frodhes' COMPRESSOR's)
  *           32 .. 37  TEMPO: BPM (40 .. 240) FINE (BPM in tenths) STATUS (read only) TRANSPORT TAP (over 63: a tap)
  *                     SCENE TEMPO (a scene's load sets its tempo: on / off, in the settings)
  *           40 .. 43  MIDI: CLOCK (INT MASTER FOLLOW AUTO) CLK IN USB, CLK IN TRS, CLK OUT (OFF / USB: MASTER sends)
@@ -57,13 +58,13 @@ static void p_cat(char *d, const char *s, uint32_t max) { uint32_t n = 0; while 
 #define P_MODS(s) ((s) == P_LFO || (s) == P_ENV || (s) == P_MAT)   /* the modulation's scopes (mod.c's) */
 #define NOID_P 0xFFFFu
 enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_DRIVE0 = 32, PL_FILTER0 = 36, PL_NUM = 42 };
-enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP = 26, PG_N_ = 27, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN,
+enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP0 = 26, PG_N_ = 32, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN,
        PG_TAP, PG_SCNTEMPO, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR };
 #define P_CH_GLOBAL 4u                          /* MIDI channel 5 (0-based 4) */
 
 /* how a value reads */
 enum { F_NUM, F_ENUM, F_ONOFF, F_SOUND, F_COUNT, F_ACTIVE, F_PAN, F_HZ_FL, F_HZ_LFO, F_MS_GD, F_MS_GS, F_MS_PD, F_SEMI,
-       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN };
+       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_THR, F_R10, F_GAIN };
 static const char *const N_DRIVE[] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
 static const char *const N_FILTER[] = {"OFF", "LP12", "LP18", "HP12", "HP18", "BP", "NOTCH"};
 static const char *const N_SHAPE[] = {"SINE", "TRI", "SAW UP", "SAW DN", "SQUARE", "RANDOM"};
@@ -71,6 +72,7 @@ static const char *const N_REVERB[] = {"OFF", "ROOM", "HALL", "INFINITE", "DARK"
 static const char *const N_SHIFT[] = {"+OCT", "+5TH", "+OCT+5", "-OCT"};
 static const char *const N_CLOCK[] = {"INT", "MASTER", "FOLLOW", "AUTO"};
 static const char *const N_CLKOUT[] = {"OFF", "USB"};   /* (TRS: the FM-1's jack is an input only) */
+static const char *const N_RATIO[] = {"1.5:1", "2:1", "3:1", "4:1", "6:1", "8:1", "10:1", "20:1"};   /* (Frodhes') */
 
 /* ---- COLOR (DISPLAY K1): the screen's palette, Frodhes' (its ui.c, COLOR_ACC) with RED first: step 0 RED and 1 AMBER
  * are gfx.c's own ramps (RED the default: the screen as before), then 25 pastel hues around the colour wheel, hue
@@ -269,7 +271,7 @@ static const tx_param_t *p_fx_desc(uint32_t id)   /* an effect's descriptor (0: 
     } else if (s == P_GLOBAL) {
         if (i < PG_GRAIN0 + TX_GD_NP) return &tx_fx_grain_params[i - PG_GRAIN0];
         if (i >= PG_REVERB0 && i < PG_REVERB0 + TX_RV_NP) return &tx_fx_reverb_params[i - PG_REVERB0];
-        if (i == PG_COMP) return &tx_comp_params[TX_CP_AMOUNT];
+        if (i >= PG_COMP0 && i < PG_COMP0 + TX_CP_NP) return &tx_comp_params[i - PG_COMP0];
     }
     return 0;
 }
@@ -330,6 +332,11 @@ static uint32_t p_fmt(uint32_t id)
         if (i == PG_GRAIN0 + TX_GD_GRAINS) return F_PLUS1;
         if (i == PG_REVERB0 + TX_RV_TYPE || i == PG_REVERB0 + TX_RV_SHIFT) return F_ENUM;
         if (i == PG_REVERB0 + TX_RV_PREDELAY) return F_MS_PD;
+        if (i == PG_COMP0 + TX_CP_ON) return F_ONOFF;           /* the COMPRESSOR: Frodhes' formats */
+        if (i == PG_COMP0 + TX_CP_THR) return F_THR;
+        if (i == PG_COMP0 + TX_CP_ATK || i == PG_COMP0 + TX_CP_REL) return F_R10;
+        if (i == PG_COMP0 + TX_CP_RATIO) return F_ENUM;
+        if (i == PG_COMP0 + TX_CP_MKUP) return F_GAIN;
     }
     return F_NUM;
 }
@@ -337,6 +344,7 @@ static const char *const *p_names(uint32_t id)
 {
     uint32_t i = P_IDX(id);
     if (P_SCOPE(id) < P_LANES) return i == PL_DRIVE0 + TX_DR_TYPE ? N_DRIVE : i == PL_FILTER0 + TX_FL_TYPE ? N_FILTER : N_SHAPE;
+    if (i == PG_COMP0 + TX_CP_RATIO) return N_RATIO;
     return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : i == PG_CLOCK ? N_CLOCK : i == PG_OUT ? N_CLKOUT : i == PG_COLOR ? COLOR_NAME : N_SHIFT;
 }
 static int32_t p_get(uint32_t id)
@@ -395,7 +403,7 @@ static void p_set(uint32_t id, int32_t v)
     if (s == P_GLOBAL) {
         pv_glob[i] = (uint8_t)v;
         if (mod_holds(id)) return;              /* (modulated: the base only) */
-        if (i == PG_COMP) ln_fx(LN_FX_COMP, 0, 0, (uint32_t)v);
+        if (i >= PG_COMP0) ln_fx(LN_FX_COMP, 0, i - PG_COMP0, (uint32_t)v);
         else if (i < PG_REVERB0) ln_fx(LN_FX_GRAIN, 0, i - PG_GRAIN0, (uint32_t)v);
         else ln_fx(LN_FX_REVERB, 0, i - PG_REVERB0, (uint32_t)v);
         return;
@@ -451,6 +459,23 @@ static const char *p_text(uint32_t id, char *t)
     case F_MS_PD: p_fmt_int(t, (v * 80 + 63) / 127); return "ms";
     case F_SEMI: { int32_t st = (v - 64) * 12 / 63; if (st > 0) { t[0] = '+'; p_fmt_int(t + 1, st); } else p_fmt_int(t, st); return "st"; }
     case F_PLUS1: p_fmt_int(t, v + 1); return 0;
+    case F_THR: {                               /* "-20": 0 .. -40 dBFS (Frodhes' THR) */
+        int32_t d = (v * 400 + 635) / 1270;
+        if (d) { t[0] = '-'; p_fmt_int(t + 1, d); } else p_strcpy(t, "0", 1);
+        return "dB";
+    }
+    case F_R10: {                               /* the panel's 0.0 .. 10.0 (Frodhes' ATK, REL) */
+        int32_t r = (v * 100 + 63) / 127;
+        char d[2] = {(char)('0' + r % 10), 0};
+        p_fmt_int(t, r / 10); p_cat(t, ".", 15); p_cat(t, d, 15); return 0;
+    }
+    case F_GAIN: {                              /* "+2.6", from 10 dB on whole dB: "+12" (Frodhes' MKUP: 0 .. +24 dB) */
+        int32_t g10 = (v * 240 + 63) / 127;
+        t[0] = '+';
+        if (g10 >= 100) p_fmt_int(t + 1, (g10 + 5) / 10);
+        else { char d[2] = {(char)('0' + g10 % 10), 0}; p_fmt_int(t + 1, g10 / 10); p_cat(t, ".", 15); p_cat(t, d, 15); }
+        return "dB";
+    }
     }
     p_fmt_int(t, v);
     return 0;
@@ -475,8 +500,10 @@ static void p_init(void)
     }
     for (i = 0; i < TX_GD_NP; i++) pv_glob[PG_GRAIN0 + i] = tx_fx_grain_params[i].def;
     for (i = 0; i < TX_RV_NP; i++) pv_glob[PG_REVERB0 + i] = tx_fx_reverb_params[i].def;
-    pv_glob[PG_COMP] = tx_comp_params[TX_CP_AMOUNT].def;
-    ln_fx(LN_FX_COMP, 0, 0, pv_glob[PG_COMP]);  /* (the mix starts with it off: the default sent here) */
+    for (i = 0; i < TX_CP_NP; i++) {            /* (the mix starts with it off: the defaults sent here) */
+        pv_glob[PG_COMP0 + i] = tx_comp_params[i].def;
+        ln_fx(LN_FX_COMP, 0, i, pv_glob[PG_COMP0 + i]);
+    }
 }
 
 /* ---- MIDI: CC numbers (the lane's channel: P_CC_LANE; channel 5: P_CC_GLOBAL), NRPN */
@@ -497,7 +524,9 @@ static const p_cc_t P_CC_GLOBAL[] = {
     {85, PG_REVERB0 + TX_RV_TYPE}, {91, PG_REVERB0 + TX_RV_MIX}, {86, PG_REVERB0 + TX_RV_DECAY},
     {87, PG_REVERB0 + TX_RV_TONE}, {88, PG_REVERB0 + TX_RV_PREDELAY}, {89, PG_REVERB0 + TX_RV_SIZE},
     {90, PG_REVERB0 + TX_RV_MOD}, {92, PG_REVERB0 + TX_RV_LOWCUT}, {93, PG_REVERB0 + TX_RV_SHIMMER},
-    {94, PG_REVERB0 + TX_RV_SHIFT}, {95, PG_COMP}, {114, PG_GSYNC},
+    {94, PG_REVERB0 + TX_RV_SHIFT}, {114, PG_GSYNC},
+    {95, PG_COMP0 + TX_CP_ON}, {115, PG_COMP0 + TX_CP_THR}, {116, PG_COMP0 + TX_CP_ATK}, {117, PG_COMP0 + TX_CP_REL},
+    {118, PG_COMP0 + TX_CP_RATIO}, {119, PG_COMP0 + TX_CP_MKUP},
     {3, PG_BPM}, {9, PG_TAP}, {80, PG_RUN},
 };
 /* a 7-bit value onto a parameter's range (0 .. hi): 127 always reaches hi */

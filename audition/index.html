@@ -260,13 +260,13 @@
 
   <section class="panel" id="fx-panel">
     <h2>EFFECTS <span class="small" id="fx-state"></span></h2>
-    <div class="small" style="margin-bottom:8px">GRAIN DELAY on the mix: an echo whose repeats are grained (pitched, scattered, reversed; fewer grains when the effects' CPU is short). REVERB after it (a send of the middle, a stereo return; TYPE ROOM is the old CHAMBER's body with a short hall; SHIMMER feeds the tail back shifted up). DRIVE and FILTER on the edited layer's own signal, before it is panned. Off = the sound untouched.</div>
+    <div class="small" style="margin-bottom:8px">The mix's chain, in its order: COMPRESSOR first (Frodhes' controls: THR the threshold, RAT the ratio, ATK and REL its times, MKUP the make-up; a dense sound holds its gain), then GRAIN DELAY: an echo whose repeats are grained (pitched, scattered, reversed; fewer grains when the effects' CPU is short), then REVERB (a send of the middle, a stereo return; TYPE ROOM is the old CHAMBER's body with a short hall; SHIMMER feeds the tail back shifted up). DRIVE and FILTER on the edited layer's own signal, before it is panned. Off = the sound untouched.</div>
+    <h3 class="small">COMPRESSOR (the mix, first) <span id="fx-cp-state"></span></h3>
+    <div class="sliders" id="fx-cp"></div>
     <h3 class="small">GRAIN DELAY (the mix) <span id="fx-gd-state"></span></h3>
     <div class="sliders" id="fx-gd"></div>
     <h3 class="small">REVERB (the mix)</h3>
     <div class="sliders" id="fx-rv"></div>
-    <h3 class="small">COMP (the mix, after the reverb)</h3>
-    <div class="sliders" id="fx-cp"></div>
     <h3 class="small" id="fx-dr-title">DRIVE (layer 1)</h3>
     <div class="sliders" id="fx-dr"></div>
     <h3 class="small" id="fx-fl-title">FILTER (layer 1)</h3>

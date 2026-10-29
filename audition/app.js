@@ -95,7 +95,7 @@ async function init() {
   window.txTest.route = n => [0, 1, 2, 3].filter(k => layers[k].eng >= 0 && (keyMode === "shared" || (n >= layers[k].lo && n <= layers[k].hi)));
   window.txTest.zone = (k, lo, hi) => { layers[k].lo = lo; layers[k].hi = hi; showLayers(); };
   window.txTest.chSha = i => S(M._txw_ch_max_sha(i));
-  window.txTest.fx = (g, k, p, v) => { const id = `fx${g}-${p}`, box = g === 3 ? "fx-gd" : g === 2 ? "fx-rv" : g ? "fx-fl" : "fx-dr";
+  window.txTest.fx = (g, k, p, v) => { const id = `fx${g}-${p}`, box = g === 4 ? "fx-cp" : g === 3 ? "fx-gd" : g === 2 ? "fx-rv" : g ? "fx-fl" : "fx-dr";
     if (g < 2 && k !== ed) editLayer(k); const inp = document.querySelector(`#${box} input[data-id="${id}"]`);
     if (inp) { inp.value = v; inp.oninput(); } return { running: M._txw_fx_running(), frozen: M._txw_fx_frozen(),
     grains: M._txw_fx_grains(), cap: M._txw_fx_cap() }; };
@@ -423,7 +423,7 @@ function saveLayers() {
 // ---- EFFECTS (tx_fx.h): the REVERB on the mix (group 2; TYPE ROOM is the old CHAMBER), each layer's DRIVE (0) and FILTER
 // (1) on its own signal. The reverb's values and each layer's are kept in this browser (textura.fx)
 const fxv = { rv: {}, gd: {}, cp: {}, lane: [0, 1, 2, 3].map(() => ({ 0: {}, 1: {} })) };
-function fxSave() { try { localStorage.setItem("textura.fx", JSON.stringify(fxv)); } catch (e) { } }
+function fxSave() { try { localStorage.setItem("textura.fx", JSON.stringify({ ...fxv, cmp: fxv.cp, cp: undefined })); } catch (e) { } }
 function fxBox(box, g, vals, apply) {
   box.textContent = "";
   for (let p = 0; p < M._txw_fx_n(g); p++) {
@@ -441,16 +441,16 @@ function buildChamber() {                             // (the old CHAMBER's plac
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem("textura.fx") || "null"); } catch (e) { }
   if (saved && saved.gd) Object.assign(fxv.gd, saved.gd);
-  if (saved && saved.cp) Object.assign(fxv.cp, saved.cp);
+  if (saved && saved.cmp) Object.assign(fxv.cp, saved.cmp);   // ("cmp": the COMPRESSOR's six; the old one-knob COMP's "cp" dropped)
   if (saved && saved.rv && saved.lane) { Object.assign(fxv.rv, saved.rv); saved.lane.forEach((l, k) => { if (k < 4) fxv.lane[k] = { 0: l[0] || {}, 1: l[1] || {} }; }); }
   try { if (!saved && localStorage.getItem("textura.chamber") === "1") fxv.rv = { 0: 1, 1: 127 }; } catch (e) { }   // CHAMBER on: ROOM
   for (const p in fxv.rv) M._txw_fx_param(2, 0, +p, fxv.rv[p]);
   for (const p in fxv.gd) M._txw_fx_param(3, 0, +p, fxv.gd[p]);
   for (const p in fxv.cp) M._txw_fx_param(4, 0, +p, fxv.cp[p]);
   fxv.lane.forEach((l, k) => { for (const g of [0, 1]) for (const p in l[g]) M._txw_fx_param(g, k, +p, l[g][p]); });
-  fxBox($("fx-rv"), 2, fxv.rv, (p, x) => M._txw_fx_param(2, 0, p, x));
-  fxBox($("fx-gd"), 3, fxv.gd, (p, x) => M._txw_fx_param(3, 0, p, x));
   fxBox($("fx-cp"), 4, fxv.cp, (p, x) => M._txw_fx_param(4, 0, p, x));
+  fxBox($("fx-gd"), 3, fxv.gd, (p, x) => M._txw_fx_param(3, 0, p, x));
+  fxBox($("fx-rv"), 2, fxv.rv, (p, x) => M._txw_fx_param(2, 0, p, x));
   fxLayer();
 }
 
@@ -1318,6 +1318,7 @@ function meters(t) {
   lastMeter = t;
   if (M) {                                            // the grain delay: grains sounding, the effects' cap
     const gs = M._txw_fx_grains();
+    { const gr = M._txw_comp_gr(); $("fx-cp-state").textContent = gr < 0 ? "· off" : `· gain reduction ${(gr / 10).toFixed(1)} dB`; }
     $("fx-gd-state").textContent = gs < 0 ? "" : `· ${gs} grain${gs === 1 ? "" : "s"} sounding, at most ${M._txw_fx_cap()} now (the effects' CPU)`;
   }
   let su = 0, sb = 0;

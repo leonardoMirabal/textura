@@ -582,56 +582,70 @@ static void check_noise_core(void)
     verdict("noise", "stable", !bad, msg, 0);
 }
 
-/* ---- COMP: the bus compressor. AMOUNT 0 is bit-exact; at AMOUNT 127 a steady sine at -6 dBFS (power -9 dBFS,
- * 21 dB over the -30 dBFS threshold, ratio 3 : 1) is reduced 14 dB (+6 dB makeup: out at -14 dBFS); AMOUNT moved
- * under a steady level (0 .. 127 .. 0 .. 64 .. 0, 100 ms each) never steps the output, and back at 0 it is exact again */
+/* ---- COMP: the bus compressor (Frodhes' controls). COMP off is bit-exact; a steady sine at -6 dBFS (power -9 dBFS)
+ * is reduced as THR and RAT say (the 12 dB soft knee included): THR 127 (-40) 3:1 20.6 dB, THR 64 (-20.2) 2:1 5.6 dB,
+ * THR 32 (-10.1) 20:1 2.0 dB (in the knee), and with MKUP 0 the output follows; the controls moved under a steady
+ * level (COMP on, THR, RAT, MKUP, ATK, REL to their ends and back, COMP off; 100 ms each) never step the output (a
+ * glide), and once off it is exact again */
+static void comp_sine(tx_comp_t *c, int32_t *pk)
+{
+    static int32_t L[TX_BLOCK], R[TX_BLOCK];
+    unsigned b, j;
+    *pk = 0;
+    for (b = 0; b < 400u; b++) {                             /* 2.3 s of a 1 kHz sine at -6 dBFS */
+        for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = tx_sin_q15((b * TX_BLOCK + j) * 97391263u) * 128;   /* (1 kHz) */
+        tx_comp_process(c, L, R, TX_BLOCK);
+        if (b >= 300u) for (j = 0; j < TX_BLOCK; j++) *pk = L[j] > *pk ? L[j] : *pk;
+    }
+}
 static void check_comp(void)
 {
     static int32_t L[TX_BLOCK], R[TX_BLOCK], L0[TX_BLOCK], R0[TX_BLOCK];
-    static const unsigned AM[] = {0, 127, 0, 64, 0, 40, 0};
+    static const struct { uint8_t thr, rat; int16_t gr10; } G[3] = {{127, 2, 206}, {64, 1, 56}, {32, 7, 20}};
+    static const struct { uint8_t id, v; } MV[] = {
+        {TX_CP_ON, 1}, {TX_CP_THR, 127}, {TX_CP_RATIO, 7}, {TX_CP_MKUP, 127}, {TX_CP_ATK, 0}, {TX_CP_REL, 0},
+        {TX_CP_THR, 0}, {TX_CP_MKUP, 0}, {TX_CP_RATIO, 0}, {TX_CP_ATK, 127}, {TX_CP_REL, 127}, {TX_CP_THR, 100},
+        {TX_CP_ON, 0}, {TX_CP_ON, 0}};
     tx_comp_t c;
     tx_rng_t r;
     unsigned b, j, k, same = 1;
-    int32_t gr, pk = 0, step = 0, prev = 4194304, exact = 1;
-    char msg[200];
+    int32_t gr, pk, step = 0, prev = 419430, exact = 1;
+    char msg[240];
     tx_rng_seed(&r, 7u);
-    tx_comp_init(&c);
+    tx_comp_init(&c);                                        /* (off) */
     for (b = 0; b < 200u; b++) {
         for (j = 0; j < TX_BLOCK; j++) { L[j] = L0[j] = tx_rand_s15(&r) * 256; R[j] = R0[j] = tx_rand_s15(&r) * 200; }
         tx_comp_process(&c, L, R, TX_BLOCK);
         for (j = 0; j < TX_BLOCK; j++) same &= L[j] == L0[j] && R[j] == R0[j];
     }
-    verdict("comp", "bypass", same, "AMOUNT 0: the samples untouched (bit-exact)", 0);
-    tx_comp_init(&c);
-    tx_comp_amount(&c, 127);
-    for (b = 0; b < 400u; b++) {                             /* 2.3 s of a 1 kHz sine at -6 dBFS */
-        for (j = 0; j < TX_BLOCK; j++) {
-            int32_t v = tx_sin_q15((b * TX_BLOCK + j) * 97391263u) * 128;   /* (1000 Hz x 2^32 / 44100) */
-            L[j] = R[j] = v;
-        }
-        tx_comp_process(&c, L, R, TX_BLOCK);
-        if (b >= 300u) for (j = 0; j < TX_BLOCK; j++) pk = L[j] > pk ? L[j] : pk;
+    verdict("comp", "bypass", same, "COMP off: the samples untouched (bit-exact)", 0);
+    for (k = 0; k < 3u; k++) {
+        int32_t want = (int32_t)(4194304.0 * pow(10.0, -G[k].gr10 / 200.0));
+        tx_comp_init(&c);
+        tx_comp_param(&c, TX_CP_ON, 1); tx_comp_param(&c, TX_CP_THR, G[k].thr); tx_comp_param(&c, TX_CP_RATIO, G[k].rat);
+        tx_comp_param(&c, TX_CP_MKUP, 0);
+        comp_sine(&c, &pk);
+        gr = tx_comp_gr_db10(&c);
+        snprintf(msg, sizeof msg, "a sine at -6 dBFS, THR %u RAT %u MKUP 0: reduction %d.%d dB (%d.%d +- 0.5), out peak %d (%d +- 6 %%)",
+                 G[k].thr, G[k].rat, gr / 10, gr % 10, G[k].gr10 / 10, G[k].gr10 % 10, pk, want);
+        verdict("comp", "gr", gr >= G[k].gr10 - 5 && gr <= G[k].gr10 + 5 && pk > want * 94 / 100 && pk < want * 106 / 100, msg, 0);
     }
-    gr = tx_comp_gr_db10(&c);
-    snprintf(msg, sizeof msg, "a sine at -6 dBFS, AMOUNT 127: reduction %d.%d dB (14 +- 0.5), out peak %d (-14 dBFS: %d +- 6 %%)",
-             gr / 10, gr % 10, pk, 1675609);
-    verdict("comp", "gr", gr >= 135 && gr <= 145 && pk > 1675609 * 94 / 100 && pk < 1675609 * 106 / 100, msg, 0);
     tx_comp_init(&c);
-    for (k = 0; k < sizeof AM / sizeof AM[0]; k++) {
-        tx_comp_amount(&c, AM[k]);
-        for (b = 0; b < 17u; b++) {                          /* 100 ms of a steady level: half scale */
-            for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = 4194304;
+    for (k = 0; k < sizeof MV / sizeof MV[0]; k++) {
+        tx_comp_param(&c, MV[k].id, MV[k].v);
+        for (b = 0; b < 17u; b++) {                          /* 100 ms of a steady level: -26 dBFS */
+            for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = 419430;
             tx_comp_process(&c, L, R, TX_BLOCK);
             for (j = 0; j < TX_BLOCK; j++) {
                 int32_t d = L[j] - prev;
                 d = d < 0 ? -d : d;
                 step = d > step ? d : step;
                 prev = L[j];
-                if (k + 1u == sizeof AM / sizeof AM[0] && b == 16u) exact &= L[j] == 4194304;
+                if (k + 1u == sizeof MV / sizeof MV[0] && b == 16u) exact &= L[j] == 419430;
             }
         }
     }
-    snprintf(msg, sizeof msg, "AMOUNT moved under a steady level: the largest step a sample %d (under 0.5 %% of full scale: a glide, no click), exact once off again",
+    snprintf(msg, sizeof msg, "the controls moved to their ends under a steady level: the largest step a sample %d (under 0.5 %% of full scale: a glide, no click), exact once off again",
              step);
     verdict("comp", "smooth", step < 41943 && exact, msg, 0);
 }
@@ -959,7 +973,7 @@ static int run_mix(const char *const *names, unsigned comp, int chamber_on, char
         tx_mix_pan(m, k, PAN[k]);
         if (s[k]->blocks > blocks) blocks = s[k]->blocks;
     }
-    tx_comp_amount(&m->comp, comp);
+    tx_comp_param(&m->comp, TX_CP_ON, comp ? 1u : 0u);   /* (COMP at its defaults, or off) */
     tx_sha256_init(&sha);
     *raw_peak = *lim_peak = 0; *lim_blocks = 0;
     if (true_peak) { memset(hl, 0, sizeof hl); memset(hr, 0, sizeof hr); *true_peak = 0; }
@@ -996,14 +1010,14 @@ static int run_layers(int chamber_on, char hex[65], int32_t *raw_peak, int32_t *
     return run_mix(LAYERS4, 0, chamber_on, hex, raw_peak, lim_peak, lim_blocks, 0);
 }
 
-/* truepeak: dense crackle (fire, ice, glass, sparks at their worst) through the mix at COMP 0 and 40: no sample over
+/* truepeak: dense crackle (fire, ice, glass, sparks at their worst) through the mix, COMP off and on (its defaults): no sample over
  * -1 dBFS, and nothing between the samples at full scale once rebuilt (4x, to 20 kHz), so a converter or the USB
  * audio's 48 kHz resampler does not clip (the FM-1 clipped -1 dBFS samples by up to +1 dB at 48 kHz before; this mix
  * rebuilt to +1.6 dBFS) */
 static void check_truepeak(void)
 {
     static const char *const CRACK[4] = { "fire", "ice", "glass", "sparks" };
-    static const unsigned AM[2] = {0, 40};
+    static const unsigned AM[2] = {0, 1};
     unsigned i;
     for (i = 0; i < 2; i++) {
         char hex[65], msg[200], name[32];
@@ -1011,10 +1025,10 @@ static void check_truepeak(void)
         uint32_t lb;
         double tp;
         int nb = run_mix(CRACK, AM[i], 0, hex, &rp, &lp, &lb, &tp);
-        snprintf(name, sizeof name, "COMP %u", AM[i]);
+        snprintf(name, sizeof name, "COMP %s", AM[i] ? "ON" : "OFF");
         if (nb < 0) { verdict("truepeak", name, 0, "fire+ice+glass+sparks", " do not load"); continue; }
-        snprintf(msg, sizeof msg, "fire+ice+glass+sparks at their worst, COMP %u: raw %.1f dBFS, samples %.2f (<= -1), "
-                 "rebuilt 4x %.2f dBFS (< 0), the limiter in %u of %d blocks", AM[i], 20.0 * log10(rp / 8388608.0 + 1e-12),
+        snprintf(msg, sizeof msg, "fire+ice+glass+sparks at their worst, COMP %s: raw %.1f dBFS, samples %.2f (<= -1), "
+                 "rebuilt 4x %.2f dBFS (< 0), the limiter in %u of %d blocks", AM[i] ? "ON" : "OFF", 20.0 * log10(rp / 8388608.0 + 1e-12),
                  20.0 * log10(lp / 8388608.0 + 1e-12), 20.0 * log10(tp / 8388608.0 + 1e-12), lb, nb);
         verdict("truepeak", name, lp <= 7476717 && tp < 8388608.0, msg, 0);
     }

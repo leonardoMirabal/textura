@@ -5,9 +5,9 @@
 From Frodhes' tools/hil_jack.py (the jack and USB recorded at once while MIDI plays the FM-1), with the persistent
 recorder (Ring, Capture, to_fs) from its tools/hil_scan.py; adapted to Textura: the landscapes are the factory scenes
 (program change on channel 1: F01 .. F10, each landscape at its start), the lanes are channels 1 .. 4 (CC 22 HOW
-ACTIVE starts a lane), the mix's COMP is CC 95 on channel 5 (params.c).
+ACTIVE starts a lane), the mix's COMPRESSOR is switched by CC 95 on channel 5 (COMP: 0 off, 127 on; params.c).
 
-  hil_jack.py [--dev M6] [--ch 5] [--only NAME[,NAME]] [--secs 15] [--comp 0,40] [--dry-run]
+  hil_jack.py [--dev M6] [--ch 5] [--only NAME[,NAME]] [--secs 15] [--comp 0,127] [--dry-run]
 
 The rig: the FM-1's USB audio (44.1 kHz) and USB MIDI (the port named "Frodhes": the only MIDI port opened), its
 headphone jack into the interface --dev input --ch (the MOTU M6 input 5, 48 kHz). The interface's input gain is never
@@ -269,7 +269,7 @@ def main():
     ap.add_argument("--ch", type=int, default=5)
     ap.add_argument("--only", default="", help="landscapes by name, comma separated")
     ap.add_argument("--secs", type=float, default=15.0, help="each take's length (after 4 s to settle)")
-    ap.add_argument("--comp", default="0,40", help="the COMP values (CC 95 on channel 5)")
+    ap.add_argument("--comp", default="0,127", help="COMP off / on (CC 95 on channel 5: 0 off, 127 on, at its defaults)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     only = [s.strip().upper() for s in a.only.split(",") if s.strip()]

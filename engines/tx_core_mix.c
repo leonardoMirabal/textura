@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura MIX core: four layers (-> their inserts) -> pan -> stereo -> CHAMBER (mid send) -> the bus effects -> the
- * compressor -> linked limiter (tx_core_mix.h). */
+/* Textura MIX core: four layers (-> their inserts) -> pan -> stereo -> the compressor -> CHAMBER (mid send) -> the bus
+ * effects (grain delay, reverb) -> linked limiter (tx_core_mix.h). */
 #include "tx_core_mix.h"
 
 void tx_mix_init(tx_mix_t *m)
@@ -78,13 +78,13 @@ TX_AUDIO_CODE void tx_mix_end(tx_mix_t *m, int32_t *L, int32_t *R, unsigned n)
 {
     unsigned j;
     int32_t pk = 0;
+    tx_comp_process(&m->comp, m->L, m->R, n);                /* the compressor, the first effect (off: returns at once) */
     if (m->ch && m->ch_on) {                                 /* the chamber on the mid: its added part to both sides */
         for (j = 0; j < n; j++) m->mid[j] = m->blk[j] = (m->L[j] >> 1) + (m->R[j] >> 1);
         TX_FAR(tx_chamber_process)(m->ch, m->mid, n);   /* (in RAM on the FM-1: TX_RAM) */
         for (j = 0; j < n; j++) { int32_t w = m->mid[j] - m->blk[j]; m->L[j] += w; m->R[j] += w; }
     }
-    if (m->bus) m->bus(m->fx, m->L, m->R, n);               /* the bus effects (the reverb) */
-    tx_comp_process(&m->comp, m->L, m->R, n);                /* the compressor (off: returns at once) */
+    if (m->bus) m->bus(m->fx, m->L, m->R, n);               /* the bus effects (the grain delay, the reverb) */
     for (j = 0; j < n; j++) {                                /* linked: one gain for both, from the louder */
         int32_t a = m->L[j] < 0 ? -m->L[j] : m->L[j], b = m->R[j] < 0 ? -m->R[j] : m->R[j];
         if (a > pk) pk = a;

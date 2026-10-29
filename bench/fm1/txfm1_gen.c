@@ -142,8 +142,8 @@ int main(int argc, char **argv)
             }
             for (k = 0; k < 5u; k++) { snprintf(lab, sizeof lab, "DRIVE %s", DT[k]); fx(FM_FX_DRIVE, k, 0, lab); }
             fx(FM_FX_FILTER, 0, 0, "FILTER");
-            fx(FM_FX_COMP, 40, 0, "COMP 40 (the default)");
-            fx(FM_FX_COMP, 127, 0, "COMP 127");
+            fx(FM_FX_COMP, 0, 0, "COMP (the defaults)");
+            fx(FM_FX_COMP, 1, 0, "COMP THR -40 20:1 ATK 0");
         }
         {   /* four lanes: the four highest w8 (rain on water, water, minerals, stone cloud at their worst), and the
              * mixes tx-budget prices (forest, storm, cave; at their intensities) */

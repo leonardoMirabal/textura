@@ -295,7 +295,7 @@ static void ln_event(const ln_ev_t *v)
         else if (v->a == LN_FX_REVERB) tx_fx_reverb_param(&ln.fx.rev, v->b, v->c);
         else if (v->a == LN_FX_GRAIN) tx_fx_grain_param(&ln.fx.gd, v->b, v->c);
         else if (v->a == LN_FX_RELATCH) tx_fx_reverb_relatch(&ln.fx.rev);
-        else if (v->a == LN_FX_COMP) tx_comp_amount(&ln.mix.comp, v->c);
+        else if (v->a == LN_FX_COMP) tx_comp_param(&ln.mix.comp, v->b, v->c);
         break;
     }
 }

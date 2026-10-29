@@ -119,7 +119,7 @@ static void scn_name_of(uint32_t idx, char *s)  /* "F03 FIRE", "U05 WATER", "U06
  * compressor, the LFOs, the envelopes, the followers, the matrix (in that order; SCN_DEF_N of them) */
 #define SCN_DEF_LANE (TX_DR_NP + TX_FL_NP)
 #define SCN_DEF_GLOB (SC_N * SCN_DEF_LANE)
-#define SCN_DEF_LFO (SCN_DEF_GLOB + TX_GD_NP + 1u + TX_RV_NP + 1u)
+#define SCN_DEF_LFO (SCN_DEF_GLOB + TX_GD_NP + 1u + TX_RV_NP + TX_CP_NP)
 #define SCN_DEF_ENV (SCN_DEF_LFO + TX_LFO_N * TX_LP_N)
 #define SCN_DEF_FOL (SCN_DEF_ENV + TX_ENV_N * TX_EP_N)
 #define SCN_DEF_MAT (SCN_DEF_FOL + TX_FOL_N * TX_FP_N)
@@ -135,7 +135,7 @@ static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id *
     if (i < SCN_DEF_LFO) {
         i -= SCN_DEF_GLOB;
         return PID(P_GLOBAL, i < TX_GD_NP ? PG_GRAIN0 + i : i == TX_GD_NP ? PG_GSYNC
-                             : i < TX_GD_NP + 1u + TX_RV_NP ? PG_REVERB0 + i - TX_GD_NP - 1u : PG_COMP);
+                             : i < TX_GD_NP + 1u + TX_RV_NP ? PG_REVERB0 + i - TX_GD_NP - 1u : PG_COMP0 + i - TX_GD_NP - 1u - TX_RV_NP);
     }
     if (i < SCN_DEF_ENV) { i -= SCN_DEF_LFO; return PID(P_LFO, i / TX_LP_N * 16u + i % TX_LP_N); }
     if (i < SCN_DEF_FOL) { i -= SCN_DEF_ENV; return PID(P_ENV, i / TX_EP_N * 16u + i % TX_EP_N); }
@@ -155,7 +155,7 @@ static int32_t scn_def_of(uint32_t id)          /* an id's default (-1: none: th
         if (i < PG_GRAIN0 + TX_GD_NP) return tx_fx_grain_params[i - PG_GRAIN0].def;
         if (i == PG_GSYNC) return 0;
         if (i >= PG_REVERB0 && i < PG_REVERB0 + TX_RV_NP) return tx_fx_reverb_params[i - PG_REVERB0].def;
-        if (i == PG_COMP) return tx_comp_params[TX_CP_AMOUNT].def;
+        if (i >= PG_COMP0 && i < PG_COMP0 + TX_CP_NP) return tx_comp_params[i - PG_COMP0].def;
         return -1;
     }
     if (s == P_LFO) return i / 16u < TX_LFO_N && i % 16u < TX_LP_N ? scn_lfo_def[i / 16u][i % 16u] : -1;

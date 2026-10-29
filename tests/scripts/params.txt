@@ -71,7 +71,27 @@
 3520 expect state page FILTER_2/2
 3520 expect state lab0 RATE
 3520 expect state lab2 -
-# FX: GRAIN 1/3; ALGORITHM: FREEZE
+# FX: COMPRESSOR 1/2 (Frodhes' four knobs; on by default); ALGORITHM: COMP off / on; CC 118 on channel 5: RAT
+3540 btn 2
+3545 expect state page COMPRESSOR_1/2
+3545 expect state lab0 THR
+3545 expect state lab1 RAT
+3545 expect state lab2 ATK
+3545 expect state lab3 MKUP
+3545 expect state card0 -20_dB
+3545 expect state card1 1.5:1
+3545 expect state card2 8.5
+3545 expect state card3 +2.6_dB
+3550 turn 1 -1
+3555 expect state msg COMP_OFF
+3560 turn 1 1
+3565 expect state msg COMP_ON
+3570 midi 0xB4 118 127
+3575 expect state card1 20:1
+3580 midi 0xB4 118 0
+3585 expect state card1 1.5:1
+3590 shot
+# FX again: GRAIN 1/3; ALGORITHM: FREEZE
 3600 btn 2
 3620 expect state page GRAIN_1/3
 3620 expect state lab2 SYNC
