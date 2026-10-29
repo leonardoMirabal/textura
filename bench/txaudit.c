@@ -122,16 +122,15 @@ static const allow_t ALLOW[] = {
     {"bittern", 2, "one boom, repeated in a series by the same throat"},
     {"singing dune", 1, "two avalanches singing apart: their tones beat"},
     {"spring", 1, "a kicked spring's echo: the wave's round trip along the coil (-e)"},
+    {"chimes", 2, "one held key strikes one tube: its ring repeats (-e; the user's timbre, ~5-6 % of pairs)"},
     {"cicadas", 1, "the tymbal's pulse groups at the insect's rate (-e)"},
     {"katydids", 1, "its call: a pulse train at the insect's own rate (-e)"},
 };
 #define NALLOW (sizeof ALLOW / sizeof ALLOW[0])
 
 /* ---- open findings: known, a fix to come; reported as "open", not failed, so the audit guards everything else */
-static const allow_t OPEN[] = {                       /* entries as ALLOW's, NOPEN their count */
-    {"chimes", 2, "one tube struck again (-e): at CLAPPER 64 its ring is mostly f1; 10.7 % of pairs (100: 3.2 %)"},
-};
-#define NOPEN (sizeof OPEN / sizeof OPEN[0])
+static const allow_t OPEN[1] = {{0, 0, 0}};            /* none open now: entries as ALLOW's, NOPEN their count */
+#define NOPEN 0u
 
 static unsigned secs = 33, nseeds = 6, verbose, detail, engines;
 static const char *filter;

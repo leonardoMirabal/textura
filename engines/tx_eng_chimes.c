@@ -25,7 +25,15 @@
  * ones single (the same oscillator count as four in pairs): the inharmonic shimmer a struck tube has above its hum.
  * Spectrogram review (session 5: "pure sine lines, no strike transient"): each strike now also clicks: the clapper
  * meets the tube for ~0.1-0.4 ms (a Hertz pulse, harder = shorter and brighter), ~-14 dB under the ring's peak (ours),
- * so the strike has the broadband body a struck tube has before its modes take over. */
+ * so the strike has the broadband body a struck tube has before its modes take over.
+ * Alike pass (txaudit -e: 10.7 % of strike pairs alike at 8 seeds): the point weights were a sine guess that put the
+ * clapper near f1's antinode and mode 2's node over much of its range, so most rings were a near-pure f1. They are now
+ * the free-free bar's own mode shapes |phi_n(x)| (every mode large at the free end, f1's node at 0.224 L): the mode
+ * mix moves with where the clapper lands, 0.15 .. 0.42 of the length (not the middle: a node of every even mode, a
+ * near-pure f1 there). And the clapper's speed sets its contact time (Hertz: a slower blow stays longer on the tube and
+ * rings darker): the tilt falls 0.625 per octave of force, so the dull blows are the soft ones. The modes +6.7 dB keep
+ * the level (8 seeds x 90 s held: the same total); the mean mix ~2 dB brighter above f1 (centroid 338 vs 313 Hz, the
+ * user's pick of three). Alike: 5.9 % at 8 seeds (5.2 % over 132 s; was 10.7 / 10.5). */
 #include "tx_engine.h"
 #include "tx_core_trim.h"
 #include "tx_core_vary.h"
@@ -33,6 +41,7 @@
 #include "tx_core_noise.h"
 #include "tx_core_plate.h"
 #include "tx_core_pulse.h"
+#include "tx_core_modal.h"
 
 #define OUT_TRIM 11412               /* output gain, Q12 (+4.5 dB): integrated (a key held 10 s): -30.5 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
@@ -59,9 +68,22 @@ static const tx_param_t PARAMS[NP] = {
 #define NM 6u                       /* modes (the first two in two planes: NM + 2 oscillators) */
 #define NB 2u
 #define A_STRIKE 5000              /* a mode's amplitude for a full strike (Q15 band state; calibrated by render) */
+#define A_MODE 10816               /* the modes' share of it: A_STRIKE +6.7 dB (the mode shapes' mean weight; the click
+                                    * keeps A_STRIKE) */
+#define TILT_MEAN 24576            /* +0.375 on the clapper's tilt (Q16), at a blow of force 2^14 */
+#define HERTZ 160                  /* the tilt's fall per octave of force, Q8 (0.625; ours, from the mean mix) */
 
 TX_AUDIO_DATA static const uint16_t RATIO[NM] = { 1024, 2823, 5534, 9147, 13664, 19085 };   /* Q10 */
 TX_AUDIO_DATA static const uint16_t MAT_Q[3] = { 1500, 600, 100 };
+/* a free-free bar's mode shapes |phi_n(x)| / 2 at x = 0, 1/32 .. 1/2 of its length (Q15; symmetric about the middle) */
+TX_AUDIO_DATA static const uint16_t SHAPE[NM][17] = {
+    {32767, 28010, 23260, 18540, 13880, 9322, 4913, 704, 3250, 6896, 10180, 13052, 15469, 17391, 18786, 19633, 19917},
+    {32767, 24725, 16744, 8966, 1596, 5133, 10978, 15715, 19161, 21187, 21733, 20816, 18531, 15045, 10596, 5471, 0},
+    {32767, 21527, 10512, 215, 8727, 15669, 20085, 21661, 20354, 16418, 10387, 3014, 4802, 12124, 18078, 21958, 23304},
+    {32767, 18339, 4500, 7559, 16467, 21121, 21016, 16425, 8389, 1444, 11119, 18736, 22805, 22525, 17939, 9919, 0},
+    {32767, 15178, 1162, 13925, 20835, 20715, 14057, 3026, 9085, 18738, 23133, 20989, 12898, 1152, 10913, 19867, 23165},
+    {32767, 12055, 6350, 18530, 21449, 14886, 1915, 12100, 21506, 22529, 14727, 1152, 12865, 21812, 22171, 13802, 0},
+};
 static const int32_t L2_RATIO[NM] = { 0, 96004, 161761, 207036, 244980, 276575 };   /* log2 of the ratios, Q16 */
 
 typedef struct {
@@ -179,13 +201,13 @@ static void kick_mode(tx_pmode_t *m, int32_t a)
 
 /* strike a tube: each mode's amplitude from the force, the clapper (n^-tilt) and where it hits. No two strikes alike
  * (the user's session 3): the force +-0.4 oct, the clapper's hardness +-0.5 of the tilt (and the press's tone), the point along the tube
- * (each mode weighted 0.15 .. 1 by its shape there), and 1-2 bounces 3-40 ms later at -6 .. -18 dB that add to the
+ * (each mode weighted 0.15 .. 1 by its shape there: SHAPE), and 1-2 bounces 3-40 ms later at -6 .. -18 dB that add to the
  * ring in phase or against it (ours) */
 static void strike(chimes_t *s, tube_t *t, int32_t force_q15, int bounce)
 {
     tx_rng_t *r = &s->cloud.rng;
     unsigned i;
-    int32_t tilt = s->tilt + ((tx_rand_s15(r) * 33) >> 5) - (tx_vary_tone(&s->vy) >> 1), pt = 4915 + (int32_t)tx_rand_below(r, 11469u);   /* 0.15 .. 0.5 */
+    int32_t tilt = s->tilt + TILT_MEAN + ((tx_rand_s15(r) * 33) >> 5) - (tx_vary_tone(&s->vy) >> 1), pt = 4915 + (int32_t)tx_rand_below(r, 8848u);   /* 0.15 .. 0.42 */
     int32_t sg = bounce ? (force_q15 < 0 ? -1 : 1) : ((tx_rand(r) & 1u) ? 1 : -1);
     uint32_t ang;                                            /* the clapper's angle to the planes: the next blow lands */
     t->ak = (uint8_t)(t->ak + 3u + tx_rand_below(r, 3u));   /* 3-5 eighths of a turn round from the last (the clapper */
@@ -193,11 +215,12 @@ static void strike(chimes_t *s, tube_t *t, int32_t force_q15, int bounce)
     int32_t ca = tx_sin_q15(ang + 0x40000000u), sa = tx_sin_q15(ang);
     if (force_q15 < 0) force_q15 = -force_q15;
     if (!bounce) force_q15 = (int32_t)(((int64_t)force_q15 * tx_exp2((tx_rand_s15(r) * 26) / 32 + (16 << 16))) >> 16);   /* +-0.4 oct */
+    tilt -= ((tx_log2_q16((uint32_t)force_q15 + 1u) - (14 << 16)) * HERTZ) >> 8;   /* faster: shorter contact, brighter */
     tilt = tilt < 0 ? 0 : tilt;
     for (i = 0; i < t->nm; i++) {
         int32_t g = (int32_t)tx_exp2((15 << 16) - (int32_t)(((int64_t)tilt * L2_RATIO[i]) >> 16));   /* (f_n / f1)^-tilt */
-        int32_t sh = tx_sin_q15((uint32_t)((2u * i + 3u) * (uint32_t)pt) << 15);   /* the mode's shape at the point (ours) */
-        int32_t a = (int32_t)(((int64_t)force_q15 * g >> 15) * A_STRIKE >> 15);
+        int32_t sh = SHAPE[i][pt >> 10] + (((SHAPE[i][(pt >> 10) + 1] - SHAPE[i][pt >> 10]) * (pt & 1023)) >> 10);   /* the mode's shape at the point */
+        int32_t a = (int32_t)(((int64_t)force_q15 * g >> 15) * A_MODE >> 15);
         a = (int32_t)(((int64_t)a * (4915 + (((sh < 0 ? -sh : sh) * 27853) >> 15))) >> 15);
         a = (int32_t)(((int64_t)a * s->level) >> 15);
         if (i < NB) {                                        /* the low modes: shared between the planes */
