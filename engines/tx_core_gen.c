@@ -48,6 +48,15 @@ static unsigned kact(const tx_gen_t *g)
     return k > TX_GEN_K ? TX_GEN_K : k;
 }
 
+/* the memory at second x (Q8): its slot's mean and the next one's, interpolated over the step (the slot being
+ * filled now, x's own: held, its next is the oldest) */
+static int32_t mem_at(const uint8_t *m, uint32_t n, uint32_t step, uint32_t x, uint32_t now)
+{
+    uint32_t i = x / step, f = x % step, cur = (now + TX_GEN_HSECS - 1u) % TX_GEN_HSECS / step;
+    int32_t a = m[i], b = i == cur ? a : m[(i + 1u) % n];
+    return (a << 8) + (int32_t)(((b - a) * (int32_t)(f << 8)) / (int32_t)step);
+}
+
 void tx_gen_init(tx_gen_t *g, uint32_t seed)
 {
     uint8_t *b = (uint8_t *)g;
@@ -120,8 +129,9 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
     g->g += ((g->r_len ? 32767 : 0) - g->g) >> 9;
     if (g->g > 64 || g->r_len) {
         int32_t m = g->p[TX_GEN_MUTATE];
-        ar = (int32_t)g->hist[(g->r_at + g->r_el) % TX_GEN_HIST] << 8;
-        pr = (int32_t)g->phist[((g->r_at / 10u) + g->r_el / 10u) % TX_GEN_PHIST] << 8;
+        uint32_t x = (g->r_at + g->r_el) % TX_GEN_HSECS;
+        ar = mem_at(g->hist, TX_GEN_HIST, TX_GEN_HSTEP, x, g->hpos);
+        pr = mem_at(g->phist, TX_GEN_PHIST, TX_GEN_PSTEP, x, g->hpos);
         ar += ((aw - base) * m) / 127;                       /* the walk keeps MUTATE of its motion */
         pr += ((pw - (span << 7)) * m) / 127;
         aw += (int32_t)(((int64_t)(ar - aw) * g->g) >> 15);
@@ -137,10 +147,15 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
     if (g->sec >= TX_FS) {
         g->sec -= TX_FS;
         g->secs++;
-        g->hist[g->hpos] = (uint8_t)(g->a >> 8);
-        if (!(g->secs % 10u)) { g->phist[g->ppos] = (uint8_t)(g->pc >> 8); g->ppos = (uint16_t)((g->ppos + 1u) % TX_GEN_PHIST); if (g->plen < TX_GEN_PHIST) g->plen++; }
-        g->hpos = (uint16_t)((g->hpos + 1u) % TX_GEN_HIST);
-        if (g->hlen < TX_GEN_HIST) g->hlen++;
+        {                                                    /* the memory: this second into its slots' means */
+            uint32_t j = g->hpos % TX_GEN_HSTEP, q = g->hpos % TX_GEN_PSTEP;
+            g->hsum = (uint16_t)((j ? g->hsum : 0u) + (uint32_t)(g->a >> 8));
+            g->psum = (uint16_t)((q ? g->psum : 0u) + (uint32_t)(g->pc >> 8));
+            g->hist[g->hpos / TX_GEN_HSTEP] = (uint8_t)(g->hsum / (j + 1u));
+            g->phist[g->hpos / TX_GEN_PSTEP] = (uint8_t)(g->psum / (q + 1u));
+        }
+        g->hpos = (uint16_t)((g->hpos + 1u) % TX_GEN_HSECS);
+        if (g->hlen < TX_GEN_HSECS) g->hlen++;
         if (g->r_len && ++g->r_el >= g->r_len) g->r_len = 0;
         if (!g->dec || !--g->dec) {
             uint32_t mean = hz / 32u < 2u ? 2u : hz / 32u, avail = g->hlen < hz ? g->hlen : hz;
@@ -151,7 +166,7 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
                 if (len > avail / 2u) len = avail / 2u;
                 if (len < 2u) len = 2u;
                 back = len + (uint32_t)(((uint64_t)(avail - len) * (u1 > u2 ? u1 : u2)) >> 16);   /* older likelier */
-                g->r_at = (g->hpos + TX_GEN_HIST - back) % TX_GEN_HIST;
+                g->r_at = (g->hpos + TX_GEN_HSECS - back) % TX_GEN_HSECS;
                 g->r_len = len; g->r_el = 0;
             }
         }

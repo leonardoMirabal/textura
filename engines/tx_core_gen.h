@@ -14,13 +14,14 @@
  *               mean stays: flurries and silences. Pitch (chromatic, ROOT .. ROOT + SPAN): WANDER 0 = anywhere in the
  *               span .. 64 = a walk of 1-3 semitones .. 127 = close to the wandering centre. Velocity with the
  *               activity, +-20. Each note lasts ~0.8 of the mean gap (30 ms .. 1.5 s).
- *   memory      the activity once a second and the pitch centre every 10 s, as long as the horizon (2 h: 7.2 KB);
+ *   memory      the activity's mean over each 4 s and the pitch centre's over each 40 s, read back interpolated, as
+ *               long as the horizon (2 h: 2 KB);
  *               phrases (notes closer than twice the mean gap, up to 8) into 16 motifs. At decision times (Poisson,
  *               mean horizon / 32) with probability RECALL the activity and centre glide (3 s) toward a recorded
  *               stretch (older ones likelier), held for horizon / 16 .. / 4, the walk keeping MUTATE of its own
  *               motion under it; a new phrase replays a stored motif with probability RECALL, each note moved
  *               +-1-2 semitones with probability MUTATE / 2.
- * Integers only; per block a few walks and a draw per note. ~8.5 KB per lane (the memory: it may live in slow RAM). */
+ * Integers only; per block a few walks and a draw per note. ~2.6 KB per lane (the memory: it may live in slow RAM). */
 #ifndef TX_CORE_GEN_H
 #define TX_CORE_GEN_H
 #include <stdint.h>
@@ -28,8 +29,11 @@
 #include "tx_core_math.h"
 
 #define TX_GEN_K 14u                /* walks: 1 s .. 2^13 s */
-#define TX_GEN_HIST 7200u           /* activity, one a second: 2 h */
-#define TX_GEN_PHIST 720u           /* pitch centre, one per 10 s */
+#define TX_GEN_HSECS 7200u          /* the memory: 2 h */
+#define TX_GEN_HSTEP 4u             /* activity: each 4 s's mean (read interpolated) */
+#define TX_GEN_PSTEP 40u            /* pitch centre: each 40 s's mean */
+#define TX_GEN_HIST (TX_GEN_HSECS / TX_GEN_HSTEP)
+#define TX_GEN_PHIST (TX_GEN_HSECS / TX_GEN_PSTEP)
 #define TX_GEN_MOT 16u
 #define TX_GEN_MLEN 8u
 #define TX_GEN_OFFS 8u              /* notes sounding (pending releases) */
@@ -56,10 +60,11 @@ typedef struct {
     uint32_t since;                            /* samples since the last note */
     uint32_t sec;                              /* samples into the current second */
     uint32_t secs;                             /* seconds since init */
-    uint16_t hpos, hlen, ppos, plen;           /* history ring positions and fill */
+    uint16_t hpos, hlen, hsum, psum;           /* the memory: now and its fill (seconds), the running means' sums */
     uint32_t dec;                              /* seconds to the next decision */
     int32_t g;                                 /* the recall's weight, Q15 */
-    uint32_t r_at, r_len, r_el;                /* the recalled stretch: start (seconds back), length, elapsed; r_len 0 = none */
+    uint32_t r_at, r_len, r_el;                /* the recalled stretch: start (a second in the memory), length, elapsed;
+                                                * r_len 0 = none */
     int8_t mrec[TX_GEN_MLEN];                  /* the phrase being recorded (offsets from the centre) */
     tx_gen_motif_t mot[TX_GEN_MOT];
     struct { uint32_t wait; uint8_t note, pad[3]; } off[TX_GEN_OFFS];
