@@ -14,7 +14,8 @@
  *   splash   the crown and the droplets it throws falling back: a burst of high noise (3 .. 10 kHz, 6 .. 12 ms), ~U^2 like
  *            the impact (the references: 5 .. 12 kHz within 10 dB of the plink; ours had none, 20 .. 30 dB down).
  * CAVE: the space around the pool, a diffuse tail (a 4-line feedback delay network at half rate, 20 .. 37 ms lines:
- * a chamber of ~10 m, T60 0.4 .. 4 s; the walls' loss a low-pass in each line). 0 = dry, the open air.
+ * a chamber of ~10 m, T60 0.4 .. 4 s; the walls' loss a low-pass in each line, the rock's scatter an allpass).
+ * 0 = dry, the open air.
  * U from the fall height (HEIGHT) for a 4 mm drop: U = V_T sqrt(1 - exp(-2 g h / V_T^2)), V_T = 8.83 m/s; the key
  * velocity scales U (100 = the HEIGHT's speed). */
 #include "tx_engine.h"
@@ -69,6 +70,9 @@ static const tx_param_t PARAMS[NP] = {
 #define CV_N 4u                    /* the cave: lines (half rate, 22.05 kHz) */
 static const uint16_t CV_LEN[CV_N] = { 439, 557, 673, 811 };   /* 20 .. 37 ms: mutually prime, ~10 m of rock */
 #define CV_TOT 2480u               /* their sum */
+static const uint8_t AP_LEN[CV_N] = { 37, 53, 71, 97 };   /* 1.7 .. 4.4 ms: the rock's scatter, an allpass per line */
+#define AP_TOT 258u                /* their sum */
+#define AP_G 19661                 /* its gain, Q15 (0.6) */
 
 typedef struct {
     tx_cloud_t cloud;
@@ -96,6 +100,8 @@ typedef struct {
                                                 * upsampling) */
     uint32_t cv_idle, cv_hold;     /* silent input samples so far; when to stop (2 T60) */
     int16_t cv[CV_TOT];            /* the lines, one after another (Q14: +-2 full scale) */
+    int16_t ap[AP_TOT];            /* the lines' allpasses, one after another */
+    uint8_t ap_pos[CV_N];
     tx_grains_t gr;                /* the dribble: its small far drops as grains (tx_core_grains.h: never a noise bed) */
     tx_rng_t dr_rng;               /* .. its own draws (the drops' stay as they were) */
     uint32_t dr_rate;              /* .. its rate, drops /s Q8 (0: none) */
@@ -143,8 +149,9 @@ static void set_param(drip_t *s, unsigned id, unsigned v)
             uint32_t t60 = tx_knob_exp(v, 410u, 217900);     /* ms: 400 .. 4000 (2^3.32: v x 1716 Q16) */
             unsigned i;
             for (i = 0; i < CV_N; i++) {
-                int32_t l2 = -(int32_t)((653100u * CV_LEN[i] / 22u) / t60);   /* log2 g = -9.966 L / (T60 fs), Q16
-                                                                     * (653100 = 9.966 x 65536; L / 22.05 kHz in ms) */
+                /* log2 g = -9.966 L / (T60 fs), Q16 (653100 = 9.966 x 65536; L / 22.05 kHz in ms; L with its
+                 * allpass's mean delay) */
+                int32_t l2 = -(int32_t)((653100u * (CV_LEN[i] + AP_LEN[i]) / 22u) / t60);
                 s->cv_g[i] = (int32_t)tx_exp2(l2 + (15 << 16));
             }
             s->cv_hold = t60 * 88u;                          /* 2 T60 in samples (44.1 per ms) */
@@ -295,26 +302,35 @@ TX_AUDIO_CODE static void splash(drip_t *s, int32_t *buf, unsigned n)
  * back (linear interpolation up); it stops 2 T60 after the input fell silent */
 TX_AUDIO_CODE static void cave(drip_t *s, int32_t *buf, unsigned n)
 {
-    unsigned j, i, any = 0, base[CV_N];
+    unsigned j, i, any = 0, base[CV_N], abase[CV_N];
     int32_t prev = s->cv_prev;
     if (s->p[P_CAVE]) for (j = 0; j < n; j++) any |= (unsigned)buf[j];
-    if (!s->p[P_CAVE]) { if (s->cv_on) { for (j = 0; j < CV_TOT; j++) s->cv[j] = 0; s->cv_on = 0; s->cv_prev = 0;
+    if (!s->p[P_CAVE]) { if (s->cv_on) { for (j = 0; j < CV_TOT; j++) s->cv[j] = 0;
+                                          for (j = 0; j < AP_TOT; j++) s->ap[j] = 0; s->cv_on = 0; s->cv_prev = 0;
                                           for (i = 0; i < CV_N; i++) s->cv_lp[i] = 0; } return; }
     if (any) { s->cv_idle = 0; s->cv_on = 1; }
     else if (!s->cv_on) return;
     else if ((s->cv_idle += n) > s->cv_hold) {
-        for (j = 0; j < CV_TOT; j++) s->cv[j] = 0;
+        for (j = 0; j < CV_TOT; j++) s->cv[j] = 0; for (j = 0; j < AP_TOT; j++) s->ap[j] = 0;
         for (i = 0; i < CV_N; i++) s->cv_lp[i] = 0;
         s->cv_on = 0; s->cv_prev = 0;
         return;
     }
     for (i = 0, j = 0; i < CV_N; j += CV_LEN[i], i++) base[i] = j;
+    for (i = 0, j = 0; i < CV_N; j += AP_LEN[i], i++) abase[i] = j;
     for (j = 0; j + 1 < n; j += 2) {
         int32_t in = (buf[j] + buf[j + 1]) >> 10, y[CV_N], h0, h1, h2, h3, o;   /* Q23 / 2 -> Q14 */
         for (i = 0; i < CV_N; i++) {
             int32_t v = s->cv[base[i] + s->cv_pos[i]];
+            int16_t *ap = &s->ap[abase[i] + s->ap_pos[i]];
+            int32_t d = *ap, u;
             s->cv_lp[i] += ((v - s->cv_lp[i]) * 20000) >> 15;   /* the walls: ~5 kHz at 22 kHz */
-            y[i] = s->cv_lp[i];
+            u = s->cv_lp[i] + ((d * AP_G) >> 15);            /* the rock's scatter: each pass smeared (a fixed */
+            u = u > 32767 ? 32767 : u < -32768 ? -32768 : u;  /* path through the lines no longer recurs as a */
+            *ap = (int16_t)u;                                /* flutter: 439 + 557 + 673 at 13.2 Hz did) */
+            if (++s->ap_pos[i] >= AP_LEN[i]) s->ap_pos[i] = 0;
+            u = d - ((u * AP_G) >> 15);
+            y[i] = u > 32767 ? 32767 : u < -32768 ? -32768 : u;   /* (the lines' range: the mix stays in 32 bits) */
         }
         h0 = (y[0] + y[1] + y[2] + y[3]) >> 1; h1 = (y[0] - y[1] + y[2] - y[3]) >> 1;
         h2 = (y[0] + y[1] - y[2] - y[3]) >> 1; h3 = (y[0] - y[1] - y[2] + y[3]) >> 1;
