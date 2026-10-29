@@ -123,6 +123,10 @@ TX_AUDIO_CODE static inline void tx_vary_block(tx_vary_t *v, int32_t *x, unsigne
     dgl = (gl - v->gl) / (int32_t)n;                        /* a ramp over the block, ending on the target */
     dgh = (gh - v->gh) / (int32_t)n;
     tl = gl; th = gh;
+    if (!lp) {                                              /* silence in, nothing held: the gains move on, the samples */
+        for (j = 0; j < n && !x[j]; j++) {}                 /* stay exact zeros (the split of 0 is 0) */
+        if (j == n) { v->gl = tl; v->gh = th; return; }
+    }
     gl = v->gl; gh = v->gh;
     if (!k)                                                 /* the two-tap split: lp holds the last input */
         for (j = 0; j < n; j++) {
