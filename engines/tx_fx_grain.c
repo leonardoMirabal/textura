@@ -202,14 +202,16 @@ static void gd_seg(const tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t ph, uint32
         int32_t r = g->rate, end = ((int32_t)g->frac + r * (int32_t)(m - 1u)) >> 16, lo = end < 0 ? end : 0;
         uint32_t base = lo < 0 ? gd_idx(g->pos, (uint32_t)-lo) : g->pos, P = g->frac + ((uint32_t)-lo << 16);
         if (!sl) P += (uint32_t)r * m;
-        else gd_run(d, base, (unsigned)((end > 0 ? end : 0) - lo + 2), buf);
-        for (j = 0; sl && j < m; j++) {
-            int32_t wv, a = buf[P >> 16], x = a + mq15(buf[(P >> 16) + 1u] - a, (int32_t)((P & 0xFFFFu) >> 1));
-            ph += inc;
-            wv = TX_FX_HANN[ph >> 22];
-            sl[j] += mq15(x, (wv * gl) >> 15);
-            sr[j] += mq15(x, (wv * gr) >> 15);
-            P += (uint32_t)r;
+        else {
+            gd_run(d, base, (unsigned)((end > 0 ? end : 0) - lo + 2), buf);
+            for (j = 0; j < m; j++) {
+                int32_t wv, a = buf[P >> 16], x = a + mq15(buf[(P >> 16) + 1u] - a, (int32_t)((P & 0xFFFFu) >> 1));
+                ph += inc;
+                wv = TX_FX_HANN[ph >> 22];
+                sl[j] += mq15(x, (wv * gl) >> 15);
+                sr[j] += mq15(x, (wv * gr) >> 15);
+                P += (uint32_t)r;
+            }
         }
         {   /* (backwards, the position may end just below the run: a signed whole part) */
             int32_t q = (int32_t)P >> 16;
