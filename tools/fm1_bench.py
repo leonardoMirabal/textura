@@ -4,7 +4,7 @@
 """Build txfm1, Textura's bench firmware for the FM-1 (bench/fm1/txfm1.c): the engines timed in the audio interrupt.
 Adapted from Frodhes' tools/build.py (the update loader, the image, the package; the Rhodes checks dropped).
 
-  tools/fm1_bench.py [--frodhes ../frodhes] [--rev v0.9.5] [--eng-opt -O2] [--id FM-1_959] [--app]
+  tools/fm1_bench.py [--frodhes ../frodhes] [--rev v0.9.5] [--eng-opt -Os|-O2] [--id FM-1_959] [--app]
 
 --app builds the real app instead (firmware/src/textura.c, the whole of Textura's firmware/src and firmware/gen over
 Frodhes'), to measure its true flash and RAM: build/fm1/textura-app.{bin,elf,map} and textura-app.fwsc. It is also
@@ -147,7 +147,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--frodhes", default=str(FRODHES))
     ap.add_argument("--rev", default="v0.9.5", help="Frodhes' revision for the platform's device files (platform.c's)")
-    ap.add_argument("--eng-opt", default="-O2", help="the engines' optimisation (the app stays -Os, as Frodhes)")
+    ap.add_argument("--eng-opt", help="the engines' optimisation: the app -Os (on the FM-1 it costs ~1 %% CPU and saves "
+                    "~41 KB of flash: the A0 probe), the bench -O2 (its timings comparable); the app's own code stays -Os")
     ap.add_argument("--id", default="FM-1_959", help="the package identity (fm1_install: MODEL_digits)")
     ap.add_argument("--no-stage", action="store_true", help="reuse build/fm1/tree")
     ap.add_argument("--app", action="store_true", help="the real app (firmware/src/textura.c), not the bench")
@@ -191,6 +192,8 @@ def main():
               if a.app else
               f'{cc} {cf} {inc} -DFM1_PROF_TICK -DFELUCCA_ID=\\"{a.id}\\" -DAPP_VER=\\"bench\\" '
               "-c bench/txfm1.c -o o/txfm1.o")]
+    if not a.eng_opt:
+        a.eng_opt = "-Os" if a.app else "-O2"
     eflags = f"{a.eng_opt} -ffunction-sections -fno-builtin -Wall -Wno-unused-function -Iengines -Ibench"
     if not a.app:
         lines.append(f"{cc} {eflags} -c bench/txfm1_core.c -o o/txfm1_core.o")
