@@ -1260,8 +1260,10 @@ static void check_fx(FILE *update)
                  20 * log10(hi2 / (lo2 + 1e-9)), 20 * log10((pk + 1) / 8388608.0));
         /* (the held level settles over the first minute as the top fades: the least damping, by design; then it
          * holds) never silent, within 3 dB over 3 minutes (DRIFT 3.5: its random bends beat wider than the sines), 2 dB
-         * once settled (its slow beating), bounded */
-        verdict("fx", "freeze", lo > 0 && hi / lo < (t == TX_RVT_DRIFT ? 1.496 : 1.413) && hi2 / lo2 < 1.259 && pk < (1 << 23), msg, 0);
+         * once settled (its slow beating; DRIFT 3: over MOD 16 .. 127 its settled beat is 1.2 .. 2.8 dB, 2.1 mean, and
+         * was 1.3 .. 2.6 before INFINITE's lines were made shorter), bounded */
+        verdict("fx", "freeze", lo > 0 && hi / lo < (t == TX_RVT_DRIFT ? 1.496 : 1.413)
+                && hi2 / lo2 < (t == TX_RVT_DRIFT ? 1.413 : 1.259) && pk < (1 << 23), msg, 0);
     }
     /* MIX turned under a ringing tail (SIZE AUTO) changes its level only, never its pitch: INFINITE's size is fixed,
      * PLATE's latched while it rings. A burst, then silence; one run keeps MIX 64, the other moves it to 120 as the

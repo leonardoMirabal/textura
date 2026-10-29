@@ -88,10 +88,10 @@ void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t *add, int32_t 
 #define RI_NL 8u
 #define RI_CPT 4u
 #define RI_NB (16u * RI_CPT)
-#define RI_N 4544u
+#define RI_N 1984u                  /* the lines' shared ring, a multiple of RI_NB (the longest line + its swing below) */
 #define RI_NDIF 3u
 #define RI_NLAP 4u
-#define RI_APSUM 1750u
+#define RI_APSUM 597u               /* the diffusers' lines (127 + 193 + 277) */
 typedef struct {
     uint32_t w, age, quiet, apfull;
     int32_t il, ie, ik;

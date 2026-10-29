@@ -4,7 +4,7 @@
  * to a bounded level); 127: FREEZE (the input closes, the tail at that moment is held for ever).
  *
  *   in (HL_NC samples at 22.05 kHz) -> TONE's input one-pole -> the input's gain (FREEZE's fade x the level guard x a
- *   limiter on the block's peak) -> 3 diffusers (allpass, g 0.5, lifting steps) -> 8 lines (100..200 ms x SIZE, primes),
+ *   limiter on the block's peak) -> 3 diffusers (allpass, g 0.5, lifting steps) -> 8 lines (41..84 ms x SIZE, primes),
  *   4 of them read modulated (allpass interpolation: no high loss, a held tank keeps its colour), the damping one-pole
  *   and the line's gain in one product -> line 0's DC block -> the 8 x 8 Householder mix (lossless) -> back into the
  *   lines (int16). Mid / side from the line ends. It runs every 4th control block for 64 samples (its fixed costs once).
@@ -24,12 +24,16 @@
 #include "tx_fx_kern.h"
 
 #define RI_LCPT 2u                  /* log2 RI_CPT */
-#define RI_MODQ8 (24u * 256u)       /* the swing at MOD 64, Q8 samples (+-24 at 22.05 kHz) */
+#define RI_MODQ8 (10u * 256u)       /* the swing at MOD 64, Q8 samples (+-10 at 22.05 kHz: a pass; the lines 2.39x
+                                    * shorter, as much a second as the +-24 before) */
 #define RI_KD 9                     /* TONE's damping ratio R = damp x RI_KD / 256 */
-#define RI_KA 100                   /* TONE darker than its middle: an absolute damping on top, Q14 per step */
+#define RI_KA 76                    /* TONE darker than its middle: an absolute damping on top, Q14 per step and pass */
+#define RI_KDD 40                   /* DARK: TONE's damping with the loss, x 2.5 (Q4; the short lines' more passes:
+                                    * DARK's tails at DECAY 0 .. 100 as with the long lines) */
 #define RI_KI 2400u                 /* TONE's input one-pole: k = 2^(-damp x RI_KI / 65536) */
-#define RI_IN 26029                 /* the input's level, Q15 */
-#define RI_CMIN 1311                /* every line's least damping (Q14): the rounding's noise cannot build at the top */
+#define RI_IN 16844                 /* the input's level, Q15 (the tank's level as with 2.39x longer lines) */
+#define RI_CMIN 550                 /* every line's least damping (Q14) a pass: the rounding's noise cannot build at
+                                    * the top */
 #define RI_KMAX 12288               /* the input one-pole's brightest */
 #define RI_HOT 2u                   /* the tank runs 4x hotter than its input */
 #define RI_XMAX 12000               /* the input limiter */
@@ -49,7 +53,8 @@
 #define RI_RRS 3u                   /* the reads' round robin */
 #define RI_WK 6u                    /* DRIFT: the walk's one-poles, 2^-6 a read (a read every 4 tank blocks: 11.6 ms) */
 #define RI_WN0 129u                 /* DRIFT: reads to the next target: 129 .. 516 (1.5 .. 6 s) */
-static const uint16_t RI_LEN[RI_NL] = {2161, 2437, 2687, 2963, 3271, 3617, 3989, 4409};
+static const uint16_t RI_LEN[RI_NL] = {907, 1021, 1129, 1237, 1373, 1511, 1669, 1847};   /* primes, 41 .. 84 ms at
+                                    * SIZE 127: in ROOM's memory (the longest + the swing at MOD 127 < RI_N) */
 static const uint16_t RI_AP[RI_NDIF] = {127, 193, 277};
 static const uint32_t RI_INC[RI_NL] = {218157u, 645121u, 324119u, 751083u, 433197u, 860162u, 539159u, 966124u};
                                     /* 0.07 .. 0.31 Hz, the LFO step a control block (f x 32 / 44100 x 2^32) */
@@ -216,7 +221,7 @@ static void ri_tank(tx_inf_t *s, int32_t *mo, int32_t *so, const tx_rev_ctl_t *c
     for (k = 0; k < RI_NL; k++) {                          /* the line ends */
         uint32_t I, s0, f = 0;
         int32_t g = c->freeze ? 16384 + (s->dq >> 8) : s->g[k];
-        int32_t ck = clampi((((16384 - g) * s->c) >> 9) + s->ca, 0, 14000) + RI_CMIN;
+        int32_t ck = clampi((((16384 - g) * s->c * (c->dark ? RI_KDD : 16)) >> 13) + s->ca, 0, 14000) + RI_CMIN;
         if (!((k ^ s->rr) & RI_RRS) || !s->mI[k]) {        /* the read: every 4th block */
             int32_t dep = (int32_t)((RI_MODQ8 * (uint32_t)mod) >> 6), lf;
             uint32_t t, r;
