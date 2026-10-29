@@ -348,6 +348,19 @@ static void ui_blink_dot(uint32_t k, int on, int canvas)
     ui_blink_shown[k] = (uint8_t)on;
 }
 static void cd_edge(int32_t ex, const int16_t *bx, uint32_t nb);
+/* the sounds' names: all four in one size, large only when every one ends 4 px clear of the volume column (its
+ * widest value, 127, right-aligned by the dot), so no name changes size with its volume */
+static int ui_home_big(void)
+{
+    char nm[32];
+    uint32_t k;
+    for (k = 0; k < SC_N; k++) {
+        if (sc.snd[k] < 0) continue;
+        p_upper(nm, sc_sound_name(k), 30);
+        if (!aa_covers(&AF_L, nm) || 6 + aa_text_w(&AF_L, nm) + 4 > ST_DOT_X - 6 - aa_text_w(&AF_S, "127")) return 0;
+    }
+    return 1;
+}
 static void draw_strip(uint32_t k)
 {
     char nm[32], t[8], kk[3] = {'K', (char)('1' + k), 0};
@@ -367,9 +380,9 @@ static void draw_strip(uint32_t k)
     if (fw > 0) cv_rect(0, 0, fw, RW_H, run ? mt.fill : cd_shade(mt.fill, 45));
     p_fmt_int(t, (int32_t)v);
     vw = aa_text_w(&AF_S, t);
-    p_upper(nm, sc_sound_name(k), 30);          /* the sound: large when it fits the row, else small */
-    big = aa_covers(&AF_L, nm) && aa_text_w(&AF_L, nm) <= (int32_t)RW_W - 12;
-    if (!big) ui_fit(nm, (int32_t)RW_W - 12);
+    big = ui_home_big();
+    p_upper(nm, sc_sound_name(k), 30);
+    if (!big) ui_fit(nm, ST_DOT_X - 6 - aa_text_w(&AF_S, "127") - 4);
     if (fw > 2 && run) {                        /* the bright edge, clear of the name and the level */
         int16_t bx[8] = {6, (int16_t)(6 + aa_text_w(big ? &AF_L : &AF_S, nm)), (int16_t)(base - (big ? AF_L_CAP_H : AF_S_CAP_H)),
                          (int16_t)(base - 1), (int16_t)(ST_DOT_X - 6 - vw), (int16_t)(ST_DOT_X - 7),
