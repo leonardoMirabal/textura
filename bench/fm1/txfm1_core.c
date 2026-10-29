@@ -140,6 +140,17 @@ static uint32_t ring8(uint32_t *ring, uint32_t n, uint32_t v, uint32_t *w8)
     return a;
 }
 
+/* the clock probe: FM_CLK_OPS adds in one dependent chain (each waits for the last: one a cycle, none paired), 64 to
+ * a pass (the loop's own steps under 2 %); the empty asm keeps the compiler from folding them */
+#define CK1 x += 0x9E3779B9u; __asm__ volatile("" : "+r"(x));
+#define CK8 CK1 CK1 CK1 CK1 CK1 CK1 CK1 CK1
+static uint32_t clk_probe(uint32_t x)
+{
+    unsigned i;
+    for (i = 0; i < FM_CLK_OPS / 64u; i++) { CK8 CK8 CK8 CK8 CK8 CK8 CK8 CK8 }
+    return x;
+}
+
 int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
 {
     const fm_cfg_t *c = r->c;
@@ -154,7 +165,8 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
         for (j = 0; j < TX_BLOCK; j++) L[j] = 0;
         tx_engines[c->eng]->render(r->arena[0], L, TX_BLOCK);
     } else if (c->kind == FM_K_FX) {
-        if (c->eng == FM_FX_COMP) TX_FAR(tx_comp_process)(&r->mix.comp, L, R, TX_BLOCK);   /* (the mix's own, alone) */
+        if (c->eng == FM_FX_CLOCK) L[0] = R[0] = (int32_t)(clk_probe(r->blk) >> 9);   /* (its result: kept, hashed) */
+        else if (c->eng == FM_FX_COMP) TX_FAR(tx_comp_process)(&r->mix.comp, L, R, TX_BLOCK); /* the mix's own */
         else if (c->eng >= FM_FX_REVERB) tx_fx_bus(&r->fx, L, R, TX_BLOCK); else tx_fx_lane(&r->fx, 0, L, TX_BLOCK);
     } else {
         tx_mix_begin(&r->mix, TX_BLOCK);

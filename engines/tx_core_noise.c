@@ -130,59 +130,85 @@ TX_INLINE int32_t svf_mul14(int32_t f, int32_t h)
     return (a >> 10) + ((16 * (a & 1023) + f * hl) >> 14);
 }
 
+/* one mode's step (k: its variables' suffix), Q <= 32 (SVF_LOW) or high Q with the damping's remainder carried
+ * (SVF_HIGH); y gathers its output */
+#define SVF_LO(k) lo##k += (f##k * bd##k) >> 14
+#define SVF_CL(k) bd##k = bd##k > (1 << 17) ? (1 << 17) : bd##k < -(1 << 17) ? -(1 << 17) : bd##k
+#define SVF_LOW(k) do {                                                                                   \
+        int32_t h;                                                                                        \
+        SVF_LO(k);                                                                                        \
+        h = ((x * gi##k) >> 8) - lo##k - ((q * bd##k) >> 14);                                             \
+        bd##k += (f##k * h) >> 14;                                                                        \
+        SVF_CL(k);                                                                                        \
+        y += (bd##k * g##k) >> 3;                    /* Q15 x Q11 >> 3 -> Q23 */                          \
+    } while (0)
+#define SVF_HIGH(k) do {                                                                                  \
+        int32_t h, d;                                                                                     \
+        SVF_LO(k);                                                                                        \
+        ef##k += q * bd##k;                          /* the damping with its carried remainder */         \
+        d = ef##k >> 14;                                                                                  \
+        ef##k -= d * 16384;                                                                               \
+        h = ((x * gi##k) >> 8) - lo##k - d;                                                               \
+        if (h > 131071 || h < -131071) bd##k += svf_mul14(f##k, h);   /* (past 2^17: fi * h split, exact) */ \
+        else bd##k += (f##k * h) >> 14;                                                                   \
+        SVF_CL(k);                                                                                        \
+        y += (bd##k * g##k) >> 3;                                                                         \
+    } while (0)
+#define SVF_IN(m, k) int32_t lo##k = r[m].low, bd##k = r[m].band, ef##k = r[m].ef, f##k = f[m], g##k = g_q11[m],  \
+                             gi##k = gin_q8 ? gin_q8[m] : 256
+#define SVF_OUT(m, k) do {                                                                                \
+        if (silent && ((bd##k > -16 && bd##k < 16 && lo##k > -16 && lo##k < 16)                            \
+                       || (bd##k == r[m].band && lo##k == r[m].low)))                                     \
+            lo##k = bd##k = 0;                                                                            \
+        if (!lo##k && !bd##k) ef##k = 0;                                                                  \
+        r[m].low = lo##k; r[m].band = bd##k; r[m].ef = ef##k;                                             \
+    } while (0)
+/* the modes two at a time over the block (two independent chains side by side, their state in registers; each pair's
+ * sum added into out: the same total as all the modes' sum, sample for sample), an odd last one alone */
 TX_INLINE void svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
                                const int32_t *g_q11, unsigned nr, const int32_t *in, int32_t *out, unsigned n)
 {
-    int32_t lo[TX_SVF_MAX], bd[TX_SVF_MAX], fi[TX_SVF_MAX], g[TX_SVF_MAX], gi[TX_SVF_MAX], lo0[TX_SVF_MAX], bd0[TX_SVF_MAX];
-    int32_t ef[TX_SVF_MAX];
     unsigned i, j;
     int32_t silent = 0;
     if (nr > TX_SVF_MAX) nr = TX_SVF_MAX;
     for (j = 0; j < n; j++) silent |= in[j];
     silent = !silent;
     if (silent && tx_svf_bank_quiet(r, nr)) return;
-    for (i = 0; i < nr; i++) {
-        lo[i] = lo0[i] = r[i].low; bd[i] = bd0[i] = r[i].band; fi[i] = f[i]; g[i] = g_q11[i];
-        gi[i] = gin_q8 ? gin_q8[i] : 256;
-        ef[i] = r[i].ef;
+    for (i = 0; i + 1u < nr; i += 2u) {
+        SVF_IN(i, 0); SVF_IN(i + 1u, 1);
+        if (q >= 512)                                        /* Q <= 32 */
+            for (j = 0; j < n; j++) {
+                int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
+                int32_t x = ((v >> 8) * q) >> 14, y = 0;     /* Q15, x 1 / Q (|x| <= 2^16 / 4 for Q >= 4) */
+                SVF_LOW(0); SVF_LOW(1);
+                out[j] += y;
+            }
+        else                                                 /* high Q: the damping q band / 2^14 is under 1 LSB; */
+            for (j = 0; j < n; j++) {                        /* for |band| < 2^14 / q: error feedback keeps it exact */
+                int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
+                int32_t x = ((v >> 8) * q) >> 14, y = 0;
+                SVF_HIGH(0); SVF_HIGH(1);
+                out[j] += y;
+            }
+        SVF_OUT(i, 0); SVF_OUT(i + 1u, 1);
     }
-    if (q >= 512)                                            /* Q <= 32 */
-        for (j = 0; j < n; j++) {                            /* the modes side by side: independent chains overlap */
-            int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
-            int32_t x = ((v >> 8) * q) >> 14, y = 0;         /* Q15, x 1 / Q (|x| <= 2^16 / 4 for Q >= 4) */
-            for (i = 0; i < nr; i++) {
-                int32_t h;
-                lo[i] += (fi[i] * bd[i]) >> 14;
-                h = ((x * gi[i]) >> 8) - lo[i] - ((q * bd[i]) >> 14);
-                bd[i] += (fi[i] * h) >> 14;
-                bd[i] = bd[i] > (1 << 17) ? (1 << 17) : bd[i] < -(1 << 17) ? -(1 << 17) : bd[i];
-                y += (bd[i] * g[i]) >> 3;                    /* Q15 x Q11 >> 3 -> Q23 */
+    if (i < nr) {
+        SVF_IN(i, 0);
+        if (q >= 512)
+            for (j = 0; j < n; j++) {
+                int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
+                int32_t x = ((v >> 8) * q) >> 14, y = 0;
+                SVF_LOW(0);
+                out[j] += y;
             }
-            out[j] += y;
-        }
-    else                                                     /* high Q: the damping q band / 2^14 is under 1 LSB */
-        for (j = 0; j < n; j++) {                            /* for |band| < 2^14 / q: error feedback keeps it exact */
-            int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
-            int32_t x = ((v >> 8) * q) >> 14, y = 0;
-            for (i = 0; i < nr; i++) {
-                int32_t h, d;
-                lo[i] += (fi[i] * bd[i]) >> 14;
-                ef[i] += q * bd[i];                          /* the damping with its carried remainder */
-                d = ef[i] >> 14;
-                ef[i] -= d * 16384;
-                h = ((x * gi[i]) >> 8) - lo[i] - d;
-                if (h > 131071 || h < -131071) bd[i] += svf_mul14(fi[i], h);   /* (past 2^17: fi * h split, exact) */
-                else bd[i] += (fi[i] * h) >> 14;
-                bd[i] = bd[i] > (1 << 17) ? (1 << 17) : bd[i] < -(1 << 17) ? -(1 << 17) : bd[i];
-                y += (bd[i] * g[i]) >> 3;
+        else
+            for (j = 0; j < n; j++) {
+                int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
+                int32_t x = ((v >> 8) * q) >> 14, y = 0;
+                SVF_HIGH(0);
+                out[j] += y;
             }
-            out[j] += y;
-        }
-    for (i = 0; i < nr; i++) {
-        if (silent && ((bd[i] > -16 && bd[i] < 16 && lo[i] > -16 && lo[i] < 16) || (bd[i] == bd0[i] && lo[i] == lo0[i])))
-            lo[i] = bd[i] = 0;
-        if (!lo[i] && !bd[i]) ef[i] = 0;
-        r[i].low = lo[i]; r[i].band = bd[i]; r[i].ef = ef[i];
+        SVF_OUT(i, 0);
     }
 }
 TX_AUDIO_CODE void tx_svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
@@ -192,35 +218,6 @@ TX_AUDIO_CODE void tx_svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, c
 }
 /* svf_bank_add_g for 4 modes, each mode's state in its own variables (no arrays, no mode loop): the same steps in
  * the same order, sample for sample (the CHAMBER's body) */
-#define B4_LO(k) lo##k += (f##k * bd##k) >> 14
-#define B4_CL(k) bd##k = bd##k > (1 << 17) ? (1 << 17) : bd##k < -(1 << 17) ? -(1 << 17) : bd##k
-#define B4_LOW(k) do {                                                                                    \
-        int32_t h;                                                                                        \
-        B4_LO(k);                                                                                         \
-        h = ((x * gi##k) >> 8) - lo##k - ((q * bd##k) >> 14);                                             \
-        bd##k += (f##k * h) >> 14;                                                                        \
-        B4_CL(k);                                                                                         \
-        y += (bd##k * g##k) >> 3;                                                                         \
-    } while (0)
-#define B4_HIGH(k) do {                                                                                   \
-        int32_t h, d;                                                                                     \
-        B4_LO(k);                                                                                         \
-        ef##k += q * bd##k;                                                                               \
-        d = ef##k >> 14;                                                                                  \
-        ef##k -= d * 16384;                                                                               \
-        h = ((x * gi##k) >> 8) - lo##k - d;                                                               \
-        if (h > 131071 || h < -131071) bd##k += svf_mul14(f##k, h);                                       \
-        else bd##k += (f##k * h) >> 14;                                                                   \
-        B4_CL(k);                                                                                         \
-        y += (bd##k * g##k) >> 3;                                                                         \
-    } while (0)
-#define B4_END(m, k) do {                                                                                 \
-        if (silent && ((bd##k > -16 && bd##k < 16 && lo##k > -16 && lo##k < 16)                            \
-                       || (bd##k == r[m].band && lo##k == r[m].low)))                                     \
-            lo##k = bd##k = 0;                                                                            \
-        if (!lo##k && !bd##k) ef##k = 0;                                                                  \
-        r[m].low = lo##k; r[m].band = bd##k; r[m].ef = ef##k;                                             \
-    } while (0)
 TX_RAM static void svf_bank4(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8, const int32_t *g_q11,
                              const int32_t *in, int32_t *out, unsigned n)
 {
@@ -238,17 +235,17 @@ TX_RAM static void svf_bank4(tx_svf_t *r, const int32_t *f, int32_t q, const int
             for (j = 0; j < n; j++) {
                 int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
                 int32_t x = ((v >> 8) * q) >> 14, y = 0;
-                B4_LOW(0); B4_LOW(1);
+                SVF_LOW(0); SVF_LOW(1);
                 out[j] += y;
             }
         else                                                 /* high Q: the damping's remainder carried */
             for (j = 0; j < n; j++) {
                 int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
                 int32_t x = ((v >> 8) * q) >> 14, y = 0;
-                B4_HIGH(0); B4_HIGH(1);
+                SVF_HIGH(0); SVF_HIGH(1);
                 out[j] += y;
             }
-        B4_END(k, 0); B4_END(k + 1u, 1);
+        SVF_OUT(k, 0); SVF_OUT(k + 1u, 1);
     }
 }
 /* the same code in RAM on the FM-1, for the CHAMBER's body (ROOM's run path is all TX_RAM): the engines keep theirs;
@@ -257,7 +254,7 @@ TX_RAM void tx_svf_bank_add_g_ram(tx_svf_t *r, const int32_t *f, int32_t q, cons
                                   const int32_t *g_q11, unsigned nr, const int32_t *in, int32_t *out, unsigned n)
 {
     if (nr == 4u) svf_bank4(r, f, q, gin_q8, g_q11, in, out, n);
-    else svf_bank_add_g(r, f, q, gin_q8, g_q11, nr, in, out, n);
+    else TX_FAR(tx_svf_bank_add_g)(r, f, q, gin_q8, g_q11, nr, in, out, n);   /* (not the CHAMBER's: the flash one) */
 }
 
 TX_AUDIO_CODE void tx_svf_bank_add(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *g_q11, unsigned nr,

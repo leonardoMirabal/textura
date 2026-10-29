@@ -179,6 +179,7 @@ int main(int argc, char **argv)
                     cfg[nc - 1u].type = (uint8_t)OFF[k].m;
                 }
             }
+            fx(FM_FX_CLOCK, 0, 0, "CLOCK probe (16384 dependent adds: MHz = 16384 / mean us)");
         }
     }
     if (!(f = fopen(argv[1], "w"))) { perror(argv[1]); return 2; }

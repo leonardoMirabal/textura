@@ -1803,6 +1803,14 @@ static void life_block(src_t *s)
 /* the hosted engine's block: LIFE and the curves, its render, the preset's gain, out */
 /* a hosted engine's block out: its render, the gain gdb (tenths of a dB) x PROXIMITY's 1 / r re 3 m (ramped over the
  * block), the air's one-pole, the declick, into the mix */
+/* tx_headroom's step on one sample (tx_core_trim.h) */
+#define HEAD1(v) do {                                                                                     \
+        if (v > TX_HEAD_KNEE) { v = TX_HEAD_KNEE + ((v - TX_HEAD_KNEE) >> 2); v = v > TX_HEAD_MAX ? TX_HEAD_MAX : v; } \
+        else if (v < -TX_HEAD_KNEE) {                                                                     \
+            v = -TX_HEAD_KNEE - ((-TX_HEAD_KNEE - v) >> 2);                                               \
+            v = v < -TX_HEAD_MAX ? -TX_HEAD_MAX : v;                                                      \
+        }                                                                                                 \
+    } while (0)
 TX_AUDIO_CODE static void hosted_out(src_t *s, const tx_engine_t *e, void *st, int32_t *mix, unsigned n, int32_t gdb)
 {
     unsigned j;
@@ -1821,23 +1829,34 @@ TX_AUDIO_CODE static void hosted_out(src_t *s, const tx_engine_t *e, void *st, i
         s->last_out = 0;
         return;
     }
-    {   /* the air between: a one-pole whose corner falls with the distance (no change closer than ~10 m) */
-        int32_t lp = s->hlp, al = tx_place_lp_q15(dist_l2(s));
-        if (al < 32000) {
-            for (j = 0; j < n; j++) { int32_t dd = s->buf[j] - lp; lp += ((dd >> 15) * al) + (((dd & 0x7FFF) * al) >> 15); s->buf[j] = lp; }
-            s->hlp = lp;
-        } else s->hlp = s->buf[n - 1];
-    }
     if (!g0) g0 = g1;
     d = (g1 - g0) / (int32_t)n;
-    for (j = 0; j < n; j++) { s->buf[j] = tx_trim1(s->buf[j], g0 + d * (int32_t)j); }
+    {   /* the air between: a one-pole whose corner falls with the distance (no change closer than ~10 m); the gain
+         * ramp; the headroom (a loud sound's sharpest peaks, nearest: above 8x full scale only, so a sound at its
+         * defaults is unchanged): one pass, each sample's steps in that order */
+        int32_t lp = s->hlp, al = tx_place_lp_q15(dist_l2(s)), *b = s->buf, g = g0;
+        if (al < 32000) {
+            for (j = 0; j < n; j++, g += d) {
+                int32_t dd = b[j] - lp, v;
+                lp += ((dd >> 15) * al) + (((dd & 0x7FFF) * al) >> 15);
+                v = tx_trim1(lp, g);
+                HEAD1(v);
+                b[j] = v;
+            }
+            s->hlp = lp;
+        } else {
+            s->hlp = b[n - 1];
+            for (j = 0; j < n; j++, g += d) {
+                int32_t v = tx_trim1(b[j], g);
+                HEAD1(v);
+                b[j] = v;
+            }
+        }
+    }
     s->hgain = g1;
-    tx_headroom(s->buf, n);                                  /* (a loud sound's sharpest peaks, nearest: above 8x full
-                                                              * scale only, so a sound at its defaults is unchanged) */
     tx_declick_run(&s->dc, s->buf, n);
-    for (j = 0; j < n; j++) mix[j] += s->buf[j];
     s->last_out = s->buf[n - 1];
-    for (j = 0; j < n; j++) s->buf[j] = 0;
+    for (j = 0; j < n; j++) { mix[j] += s->buf[j]; s->buf[j] = 0; }   /* into the mix, the buffer cleared */
 }
 
 TX_AUDIO_CODE static void host_render(src_t *s, int32_t *mix, unsigned n)

@@ -16,7 +16,9 @@
 #define FM_WARM 344u               /* the warm-up: the scene's first 2 s, then a fresh start */
 
 enum { FM_K_SCENE, FM_K_FX, FM_K_LANES };
-enum { FM_FX_DRIVE, FM_FX_FILTER, FM_FX_REVERB, FM_FX_GRAIN, FM_FX_COMP };   /* COMP: TYPE 0 its defaults, 1 the hardest */
+enum { FM_FX_DRIVE, FM_FX_FILTER, FM_FX_REVERB, FM_FX_GRAIN, FM_FX_COMP, FM_FX_CLOCK };   /* COMP: TYPE 0 its defaults,
+                                    * 1 the hardest; CLOCK: the clock probe (FM_CLK_OPS dependent adds a block) */
+#define FM_CLK_OPS 16384u          /* probe adds a block: us = FM_CLK_OPS / MHz */
 enum { FM_EV_ON, FM_EV_OFF, FM_EV_PARAM };
 enum { FM_NO_GRAIN = 1, FM_NO_REVERB = 2, FM_NO_DRIVE = 4, FM_NO_FILTER = 8 };   /* LANES: TYPE, effects left out */
 
