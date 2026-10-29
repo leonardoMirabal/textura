@@ -8,7 +8,7 @@
 #define LS_N 10u                     /* landscapes */
 #define LS_SND_MAX 10u               /* sounds in a landscape at most (the black keys) */
 #define LS_NCNT 7u                  /* HOW MANY: off, then 1, 2, 4 .. (the source's COUNT: LS_COUNT_V) */
-#define LS_NACT 8u                  /* HOW ACTIVE: rare .. busy */
+#define LS_NACT 9u                  /* HOW ACTIVE: rare .. busy */
 typedef struct { const char *name, *src; uint8_t type, eng; uint16_t trim; } ls_sound_t;   /* eng 1: src is a classic
  * engine's name; trim: the sound's own level, Q12 (4096 = 0 dB: LEVEL_DB) */
 typedef struct { const char *name; uint8_t n; ls_sound_t s[LS_SND_MAX]; } ls_family_t;

@@ -21,7 +21,7 @@
 #define SC_PRESS_MS 150u                        /* a one-shot engine's press, and its shortest gap */
 #define SC_FAM_MS 300u                          /* ALGORITHM: the landscape changes this long after the last detent */
 
-static const uint16_t SC_BLINK_MS[LS_NACT] = {1600, 1105, 763, 527, 364, 252, 174, 120};   /* 1.6 s x (0.12 / 1.6)^(a / 7) */
+static const uint16_t SC_BLINK_MS[LS_NACT] = {1600, 1157, 837, 606, 438, 317, 229, 166, 120};   /* 1.6 s x (0.12 / 1.6)^(a / 8) */
 
 static struct {
     uint8_t fam, sel;                           /* the landscape; the selected lane */
@@ -52,9 +52,11 @@ static struct {
 } sc;
 
 /* ---- the player's scales */
-static uint32_t sc_act_step(uint32_t w) { return 1u + (w * 26u + 7u) / 14u; }          /* HOW ACTIVE key 0 .. 7 -> step */
+static uint32_t sc_act_step(uint32_t w) { return 1u + (w * 26u + LS_NACT - 1u) / (2u * (LS_NACT - 1u)); }   /* HOW ACTIVE key
+                                                 * 0 .. 8 -> step 1 .. 14, even (1 3 4 6 8 9 11 12 14) */
 static uint32_t sc_act_val(uint32_t s) { return s ? ((s - 1u) * 254u + 13u) / 26u : 0u; }   /* step -> ACTIVITY 0 .. 127 */
-static uint32_t sc_act_of(uint32_t s) { return s ? ((s - 1u) * 14u + 13u) / 26u : 0u; }    /* step -> HOW ACTIVE 0 .. 7 */
+static uint32_t sc_act_of(uint32_t s) { return s ? ((s - 1u) * 2u * (LS_NACT - 1u) + 13u) / 26u : 0u; }   /* step -> HOW
+                                                 * ACTIVE 0 .. 8 */
 
 static int sc_eq(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
 /* the source's preset by name, read from its PRESET help line ("the source: 0 rain on water | 1 stone cloud | ...") */
@@ -228,26 +230,6 @@ static void sc_play_ready(uint32_t k)
     if (k < SC_N && !sc.cnt[k]) { sc.cnt[k] = 1; sc_sync(k); }
 }
 static void sc_select(uint32_t k) { if (k < SC_N) sc.sel = (uint8_t)k; }
-static void sc_sound_key(uint32_t i)            /* a black key: the sound's lane selected (loaded into a free one); tapped
-                                                 * again while selected and playing: off */
-{
-    int k = -1;
-    uint32_t j;
-    if (i >= LS[sc.fam].n) return;
-    for (j = 0; j < SC_N; j++) if (sc.snd[j] == (int)i) k = (int)j;
-    if (k >= 0 && (uint32_t)k == sc.sel && sc.run[k]) { sc_count((uint32_t)k, 0); return; }
-    if (k < 0) {                                /* a free lane, else the smallest playing one gives way */
-        for (j = 0; j < SC_N && k < 0; j++) if (!sc.run[j] && j != sc.sel) k = (int)j;
-        for (j = 0; j < SC_N && k < 0; j++) if (!sc.run[j]) k = (int)j;
-        if (k < 0) {
-            k = 0;
-            for (j = 1; j < SC_N; j++)
-                if (sc_cnt_of(j) * 16u + sc_step_of(j) < sc_cnt_of((uint32_t)k) * 16u + sc_step_of((uint32_t)k)) k = (int)j;
-        }
-        sc_load((uint32_t)k, i);
-    }
-    sc_select((uint32_t)k);
-}
 /* K1 on LANDSCAPE: the selected lane's sound, d sounds on (the ones on the other lanes skipped); playing, it goes on
  * playing with the same HOW MANY and HOW ACTIVE */
 static void sc_sound_turn(int32_t d)
@@ -318,7 +300,7 @@ static void sc_all_toggle(void)                 /* REC: all lanes stop (remember
     for (k = 0; k < SC_N; k++) if (sc.mem_cnt[k]) { mem = 1; sc_count(k, sc.mem_cnt[k]); sc_step(k, sc.mem_step[k]); }
     if (!mem) sc_start_landscape();
 }
-/* ALGORITHM / F#5 / G5: another landscape; what played goes on playing (the new landscape's start), quiet stays quiet.
+/* ALGORITHM: another landscape; what played goes on playing (the new landscape's start), quiet stays quiet.
  * The detents gather for SC_FAM_MS so a fast turn loads one landscape, not each it passes */
 static void sc_family_turn(int32_t d)
 {

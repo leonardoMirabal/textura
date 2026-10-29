@@ -1,14 +1,21 @@
-# the LANDSCAPE key mode: black keys = sounds, F3..E4 = HOW MANY, F4..F5 = HOW ACTIVE, F#5 / G5 = next / previous
+# the LANDSCAPE key mode: black key groups (3, 2, 3, 2) = lanes 1..4 and their page, F#5 nothing; F3..E4 = HOW MANY,
+# F4..G5 = HOW ACTIVE
 # landscape; ALGORITHM = landscape; OCT = lane; K1..K4 = sound, how many, how active, volume; key LEDs (14 + key)
 1700 btn 13
 1800 expect state run0 1
-# D#4 (key 10): the 5th sound, eaves dripping, into the free lane 4, selected and stopped
-2000 keys 0x400
+# C#5 (key 20): lane 4 (cave drips, stopped), its SOUND page; ALGORITHM: its next sound not on another lane (eaves
+# dripping), selected and stopped; HOME back
+2000 keys 0x100000
 2050 keys 0
-2100 expect state sel 4
+2060 expect state sel 4
+2060 expect state page SOUND_1/2
+2060 expect state snd3 cave_drips
+2070 turn 1 1
+2090 btn 8
+2100 expect state page LANDSCAPE
 2100 expect state snd3 eaves_dripping
 2100 expect state run3 0
-2100 expect led 24 0
+2100 expect led 34 0
 # D4 (key 9): HOW MANY 16 (starts it, rare)
 2200 keys 0x200
 2250 keys 0
@@ -23,8 +30,8 @@
 2500 expect state act3 8
 2500 expect led 38 1
 3500 shot
-# D#4 again (selected, playing): off
-3600 keys 0x400
+# F3 (key 0): HOW MANY off
+3600 keys 0x1
 3650 keys 0
 3700 expect state run3 0
 3700 expect state cnt3 0
@@ -53,9 +60,8 @@
 4200 turn 2 1
 4220 expect state snd2 cave_drips
 4300 expect state run2 1
-# F#5: the next landscape (after 300 ms); what played starts the new one low
-4400 keys 0x2000000
-4450 keys 0
+# ALGORITHM: the next landscape (after 300 ms); what played starts the new one low
+4400 turn 1 1
 4600 expect state landscape Water
 4800 expect state landscape Stones_&_sand
 4800 expect state run0 1
@@ -66,11 +72,66 @@
 5100 turn 1 1
 5500 expect state landscape Wood
 5500 expect state lane0 source
-# G5: back
-5600 keys 0x4000000
-5650 keys 0
+# ALGORITHM: back
+5600 turn 1 -1
 6000 expect state landscape Fire
 6000 shot
 6100 expect sound
 6100 expect state dropped 0
-6200 end
+# every key in turn (F3 .. G5): none changes the landscape
+6200 keys 0x1
+6210 keys 0
+6220 keys 0x2
+6230 keys 0
+6240 keys 0x4
+6250 keys 0
+6260 keys 0x8
+6270 keys 0
+6280 keys 0x10
+6290 keys 0
+6300 keys 0x20
+6310 keys 0
+6320 keys 0x40
+6330 keys 0
+6340 keys 0x80
+6350 keys 0
+6360 keys 0x100
+6370 keys 0
+6380 keys 0x200
+6390 keys 0
+6400 keys 0x400
+6410 keys 0
+6420 keys 0x800
+6430 keys 0
+6440 keys 0x1000
+6450 keys 0
+6460 keys 0x2000
+6470 keys 0
+6480 keys 0x4000
+6490 keys 0
+6500 keys 0x8000
+6510 keys 0
+6520 keys 0x10000
+6530 keys 0
+6540 keys 0x20000
+6550 keys 0
+6560 keys 0x40000
+6570 keys 0
+6580 keys 0x80000
+6590 keys 0
+6600 keys 0x100000
+6610 keys 0
+6620 keys 0x200000
+6630 keys 0
+6640 keys 0x400000
+6650 keys 0
+6660 keys 0x800000
+6670 keys 0
+6680 keys 0x1000000
+6690 keys 0
+6700 keys 0x2000000
+6710 keys 0
+6720 keys 0x4000000
+6730 keys 0
+7140 expect state landscape Fire
+7240 end

@@ -5,10 +5,13 @@
 2200 expect state lane2 storm
 2200 expect state run2 1
 2200 expect state gen2 1
-# C#4 (key 8): thunder into lane 4, F5: HOW ACTIVE busy, D4: HOW MANY 16
-2300 keys 0x100
+# C#5 (key 20): lane 4 (thunder) and its SOUND page; HOME back; F5: HOW ACTIVE 8 of 9, D4: HOW MANY 16
+2300 keys 0x100000
 2350 keys 0
+2360 expect state sel 4
+2370 btn 8
 2400 expect state lane3 thunder
+2400 expect state page LANDSCAPE
 2400 keys 0x1000000
 2450 keys 0
 2500 keys 0x200

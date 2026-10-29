@@ -92,7 +92,7 @@ def main():
         fm = page.evaluate("window.txTest.family(8)")
         bt = page.eval_on_selector_all("#fam-box .snd button", "b => b.map(x => x.textContent)")
         check(fm["names"][3] == "nightingale" and bt == fm["names"] and fm["snd"] == [0, 1, 2, 3] and not any(page.evaluate("window.txTest.src()")["run"]),
-              f"a landscape picked (Songbirds): every sound stopped, its sounds on the black keys {bt}")
+              f"a landscape picked (Songbirds): every sound stopped, its sounds in the Sounds row {bt}")
         v = page.evaluate("[window.txTest.vol(0, 40), (window.txTest.family(1), window.txTest.family(8), window.txTest.vol(0))]")
         nv = page.eval_on_selector_all("#lanes-box .vol", "x => x.length")
         check(v == [40, 40] and nv == 4, f"a volume per sound: set 40, kept with the sound across landscapes ({v}), {nv} volume sliders")
@@ -325,7 +325,7 @@ def main():
         time.sleep(0.5)
         lit = page.eval_on_selector_all("#kb .key.on", "k => k.length")
         check(lit == 0, "all keys released")
-        # SOURCE: its panel, and lane mode (black keys pick a lane, white keys F3 .. G5 its ACTIVITY, the keys lit)
+        # SOURCE: its panel, and lane mode (black keys' groups pick a lane, white keys F3 .. G5 its faders, the keys lit)
         names = page.evaluate("() => [...Array(Module._txw_count()).keys()].map(i => Module.UTF8ToString(Module._txw_name(i)))")
         if "source" in names:
             page.evaluate(f"(() => {{ window.txTest.editLayer(0); window.txTest.selectEngine({names.index('source')}); }})()")
@@ -337,21 +337,22 @@ def main():
                   "SOURCE panel: no morph controls, a PROXIMITY slider")
             page.click("#lanes")
             key = lambda n: page.click(f'#kb .key[data-n="{n}"]')
+            snd = lambda i: page.click(f'#fam-box .snd button[data-i="{i}"]')   # the Sounds row (no key picks a sound)
             kr = page.eval_on_selector_all("#kb .key", "k => [Math.min(...k.map(x => +x.dataset.n)), Math.max(...k.map(x => +x.dataset.n))]")
-            check(kr == [60, 84], f"lane mode: the keyboard shows C4 .. C6 ({kr})")
-            key(61); key(74)                                 # C#4: sound 1; D5 (how active 2 of 8): running, one of it
+            check(kr == [53, 79], f"lane mode: the keyboard shows F3 .. G5 ({kr})")
+            key(54); key(67)                                 # F#3: lane 1 (sound 1); G4 (how active 2 of 9): running, one of it
             st = page.evaluate("window.txTest.src()")
             g0 = page.evaluate("window.txTest.gen(0)")
             check(st["laneMode"] and st["lane"] == 0 and st["run"][0] and st["held"][0] and st["step"][0] == 3 and st["cnt"][0] == 1 and g0["on"]
-                  and st["lit"] == 3 and st["sel"] == [61], f"lane mode: sound 1, one of it, activity 2 ({g0}), {st['lit']} keys lit, selected {st['sel']}")
-            key(67)                                          # G4: how many = 8
+                  and st["lit"] == 3 and st["sel"] == [54, 56, 58], f"lane mode: lane 1 (its group's keys), sound 1, one of it, activity 2 ({g0}), {st['lit']} keys lit, selected {st['sel']}")
+            key(60)                                          # C4: how many = 8
             st = page.evaluate("window.txTest.src()")
-            check(st["cnt"][0] == 4 and st["step"][0] == 3 and st["lit"] == 6, f"lane mode: G4 sets how many (8: count step {st['cnt'][0]}), the activity kept, {st['lit']} keys lit")
-            key(63); key(76)                                 # D#4: sound 2; E5: how active 3; sound 1 keeps running and glows
+            check(st["cnt"][0] == 4 and st["step"][0] == 3 and st["lit"] == 6, f"lane mode: C4 sets how many (8: count step {st['cnt'][0]}), the activity kept, {st['lit']} keys lit")
+            key(61); key(69)                                 # C#4: lane 2 (sound 2); A4: how active 3; lane 1 keeps running and glows
             st = page.evaluate("window.txTest.src()")
             bl = dict(st["blink"])
-            check(set(bl) == {61, 63} and float(bl[61][:-1]) > float(bl[63][:-1]), f"lane mode: the playing sounds' black keys blink, faster when busier ({bl})")
-            check(st["lane"] == 1 and st["run"][0] and st["run"][1] and st["glow"] == [61] and st["sel"] == [63] and st["lit"] == 4,
+            check(set(bl) == {54, 56, 58, 61, 63} and float(bl[54][:-1]) > float(bl[61][:-1]), f"lane mode: the playing lanes' black keys blink, faster when busier ({bl})")
+            check(st["lane"] == 1 and st["run"][0] and st["run"][1] and st["glow"] == [54, 56, 58] and st["sel"] == [61, 63] and st["lit"] == 4,
                   f"lane mode: sound 2 running beside sound 1 (selected {st['sel']}, glowing {st['glow']}, its own bar {st['lit']})")
             time.sleep(1.0)
             pk = page.evaluate("window.txTest.render(64)")
@@ -371,25 +372,25 @@ def main():
             check(cut and pk2 > 0 and any(gv2[k][0] > gv[k][0] for k in cut),
                   f"CPU governor: over budget it took heroes ({gv[:2]}, still sounding: peak {pk2}), back under it gave them back ({gv2[:2]})")
             ng = page.eval_on_selector_all("#gen-sliders input", "x => x.length")
-            key(84)                                          # C6: the generator at its most: notes come
+            key(79)                                          # G5: the generator at its most: notes come
             time.sleep(2.0)
             g1 = page.evaluate("window.txTest.gen(1)")
             check(ng == 7 and g1["on"] and g1["state"][4] == 1 and g1["state"][2] > 3 and g1["state"][0] > 60,
                   f"the lane generator: 7 knobs, notes {g1['state'][2]} in 2 s, activity now {g1['state'][0]}")
             page.screenshot(path=os.path.join(OUT, "lanes.png"), full_page=True)
-            key(61)                                          # C#4: sound 1 selected again, its own bar shown
+            key(54)                                          # F#3: lane 1 selected again, its own bar shown
             st = page.evaluate("window.txTest.src()")
             check(st["lane"] == 0 and st["lit"] == 6 and st["run"][0], f"lane mode: back to sound 1, its bars ({st['lit']} keys)")
-            key(61)                                          # tapped again while selected: sound 1 off
+            snd(0)                                           # its sound's button tapped again while selected: sound 1 off
             st = page.evaluate("window.txTest.src()")
-            check(not st["run"][0] and not st["held"][0] and st["run"][1], "lane mode: a selected sound's black key tapped again turns it off")
-            key(63); key(60)                                 # C4: the selected sound off
+            check(not st["run"][0] and not st["held"][0] and st["run"][1], "lane mode: a selected sound's button tapped again turns it off")
+            key(61); key(53)                                 # F3: the selected lane off
             st = page.evaluate("window.txTest.src()")
-            check(not st["run"][1] and st["lit"] == 0 and st["cnt"][1] == 0, "lane mode: C4 (how many: off) turns the selected sound off")
-            key(80); key(72)                                 # G#5 (the 9th black key): Water's waves on sand (hosted surf), in a free lane; C5 rare
+            check(not st["run"][1] and st["lit"] == 0 and st["cnt"][1] == 0, "lane mode: F3 (how many: off) turns the selected lane off")
+            snd(8); key(65)                                  # the 9th sound: Water's waves on sand (hosted surf), in a free lane; F4 rare
             st = page.evaluate("window.txTest.src()")
             check(any(s == 8 and r and e == "source" for s, r, e in zip(st["snd"], st["run"], st["eng"])),
-                  f"lane mode: a black key past the fourth plays its sound ({st['eng']}, {st['snd']})")
+                  f"lane mode: a sound past the fourth plays in a free lane ({st['eng']}, {st['snd']})")
             # the dev view's hosted block: the selected lane's hosted engine (surf), its own parameters set directly; an
             # override holds through the source's own mapping (how active) and goes when the sound is set again
             hk = st["lane"]
@@ -399,7 +400,7 @@ def main():
             fl0 = h["params"]["FLOOR"]["value"]
             fv = 100 if fl0 != 100 else 90
             page.evaluate(f"window.txTest.hostSet('FLOOR', {fv})")
-            key(84); key(76)                                 # how active: busy, then E5 (the source's mapping moves)
+            key(79); key(69)                                 # how active: busy, then A4 (the source's mapping moves)
             page.evaluate("window.txTest.render(16)")
             h = page.evaluate("window.txTest.host()")
             check(h["params"]["FLOOR"]["value"] == fv and h["params"]["FLOOR"]["slider"] == fv and h["params"]["FLOOR"]["over"],
@@ -408,19 +409,19 @@ def main():
             h = page.evaluate("window.txTest.host()")
             check(h["name"] == "surf" and not h["params"]["FLOOR"]["over"] and h["params"]["FLOOR"]["value"] == fl0,
                   f"hosted block: a sound change clears the override (FLOOR {h['params']['FLOOR']['value']}, the source's {fl0})")
-            key(72)                                          # C5 rare again, as before
+            key(65)                                          # F4 rare again, as before
             # quick lanes: an old engine in a lane, its own parameters on the fader (stream: FLOW), and a one-shot one
-            key(66)                                          # F#4: sound 3 (water drops); put the stream there; F5 = how active 4 (step 7)
+            key(66)                                          # F#4: lane 3 (water drops); put the stream there; B4 = how active 4 (step 6)
             page.evaluate(f"window.txTest.selectEngine({names.index('stream')})")
-            key(77)
+            key(71)
             time.sleep(1.6)
             st = page.evaluate("window.txTest.src()")
             fl = st["quick"][2]["cur"].get("FLOW", -1)
             check(st["eng"][2] == "stream" and st["run"][2] and st["held"][2] and abs(fl - (10 + 117 * 0.25)) < 20 and st["lit"] == 5,
-                  f"quick lane: stream, one of it at activity 4 of 8, holds itself, FLOW {fl:.1f} (39 at the faders, the generator wandering around it), {st['lit']} keys lit")
-            key(68)                                          # G#4: sound 4 (stream); thunder there (one-shot: re-pressed at its rate)
+                  f"quick lane: stream, one of it at activity 4 of 9, holds itself, FLOW {fl:.1f} (39 at the faders, the generator wandering around it), {st['lit']} keys lit")
+            key(73)                                          # C#5: lane 4; thunder there (one-shot: re-pressed at its rate)
             page.evaluate(f"window.txTest.selectEngine({names.index('thunder')})")
-            key(84)                                          # C6: the most
+            key(79)                                          # G5: the most
             time.sleep(0.5)
             st = page.evaluate("window.txTest.src()")
             check(st["eng"][3] == "thunder" and st["run"][3] and not st["held"][3], "quick lane: thunder runs on re-pressed flashes (no held key)")

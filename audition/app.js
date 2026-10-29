@@ -474,8 +474,9 @@ function setSlider(id, val) {                         // from MIDI CC (the edite
 }
 
 // ---- SOURCE (engine "source"): its preset, ACTIVITY and PROXIMITY in a panel of their own; and LANE MODE, the keyboard
-// as planned for the FM-1: C4 .. C6. A landscape is one family of sounds: the black keys are its sounds (up to 10;
-// up to 4 play at once, one per lane), the 15 white keys the selected sound's activity, C4 off .. C6 a full cloud.
+// as on the FM-1: F3 .. G5. A landscape is one family of sounds (up to 10, picked in the Sounds row; up to 4 play at
+// once, one per lane); the black keys' groups (3, 2, 3, 2) select the lanes (F#5 nothing), the 16 white keys the
+// selected lane's two faders, F3 off .. G5 a full cloud. No key changes the landscape.
 let SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];   // (read from the PRESET help line)
 // a family's sounds: [name, source preset, TYPE] (TYPE reaches the preset's family members), or "#engine" (a classic)
 const FAMILIES = [
@@ -537,9 +538,9 @@ function trimQ12(f, i) {                             // the sound's trim, Q12 (4
 }
 let fam = 0;
 const laneSnd = [-1, -1, -1, -1];                    // each lane's sound in the family (-1: none)
-// the two faders: the lower octave's 7 white keys HOW MANY (off, 1, 2, 4, 8, 16, 32: the source's COUNT knob), the upper
-// octave's 8 HOW ACTIVE each one is (rare .. busy: the generator's ACTIVITY, 0 .. 127, kept as a step on the 0 .. 14 scale)
-const COUNT_V = [0, 1, 22, 43, 64, 85, 106], NCNT = 7, NACT = 8;
+// the two faders: the 7 white keys F3 .. E4 HOW MANY (off, 1, 2, 4, 8, 16, 32: the source's COUNT knob), the 9 F4 .. G5
+// HOW ACTIVE each one is (rare .. busy: the generator's ACTIVITY, 0 .. 127, kept as a step on the 0 .. 14 scale)
+const COUNT_V = [0, 1, 22, 43, 64, 85, 106], NCNT = 7, NACT = 9;
 const laneCnt = [0, 0, 0, 0];
 const sndVol = {};                                   // each sound's volume (the lane's LEVEL, 100 = unity), by landscape and sound
 function volKey(k) { return `${fam}:${laneSnd[k]}`; }
@@ -550,11 +551,12 @@ function laneVol(k, v) {                             // a lane's volume: kept wi
   M._txw_trim(k, laneSnd[k] >= 0 ? trimQ12(fam, laneSnd[k]) : 4096);
   return x;
 }
-function actStep(a) { return 1 + Math.round(a * 13 / (NACT - 1)); }        // HOW ACTIVE 0 .. 7 -> step 1 .. 14
+function actStep(a) { return 1 + Math.round(a * 13 / (NACT - 1)); }        // HOW ACTIVE 0 .. 8 -> step 1 .. 14
 function actVal(step) { return step <= 0 ? 0 : Math.round((step - 1) * 127 / 13); }   // step 1 .. 14 -> ACTIVITY 0 .. 127
 function actOf(step) { return Math.max(0, Math.round((step - 1) * (NACT - 1) / 13)); }
 const BLACKS = [], WHITES = [];
-const LANE_LO = 60, LANE_HI = 84;                  // lane mode: C4 .. C6 (15 white keys: the fader; 10 black: the lanes)
+const LANE_LO = 53, LANE_HI = 79;                  // lane mode: F3 .. G5 (16 white keys: the faders; 11 black: the lanes)
+const BLACK_LANE = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, -1];   // the n-th black key's lane: its group (3, 2, 3, 2; F#5 none)
 for (let n = LANE_LO; n <= LANE_HI; n++) ([1, 3, 6, 8, 10].includes(n % 12) ? BLACKS : WHITES).push(n);
 let srcEng = -1, srcIds = null, laneMode = false, lane = 0;
 const laneRun = [false, false, false, false], srcHeld = [false, false, false, false];
@@ -828,7 +830,7 @@ function famBar() {                                   // the landscape's familie
   row2.insertAdjacentHTML("beforeend", `<span class="small">Sounds</span>`);
   FAMILIES[fam][1].forEach((_, i) => {
     const b = document.createElement("button"), k = laneSnd.indexOf(i);
-    b.textContent = soundName(i); b.title = `black key ${NAMES[BLACKS[i] % 12]}${Math.floor(BLACKS[i] / 12) - 1}`;
+    b.textContent = soundName(i);
     b.dataset.i = i;
     b.classList.toggle("on", k >= 0 && laneRun[k]); b.classList.toggle("sel", k >= 0 && k === lane);
     b.onclick = () => { if (!ctx) startAudio(); soundKey(i); };
@@ -836,11 +838,11 @@ function famBar() {                                   // the landscape's familie
   });
   box.appendChild(row2);
 }
-function laneKey(n) {                                // a black key: one of the family's sounds (tapped again: off); a white
-  const b = BLACKS.indexOf(n), w = WHITES.indexOf(n);   // key: C4 .. B4 how many (C4 off), C5 .. C6 how active
-  if (b >= 0) { if (b < FAMILIES[fam][1].length) soundKey(b); return; }
+function laneKey(n) {                                // a black key: its group's lane selected; a white key: F3 .. E4 how
+  const b = BLACKS.indexOf(n), w = WHITES.indexOf(n);   // many (F3 off), F4 .. G5 how active
+  if (b >= 0) { if (BLACK_LANE[b] >= 0) laneSelect(BLACK_LANE[b]); return; }
   if (w < 0) return;
-  if (w < NCNT) laneCount(lane, w); else laneStep(lane, actStep(w - NCNT));
+  if (w < NCNT) laneCount(lane, w); else if (w - NCNT < NACT) laneStep(lane, actStep(w - NCNT));
 }
 function laneCount(k, c) {                            // HOW MANY: 0 off (new events stop, the tails ring), 1 .. 6: 1 .. 32
   laneCnt[k] = c;
@@ -882,8 +884,8 @@ function showLanes() {                                // the LEDs: the bar on th
   $("src-grid").hidden = laneMode;                   // (lane mode: the landscape's sounds; otherwise every sound)
   if (!laneMode) return;
   for (let i = 0; i < 4; i++) {
-    const kb = laneSnd[i] >= 0 ? document.querySelector(`#kb .key[data-n="${BLACKS[laneSnd[i]]}"]`) : null;
-    if (kb) {
+    for (const kb of BLACKS.filter((_, b) => BLACK_LANE[b] === i).map(n => document.querySelector(`#kb .key[data-n="${n}"]`))) {
+      if (!kb) continue;
       kb.classList.toggle("lane-sel", i === lane); kb.classList.toggle("lane-glow", laneRun[i] && i !== lane);
       kb.classList.toggle("lane-blink", laneRun[i]);   // a playing sound's key blinks: 1.6 s (rare) .. 0.12 s (busy)
       if (laneRun[i]) kb.style.setProperty("--blink", `${(1.6 * Math.pow(0.12 / 1.6, actOf(laneStepOf(i)) / (NACT - 1))).toFixed(2)}s`);
@@ -892,8 +894,8 @@ function showLanes() {                                // the LEDs: the bar on th
     d.className = "lane" + (i === lane ? " sel" : "") + (laneRun[i] ? " run" : "");
     d.dataset.k = i;
     d.innerHTML = `<span class="lab"></span><span class="bars"><span class="small">how many</span>` +
-      `<span class="abar cbar" title="how many: click or drag (C4 off, then 1, 2, 4, 8, 16, 32)"></span>` +
-      `<span class="small">how active</span><span class="abar" title="how active each one is: click or drag (C5 rare .. C6 busy)"><i class="mk"></i></span>` +
+      `<span class="abar cbar" title="how many: click or drag (F3 off, then 1, 2, 4, 8, 16, 32)"></span>` +
+      `<span class="small">how active</span><span class="abar" title="how active each one is: click or drag (F4 rare .. G5 busy)"><i class="mk"></i></span>` +
       `<span class="small">volume</span><input type="range" class="vol" min="0" max="127" aria-label="volume"></span>`;
     const [cbar, bar] = d.querySelectorAll(".abar");
     for (let w = 0; w < NCNT; w++) cbar.insertAdjacentHTML("beforeend", `<b data-w="${w}">${w ? 1 << (w - 1) : "off"}</b>`);
@@ -918,7 +920,7 @@ function showLanes() {                                // the LEDs: the bar on th
     box.appendChild(d);
     laneBar(i);
   }
-  if (laneRun[lane]) {                               // the selected sound's two bars on the white keys (C4 off: none lit)
+  if (laneRun[lane]) {                               // the selected lane's two bars on the white keys (F3 off: none lit)
     for (let w = 1; w <= laneCnt[lane]; w++) document.querySelector(`#kb .key[data-n="${WHITES[w]}"]`)?.classList.add("lane-bar");
     for (let w = 0, a = actOf(laneStepOf(lane)); w <= a; w++) document.querySelector(`#kb .key[data-n="${WHITES[NCNT + w]}"]`)?.classList.add("lane-bar");
   }
@@ -926,7 +928,7 @@ function showLanes() {                                // the LEDs: the bar on th
 function setLaneMode(on) {
   allOff();
   laneMode = on;
-  buildKeyboard();                                   // lane mode shows C4 .. C6, otherwise the FM-1's F3 .. G5
+  buildKeyboard();                                   // lane mode shows the FM-1's F3 .. G5, otherwise the chosen keyboard
   keyLabels();
   $("lanes").checked = on;
   if (on) setFamily(fam);

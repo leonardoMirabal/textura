@@ -158,7 +158,7 @@ static void ui_fit(char *s, int32_t w)
 }
 
 /* ---- what is shown */
-static uint32_t ui_lane_act(uint32_t k) { return sc.run[k] ? sc_act_of(sc.step[k]) + 1u : 0u; }   /* 0 off, 1 .. 8 */
+static uint32_t ui_lane_act(uint32_t k) { return sc.run[k] ? sc_act_of(sc.step[k]) + 1u : 0u; }   /* 0 off, 1 .. 9 */
 static const char *ui_count_text(uint32_t c, char *t)
 {
     if (!c) { p_strcpy(t, "OFF", 4); return t; }
@@ -396,7 +396,7 @@ static void draw_strip(uint32_t k)
     }
     x = aa_text_ov(6, S_TOP(9), &AF_S, kk, sel ? UI_ACC : (fw > 40 ? RGB(170, 170, 176) : mt.tag)) + 8;
     if (!run) aa_text_ov(x, S_TOP(9), &AF_S, "OFF", fw > x + 30 ? RGB(206, 206, 210) : FC_LAB);
-    else {                                      /* HOW MANY (6) and HOW ACTIVE (8), on the status line */
+    else {                                      /* HOW MANY (6) and HOW ACTIVE (9), on the status line */
         for (i = 0; i < LS_NCNT - 1u; i++) cv_rect(x + 7 * (int32_t)i, 5, 5, 6, i < c ? mt.edge : CD_SEGOFF);
         x += 7 * (int32_t)(LS_NCNT - 1u) + 8;
         for (i = 0; i < LS_NACT; i++) cv_rect(x + 7 * (int32_t)i, 5, 5, 6, i < a ? FC_VAL : CD_SEGOFF);
@@ -774,14 +774,14 @@ static void ui_page_step(int32_t d)             /* SELECT: the next sub-page, th
         else if (ui_g > 0u) ui_goto(ui_g - 1u, ui_nsub(ui_g - 1u) - 1u);
     }
 }
-static void ui_lane_step(int32_t d)             /* OCT: the lane, and its page: a lane's page (SOUND, DRIVE, FILTER)
-                                                 * stays with the new lane, any other goes to the lane's SOUND 1 */
+static void ui_lane_focus(uint32_t k)           /* OCT, a black key: lane k, and its page: a lane's page (SOUND, DRIVE,
+                                                 * FILTER) stays with the new lane, any other goes to the lane's SOUND 1 */
 {
-    int32_t k = (int32_t)sc.sel + d;
-    sc_select((uint32_t)clampi(k, 0, (int32_t)SC_N - 1));
+    sc_select(k);
     if (ui_lane_page()) ui_goto(ui_g, ui_sub); else ui_goto(G_SOUND, 0);
     ui_say_n("LANE", sc.sel + 1);
 }
+static void ui_lane_step(int32_t d) { ui_lane_focus((uint32_t)clampi((int32_t)sc.sel + d, 0, (int32_t)SC_N - 1)); }
 /* a parameter turned by d detents: an amount or a choice by d, a toggle on (up) / off (down) */
 static void ui_turn(uint32_t id, int32_t d)
 {
@@ -865,7 +865,7 @@ static void ui_knob(uint32_t k, int32_t d)
         p_strcpy(m, "HOW MANY ", 10); p_cat(m, ui_count_text(sc_cnt_of(l), t), 23);
         ui_say(m);
     } else if (k == 2u) {
-        int32_t a = (int32_t)ui_lane_act(l) + (d > 0 ? 1 : -1);   /* 0 off, 1 .. 8 */
+        int32_t a = (int32_t)ui_lane_act(l) + (d > 0 ? 1 : -1);   /* 0 off, 1 .. 9 */
         if (a <= 0) { if (sc.run[l]) sc_count(l, 0); ui_say("HOW ACTIVE OFF"); return; }
         sc_step(l, sc_act_step((uint32_t)clampi(a - 1, 0, (int32_t)LS_NACT - 1)));
         ui_say_n("HOW ACTIVE", (int32_t)ui_lane_act(l));
@@ -880,8 +880,7 @@ static void ui_algorithm(int32_t d)
     if (ui_g == G_LAND) { sc_family_turn(d); return; }
     if (ui_g == G_SOUND) {
         char t[32];
-        if (sc.snd[sc.sel] < 0) return;
-        sc_sound_turn(d > 0 ? 1 : -1);
+        sc_sound_turn(d > 0 ? 1 : -1);          /* (an empty lane too: the first sound not on another lane) */
         p_upper(t, sc_sound_name(sc.sel), 31);
         ui_say(t);
         return;

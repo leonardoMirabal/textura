@@ -1,0 +1,144 @@
+# every key in LANDSCAPE mode, one each 400 ms (past ALGORITHM's 300 ms): the black keys' groups (3, 2, 3, 2) select
+# lanes 1..4, F#5 nothing; the white keys F3..E4 HOW MANY (off, 1 .. 6), F4..G5 HOW ACTIVE 1 .. 9 of the selected lane;
+# no key changes the landscape (the scene)
+1700 btn 13
+1800 expect state landscape Water
+1800 expect state run0 1
+# F3 (key 0)
+2000 keys 0x1
+2050 keys 0
+2350 expect state landscape Water
+# F#3 (key 1)
+2400 keys 0x2
+2450 keys 0
+2750 expect state sel 1
+2750 expect state landscape Water
+# G3 (key 2)
+2800 keys 0x4
+2850 keys 0
+3150 expect state cnt0 1
+3150 expect state landscape Water
+# G#3 (key 3)
+3200 keys 0x8
+3250 keys 0
+3550 expect state sel 1
+3550 expect state landscape Water
+# A3 (key 4)
+3600 keys 0x10
+3650 keys 0
+3950 expect state cnt0 2
+3950 expect state landscape Water
+# A#3 (key 5)
+4000 keys 0x20
+4050 keys 0
+4350 expect state sel 1
+4350 expect state landscape Water
+# B3 (key 6)
+4400 keys 0x40
+4450 keys 0
+4750 expect state cnt0 3
+4750 expect state landscape Water
+# C4 (key 7)
+4800 keys 0x80
+4850 keys 0
+5150 expect state cnt0 4
+5150 expect state landscape Water
+# C#4 (key 8)
+5200 keys 0x100
+5250 keys 0
+5550 expect state sel 2
+5550 expect state landscape Water
+# D4 (key 9)
+5600 keys 0x200
+5650 keys 0
+5950 expect state cnt1 5
+5950 expect state landscape Water
+# D#4 (key 10)
+6000 keys 0x400
+6050 keys 0
+6350 expect state sel 2
+6350 expect state landscape Water
+# E4 (key 11)
+6400 keys 0x800
+6450 keys 0
+6750 expect state cnt1 6
+6750 expect state landscape Water
+# F4 (key 12)
+6800 keys 0x1000
+6850 keys 0
+7150 expect state act1 1
+7150 expect state landscape Water
+# F#4 (key 13)
+7200 keys 0x2000
+7250 keys 0
+7550 expect state sel 3
+7550 expect state landscape Water
+# G4 (key 14)
+7600 keys 0x4000
+7650 keys 0
+7950 expect state act2 2
+7950 expect state landscape Water
+# G#4 (key 15)
+8000 keys 0x8000
+8050 keys 0
+8350 expect state sel 3
+8350 expect state landscape Water
+# A4 (key 16)
+8400 keys 0x10000
+8450 keys 0
+8750 expect state act2 3
+8750 expect state landscape Water
+# A#4 (key 17)
+8800 keys 0x20000
+8850 keys 0
+9150 expect state sel 3
+9150 expect state landscape Water
+# B4 (key 18)
+9200 keys 0x40000
+9250 keys 0
+9550 expect state act2 4
+9550 expect state landscape Water
+# C5 (key 19)
+9600 keys 0x80000
+9650 keys 0
+9950 expect state act2 5
+9950 expect state landscape Water
+# C#5 (key 20)
+10000 keys 0x100000
+10050 keys 0
+10350 expect state sel 4
+10350 expect state landscape Water
+# D5 (key 21)
+10400 keys 0x200000
+10450 keys 0
+10750 expect state act3 6
+10750 expect state landscape Water
+# D#5 (key 22)
+10800 keys 0x400000
+10850 keys 0
+11150 expect state sel 4
+11150 expect state landscape Water
+# E5 (key 23)
+11200 keys 0x800000
+11250 keys 0
+11550 expect state act3 7
+11550 expect state landscape Water
+# F5 (key 24)
+11600 keys 0x1000000
+11650 keys 0
+11950 expect state act3 8
+11950 expect state landscape Water
+# F#5 (key 25)
+12000 keys 0x2000000
+12050 keys 0
+12350 expect state sel 4
+12350 expect state landscape Water
+# G5 (key 26)
+12400 keys 0x4000000
+12450 keys 0
+12750 expect state act3 9
+12750 expect state landscape Water
+12800 shot
+12900 expect sound
+12900 expect state dropped 0
+13000 end

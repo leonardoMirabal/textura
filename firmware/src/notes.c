@@ -1,22 +1,23 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* The keys and their LEDs. The FM-1 has 27 keys, F3 .. G5 (key k = MIDI 53 + k). Two modes, SEL switches:
  *
- *   LANDSCAPE  F3 .. F5 are two octaves laid out as the audition player's C4 .. C6:
- *                the 10 black keys   the landscape's sounds (a tap: its lane selected, loaded into a free lane first;
- *                                    again while it plays: off);
+ *   LANDSCAPE  as the audition player's lane mode:
+ *                the black keys      by their groups (3, 2, 3, 2, 1): group n selects lane n and brings its page (as
+ *                                    OCT: a lane's page stays, any other goes to its SOUND 1); F#5 (the fifth) nothing.
+ *                                    The sounds are picked on the pages (K1), not by a key;
  *                F3 .. E4 (7 white)  HOW MANY of the selected lane: off, 1, 2, 4, 8, 16, 32;
- *                F4 .. F5 (8 white)  HOW ACTIVE: rare .. busy;
- *                F#5, G5             the next / the previous landscape.
- *              LEDs: a sound's black key blinks while it plays (1.6 s rare .. 0.12 s busy) and glows when its lane is
- *              selected but stopped; the white keys show the selected lane's two bars; F#5 and G5 glow.
+ *                F4 .. G5 (9 white)  HOW ACTIVE: rare .. busy (steps 1 .. 14, G5 the 14th).
+ *              No key changes the landscape (ALGORITHM does, on its page).
+ *              LEDs: a lane's black keys blink while it plays (1.6 s rare .. 0.12 s busy) and glow when it is selected
+ *              but stopped; the white keys show the selected lane's two bars.
  *   PLAY       the keys play the selected lane, pitched (OCT- / OCT+ the octave); the LEDs show the held keys.
  *
  * Main loop only. */
 
 #define NT_VEL 100u                             /* the keys' velocity (keyvel.c later) */
-#define NT_KEY_NEXT 25u                         /* F#5 */
-#define NT_KEY_PREV 26u                         /* G5 */
-#define NT_SPAN 25u                             /* F3 .. F5: the two octaves */
+#define NT_SPAN TX_NKEYS                        /* F3 .. G5 */
+static const uint8_t NT_GROUP[11] = {0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 0xFF};   /* the n-th black key's lane (F#5: none) */
+static void ui_lane_focus(uint32_t k);          /* (ui.c) */
 
 enum { NT_LANDSCAPE, NT_PLAY };
 static struct {
@@ -28,7 +29,7 @@ static struct {
 } nt;
 
 static int nt_black(uint32_t k) { uint32_t n = (TX_KEY_F3 + k) % 12u; return n == 1u || n == 3u || n == 6u || n == 8u || n == 10u; }
-/* key k (< NT_SPAN) as the n-th black or the n-th white key of the two octaves */
+/* key k (< NT_SPAN) as the n-th black or the n-th white key */
 static uint32_t nt_index(uint32_t k)
 {
     uint32_t i, n = 0;
@@ -59,14 +60,12 @@ static void nt_oct_step(int32_t d) { int32_t o = nt.oct + d; nt.oct = (int8_t)(o
 static void nt_landscape_key(uint32_t k)
 {
     uint32_t n;
-    if (k == NT_KEY_NEXT) { sc_family_turn(1); return; }
-    if (k == NT_KEY_PREV) { sc_family_turn(-1); return; }
     if (k >= NT_SPAN) return;
     n = nt_index(k);
-    if (nt_black(k)) { sc_sound_key(n); return; }
+    if (nt_black(k)) { if (n < sizeof NT_GROUP && NT_GROUP[n] < SC_N) ui_lane_focus(NT_GROUP[n]); return; }
     if (sc.snd[sc.sel] < 0) return;
     if (n < LS_NCNT) sc_count(sc.sel, n);
-    else sc_step(sc.sel, sc_act_step(n - LS_NCNT));
+    else if (n - LS_NCNT < LS_NACT) sc_step(sc.sel, sc_act_step(n - LS_NCNT));
 }
 static void nt_poll(void)
 {
@@ -94,23 +93,20 @@ static void nt_leds(uint32_t btn)
     uint32_t lit = 0, glow = 0, k;
     if (nt.mode == NT_PLAY) lit = nt.down;
     else {
-        for (k = 0; k < SC_N; k++) {            /* the sounds on the lanes: their black keys */
-            uint32_t key, p;
-            if (sc.snd[k] < 0) continue;
-            key = nt_key_of(1, (uint32_t)sc.snd[k]);
-            if (key >= NT_SPAN) continue;
-            if (sc.run[k]) {
-                p = sc_blink_ms(k);
+        for (k = 0; k < sizeof NT_GROUP; k++) {   /* the lanes: their black keys */
+            uint32_t l = NT_GROUP[k], key = nt_key_of(1, k), p;
+            if (l >= SC_N || key >= NT_SPAN) continue;
+            if (sc.run[l]) {
+                p = sc_blink_ms(l);
                 if (fm1_ms % p < p / 2u) lit |= 1u << key;
                 else glow |= 1u << key;
-            } else if (k == sc.sel) glow |= 1u << key;
+            } else if (l == sc.sel) glow |= 1u << key;
         }
         if (sc.run[sc.sel]) {                   /* the selected lane's bars (HOW MANY off: none lit) */
             uint32_t c = sc.cnt[sc.sel], a = sc_act_of(sc.step[sc.sel]);
             for (k = 1; k <= c && k < LS_NCNT; k++) lit |= 1u << nt_key_of(0, k);
             for (k = 0; k <= a && k < LS_NACT; k++) lit |= 1u << nt_key_of(0, LS_NCNT + k);
         }
-        glow |= 1u << NT_KEY_NEXT | 1u << NT_KEY_PREV;
     }
     if (was.done && lit == was.lit && glow == was.glow && btn == was.btn) return;
     was.done = 1; was.lit = lit; was.glow = glow; was.btn = btn;
