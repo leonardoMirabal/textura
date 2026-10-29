@@ -33,6 +33,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "build" / "fm1"
 TREE = OUT / "tree"
+# Frodhes' repository: the sibling of the repo root, also from a worktree or a copy nested under build/ (the first
+# ancestor with a frodhes/.git beside it)
+FRODHES = next((d.parent / "frodhes" for d in (ROOT, *ROOT.parents) if (d.parent / "frodhes" / ".git").exists()),
+               ROOT.parent / "frodhes")
 APP_XIP = 0x02000120
 LOADER_LOAD = 0x01C0A800
 LOADER_NAME = b"usb_hid_ota.bin"
@@ -141,7 +145,7 @@ def ldr_wrap(image, lz4blk):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--frodhes", default=str(ROOT.parent / "frodhes"))
+    ap.add_argument("--frodhes", default=str(FRODHES))
     ap.add_argument("--rev", default="v0.9.5", help="Frodhes' revision for the platform's device files (platform.c's)")
     ap.add_argument("--eng-opt", default="-O2", help="the engines' optimisation (the app stays -Os, as Frodhes)")
     ap.add_argument("--id", default="FM-1_959", help="the package identity (fm1_install: MODEL_digits)")

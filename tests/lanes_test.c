@@ -180,6 +180,21 @@ int main(void)
             if (L[j] > 1000 || L[j] < -1000) loud = 1;
         }
     }
+    {   /* the one spare arena: two sounding lanes switched at once, the second waits for the first's fade (4 blocks) */
+        const tx_engine_t *e = tx_engine_find("fire");
+        uint32_t w;
+        if (!ln.mix.e[0] || !ln.mix.e[1]) { printf("FAIL the spare check needs lanes 1 and 2 sounding\n"); fails++; }
+        if (ln_select(0, e, 1u)) { printf("FAIL the spare: the first switch refused\n"); fails++; }
+        if (ln_select(1, e, 2u) >= 0) { printf("FAIL the spare: a second switch while it is held\n"); fails++; }
+        for (w = 0; w < 8u && ln_select(1, e, 2u) < 0; w++) ln_block(L, R, TX_BLOCK);
+        if (w != 4u) { printf("FAIL the spare: free after %u blocks, not 4\n", w); fails++; }
+        for (w = 0; w < 4u; w++) ln_block(L, R, TX_BLOCK);
+        if (ln.spare_busy || ln.mix.e[0] != e || ln.mix.e[1] != e) { printf("FAIL the spare: not given back\n"); fails++; }
+        {   /* every arena in use once: the lanes' and the spare, no two the same */
+            uint32_t seen = 1u << ln.spare, k;
+            for (k = 0; k < LN_N; k++) { if (seen >> ln.ar[k] & 1u) { printf("FAIL the arenas: %u twice\n", ln.ar[k]); fails++; } seen |= 1u << ln.ar[k]; }
+        }
+    }
     if (ln.dropped) { printf("FAIL %u events dropped\n", ln.dropped); fails++; }
     if (!loud) { printf("FAIL the scene was silent\n"); fails++; }
     printf("%s lanes: %u blocks, the firmware's lanes = the player's chain\n", fails ? "FAIL" : "ok  ", b);
