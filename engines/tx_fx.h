@@ -145,10 +145,15 @@ typedef struct {
     tx_fx_grain_t gd;
     tx_fx_reverb_t rev;
     uint32_t reserve_us;           /* the effects reserve (TX_FX_RESERVE_US): the grain delay gets what the reverb leaves */
+    int32_t room_us;               /* < 0: the cap from the reserve and the cost model (the host); else the grain delay's
+                                    * measured room this block, FM-1 us (the device: what the interrupt's target leaves) */
+    uint8_t up;                    /* (measured room: blocks since the cap last rose) */
 } tx_fx_t;
 void tx_fx_init(tx_fx_t *fx);
 TX_AUDIO_CODE void tx_fx_lane(void *fx, unsigned k, int32_t *x, unsigned n);          /* tx_mix_t.ins */
 TX_AUDIO_CODE void tx_fx_bus(void *fx, int32_t *L, int32_t *R, unsigned n);           /* tx_mix_t.bus */
+TX_AUDIO_CODE void tx_fx_gd_cap(tx_fx_t *fx);     /* the grain delay's cap for this block (tx_fx_bus calls it; an app
+                                                   * that times the grains and the reverb apart calls it, then each) */
 int tx_fx_bus_quiet(void *fx);                                                         /* tx_mix_t.busq */
 uint32_t tx_fx_lane_us(const tx_fx_t *fx, unsigned k);    /* lane k's inserts now, FM-1 us a block (the governor's
                                                           * tx_gov_fixed: DRIVE tx_fx_drive_us + FILTER) */

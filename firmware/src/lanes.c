@@ -31,7 +31,12 @@
  *                                is the modulation
  *   LN_COST_EST                  the host and the web (no FM-1 clock): a stand-in from the heroes sounding, the same
  *                                every run, so the tests can rely on it
- * Neither (tests/lanes_test.c): the governor never acts, as the player's before its calibration. */
+ * Neither (tests/lanes_test.c): the governor never acts, as the player's before its calibration.
+ * With LN_CLOCK and LN_ISR_US() (the last block's whole interrupt, us) the grain delay's cap is measured too (ln_bus):
+ * its room is TX_GOV_ISR_TARGET less this block's interrupt so far (the lanes, timed as they ran) and the rest as
+ * measured in the blocks before (the reverb, the limiter, the platform's part), each held at its peak, falling 1/16 a
+ * block (a burst in the lanes holds the grains down for a while instead of stopping and starting them). Elsewhere
+ * the cap stays the model's (tx_fx_gd_cap: the effects reserve less the reverb's TYPE). */
 #if defined(LN_CLOCK) || defined(LN_COST_EST)
 #define LN_GOV
 #endif
@@ -81,8 +86,35 @@ static struct {
     int32_t lpk[LN_N];                          /* each lane's peak in its last block (Q23: the followers, the governor) */
     uint16_t lev[LN_N];                         /* its engine's events in its last block (the envelopes, the followers) */
     uint16_t lhero[LN_N];                       /* its heroes sounding after its last block */
+    uint32_t t_blk, t_bus, blk_us;              /* (ln_bus) ln_block's start and the bus's end (clock); its last us */
+    uint32_t pre_pk, rev_pk, post_pk;           /* held (ln_bus): ln_block before the bus, the reverb, the rest after
+                                                 * the bus and outside ln_block (the limiter, the platform's), us */
+    uint32_t use_max, cap_lo;                   /* (the debug reply, textura.c) since its last read: the most used
+                                                 * before the grains, the most the cap was under TX_GD_MAXG */
 } ln LN_POOL;
 static uint8_t ln_arena[LN_N + 1u][TX_STATE_MAX] __attribute__((aligned(64))) LN_POOL;
+
+#if defined(LN_CLOCK) && defined(LN_ISR_US)
+#define LN_BUS_TIMED
+#define LN_HOLD(h, x) ((x) > (h) - ((h) >> 4) ? (x) : (h) - ((h) >> 4))
+/* the bus on the FM-1: the grain delay's room measured (above), the grains and the reverb timed apart */
+static void ln_bus(void *u, int32_t *L, int32_t *R, unsigned n)
+{
+    tx_fx_t *fx = (tx_fx_t *)u;
+    uint32_t t0 = LN_CLOCK(), t1, use;
+    ln.pre_pk = LN_HOLD(ln.pre_pk, LN_CLOCK_US(t0 - ln.t_blk));
+    use = ln.pre_pk + ln.rev_pk + ln.post_pk;
+    fx->room_us = use < TX_GOV_ISR_TARGET ? (int32_t)(TX_GOV_ISR_TARGET - use) : 0;
+    tx_fx_gd_cap(fx);
+    if (use > ln.use_max) ln.use_max = use;
+    if (TX_GD_MAXG - fx->gd.cap > ln.cap_lo) ln.cap_lo = TX_GD_MAXG - fx->gd.cap;
+    TX_FAR(tx_fx_grain_process)(&fx->gd, L, R, n);
+    t1 = LN_CLOCK();
+    TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);
+    ln.t_bus = LN_CLOCK();
+    ln.rev_pk = LN_HOLD(ln.rev_pk, LN_CLOCK_US(ln.t_bus - t1));
+}
+#endif
 
 static void ln_init(void)
 {
@@ -92,6 +124,9 @@ static void ln_init(void)
     tx_mix_init(&ln.mix);
     tx_fx_init(&ln.fx);
     ln.mix.ins = tx_fx_lane; ln.mix.bus = tx_fx_bus; ln.mix.busq = tx_fx_bus_quiet; ln.mix.fx = &ln.fx;
+#ifdef LN_BUS_TIMED
+    ln.mix.bus = ln_bus;
+#endif
     for (i = 0; i < LN_N; i++) { tx_gen_init(&ln.gen[i], 1u + i); ln.int_id[i] = -1; ln.ar[i] = (uint8_t)i; }
     ln.spare = LN_N;   /* (the player's first
                                                          * generator call: its parameter, seeded 1 + lane) */
@@ -264,6 +299,15 @@ static void ln_event(const ln_ev_t *v)
 static void ln_block(int32_t *L, int32_t *R, uint32_t n)
 {
     uint32_t k, j;
+#ifdef LN_BUS_TIMED
+    {                                           /* the last block's rest: after its bus, and the interrupt outside */
+        uint32_t isr = LN_ISR_US(), bus = LN_CLOCK_US(ln.t_bus - ln.t_blk);
+        uint32_t post = (ln.blk_us > bus ? ln.blk_us - bus : 0u) + (isr > ln.blk_us ? isr - ln.blk_us : 0u);
+        if (ln.blk_us) ln.post_pk = LN_HOLD(ln.post_pk, post);
+        ln.t_blk = LN_CLOCK();
+        ln.t_bus = ln.t_blk;                    /* (a block with no bus call: its whole time counts as the rest) */
+    }
+#endif
     while (ln.qr != ln.qw) { ln_event(&ln.q[ln.qr % LN_QN]); ln.qr++; }
 #ifdef LN_MOD
     {
@@ -351,4 +395,7 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
     }
 #endif
     tx_mix_end(&ln.mix, L, R, n);
+#ifdef LN_BUS_TIMED
+    ln.blk_us = LN_CLOCK_US(LN_CLOCK() - ln.t_blk);
+#endif
 }

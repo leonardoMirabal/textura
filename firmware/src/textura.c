@@ -33,6 +33,7 @@ static void mod_lane_reset_isr(uint32_t k);
 #define LN_CLOCK() fm1_ticks()                  /* the governor's costs: timed on the FM-1's 24 MHz clock */
 #define LN_POOL __attribute__((section(".pool")))   /* the lanes' state in the platform's pool (lanes.c) */
 #define LN_CLOCK_US(d) ((uint32_t)(d) / FM1_TICKS_PER_US)
+#define LN_ISR_US() isr_st.last_us              /* the last block's whole interrupt, us (platform.c) */
 #endif
 #include "lanes.c"
 
@@ -85,6 +86,31 @@ static uint32_t tx_palette_index(const char *name)
 
 /* ---- MIDI: notes on channel 1 play the selected lane, pitched; control changes reach the params table (a lane's on
  * channel 1 + lane, the effects on the mix on channel 5: params.c); the clock and the transport go to tempo.c */
+#ifdef LN_BUS_TIMED
+/* the grain delay's measured room (lanes.c ln_bus), for a check on the FM-1: CC 116 on channel 16 asks, the reply is
+ * CC 100 id / 101 - 102 value (14 bits, as Frodhes' CC 116 items) on channel 1: 20 the cap now, 21 the lowest cap,
+ * 22 the room now (us), 23 the least room, 24 the longest audio interrupt (us), 25 the reverb (us, held), 26 the
+ * lanes before the bus (held), 27 the rest (held); 21, 23 and 24 since the last ask, then they restart */
+static void tx_dbg_item(uint32_t id, uint32_t v)
+{
+    if (v > 16383u) v = 16383u;
+    midi_send(0xB0, 100, id); midi_send(0xB0, 101, v >> 7); midi_send(0xB0, 102, v & 127u);
+}
+static void tx_dbg_reply(void)
+{
+    uint32_t um = ln.use_max, cl = ln.cap_lo, im = isr_st.max_us;
+    ln.use_max = 0; ln.cap_lo = 0; isr_st.max_us = 0;
+    tx_dbg_item(20, ln.fx.gd.cap);
+    tx_dbg_item(21, TX_GD_MAXG - cl);
+    tx_dbg_item(22, ln.fx.room_us > 0 ? (uint32_t)ln.fx.room_us : 0u);
+    tx_dbg_item(23, um < TX_GOV_ISR_TARGET ? TX_GOV_ISR_TARGET - um : 0u);
+    tx_dbg_item(24, im);
+    tx_dbg_item(25, ln.rev_pk);
+    tx_dbg_item(26, ln.pre_pk);
+    tx_dbg_item(27, ln.post_pk);
+}
+#endif
+
 static void tx_midi_poll(void)
 {
     uint8_t st, d1, d2;
@@ -94,6 +120,9 @@ static void tx_midi_poll(void)
         if (st >= 0xF8u) { (void)tempo_clock(st, (uint32_t)d1 | (uint32_t)d2 << 8, src); continue; }   /* (d1 d2: the
                                                  * arrival and the pulse count, as platform.c stamps them) */
         if (st == 0xF2u) { tempo_spp((uint32_t)(d1 & 127u) | (uint32_t)(d2 & 127u) << 7, src); continue; }
+#ifdef LN_BUS_TIMED
+        if (t == 0xB0u && ch == 15u && d1 == 116u) { tx_dbg_reply(); continue; }   /* (the grain room's check) */
+#endif
         if (t == 0xB0u) { if (!p_cc(ch, d1, d2)) mod_cc_in(d1, d2); continue; }   /* (not ours: the mod wheel, MOD CC) */
         if (t == 0xD0u) { mod_at(d1); continue; }
         if (t == 0xA0u) { mod_at(d2); continue; }

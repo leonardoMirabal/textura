@@ -431,7 +431,7 @@ static void app_main(void);
  * 48 kHz resampler), the tail after app_audio, the spacing of the ISR entries (a late entry shows as one long and
  * one short period: TIMER5 outranks the audio ISR) and the USB ring's true low point (its fill just before the
  * block is tapped in). Maxima / minima since the app's last read (frodhes.c CC 116); own sections. */
-static struct { uint32_t t_prev, max_us, tail_us, per_min, per_max, fill_low; } isr_st
+static struct { uint32_t t_prev, max_us, tail_us, per_min, per_max, fill_low, last_us; } isr_st
     __attribute__((section(".bss.isr_st")));
 static __attribute__((noinline)) void isr_stats(uint32_t t0, uint32_t t1, uint32_t fill)
 {
@@ -442,6 +442,7 @@ static __attribute__((noinline)) void isr_stats(uint32_t t0, uint32_t t1, uint32
         if (per > isr_st.per_max) isr_st.per_max = per;
     }
     isr_st.t_prev = t0;
+    isr_st.last_us = us;                        /* (Textura: the last block's, for the grain delay's room: lanes.c) */
     if (us > isr_st.max_us) isr_st.max_us = us;
     if (tail > isr_st.tail_us) isr_st.tail_us = tail;
     if (fill && (!isr_st.fill_low || fill < isr_st.fill_low)) isr_st.fill_low = fill;   /* fill + 1; 0 = no stream */

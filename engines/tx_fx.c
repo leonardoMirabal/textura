@@ -307,6 +307,8 @@ void tx_fx_init(tx_fx_t *fx)
     tx_fx_grain_init(&fx->gd);
     tx_fx_reverb_init(&fx->rev);
     fx->reserve_us = TX_FX_RESERVE_US;
+    fx->room_us = -1;
+    fx->up = 0;
 }
 TX_AUDIO_CODE void tx_fx_lane(void *u, unsigned k, int32_t *x, unsigned n)
 {
@@ -326,15 +328,38 @@ uint32_t tx_fx_lane_us(const tx_fx_t *fx, unsigned k)
 #define FX_US_GD_GRAINP 42u        /* a pitched or reversed grain (its run decoded, the interpolation) */
 #define FX_US_SHIMMER 75u          /* the shimmer on top of its reverb */
 static const uint16_t FX_US_REV[TX_RVT_N] = {0, 390, 210, 280, 280, 280, 290, 180};
+/* the measured room (room_us >= 0, the device): the delay's own costs on the FM-1 (w8, 4 lanes' code around it: the
+ * line, the echo and the feedback; a sounding grain), the cap at once down to what fits, but never under one grain (at
+ * cap 0 the grains fall silent: the target is 1600 us under the block, a grain ~60), up by one every RV_FADE blocks
+ * (a sound whose cost swings block to block does not start and stop grains with it) */
+#define FX_DEV_GD_BASE 283u
+#define FX_DEV_GD_GRAIN1 44u
+#define FX_DEV_GD_GRAINP 64u
+TX_AUDIO_CODE void tx_fx_gd_cap(tx_fx_t *fx)
+{
+    int pitched = fx->gd.p[TX_GD_PITCH] != 64 || fx->gd.p[TX_GD_REVERSE];
+    uint32_t room, cap;
+    if (fx->room_us < 0) {                                         /* the model: the reserve less the reverb's TYPE */
+        uint32_t t = fx->rev.p[TX_RV_TYPE], c = fx->rev.cur, rv = t < TX_RVT_N ? FX_US_REV[t] : 0;
+        if (c < TX_RVT_N && FX_US_REV[c] > rv) rv = FX_US_REV[c];      /* (a TYPE change: the dearer of the two) */
+        if (rv && fx->rev.p[TX_RV_SHIMMER]) rv += FX_US_SHIMMER;
+        room = fx->reserve_us > rv + FX_US_GD_BASE ? fx->reserve_us - rv - FX_US_GD_BASE : 0;
+        room /= pitched ? FX_US_GD_GRAINP : FX_US_GD_GRAIN1;
+        fx->gd.cap = (uint8_t)(room > TX_GD_MAXG ? TX_GD_MAXG : room);
+        return;
+    }
+    room = (uint32_t)fx->room_us > FX_DEV_GD_BASE ? (uint32_t)fx->room_us - FX_DEV_GD_BASE : 0;
+    cap = room / (pitched ? FX_DEV_GD_GRAINP : FX_DEV_GD_GRAIN1);
+    if (cap > TX_GD_MAXG) cap = TX_GD_MAXG;
+    if (!cap) cap = 1;
+    if (cap < fx->gd.cap) fx->gd.cap = (uint8_t)cap, fx->up = 0;
+    else if (cap == fx->gd.cap) fx->up = 0;
+    else if (++fx->up >= RV_FADE) fx->gd.cap++, fx->up = 0;
+}
 TX_AUDIO_CODE void tx_fx_bus(void *u, int32_t *L, int32_t *R, unsigned n)
 {
     tx_fx_t *fx = (tx_fx_t *)u;
-    uint32_t t = fx->rev.p[TX_RV_TYPE], c = fx->rev.cur, rv = t < TX_RVT_N ? FX_US_REV[t] : 0;
-    if (c < TX_RVT_N && FX_US_REV[c] > rv) rv = FX_US_REV[c];          /* (a TYPE change: the dearer of the two) */
-    if (rv && fx->rev.p[TX_RV_SHIMMER]) rv += FX_US_SHIMMER;
-    uint32_t room = fx->reserve_us > rv + FX_US_GD_BASE ? fx->reserve_us - rv - FX_US_GD_BASE : 0;
-    room /= fx->gd.p[TX_GD_PITCH] == 64 && !fx->gd.p[TX_GD_REVERSE] ? FX_US_GD_GRAIN1 : FX_US_GD_GRAINP;
-    fx->gd.cap = (uint8_t)(room > TX_GD_MAXG ? TX_GD_MAXG : room);
+    tx_fx_gd_cap(fx);
     TX_FAR(tx_fx_grain_process)(&fx->gd, L, R, n);     /* (in RAM on the FM-1: TX_RAM) */
     TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);   /* (in RAM on the FM-1: TX_RAM; the plate's and INFINITE's runs in XIP) */
 }
