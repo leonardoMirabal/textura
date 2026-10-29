@@ -13,18 +13,20 @@
 /* no <string.h> in engines/ (freestanding on the device: its libc's memset / memcpy) */
 #define tx_fx_memset __builtin_memset
 #define tx_fx_memcpy __builtin_memcpy
+/* n words from s to d (TX_RAM code: libc's memcpy is out of its call's reach) */
+TX_INLINE void tx_fx_copy32(int32_t *d, const int32_t *s, unsigned n) { unsigned i; for (i = 0; i < n; i++) d[i] = s[i]; }
 
 #define TX_FX_FS 44100u
 #define CTL 32u                     /* a control block: 32 frames (the reverb's step) */
 #define HL_NC (CTL / 2u)            /* its half-rate samples */
 #define RV_DZ 10u                   /* the 2:1 down's history: the send's 10 samples before the block */
 
-static inline int32_t clampi(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
-static inline int32_t mulq15(int32_t a, int32_t b) { return (a * b) >> 15; }          /* |a|, |b| small enough */
-static inline int32_t mul15(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 15); }
-static inline int32_t sh_tz(int32_t m, uint32_t sh) { return (m + (int32_t)((uint32_t)(m >> 31) >> (32u - sh))) >> sh; }
-static inline int32_t hl_c16(int32_t v) { v = v > -32768 ? v : -32768; return v < 32767 ? v : 32767; }
-static inline int32_t tx_fx_softclip(int32_t x)             /* Q15 tanh: x in Q15, flat beyond +-4 */
+TX_INLINE int32_t clampi(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
+TX_INLINE int32_t mulq15(int32_t a, int32_t b) { return (a * b) >> 15; }          /* |a|, |b| small enough */
+TX_INLINE int32_t mul15(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 15); }
+TX_INLINE int32_t sh_tz(int32_t m, uint32_t sh) { return (m + (int32_t)((uint32_t)(m >> 31) >> (32u - sh))) >> sh; }
+TX_INLINE int32_t hl_c16(int32_t v) { v = v > -32768 ? v : -32768; return v < 32767 ? v : 32767; }
+TX_INLINE int32_t tx_fx_softclip(int32_t x)             /* Q15 tanh: x in Q15, flat beyond +-4 */
 {
     uint32_t i;
     int32_t f;
@@ -33,13 +35,13 @@ static inline int32_t tx_fx_softclip(int32_t x)             /* Q15 tanh: x in Q1
     f = (x + 131072) & 1023;
     return TX_FX_TANH[i] + (((TX_FX_TANH[i + 1] - TX_FX_TANH[i]) * f) >> 10);
 }
-static inline int32_t tx_fx_sine(uint32_t ph)               /* Q32 phase -> +-32767 */
+TX_INLINE int32_t tx_fx_sine(uint32_t ph)               /* Q32 phase -> +-32767 */
 {
     uint32_t i = ph >> 22;
     int32_t f = (int32_t)((ph >> 7) & 0x7FFFu);
     return TX_FX_SINE[i] + (((TX_FX_SINE[i + 1] - TX_FX_SINE[i]) * f) >> 15);
 }
-static inline uint32_t exp2_neg(uint32_t x)                 /* 2^(-x / 65536) in Q15 */
+TX_INLINE uint32_t exp2_neg(uint32_t x)                 /* 2^(-x / 65536) in Q15 */
 {
     uint32_t i = x >> 16, u = 32768u - ((x & 0xFFFFu) >> 1), p = 2579u;
     p = ((p * u) >> 15) + 7409u;

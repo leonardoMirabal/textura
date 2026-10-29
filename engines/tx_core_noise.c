@@ -121,7 +121,7 @@ uint32_t tx_svf_gin_noise(uint32_t fc_hz, uint32_t q_x16)
 
 /* (f * h) >> 14 for f <= 2^14 and |h| up to 2^21 in 32-bit products, exactly (floor): h = 16 hh + hl; a mode driven far
  * past its band's clamp can carry an h whose product with f overflows 32 bits */
-static inline int32_t svf_mul14(int32_t f, int32_t h)
+TX_INLINE int32_t svf_mul14(int32_t f, int32_t h)
 {
     int32_t hh, hl, a;
     h = h > 2097151 ? 2097151 : h < -2097151 ? -2097151 : h;
@@ -130,8 +130,8 @@ static inline int32_t svf_mul14(int32_t f, int32_t h)
     return (a >> 10) + ((16 * (a & 1023) + f * hl) >> 14);
 }
 
-TX_AUDIO_CODE void tx_svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
-                                     const int32_t *g_q11, unsigned nr, const int32_t *in, int32_t *out, unsigned n)
+TX_INLINE void svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
+                               const int32_t *g_q11, unsigned nr, const int32_t *in, int32_t *out, unsigned n)
 {
     int32_t lo[TX_SVF_MAX], bd[TX_SVF_MAX], fi[TX_SVF_MAX], g[TX_SVF_MAX], gi[TX_SVF_MAX], lo0[TX_SVF_MAX], bd0[TX_SVF_MAX];
     int32_t ef[TX_SVF_MAX];
@@ -184,6 +184,17 @@ TX_AUDIO_CODE void tx_svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, c
         if (!lo[i] && !bd[i]) ef[i] = 0;
         r[i].low = lo[i]; r[i].band = bd[i]; r[i].ef = ef[i];
     }
+}
+TX_AUDIO_CODE void tx_svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
+                                     const int32_t *g_q11, unsigned nr, const int32_t *in, int32_t *out, unsigned n)
+{
+    svf_bank_add_g(r, f, q, gin_q8, g_q11, nr, in, out, n);
+}
+/* the same code in RAM on the FM-1, for the CHAMBER's body (ROOM's run path is all TX_RAM): the engines keep theirs */
+TX_RAM void tx_svf_bank_add_g_ram(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
+                                  const int32_t *g_q11, unsigned nr, const int32_t *in, int32_t *out, unsigned n)
+{
+    svf_bank_add_g(r, f, q, gin_q8, g_q11, nr, in, out, n);
 }
 
 TX_AUDIO_CODE void tx_svf_bank_add(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *g_q11, unsigned nr,

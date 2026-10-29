@@ -41,7 +41,7 @@ const tx_param_t tx_fx_grain_params[TX_GD_NP] = {
     {"FREEZE", 1, 0, "hold the line: the last 1.7 s go round, the grains keep playing them"},
 };
 
-static uint32_t rnd(tx_fx_grain_t *d) { d->rng = d->rng * 1664525u + 1013904223u; return d->rng; }
+TX_RAM static uint32_t rnd(tx_fx_grain_t *d) { d->rng = d->rng * 1664525u + 1013904223u; return d->rng; }
 
 void tx_fx_grain_init(tx_fx_grain_t *d)
 {
@@ -63,7 +63,7 @@ void tx_fx_grain_param(tx_fx_grain_t *d, unsigned id, unsigned v)
 int tx_fx_grain_quiet(const tx_fx_grain_t *d) { return !d->on; }
 
 /* the line: a sample (Q22), decoded */
-static inline int32_t gd_rd(const tx_fx_grain_t *d, uint32_t i)
+TX_RAM static inline int32_t gd_rd(const tx_fx_grain_t *d, uint32_t i)
 {
     const uint8_t *b = d->pk + ((i * 3u) >> 1);
     uint32_t k = i >> 4;
@@ -73,7 +73,7 @@ static inline int32_t gd_rd(const tx_fx_grain_t *d, uint32_t i)
 }
 /* the line: n samples (Q22) written from d->w on, a block's worth at once (sample for sample as one at a time):
  * each 16-sample block encoded when its last sample is in */
-static void gd_wrn(tx_fx_grain_t *d, const int32_t *x, unsigned n)
+TX_RAM static void gd_wrn(tx_fx_grain_t *d, const int32_t *x, unsigned n)
 {
     uint32_t w = d->w;
     int32_t pk = d->stpk;
@@ -112,23 +112,23 @@ static void gd_wrn(tx_fx_grain_t *d, const int32_t *x, unsigned n)
     d->fill = d->fill + n < TX_GD_N ? d->fill + n : TX_GD_N;
 }
 /* a * q (q Q15, |a| up to 2^24): two 32-bit products, exact to the bit (floored) */
-static inline int32_t mq15(int32_t a, int32_t q) { return (a >> 15) * q + (((a & 32767) * q) >> 15); }
+TX_RAM static inline int32_t mq15(int32_t a, int32_t q) { return (a >> 15) * q + (((a & 32767) * q) >> 15); }
 /* the same rounded toward zero (q >= 0): a loop gain under 1 that lets a tail die to exact zero */
-static inline int32_t mq15z(int32_t a, int32_t q) { return a < 0 ? -mq15(-a, q) : mq15(a, q); }
+TX_RAM static inline int32_t mq15z(int32_t a, int32_t q) { return a < 0 ? -mq15(-a, q) : mq15(a, q); }
 /* y += (x - y) q with its remainder carried (*e): settles on x exactly (a one-pole that leaves no DC, no stuck LSB) */
-static inline int32_t op15(int32_t y, int32_t x, int32_t q, int32_t *e)
+TX_RAM static inline int32_t op15(int32_t y, int32_t x, int32_t q, int32_t *e)
 {
     int32_t dv = x - y, lo = (dv & 32767) * q + *e;
     *e = lo & 32767;
     return y + (dv >> 15) * q + (lo >> 15);
 }
 /* the index `back` samples behind w (back <= TX_GD_N) */
-static inline uint32_t gd_idx(uint32_t w, uint32_t back) { return w >= back ? w - back : w + TX_GD_N - back; }
+TX_RAM static inline uint32_t gd_idx(uint32_t w, uint32_t back) { return w >= back ? w - back : w + TX_GD_N - back; }
 
 /* a grain starts (at sample j of the block, w0 the write at the block's start): TIME + SPRAY behind the write, kept
  * GD_GUARD behind it and inside the line over its whole length at its rate; silent (off) if that reaches back past
  * what was written since the delay came on */
-static void gd_spawn(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t len, uint32_t w0, uint32_t j)
+TX_RAM static void gd_spawn(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t len, uint32_t w0, uint32_t j)
 {
     uint32_t r = rnd(d), back = d->tap + (uint32_t)(((uint64_t)(r >> 8) * ((uint32_t)d->p[TX_GD_SPRAY] * 174u)) >> 24);
     int32_t semi = ((int32_t)d->p[TX_GD_PITCH] - 64) * 12 / 63, rate, sp = d->p[TX_GD_SPREAD];
@@ -154,7 +154,7 @@ static void gd_spawn(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t len, uint32_t 
 
 /* the line: cnt samples from index s on (wrapping), decoded into o: whole 16-sample blocks one shift and 8 triples
  * at a time, the ragged ends sample by sample */
-static void gd_run(const tx_fx_grain_t *d, uint32_t s, unsigned cnt, int32_t *o)
+TX_RAM static void gd_run(const tx_fx_grain_t *d, uint32_t s, unsigned cnt, int32_t *o)
 {
     while (cnt && (s & 15u)) { *o++ = gd_rd(d, s); s = s + 1u >= TX_GD_N ? 0u : s + 1u; cnt--; }
     while (cnt >= 16u) {
@@ -174,7 +174,7 @@ static void gd_run(const tx_fx_grain_t *d, uint32_t s, unsigned cnt, int32_t *o)
  * once (rate 1 from a whole sample: m samples; else the span its position covers, +1 for the interpolation), read
  * with a Q16 position in that run, windowed and placed into sl / sr. sl 0 (GRAIN at 0, the grains unheard): only its
  * position moves, as far as the reads would have taken it */
-static void gd_seg(const tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t ph, uint32_t inc, unsigned j0, unsigned m,
+TX_RAM static void gd_seg(const tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t ph, uint32_t inc, unsigned j0, unsigned m,
                    int32_t *sl, int32_t *sr)
 {
     int32_t buf[2u * TX_BLOCK + 4u], gl = g->gl, gr = g->gr;
@@ -226,7 +226,7 @@ static void gd_seg(const tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t ph, uint32
  * wraps (start: under the cap), in at most two runs split there. Returns its sounding samples. A sounding grain off
  * the clock (GRAINS moved: the voices' spacing changed) finishes its window on its own phase; at its end the voice
  * goes back onto the clock silent and starts again at the clock's next wrap (a window never jumps: no click) */
-static unsigned gd_voice(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t T, uint32_t inc, unsigned n, int start, uint32_t len,
+TX_RAM static unsigned gd_voice(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t T, uint32_t inc, unsigned n, int start, uint32_t len,
                          uint32_t w0, int32_t *sl, int32_t *sr)
 {
     unsigned j = 0, on = 0;
@@ -250,7 +250,7 @@ static unsigned gd_voice(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t T, uint32_
     return on;
 }
 
-TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n)
+TX_RAM TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n)
 {
     int32_t mv = d->p[TX_GD_MIX], mixt = mv * 258, gb = d->p[TX_GD_GRAIN] * 258, fbk = d->p[TX_GD_FEEDBACK] * 258;
     int32_t ta = TX_FX_GD_TONE[d->p[TX_GD_TONE]], wgt = d->p[TX_GD_FREEZE] ? 0 : 32768;

@@ -67,7 +67,7 @@ TX_AUDIO_CODE void tx_mix_end(tx_mix_t *m, int32_t *L, int32_t *R, unsigned n)
     int32_t pk = 0;
     if (m->ch && m->ch_on) {                                 /* the chamber on the mid: its added part to both sides */
         for (j = 0; j < n; j++) m->mid[j] = m->blk[j] = (m->L[j] >> 1) + (m->R[j] >> 1);
-        tx_chamber_process(m->ch, m->mid, n);
+        TX_FAR(tx_chamber_process)(m->ch, m->mid, n);   /* (in RAM on the FM-1: TX_RAM) */
         for (j = 0; j < n; j++) { int32_t w = m->mid[j] - m->blk[j]; m->L[j] += w; m->R[j] += w; }
     }
     if (m->bus) m->bus(m->fx, m->L, m->R, n);               /* the bus effects (the reverb) */

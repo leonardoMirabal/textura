@@ -29,6 +29,19 @@
 #ifndef TX_AUDIO_DATA
 #define TX_AUDIO_DATA              /* firmware: the internal-SRAM data section */
 #endif
+/* TX_RAM: a hot loop that runs from RAM on the FM-1 (.ram_text, copied there at boot) instead of XIP flash through its
+ * cache. In a full mix (four lanes and the effects) the code no longer fits the cache and each block fetches it again:
+ * ~28 us a KB a block on the device, ~3 % of a four-lane block for the grain delay's 4 KB. RAM and XIP are farther
+ * apart than a call reaches (23 bits): a TX_RAM function calls only TX_RAM code or inlines (TX_INLINE), and XIP calls
+ * it through TX_FAR (its address in a register: one instruction more). On the host both are nothing. */
+#ifdef __PI32V2__
+#define TX_RAM __attribute__((section(".ram_text.tx")))
+#define TX_FAR(fn) (__extension__({ __typeof__(&(fn)) p_ = &(fn); __asm__("" : "+r"(p_)); p_; }))
+#else
+#define TX_RAM
+#define TX_FAR(fn) fn
+#endif
+#define TX_INLINE static inline __attribute__((always_inline))   /* (a helper a TX_RAM function may use) */
 
 #define TX_FS 44100u
 #define TX_BLOCK 256u              /* frames per render call (at most) */

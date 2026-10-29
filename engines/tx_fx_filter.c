@@ -31,7 +31,7 @@ void tx_fx_filter_param(tx_fx_filter_t *f, unsigned id, unsigned v)
     if (id < TX_FL_NP) f->p[id] = (uint8_t)(v > tx_fx_filter_params[id].max ? tx_fx_filter_params[id].max : v);
 }
 
-static int32_t lfo_value(const tx_fx_filter_t *f)          /* +-32767 */
+TX_RAM static int32_t lfo_value(const tx_fx_filter_t *f)          /* +-32767 */
 {
     uint32_t ph = f->lfo_ph;
     switch (f->p[TX_FL_SHAPE]) {
@@ -43,21 +43,21 @@ static int32_t lfo_value(const tx_fx_filter_t *f)          /* +-32767 */
     default: return tx_fx_sine(ph);
     }
 }
-static int32_t recip27(uint32_t den)                        /* 2^43 / den (den Q16) = 1 / den in Q27, 32-bit only */
+TX_RAM static int32_t recip27(uint32_t den)                        /* 2^43 / den (den Q16) = 1 / den in Q27, 32-bit only */
 {
     uint32_t q = 0x80000000u / den, r = 0x80000000u - q * den;
     return (int32_t)((q << 12) + (r << 12) / den);
 }
 typedef struct { int32_t a1, a2, a3, k; } svf_t;
-static void svf_coef(svf_t *c, int32_t g, int32_t k)        /* g, k in Q24 */
+TX_RAM static void svf_coef(svf_t *c, int32_t g, int32_t k)        /* g, k in Q24 */
 {
     c->a1 = recip27(65536u + (uint32_t)(((int64_t)g * (g + k)) >> 32));
     c->a2 = (int32_t)(((int64_t)g * c->a1) >> 24);
     c->a3 = (int32_t)(((int64_t)g * c->a2) >> 24);
     c->k = k;
 }
-static inline int32_t fl_cl(int32_t v) { v = v > -(1 << 24) ? v : -(1 << 24); return v < (1 << 24) ? v : 1 << 24; }
-static inline int32_t svf_tick(const svf_t *c, int32_t *ic, int32_t x, uint32_t mode)   /* 0 LP 1 HP 2 BP 3 NOTCH */
+TX_INLINE int32_t fl_cl(int32_t v) { v = v > -(1 << 24) ? v : -(1 << 24); return v < (1 << 24) ? v : 1 << 24; }
+TX_INLINE int32_t svf_tick(const svf_t *c, int32_t *ic, int32_t x, uint32_t mode)   /* 0 LP 1 HP 2 BP 3 NOTCH */
 {
     int32_t v3 = x - ic[1], v1, v2, kv1;
     v1 = (int32_t)(((int64_t)c->a1 * ic[0] + (int64_t)c->a2 * v3 + (1 << 26)) >> 27);   /* rounded: no DC creep */
@@ -67,7 +67,7 @@ static inline int32_t svf_tick(const svf_t *c, int32_t *ic, int32_t x, uint32_t 
     kv1 = (int32_t)(((int64_t)c->k * v1 + (1 << 23)) >> 24);
     return mode == 0u ? v2 : mode == 1u ? x - kv1 - v2 : mode == 2u ? kv1 : x - kv1;
 }
-static inline void fl_run(tx_fx_filter_t *f, int32_t *m, uint32_t n, const svf_t *c, const uint32_t mode, const int p18,
+TX_INLINE void fl_run(tx_fx_filter_t *f, int32_t *m, uint32_t n, const svf_t *c, const uint32_t mode, const int p18,
                           int32_t gp)
 {
     int32_t ic[2] = {f->ic[0], f->ic[1]}, op = f->op, *e = m + n;
@@ -85,7 +85,7 @@ static inline void fl_run(tx_fx_filter_t *f, int32_t *m, uint32_t n, const svf_t
     f->ic[0] = ic[0]; f->ic[1] = ic[1]; f->op = op;
 }
 
-TX_AUDIO_CODE void tx_fx_filter_process(tx_fx_filter_t *f, int32_t *m, unsigned n)
+TX_RAM TX_AUDIO_CODE void tx_fx_filter_process(tx_fx_filter_t *f, int32_t *m, unsigned n)
 {
     static const uint8_t POLES[7] = {0, 2, 3, 2, 3, 2, 2};
     uint32_t type = f->p[TX_FL_TYPE], inc = TX_FX_LFO_INC[f->p[TX_FL_RATE]], sb, j, poles;
@@ -108,7 +108,7 @@ TX_AUDIO_CODE void tx_fx_filter_process(tx_fx_filter_t *f, int32_t *m, unsigned 
         svf_coef(&c, g, k);
         if (poles == 3u) gp = (1 << 27) - recip27(65536u + ((uint32_t)g >> 8));
         j = sb + 32u < n ? sb + 32u : n;
-        if (f->ow != 32768 || open) tx_fx_memcpy(f->dry, m + sb, (j - sb) * sizeof *m);
+        if (f->ow != 32768 || open) tx_fx_copy32(f->dry, m + sb, j - sb);
         switch (type) {                                  /* one loop per (mode, poles) */
         case 1: fl_run(f, m + sb, j - sb, &c, 0, 0, gp); break;
         case 2: fl_run(f, m + sb, j - sb, &c, 0, 1, gp); break;
@@ -120,7 +120,7 @@ TX_AUDIO_CODE void tx_fx_filter_process(tx_fx_filter_t *f, int32_t *m, unsigned 
         if (f->ow != 32768 || open) {                    /* fully open: the lane passes untouched; a 46 ms glide */
             int32_t w1 = open ? (f->ow > 512 ? f->ow - 512 : 0) : (f->ow < 32256 ? f->ow + 512 : 32768);
             uint32_t q, len = j - sb;
-            if (!f->ow && !w1) tx_fx_memcpy(m + sb, f->dry, len * sizeof *m);
+            if (!f->ow && !w1) tx_fx_copy32(m + sb, f->dry, len);
             else {
                 int32_t w = f->ow, dw = (w1 - f->ow) / 32;
                 for (q = 0; q < len; q++) {

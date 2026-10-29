@@ -100,7 +100,7 @@ void tx_chamber_param(tx_chamber_t *c, unsigned id, unsigned v)
     else setup(c);
 }
 
-TX_AUDIO_CODE void tx_chamber_process(tx_chamber_t *c, int32_t *buf, unsigned n)
+TX_RAM TX_AUDIO_CODE void tx_chamber_process(tx_chamber_t *c, int32_t *buf, unsigned n)
 {
     int32_t *t = c->tmp, any = 0, damp = c->damp, tm = c->tail_mix;
     unsigned j, k;
@@ -113,7 +113,7 @@ TX_AUDIO_CODE void tx_chamber_process(tx_chamber_t *c, int32_t *buf, unsigned n)
     if (c->body_mix) {
         int32_t g[TX_CH_MODES];
         for (k = 0; k < TX_CH_MODES; k++) g[k] = (c->bg[k] * (c->body_mix >> 4)) >> 11;   /* Q11 */
-        tx_svf_bank_add_g(c->body, c->bf, c->bq, c->bgin, g, TX_CH_MODES, buf, t, n);
+        tx_svf_bank_add_g_ram(c->body, c->bf, c->bq, c->bgin, g, TX_CH_MODES, buf, t, n);
     }
     /* tail: input -> allpass -> into every line (alternate signs); lines -> low-pass -> gain -> Hadamard (Q20) */
     if (tm) {

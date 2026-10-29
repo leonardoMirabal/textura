@@ -47,7 +47,7 @@ void tx_fx_drive_param(tx_fx_drive_t *d, unsigned id, unsigned v)
 {
     if (id < TX_DR_NP) d->p[id] = (uint8_t)(v > tx_fx_drive_params[id].max ? tx_fx_drive_params[id].max : v);
 }
-static inline int32_t dr_cl(int32_t v) { v = v > -230000 ? v : -230000; return v < 230000 ? v : 230000; }
+TX_INLINE int32_t dr_cl(int32_t v) { v = v > -230000 ? v : -230000; return v < 230000 ? v : 230000; }
 
 /* the glides at rest (TONE's gain and the wet share where they go): each sample as the loop below does then, its state
  * in locals (Frodhes' dr_settled); shelf and full are constants at each use */
@@ -76,7 +76,7 @@ static inline __attribute__((always_inline)) void dr_settled(tx_fx_drive_t *d, i
 }
 
 /* the classic drive (TYPE 0); amt: AMOUNT, or 0 while it fades out for a TYPE change */
-static void dr_classic(tx_fx_drive_t *d, int32_t *x23, unsigned n, int32_t amt)
+TX_RAM static void dr_classic(tx_fx_drive_t *d, int32_t *x23, unsigned n, int32_t amt)
 {
     int32_t a = amt ? amt : d->la, tv = d->p[TX_DR_TONE], mv = d->p[TX_DR_MIX], g, k, mk, b0;
     int32_t wt = !amt ? 0 : mv >= 127 ? 32768 : mv * 258;      /* the wet share it goes to (AMOUNT 0: 0) */
@@ -197,12 +197,12 @@ static int dr_switch(tx_fx_drive_t *d, unsigned t)
     else { d->ton = 0; d->tg = 4096; }                    /* (the classic shelf at rest, as its own off leaves it) */
     return 1;
 }
-TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x23, unsigned n)
-{
+TX_RAM TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x23, unsigned n)
+{   /* (in RAM on the FM-1 with the classic drive; a TYPE change and the TYPEs run from flash: TX_FAR) */
     int sw = 1;
-    if (d->p[TX_DR_TYPE] != d->cur) sw = dr_switch(d, d->p[TX_DR_TYPE]);
+    if (d->p[TX_DR_TYPE] != d->cur) sw = TX_FAR(dr_switch)(d, d->p[TX_DR_TYPE]);
     if (!d->cur) dr_classic(d, x23, n, sw ? d->p[TX_DR_AMOUNT] : 0);
-    else dr_types(d, x23, n, sw);
+    else TX_FAR(dr_types)(d, x23, n, sw);
 }
 void tx_fx_drive_share(tx_fx_drive_t *d, tx_drv_shared_t *sh) { d->sh = sh; }
 void tx_fx_drive_shared_init(tx_drv_shared_t *sh)

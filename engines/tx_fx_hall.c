@@ -16,7 +16,7 @@ static const uint16_t HL_AP[HL_NAP] = {131, 307};
 static const int16_t HL_APG[HL_NAP] = {11469, 10240};
 
 /* the 2:1 down (shared by every kernel): the 11-tap half-band, HL_IN, the DC blocker. in[-RV_DZ .. CTL) */
-TX_AUDIO_CODE void tx_rev_down(const int32_t *in, int32_t *php, int32_t *phe, int32_t *out)
+TX_RAM TX_AUDIO_CODE void tx_rev_down(const int32_t *in, int32_t *php, int32_t *phe, int32_t *out)
 {
     int32_t hp = *php, he = *phe;
     uint32_t i;
@@ -41,7 +41,7 @@ static void hall_gains(tx_hall_t *h, int32_t s)
     }
     h->sz = (int16_t)(s + 1);
 }
-static inline void hall_ap(int16_t *q, int32_t g, int32_t *x, uint32_t n)
+TX_INLINE void hall_ap(int16_t *q, int32_t g, int32_t *x, uint32_t n)
 {
     int16_t *e = q + n;
     for (; q < e; q++, x++) {
@@ -50,7 +50,7 @@ static inline void hall_ap(int16_t *q, int32_t g, int32_t *x, uint32_t n)
         *x = y - ((v * g + 8192) >> 14);
     }
 }
-static inline void hall_end(const int16_t *b, int32_t f, int16_t *y, uint32_t n, int32_t g, int lo)
+TX_INLINE void hall_end(const int16_t *b, int32_t f, int16_t *y, uint32_t n, int32_t g, int lo)
 {
     int32_t p = *b, q;
     if (lo)
@@ -58,7 +58,7 @@ static inline void hall_end(const int16_t *b, int32_t f, int16_t *y, uint32_t n,
     else
         do { b += HL_NL; q = *b; *y = (int16_t)(((p + (((q - p) * f + 128) >> 8)) * g + 8192) >> 14); y += HL_NL; p = q; } while (--n);
 }
-static inline void hall_end_lp(const int16_t *b, int16_t *y, uint32_t n, int32_t g, int lo, int32_t *lp, int32_t *le,
+TX_INLINE void hall_end_lp(const int16_t *b, int16_t *y, uint32_t n, int32_t g, int lo, int32_t *lp, int32_t *le,
                                int32_t kd)
 {
     int32_t l = *lp, r = *le, e;
@@ -82,13 +82,13 @@ void tx_hall_start(tx_hall_t *h)                           /* the lines cleared 
 }
 
 /* one control block (CTL frames of the send in, HL_NC half-rate samples out): mid, side */
-TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t *add, int32_t size, int32_t damp, int32_t md,
+TX_RAM TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t *add, int32_t size, int32_t damp, int32_t md,
                                int32_t *ol, int32_t *or)
 {
     int16_t *a = h->ap, *o, *y;
     uint32_t i, k, s, m, d, w = h->w;
     int32_t kd = HL_KD(damp);
-    if (h->sz != size + 1) hall_gains(h, size);
+    if (h->sz != size + 1) TX_FAR(hall_gains)(h, size);   /* (a SIZE change: in XIP) */
     tx_rev_down(send, &h->hp, &h->he, h->bx);
     if (add) for (i = 0; i < HL_NC; i++) h->bx[i] += add[i];   /* (Textura: the shimmer, into the lines' input) */
     for (k = 0; k < HL_NAP; k++) {
@@ -134,7 +134,7 @@ TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t 
         o[6] = (int16_t)hl_c16(2 * (y7 + y1 + y3) + y6 + c);
         o[7] = (int16_t)hl_c16(2 * (y1 + y2 + y4) + y7 + c - 2 * x);
     }
-    if (!w) tx_fx_memcpy(h->comb + HL_N * HL_NL, h->comb, HL_NL * sizeof h->comb[0]);
+    if (!w) for (i = 0; i < HL_NL; i++) h->comb[HL_N * HL_NL + i] = h->comb[i];
     w += HL_NC;
     h->w = (uint16_t)(w >= HL_N ? 0u : w);
 }
