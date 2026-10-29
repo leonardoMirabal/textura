@@ -896,7 +896,43 @@ static void check_sources(const char *dir)
  * pair keeps int32 headroom, and the render is deterministic (baseline "layers4-max" / "layers4+chamber-max"). */
 static const char *const LAYERS4[4] = { "plate", "storm", "mineral", "spring" };
 
-static int run_layers(int chamber_on, char hex[65], int32_t *raw_peak, int32_t *lim_peak, uint32_t *lim_blocks)
+/* the true peak as a converter rebuilds it: 4x, three points between each pair of samples, low-passed at 20 kHz (a
+ * 48-tap windowed sinc, Kaiser 8), |Q23| */
+#define TP_N 48
+static double tp_h[3][TP_N];
+static double tp_i0(double x) { double s = 1, t = 1; int k; for (k = 1; k < 30; k++) { t *= (x / 2) / k; s += t * t; } return s; }
+static double tp_peak(const int32_t *x, unsigned n, double *hist)
+{
+    unsigned j, p, i;
+    double pk = 0;
+    if (tp_h[0][0] == 0) {
+        const double fc = 2.0 * 20000.0 / TX_FS;            /* the cut-off over half the rate */
+        for (p = 0; p < 3; p++) {
+            double sum = 0;
+            for (i = 0; i < TP_N; i++) {
+                double t = (double)i - (TP_N / 2 - 1) - (p + 1) / 4.0, a = t / (TP_N / 2 + 1);
+                double sn = t == 0 ? 1 : sin(M_PI * fc * t) / (M_PI * fc * t);
+                tp_h[p][i] = fc * sn * (a * a < 1 ? tp_i0(8.0 * sqrt(1 - a * a)) / tp_i0(8.0) : 0);
+                sum += tp_h[p][i];
+            }
+            for (i = 0; i < TP_N; i++) tp_h[p][i] /= sum;
+        }
+    }
+    for (j = 0; j < n; j++) {
+        memmove(hist, hist + 1, (TP_N - 1) * sizeof *hist);
+        hist[TP_N - 1] = x[j];
+        if (fabs(hist[TP_N - 1]) > pk) pk = fabs(hist[TP_N - 1]);
+        for (p = 0; p < 3; p++) {
+            double y = 0;
+            for (i = 0; i < TP_N; i++) y += tp_h[p][i] * hist[i];
+            if (fabs(y) > pk) pk = fabs(y);
+        }
+    }
+    return pk;
+}
+
+static int run_mix(const char *const *names, unsigned comp, int chamber_on, char hex[65], int32_t *raw_peak,
+                   int32_t *lim_peak, uint32_t *lim_blocks, double *true_peak)
 {
     tx_mix_t *m = malloc(sizeof *m);
     tx_chamber_t *ch = malloc(sizeof *ch);
@@ -905,13 +941,14 @@ static int run_layers(int chamber_on, char hex[65], int32_t *raw_peak, int32_t *
     unsigned next[4] = {0, 0, 0, 0}, k, i, j;
     uint32_t blocks = 0, b;
     int32_t blk[TX_BLOCK], L[TX_BLOCK], R[TX_BLOCK];
+    static double hl[TP_N], hr[TP_N];
     tx_sha256_t sha;
     static const unsigned PAN[4] = {20, 50, 80, 110};
     tx_mix_init(m);
     tx_chamber_init(ch);
     m->ch = ch; m->ch_on = chamber_on;
     for (k = 0; k < 4; k++) {
-        const tx_engine_t *e = tx_engine_find(LAYERS4[k]);
+        const tx_engine_t *e = tx_engine_find(names[k]);
         s[k] = malloc(sizeof *s[k]);
         if (!e || tx_scene_load(s[k], e, "max")) { for (i = 0; i <= k; i++) free(s[i]); free(m); free(ch); return -1; }
         for (i = 0; i < s[k]->n; i++)
@@ -922,8 +959,10 @@ static int run_layers(int chamber_on, char hex[65], int32_t *raw_peak, int32_t *
         tx_mix_pan(m, k, PAN[k]);
         if (s[k]->blocks > blocks) blocks = s[k]->blocks;
     }
+    tx_comp_amount(&m->comp, comp);
     tx_sha256_init(&sha);
     *raw_peak = *lim_peak = 0; *lim_blocks = 0;
+    if (true_peak) { memset(hl, 0, sizeof hl); memset(hr, 0, sizeof hr); *true_peak = 0; }
     for (b = 0; b < blocks; b++) {
         tx_mix_begin(m, TX_BLOCK);
         for (k = 0; k < 4; k++) {
@@ -938,6 +977,11 @@ static int run_layers(int chamber_on, char hex[65], int32_t *raw_peak, int32_t *
             if (c > *lim_peak) *lim_peak = c;
         }
         if (tx_limit_take(&m->lim)) (*lim_blocks)++;
+        if (true_peak) {
+            double a = tp_peak(L, TX_BLOCK, hl), c = tp_peak(R, TX_BLOCK, hr);
+            if (a > *true_peak) *true_peak = a;
+            if (c > *true_peak) *true_peak = c;
+        }
         tx_sha256_q23(&sha, L, TX_BLOCK);
         tx_sha256_q23(&sha, R, TX_BLOCK);
     }
@@ -945,6 +989,35 @@ static int run_layers(int chamber_on, char hex[65], int32_t *raw_peak, int32_t *
     for (k = 0; k < 4; k++) { free(s[k]); free(st[k]); }
     free(m); free(ch);
     return (int)blocks;
+}
+
+static int run_layers(int chamber_on, char hex[65], int32_t *raw_peak, int32_t *lim_peak, uint32_t *lim_blocks)
+{
+    return run_mix(LAYERS4, 0, chamber_on, hex, raw_peak, lim_peak, lim_blocks, 0);
+}
+
+/* truepeak: dense crackle (fire, ice, glass, sparks at their worst) through the mix at COMP 0 and 40: no sample over
+ * -1 dBFS, and nothing between the samples at full scale once rebuilt (4x, to 20 kHz), so a converter or the USB
+ * audio's 48 kHz resampler does not clip (the FM-1 clipped -1 dBFS samples by up to +1 dB at 48 kHz before; this mix
+ * rebuilt to +1.6 dBFS) */
+static void check_truepeak(void)
+{
+    static const char *const CRACK[4] = { "fire", "ice", "glass", "sparks" };
+    static const unsigned AM[2] = {0, 40};
+    unsigned i;
+    for (i = 0; i < 2; i++) {
+        char hex[65], msg[200], name[32];
+        int32_t rp, lp;
+        uint32_t lb;
+        double tp;
+        int nb = run_mix(CRACK, AM[i], 0, hex, &rp, &lp, &lb, &tp);
+        snprintf(name, sizeof name, "COMP %u", AM[i]);
+        if (nb < 0) { verdict("truepeak", name, 0, "fire+ice+glass+sparks", " do not load"); continue; }
+        snprintf(msg, sizeof msg, "fire+ice+glass+sparks at their worst, COMP %u: raw %.1f dBFS, samples %.2f (<= -1), "
+                 "rebuilt 4x %.2f dBFS (< 0), the limiter in %u of %d blocks", AM[i], 20.0 * log10(rp / 8388608.0 + 1e-12),
+                 20.0 * log10(lp / 8388608.0 + 1e-12), 20.0 * log10(tp / 8388608.0 + 1e-12), lb, nb);
+        verdict("truepeak", name, lp <= 7476717 && tp < 8388608.0, msg, 0);
+    }
 }
 
 static void check_layers(FILE *update)
@@ -1644,6 +1717,10 @@ int main(int argc, char **argv)
         check_sources(argv[2]);
         return fails ? 1 : 0;
     }
+    if (argc > 1 && !strcmp(argv[1], "--truepeak")) {      /* the output limiter's true-peak check alone */
+        check_truepeak();
+        return fails ? 1 : 0;
+    }
     if (argc > 1 && !strcmp(argv[1], "--update")) {
         if (!(update = fopen(BASELINE, "w"))) { perror(BASELINE); return 2; }
     } else
@@ -1657,6 +1734,7 @@ int main(int argc, char **argv)
     check_fx(update);
     check_noise_core();
     check_comp();
+    check_truepeak();
     if (!update) { check_gen(); check_gov(); check_switch(); check_keyrange(); check_rockfall_dist(); }
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }
     printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);

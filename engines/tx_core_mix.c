@@ -10,6 +10,7 @@ void tx_mix_init(tx_mix_t *m)
     for (k = 0; k < TX_MIX_SLOTS; k++) { tx_mix_pan(m, k, 64); m->tg[k] = 4096; }
     tx_comp_init(&m->comp);
     tx_limit_init(&m->lim);
+    m->lim.ch = 2;                                           /* (interleaved: tx_mix_end) */
 }
 
 void tx_mix_set(tx_mix_t *m, unsigned k, const tx_engine_t *e, void *st, uint32_t seed)
