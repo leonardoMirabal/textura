@@ -47,7 +47,8 @@
 #   make fw-fonts      regenerate the fonts with Frodhes' generators at FW_FONT_REV, read from its git (Frodhes'
 #                      checkout is never changed), every glyph (no font diet): firmware/gen/felucca_font.h (Terminus
 #                      8x16, gfx.c), aa_font.h and aa_font_v24.h (Inter Tight, anti-aliased, aatext.c; Pillow from
-#                      .local/venv: another Pillow rasterises a few pixels differently)
+#                      .local/venv: another Pillow rasterises a few pixels differently), their alpha in AA_BITS
+#                      bits (tools/gen_aa_font_q.py)
 CC       ?= cc
 FRODHES  ?= ../frodhes
 CALIB    ?= 1
@@ -120,7 +121,9 @@ tx-render: $(B)/txrender
 FW        := build/fw
 FW_DEPS   := $(wildcard firmware/src/*.c firmware/src/*.h firmware/gen/*.h firmware/hal/*.h) tests/host.c
 CFLAGS_FW := -O2 -Wall -Wno-unused-function -DDINGHY_HOST -DAPP_VER='"dev"' -Ifirmware/src -Ifirmware/gen -Iengines
-FW_FONT_REV ?= v0.9.5
+FW_FONT_REV ?= cfabf632
+# the anti-aliased faces' alpha levels (make fw-fonts): 2 bits, 4 levels (4: Frodhes' 16)
+AA_BITS ?= 2
 
 $(FW)/textura-host: $(FW_DEPS) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(FW)
@@ -163,8 +166,10 @@ fw-fonts:
 	git -C $(FRODHES) archive $(FW_FONT_REV) tools/gen_font.py tools/gen_aa_font.py tools/aa_raster.py tools/font_chars.py \
 	  assets/fonts/ter-u16n.bdf 'assets/fonts/InterTight[wght].ttf' | tar -x -C $(FW)/fonts
 	python3 -I $(FW)/fonts/tools/gen_font.py --full firmware/gen/felucca_font.h
-	.local/venv/bin/python -I $(FW)/fonts/tools/gen_aa_font.py firmware/gen/aa_font.h --preset inter-tight --full
-	.local/venv/bin/python -I $(FW)/fonts/tools/gen_aa_font.py firmware/gen/aa_font_v24.h --value-px 24 --full
+	.local/venv/bin/python -I tools/gen_aa_font_q.py $(FW)/fonts/tools $(AA_BITS) firmware/gen/aa_font.h \
+	  --preset inter-tight --full
+	.local/venv/bin/python -I tools/gen_aa_font_q.py $(FW)/fonts/tools $(AA_BITS) firmware/gen/aa_font_v24.h \
+	  --value-px 24 --full
 
 # engines/ (and the firmware's lanes.c) compiled for a 32-bit soft-float target: any call to a 64-bit division or a float helper fails the check
 # (the device has no libgcc); 64-bit multiply instructions are counted for information (inner loops should have none)

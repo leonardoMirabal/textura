@@ -209,11 +209,77 @@ static void ui_env_name(char *l)                /* "ENV 2", "FOLLOW 1" */
 }
 /* ---- header: the landscape (the one ALGORITHM is turning to); on a lane's pages the lane and its sound; the key
  * mode at the right */
+/* ---- the battery (Frodhes' ui.c, cfabf632): the FM-1's PB1 divider on ADC ch3 (hal/fm1_adc.h), read from the main
+ * loop every BATT_POLL_MS, smoothed over ~10 s, shown as 3 segments in the header with a hysteresis so it never
+ * flickers between two; USB power: a bolt. PROVISIONAL thresholds: the stock firmware's (531 / 561 / 591) */
+#define BATT_T1 531
+#define BATT_T2 561
+#define BATT_T3 591
+#define BATT_HYST 4                             /* a step needs the reading this far past its threshold */
+#define BATT_POLL_MS 500u
+#define BATT_HOST_RAW 600                       /* the host / web build: no ADC, a full battery */
+static const int16_t BATT_T[3] = {BATT_T1, BATT_T2, BATT_T3};
+static int32_t batt_avg;                        /* the smoothed reading x 256 (0: none yet) */
+static uint8_t batt_lvl, batt_seen = 0xFF;      /* the segments shown; the level the header last drew */
+#ifdef DINGHY_HOST
+static int32_t batt_adc(void) { return BATT_HOST_RAW; }
+static int batt_usb(void) { return 0; }
+#else
+static int32_t batt_adc(void) { return fm1_adc_read(FM1_ADC_BATT); }
+static int batt_usb(void) { return usb.config && !usb.suspended; }
+#endif
+static uint32_t batt_shown(void) { return batt_usb() ? 4u : batt_lvl; }
+static void batt_poll(void)
+{
+    static uint32_t t;
+    int32_t a, r;
+    uint32_t l;
+    if (batt_avg && fm1_ms - t < BATT_POLL_MS) return;
+    t = fm1_ms;
+    a = batt_adc();
+    if (a <= 0) return;                         /* (a timeout, or nothing on the pin) */
+    if (!batt_avg) batt_avg = a * 256;
+    else { int32_t d = a * 256 - batt_avg; batt_avg += (d + (d > 0 ? 10 : -10)) / 20; }
+    r = (batt_avg + 128) / 256;
+    for (l = 0; l < 3u && r >= BATT_T[l]; l++) {}
+    if (batt_seen == 0xFF) batt_lvl = (uint8_t)l;   /* the first reading: at once */
+    else if (l > batt_lvl && r >= BATT_T[l - 1u] + BATT_HYST) batt_lvl = (uint8_t)l;
+    else if (l < batt_lvl && r < BATT_T[batt_lvl - 1u] - BATT_HYST) batt_lvl = (uint8_t)l;
+    if (batt_shown() != batt_seen) { batt_seen = (uint8_t)batt_shown(); ui_mark(E_HEADER); }
+}
+/* the icon, 18 x 9 at (x, y): a body with a tip, three segments, or a bolt on USB power */
+static void batt_icon(int32_t x, int32_t y, uint16_t ink, uint16_t hi, uint16_t bg)
+{
+    static const uint8_t BOLT[7] = {0x08, 0x10, 0x30, 0x7E, 0x0C, 0x08, 0x10};   /* 7 x 7, bit 6 = left */
+    uint32_t lv = batt_shown(), i, j;
+    uint16_t o = lv == 0u ? UI_ACC : ink;
+    cv_rect(x, y, 15, 9, o); cv_rect(x + 1, y + 1, 13, 7, bg);
+    cv_rect(x + 15, y + 2, 2, 5, o);
+    if (lv == 4u) {
+        for (j = 0; j < 7u; j++)
+            for (i = 0; i < 7u; i++)
+                if (BOLT[j] >> (6u - i) & 1u) cv_pset(x + 4 + (int32_t)i, y + 1 + (int32_t)j, hi);
+        return;
+    }
+    for (i = 0; i < lv; i++) cv_rect(x + 2 + 4 * (int32_t)i, y + 2, 3, 5, lv == 1u ? UI_ACC : hi);
+}
+static void ui_bpm_text(char *b)                /* "120.0" */
+{
+    uint32_t t = tempo_bpm10();
+    char d[3] = {'.', (char)('0' + t % 10u), 0};
+    p_fmt_int(b, (int32_t)(t / 10u)); p_cat(b, d, 7);
+}
+
 static void draw_header(void)
 {
     char nm[32], m[12];
     int32_t x = 230;
     cv_begin(240, HD_H, FC_BG);
+    batt_icon(230 - 17, 6, FC_LAB, FC_VAL, FC_BG);   /* right to left: the battery, the tempo, PLAY / the octave */
+    ui_bpm_text(m);
+    x = 230 - 17 - 6 - aa_text_w(&AF_S, m);
+    aa_text(x, S_TOP(10), &AF_S, m, FC_LAB, FC_BG);
+    x -= 6;
     if (nt.mode == NT_PLAY) {
         p_strcpy(m, "PLAY", 5);
         if (nt.oct) { char o[4] = {' ', nt.oct < 0 ? '-' : '+', (char)('0' + (nt.oct < 0 ? -nt.oct : nt.oct)), 0}; p_cat(m, o, 11); }
@@ -258,15 +324,18 @@ static void draw_title(void)
     int32_t x;
     uint32_t n = ui_nsub(ui_g);
     cv_begin(240, TI_H, FC_BG);
-    x = aa_text(10, S_TOP(10), &AF_S, ui_g == G_ENV && ui_env >= TX_ENV_N ? "FOLLOW" : G_TITLE[ui_g], UI_ACC, FC_BG);
+    x = aa_text(10, S_TOP(10), &AF_S, ui_g == G_ENV && ui_env >= TX_ENV_N ? "FOLLOW" : ui_g == G_LAND ? "TEXTURA"
+                : G_TITLE[ui_g], UI_ACC, FC_BG);   /* (the home page shows TEXTURA, as Frodhes' main page FRODHES; its
+                                                 * name stays LANDSCAPE for the host / web API) */
     if (n > 1u) { ui_frac(t, ui_sub + 1u, n); aa_text(x + 5, S_TOP(10), &AF_S, t, FC_VAL, FC_BG); }
     ui_frac(t, ui_g + 1u, G_N);
     aa_text_r(230, S_TOP(10), &AF_S, t, FC_LAB, FC_BG);
     cv_blit(0, TI_Y);
 }
 
-/* ---- LANDSCAPE: a strip per lane. Top: the lane's number, its sound, OFF (stopped) and the blink dot; bottom: HOW
- * MANY (6 blocks), HOW ACTIVE (8 blocks), the volume. The selected lane: its number in the accent and a frame */
+/* ---- LANDSCAPE (the home page, titled TEXTURA): a card per lane, as the other pages' K1..K4. Its fill: the lane's
+ * volume (dimmer while stopped). Top: the K tag, then OFF (stopped) or HOW MANY (6 blocks) and HOW ACTIVE (8), the
+ * volume and the blink dot; below: the sound, large when it fits. The selected lane: its tag in the accent, a frame */
 #define ST_DOT_X 214
 #define ST_DOT_Y 6
 #define ST_DOT 8
@@ -278,27 +347,45 @@ static void ui_blink_dot(uint32_t k, int on, int canvas)
     else lcd_fill(RW_X + ST_DOT_X, RW_Y0 + RW_DY * k + ST_DOT_Y, ST_DOT, ST_DOT, c);
     ui_blink_shown[k] = (uint8_t)on;
 }
+static void cd_edge(int32_t ex, const int16_t *bx, uint32_t nb);
 static void draw_strip(uint32_t k)
 {
-    char nm[32], t[8];
+    char nm[32], t[8], kk[3] = {'K', (char)('1' + k), 0};
     int sel = k == sc.sel, run = sc.run[k];
-    uint32_t i, c = sc_cnt_of(k), a = ui_lane_act(k);
+    uint32_t i, c = sc_cnt_of(k), a = ui_lane_act(k), v = sc_vol_of(k);
+    const int32_t base = (int32_t)RW_H - 4;     /* the name's and the level's baseline, under the status line */
+    int32_t x, vw, fw;
+    int big;
     cv_begin(RW_W, RW_H, C_BLACK);
-    t[0] = (char)('1' + k); t[1] = 0;
-    aa_text_ov(6, S_TOP(11), &AF_S, t, sel ? UI_ACC : mt.tag);
-    if (sc.snd[k] >= 0) {
-        p_upper(nm, sc_sound_name(k), 30);
-        ui_fit(nm, ST_DOT_X - 22 - (run ? 0 : 30));
-        aa_text_ov(20, S_TOP(11), &AF_S, nm, run ? FC_VAL : FC_LAB);
-        if (!run) aa_text_ovr(ST_DOT_X - 6, S_TOP(11), &AF_S, "OFF", FC_DIM);
-        for (i = 0; i < LS_NCNT - 1u; i++)      /* HOW MANY: 1 2 4 8 16 32 */
-            cv_rect(20 + 11 * (int32_t)i, 24, 8, 7, i < c ? mt.edge : CD_SEGOFF);
-        for (i = 0; i < LS_NACT; i++)           /* HOW ACTIVE: rare .. busy */
-            cv_rect(92 + 12 * (int32_t)i, 24, 10, 7, i < a ? mt.edge : CD_SEGOFF);
-        p_fmt_int(t, (int32_t)sc_vol_of(k));
-        aa_text_ovr(222, S_TOP(28), &AF_S, t, mt.unit);
-        ui_blink_dot(k, ui_blink_on(k), 1);
-    } else aa_text_ov(20, S_TOP(11), &AF_S, "-", FC_DIM);
+    if (sc.snd[k] < 0) {
+        aa_text_ov(6, S_TOP(9), &AF_S, kk, mt.tag);
+        aa_text_ov(6, base - AF_S.asc, &AF_S, "-", FC_DIM);
+        cv_blit(RW_X, RW_Y0 + RW_DY * k);
+        return;
+    }
+    fw = (int32_t)RW_W * (int32_t)v / 127;      /* the level: the card's fill (dimmer while the lane is off) */
+    if (fw > 0) cv_rect(0, 0, fw, RW_H, run ? mt.fill : cd_shade(mt.fill, 45));
+    p_fmt_int(t, (int32_t)v);
+    vw = aa_text_w(&AF_S, t);
+    p_upper(nm, sc_sound_name(k), 30);          /* the sound: large when it fits the row, else small */
+    big = aa_covers(&AF_L, nm) && aa_text_w(&AF_L, nm) <= (int32_t)RW_W - 12;
+    if (!big) ui_fit(nm, (int32_t)RW_W - 12);
+    if (fw > 2 && run) {                        /* the bright edge, clear of the name and the level */
+        int16_t bx[8] = {6, (int16_t)(6 + aa_text_w(big ? &AF_L : &AF_S, nm)), (int16_t)(base - (big ? AF_L_CAP_H : AF_S_CAP_H)),
+                         (int16_t)(base - 1), (int16_t)(ST_DOT_X - 6 - vw), (int16_t)(ST_DOT_X - 7),
+                         (int16_t)(S_TOP(9) + AF_S_CAP_Y), (int16_t)(S_TOP(9) + AF_S_CAP_Y + AF_S_CAP_H - 1)};
+        cd_edge(fw - 2, bx, 2);
+    }
+    x = aa_text_ov(6, S_TOP(9), &AF_S, kk, sel ? UI_ACC : (fw > 40 ? RGB(170, 170, 176) : mt.tag)) + 8;
+    if (!run) aa_text_ov(x, S_TOP(9), &AF_S, "OFF", fw > x + 30 ? RGB(206, 206, 210) : FC_LAB);
+    else {                                      /* HOW MANY (6) and HOW ACTIVE (8), on the status line */
+        for (i = 0; i < LS_NCNT - 1u; i++) cv_rect(x + 7 * (int32_t)i, 5, 5, 6, i < c ? mt.edge : CD_SEGOFF);
+        x += 7 * (int32_t)(LS_NCNT - 1u) + 8;
+        for (i = 0; i < LS_NACT; i++) cv_rect(x + 7 * (int32_t)i, 5, 5, 6, i < a ? FC_VAL : CD_SEGOFF);
+    }
+    ui_blink_dot(k, ui_blink_on(k), 1);
+    aa_text_ovr(ST_DOT_X - 6, S_TOP(9), &AF_S, t, run ? FC_VAL : FC_LAB);   /* the level, by the dot */
+    aa_text_ov(6, base - (big ? AF_L.asc : AF_S.asc), big ? &AF_L : &AF_S, nm, run ? FC_VAL : FC_LAB);
     if (sel) {
         cv_rect(0, 0, RW_W, 1, mt.frame); cv_rect(0, RW_H - 1, RW_W, 1, mt.frame);
         cv_rect(0, 0, 1, RW_H, mt.frame); cv_rect(RW_W - 1, 0, 1, RW_H, mt.frame);
@@ -490,7 +577,7 @@ static uint32_t ui_sig_of(uint32_t e)
         if (e == E_HEADER) { h = sig_mix(h, mod_lfo[ui_lfo].p[TX_LP_SHAPE]); h = sig_mix(h, mslot[ui_slot].src); h = sig_mix(h, mslot[ui_slot].tgt); }
         if (e == E_FOOTER) { int32_t lv; h = sig_mix(h, mod_cc_learn); if (ui_g == G_MATRIX && mslot[ui_slot].tgt) h = sig_mix(h, mod_live((uint32_t)mod_tgt_pid(mslot[ui_slot].tgt, mod_tgt_lanes(mslot[ui_slot].tgt) < 4u ? mod_tgt_lanes(mslot[ui_slot].tgt) : 0u), &lv) ? (uint32_t)lv : 0xFFFFu); }
     }
-    if (e == E_HEADER) { h = sig_mix(h, sc.fam_want); h = sig_mix(h, sc.fam_pend); h = sig_mix(h, nt.mode); h = sig_mix(h, (uint32_t)nt.oct); }
+    if (e == E_HEADER) { h = sig_mix(h, tempo_bpm10()); h = sig_mix(h, batt_shown()); h = sig_mix(h, sc.fam_want); h = sig_mix(h, sc.fam_pend); h = sig_mix(h, nt.mode); h = sig_mix(h, (uint32_t)nt.oct); }
     else if (e == E_TITLE) h = sig_mix(h, ui_nsub(ui_g));
     else if (e == E_FOOTER) {
         h = sig_mix(h, ui_msg_t && fm1_ms - ui_msg_t < MSG_MS ? ui_msg_t : 0u);
@@ -556,6 +643,7 @@ static void ui_draw(void)
     static uint8_t cleared;
     uint32_t e, d, k;
     mt_update();
+    batt_poll();
     if (ui_splash_on) {
         if (fm1_ms - ui_splash_t < UI_SPLASH_MS) return;
         ui_splash_on = 0; cleared = 0;
