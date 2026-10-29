@@ -18,6 +18,10 @@
 #                      (envelope lines the seeds agree on) and no two events alike (near-identical event pairs);
 #                      fails on a finding outside its short allowlist of species' own rhythms (ARGS="-f NAME -d")
 #   make tx-grain      a granular-delay prototype's cost on the FM-1 and its buffer formats' noise (costing only)
+#   make fm1-host      txfm1's table (bench/fm1: every SOURCE preset at the defaults / ACTIVITY 0 / 127 and its worst knob,
+#                      the hosted kinds, the effects, four-lane cases) timed on this host -> build/fm1/host.csv
+#   make fm1-bench     the bench firmware for the FM-1 (Docker + .local/jieli) -> build/fm1/textura-bench.fwsc
+#   make fm1-timing    the same table on the FM-1 over USB-MIDI (tools/fm1_timing.py; installs nothing; DEVICE lock)
 #   make tx-player     the browser player -> build/audition/ (Emscripten from .local/emsdk)
 #   make tx-player-check   the player in headless Chromium (Playwright in .local/venv, browsers in .local/playwright)
 #   make tx-ab         the player's A/B data: ours vs the local reference recordings (.local/reference), loudness-
@@ -60,7 +64,8 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-.PHONY: fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-fonts tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-fx-tables tx-size tx-libcalls tx-clean
+PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-timing
+.PHONY: $(PHONY_FM1) fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-fonts tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -227,7 +232,7 @@ _tx-budget-run:
 	@[ -f build/calib/run/w1.txt ] || $(MAKE) -s _tx-calib-run
 	$(B)/txbudget | tee $(B)/budget.txt
 
-# a granular-delay prototype, for costing only (.private): FM-1 us per block per option, the buffer
+# a granular-delay prototype, for costing only: FM-1 us per block per option, the buffer
 # formats' noise
 $(B)/txgrain: bench/txgrain.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -236,6 +241,30 @@ $(B)/txgrain: bench/txgrain.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 tx-grain: $(B)/txgrain build/calib/frodhes
 	@[ -f build/calib/run/w1.txt ] || $(MAKE) -s tx-calib
 	@$(HEAVY) $(B)/txgrain
+
+# ---- txfm1: the engines' cost on the FM-1 (bench/fm1): one table, timed on the host and on
+# the device by the same code
+FM1 := build/fm1
+$(FM1)/txfm1_gen: bench/fm1/txfm1_gen.c bench/fm1/txfm1_core.h $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
+	@mkdir -p $(FM1)/gen
+	$(CC) $(CSTD) -Ibench/fm1 -O2 -o $@ bench/fm1/txfm1_gen.c $(HOST_SRC) $(ENG_SRC) -lm
+
+$(FM1)/gen/fm1_cfg.h: $(FM1)/txfm1_gen
+	$(FM1)/txfm1_gen $@
+
+$(FM1)/txfm1_host: bench/fm1/txfm1_host.c bench/fm1/txfm1_core.c bench/fm1/txfm1_core.h $(FM1)/gen/fm1_cfg.h $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
+	$(CC) $(CSTD) -Ibench/fm1 -I$(FM1)/gen -O2 -o $@ bench/fm1/txfm1_host.c bench/fm1/txfm1_core.c $(HOST_SRC) $(ENG_SRC) -lm
+
+fm1-gen: $(FM1)/gen/fm1_cfg.h
+
+fm1-host: $(FM1)/txfm1_host
+	@$(HEAVY) sh -c '$(FM1)/txfm1_host $(ARGS) > $(FM1)/host.csv' && echo "fm1-host: $(FM1)/host.csv"
+
+fm1-bench: $(FM1)/gen/fm1_cfg.h
+	python3 -I tools/fm1_bench.py $(ARGS)
+
+fm1-timing: $(FM1)/gen/fm1_cfg.h
+	python3 -I tools/lock.py run DEVICE --why "make fm1-timing" --wait 3600 -- .local/venv/bin/python -I tools/fm1_timing.py $(ARGS)
 
 # the lane fader's range per sound, as the player drives a lane (the generator on): events/s, short-term loudness,
 # gaps, whether the top reads as a cloud (bench/txactivity.c; ARGS="-s 30 -n 3 -f name" ...)
