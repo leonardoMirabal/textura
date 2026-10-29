@@ -23,8 +23,10 @@
  * reason; OPEN lists a known finding whose fix is to come (reported, not failed); everything else that is flagged
  * fails (exit 1).
  *
- *   txaudit [-s SECS] [-n SEEDS] [-j THREADS] [-f SUBSTRING] [-v]   (defaults 33 s, 6 seeds, every core, every sound;
- *            -v: every row, not only the flagged and allowed ones; -d: each seed's lines and events too) */
+ *   txaudit [-s SECS] [-n SEEDS] [-j THREADS] [-f SUBSTRING] [-v] [-d] [-x] [-e]   (defaults 33 s, 6 seeds, every
+ *            core, every sound; -v: every row, not only the flagged and allowed ones; -d: each seed's lines and events
+ *            too; -x: the corners EXTRA 0 / 127 and COUNT 1 / 127 too; -e: the classic engines no landscape plays;
+ *            with -x or -e, 8 seeds unless -n says) */
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -35,7 +37,7 @@
 
 #define FS 44100.0
 #define NBAND 4
-#define NCOR 3
+#define NCOR 7
 #define MAXSEED 8
 #define BEAT_DB 12.0                /* the agreeing lines' median prominence, dB */
 #define LINE_DB 10.0                /* a seed's line counts toward agreement from here */
@@ -81,8 +83,22 @@ static const snd_t SND[] = {
     {"woodpecker", 31, 0, 0}, {"wood pigeon", 32, 0, 0}, {"nightjar", 33, 0, 0}, {"bittern", 34, 0, 0},
 };
 #define NSND (sizeof SND / sizeof SND[0])
-static const char *const COR[NCOR] = {"default", "ACT 0", "ACT 127"};
-static const int COR_ACT[NCOR] = {-1, 0, 127};
+/* the corners: the defaults and ACTIVITY 0 / 127 always; -x adds EXTRA 0 / 127 and COUNT 1 / 127 (at the default
+ * ACTIVITY; COUNT 0 is silence by design: no one sounds) */
+typedef struct { const char *label, *param; unsigned val; } cor_t;
+static const cor_t COR[NCOR] = {
+    {"default", 0, 0}, {"ACT 0", "ACTIVITY", 0}, {"ACT 127", "ACTIVITY", 127},
+    {"EXTRA 0", "EXTRA", 0}, {"EXTRA 127", "EXTRA", 127}, {"COUNT 1", "COUNT", 1}, {"COUNT 127", "COUNT", 127},
+};
+static unsigned ncor = 3;
+
+/* -e: every classic engine in the build that no landscape sound plays (not the source, nor the test engine), at its
+ * defaults, its key held and pressed again after random gaps (exponential, mean PRESS_S s, velocity 70 .. 126): a
+ * one-shot engine sounds, and the presses keep no beat */
+#define PRESS_S 1.5
+#define MAXSND 160u
+static snd_t all[MAXSND];
+static unsigned nall;
 
 /* ---- the allowlist: a species' own rhythm or call; test 1 = beat, 2 = alike, 3 = both */
 typedef struct { const char *name; unsigned test; const char *why; } allow_t;
@@ -105,14 +121,19 @@ static const allow_t ALLOW[] = {
     {"woodpecker", 1, "a drum roll: strikes at the bird's rate"},
     {"bittern", 2, "one boom, repeated in a series by the same throat"},
     {"singing dune", 1, "two avalanches singing apart: their tones beat"},
+    {"spring", 1, "a kicked spring's echo: the wave's round trip along the coil (-e)"},
+    {"cicadas", 1, "the tymbal's pulse groups at the insect's rate (-e)"},
+    {"katydids", 1, "its call: a pulse train at the insect's own rate (-e)"},
 };
 #define NALLOW (sizeof ALLOW / sizeof ALLOW[0])
 
 /* ---- open findings: known, a fix to come; reported as "open", not failed, so the audit guards everything else */
-static const allow_t OPEN[1] = {{0, 0, 0}};            /* none open now: entries as ALLOW's, NOPEN their count */
-#define NOPEN 0u
+static const allow_t OPEN[] = {                       /* entries as ALLOW's, NOPEN their count */
+    {"chimes", 2, "one tube struck again (-e): at CLAPPER 64 its ring is mostly f1; 10.7 % of pairs (100: 3.2 %)"},
+};
+#define NOPEN (sizeof OPEN / sizeof OPEN[0])
 
-static unsigned secs = 33, nseeds = 6, verbose, detail;
+static unsigned secs = 33, nseeds = 6, verbose, detail, engines;
 static const char *filter;
 
 /* ---- biquads (Butterworth sections, bilinear) */
@@ -169,9 +190,11 @@ typedef struct {
     unsigned nev, nshape, npair, nalike;                  /* events, shapes, pairs, pairs over ALIKE_X */
 } res_t;
 
-static double *render(const snd_t *s, int act, uint32_t seed, unsigned *n_out)
+static double *render(const snd_t *s, const cor_t *cor, uint32_t seed, unsigned *n_out)
 {
     const tx_engine_t *e = tx_engine_find(s->pre >= 0 ? "source" : s->eng);
+    uint32_t pr = seed * 2654435761u + 12345u;
+    double next = -1;
     void *st;
     unsigned nb = (unsigned)(secs * FS) / TX_BLOCK, b, j;
     int32_t mix[TX_BLOCK];
@@ -183,11 +206,18 @@ static double *render(const snd_t *s, int act, uint32_t seed, unsigned *n_out)
     if (s->pre >= 0) {
         e->param(st, (uint8_t)tx_param_find(e, "PRESET"), (uint8_t)s->pre);
         e->param(st, (uint8_t)tx_param_find(e, "TYPE"), (uint8_t)s->type);
-        if (act >= 0) e->param(st, (uint8_t)tx_param_find(e, "ACTIVITY"), (uint8_t)act);
+        if (cor->param) e->param(st, (uint8_t)tx_param_find(e, cor->param), (uint8_t)cor->val);
     }
     e->param(st, TX_PID_PARTICLES, 6);
     e->key(st, 60, 100, 1);
+    if (s->pre == -2) next = 0;
     for (b = 0; b < nb; b++) {
+        if (next >= 0 && b * TX_BLOCK / FS >= next) {        /* -e: pressed again */
+            double u;
+            pr = pr * 1664525u + 1013904223u; u = ((pr >> 8) + 0.5) / 16777216.0;
+            if (next > 0) { e->key(st, 60, 0, 0); e->key(st, 60, (uint8_t)(70u + (pr >> 26)), 1); }
+            next += -log(u) * PRESS_S;
+        }
         memset(mix, 0, sizeof mix);
         e->render(st, mix, TX_BLOCK);
         for (j = 0; j < TX_BLOCK; j++) x[b * TX_BLOCK + j] = mix[j] / 8388608.0;
@@ -367,7 +397,7 @@ static void *worker(void *arg)
         double *x;
         pthread_mutex_lock(&mu); j = next_job++; pthread_mutex_unlock(&mu);
         if (j >= njobs) return 0;
-        x = render(&SND[jobs[j].s], COR_ACT[jobs[j].c], 1u + jobs[j].sd, &n);
+        x = render(&all[jobs[j].s], &COR[jobs[j].c], 1u + jobs[j].sd, &n);
         if (!x) continue;
         beat(x, n, &res[j]); alike(x, n, &res[j]); res[j].ok = 1;
         free(x);
@@ -387,25 +417,39 @@ int main(int argc, char **argv)
     unsigned nth = (unsigned)sysconf(_SC_NPROCESSORS_ONLN), i, s, c, sd, fails = 0, allows = 0, opens = 0;
     pthread_t *th;
     uint64_t t0 = tx_now_ns();
-    int a;
+    int a, nset = 0;
     for (a = 1; a < argc; a++) {
         if (!strcmp(argv[a], "-s") && a + 1 < argc) secs = (unsigned)atoi(argv[++a]);
-        else if (!strcmp(argv[a], "-n") && a + 1 < argc) nseeds = (unsigned)atoi(argv[++a]);
+        else if (!strcmp(argv[a], "-n") && a + 1 < argc) nseeds = (unsigned)atoi(argv[++a]), nset = 1;
         else if (!strcmp(argv[a], "-j") && a + 1 < argc) nth = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "-f") && a + 1 < argc) filter = argv[++a];
         else if (!strcmp(argv[a], "-v")) verbose = 1;
         else if (!strcmp(argv[a], "-d")) verbose = detail = 1;
-        else { fprintf(stderr, "txaudit [-s SECS] [-n SEEDS] [-j THREADS] [-f SUBSTRING] [-v] [-d]\n"); return 2; }
+        else if (!strcmp(argv[a], "-x")) ncor = NCOR;
+        else if (!strcmp(argv[a], "-e")) engines = 1;
+        else { fprintf(stderr, "txaudit [-s SECS] [-n SEEDS] [-j THREADS] [-f SUBSTRING] [-v] [-d] [-x] [-e]\n"); return 2; }
     }
+    if (!nset && (ncor > 3u || engines)) nseeds = 8;   /* the corners and the engines: 8 seeds (at 6, a lone call or a
+                                                         * wave's run-up agrees in 4 of 6 by chance: skylark, curlew, wood
+                                                         * thrush at EXTRA / COUNT, waves on shingle, cave drips COUNT
+                                                         * 127; none at 8) */
     if (secs < 10) secs = 10;
     if (nseeds < 3) nseeds = 3;
     if (nseeds > MAXSEED) nseeds = MAXSEED;
     if (nth < 1) nth = 1;
-    jobs = malloc(sizeof *jobs * NSND * NCOR * MAXSEED);
-    for (s = 0; s < NSND; s++) {
-        if (filter && !strstr(SND[s].name, filter)) continue;
-        for (c = 0; c < NCOR; c++) {
-            if (SND[s].pre < 0 && c) continue;               /* a classic engine: no ACTIVITY */
+    for (s = 0; s < NSND; s++) all[nall++] = SND[s];
+    if (engines)
+        for (i = 0; tx_engines[i] && nall < MAXSND; i++) {
+            const char *nm = tx_engines[i]->name;
+            unsigned q, seen = !strcmp(nm, "source") || !strcmp(nm, "test");
+            for (q = 0; q < NSND; q++) if (SND[q].eng && !strcmp(SND[q].eng, nm)) seen = 1;
+            if (!seen) { all[nall].name = nm; all[nall].pre = -2; all[nall].eng = nm; all[nall].type = 0; nall++; }
+        }
+    jobs = malloc(sizeof *jobs * MAXSND * NCOR * MAXSEED);
+    for (s = 0; s < nall; s++) {
+        if (filter && !strstr(all[s].name, filter)) continue;
+        for (c = 0; c < ncor; c++) {
+            if (all[s].pre < 0 && c) continue;               /* a classic engine: no ACTIVITY, EXTRA, COUNT */
             for (sd = 0; sd < nseeds; sd++) { jobs[njobs].s = s; jobs[njobs].c = c; jobs[njobs].sd = sd; njobs++; }
         }
     }
@@ -416,9 +460,9 @@ int main(int argc, char **argv)
     printf("txaudit: %u renders (%u s, %u seeds); BEAT: lines of >= 2/3 of the seeds within %.0f %%, median >= %.1f dB; "
            "ALIKE: > %.0f %% of pairs over %.2f or < %.2f shapes / event\n", njobs, secs, nseeds, BEAT_AGREE * 100, BEAT_DB,
            ALIKE_SHARE * 100, ALIKE_X, ALIKE_SHAPES);
-    printf("%-20s %-8s | %-30s | %-26s | verdict\n", "sound", "corner", "beat: band, Hz, dB, seeds", "events, >0.95, shapes/ev");
+    printf("%-20s %-9s | %-30s | %-26s | verdict\n", "sound", "corner", "beat: band, Hz, dB, seeds", "events, >0.95, shapes/ev");
     for (i = 0; i < njobs; i += nseeds) {
-        const snd_t *S = &SND[jobs[i].s];
+        const snd_t *S = &all[jobs[i].s];
         unsigned b, bb = 0, bagree = 0, nev = 0, nsh = 0, npr = 0, nal = 0, beatf = 0, alikef = 0;
         double bmed = 0, bfm = 0;
         {   /* every line of every seed is a candidate: how many seeds have a line within BEAT_AGREE of it? */
@@ -460,7 +504,7 @@ int main(int argc, char **argv)
             if (nev) snprintf(es, sizeof es, "%4u %6.3f %5.2f", nev, npr ? (double)nal / npr : 0, (double)nsh / nev);
             else snprintf(es, sizeof es, "-");
             if (verbose || beatf || alikef)
-                printf("%-20s %-8s | %-30s | %-26s | %s%s%s%s\n", S->name, COR[jobs[i].c], bs, es,
+                printf("%-20s %-9s | %-30s | %-26s | %s%s%s%s\n", S->name, COR[jobs[i].c].label, bs, es,
                        beatf ? (ab ? "beat (allowed) " : ob ? "beat (open) " : "BEAT ") : "",
                        alikef ? (aa ? "alike (allowed) " : oa ? "alike (open) " : "ALIKE ") : "",
                        beatf || alikef ? "" : "ok", why ? why->why : "");

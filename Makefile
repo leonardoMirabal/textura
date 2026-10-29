@@ -16,7 +16,8 @@
 #                      events/s, LUFS-S, gaps, a cloud at the top or not (ARGS="-s SECS -n SEEDS -f NAME")
 #   make tx-audit      every landscape sound at the defaults and ACTIVITY 0 / 127, 6 seeds: no hidden steady rhythm
 #                      (envelope lines the seeds agree on) and no two events alike (near-identical event pairs);
-#                      fails on a finding outside its short allowlist of species' own rhythms (ARGS="-f NAME -d")
+#                      fails on a finding outside its short allowlist of species' own rhythms (ARGS="-f NAME -d";
+#                      ARGS="-x -e": the corners EXTRA 0 / 127, COUNT 1 / 127 and the classic engines too, 8 seeds)
 #   make tx-grain      a granular-delay prototype's cost on the FM-1 and its buffer formats' noise (costing only)
 #   make fm1-host      txfm1's table (bench/fm1: every SOURCE preset at the defaults / ACTIVITY 0 / 127 and its worst knob,
 #                      the hosted kinds, the effects, four-lane cases) timed on this host -> build/fm1/host.csv
