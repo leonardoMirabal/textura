@@ -19,6 +19,7 @@ typedef struct {
     const tx_engine_t *e[TX_MIX_SLOTS];  /* 0 = an empty slot */
     void *st[TX_MIX_SLOTS];              /* each slot's state (TX_STATE_MAX bytes, the caller's) */
     int32_t gl[TX_MIX_SLOTS], gr[TX_MIX_SLOTS];   /* pan gains, Q14 (16384 = 1.0) */
+    int32_t tg[TX_MIX_SLOTS];            /* the slot's trim before its pan, Q12 (4096 = 1.0: none; up to +24 dB) */
     int32_t slot_peak[TX_MIX_SLOTS];     /* each slot's peak since the caller last cleared it */
     tx_chamber_t *ch;                    /* optional (the caller's, ~22 KB), used while ch_on */
     int ch_on;
@@ -37,6 +38,7 @@ void tx_mix_init(tx_mix_t *m);
 /* put an engine in slot k (initialised here with seed), or empty it (e = 0) */
 void tx_mix_set(tx_mix_t *m, unsigned k, const tx_engine_t *e, void *st, uint32_t seed);
 void tx_mix_pan(tx_mix_t *m, unsigned k, unsigned pan);   /* 0 left .. 64 centre .. 127 right */
+void tx_mix_trim(tx_mix_t *m, unsigned k, unsigned q12);  /* the slot's level trim, Q12 (a landscape sound's own level) */
 TX_AUDIO_CODE void tx_mix_begin(tx_mix_t *m, unsigned n);
 TX_AUDIO_CODE void tx_mix_slot_render(tx_mix_t *m, unsigned k, unsigned n);
 /* or: the caller rendered slot k's block itself (a scene script, say): pan it and add it */

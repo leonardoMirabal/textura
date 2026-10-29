@@ -7,7 +7,7 @@ void tx_mix_init(tx_mix_t *m)
 {
     unsigned k;
     tx_zero(m, sizeof *m);
-    for (k = 0; k < TX_MIX_SLOTS; k++) tx_mix_pan(m, k, 64);
+    for (k = 0; k < TX_MIX_SLOTS; k++) { tx_mix_pan(m, k, 64); m->tg[k] = 4096; }
     tx_limit_init(&m->lim);
 }
 
@@ -28,6 +28,11 @@ void tx_mix_pan(tx_mix_t *m, unsigned k, unsigned pan)
     m->gl[k] = (tx_sin_q15(ph + 0x40000000u) * 23170) >> 15; /* sqrt(2) cos */
 }
 
+void tx_mix_trim(tx_mix_t *m, unsigned k, unsigned q12)
+{
+    if (k < TX_MIX_SLOTS) m->tg[k] = (int32_t)(q12 > 65535u ? 65535u : q12);
+}
+
 TX_AUDIO_CODE void tx_mix_begin(tx_mix_t *m, unsigned n)
 {
     unsigned j;
@@ -37,12 +42,18 @@ TX_AUDIO_CODE void tx_mix_begin(tx_mix_t *m, unsigned n)
 TX_AUDIO_CODE void tx_mix_add(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n)
 {
     unsigned j;
-    int32_t gl, gr, pk;
+    int32_t gl, gr, pk, tg;
     if (k >= TX_MIX_SLOTS) return;
-    gl = m->gl[k]; gr = m->gr[k]; pk = m->slot_peak[k];
+    gl = m->gl[k]; gr = m->gr[k]; pk = m->slot_peak[k]; tg = m->tg[k];
     for (j = 0; j < n; j++) {
-        int32_t v = x[j], a = v < 0 ? -v : v, hi = v >> 14;
-        uint32_t lo = (uint32_t)v & 0x3FFFu;
+        int32_t v = x[j], a, hi;
+        uint32_t lo;
+        if (tg != 4096) {                                    /* the trim: |v| <= 8 full scale first, 32-bit products */
+            v = v > (1 << 26) ? (1 << 26) : v < -(1 << 26) ? -(1 << 26) : v;
+            v = (v >> 12) * tg + (int32_t)((((uint32_t)v & 4095u) * (uint32_t)tg) >> 12);
+        }
+        a = v < 0 ? -v : v; hi = v >> 14;
+        lo = (uint32_t)v & 0x3FFFu;
         if (a > pk) pk = a;
         hi = hi > 131071 ? 131071 : hi < -131072 ? -131072 : hi;   /* |v| <= 32 full scale: products < 2^31 */
         m->L[j] += hi * gl + (int32_t)((lo * (uint32_t)gl) >> 14);

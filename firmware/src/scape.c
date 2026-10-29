@@ -38,6 +38,7 @@ static struct {
     /* and as last sent */
     const tx_engine_t *a_eng[SC_N];
     int16_t a_preset[SC_N], a_type[SC_N], a_count[SC_N], a_act[SC_N], a_level[SC_N], a_pan[SC_N];
+    int32_t a_trim[SC_N];                       /* (the sound's own level, Q12: landscapes.h) */
     uint8_t a_gen[SC_N], a_mute[SC_N], a_held[SC_N];
     /* the classic engines' glide and presses */
     int8_t q_id[SC_N][3];
@@ -120,6 +121,10 @@ static void sc_sync(uint32_t k)
     }
     if ((int32_t)sc_vol_of(k) != sc.a_level[k]) { ln_level(k, sc_vol_of(k)); sc.a_level[k] = (int16_t)sc_vol_of(k); }
     if (sc.pan[k] != sc.a_pan[k]) { ln_pan(k, sc.pan[k]); sc.a_pan[k] = sc.pan[k]; }
+    {
+        int32_t t = sc.snd[k] >= 0 ? (int32_t)LS[sc.fam].s[sc.snd[k]].trim : 4096;
+        if (t != sc.a_trim[k] && ln_trim(k, (uint32_t)t) >= 0) sc.a_trim[k] = t;
+    }
     gen = sc.run[k] && sc.notes[k];             /* the generator: on while the lane runs (Notes on) */
     if (gen && (int32_t)sc_act_val(sc.step[k]) != sc.a_act[k]) {
         ln_gen_param(k, TX_GEN_ACTIVITY, sc_act_val(sc.step[k])); sc.a_act[k] = (int16_t)sc_act_val(sc.step[k]);
@@ -340,6 +345,7 @@ static void sc_init(void)
     for (k = 0; k < SC_N; k++) {
         sc.snd[k] = -1; sc.notes[k] = 1; sc.pan[k] = 64;
         sc.a_preset[k] = sc.a_type[k] = sc.a_count[k] = sc.a_act[k] = sc.a_level[k] = sc.a_pan[k] = -1;
+        sc.a_trim[k] = -1;
     }
     sc_family(0);
 }
