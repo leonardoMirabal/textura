@@ -201,7 +201,8 @@ static inline int16_t *pl_wptr(tx_plate_t *s, int16_t *b, uint32_t n, uint32_t a
 }
 static void pl_cpy(int16_t *d, const int16_t *q)     /* PL_G + 1 int16 (both 4-byte aligned) */
 {
-    tx_fx_memcpy(d, q, (PL_G + 1u) * sizeof *d);
+    uint32_t i;
+    for (i = 0; i < PL_G + 1u; i++) d[i] = q[i];      /* (not memcpy: the device's copies a byte at a time) */
 }
 
 /* the input, one block: the bandwidth one-pole (toward its input: it ends at 0), then the 4 allpasses in a row, each

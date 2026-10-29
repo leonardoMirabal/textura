@@ -10,8 +10,9 @@
 #include "tx_engine.h"
 #include "tx_fx_tables.h"
 
-/* no <string.h> in engines/ (freestanding on the device: its libc's memset / memcpy) */
-#define tx_fx_memset __builtin_memset
+/* no <string.h> in engines/ (freestanding on the device: its libc's memset / memcpy, a byte at a time). Clears go
+ * through tx_zero (words: a reverb TYPE's start clears 14 .. 30 KB in the audio interrupt); c must be 0 */
+#define tx_fx_memset(p, c, n) (tx_zero((p), (n)), (void)sizeof(char[1 - 2 * ((c) != 0)]))
 #define tx_fx_memcpy __builtin_memcpy
 /* n words from s to d (TX_RAM code: libc's memcpy is out of its call's reach) */
 TX_INLINE void tx_fx_copy32(int32_t *d, const int32_t *s, unsigned n) { unsigned i; for (i = 0; i < n; i++) d[i] = s[i]; }

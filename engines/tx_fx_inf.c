@@ -295,7 +295,7 @@ static void ri_tank(tx_inf_t *s, int32_t *mo, int32_t *so, const tx_rev_ctl_t *c
         s->dh = hp, s->de = he;
     }
     act = ri_mix(&s->y[0][0], s->x, s->ring + w * RI_NL, mo, so, &s->te, &ab);
-    if (!w) tx_fx_memcpy(s->ring + RI_N * RI_NL, s->ring, RI_NL * sizeof s->ring[0]);
+    if (!w) { uint32_t i; for (i = 0; i < RI_NL; i++) s->ring[RI_N * RI_NL + i] = s->ring[i]; }   /* (not memcpy: bytes) */
     w += RI_NB;
     s->rr++;
     s->w = w >= RI_N ? 0u : w;
