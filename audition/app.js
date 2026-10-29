@@ -422,7 +422,7 @@ function saveLayers() {
 
 // ---- EFFECTS (tx_fx.h): the REVERB on the mix (group 2; TYPE ROOM is the old CHAMBER), each layer's DRIVE (0) and FILTER
 // (1) on its own signal. The reverb's values and each layer's are kept in this browser (textura.fx)
-const fxv = { rv: {}, gd: {}, lane: [0, 1, 2, 3].map(() => ({ 0: {}, 1: {} })) };
+const fxv = { rv: {}, gd: {}, cp: {}, lane: [0, 1, 2, 3].map(() => ({ 0: {}, 1: {} })) };
 function fxSave() { try { localStorage.setItem("textura.fx", JSON.stringify(fxv)); } catch (e) { } }
 function fxBox(box, g, vals, apply) {
   box.textContent = "";
@@ -441,13 +441,16 @@ function buildChamber() {                             // (the old CHAMBER's plac
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem("textura.fx") || "null"); } catch (e) { }
   if (saved && saved.gd) Object.assign(fxv.gd, saved.gd);
+  if (saved && saved.cp) Object.assign(fxv.cp, saved.cp);
   if (saved && saved.rv && saved.lane) { Object.assign(fxv.rv, saved.rv); saved.lane.forEach((l, k) => { if (k < 4) fxv.lane[k] = { 0: l[0] || {}, 1: l[1] || {} }; }); }
   try { if (!saved && localStorage.getItem("textura.chamber") === "1") fxv.rv = { 0: 1, 1: 127 }; } catch (e) { }   // CHAMBER on: ROOM
   for (const p in fxv.rv) M._txw_fx_param(2, 0, +p, fxv.rv[p]);
   for (const p in fxv.gd) M._txw_fx_param(3, 0, +p, fxv.gd[p]);
+  for (const p in fxv.cp) M._txw_fx_param(4, 0, +p, fxv.cp[p]);
   fxv.lane.forEach((l, k) => { for (const g of [0, 1]) for (const p in l[g]) M._txw_fx_param(g, k, +p, l[g][p]); });
   fxBox($("fx-rv"), 2, fxv.rv, (p, x) => M._txw_fx_param(2, 0, p, x));
   fxBox($("fx-gd"), 3, fxv.gd, (p, x) => M._txw_fx_param(3, 0, p, x));
+  fxBox($("fx-cp"), 4, fxv.cp, (p, x) => M._txw_fx_param(4, 0, p, x));
   fxLayer();
 }
 

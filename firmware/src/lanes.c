@@ -58,7 +58,7 @@ enum { LN_EV_KEY, LN_EV_PARAM, LN_EV_PAN, LN_EV_SWAP, LN_EV_OFF, LN_EV_FX, LN_EV
 const tx_engine_t *tx_source_hosted(const void *st);
 int tx_source_host_value(const void *st, unsigned id);
 void tx_source_host_param(void *st, unsigned id, unsigned val);
-enum { LN_FX_DRIVE, LN_FX_FILTER, LN_FX_REVERB, LN_FX_GRAIN, LN_FX_RELATCH };   /* ln_fx groups (as the player's
+enum { LN_FX_DRIVE, LN_FX_FILTER, LN_FX_REVERB, LN_FX_GRAIN, LN_FX_RELATCH, LN_FX_COMP };   /* ln_fx groups (as the player's
                                                  * txw_fx_param; RELATCH: a whole sound loaded, tx_fx_reverb_relatch) */
 typedef struct { uint8_t kind, lane, a, b, c; } ln_ev_t;
 
@@ -295,6 +295,7 @@ static void ln_event(const ln_ev_t *v)
         else if (v->a == LN_FX_REVERB) tx_fx_reverb_param(&ln.fx.rev, v->b, v->c);
         else if (v->a == LN_FX_GRAIN) tx_fx_grain_param(&ln.fx.gd, v->b, v->c);
         else if (v->a == LN_FX_RELATCH) tx_fx_reverb_relatch(&ln.fx.rev);
+        else if (v->a == LN_FX_COMP) tx_comp_amount(&ln.mix.comp, v->c);
         break;
     }
 }

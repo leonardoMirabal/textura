@@ -88,7 +88,11 @@ static void start(fm_run_t *r)
     r->blk = 0;
     r->rng = 99u;
     if (c->kind == FM_K_SCENE) scene_init(r, 0, c);
-    else if (c->kind == FM_K_FX) fx_setup(&r->fx, c->eng, c->type, c->decay);
+    else if (c->kind == FM_K_FX) {
+        fx_setup(&r->fx, c->eng, c->type, c->decay);
+        tx_comp_init(&r->mix.comp);
+        if (c->eng == FM_FX_COMP) tx_comp_amount(&r->mix.comp, c->type);
+    }
     else {
         lanes_fx(&r->fx);
         tx_mix_init(&r->mix);
@@ -139,7 +143,8 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
         for (j = 0; j < TX_BLOCK; j++) L[j] = 0;
         tx_engines[c->eng]->render(r->arena[0], L, TX_BLOCK);
     } else if (c->kind == FM_K_FX) {
-        if (c->eng >= FM_FX_REVERB) tx_fx_bus(&r->fx, L, R, TX_BLOCK); else tx_fx_lane(&r->fx, 0, L, TX_BLOCK);
+        if (c->eng == FM_FX_COMP) tx_comp_process(&r->mix.comp, L, R, TX_BLOCK);   /* (the mix's own, alone) */
+        else if (c->eng >= FM_FX_REVERB) tx_fx_bus(&r->fx, L, R, TX_BLOCK); else tx_fx_lane(&r->fx, 0, L, TX_BLOCK);
     } else {
         tx_mix_begin(&r->mix, TX_BLOCK);
         for (k = 0; k < c->eng; k++) {

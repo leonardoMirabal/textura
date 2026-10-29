@@ -582,6 +582,60 @@ static void check_noise_core(void)
     verdict("noise", "stable", !bad, msg, 0);
 }
 
+/* ---- COMP: the bus compressor. AMOUNT 0 is bit-exact; at AMOUNT 127 a steady sine at -6 dBFS (power -9 dBFS,
+ * 21 dB over the -30 dBFS threshold, ratio 3 : 1) is reduced 14 dB (+6 dB makeup: out at -14 dBFS); AMOUNT moved
+ * under a steady level (0 .. 127 .. 0 .. 64 .. 0, 100 ms each) never steps the output, and back at 0 it is exact again */
+static void check_comp(void)
+{
+    static int32_t L[TX_BLOCK], R[TX_BLOCK], L0[TX_BLOCK], R0[TX_BLOCK];
+    static const unsigned AM[] = {0, 127, 0, 64, 0, 40, 0};
+    tx_comp_t c;
+    tx_rng_t r;
+    unsigned b, j, k, same = 1;
+    int32_t gr, pk = 0, step = 0, prev = 4194304, exact = 1;
+    char msg[200];
+    tx_rng_seed(&r, 7u);
+    tx_comp_init(&c);
+    for (b = 0; b < 200u; b++) {
+        for (j = 0; j < TX_BLOCK; j++) { L[j] = L0[j] = tx_rand_s15(&r) * 256; R[j] = R0[j] = tx_rand_s15(&r) * 200; }
+        tx_comp_process(&c, L, R, TX_BLOCK);
+        for (j = 0; j < TX_BLOCK; j++) same &= L[j] == L0[j] && R[j] == R0[j];
+    }
+    verdict("comp", "bypass", same, "AMOUNT 0: the samples untouched (bit-exact)", 0);
+    tx_comp_init(&c);
+    tx_comp_amount(&c, 127);
+    for (b = 0; b < 400u; b++) {                             /* 2.3 s of a 1 kHz sine at -6 dBFS */
+        for (j = 0; j < TX_BLOCK; j++) {
+            int32_t v = tx_sin_q15((b * TX_BLOCK + j) * 97391263u) * 128;   /* (1000 Hz x 2^32 / 44100) */
+            L[j] = R[j] = v;
+        }
+        tx_comp_process(&c, L, R, TX_BLOCK);
+        if (b >= 300u) for (j = 0; j < TX_BLOCK; j++) pk = L[j] > pk ? L[j] : pk;
+    }
+    gr = tx_comp_gr_db10(&c);
+    snprintf(msg, sizeof msg, "a sine at -6 dBFS, AMOUNT 127: reduction %d.%d dB (14 +- 0.5), out peak %d (-14 dBFS: %d +- 6 %%)",
+             gr / 10, gr % 10, pk, 1675609);
+    verdict("comp", "gr", gr >= 135 && gr <= 145 && pk > 1675609 * 94 / 100 && pk < 1675609 * 106 / 100, msg, 0);
+    tx_comp_init(&c);
+    for (k = 0; k < sizeof AM / sizeof AM[0]; k++) {
+        tx_comp_amount(&c, AM[k]);
+        for (b = 0; b < 17u; b++) {                          /* 100 ms of a steady level: half scale */
+            for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = 4194304;
+            tx_comp_process(&c, L, R, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) {
+                int32_t d = L[j] - prev;
+                d = d < 0 ? -d : d;
+                step = d > step ? d : step;
+                prev = L[j];
+                if (k + 1u == sizeof AM / sizeof AM[0] && b == 16u) exact &= L[j] == 4194304;
+            }
+        }
+    }
+    snprintf(msg, sizeof msg, "AMOUNT moved under a steady level: the largest step a sample %d (under 0.5 %% of full scale: a glide, no click), exact once off again",
+             step);
+    verdict("comp", "smooth", step < 41943 && exact, msg, 0);
+}
+
 /* ---- GEN: the lane generator, 10 minutes alone at EVOLVE 2 h and at 10 s, twice each: deterministic, the activity
  * inside 0 .. 127 and wandering (every minute moves), notes bounded (at most 40 in a second), pitches inside the span,
  * sounding notes released (txgen runs the long version through a source) */
@@ -1602,6 +1656,7 @@ int main(int argc, char **argv)
     check_layers(update);
     check_fx(update);
     check_noise_core();
+    check_comp();
     if (!update) { check_gen(); check_gov(); check_switch(); check_keyrange(); check_rockfall_dist(); }
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }
     printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);

@@ -55,6 +55,7 @@ static void ready(void)                                 /* the mixer, once, befo
     if (!r) {
         tx_mix_init(&mixer); mixer.ch = &chamber;
         tx_fx_init(&fxc); mixer.ins = tx_fx_lane; mixer.bus = tx_fx_bus; mixer.busq = tx_fx_bus_quiet; mixer.fx = &fxc;
+        tx_comp_amount(&mixer.comp, tx_comp_params[TX_CP_AMOUNT].def);   /* (the app's default, as the FM-1's) */
         r = 1;
     }
 }
@@ -312,13 +313,15 @@ EMSCRIPTEN_KEEPALIVE const char *txw_max_sha(int i)
 }
 
 /* ---- EFFECTS (tx_fx.h): group 0 DRIVE and 1 FILTER (each layer's own, on its signal before the pan), 2 REVERB (on the
- * mix; its TYPE ROOM is the CHAMBER's body + a short hall), 3 GRAIN DELAY (on the mix, before the reverb) */
+ * mix; its TYPE ROOM is the CHAMBER's body + a short hall), 3 GRAIN DELAY (on the mix, before the reverb), 4 COMP (the
+ * bus compressor, after both: tx_core_comp.h) */
 static const tx_param_t *fx_list(int g, int *n)
 {
     if (g == 0) { *n = TX_DR_NP; return tx_fx_drive_params; }
     if (g == 1) { *n = TX_FL_NP; return tx_fx_filter_params; }
     if (g == 2) { *n = TX_RV_NP; return tx_fx_reverb_params; }
     if (g == 3) { *n = TX_GD_NP; return tx_fx_grain_params; }
+    if (g == 4) { *n = TX_CP_NP; return tx_comp_params; }
     *n = 0; return 0;
 }
 EMSCRIPTEN_KEEPALIVE int txw_fx_n(int g) { int n; fx_list(g, &n); return n; }
@@ -335,6 +338,7 @@ EMSCRIPTEN_KEEPALIVE void txw_fx_param(int g, int k, int i, int v)
     else if (g == 1 && k >= 0 && k < (int)TX_FX_LANES) tx_fx_filter_param(&fxc.filter[k], (unsigned)i, (unsigned)v);
     else if (g == 2) tx_fx_reverb_param(&fxc.rev, (unsigned)i, (unsigned)v);
     else if (g == 3) tx_fx_grain_param(&fxc.gd, (unsigned)i, (unsigned)v);
+    else if (g == 4 && i == (int)TX_CP_AMOUNT) tx_comp_amount(&mixer.comp, (unsigned)v);
 }
 EMSCRIPTEN_KEEPALIVE int txw_fx_frozen(void) { ready(); return tx_fx_reverb_frozen(&fxc.rev); }
 EMSCRIPTEN_KEEPALIVE int txw_fx_running(void) { ready(); return !tx_fx_reverb_quiet(&fxc.rev); }

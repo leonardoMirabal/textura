@@ -57,8 +57,8 @@ static void p_cat(char *d, const char *s, uint32_t max) { uint32_t n = 0; while 
 #define P_MODS(s) ((s) == P_LFO || (s) == P_ENV || (s) == P_MAT)   /* the modulation's scopes (mod.c's) */
 #define NOID_P 0xFFFFu
 enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_DRIVE0 = 32, PL_FILTER0 = 36, PL_NUM = 42 };
-enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_N_ = 26, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN, PG_TAP,
-       PG_SCNTEMPO, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR };
+enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP = 26, PG_N_ = 27, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN,
+       PG_TAP, PG_SCNTEMPO, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR };
 #define P_CH_GLOBAL 4u                          /* MIDI channel 5 (0-based 4) */
 
 /* how a value reads */
@@ -269,6 +269,7 @@ static const tx_param_t *p_fx_desc(uint32_t id)   /* an effect's descriptor (0: 
     } else if (s == P_GLOBAL) {
         if (i < PG_GRAIN0 + TX_GD_NP) return &tx_fx_grain_params[i - PG_GRAIN0];
         if (i >= PG_REVERB0 && i < PG_REVERB0 + TX_RV_NP) return &tx_fx_reverb_params[i - PG_REVERB0];
+        if (i == PG_COMP) return &tx_comp_params[TX_CP_AMOUNT];
     }
     return 0;
 }
@@ -394,7 +395,8 @@ static void p_set(uint32_t id, int32_t v)
     if (s == P_GLOBAL) {
         pv_glob[i] = (uint8_t)v;
         if (mod_holds(id)) return;              /* (modulated: the base only) */
-        if (i < PG_REVERB0) ln_fx(LN_FX_GRAIN, 0, i - PG_GRAIN0, (uint32_t)v);
+        if (i == PG_COMP) ln_fx(LN_FX_COMP, 0, 0, (uint32_t)v);
+        else if (i < PG_REVERB0) ln_fx(LN_FX_GRAIN, 0, i - PG_GRAIN0, (uint32_t)v);
         else ln_fx(LN_FX_REVERB, 0, i - PG_REVERB0, (uint32_t)v);
         return;
     }
@@ -473,6 +475,8 @@ static void p_init(void)
     }
     for (i = 0; i < TX_GD_NP; i++) pv_glob[PG_GRAIN0 + i] = tx_fx_grain_params[i].def;
     for (i = 0; i < TX_RV_NP; i++) pv_glob[PG_REVERB0 + i] = tx_fx_reverb_params[i].def;
+    pv_glob[PG_COMP] = tx_comp_params[TX_CP_AMOUNT].def;
+    ln_fx(LN_FX_COMP, 0, 0, pv_glob[PG_COMP]);  /* (the mix starts with it off: the default sent here) */
 }
 
 /* ---- MIDI: CC numbers (the lane's channel: P_CC_LANE; channel 5: P_CC_GLOBAL), NRPN */
@@ -493,7 +497,7 @@ static const p_cc_t P_CC_GLOBAL[] = {
     {85, PG_REVERB0 + TX_RV_TYPE}, {91, PG_REVERB0 + TX_RV_MIX}, {86, PG_REVERB0 + TX_RV_DECAY},
     {87, PG_REVERB0 + TX_RV_TONE}, {88, PG_REVERB0 + TX_RV_PREDELAY}, {89, PG_REVERB0 + TX_RV_SIZE},
     {90, PG_REVERB0 + TX_RV_MOD}, {92, PG_REVERB0 + TX_RV_LOWCUT}, {93, PG_REVERB0 + TX_RV_SHIMMER},
-    {94, PG_REVERB0 + TX_RV_SHIFT}, {114, PG_GSYNC},
+    {94, PG_REVERB0 + TX_RV_SHIFT}, {95, PG_COMP}, {114, PG_GSYNC},
     {3, PG_BPM}, {9, PG_TAP}, {80, PG_RUN},
 };
 /* a 7-bit value onto a parameter's range (0 .. hi): 127 always reaches hi */
