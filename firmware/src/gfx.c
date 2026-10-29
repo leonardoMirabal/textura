@@ -29,7 +29,7 @@ static int32_t cv_oy;            /* y offset for graph drawing */
 #define C_BLACK 0x0000u
 #define C_WHITE 0xFFFFu              /* accent only: what is being touched / where we are */
 /* The screen is five steps of one colour, darkest to brightest, plus white.
- * Palettes are picked in the HOME-hold menu (COLOR). */
+ * Palettes are picked on the DISPLAY page (COLOR: params.c color_apply). */
 typedef struct {
     const char *name;
     uint16_t c[5];

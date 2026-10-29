@@ -39,7 +39,7 @@ static void mod_lane_reset_isr(uint32_t k);
 #endif
 #include "lanes.c"
 
-#define TX_PALETTE "RED"                        /* the default colour */
+#define TX_PALETTE "RED"                        /* the colour before the settings load (COLOR's default: RED) */
 
 /* a fresh seed for each engine started: never the same twice (on the FM-1 the free-running 24 MHz timer adds the
  * moment; on the host the run stays repeatable for the tests) */
@@ -231,7 +231,7 @@ static int host_state(const char *key, char *v, unsigned n)
     unsigned k, i;
     char c;
     if (!strcmp(key, "app")) snprintf(v, n, "%s", APP_NAME);
-    else if (!strcmp(key, "palette")) snprintf(v, n, "%s", PALETTES[tx_palette_index(TX_PALETTE)].c[4] == C_HI ? TX_PALETTE : "?");
+    else if (!strcmp(key, "palette")) snprintf(v, n, "%s", COLOR_NAME[p_color]);
     else if (!strcmp(key, "splash")) snprintf(v, n, "%u", ui_splash_on);
     else if (!strcmp(key, "page")) {            /* (as the title: ENV's followers are FOLLOW) */
         const char *g = ui_g == G_ENV && ui_env >= TX_ENV_N ? "FOLLOW" : G_TITLE[ui_g];

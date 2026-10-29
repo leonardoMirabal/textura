@@ -477,7 +477,8 @@ static void scn_pc(uint32_t p)                  /* MIDI program change (channel 
 
 /* ---- the settings: one small record, saved SET_SAVE_MS after its last change (the platform's split save) */
 typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, scn_tempo, out_off; uint16_t bpm10, rsv2; } tx_set_t;
-                                                /* (scn_tempo, out_off: once spare bytes, 0 = as before: off, USB) */
+                                                /* (scn_tempo, out_off, palette: once spare bytes, 0 = as before: off,
+                                                 * USB, RED) */
 static tx_set_t set_saved, set_now;
 static uint8_t set_dirty, set_saving;
 static uint32_t set_t;
@@ -486,7 +487,7 @@ static void set_take(tx_set_t *s)
     memset(s, 0, sizeof *s);
     s->ver = SET_VER; s->scene = (uint8_t)(scn_cur == 0xFF ? 0u : scn_cur + 1u);
     s->clock = (uint8_t)tm.clock; s->in_usb = tm.in_usb; s->in_trs = tm.in_trs; s->bpm10 = (uint16_t)tempo_bpm10();
-    s->scn_tempo = tm.scn_tempo; s->out_off = (uint8_t)!tm.out_usb;
+    s->scn_tempo = tm.scn_tempo; s->out_off = (uint8_t)!tm.out_usb; s->palette = p_color;
 }
 static void set_poll(void)
 {
@@ -515,7 +516,7 @@ static void scn_init(void)
     scn_bank_load();
     if (!settings_load(&s, sizeof s) && s.ver == SET_VER) {
         tempo_mode(s.clock); tempo_port(1, s.in_usb); tempo_port(2, s.in_trs);
-        tempo_scene_flag(s.scn_tempo); tempo_out(!s.out_off);
+        tempo_scene_flag(s.scn_tempo); tempo_out(!s.out_off); color_apply(s.palette);
         if (s.bpm10 >= 400u && s.bpm10 <= 2400u) tempo_set10(s.bpm10);
         set_saved = s;
         if (s.scene && s.scene <= SCN_N) (void)scn_load(s.scene - 1u);

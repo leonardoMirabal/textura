@@ -12,6 +12,7 @@
  *           32 .. 37  TEMPO: BPM (40 .. 240) FINE (BPM in tenths) STATUS (read only) TRANSPORT TAP (over 63: a tap)
  *                     SCENE TEMPO (a scene's load sets its tempo: on / off, in the settings)
  *           40 .. 43  MIDI: CLOCK (INT MASTER FOLLOW AUTO) CLK IN USB, CLK IN TRS, CLK OUT (OFF / USB: MASTER sends)
+ *           44        DISPLAY: COLOR (the screen's palette: COLOR_NAME; in the settings)
  *   5       LFO n (0..7): n x 16 + SHAPE RATE SYNC MODE PHASE WIDTH JITTER FADE RESTART LEVEL (tx_lfo_params order),
  *           10 NOW 11 ROUTES (read only)
  *   6       ENV n (0..1): n x 16 + TRIGGER ATTACK DECAY RELEASE SUSTAIN CURVE VARY LOOP (tx_env_params order);
@@ -57,7 +58,7 @@ static void p_cat(char *d, const char *s, uint32_t max) { uint32_t n = 0; while 
 #define NOID_P 0xFFFFu
 enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_DRIVE0 = 32, PL_FILTER0 = 36, PL_NUM = 42 };
 enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_N_ = 26, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN, PG_TAP,
-       PG_SCNTEMPO, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT };
+       PG_SCNTEMPO, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR };
 #define P_CH_GLOBAL 4u                          /* MIDI channel 5 (0-based 4) */
 
 /* how a value reads */
@@ -70,6 +71,48 @@ static const char *const N_REVERB[] = {"OFF", "ROOM", "HALL", "INFINITE", "DARK"
 static const char *const N_SHIFT[] = {"+OCT", "+5TH", "+OCT+5", "-OCT"};
 static const char *const N_CLOCK[] = {"INT", "MASTER", "FOLLOW", "AUTO"};
 static const char *const N_CLKOUT[] = {"OFF", "USB"};   /* (TRS: the FM-1's jack is an input only) */
+
+/* ---- COLOR (DISPLAY K1): the screen's palette, Frodhes' (its ui.c, COLOR_ACC) with RED first: step 0 RED and 1 AMBER
+ * are gfx.c's own ramps (RED the default: the screen as before), then 25 pastel hues around the colour wheel, hue
+ * falling from peach through the pinks, violets, blues, cyans and greens to yellow, as one RGB565 accent each; their
+ * other steps are fractions of the accent, the brightest half way to white (color_apply). The index is saved (the
+ * settings, scenes.c), so the list only ever grows at its end. (Frodhes' own RED, a saturated red it appended, is
+ * RED's place here: Textura's red ramp.) */
+#define COLOR_N 27u
+static const uint16_t COLOR_ACC[COLOR_N] = {
+    0, 0,                                             /* RED, AMBER: gfx.c's ramps */
+    0xFD0E, 0xFC50, 0xFCB5, 0xFCB9, 0xFCDC,
+    0xFCFF, 0xED1F, 0xDD1F, 0xC53F, 0xACFF,
+    0x94FF, 0x957F, 0x8E1F, 0x8EFF, 0x8FBE,
+    0x8F9B, 0x8777, 0x8774, 0x8790, 0x9F90,
+    0xB7AF, 0xD7AF, 0xF7CF, 0xFF0F, 0xFE2F,
+};
+static const char *const COLOR_NAME[COLOR_N] = {
+    "RED", "AMBER", "PEACH", "CORAL", "ROSE", "PINK", "ORCHID", "MAUVE",
+    "PURPLE", "VIOLET", "LILAC", "IRIS", "BLUE", "DENIM", "SKY",
+    "OCEAN", "CYAN", "AQUA", "MINT", "JADE", "GREEN", "LEAF",
+    "LIME", "PEAR", "LEMON", "GOLD", "MANGO",
+};
+static uint8_t p_color;                         /* the COLOR step (0: RED) */
+static uint16_t cd_shade(uint16_t c, uint32_t pct)      /* an RGB565 colour x pct / 100 */
+{
+    uint32_t r = (c >> 11) & 31u, g = (c >> 5) & 63u, b = c & 31u;
+    return (uint16_t)((r * pct / 100u) << 11 | (g * pct / 100u) << 5 | (b * pct / 100u));
+}
+static uint16_t cd_lighten(uint16_t c)                  /* an RGB565 colour half way to white */
+{
+    uint32_t r = (c >> 11) & 31u, g = (c >> 5) & 63u, b = c & 31u;
+    return (uint16_t)((r + (31u - r) / 2u) << 11 | (g + (63u - g) / 2u) << 5 | (b + (31u - b) / 2u));
+}
+static void color_apply(uint32_t i)                     /* the COLOR step onto gfx.c's pal[] (ui.c's tokens follow) */
+{
+    uint16_t a;
+    if (i >= COLOR_N) i = 0;
+    p_color = (uint8_t)i;
+    if (i < 2u) { palette_set(tx_palette_index(i ? "AMBER" : "RED")); return; }
+    a = COLOR_ACC[i];
+    pal[0] = cd_shade(a, 25); pal[1] = cd_shade(a, 45); pal[2] = cd_shade(a, 70); pal[3] = a; pal[4] = cd_lighten(a);
+}
 
 /* mod.c (included after this file) */
 static int mod_valid(uint32_t id);
@@ -101,7 +144,7 @@ static const p_gx_t PGX[] = {
     {PG_GSYNC, "SYNC", 14, F_DIV}, {PG_BPM, "BPM", 200, F_BPM}, {PG_FINE, "FINE", 2000, F_BPM10},
     {PG_STATUS, "STATUS", 0, F_STATUS}, {PG_RUN, "TRANSPORT", 1, F_RUN}, {PG_TAP, "TAP", 127, F_NUM},
     {PG_CLOCK, "CLOCK", 3, F_ENUM}, {PG_INUSB, "CLK IN USB", 1, F_ONOFF}, {PG_INTRS, "CLK IN TRS", 1, F_ONOFF},
-    {PG_OUT, "CLK OUT", 1, F_ENUM}, {PG_SCNTEMPO, "SCENE TEMPO", 1, F_ONOFF},
+    {PG_OUT, "CLK OUT", 1, F_ENUM}, {PG_SCNTEMPO, "SCENE TEMPO", 1, F_ONOFF}, {PG_COLOR, "COLOR", COLOR_N - 1u, F_ENUM},
 };
 static const p_gx_t *p_gx(uint32_t id)
 {
@@ -293,7 +336,7 @@ static const char *const *p_names(uint32_t id)
 {
     uint32_t i = P_IDX(id);
     if (P_SCOPE(id) < P_LANES) return i == PL_DRIVE0 + TX_DR_TYPE ? N_DRIVE : i == PL_FILTER0 + TX_FL_TYPE ? N_FILTER : N_SHAPE;
-    return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : i == PG_CLOCK ? N_CLOCK : i == PG_OUT ? N_CLKOUT : N_SHIFT;
+    return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : i == PG_CLOCK ? N_CLOCK : i == PG_OUT ? N_CLKOUT : i == PG_COLOR ? COLOR_NAME : N_SHIFT;
 }
 static int32_t p_get(uint32_t id)
 {
@@ -310,6 +353,7 @@ static int32_t p_get(uint32_t id)
         case PG_INTRS: return (int32_t)tm_get(TG_INTRS);
         case PG_OUT: return (int32_t)tm_get(TG_OUT);
         case PG_SCNTEMPO: return (int32_t)tm_get(TG_SCNTEMPO);
+        case PG_COLOR: return p_color;
         }
         return i < PG_N_ ? pv_glob[i] : 0;
     }
@@ -343,6 +387,7 @@ static void p_set(uint32_t id, int32_t v)
         case PG_INTRS: tempo_port(2, v); break;
         case PG_OUT: tempo_out((uint32_t)v); break;
         case PG_SCNTEMPO: tempo_scene_flag((uint32_t)v); break;
+        case PG_COLOR: color_apply((uint32_t)v); break;
         }
         return;
     }

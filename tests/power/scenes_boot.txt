@@ -5,12 +5,14 @@
 1700 expect state pan0 20
 1700 expect state p411 110
 1700 expect state bpm10 1390
+1700 expect state palette PEACH
 1700 expect preset
 1800 btn 7
 1820 btn 7
 1840 expect state card0 AUTO
 1840 expect state card3 OFF
 1860 btn 7
+1865 btn 7
 1870 turn 0 1
 1880 expect state page TEMPO_2/2
 1880 expect state card0 ON
