@@ -95,7 +95,7 @@ static void test_init(void *st, uint32_t seed)
     test_t *s = (test_t *)st;
     uint8_t *b = (uint8_t *)st;
     unsigned i;
-    for (i = 0; i < sizeof *s; i++) b[i] = 0;
+    tx_zero(b, sizeof *s);
     tx_cloud_init(&s->cloud, seed);
     tx_pool_init(&s->pool, TX_POOL_MAX, 16);
     tx_noise_init(&s->air, seed ^ 0xA5A5A5A5u);

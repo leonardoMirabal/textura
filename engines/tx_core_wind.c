@@ -34,7 +34,7 @@ void tx_wind_init(tx_wind_t *w, uint32_t seed)
 {
     uint8_t *b = (uint8_t *)w;
     unsigned i;
-    for (i = 0; i < sizeof *w; i++) b[i] = 0;
+    tx_zero(b, sizeof *w);
     tx_rng_seed(&w->rng, seed ^ 0x57A1Du);
     tx_rng_seed(&w->nr, seed * 3u + 11u);
     tx_rng_seed(&w->nl, seed * 5u + 23u);

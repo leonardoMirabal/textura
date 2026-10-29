@@ -129,7 +129,7 @@ static void sparks_init(void *st, uint32_t seed)
     sparks_t *s = (sparks_t *)st;
     uint8_t *b = (uint8_t *)st;
     unsigned i;
-    for (i = 0; i < sizeof *s; i++) b[i] = 0;
+    tx_zero(b, sizeof *s);
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 1, 0);                         /* a key press: one discharge */
     tx_cloud_sizes(&s->cloud, 6144, 6u << 12);               /* discharge energies: alpha 1.5 over 6 octaves */

@@ -67,9 +67,7 @@ static void coefs(tx_shaker_res_t *r, uint32_t inc)          /* a1 = -2 r cos(th
 
 void tx_shaker_init(tx_shaker_t *s, uint32_t seed)
 {
-    uint8_t *b = (uint8_t *)s;
-    unsigned i;
-    for (i = 0; i < sizeof *s; i++) b[i] = 0;
+    tx_zero(s, sizeof *s);
     tx_rng_seed(&s->rng, seed);
     s->eq1 = 0; s->eq2 = -1;                                  /* STK rocks: 1, 0, -1 */
     s->sdec = 32113;                                          /* 0.98 */

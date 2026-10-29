@@ -215,7 +215,7 @@ static void storm_init(void *st, uint32_t seed)
     storm_t *s = (storm_t *)st;
     uint8_t *b = (uint8_t *)st;
     unsigned i;
-    for (i = 0; i < sizeof *s; i++) b[i] = 0;
+    tx_zero(b, sizeof *s);
     s->seed = seed;
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 1, 0);

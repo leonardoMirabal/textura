@@ -177,7 +177,7 @@ static void bees_init(void *st, uint32_t seed)
     bees_t *s = (bees_t *)st;
     uint8_t *b = (uint8_t *)st;
     unsigned i;
-    for (i = 0; i < sizeof *s; i++) b[i] = 0;
+    tx_zero(b, sizeof *s);
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 1, 0);
     tx_cloud_rate(&s->cloud, 0);

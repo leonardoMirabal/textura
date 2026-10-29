@@ -5,9 +5,8 @@
 
 void tx_mix_init(tx_mix_t *m)
 {
-    uint8_t *b = (uint8_t *)m;
-    unsigned i, k;
-    for (i = 0; i < sizeof *m; i++) b[i] = 0;
+    unsigned k;
+    tx_zero(m, sizeof *m);
     for (k = 0; k < TX_MIX_SLOTS; k++) tx_mix_pan(m, k, 64);
     tx_limit_init(&m->lim);
 }

@@ -54,9 +54,7 @@ typedef struct { int32_t lv; uint8_t gen, tag, kid, pad; } tx_clu_ev_t;   /* lv:
 
 static inline void tx_clu_init(tx_clu_t *c)
 {
-    uint8_t *b = (uint8_t *)c;
-    unsigned i;
-    for (i = 0; i < sizeof *c; i++) b[i] = 0;
+    tx_zero(c, sizeof *c);
 }
 
 /* an immigrant's gap at the rate now, Q8 samples (the SPACING law) */

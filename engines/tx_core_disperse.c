@@ -16,9 +16,7 @@ static void clear(tx_spring_t *s)
 
 void tx_spring_init(tx_spring_t *s)
 {
-    uint8_t *b = (uint8_t *)s;
-    unsigned i;
-    for (i = 0; i < sizeof *s; i++) b[i] = 0;
+    tx_zero(s, sizeof *s);
     s->a = -9830;                                            /* -0.6, Q14 */
     s->ola = 15500;                                          /* 4.5 kHz one-pole at fs (image low-pass) */
     tx_spring_set(s, 40000, 3000, 40, 26214);

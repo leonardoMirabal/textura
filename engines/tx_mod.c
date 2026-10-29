@@ -33,7 +33,7 @@ void tx_lfo_init(tx_lfo_t *l, unsigned n, uint32_t seed)
     static const uint8_t RT[TX_LFO_N] = {64, 49, 55, 72, 64, 64, 64, 64};   /* 0.1, 0.03, 0.05, 0.2 Hz, then 0.1 */
     unsigned i;
     uint8_t *b = (uint8_t *)l;
-    for (i = 0; i < sizeof *l; i++) b[i] = 0;
+    tx_zero(b, sizeof *l);
     for (i = 0; i < TX_LP_N; i++) l->p[i] = tx_lfo_params[i].def;
     l->p[TX_LP_SHAPE] = SH[n % TX_LFO_N]; l->p[TX_LP_RATE] = RT[n % TX_LFO_N];
     l->rng = seed | 1u;
@@ -228,7 +228,7 @@ void tx_env_init(tx_env_t *e, uint32_t seed)
 {
     unsigned i;
     uint8_t *b = (uint8_t *)e;
-    for (i = 0; i < sizeof *e; i++) b[i] = 0;
+    tx_zero(b, sizeof *e);
     for (i = 0; i < TX_EP_N; i++) e->p[i] = tx_env_params[i].def;
     e->rng = seed | 1u; e->vf = 4096; e->peak = 32767;
 }

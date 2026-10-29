@@ -1178,7 +1178,7 @@ static void caller_start(src_t *s, unsigned mi, int steal)
     v = &s->v[k];
     v->kind = V_CALLER; v->pre = PR_CICADAS; v->last = 0;
     c = &v->u.c;
-    { uint8_t *b = (uint8_t *)c; unsigned i; for (i = 0; i < sizeof *c; i++) b[i] = 0; }
+    tx_zero(c, sizeof *c);
     c->member = (uint8_t)mi;
     c->f = tx_exp2(m->f_l2);
     if (c->f > 16000u) c->f = 16000u;
@@ -1707,7 +1707,7 @@ static void host_switch(src_t *s, unsigned pre)
     s->wst = 0; s->wheld = 0;
     tx_declick_add(&s->dc, s->last_out);
     s->last_out = 0;
-    { uint8_t *b = (uint8_t *)s->host; for (i = 0; i < sizeof s->host; i++) b[i] = 0; }
+    tx_zero(s->host, sizeof s->host);
     s->hst = ne; s->hd = hd;
     s->hnear = hd ? host_near(hd->eng) : 32767;
     /* the particle presets' beds and filters start from silence (their last output went to the declick) */
@@ -1758,7 +1758,7 @@ static void host_switch(src_t *s, unsigned pre)
         }
         tx_clu_init(&s->clu);
         if (PRE[pre].kind == 4) {                            /* birds: their members fresh (over the callers' memory) */
-            { uint8_t *b = (uint8_t *)s->bm; for (i = 0; i < sizeof s->bm; i++) b[i] = 0; }
+            tx_zero(s->bm, sizeof s->bm);
             for (i = 0; i < NB; i++) s->bm[i].voice = 0xFF;
         }
         if (PRE[pre].kind == 3) {                            /* water: 8 heroes for the drops, the stream after them */
@@ -1909,7 +1909,7 @@ static void src_init(void *st, uint32_t seed)
     src_t *s = (src_t *)st;
     uint8_t *b = (uint8_t *)st;
     unsigned i;
-    for (i = 0; i < sizeof *s; i++) b[i] = 0;
+    tx_zero(b, sizeof *s);
     tx_rng_seed(&s->rng, seed);
     tx_rng_seed(&s->grng, seed ^ 0x6C1CADAu);
     s->limit = 6;

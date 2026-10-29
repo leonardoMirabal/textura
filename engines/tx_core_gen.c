@@ -52,7 +52,7 @@ void tx_gen_init(tx_gen_t *g, uint32_t seed)
 {
     uint8_t *b = (uint8_t *)g;
     unsigned i;
-    for (i = 0; i < sizeof *g; i++) b[i] = 0;
+    tx_zero(b, sizeof *g);
     tx_rng_seed(&g->rng, seed ^ 0x6E4E4E21u);
     for (i = 0; i < TX_GEN_NP; i++) g->p[i] = tx_gen_params[i].def;
     for (i = 0; i < TX_GEN_K; i++) { g->wa[i] = gauss12(&g->rng) * 6; g->wp[i] = gauss12(&g->rng) * 6; }

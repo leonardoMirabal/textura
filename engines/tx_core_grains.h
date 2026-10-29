@@ -41,7 +41,7 @@ static inline void tx_gr_init(tx_grains_t *g)
 {
     uint8_t *b = (uint8_t *)g;
     unsigned i;
-    for (i = 0; i < sizeof *g; i++) b[i] = 0;
+    tx_zero(b, sizeof *g);
     for (i = 0; i < TX_GR_SLOTS; i++) g->head[i] = 0xFF;
 }
 

@@ -101,3 +101,16 @@ int tx_param_find(const tx_engine_t *e, const char *name)
         if (same(e->params[i].name, name)) return (int)i;
     return -1;
 }
+
+void tx_zero(void *p, uint32_t n)
+{
+    uint32_t i = 0;
+    if (!((uintptr_t)p & 3u)) {
+        uint32_t *w = (uint32_t *)p, nw = n >> 2;
+        for (; i + 8u <= nw; i += 8u) { w[i] = 0; w[i + 1u] = 0; w[i + 2u] = 0; w[i + 3u] = 0;
+                                        w[i + 4u] = 0; w[i + 5u] = 0; w[i + 6u] = 0; w[i + 7u] = 0; }
+        for (; i < nw; i++) w[i] = 0;
+        i = nw << 2;
+    }
+    for (; i < n; i++) ((uint8_t *)p)[i] = 0;
+}

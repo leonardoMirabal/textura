@@ -38,9 +38,7 @@ typedef struct {
 static inline void tx_vary_init(tx_vary_t *v, uint32_t seed, int32_t lo_db10, int32_t hi_db10, int32_t tilt_db10,
                                 int32_t drift_db10, unsigned k)
 {
-    uint8_t *b = (uint8_t *)v;
-    unsigned i;
-    for (i = 0; i < sizeof *v; i++) b[i] = 0;
+    tx_zero(v, sizeof *v);
     tx_rng_seed(&v->rng, seed ^ 0x5A17C0DEu);
     v->lo = TX_DB10(lo_db10);
     v->span = TX_DB10(hi_db10 - lo_db10);

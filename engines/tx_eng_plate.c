@@ -135,7 +135,7 @@ static void plate_init(void *st, uint32_t seed)
     plate_t *s = (plate_t *)st;
     uint8_t *bp = (uint8_t *)st;
     unsigned i;
-    for (i = 0; i < sizeof *s; i++) bp[i] = 0;
+    tx_zero(bp, sizeof *s);
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 1, 0);
     tx_cloud_rate(&s->cloud, 12u << 8);                      /* a held key rolls: ~12 soft hits / s */

@@ -6,9 +6,7 @@
 
 void tx_scrape_init(tx_scrape_t *s, uint32_t seed)
 {
-    uint8_t *b = (uint8_t *)s;
-    unsigned i;
-    for (i = 0; i < sizeof *s; i++) b[i] = 0;
+    tx_zero(s, sizeof *s);
     tx_rng_seed(&s->rng, seed);
     s->pos = DONE;
     s->kdur_q8 = 2u << 8;

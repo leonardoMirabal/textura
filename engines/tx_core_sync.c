@@ -13,9 +13,7 @@ static int32_t gauss_q12(tx_rng_t *r)
 
 void tx_sync_init(tx_sync_t *s)
 {
-    uint8_t *b = (uint8_t *)s;
-    unsigned i;
-    for (i = 0; i < sizeof *s; i++) b[i] = 0;
+    tx_zero(s, sizeof *s);
     s->asat = 1 << 14;
 }
 

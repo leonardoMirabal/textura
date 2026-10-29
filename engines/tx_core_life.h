@@ -27,7 +27,7 @@ static inline void tx_life_init(tx_life_t *l, uint32_t seed)
 {
     uint8_t *b = (uint8_t *)l;
     unsigned i;
-    for (i = 0; i < sizeof *l; i++) b[i] = 0;
+    tx_zero(b, sizeof *l);
     tx_rng_seed(&l->rng, seed ^ 0x11FE5EEDu);
     for (i = 0; i < 3; i++) l->w[i] = (int32_t)(tx_rand(&l->rng) >> 18) - 8192;   /* start somewhere, not at 0 */
     l->sw_wait = 64u + (tx_rand(&l->rng) >> 22);

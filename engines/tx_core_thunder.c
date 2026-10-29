@@ -101,7 +101,7 @@ void tx_flash_start(tx_flash_t *f, tx_rng_t *r, uint32_t dist_m, uint32_t height
     unsigned i;
     int32_t lf, ls, l2;
     uint32_t T_us;
-    for (i = 0; i < sizeof *f; i++) b[i] = 0;
+    tx_zero(b, sizeof *f);
     if (dist_m < 50u) dist_m = 50u;
     if (dist_m > 30000u) dist_m = 30000u;
     f->pz = (int32_t)(height_m * 100u);

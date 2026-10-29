@@ -39,6 +39,11 @@
 #define TX_SLOTS 4u                /* instances that may play at once (stage S3) */
 #define TX_STATE_MAX 16384u        /* bytes of state an instance may use (a slot's arena) */
 
+/* clear n bytes (tx_engines.c): 32-bit stores where p is word aligned (an engine's state, a voice), else byte by byte.
+ * The same zeros as a byte loop, which the FM-1's compiler keeps as one store a byte (no builtin memset there): an
+ * engine's init, a hosted engine's switch, cleared ~12 KB at a time inside an audio block */
+void tx_zero(void *p, uint32_t n);
+
 #define TX_PID_PARTICLES 0x80u     /* shared parameter ids (param()) */
 #define TX_PID_LEVEL 0x81u
 

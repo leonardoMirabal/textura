@@ -83,7 +83,7 @@ void tx_chamber_init(tx_chamber_t *c)
 {
     uint8_t *b = (uint8_t *)c;
     unsigned i;
-    for (i = 0; i < sizeof *c; i++) b[i] = 0;
+    tx_zero(b, sizeof *c);
     for (i = 0; i < TX_CH_NP; i++) c->p[i] = tx_chamber_params[i].def;
     c->body_mix = c->p[TX_CH_BODY] * 258;
     c->tail_mix = c->p[TX_CH_TAIL] * 258;

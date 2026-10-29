@@ -145,7 +145,7 @@ static void candle_init(void *st, uint32_t seed)
     candle_t *s = (candle_t *)st;
     uint8_t *b = (uint8_t *)st;
     unsigned i;
-    for (i = 0; i < sizeof *s; i++) b[i] = 0;
+    tx_zero(b, sizeof *s);
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 1, 0);                         /* lighting a flame: one tick */
     tx_cloud_sizes(&s->cloud, 5734, 8u << 12);               /* b = 1.4 over 8 octaves (2.4 decades) of energy */

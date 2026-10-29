@@ -116,7 +116,7 @@ static void stream_init(void *st, uint32_t seed)
     stream_t *s = (stream_t *)st;
     uint8_t *b = (uint8_t *)st;
     unsigned i;
-    for (i = 0; i < sizeof *s; i++) b[i] = 0;
+    tx_zero(b, sizeof *s);
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 12, 60);                       /* a stone tipped in: a gulp of bubbles */
     tx_cloud_release(&s->cloud, 7);                          /* released, the flow dies away (tau 0.74 s, ~3 s) */

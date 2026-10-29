@@ -65,9 +65,7 @@ static uint32_t stream_gap(tx_cloud_t *c, tx_emitter_t *e)
 /* ---- configuration */
 void tx_cloud_init(tx_cloud_t *c, uint32_t seed)
 {
-    uint8_t *p = (uint8_t *)c;
-    unsigned i;
-    for (i = 0; i < sizeof *c; i++) p[i] = 0;
+    tx_zero(c, sizeof *c);
     tx_rng_seed(&c->rng, seed);
     tx_cloud_rate(c, 10u << 8);
     c->jitter_q8 = 256;

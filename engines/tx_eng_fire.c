@@ -230,7 +230,7 @@ static void fire_init(void *st, uint32_t seed)
     fire_t *s = (fire_t *)st;
     uint8_t *b = (uint8_t *)st;
     unsigned i;
-    for (i = 0; i < sizeof *s; i++) b[i] = 0;
+    tx_zero(b, sizeof *s);
     s->fmul = s->fdg = 32768;
     tx_cloud_init(&s->cloud, seed);
     tx_cloud_burst(&s->cloud, 6, 400);                       /* the throw: 6 crackles over ~0.4 s (ours) */
