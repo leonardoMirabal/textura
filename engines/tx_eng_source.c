@@ -407,7 +407,7 @@ typedef struct {
     const tx_engine_t *wst;         /* water: the stream engine under the drops (its state at host + WATER_OFF) */
     const void *hcur;               /* what the arena holds now (a host, the water, or 0) */
     int8_t wid[HOST_NC];            /* the water stream's parameter ids */
-    uint8_t wval[HOST_NC], wheld, wpad;
+    uint8_t wval[HOST_NC], wheld, wnote;  /* (wnote: the key the stream holds, released by the same key) */
     const host_t *hd;
     int8_t hid[HOST_NC];            /* its curves' parameter ids */
     uint8_t hval[HOST_NC];          /* the values last sent */
@@ -1890,7 +1890,11 @@ TX_AUDIO_CODE static int water_stream(src_t *s, int32_t *mix, unsigned n)
     unsigned i;
     int on = s->run > 4096 && s->i_eff > WATER_ON;
     if (!s->wst) return 0;
-    if (on != s->wheld) { s->wheld = (uint8_t)on; s->wst->key(ws, s->note, on ? 100 : 0, (uint8_t)on); }
+    if (on != s->wheld) {                                    /* (s->note moves with each press: the stream's own key) */
+        s->wheld = (uint8_t)on;
+        if (on) s->wnote = s->note;
+        s->wst->key(ws, s->wnote, on ? 100 : 0, (uint8_t)on);
+    }
     for (i = 0; i < HOST_NC; i++) {
         int32_t v;
         if (s->wid[i] < 0) continue;

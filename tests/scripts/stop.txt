@@ -1,0 +1,16 @@
+# a lane stopped goes silent: water drops (F01 lane 3) at HOW ACTIVE high, where the stream under the drops is on and
+# the generator's notes move the source's key; HOW ACTIVE 0 stops it, its tails ring out to silence
+1500 midi 0xC0 0
+4500 midi 0xB0 22 0
+4500 midi 0xB1 22 0
+4500 midi 0xB2 22 0
+4500 midi 0xB3 22 0
+5000 midi 0xB2 22 100
+5000 midi 0xB2 21 127
+8000 expect state run2 1
+8000 expect rms > -40
+8500 midi 0xB2 22 0
+12000 expect state run2 0
+20000 expect rms < -150
+20100 expect sound
+20200 end
