@@ -36,9 +36,19 @@
 3920 expect state act3 2
 4000 turn 5 -10
 4020 expect state vol3 90
-# OCT- : lane 3
+# OCT- : lane 3, and from a page that is not a lane's, its SOUND page; OCT+ there: lane 4, the same page; HOME back
 4100 btn 0
 4120 expect state sel 3
+4120 expect state page SOUND_1/2
+4138 shot
+4140 btn 1
+4160 expect state sel 4
+4160 expect state page SOUND_1/2
+4160 shot
+4170 btn 0
+4180 btn 8
+4190 expect state sel 3
+4190 expect state page LANDSCAPE
 # K1: the next sound not on another lane
 4200 turn 2 1
 4220 expect state snd2 cave_drips

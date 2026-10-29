@@ -19,7 +19,7 @@
  *   GLO        TEMPO (again: MIDI, DISPLAY)        LFO  the LFO pages; held + a card turned: mod learn (the
  *              selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP  MATRIX
  *   ENV        the ENV / FOLLOW pages; held + a card turned: mod learn from the selected ENV or FOLLOW
- *   SEL        key mode: LANDSCAPE / PLAY      OCT- OCT+  LANDSCAPE mode: the lane; PLAY mode: the octave
+ *   SEL        key mode: LANDSCAPE / PLAY      OCT- OCT+  LANDSCAPE mode: the lane (and its page); PLAY mode: the octave
  *   REC        LANDSCAPE mode: all lanes stop (remembered) / start again
  *   SAVE       the save mode (scenes.c: PRESETS / K1 the user scene, SAVE again saves, HOME cancels); held 700 ms:
  *              undo the last scene load            PRESETS  browse the scenes (loads 400 ms after the last detent)
@@ -709,10 +709,12 @@ static void ui_page_step(int32_t d)             /* SELECT: the next sub-page, th
         else if (ui_g > 0u) ui_goto(ui_g - 1u, ui_nsub(ui_g - 1u) - 1u);
     }
 }
-static void ui_lane_step(int32_t d)
+static void ui_lane_step(int32_t d)             /* OCT: the lane, and its page: a lane's page (SOUND, DRIVE, FILTER)
+                                                 * stays with the new lane, any other goes to the lane's SOUND 1 */
 {
     int32_t k = (int32_t)sc.sel + d;
     sc_select((uint32_t)clampi(k, 0, (int32_t)SC_N - 1));
+    if (ui_lane_page()) ui_goto(ui_g, ui_sub); else ui_goto(G_SOUND, 0);
     ui_say_n("LANE", sc.sel + 1);
 }
 /* a parameter turned by d detents: an amount or a choice by d, a toggle on (up) / off (down) */
