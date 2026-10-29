@@ -1807,11 +1807,20 @@ TX_AUDIO_CODE static void hosted_out(src_t *s, const tx_engine_t *e, void *st, i
 {
     unsigned j;
     int32_t g0 = s->hgain, g1, d;
+    int32_t z = 0;
     for (j = 0; j < n; j++) s->buf[j] = 0;
     e->render(st, s->buf, n);
     g1 = (int32_t)tx_exp2((12 << 16) + TX_DB10(gdb) + 103872 - clampi(dist_l2(s), TX_PLACE_R_MIN, 14 << 16));
     if (g1 > (s->hnear ? (int32_t)s->hnear : 32767)) g1 = s->hnear ? (int32_t)s->hnear : 32767;   /* (a loud sound's own
                                                              * nearest gain) */
+    for (j = 0; j < n; j++) z |= s->buf[j];
+    if (!z && !s->hlp && !s->dc.v) {                         /* a quiet block, the air and the declick settled: every pass
+                                                              * below would give zeros (the trim, the headroom of 0 is 0),
+                                                              * so only the gain's state moves on (the cost pass, A2) */
+        s->hgain = g1;
+        s->last_out = 0;
+        return;
+    }
     {   /* the air between: a one-pole whose corner falls with the distance (no change closer than ~10 m) */
         int32_t lp = s->hlp, al = tx_place_lp_q15(dist_l2(s));
         if (al < 32000) {
@@ -2245,8 +2254,12 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     /* the clicks: a soft impact (one-pole ~4 kHz) */
     {
         int32_t lp = s->clp, in = 0;
-        for (j = 0; j < n; j++) { in |= s->ck[j]; lp += ((s->ck[j] - lp) * 15) >> 5; s->buf[j] += lp * 256; }
-        s->clp = (lp > -8 && lp < 8 && !in) ? 0 : lp;
+        if (!lp) for (j = 0; j < n; j++) in |= s->ck[j];     /* (no click and none ringing: the pass adds zeros; A2) */
+        if (lp || in) {
+            in = 0;
+            for (j = 0; j < n; j++) { in |= s->ck[j]; lp += ((s->ck[j] - lp) * 15) >> 5; s->buf[j] += lp * 256; }
+            s->clp = (lp > -8 && lp < 8 && !in) ? 0 : lp;
+        }
     }
     /* the far drops (rain): grains, each its own bubble or splash (tx_core_grains.h) */
     if (PRE[pa].kind == 0) tx_gr_render(&s->gr, r, s->buf, n);
