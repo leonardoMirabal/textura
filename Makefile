@@ -96,7 +96,7 @@ $(B)/gen_tables: bench/gen_tables.c
 tx-tables: $(B)/gen_tables
 	$(B)/gen_tables engines/tx_tables.h engines/tx_tables.c
 
-$(B)/gen_fx_tables: bench/gen_fx_tables.c
+$(B)/gen_fx_tables: bench/gen_fx_tables.c engines/tx_fx_gd_len.h
 	@mkdir -p $(B)
 	$(CC) -O2 -Wall -o $@ $< -lm
 

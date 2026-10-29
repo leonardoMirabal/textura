@@ -19,6 +19,7 @@
 #include "tx_core_chamber.h"
 #include "tx_fx_kern.h"
 #include "tx_fx_drv.h"
+#include "tx_fx_gd_len.h"
 
 /* ---- FILTER (per lane): a TPT state-variable stage, stable at any setting (Frodhes' FILTER) */
 enum { TX_FL_TYPE, TX_FL_FREQ, TX_FL_RESO, TX_FL_LFO, TX_FL_RATE, TX_FL_SHAPE, TX_FL_NP };
@@ -60,7 +61,6 @@ uint32_t tx_fx_drive_us(const tx_fx_drive_t *d);  /* its FM-1 cost now, us a blo
 enum { TX_GD_MIX, TX_GD_TIME, TX_GD_FEEDBACK, TX_GD_GRAINS, TX_GD_SIZE, TX_GD_SPRAY, TX_GD_PITCH, TX_GD_REVERSE,
        TX_GD_SPREAD, TX_GD_TONE, TX_GD_GRAIN, TX_GD_FREEZE, TX_GD_NP };
 extern const tx_param_t tx_fx_grain_params[TX_GD_NP];
-#define TX_GD_N 64000u             /* the line: 1.451 s, block float (12-bit mantissas, a 4-bit shift per 16 samples) */
 #define TX_GD_MAXG 16u
 typedef struct {
     uint32_t pos;                  /* the read position, whole samples (0 .. TX_GD_N - 1) */
