@@ -55,6 +55,7 @@ static const tx_param_t PARAMS[NP] = {
 
 #define NV 8u
 #define NM 6u
+#define PATH_SPAN 39322            /* a node-to-node span x 2^(+-0.6), log2 Q16 */
 #define G_REF 4000                 /* impact gain: r 10 mm at 0.3 m/s (Q15; calibrated by render) */
 
 TX_AUDIO_DATA static const uint16_t SURF_HZ[5] = { 200, 620, 420, 600, 260 };      /* first surface mode (ours; wood from the
@@ -84,6 +85,8 @@ typedef struct {
     tx_svf_t surf[NM];
     int32_t sf[NM], sgin[NM], sg[NM], sq;
     uint32_t kph[NM], mph[NM];     /* each mode's spatial frequency (phase per mm Q8) and its phase at the contact */
+    uint16_t kq[NM];               /* this node-to-node span's length factor, Q8 (the path's own) */
+    uint32_t prng;                 /* the path's draws (apart from the cloud's) */
     tx_event_t ev[TX_CLOUD_EV_MAX];
     int32_t force[TX_BLOCK], buf[TX_BLOCK];
     uint8_t p[NP], limit, quiet;
@@ -149,6 +152,9 @@ static void pebble_init(void *st, uint32_t seed)
     tx_cloud_rate(&s->cloud, 0);
     for (i = 0; i < NV; i++) { tx_scrape_init(&s->v[i].sc, seed * 11u + i * 6151u + 9u); s->v[i].em = 0xFF; }
     s->limit = 6;
+    s->prng = seed * 2654435761u + 0x7E3B1u;
+    if (!s->prng) s->prng = 1;
+    for (i = 0; i < NM; i++) s->kq[i] = 256;
     for (i = 0; i < NP; i++) set_param(s, i, PARAMS[i].def);
     s->level = tx_level_q15(100);
     s->quiet = 1;
@@ -313,13 +319,21 @@ TX_AUDIO_CODE static void pebble_render(void *st, int32_t *mix, unsigned n)
     }
     {   /* the surface's modes as the pebble rolls across them: a mode is excited ~ its shape at the contact point, so
          * each comes and goes as the contact passes its nodes (bending waves, lambda ~ 200 mm at 600 Hz, ~ f^-1/2;
-         * ours). Session 5: the modes were steady lines for the whole hold; the references' come and go. */
+         * ours). Session 5: the modes were steady lines for the whole hold; the references' come and go. The path is no
+         * straight line at one speed: each span from node to node its own length (x 2^+-PATH_SPAN); at one steady
+         * speed the modes came and went on a clock, a 3.2 Hz beat in every seed. */
         uint32_t vs = 0, m;
         for (i = 0; i < NV; i++) if (s->v[i].alive) vs += s->v[i].v;
         vs = (vs > 4000000u ? 4000000u : vs) * 3u >> 11;      /* mm per block, Q8 */
         for (m = 0; m < NM; m++) {
             int32_t sh;
-            s->mph[m] += vs * s->kph[m];
+            uint32_t ph = s->mph[m];
+            s->mph[m] += ((vs * s->kq[m]) >> 8) * s->kph[m];
+            if ((ph ^ s->mph[m]) & 0x80000000u) {          /* past a node: the next span its own length */
+                uint32_t x = s->prng;
+                x ^= x << 13; x ^= x >> 17; x ^= x << 5; s->prng = x;
+                s->kq[m] = (uint16_t)(tx_exp2((int32_t)((x >> 16) * (2u * PATH_SPAN) >> 16) - PATH_SPAN + (8 << 16)));
+            }
             sh = tx_sin_q15(s->mph[m]);
             sh = (sh * sh) >> 15;                            /* the shape's power at the contact: 0 at a node */
             s->sg[m] = (int32_t)((SURF_G[m] * (uint32_t)(983 + ((sh * 31785) >> 15))) >> 15);   /* 0.03 .. 1 */
