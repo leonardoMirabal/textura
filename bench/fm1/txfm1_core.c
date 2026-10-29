@@ -46,8 +46,9 @@ static void fx_setup(tx_fx_t *fx, unsigned kind, unsigned type, unsigned decay)
     }
 }
 
-/* the lanes' bus: a ROOM reverb, the grain delay (16 grains, pitched) and a drive + filter on every lane */
-static void lanes_fx(tx_fx_t *fx)
+/* the lanes' bus: a ROOM reverb, the grain delay (16 grains, pitched) and a drive + filter on every lane; off: the
+ * effects left out (FM_NO_*) */
+static void lanes_fx(tx_fx_t *fx, unsigned off)
 {
     unsigned k;
     tx_fx_init(fx);
@@ -58,6 +59,13 @@ static void lanes_fx(tx_fx_t *fx)
     for (k = 0; k < TX_FX_LANES; k++) {
         tx_fx_drive_param(&fx->drive[k], TX_DR_AMOUNT, 70); tx_fx_drive_param(&fx->drive[k], TX_DR_MIX, 100);
         tx_fx_filter_param(&fx->filter[k], TX_FL_TYPE, 2); tx_fx_filter_param(&fx->filter[k], TX_FL_FREQ, 90);
+        if (off & FM_NO_DRIVE) tx_fx_drive_param(&fx->drive[k], TX_DR_AMOUNT, 0);
+        if (off & FM_NO_FILTER) tx_fx_filter_param(&fx->filter[k], TX_FL_TYPE, 0);
+    }
+    if (off & FM_NO_GRAIN) tx_fx_grain_param(&fx->gd, TX_GD_MIX, 0);
+    if (off & FM_NO_REVERB) {                                /* (the grains' cap as with the ROOM: its 390 us less) */
+        tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, TX_RVT_OFF); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 0);
+        fx->reserve_us -= 390u;
     }
 }
 
@@ -97,7 +105,7 @@ static void start(fm_run_t *r)
         }
     }
     else {
-        lanes_fx(&r->fx);
+        lanes_fx(&r->fx, c->type);
         tx_mix_init(&r->mix);
         r->mix.ins = tx_fx_lane; r->mix.bus = tx_fx_bus; r->mix.busq = tx_fx_bus_quiet; r->mix.fx = &r->fx;
         for (k = 0; k < c->eng; k++) { scene_init(r, k, &r->tab[c->lane[k]]); tx_mix_pan(&r->mix, k, 20u + 30u * k); }

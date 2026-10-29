@@ -147,8 +147,9 @@ int main(int argc, char **argv)
         }
         {   /* four lanes: the four highest w8 (rain on water, water, minerals, stone cloud at their worst), and the
              * mixes tx-budget prices (forest, storm, cave; at their intensities) */
-            unsigned l[4];
+            unsigned l[4], lw[4], ls[4];
             l[0] = worst[0]; l[1] = worst[3]; l[2] = worst[13]; l[3] = worst[1];
+            for (k = 0; k < 4u; k++) lw[k] = l[k];
             lanes(l, 4, "4 lanes worst (rain TYPE 40, water TYPE 127, minerals HARD 127, stones SPACING 0)");
             l[0] = src(15, 64, 64, 0, 0, "songbird ACT 64 (forest)"); l[1] = src(4, 64, 64, 0, 0, "wind ACT 64 (forest)");
             l[2] = src(6, 64, 64, 0, 0, "crickets ACT 64 (forest)"); l[3] = src(3, 64, 64, 0, 0, "water ACT 64 (forest)");
@@ -156,9 +157,28 @@ int main(int argc, char **argv)
             l[0] = src(0, 96, 64, 0, 0, "rain ACT 96 (storm)"); l[1] = th;
             l[2] = src(4, 96, 64, 0, 0, "wind ACT 96 (storm)"); l[3] = src(3, 96, 64, 0, 0, "water ACT 96 (storm)");
             lanes(l, 4, "4 lanes storm");
+            for (k = 0; k < 4u; k++) ls[k] = l[k];
             l[0] = src(3, 16, 64, "TYPE", 16, "drips ACT 16 (cave)"); l[1] = src(13, 64, 64, 0, 0, "minerals ACT 64 (cave)");
             l[2] = def[3]; l[3] = src(4, 32, 64, 0, 0, "wind ACT 32 (cave)");
             lanes(l, 4, "4 lanes cave");
+            {   /* the storm and the worst four with effects left out (TYPE: a mask, txfm1_core.c FM_NO_*): what each
+                 * part of the effects costs in the mix */
+                static const struct { unsigned m; const char *t; } OFF[] = {
+                    {FM_NO_GRAIN, "no GRAIN"}, {FM_NO_REVERB, "no REVERB"},
+                    {FM_NO_DRIVE | FM_NO_FILTER, "no DRIVE, FILTER"},
+                    {FM_NO_GRAIN | FM_NO_REVERB | FM_NO_DRIVE | FM_NO_FILTER, "no effects"}};
+                char lab[96];
+                for (k = 0; k < 4u; k++) {
+                    snprintf(lab, sizeof lab, "4 lanes storm, %s", OFF[k].t);
+                    lanes(ls, 4, lab);
+                    cfg[nc - 1u].type = (uint8_t)OFF[k].m;
+                }
+                for (k = 0; k < 4u; k++) {
+                    snprintf(lab, sizeof lab, "4 lanes worst, %s", OFF[k].t);
+                    lanes(lw, 4, lab);
+                    cfg[nc - 1u].type = (uint8_t)OFF[k].m;
+                }
+            }
         }
     }
     if (!(f = fopen(argv[1], "w"))) { perror(argv[1]); return 2; }

@@ -18,13 +18,15 @@
 enum { FM_K_SCENE, FM_K_FX, FM_K_LANES };
 enum { FM_FX_DRIVE, FM_FX_FILTER, FM_FX_REVERB, FM_FX_GRAIN, FM_FX_COMP };   /* COMP: TYPE 0 its defaults, 1 the hardest */
 enum { FM_EV_ON, FM_EV_OFF, FM_EV_PARAM };
+enum { FM_NO_GRAIN = 1, FM_NO_REVERB = 2, FM_NO_DRIVE = 4, FM_NO_FILTER = 8 };   /* LANES: TYPE, effects left out */
 
 typedef struct { uint16_t blk; uint8_t kind, id, a, b; } fm_ev_t;   /* ON: a note, b vel; PARAM: id, a */
 
 typedef struct {
     uint8_t kind;                  /* FM_K_* */
     uint8_t eng;                   /* SCENE: index in tx_engines[]; FX: FM_FX_*; LANES: the number of lanes */
-    uint8_t type, decay;           /* FX: the TYPE (grain delay: the grains), DECAY (grain delay: 1 = pitched) */
+    uint8_t type, decay;           /* FX: the TYPE (grain delay: the grains), DECAY (grain delay: 1 = pitched);
+                                    * LANES: TYPE the effects left out (FM_NO_*) */
     uint16_t ev, nev;              /* SCENE: its events in FM_EV[] */
     uint16_t nblk;                 /* blocks measured */
     uint16_t lane[4];              /* LANES: the scene configurations of the lanes */
