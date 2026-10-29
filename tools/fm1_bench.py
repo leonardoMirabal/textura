@@ -4,7 +4,13 @@
 """Build txfm1, Textura's bench firmware for the FM-1 (bench/fm1/txfm1.c): the engines timed in the audio interrupt.
 Adapted from Frodhes' tools/build.py (the update loader, the image, the package; the Rhodes checks dropped).
 
-  tools/fm1_bench.py [--frodhes ../frodhes] [--rev v0.9.5] [--eng-opt -O2] [--id FM-1_959]
+  tools/fm1_bench.py [--frodhes ../frodhes] [--rev v0.9.5] [--eng-opt -O2] [--id FM-1_959] [--app]
+
+--app builds the real app instead (firmware/src/textura.c, the whole of Textura's firmware/src and firmware/gen over
+Frodhes'), to measure its true flash and RAM: build/fm1/textura-app.{bin,elf,map} and textura-app.fwsc. It is also
+linked once with app.ld's XIP, RAM and POOL made large (a measuring link, never an image): the true sizes of every
+section and every object over 1 KB (build/fm1/textura-app-objects.txt), so an app that does not fit can still be read
+object by object (--measure: that report only, no image).
 
 The device side of Dinghy's platform (hal/, crt0, app.ld, the loader, usb.c, lcd.c, ota.c ...) is read from Frodhes'
 git at --rev (git archive: its checkout is never touched) into build/fm1/tree; Textura's own platform.c / gfx.c / fonts
@@ -37,7 +43,7 @@ TX_OVER = ["firmware/src/platform.c", "firmware/src/gfx.c", "firmware/gen/felucc
            "firmware/hal/fm1_flash_map.h"]
 
 
-def stage(frodhes, rev):
+def stage(frodhes, rev, app=False):
     if TREE.exists():
         shutil.rmtree(TREE)
     TREE.mkdir(parents=True)
@@ -49,9 +55,48 @@ def stage(frodhes, rev):
     for rel in TX_OVER:
         (TREE / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / rel, TREE / rel)
+    if app:                                   # (the app: all of Textura's own sources over Frodhes')
+        for d in ("firmware/src", "firmware/gen"):
+            shutil.copytree(ROOT / d, TREE / d, dirs_exist_ok=True)
     shutil.copytree(ROOT / "engines", TREE / "engines")
     shutil.copytree(ROOT / "bench" / "fm1", TREE / "bench")
-    shutil.copy2(OUT / "gen" / "fm1_cfg.h", TREE / "bench" / "fm1_cfg.h")
+    if not app:
+        shutil.copy2(OUT / "gen" / "fm1_cfg.h", TREE / "bench" / "fm1_cfg.h")
+
+
+def measure_report(o, out):
+    """the measuring link (--app): sections and objects; True when the app does not fit app.ld (or --measure)"""
+    sec = {}
+    for ln in (o / "measure_sections.txt").read_text().splitlines():
+        p = ln.split()
+        if len(p) >= 4 and p[0].isdigit() and p[1].startswith("."):
+            sec[p[1]] = int(p[2], 16)
+    rows = []
+    for ln in (o / "measure_syms.txt").read_text().splitlines():
+        m = re.match(r"^[0-9a-f]+\s.*?(\.[\w.]+)\s+([0-9a-f]{8})\s+(\S+)$", ln)   # (llvm-objdump: no O flag)
+        if m and int(m.group(2), 16) >= 1024:
+            rows.append((int(m.group(2), 16), m.group(1), m.group(3)))
+    rows.sort(reverse=True)
+    (out / "textura-app-objects.txt").write_text("".join(f"{s:8d}  {sc:12s} {n}\n" for s, sc, n in rows))
+    for f in ("measure.map",):
+        shutil.copy2(o / f, out / f"textura-app-{f}")
+    g = lambda n: sec.get(n, 0)
+    ram = g(".data") + g(".bss")
+    lim = ((".text", g(".text"), 0x8DFBC - g(".ram_text") - g(".data")), (".ram_text", g(".ram_text"), 0x6000),
+           (".data+.bss", ram, 96 * 1024), (".pool", g(".pool"), 0x54000))
+    print("  measuring link (app.ld's regions made large):")
+    for n, v, l in lim:
+        print(f"    {n:11s} {v:8d} B of {l:7d}  " + (f"OVER by {v - l}" if v > l else f"free {l - v}"))
+    print("  largest objects (build/fm1/textura-app-objects.txt):")
+    for s, sc, n in rows[:30]:
+        print(f"    {s:8d}  {sc:12s} {n}")
+    fit = (o / "fit.txt").read_text() if (o / "fit.txt").exists() else ""
+    if "overflow" in fit or "will not fit" in fit:
+        print("  app.ld: does not fit:")
+        for ln in fit.splitlines():
+            print("    " + ln.split("ld: ")[-1])
+        return True
+    return not (o / "textura.elf").exists()
 
 
 def docker(script):
@@ -101,13 +146,27 @@ def main():
     ap.add_argument("--eng-opt", default="-O2", help="the engines' optimisation (the app stays -Os, as Frodhes)")
     ap.add_argument("--id", default="FM-1_959", help="the package identity (fm1_install: MODEL_digits)")
     ap.add_argument("--no-stage", action="store_true", help="reuse build/fm1/tree")
+    ap.add_argument("--app", action="store_true", help="the real app (firmware/src/textura.c), not the bench")
+    ap.add_argument("--measure", action="store_true", help="with --app: the measuring link's report only, no image")
     a = ap.parse_args()
     if not re.fullmatch(r"FM-1_\d{3}", a.id):
         raise SystemExit("--id: FM-1_NNN")
-    if not (OUT / "gen" / "fm1_cfg.h").exists():
+    name = "textura" if a.app else "txfm1"
+    out = "textura-app" if a.app else "txfm1"
+    if not a.app and not (OUT / "gen" / "fm1_cfg.h").exists():
         raise SystemExit("fm1_bench: no build/fm1/gen/fm1_cfg.h (make fm1-gen)")
     if not a.no_stage:
-        stage(Path(a.frodhes), a.rev)
+        stage(Path(a.frodhes), a.rev, a.app)
+    if a.app:                                  # the measuring link's map: the same sections, room for all of them
+        ld = (TREE / "firmware" / "app.ld").read_text()
+        big, k = re.subn(r"(XIP\s+\(rx\)\s*:\s*ORIGIN\s*=\s*0x02000120,\s*LENGTH\s*=\s*)0x8DFBC", r"\g<1>16M", ld)
+        big, k2 = re.subn(r"RAM\s+\(rwx\)\s*:\s*ORIGIN\s*=\s*0x01C08000,\s*LENGTH\s*=\s*96K",
+                          "RAM    (rwx) : ORIGIN = 0x10000000, LENGTH = 16M", big)
+        big, k3 = re.subn(r"POOL\s+\(rw\)\s*:\s*ORIGIN\s*=\s*0x01C20000,\s*LENGTH\s*=\s*0x54000",
+                          "POOL   (rw)  : ORIGIN = 0x11000000, LENGTH = 16M", big)
+        if (k, k2, k3) != (1, 1, 1):
+            raise SystemExit("fm1_bench: app.ld's XIP / RAM / POOL lines not found (the measuring link needs them)")
+        (TREE / "firmware" / "app_measure.ld").write_text(big)
     sdk = ROOT / ".local" / "fw-AC79_AIoT_SDK"
     inc = "-Ifirmware/hal -Ifirmware/src -Ifirmware/gen -Iengines -Ibench"
     cf = " ".join(CFLAGS)
@@ -124,20 +183,36 @@ def main():
              # the app
              f"{cc} -c firmware/crt0.S -o o/crt0.o", f"{cc} -c firmware/hal/fm1_vec.S -o o/fm1_vec.o",
              f"{cc} -c firmware/hal/fm1_isr.S -o o/fm1_isr.o",
-             f'{cc} {cf} {inc} -DFM1_PROF_TICK -DFELUCCA_ID=\\"{a.id}\\" -DAPP_VER=\\"bench\\" '
-             "-c bench/txfm1.c -o o/txfm1.o"]
+             (f'{cc} {cf} {inc} -DFELUCCA_ID=\\"{a.id}\\" -DAPP_VER=\\"dev\\" -c firmware/src/textura.c -o o/textura.o'
+              if a.app else
+              f'{cc} {cf} {inc} -DFM1_PROF_TICK -DFELUCCA_ID=\\"{a.id}\\" -DAPP_VER=\\"bench\\" '
+              "-c bench/txfm1.c -o o/txfm1.o")]
     eflags = f"{a.eng_opt} -ffunction-sections -fno-builtin -Wall -Wno-unused-function -Iengines -Ibench"
-    lines.append(f"{cc} {eflags} -c bench/txfm1_core.c -o o/txfm1_core.o")
+    if not a.app:
+        lines.append(f"{cc} {eflags} -c bench/txfm1_core.c -o o/txfm1_core.o")
     for i in range(0, len(eng), 8):           # (8 at a time: the emulated compiler is slow)
         part = eng[i:i + 8]
         lines.append(" ".join(f"{cc} {eflags} -c engines/{n} -o o/{n[:-2]}.o &" for n in part) + " wait")
-    objs = "o/crt0.o o/fm1_vec.o o/fm1_isr.o o/txfm1.o o/txfm1_core.o " + " ".join(f"o/{n[:-2]}.o" for n in eng)
-    lines += [f"/opt/jieli/pi32v2/bin/ld --gc-sections -e _start -T firmware/app.ld -Map=o/txfm1.map {objs} -o o/txfm1.elf",
-              "for s in text data ram_text; do rm -f o/$s.bin; /opt/jieli/common/bin/objcopy -O binary -j .$s o/txfm1.elf o/$s.bin; done",
-              "/opt/jieli/common/bin/objdump -t o/txfm1.elf > o/syms.txt",
-              "/opt/jieli/common/bin/objdump -h o/txfm1.elf > o/sections.txt",
+    objs = (f"o/crt0.o o/fm1_vec.o o/fm1_isr.o o/{name}.o " + ("" if a.app else "o/txfm1_core.o ")
+            + " ".join(f"o/{n[:-2]}.o" for n in eng))
+    if a.app:
+        ldc = "/opt/jieli/pi32v2/bin/ld --gc-sections -e _start"
+        lines += [f"{ldc} -T firmware/app_measure.ld -Map=o/measure.map {objs} -o o/measure.elf",
+                  "/opt/jieli/common/bin/objdump -h o/measure.elf > o/measure_sections.txt",
+                  "/opt/jieli/common/bin/objdump -t o/measure.elf > o/measure_syms.txt"]
+        if a.measure:
+            lines.append("exit 0")
+        else:
+            lines.append(f"{ldc} -T firmware/app.ld -Map=o/{name}.map {objs} -o o/{name}.elf > o/fit.txt 2>&1 "
+                         "|| { cat o/fit.txt; echo DOES-NOT-FIT; exit 0; }")
+    lines += [f"/opt/jieli/pi32v2/bin/ld --gc-sections -e _start -T firmware/app.ld -Map=o/{name}.map {objs} -o o/{name}.elf",
+              f"for s in text data ram_text; do rm -f o/$s.bin; /opt/jieli/common/bin/objcopy -O binary -j .$s o/{name}.elf o/$s.bin; done",
+              f"/opt/jieli/common/bin/objdump -t o/{name}.elf > o/syms.txt",
+              f"/opt/jieli/common/bin/objdump -h o/{name}.elf > o/sections.txt",
               "cat o/*.su > o/stack.txt 2>/dev/null || true"]
-    docker("\n".join(lines) + "\n")
+    log = docker("\n".join(lines) + "\n")
+    if a.app and measure_report(TREE / "o", OUT):
+        return 0 if a.measure else 1
 
     sys.path.insert(0, str(TREE / "tools"))
     import fm1pkg_make  # noqa: E402
@@ -188,9 +263,10 @@ def main():
         if len(p) >= 2 and p[1].isdigit():
             frames.append((int(p[1]), p[0]))
     frames.sort(reverse=True)
-    for d in ("txfm1.elf", "txfm1.map", "stack.txt"):
-        shutil.copy2(o / d, OUT / d)
-    (OUT / "txfm1.bin").write_bytes(img)
+    for d in ("elf", "map"):
+        shutil.copy2(o / f"{name}.{d}", OUT / f"{out}.{d}")
+    shutil.copy2(o / "stack.txt", OUT / "stack.txt")
+    (OUT / f"{out}.bin").write_bytes(img)
     print(f"  image  {len(img)} B of {fm1pkg_make.APP_SLOT} ({100 * len(img) // fm1pkg_make.APP_SLOT} %), "
           f"free {fm1pkg_make.APP_SLOT - len(img)} B")
     print(f"  RAM    .data+.bss {ram} B of 98304; pool {pool} B of {0x54000} (free {0x54000 - pool})")
@@ -201,9 +277,10 @@ def main():
     if errors:
         raise SystemExit("fm1_bench: checks failed")
     pkg = fm1pkg_make.ufw(fm1pkg_make.flash_image(bytes(img), fm1pkg_make.KEY), ota, a.id)
-    (OUT / "textura-bench.fwsc").write_bytes(pkg)
+    pname = "textura-app.fwsc" if a.app else "textura-bench.fwsc"
+    (OUT / pname).write_bytes(pkg)
     print(f"  loader {len(limg)} B, ota.bin {len(ota)} B")
-    print(f"  package {OUT / 'textura-bench.fwsc'} {len(pkg)} B, identity {a.id}, "
+    print(f"  package {OUT / pname} {len(pkg)} B, identity {a.id}, "
           f"sha256 {hashlib.sha256(pkg).hexdigest()}")
     return 0
 

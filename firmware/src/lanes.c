@@ -36,6 +36,12 @@
 #define LN_EST_HERO 20u                         /* (make tx-budget: 120..250 us typical, 5..60 a hero) */
 #define LN_EST_MOD 8u                           /* the modulation's stand-in, us (make tx-budget section 5: 4..30) */
 
+/* LN_POOL: where the lanes' big state goes. On the FM-1 (textura.c) the platform's .pool (zeroed at start), as it is
+ * far over the 96 KiB of .data + .bss; on the host (Mach-O has no such section) and in the tests, plain statics */
+#ifndef LN_POOL
+#define LN_POOL
+#endif
+
 enum { LN_EV_KEY, LN_EV_PARAM, LN_EV_PAN, LN_EV_SWAP, LN_EV_OFF, LN_EV_FX, LN_EV_GEN_ON, LN_EV_GEN_PARAM,
        LN_EV_GEN_MUTE, LN_EV_HOST, LN_EV_GSYNC };
 
@@ -70,8 +76,8 @@ static struct {
     int32_t lpk[LN_N];                          /* each lane's peak in its last block (Q23: the followers, the governor) */
     uint16_t lev[LN_N];                         /* its engine's events in its last block (the envelopes, the followers) */
     uint16_t lhero[LN_N];                       /* its heroes sounding after its last block */
-} ln;
-static uint8_t ln_arena[LN_N][2][TX_STATE_MAX] __attribute__((aligned(64)));
+} ln LN_POOL;
+static uint8_t ln_arena[LN_N][2][TX_STATE_MAX] __attribute__((aligned(64))) LN_POOL;
 
 static void ln_init(void)
 {

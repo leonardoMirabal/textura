@@ -21,6 +21,8 @@
 #   make fm1-host      txfm1's table (bench/fm1: every SOURCE preset at the defaults / ACTIVITY 0 / 127 and its worst knob,
 #                      the hosted kinds, the effects, four-lane cases) timed on this host -> build/fm1/host.csv
 #   make fm1-bench     the bench firmware for the FM-1 (Docker + .local/jieli) -> build/fm1/textura-bench.fwsc
+#   make fm1-app       the whole app linked for the FM-1 (tools/fm1_bench.py --app: no flashing): does it fit,
+#                      every section and object over 1 KB (build/fm1/textura-app-objects.txt); ARGS=--measure: no image
 #   make fm1-timing    the same table on the FM-1 over USB-MIDI (tools/fm1_timing.py; installs nothing; DEVICE lock)
 #   make tx-player     the browser player -> build/audition/ (Emscripten from .local/emsdk)
 #   make tx-player-check   the player in headless Chromium (Playwright in .local/venv, browsers in .local/playwright)
@@ -64,7 +66,7 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-timing
+PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-timing
 .PHONY: $(PHONY_FM1) fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-fonts tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
@@ -262,6 +264,9 @@ fm1-host: $(FM1)/txfm1_host
 
 fm1-bench: $(FM1)/gen/fm1_cfg.h
 	python3 -I tools/fm1_bench.py $(ARGS)
+
+fm1-app:
+	python3 -I tools/fm1_bench.py --app $(ARGS)
 
 fm1-timing: $(FM1)/gen/fm1_cfg.h
 	python3 -I tools/lock.py run DEVICE --why "make fm1-timing" --wait 3600 -- .local/venv/bin/python -I tools/fm1_timing.py $(ARGS)

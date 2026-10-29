@@ -31,6 +31,7 @@ static void mod_lane_reset_isr(uint32_t k);
 #define LN_COST_EST                             /* the governor's costs: the host's stand-in (lanes.c) */
 #else
 #define LN_CLOCK() fm1_ticks()                  /* the governor's costs: timed on the FM-1's 24 MHz clock */
+#define LN_POOL __attribute__((section(".pool")))   /* the lanes' state in the platform's pool (lanes.c) */
 #define LN_CLOCK_US(d) ((uint32_t)(d) / FM1_TICKS_PER_US)
 #endif
 #include "lanes.c"
