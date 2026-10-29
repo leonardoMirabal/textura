@@ -146,7 +146,7 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
         for (j = 0; j < TX_BLOCK; j++) L[j] = 0;
         tx_engines[c->eng]->render(r->arena[0], L, TX_BLOCK);
     } else if (c->kind == FM_K_FX) {
-        if (c->eng == FM_FX_COMP) tx_comp_process(&r->mix.comp, L, R, TX_BLOCK);   /* (the mix's own, alone) */
+        if (c->eng == FM_FX_COMP) TX_FAR(tx_comp_process)(&r->mix.comp, L, R, TX_BLOCK);   /* (the mix's own, alone) */
         else if (c->eng >= FM_FX_REVERB) tx_fx_bus(&r->fx, L, R, TX_BLOCK); else tx_fx_lane(&r->fx, 0, L, TX_BLOCK);
     } else {
         tx_mix_begin(&r->mix, TX_BLOCK);

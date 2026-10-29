@@ -78,7 +78,8 @@ TX_AUDIO_CODE void tx_mix_end(tx_mix_t *m, int32_t *L, int32_t *R, unsigned n)
 {
     unsigned j;
     int32_t pk = 0;
-    tx_comp_process(&m->comp, m->L, m->R, n);                /* the compressor, the first effect (off: returns at once) */
+    TX_FAR(tx_comp_process)(&m->comp, m->L, m->R, n);        /* the compressor, the first effect (off: returns at once;
+                                                              * in RAM on the FM-1: TX_RAM) */
     if (m->ch && m->ch_on) {                                 /* the chamber on the mid: its added part to both sides */
         for (j = 0; j < n; j++) m->mid[j] = m->blk[j] = (m->L[j] >> 1) + (m->R[j] >> 1);
         TX_FAR(tx_chamber_process)(m->ch, m->mid, n);   /* (in RAM on the FM-1: TX_RAM) */
@@ -92,7 +93,8 @@ TX_AUDIO_CODE void tx_mix_end(tx_mix_t *m, int32_t *L, int32_t *R, unsigned n)
         m->ilv[2 * j] = m->L[j]; m->ilv[2 * j + 1] = m->R[j];
     }
     m->raw_peak = pk;
-    tx_limit_process(&m->lim, m->ilv, 2u * n);              /* interleaved: the pair shares the gain envelope */
+    TX_FAR(tx_limit_process)(&m->lim, m->ilv, 2u * n);      /* interleaved: the pair shares the gain envelope (in RAM
+                                                              * on the FM-1: TX_RAM) */
     for (j = 0; j < n; j++) { L[j] = m->ilv[2 * j]; R[j] = m->ilv[2 * j + 1]; }
 }
 
