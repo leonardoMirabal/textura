@@ -55,9 +55,11 @@ typedef struct {
 static c1_mb_t c1_mb __attribute__((aligned(64)));
 /* its stacks, one block (the stack limit spans both): the user stack (the jobs), then 256 bytes of system stack (its
  * exceptions only: no interrupts on core 1) */
-uint32_t c1_stk[C1_STACK + 64u] __attribute__((aligned(8)));
+uint32_t c1_stk[C1_STACK + 64u] __attribute__((aligned(8), section(".nozero")));   /* (NOINIT's spare room, app.ld:
+                                                 * painted by c1_start, never cleared) */
 #define C1_MARK 0x43314D4Bu                      /* painted at start: how deep its stack has gone (c1_stack_used) */
-enum { C1_OFF, C1_ON, C1_BAD, C1_LATE, C1_DEAF };   /* not started, running, held: a bad read / a late job / no answer */
+enum { C1_OFF, C1_ON, C1_BAD, C1_LATE, C1_DEAF, C1_LOWV };   /* not started, running, held: a bad read / a late job / no
+                                                 * answer / the supply not raised (never started) */
 static uint8_t c1_state;
 static uint32_t c1_wait_max, c1_jobs;
 
@@ -200,6 +202,8 @@ static int c1_start(void)
 {
     uint32_t g, t0, i;
     c1_hold();
+    if (c1_rail_set[0] < 7u || c1_rail_set[1] < 15u) { c1_state = C1_LOWV; return -1; }   /* (the boot loader's levels:
+                                                 * core 1 misreads there, a run hangs; it stays off, one core) */
     for (i = 0; i < C1_STACK; i++) c1_stk[i] = C1_MARK;
     c1_mb.alive = 0; c1_mb.bad = 0;
     c1_mb.done = c1_mb.seq;

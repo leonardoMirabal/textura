@@ -77,7 +77,7 @@ class Dev:
         return self.items(98)
 
 
-C1_STATES = ["off", "on", "held: bad read", "held: late job", "held: no answer"]
+C1_STATES = ["off", "on", "held: bad read", "held: late job", "held: no answer", "off: the supply not raised"]
 
 
 def c1_state(st):

@@ -29,14 +29,35 @@ static int c1_start(void);
 static void c1_hold(void);
 static void c1_fault(const void *c);
 static void c1_rails(void);
+static void tx_stk_paint(void);
 #define C1_RAILS
-#define APP_EARLY() (c1_hold(), c1_rails(), (void)c1_start())
+#define APP_EARLY() (tx_stk_paint(), c1_hold(), c1_rails(), (void)c1_start())
 #define APP_RESET_PREP() c1_hold()
 #define APP_FAULT(c) c1_fault(c)
 #endif
 #include "platform.c"
 #ifndef DINGHY_HOST
 #include "core1.h"
+/* the two stacks' deepest use (the debug reply, items 43 / 44: 4-byte words): painted at boot, interrupts still off,
+ * each below where it is now (or whole but its top 64 bytes, if this code runs on the other) */
+#define TX_STK_MARK 0x53544B4Du
+static void tx_stk_paint1(uint32_t *lo, uint32_t *top, uint32_t here)
+{
+    uint32_t *p, end = here >= (uint32_t)lo && here < (uint32_t)top ? here - 256u : (uint32_t)top - 64u;
+    for (p = lo; (uint32_t)p < end; p++) *p = TX_STK_MARK;
+}
+static void tx_stk_paint(void)
+{
+    volatile uint32_t here = 0;
+    tx_stk_paint1((uint32_t *)_ustack_lo, (uint32_t *)_guard1, (uint32_t)&here);   /* (_guard1: its top) */
+    tx_stk_paint1((uint32_t *)_sstack_lo, (uint32_t *)_sstack_top, (uint32_t)&here);
+}
+static uint32_t tx_stk_used(const uint32_t *lo, const uint32_t *top)
+{
+    const uint32_t *p = lo;
+    while (p < top && *p == TX_STK_MARK) p++;
+    return (uint32_t)(top - p);
+}
 /* lanes.c LN_PAR: some lanes' engines on core 1. Its wait: past 3 ms (a job it lost, a fault) it is held for good */
 #define LN_PAR
 #define LN_PAR_ON() (c1_state == C1_ON)
@@ -115,7 +136,7 @@ static uint32_t tx_palette_index(const char *name)
  * (core1.h): 30 its state (C1_*: 1 running), 31 the bad reads it counted, 32 / 33 the blocks it rendered lanes in
  * (low / high 14 bits), 34 the jobs lost, 35 the longest wait for it (us, since the last ask), 36 / 37 VDC14 / SYSVDD
  * as the boot loader left them, 38 / 39 now, 40 its lanes in the last block (a mask), 41 its stack's deepest (bytes),
- * 42 the governor's pool now (us) */
+ * 42 the governor's pool now (us), 43 / 44 the user / system stack's deepest (4-byte words, since boot) */
 /* an item: three USB-MIDI events; it waits (up to 50 ms) for room in the 64-event out queue (usb.c drops what does
  * not fit: the reply is 23 items, 69 events, and its last ones were lost) */
 static void tx_dbg_item(uint32_t id, uint32_t v)
@@ -145,6 +166,8 @@ static void tx_dbg_reply(void)
     tx_dbg_item(38, c1_rail(C1_P3_VDC14, 7u)); tx_dbg_item(39, c1_rail(C1_P3_SYSVDD, 15u));
     tx_dbg_item(40, ln.par_mask); tx_dbg_item(41, c1_stack_used());
     tx_dbg_item(42, ln.gov.budget);
+    tx_dbg_item(43, tx_stk_used((const uint32_t *)_ustack_lo, (const uint32_t *)_guard1));
+    tx_dbg_item(44, tx_stk_used((const uint32_t *)_sstack_lo, (const uint32_t *)_sstack_top));
 }
 #endif
 

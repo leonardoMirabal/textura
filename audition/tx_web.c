@@ -54,7 +54,8 @@ static void ready(void)                                 /* the mixer, once, befo
     static int r;
     if (!r) {
         tx_mix_init(&mixer); mixer.ch = &chamber;
-        tx_fx_init(&fxc); mixer.ins = tx_fx_lane; mixer.bus = tx_fx_bus; mixer.busq = tx_fx_bus_quiet; mixer.fx = &fxc;
+        tx_fx_init(&fxc); fxc.two = 1;                  /* (the FM-1's two cores: the grains as set) */
+        mixer.ins = tx_fx_lane; mixer.bus = tx_fx_bus; mixer.busq = tx_fx_bus_quiet; mixer.fx = &fxc;
         { unsigned i; for (i = 0; i < TX_CP_NP; i++) tx_comp_param(&mixer.comp, i, tx_comp_params[i].def); }   /* (the
                                                          * app's defaults, as the FM-1's: on) */
         r = 1;

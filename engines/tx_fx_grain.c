@@ -7,14 +7,14 @@
  *   in (the mix's mid) + the feedback -> the line (mono, TX_GD_N samples (tx_fx_gd_len.h: 1.715 s) of block float,
  *   12-bit mantissas and a 4-bit shift per 16 samples: 113 KB, its noise follows the signal: ~-109 dBFS at -40 dBFS,
  *   far below at -70)
- *   the ECHO: one tap at TIME (20 ms .. 1.66 s; a new TIME crossfades from the old tap in 23 ms: the
+ *   the ECHO: one tap at TIME (20 ms .. 1.66 s at 127, on to 2.80 s; a new TIME crossfades from the old tap in 23 ms: the
  *     echo moves without a level step)
- *   the GRAINS: GRAINS voices (1 .. 16) staggered on one clock (each grain SIZE long, Hann windows: they add up to a
+ *   the GRAINS: GRAINS voices (1 .. 30) staggered on one clock (each grain SIZE long, Hann windows: they add up to a
  *     constant), each started at TIME + a random SPRAY, at PITCH (semitone steps, -12 .. +12), reversed by chance
  *     (REVERSE), panned at random within SPREAD; read with linear interpolation (whole samples at rate 1: exact)
  *   out = MIX x (ECHO .. GRAINS by GRAIN), added to the mix; the feedback: that, through TONE's low-pass, a soft knee
  *     (above half scale only: the quiet repeats stay exact), FEEDBACK's gain and a DC block, into the line
- *   FREEZE: the line stops taking input (a 10 ms fade): the last 1.7 s circle, the grains keep reading them
+ *   FREEZE: the line stops taking input (a 10 ms fade): the whole line (2.85 s) circles, the grains keep reading them
  * The dynamic cap (cap, set by the chain each block): grains beyond it finish their window and do not start again, so
  * the delay costs what the effects reserve leaves (on the FM-1: ~14 us a sounding grain at rate 1, ~42 us pitched or
  * reversed, ~220 us the line, the echo and the feedback; each grain decodes its run of the line once a block).
@@ -28,9 +28,9 @@
 
 const tx_param_t tx_fx_grain_params[TX_GD_NP] = {
     {"MIX", 127, 0, "the delay's level (added to the sound): off (0) .. full"},
-    {"TIME", 127, 70, "the echo's time: 20 ms .. 1.66 s (exponential); the grains read around it"},
+    {"TIME", TX_GD_TIME_MAX, 70, "the echo's time: 20 ms .. 1.66 s (127) .. 2.80 s (exponential); the grains read around it"},
     {"FEEDBACK", 127, 50, "how long the repeats go on (each one grained again): none .. endless"},
-    {"GRAINS", TX_GD_MAXG - 1u, 3, "grain voices on the repeats: 1 .. 16 (fewer when the effects' CPU is short)"},
+    {"GRAINS", TX_GD_MAXG - 1u, 3, "grain voices on the repeats: 1 .. 30 (fewer when the CPU is short)"},
     {"SIZE", 127, 64, "each grain's length: 20 .. 500 ms"},
     {"SPRAY", 127, 20, "where each grain starts: at TIME .. up to 0.5 s later, at random"},
     {"PITCH", 127, 64, "the grains' pitch: -12 .. +12 semitones (64 = as played)"},
@@ -38,10 +38,11 @@ const tx_param_t tx_fx_grain_params[TX_GD_NP] = {
     {"SPREAD", 127, 64, "each grain's place: all in the middle .. anywhere left to right"},
     {"TONE", 127, 100, "the repeats' top: dark (400 Hz) .. open (16 kHz)"},
     {"GRAIN", 127, 64, "the clean echo (0) .. the grains (127)"},
-    {"FREEZE", 1, 0, "hold the line: the last 1.7 s go round, the grains keep playing them"},
+    {"FREEZE", 1, 0, "hold the line: the last 2.85 s go round, the grains keep playing them"},
 };
 
-TX_RAM static uint32_t rnd(tx_fx_grain_t *d) { d->rng = d->rng * 1664525u + 1013904223u; return d->rng; }
+TX_RAM static uint32_t rnd(uint32_t *s) { *s = *s * 1664525u + 1013904223u; return *s; }   /* (the grains' rng: d->rng,
+                                                         * or the second half's copy, tx_fx_grain_split) */
 
 void tx_fx_grain_init(tx_fx_grain_t *d)
 {
@@ -54,7 +55,8 @@ void tx_fx_grain_init(tx_fx_grain_t *d)
 }
 void tx_fx_grain_sync(tx_fx_grain_t *d, unsigned samples)
 {
-    d->sync = samples > TX_FX_GD_TIME[127] ? TX_FX_GD_TIME[127] : samples;   /* (a new delay crossfades as TIME's) */
+    d->sync = samples > TX_FX_GD_TIME[TX_GD_TIME_MAX] ? TX_FX_GD_TIME[TX_GD_TIME_MAX] : samples;   /* (a new delay
+                                                 * crossfades as TIME's; SYNC up to TIME's top) */
 }
 void tx_fx_grain_param(tx_fx_grain_t *d, unsigned id, unsigned v)
 {
@@ -128,9 +130,9 @@ TX_RAM static inline uint32_t gd_idx(uint32_t w, uint32_t back) { return w >= ba
 /* a grain starts (at sample j of the block, w0 the write at the block's start): TIME + SPRAY behind the write, kept
  * GD_GUARD behind it and inside the line over its whole length at its rate; silent (off) if that reaches back past
  * what was written since the delay came on */
-TX_RAM static void gd_spawn(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t len, uint32_t w0, uint32_t j)
+TX_RAM static void gd_spawn(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t len, uint32_t w0, uint32_t j, uint32_t *rs)
 {
-    uint32_t r = rnd(d), back = d->tap + (uint32_t)(((uint64_t)(r >> 8) * ((uint32_t)d->p[TX_GD_SPRAY] * 174u)) >> 24);
+    uint32_t r = rnd(rs), back = d->tap + (uint32_t)(((uint64_t)(r >> 8) * ((uint32_t)d->p[TX_GD_SPRAY] * 174u)) >> 24);
     int32_t semi = ((int32_t)d->p[TX_GD_PITCH] - 64) * 12 / 63, rate, sp = d->p[TX_GD_SPREAD];
     int64_t lo, hi, far;
     uint32_t pr = (uint32_t)TX_FX_GD_PITCH[semi + 12];
@@ -145,7 +147,7 @@ TX_RAM static void gd_spawn(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t len, ui
     g->frac = 0;
     g->rate = rate;
     {   /* the place: equal power at a random point within +-SPREAD */
-        int32_t pn = (int32_t)((rnd(d) >> 17) & 32767u) - 16384;
+        int32_t pn = (int32_t)((rnd(rs) >> 17) & 32767u) - 16384;
         uint32_t th = 0x20000000u + (uint32_t)((((pn * sp) >> 6) * 4096));
         g->gl = (int16_t)tx_fx_sine(th + 0x40000000u);
         g->gr = (int16_t)tx_fx_sine(th);
@@ -241,7 +243,7 @@ TX_RAM static void gd_seg(const tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t ph,
  * the clock (GRAINS moved: the voices' spacing changed) finishes its window on its own phase; at its end the voice
  * goes back onto the clock silent and starts again at the clock's next wrap (a window never jumps: no click) */
 TX_RAM static unsigned gd_voice(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t T, uint32_t inc, unsigned n, int start, uint32_t len,
-                         uint32_t w0, int32_t *sl, int32_t *sr)
+                         uint32_t w0, int32_t *sl, int32_t *sr, uint32_t *rs)
 {
     unsigned j = 0, on = 0;
     uint32_t ph = g->on ? g->vp : T;                    /* (silent: on the clock at once) */
@@ -254,7 +256,7 @@ TX_RAM static unsigned gd_voice(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t T, 
         if (j < n) {                                    /* the wrap: a new grain, its first sample here */
             g->on = 0;
             if (ph != T + inc * j) ph = T + inc * j;    /* (off the clock: back on it, silent until its next wrap) */
-            else if (start) gd_spawn(d, g, len, w0, j);
+            else if (start) gd_spawn(d, g, len, w0, j, rs);
             if (g->on) { gd_seg(d, g, ph, inc, j, 1u, sl, sr); on++; }
             ph += inc;
             j++;
@@ -286,40 +288,105 @@ TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
     d->ahead = !(d->zrun >= TX_GD_N && wgt && !d->tx);
     return d->ahead;
 }
-/* the echo's run into e, the grains into sl, sr (unless dry); their count */
-TX_RAM TX_AUDIO_CODE void tx_fx_grain_voices(tx_fx_grain_t *d, unsigned n)
+/* the echo's tap: a new TIME starts its crossfade (before the voices: a grain starts TIME behind the write) */
+TX_INLINE void gd_tap(tx_fx_grain_t *d)
 {
-    int32_t gb = d->p[TX_GD_GRAIN] * 258, *e = d->we, *sl = d->wl, *sr = d->wr;
-    uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, inc = TX_FX_GD_SIZE[d->p[TX_GD_SIZE]];
-    uint32_t len = 0xFFFFFFFFu / inc, step = 0xFFFFFFFFu / G + 1u, tgt = d->sync ? d->sync : TX_FX_GD_TIME[d->p[TX_GD_TIME]], j, k, w0;
-    unsigned act = 0;
-    int dry;
-    if (n > TX_BLOCK) n = TX_BLOCK;
-    if (gb > 32768) gb = 32768;
-    dry = !gb && !d->gbl;                               /* GRAIN at 0 and settled: the grains move on unheard */
-    w0 = d->w;
-    /* the echo: the tap's run (and the old tap's, crossfading), each 0 where the line was not written yet */
+    uint32_t tgt = d->sync ? d->sync : TX_FX_GD_TIME[d->p[TX_GD_TIME]];
     if (!d->tx && tgt != d->tap) { d->tap0 = d->tap; d->tap = tgt; d->tx = 1; }
-    {
-        uint32_t ok = d->tap <= d->fill;
-        if (ok) gd_run(d, gd_idx(w0, d->tap), n, e);
-        else for (j = 0; j < n; j++) e[j] = 0;
-        if (d->tx) {
-            uint32_t i0 = gd_idx(w0, d->tap0), ok0 = d->tap0 <= d->fill;
-            for (j = 0; j < n; j++) {
-                int32_t o = ok0 ? gd_rd(d, i0) : 0;
-                i0 = i0 + 1u >= TX_GD_N ? 0u : i0 + 1u;
-                if (d->tx) { e[j] = o + mq15(e[j] - o, (int32_t)(d->tx << 5)); if (++d->tx > 1024u) d->tx = 0; }
-            }
+}
+/* the grains this block will start on voice g (2 rng draws each): its wraps on the clock, as gd_voice walks them */
+static unsigned gd_spawns(const tx_gd_grain_t *g, uint32_t T, uint32_t inc, unsigned n)
+{
+    unsigned j = 0, c = 0;
+    uint32_t ph = g->on ? g->vp : T;
+    while (j < n) {
+        uint32_t rem = 0u - ph, m = rem ? (rem - 1u) / inc : n;
+        if (m > n - j) m = n - j;
+        ph += inc * m;
+        j += m;
+        if (j < n) {
+            if (ph != T + inc * j) ph = T + inc * j;
+            else c++;
+            ph += inc;
+            j++;
         }
     }
-    /* the grains, voice by voice */
-    if (!dry) for (j = 0; j < n; j++) sl[j] = sr[j] = 0;
-    for (k = 0; k < TX_GD_MAXG; k++)                    /* (past GRAINS: a sounding grain finishes its window) */
+    return c;
+}
+/* the voices in two halves (two cores: tx_fx_grain_voices_a / _b at once): the first K voice slots and the echo, the
+ * rest; the second half's rng starts where the first half's ends (its draws counted here, before either runs), so
+ * the grains are the same as in one pass. K 0: one pass (tx_fx_grain_voices) */
+TX_AUDIO_CODE void tx_fx_grain_split(tx_fx_grain_t *d, unsigned n)
+{
+    uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, inc = TX_FX_GD_SIZE[d->p[TX_GD_SIZE]];
+    uint32_t step = 0xFFFFFFFFu / G + 1u, k, K = (G + 1u) / 2u, r = d->rng, c = 0;
+    if (n > TX_BLOCK) n = TX_BLOCK;
+    gd_tap(d);
+    for (k = 0; k < K; k++)
+        if (k < G && k < cap) c += gd_spawns(&d->g[k], d->ph + k * step, inc, n);   /* (gd_voice's start) */
+    for (k = 0; k < 2u * c; k++) r = r * 1664525u + 1013904223u;
+    d->vk = (uint8_t)K; d->rng2 = r;
+}
+/* voice slots k0 .. k1 - 1 into sl, sr (0: dry), their count; rs their rng */
+TX_RAM static unsigned gd_voices(tx_fx_grain_t *d, unsigned k0, unsigned k1, unsigned n, int32_t *sl, int32_t *sr, uint32_t *rs)
+{
+    uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, inc = TX_FX_GD_SIZE[d->p[TX_GD_SIZE]];
+    uint32_t len = 0xFFFFFFFFu / inc, step = 0xFFFFFFFFu / G + 1u, k, j;
+    unsigned act = 0;
+    if (sl) for (j = 0; j < n; j++) sl[j] = sr[j] = 0;
+    for (k = k0; k < k1; k++)                           /* (past GRAINS: a sounding grain finishes its window) */
         if (k < G || d->g[k].on)
-            act += gd_voice(d, &d->g[k], d->ph + k * step, inc, n, k < cap && k < G, len, w0, dry ? 0 : sl, dry ? 0 : sr);
-    d->ph += inc * n;
-    d->vact = act;
+            act += gd_voice(d, &d->g[k], d->ph + k * step, inc, n, k < cap && k < G, len, d->w, sl, sr, rs);
+    return act;
+}
+TX_RAM static int gd_dry(const tx_fx_grain_t *d)
+{
+    int32_t gb = d->p[TX_GD_GRAIN] * 258;
+    if (gb > 32768) gb = 32768;
+    return !gb && !d->gbl;                              /* GRAIN at 0 and settled: the grains move on unheard */
+}
+/* the echo's run into e (the tap's run, and the old tap's crossfading, each 0 where the line was not written yet) */
+TX_RAM static void gd_echo(tx_fx_grain_t *d, unsigned n)
+{
+    uint32_t j, w0 = d->w, ok;
+    int32_t *e = d->we;
+    ok = d->tap <= d->fill;
+    if (ok) gd_run(d, gd_idx(w0, d->tap), n, e);
+    else for (j = 0; j < n; j++) e[j] = 0;
+    if (d->tx) {
+        uint32_t i0 = gd_idx(w0, d->tap0), ok0 = d->tap0 <= d->fill;
+        for (j = 0; j < n; j++) {
+            int32_t o = ok0 ? gd_rd(d, i0) : 0;
+            i0 = i0 + 1u >= TX_GD_N ? 0u : i0 + 1u;
+            if (d->tx) { e[j] = o + mq15(e[j] - o, (int32_t)(d->tx << 5)); if (++d->tx > 1024u) d->tx = 0; }
+        }
+    }
+}
+/* the echo and every voice, one pass */
+TX_RAM TX_AUDIO_CODE void tx_fx_grain_voices(tx_fx_grain_t *d, unsigned n)
+{
+    int dry = gd_dry(d);
+    if (n > TX_BLOCK) n = TX_BLOCK;
+    d->vk = 0;
+    gd_tap(d);
+    gd_echo(d, n);
+    d->vact = gd_voices(d, 0, TX_GD_MAXG, n, dry ? 0 : d->wl, dry ? 0 : d->wr, &d->rng);
+    d->ph += TX_FX_GD_SIZE[d->p[TX_GD_SIZE]] * n;
+}
+/* after tx_fx_grain_split: the echo and the first half (a), the second half (b, into its own block): either core,
+ * both at once; the end adds them */
+TX_RAM TX_AUDIO_CODE void tx_fx_grain_voices_a(tx_fx_grain_t *d, unsigned n)
+{
+    int dry = gd_dry(d);
+    if (n > TX_BLOCK) n = TX_BLOCK;
+    gd_echo(d, n);
+    d->vact = gd_voices(d, 0, d->vk, n, dry ? 0 : d->wl, dry ? 0 : d->wr, &d->rng);
+}
+TX_RAM TX_AUDIO_CODE void tx_fx_grain_voices_b(tx_fx_grain_t *d, unsigned n)
+{
+    int dry = gd_dry(d);
+    if (n > TX_BLOCK) n = TX_BLOCK;
+    d->vact2 = gd_voices(d, d->vk, TX_GD_MAXG, n, dry ? 0 : d->wl2, dry ? 0 : d->wr2, &d->rng2);
 }
 TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n)
 {
@@ -339,6 +406,13 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
         tx_fx_grain_voices(d, n);
     }
     d->ahead = 0;
+    if (d->vk) {                                        /* (two halves: the second's grains added, its rng and count) */
+        if (!gd_dry(d)) for (j = 0; j < n; j++) { sl[j] += d->wl2[j]; sr[j] += d->wr2[j]; }
+        d->vact += d->vact2;
+        d->rng = d->rng2;
+        d->ph += TX_FX_GD_SIZE[d->p[TX_GD_SIZE]] * n;
+        d->vk = 0;
+    }
     if (fbk > 33000) fbk = 33000;
     if (gb > 32768) gb = 32768;
     dry = !gb && !d->gbl;

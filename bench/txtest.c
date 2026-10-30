@@ -1284,10 +1284,11 @@ static void check_fx_grain_controls(tx_fx_t *fx)
     {   /* the line's length (tx_fx_gd_len.h) and TIME's table agree: its top is the line's, at least 1.0 s */
         char m[160];
         snprintf(m, sizeof m, "grain delay: the line %u samples (%.3f s, %u B), TIME's top %u (%.3f s)", TX_GD_N,
-                 TX_GD_N / 44100.0, TX_GD_N / 2u * 3u + TX_GD_N / 32u, TX_FX_GD_TIME[127],
-                 TX_FX_GD_TIME[127] / 44100.0);
-        verdict("fx", "length", TX_FX_GD_TIME[127] == TX_GD_TOP && TX_GD_TOP >= 44100u && !(TX_GD_N % 32u), m,
-                TX_FX_GD_TIME[127] != TX_GD_TOP ? " (make tx-fx-tables)" : 0);
+                 TX_GD_N / 44100.0, TX_GD_N / 2u * 3u + TX_GD_N / 32u, TX_FX_GD_TIME[TX_GD_TIME_MAX],
+                 TX_FX_GD_TIME[TX_GD_TIME_MAX] / 44100.0);
+        verdict("fx", "length", TX_FX_GD_TIME[TX_GD_TIME_MAX] == TX_GD_TOP && TX_FX_GD_TIME[127] == TX_GD_TOP0
+                && TX_GD_TOP >= 44100u && !(TX_GD_N % 32u), m,
+                TX_FX_GD_TIME[TX_GD_TIME_MAX] != TX_GD_TOP ? " (make tx-fx-tables)" : 0);
     }
     char msg[200];
     unsigned i, k, h, t;
@@ -1573,23 +1574,25 @@ static void check_fx(FILE *update)
         }
         snprintf(msg, sizeof msg, "grain delay, GRAIN 0: an impulse back after %u samples (TIME %u), level %d / 4194304", at - 522u, tm, got);
         verdict("fx", "echo", at - 522u == tm && got > 4190000 && got <= 4194304, msg, 0);
-        for (t = 0; t < 2; t++) {                              /* 0: the tail; 1: FREEZE at 1 s, held */
+        const unsigned FW = (4u * TX_GD_N + TX_BLOCK / 2u) / TX_BLOCK;   /* (FREEZE's windows: 4 turns of the line) */
+        for (t = 0; t < 2; t++) {                              /* 0: the tail; 1: FREEZE once the line is full, held */
             tx_fx_init(fx);
             tx_fx_grain_param(&fx->gd, TX_GD_MIX, 100); tx_fx_grain_param(&fx->gd, TX_GD_FEEDBACK, 90);
             tx_fx_grain_param(&fx->gd, TX_GD_PITCH, 71); tx_fx_grain_param(&fx->gd, TX_GD_REVERSE, 40);
             tx_fx_grain_param(&fx->gd, TX_GD_SPRAY, 40);
             rng = 7u; last = 0; acc = 0;
             if (!t) tx_sha256_init(&h);
-            for (b = 0; b < (t ? 172u * 121u : 172u * 60u); b++) {
+            for (b = 0; b < (t ? FW * 12u : 172u * 60u); b++) {
                 unsigned z = 0;
-                if (t && b == 172u) tx_fx_grain_param(&fx->gd, TX_GD_FREEZE, 1);
+                if (t && b == TX_GD_N / TX_BLOCK + 1u) tx_fx_grain_param(&fx->gd, TX_GD_FREEZE, 1);   /* (the whole line
+                                                 * goes round: frozen earlier, its unwritten part is silence) */
                 for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = fx_in(b * TX_BLOCK + j, &rng);
                 tx_fx_bus(fx, L, R, TX_BLOCK);
                 for (j = 0; j < TX_BLOCK; j++) { z |= L[j] | R[j]; acc += (double)L[j] * L[j]; }
                 if (z) last = b;
                 if (!t && b < 1723u) fx_hash(&h, L, TX_BLOCK), fx_hash(&h, R, TX_BLOCK);
-                if (t && (b + 1) % 1720u == 0 && (b + 1) / 1720u - 1 < 12u) { rms[(b + 1) / 1720u - 1] = sqrt(acc / (1720.0 * 256)); acc = 0; }
-                else if ((b + 1) % 1720u == 0) acc = 0;
+                if (t && (b + 1) % FW == 0 && (b + 1) / FW - 1 < 12u) { rms[(b + 1) / FW - 1] = sqrt(acc / ((double)FW * 256)); acc = 0; }
+                else if (!t && (b + 1) % 1720u == 0) acc = 0;
             }
             if (!t) {
                 snprintf(msg, sizeof msg, "grain delay, FEEDBACK 90, +7 semitones, 30 %% reversed: the tail ends in exact zeros after %.1f s", last * 256.0 / 44100.0);
@@ -1604,8 +1607,8 @@ static void check_fx(FILE *update)
                 }
             } else {
                 for (k = 1; k < 12; k++) { if (rms[k] < lo) lo = rms[k]; if (rms[k] > hi) hi = rms[k]; }
-                snprintf(msg, sizeof msg, "grain delay FREEZE: 10 .. 120 s %.1f .. %.1f dBFS (%.2f dB apart)",
-                         20 * log10(lo / 8388608.0 + 1e-12), 20 * log10(hi / 8388608.0 + 1e-12), 20 * log10(hi / (lo + 1e-9)));
+                snprintf(msg, sizeof msg, "grain delay FREEZE: %.0f .. %.0f s (4 turns of the line a window) %.1f .. %.1f dBFS (%.2f dB apart)",
+                         FW * 256.0 / 44100.0, FW * 12 * 256.0 / 44100.0, 20 * log10(lo / 8388608.0 + 1e-12), 20 * log10(hi / 8388608.0 + 1e-12), 20 * log10(hi / (lo + 1e-9)));
                 verdict("fx", "freeze", lo > 0 && hi / lo < 1.189, msg, 0);
             }
         }

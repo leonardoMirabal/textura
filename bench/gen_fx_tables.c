@@ -56,10 +56,21 @@ int main(int argc, char **argv)
     row("uint32_t", "TX_FX_FL_K", v, 128, 8, "the filter's damping k = 1 / Q, Q24: Q 0.707 .. 20 (exponential)");
     for (i = 0; i < 1025; i++) v[i] = lround(32767 * 0.5 * (1 - cos(2 * M_PI * i / 1024)));
     row("int16_t", "TX_FX_HANN", v, 1025, 16, "Q15 Hann window over one grain (+ guard): exact zeros at both ends");
-    for (i = 0; i < 128; i++) v[i] = lround(0.020 * FS * pow(TX_GD_TOP / (0.020 * FS), i / 127.0));
-    snprintf(what, sizeof what, "the grain delay's TIME in samples: 20 ms .. %.2f s (exponential; the line's top)",
-             TX_GD_TOP / FS);
-    row("uint32_t", "TX_FX_GD_TIME", v, 128, 8, what);
+    for (i = 0; i <= (int)TX_GD_TIME_MAX; i++) {     /* (0 .. 127 as before; on, the same steps, cut at the top) */
+        double t = 0.020 * FS * pow(TX_GD_TOP0 / (0.020 * FS), i / 127.0);
+        if (i == (int)TX_GD_TIME_MAX - 1 && lround(t) >= (long)TX_GD_TOP) {
+            fprintf(stderr, "gen_fx_tables: TX_GD_TIME_MAX %u is past the top (make it smaller)\n", TX_GD_TIME_MAX);
+            return 1;
+        }
+        if (i == (int)TX_GD_TIME_MAX && lround(t) < (long)TX_GD_TOP) {
+            fprintf(stderr, "gen_fx_tables: TX_GD_TIME_MAX %u does not reach the top (make it larger)\n", TX_GD_TIME_MAX);
+            return 1;
+        }
+        v[i] = lround(t) > (long)TX_GD_TOP ? (long)TX_GD_TOP : lround(t);
+    }
+    snprintf(what, sizeof what, "the grain delay's TIME in samples: 20 ms .. %.2f s at 127 .. %.2f s at %u (exponential; the line's top)",
+             TX_GD_TOP0 / FS, TX_GD_TOP / FS, TX_GD_TIME_MAX);
+    row("uint32_t", "TX_FX_GD_TIME", v, (int)TX_GD_TIME_MAX + 1, 8, what);
     for (i = 0; i < 128; i++) v[i] = lround(4294967296.0 / (0.020 * pow(25.0, i / 127.0) * FS));
     row("uint32_t", "TX_FX_GD_SIZE", v, 128, 8, "the grains' clock, Q32 phase a sample: a grain 20 .. 500 ms long (exponential)");
     for (i = 0; i < 25; i++) v[i] = lround(65536.0 * pow(2.0, (i - 12) / 12.0));

@@ -66,7 +66,7 @@ uint32_t tx_fx_drive_us(const tx_fx_drive_t *d);  /* its FM-1 cost now, us a blo
 enum { TX_GD_MIX, TX_GD_TIME, TX_GD_FEEDBACK, TX_GD_GRAINS, TX_GD_SIZE, TX_GD_SPRAY, TX_GD_PITCH, TX_GD_REVERSE,
        TX_GD_SPREAD, TX_GD_TONE, TX_GD_GRAIN, TX_GD_FREEZE, TX_GD_NP };
 extern const tx_param_t tx_fx_grain_params[TX_GD_NP];
-#define TX_GD_MAXG 16u
+#define TX_GD_MAXG 30u                           /* (GRAINS 1 .. 30) */
 typedef struct {
     uint32_t pos;                  /* the read position, whole samples (0 .. TX_GD_N - 1) */
     uint32_t frac;                 /* its fraction, Q16 */
@@ -98,8 +98,11 @@ typedef struct {
     tx_gd_grain_t g[TX_GD_MAXG];
     uint32_t sync;                               /* the echo's delay from the tempo, samples (0: TIME's) */
     uint8_t ahead;                               /* (begin: the voices run before the input, this block) */
-    uint32_t vact;                               /* (the voices: grain samples sounding this block) */
+    uint32_t vact, vact2;                        /* (the voices: grain samples sounding this block; the second half's) */
+    uint8_t vk;                                  /* (tx_fx_grain_split: the first half's voice slots; 0: one pass) */
+    uint32_t rng2;                               /* (the second half's rng: where the first half's ends) */
     int32_t we[TX_BLOCK], wl[TX_BLOCK], wr[TX_BLOCK];   /* (the voices' block: the echo, the grains L, R) */
+    int32_t wl2[TX_BLOCK], wr2[TX_BLOCK];        /* (the second half's grains, L, R) */
 } TX_LINE tx_fx_grain_t;   /* (TX_LINE: its own cache lines on the FM-1) */
 void tx_fx_grain_init(tx_fx_grain_t *d);
 void tx_fx_grain_param(tx_fx_grain_t *d, unsigned id, unsigned v);
@@ -109,6 +112,10 @@ TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int32_t *R,
  * (it runs the voices itself when begin said 0): the same samples */
 TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n);
 TX_AUDIO_CODE void tx_fx_grain_voices(tx_fx_grain_t *d, unsigned n);
+/* or the voices in two halves at once (two cores): split (one core, first), then voices_a and voices_b, then end */
+TX_AUDIO_CODE void tx_fx_grain_split(tx_fx_grain_t *d, unsigned n);
+TX_AUDIO_CODE void tx_fx_grain_voices_a(tx_fx_grain_t *d, unsigned n);
+TX_AUDIO_CODE void tx_fx_grain_voices_b(tx_fx_grain_t *d, unsigned n);
 TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n);
 int tx_fx_grain_quiet(const tx_fx_grain_t *d);
 
@@ -162,6 +169,8 @@ typedef struct {
     int32_t room_us;               /* < 0: the cap from the reserve and the cost model (the host); else the grain delay's
                                     * measured room this block, FM-1 us (the device: what the interrupt's target leaves) */
     uint8_t up;                    /* (measured room: blocks since the cap last rose) */
+    uint8_t two;                   /* (the cost model) 1: the FM-1's two cores, the grains on the second: the cap is
+                                    * every grain asked (the device trims them only on a busy block or on one core) */
 } tx_fx_t;
 void tx_fx_init(tx_fx_t *fx);
 TX_AUDIO_CODE void tx_fx_lane(void *fx, unsigned k, int32_t *x, unsigned n);          /* tx_mix_t.ins */
@@ -174,6 +183,7 @@ TX_AUDIO_CODE void tx_fx_bus(void *fx, int32_t *L, int32_t *R, unsigned n);     
  * run now: tx_fx_grain_voices(&fx->gd, n)), then the lanes and the mix, then end (as tx_mix_t.bus): the same samples */
 TX_AUDIO_CODE int tx_fx_bus_begin(void *fx, unsigned n);
 TX_AUDIO_CODE void tx_fx_bus_end(void *fx, int32_t *L, int32_t *R, unsigned n);
+TX_AUDIO_CODE uint32_t tx_fx_gd_dev_us(const tx_fx_t *fx, uint32_t cap);   /* the grain delay at cap grains, FM-1 us */
 TX_AUDIO_CODE void tx_fx_gd_cap(tx_fx_t *fx);     /* the grain delay's cap for this block (tx_fx_bus calls it; an app
                                                    * that times the grains and the reverb apart calls it, then each) */
 int tx_fx_bus_quiet(void *fx);                                                         /* tx_mix_t.busq */

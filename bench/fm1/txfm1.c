@@ -47,7 +47,6 @@ static void c1_rails(void);
 #include "txfm1_core.h"
 #include "fm1_cfg.h"
 
-#define FM_RUN_MAX (304u * 1024u)
 #define FM_RUNS 3u
 static uint8_t fm_mem[FM_RUN_MAX] __attribute__((aligned(8), section(".pool.txfm1")));
 #define RUN ((fm_run_t *)fm_mem)

@@ -163,7 +163,9 @@ static const step_t SCENE[] = {
     {300, 'K', 1, 0, 60, 100, 1},
     {301, 'M', 1, 0, 1, 0, 0},                  /* lane 2's generator, muted (a classic engine: no notes) */
     {301, 'G', 1, 0, 1, 4242, 0},
+    {305, 'F', 3, 0, 3, 29, 0},                 /* GRAINS 30: over the cap (the model's 19), both halves */
     {310, 'F', 0, 0, 3, 1, 1},                  /* lane 2's DRIVE TYPE KHLON: TSH8 free, lane 3 takes it (lane order) */
+    {330, 'F', 3, 0, 6, 76, 0},                 /* PITCH up: pitched, the cap down to 6 (the second half silent) */
     {350, 'G', 2, 0, 0, 0, 0},                  /* lane 3's generator off: its notes released */
     {360, 'G', 2, 0, 1, 99, 0},                 /* and on again: a new walk */
     {440, 'K', 2, 0, 60, 0, 0},
@@ -235,8 +237,8 @@ int main(void)
             }
         }
 #ifdef LANES_TEST_PAR
-        ln.par_force = (uint8_t)(b % 32u);      /* every split of the lanes and the grains' voices in turn (0: by
-                                                 * cost) */
+        ln.par_force = (uint8_t)(b % 64u);      /* every split of the lanes and the grains' voices' halves in turn
+                                                 * (0: by cost) */
 #endif
         ln_block(L, R, TX_BLOCK);
         r_block(rL, rR);

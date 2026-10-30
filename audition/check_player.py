@@ -245,7 +245,7 @@ def main():
         page.evaluate("window.txTest.render(64)")
         lv = page.evaluate("window.txTest.render(16)")
         st = page.evaluate("window.txTest.fx(3, 0, 6, 71)")
-        check(lv > 0 and 0 < st["grains"] <= st["cap"] <= 16, f"GRAIN DELAY on (16 asked) + HALL with SHIMMER: sounds (peak {lv}), {st['grains']} grains sounding, cap {st['cap']}")
+        check(lv > 0 and 0 < st["grains"] <= 16 and st["cap"] == 30, f"GRAIN DELAY on (16 asked) + HALL with SHIMMER: sounds (peak {lv}), {st['grains']} grains sounding, cap {st['cap']} (30: the FM-1's two cores)")
         page.evaluate("window.txTest.fx(3, 0, 0, 0)")
         page.evaluate("window.txTest.fx(2, 0, 8, 0)")
         page.evaluate("window.txTest.fx(2, 0, 2, 64)")

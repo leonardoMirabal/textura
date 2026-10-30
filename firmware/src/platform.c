@@ -260,7 +260,8 @@ static int area_save(uint32_t at, uint32_t sectors, uint32_t magic, const void *
 /* one sector each, up to SECTOR_MAX bytes; 0: done. A load that fails leaves p as it was (a copy first) */
 static int sector_load(uint32_t at, void *p, uint32_t n)
 {
-    static uint8_t buf[SECTOR_MAX];
+    static uint8_t buf[SECTOR_MAX] __attribute__((section(".nozero")));   /* (Textura: NOINIT's spare room, app.ld; filled
+                                                 * before every read) */
     if (n > sizeof buf || area_load(at, SECTOR_MAX, STORE_MAGIC, buf, n))
         return -1;
     memcpy(p, buf, n);

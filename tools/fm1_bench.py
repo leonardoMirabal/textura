@@ -39,11 +39,13 @@ FRODHES = next((d.parent / "frodhes" for d in (ROOT, *ROOT.parents) if (d.parent
                ROOT.parent / "frodhes")
 APP_XIP = 0x02000120
 LOADER_LOAD = 0x01C0A800
+RAM_AT, RAM_LEN = 0x01C06000, 0x6E000     # app.ld's RAM: the debug gap, .data / .bss and the pool, one region
+NOINIT_LEN = 0x3D50
 LOADER_NAME = b"usb_hid_ota.bin"
 CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-function"]
 FR_FILES = ["firmware/hal", "firmware/crt0.S", "firmware/app.ld", "firmware/loader", "firmware/src",
             "tools/fm1pkg_make.py", "tools/lz4blk.py", "tools/fm1_install.py"]
-TX_OVER = ["firmware/src/platform.c", "firmware/src/core1.h", "firmware/src/gfx.c", "firmware/gen/felucca_font.h", "firmware/hal/fm1_cc.h",
+TX_OVER = ["firmware/app.ld", "firmware/src/platform.c", "firmware/src/core1.h", "firmware/src/gfx.c", "firmware/gen/felucca_font.h", "firmware/hal/fm1_cc.h",
            "firmware/hal/fm1_flash_map.h"]
 
 
@@ -87,7 +89,7 @@ def measure_report(o, out):
     g = lambda n: sec.get(n, 0)
     ram = g(".data") + g(".bss")
     lim = ((".text", g(".text"), 0x8DFBC - g(".ram_text") - g(".data")), (".ram_text", g(".ram_text"), 0x6000),
-           (".data+.bss", ram, 96 * 1024), (".pool", g(".pool"), 0x54000))
+           (".data+.bss+.pool", ram + g(".pool"), RAM_LEN), (".noinit", g(".noinit"), NOINIT_LEN))
     print("  measuring link (app.ld's regions made large):")
     for n, v, l in lim:
         print(f"    {n:11s} {v:8d} B of {l:7d}  " + (f"OVER by {v - l}" if v > l else f"free {l - v}"))
@@ -168,12 +170,10 @@ def main():
     if a.app:                                  # the measuring link's map: the same sections, room for all of them
         ld = (TREE / "firmware" / "app.ld").read_text()
         big, k = re.subn(r"(XIP\s+\(rx\)\s*:\s*ORIGIN\s*=\s*0x02000120,\s*LENGTH\s*=\s*)0x8DFBC", r"\g<1>16M", ld)
-        big, k2 = re.subn(r"RAM\s+\(rwx\)\s*:\s*ORIGIN\s*=\s*0x01C08000,\s*LENGTH\s*=\s*96K",
+        big, k2 = re.subn(r"RAM\s+\(rwx\)\s*:\s*ORIGIN\s*=\s*0x01C06000,\s*LENGTH\s*=\s*0x6E000",
                           "RAM    (rwx) : ORIGIN = 0x10000000, LENGTH = 16M", big)
-        big, k3 = re.subn(r"POOL\s+\(rw\)\s*:\s*ORIGIN\s*=\s*0x01C20000,\s*LENGTH\s*=\s*0x54000",
-                          "POOL   (rw)  : ORIGIN = 0x11000000, LENGTH = 16M", big)
-        if (k, k2, k3) != (1, 1, 1):
-            raise SystemExit("fm1_bench: app.ld's XIP / RAM / POOL lines not found (the measuring link needs them)")
+        if (k, k2) != (1, 1):
+            raise SystemExit("fm1_bench: app.ld's XIP / RAM lines not found (the measuring link needs them)")
         (TREE / "firmware" / "app_measure.ld").write_text(big)
     sdk = ROOT / ".local" / "fw-AC79_AIoT_SDK"
     inc = "-Ifirmware/hal -Ifirmware/src -Ifirmware/gen -Iengines -Ibench"
@@ -261,12 +261,10 @@ def main():
         errors.append(f"image starts with {img[:4].hex()}, not the entry stub")
     if len(img) > fm1pkg_make.APP_SLOT:
         errors.append(f"image {len(img)} B exceeds the app slot {fm1pkg_make.APP_SLOT} B")
-    ram = sym("_bss_end") - 0x01C08000
-    pool = sym("_pool_end") - 0x01C20000
-    if ram > 96 * 1024:
-        errors.append(f"RAM .data+.bss {ram} B > 96 KiB")
-    if pool > 0x54000:
-        errors.append(f"pool {pool} B > {0x54000} B")
+    ram = sym("_bss_end") - RAM_AT
+    pool = sym("_pool_end") - sym("_pool_start")
+    if sym("_pool_end") - RAM_AT > RAM_LEN:
+        errors.append(f"RAM .data+.bss+.pool {sym('_pool_end') - RAM_AT} B > {RAM_LEN} B")
     # the stack frames (-fstack-usage), largest first
     frames = []
     for ln in (o / "stack.txt").read_text().splitlines():
@@ -280,7 +278,7 @@ def main():
     (OUT / f"{out}.bin").write_bytes(img)
     print(f"  image  {len(img)} B of {fm1pkg_make.APP_SLOT} ({100 * len(img) // fm1pkg_make.APP_SLOT} %), "
           f"free {fm1pkg_make.APP_SLOT - len(img)} B")
-    print(f"  RAM    .data+.bss {ram} B of 98304; pool {pool} B of {0x54000} (free {0x54000 - pool})")
+    print(f"  RAM    .data+.bss {ram} B + pool {pool} B of {RAM_LEN} (free {RAM_LEN - ram - pool})")
     if frames:
         print("  stack  largest frames: " + ", ".join(f"{f[1].split(':')[-1]} {f[0]}" for f in frames[:8]))
     for e in errors:

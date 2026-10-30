@@ -109,7 +109,9 @@ static struct {
     uint32_t par_n;                             /* (LN_PAR) the block's frames, for the second core's job */
     uint8_t par_mask, par_force;                /* the lanes it rendered this block; a fixed split (0: by cost) */
     uint32_t par_blocks, par_lost;              /* blocks it rendered lanes in; jobs lost (held mid-job) */
-    uint32_t gv_us, gv_pk;                      /* (LN_CLOCK) the grain voices' last block, us; held (ln_bus) */
+    uint32_t gv_us[2], gv_pk;                   /* (LN_CLOCK) the grain voices' halves' last block, us; held, those on
+                                                 * this core (ln_bus) */
+    uint32_t isr_pk;                            /* (LN_BUS_TIMED) the whole interrupt, held (two cores: the grains' cap) */
     uint32_t c0_us, c1_us, c0_max, c1_max;      /* (LN_CLOCK) the render phase's busy time per core, last and the
                                                  * most since the debug reply */
 } ln LN_POOL;
@@ -119,9 +121,10 @@ typedef struct {                                /* a lane's engine block, writte
     uint32_t us;                                /* (LN_CLOCK) its render, us */
 } __attribute__((aligned(64))) ln_out_t;
 static ln_out_t ln_out[LN_N] LN_POOL;
-static struct { uint32_t gv_us, busy_us; } __attribute__((aligned(64))) ln_c1t LN_POOL;   /* (the second core's own
+static struct { uint32_t gv_us[2], busy_us; } __attribute__((aligned(64))) ln_c1t LN_POOL;   /* (the second core's own
                                                  * line: its job's grain voices and busy time, us) */
-#define LN_GV 4u                                /* the split's item past the lanes: the grain delay's voices */
+#define LN_GV 4u                                /* the split's items past the lanes: the grain delay's voices, the echo
+                                                 * and the first half (LN_GV), the second half (LN_GV + 1) */
 
 #if defined(LN_CLOCK) && defined(LN_ISR_US)
 #define LN_BUS_TIMED
@@ -131,6 +134,18 @@ static int ln_bus_begin(tx_fx_t *fx, unsigned n)   /* at the block's start: the 
 {
     uint32_t pre = ln.pre_pk > ln.gv_pk ? ln.pre_pk - ln.gv_pk : 0u, use = pre + ln.rev_pk + ln.post_pk;
     fx->room_us = use < TX_GOV_ISR_TARGET ? (int32_t)(TX_GOV_ISR_TARGET - use) : 0;
+#ifdef LN_PAR
+    if (LN_PAR_ON()) {                          /* two cores: the grains as set while the whole interrupt (held) fits
+                                                 * its target; over it, the room is the grains' cost less the excess */
+        uint32_t g = tx_fx_gd_dev_us(fx, fx->gd.cap), isr = ln.isr_pk;
+        use = isr;
+        fx->room_us = (int32_t)(isr <= TX_GOV_ISR_TARGET ? g + (TX_GOV_ISR_TARGET - isr) : g > isr - TX_GOV_ISR_TARGET ? g - (isr - TX_GOV_ISR_TARGET) : 0u);
+        if (use > ln.use_max) ln.use_max = use;
+        use = (uint32_t)tx_fx_bus_begin(fx, n);
+        if (TX_GD_MAXG - fx->gd.cap > ln.cap_lo) ln.cap_lo = TX_GD_MAXG - fx->gd.cap;
+        return (int)use;
+    }
+#endif
     if (use > ln.use_max) ln.use_max = use;
     use = (uint32_t)tx_fx_bus_begin(fx, n);
     if (TX_GD_MAXG - fx->gd.cap > ln.cap_lo) ln.cap_lo = TX_GD_MAXG - fx->gd.cap;
@@ -219,8 +234,8 @@ static int ln_gen_param(uint32_t k, uint32_t id, uint32_t v) { return ln_q(LN_EV
 static int ln_gen_mute(uint32_t k, uint32_t m) { return ln_q(LN_EV_GEN_MUTE, k, m != 0, 0, 0); }
 /* the lane's source: its hosted engine's parameter id set to v (rel: released, back to the source's own) */
 static int ln_host(uint32_t k, uint32_t id, uint32_t v, uint32_t rel) { return ln_q(LN_EV_HOST, k, id, v, rel != 0); }
-static int ln_gsync(uint32_t smp) { return ln_q(LN_EV_GSYNC, 0, 0, smp & 0xFFu, smp >> 8 & 0xFFu); }   /* the grain delay's
-                                                         * echo on the tempo, samples (< 65536; 0: its TIME) */
+static int ln_gsync(uint32_t smp) { return ln_q(LN_EV_GSYNC, 0, smp >> 16 & 0xFFu, smp & 0xFFu, smp >> 8 & 0xFFu); }   /* the grain delay's
+                                                         * echo on the tempo, samples (< 2^24; 0: its TIME) */
 /* the hosted engine's value now (main loop: a read of the interrupt's state, for the screen only), or -1 */
 /* the engine the lane's source hosts now (0: none, or not a source): a read of the interrupt's state, one pointer */
 static const tx_engine_t *ln_hosted(uint32_t k)
@@ -319,7 +334,7 @@ static void ln_event(const ln_ev_t *v)
     case LN_EV_GEN_MUTE:
         if (k < LN_N) ln.gen_mute[k] = v->a;
         break;
-    case LN_EV_GSYNC: tx_fx_grain_sync(&ln.fx.gd, (uint32_t)v->b | (uint32_t)v->c << 8); break;
+    case LN_EV_GSYNC: tx_fx_grain_sync(&ln.fx.gd, (uint32_t)v->b | (uint32_t)v->c << 8 | (uint32_t)v->a << 16); break;
     case LN_EV_HOST:
         if (k < LN_N && ln.mix.e[k] && ln.int_id[k] >= 0) tx_source_host_param(ln.mix.st[k], v->a, v->c ? 256u : v->b);
         break;
@@ -350,12 +365,13 @@ static void ln_render_lane(uint32_t k, uint32_t n, uint32_t c)
 #endif
     if (ln.mix.ins) tx_fx_lane_run(&ln.fx, k, x, n, c);
 }
-static void ln_gv(uint32_t *us)                 /* the grain delay's voices (either core) */
+static void ln_gv(uint32_t h, uint32_t *us)     /* the grain delay's voices, half h (either core) */
 {
 #ifdef LN_CLOCK
     uint32_t t0 = LN_CLOCK();
 #endif
-    TX_FAR(tx_fx_grain_voices)(&ln.fx.gd, ln.par_n);
+    if (h) TX_FAR(tx_fx_grain_voices_b)(&ln.fx.gd, ln.par_n);
+    else TX_FAR(tx_fx_grain_voices_a)(&ln.fx.gd, ln.par_n);
 #ifdef LN_CLOCK
     *us = LN_CLOCK_US(LN_CLOCK() - t0);
 #else
@@ -369,7 +385,7 @@ static void ln_par_job(uint32_t mask)           /* the second core's job: its la
 #ifdef LN_CLOCK
     uint32_t t0 = LN_CLOCK();
 #endif
-    if (mask >> LN_GV & 1u) ln_gv(&ln_c1t.gv_us);
+    for (k = 0; k < 2u; k++) if (mask >> (LN_GV + k) & 1u) ln_gv(k, &ln_c1t.gv_us[k]);
     for (k = 0; k < LN_N; k++) if (mask >> k & 1u) ln_render_lane(k, ln.par_n, 1u);
 #ifdef LN_CLOCK
     ln_c1t.busy_us = LN_CLOCK_US(LN_CLOCK() - t0);
@@ -381,11 +397,11 @@ static uint32_t ln_par_split(uint32_t on)
 {
     uint32_t m, k, best = 0, bc = 0xFFFFFFFFu;
     if (ln.par_force) return ln.par_force & on;
-    for (m = 1; m < (2u << LN_GV) - 1u; m++) {
+    for (m = 1; m < (4u << LN_GV) - 1u; m++) {
         uint32_t c0 = 0, c1 = 0, c;
         if ((m & on) != m || m == on) continue;
-        for (k = 0; k <= LN_GV; k++) if (on >> k & 1u) {
-            uint32_t ck = (k == LN_GV ? ln.gv_us : ln.gov_cost[k]) + 1u;   /* (not timed yet: 1) */
+        for (k = 0; k <= LN_GV + 1u; k++) if (on >> k & 1u) {
+            uint32_t ck = (k >= LN_GV ? ln.gv_us[k - LN_GV] : ln.gov_cost[k]) + 1u;   /* (not timed yet: 1) */
             if (m >> k & 1u) c1 += ck; else c0 += ck;
         }
         c = c0 > c1 ? c0 : c1;
@@ -403,15 +419,15 @@ static void ln_render(uint32_t n, int gv)
 #endif
     for (k = 0; k < LN_N; k++) if (ln.mix.e[k]) on |= 1u << k;
     if (ln.mix.ins) for (k = 0; k < LN_N; k++) if (on >> k & 1u) tx_fx_lane_prep(&ln.fx, k);
-    if (gv) on |= 1u << LN_GV;
     ln.par_n = n;
+    if (gv) { tx_fx_grain_split(&ln.fx.gd, n); on |= 3u << LN_GV; }   /* (the voices' two halves: either core) */
 #ifdef LN_PAR
     if ((on & (on - 1u)) && LN_PAR_ON()) {      /* two items or more */
         m1 = ln_par_split(on);
         if (m1 && !LN_PAR_RUN(ln_par_job, m1)) m1 = 0;
     }
 #endif
-    if ((on & ~m1) >> LN_GV & 1u) ln_gv(&ln.gv_us);
+    for (k = 0; k < 2u; k++) if ((on & ~m1) >> (LN_GV + k) & 1u) ln_gv(k, &ln.gv_us[k]);
     for (k = 0; k < LN_N; k++) if ((on & ~m1) >> k & 1u) ln_render_lane(k, n, 0u);
 #ifdef LN_CLOCK
     ln.c0_us = LN_CLOCK_US(LN_CLOCK() - t0);
@@ -419,21 +435,22 @@ static void ln_render(uint32_t n, int gv)
 #endif
 #ifdef LN_PAR
     if (m1 && LN_PAR_WAIT()) {                  /* stopped mid-job: its items here, from where it left them */
-        if (m1 >> LN_GV & 1u) ln_gv(&ln.gv_us);
+        for (k = 0; k < 2u; k++) if (m1 >> (LN_GV + k) & 1u) ln_gv(k, &ln.gv_us[k]);
         for (k = 0; k < LN_N; k++) if (m1 >> k & 1u) ln_render_lane(k, n, 0u);
         ln.par_lost++;
         m1 = 0;
     }
     if (m1) {
         ln.par_blocks++;
-        if (m1 >> LN_GV & 1u) ln.gv_us = ln_c1t.gv_us;
+        for (k = 0; k < 2u; k++) if (m1 >> (LN_GV + k) & 1u) ln.gv_us[k] = ln_c1t.gv_us[k];
         ln.c1_us = ln_c1t.busy_us;
         if (ln.c1_us > ln.c1_max) ln.c1_max = ln.c1_us;
     } else ln.c1_us = 0;
     ln.par_mask = (uint8_t)m1;
 #endif
 #ifdef LN_BUS_TIMED
-    ln.gv_pk = gv ? LN_HOLD(ln.gv_pk, (m1 >> LN_GV & 1u) ? 0u : ln.gv_us) : 0u;   /* (on this core: inside pre_pk) */
+    ln.gv_pk = gv ? LN_HOLD(ln.gv_pk, ((m1 >> LN_GV & 1u) ? 0u : ln.gv_us[0]) + ((m1 >> (LN_GV + 1u) & 1u) ? 0u : ln.gv_us[1]))
+                  : 0u;                         /* (those on this core: inside pre_pk) */
 #endif
 }
 
@@ -446,6 +463,7 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
         uint32_t isr = LN_ISR_US(), bus = LN_CLOCK_US(ln.t_bus - ln.t_blk);
         uint32_t post = (ln.blk_us > bus ? ln.blk_us - bus : 0u) + (isr > ln.blk_us ? isr - ln.blk_us : 0u);
         if (ln.blk_us) ln.post_pk = LN_HOLD(ln.post_pk, post);
+        ln.isr_pk = LN_HOLD(ln.isr_pk, isr);
         ln.t_blk = LN_CLOCK();
         ln.t_bus = ln.t_blk;                    /* (a block with no bus call: its whole time counts as the rest) */
     }

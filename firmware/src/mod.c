@@ -119,7 +119,8 @@ static void mod_env_block(uint32_t trig, uint32_t start)
         if (in < TX_FI_RATE1) x = tx_fol_level_q15((uint32_t)ln.lpk[in - TX_FI_LEVEL1]);
         else if (in < TX_FI_MIX) x = tx_fol_rate_q15((uint32_t)ln.lev[in - TX_FI_RATE1] << 8);
         else if (in == TX_FI_MIX) x = tx_fol_level_q15((uint32_t)(ln.mix.raw_peak > 0 ? ln.mix.raw_peak : 0));
-        else x = (int32_t)(ln.fx.gd.act * 32767u / TX_GD_MAXG);
+        else x = ln.fx.gd.act >= 16u ? 32767 : (int32_t)(ln.fx.gd.act * 32767u / 16u);   /* (16 grains: full scale, as
+                                                         * before 30: the same follower up to 16) */
         tx_fol_block(f, x);
         mod_ext[ME_FOL1 + i] = (int16_t)f->out;
     }

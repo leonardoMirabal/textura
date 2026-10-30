@@ -225,6 +225,12 @@ int main(int argc, char **argv)
                 cfg[nc - 1u].nblk = (uint16_t)((60u * TX_FS) / TX_BLOCK);
                 lanes(lw, 4, "4 lanes worst (stress), 15 grains, two cores, 300 s"); cfg[nc - 1u].type = FM_G15 | FM_PAR;
                 cfg[nc - 1u].nblk = (uint16_t)((300u * TX_FS) / TX_BLOCK);
+                for (k = 0; k < 4u; k++) {           /* the grain delay at its top: 30 pitched grains, two cores */
+                    snprintf(lab, sizeof lab, "4 lanes %s, 30 grains, two cores", NM[k]);
+                    lanes(L4[k], 4, lab); cfg[nc - 1u].type = FM_G30 | FM_PAR;
+                }
+                lanes(lw, 4, "4 lanes worst (stress), 30 grains, two cores, 300 s"); cfg[nc - 1u].type = FM_G30 | FM_PAR;
+                cfg[nc - 1u].nblk = (uint16_t)((300u * TX_FS) / TX_BLOCK);
             }
         }
     }

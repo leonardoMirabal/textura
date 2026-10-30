@@ -21,8 +21,12 @@ enum { FM_FX_DRIVE, FM_FX_FILTER, FM_FX_REVERB, FM_FX_GRAIN, FM_FX_COMP, FM_FX_C
 #define FM_CLK_OPS 16384u          /* probe adds a block: us = FM_CLK_OPS / MHz */
 enum { FM_EV_ON, FM_EV_OFF, FM_EV_PARAM };
 enum { FM_NO_GRAIN = 1, FM_NO_REVERB = 2, FM_NO_DRIVE = 4, FM_NO_FILTER = 8 };   /* LANES: TYPE, effects left out */
-enum { FM_G15 = 16, FM_PAR = 32 };   /* LANES: TYPE also: the grain delay's 15 grains forced (no cap); the lanes split
-                                    * across the two cores (fm_par_t: the engines' renders, as firmware/src/lanes.c) */
+#define FM_RUN_MAX (380u * 1024u)  /* the run's state (fm_run_t: the lanes' arenas, the effects with the grain delay's
+                                    * line) in the pool: txfm1_core.c will not compile past it (the image would start,
+                                    * show RUN STATE TOO BIG and never answer) */
+enum { FM_G15 = 16, FM_PAR = 32, FM_G30 = 64 };   /* LANES: TYPE also: the grain delay's 15 grains forced (no cap); the
+                                    * lanes split across the two cores (fm_par_t: the engines' renders, as
+                                    * firmware/src/lanes.c); its 30 grains forced (GRAINS at the top, no cap) */
 
 typedef struct { uint16_t blk; uint8_t kind, id, a, b; } fm_ev_t;   /* ON: a note, b vel; PARAM: id, a */
 

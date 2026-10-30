@@ -22,13 +22,15 @@ struct fm_run_s {
     struct { int32_t x[TX_BLOCK]; uint32_t t; } __attribute__((aligned(64))) lb[4];   /* LANES: each lane's engine block
                                     * and its time (ticks), written by the core that renders it (its own lines) */
     uint8_t pmask;                                           /* LANES FM_PAR: core 1's items this block (the lanes,
-                                                              * FM_GV: the grain delay's voices) */
-    struct { uint32_t t, busy; } __attribute__((aligned(64))) gv1;   /* core 1's own line: its voices', its job's ticks */
-    uint32_t gvt;                                            /* the voices' last time, ticks */
+                                                              * FM_GV, FM_GV + 1: the grain delay's voices' halves) */
+    struct { uint32_t t[2], busy; } __attribute__((aligned(64))) gv1;   /* core 1's own line: its voices', its job's
+                                                              * ticks */
+    uint32_t gvt[2];                                         /* the voices' halves' last times, ticks */
     uint8_t c1_lost;                                         /* C1: core 1's copy lost (held mid-job): core 0's only */
 };
 
 uint32_t fm_run_bytes(void) { return (uint32_t)sizeof(fm_run_t); }
+typedef char fm_run_fits[sizeof(fm_run_t) <= FM_RUN_MAX ? 1 : -1];   /* (FM_RUN_MAX: the pool's share) */
 const fm_stats_t *fm_stats(const fm_run_t *r) { return &r->s; }
 void fm_set_par(fm_run_t *r, const fm_par_t *p) { r->par = p; }
 
@@ -82,7 +84,8 @@ static void c1_job(uint32_t a) { c1_work((fm_run_t *)(uintptr_t)a); }
  * The run and the clock for core 1's job: set by core 0 before it hands the job over (its argument: the block) */
 static uint32_t (*lane_now)(void);
 static fm_run_t *lane_run;
-#define FM_GV 4u                                             /* the split's item past the lanes: the grain voices */
+#define FM_GV 4u                                             /* the split's items past the lanes: the grain voices'
+                                                              * halves (the echo and the first, the second) */
 static void lane_render(fm_run_t *r, unsigned k, unsigned core)   /* its engine, then its inserts (prep done) */
 {
     uint32_t j, a = lane_now();
@@ -91,10 +94,11 @@ static void lane_render(fm_run_t *r, unsigned k, unsigned core)   /* its engine,
     tx_fx_lane_run(&r->fx, k, r->lb[k].x, TX_BLOCK, core);
     r->lb[k].t = lane_now() - a;
 }
-static uint32_t gv_run(fm_run_t *r)                          /* the grain delay's voices, ticks */
+static uint32_t gv_run(fm_run_t *r, unsigned h)             /* the grain delay's voices, half h, ticks */
 {
     uint32_t a = lane_now();
-    TX_FAR(tx_fx_grain_voices)(&r->fx.gd, TX_BLOCK);
+    if (h) TX_FAR(tx_fx_grain_voices_b)(&r->fx.gd, TX_BLOCK);
+    else TX_FAR(tx_fx_grain_voices_a)(&r->fx.gd, TX_BLOCK);
     return lane_now() - a;
 }
 static void lanes_job(uint32_t a)                            /* core 1's: its items (pmask) */
@@ -103,7 +107,7 @@ static void lanes_job(uint32_t a)                            /* core 1's: its it
     unsigned k;
     uint32_t t0 = lane_now();
     (void)a;
-    if (r->pmask >> FM_GV & 1u) r->gv1.t = gv_run(r);
+    for (k = 0; k < 2u; k++) if (r->pmask >> (FM_GV + k) & 1u) r->gv1.t[k] = gv_run(r, k);
     for (k = 0; k < r->c->eng; k++) if (r->pmask >> k & 1u) lane_render(r, k, 1u);
     r->gv1.busy = lane_now() - t0;
 }
@@ -111,11 +115,11 @@ static void lanes_job(uint32_t a)                            /* core 1's: its it
 static uint32_t lanes_split(const fm_run_t *r, uint32_t on)
 {
     uint32_t m, k, best = 0, bc = 0xFFFFFFFFu;
-    for (m = 1; m < (2u << FM_GV) - 1u; m++) {
+    for (m = 1; m < (4u << FM_GV) - 1u; m++) {
         uint32_t c0 = 0, c1 = 0, c;
         if ((m & on) != m || m == on) continue;
-        for (k = 0; k <= FM_GV; k++) if (on >> k & 1u) {
-            uint32_t ck = (k == FM_GV ? r->gvt : r->lb[k].t) + 1u;
+        for (k = 0; k <= FM_GV + 1u; k++) if (on >> k & 1u) {
+            uint32_t ck = (k >= FM_GV ? r->gvt[k - FM_GV] : r->lb[k].t) + 1u;
             if (m >> k & 1u) c1 += ck; else c0 += ck;
         }
         c = c0 > c1 ? c0 : c1;
@@ -210,8 +214,9 @@ static void start(fm_run_t *r)
     }
     else {
         lanes_fx(&r->fx, c->type);
-        if (c->type & FM_G15) r->fx.reserve_us = 100000u;   /* (the grains' cap never under the 15 asked) */
-        r->c1_lost = 0; r->pmask = 0; r->gvt = 0;
+        if (c->type & (FM_G15 | FM_G30)) r->fx.reserve_us = 100000u;   /* (the grains' cap never under those asked) */
+        if (c->type & FM_G30) tx_fx_grain_param(&r->fx.gd, TX_GD_GRAINS, TX_GD_MAXG - 1u);   /* (30, pitched) */
+        r->c1_lost = 0; r->pmask = 0; r->gvt[0] = r->gvt[1] = 0;
         for (k = 0; k < 4u; k++) r->lb[k].t = 0;
         tx_mix_init(&r->mix);
         r->mix.ins = tx_fx_lane; r->mix.busq = tx_fx_bus_quiet; r->mix.fx = &r->fx;
@@ -313,7 +318,9 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
         tx_mix_begin(&r->mix, TX_BLOCK);
         lane_now = ck->now; lane_run = r;
         for (k = 0; k < c->eng; k++) scene_events(r, k, &r->tab[c->lane[k]], r->blk);
-        if (tx_fx_bus_begin(&r->fx, TX_BLOCK)) on |= 1u << FM_GV;   /* (the grain voices may run now) */
+        if (tx_fx_bus_begin(&r->fx, TX_BLOCK)) {            /* (the grain voices may run now: in two halves) */
+            tx_fx_grain_split(&r->fx.gd, TX_BLOCK); on |= 3u << FM_GV;
+        }
         for (k = 0; k < c->eng; k++) tx_fx_lane_prep(&r->fx, k);
         if ((c->type & FM_PAR) && r->par && !r->c1_lost && (on & (on - 1u))) {
             m1 = lanes_split(r, on);
@@ -321,7 +328,7 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
             if (!r->par->run(lanes_job, r->blk)) m1 = 0;
         }
         t0 = ck->now(); c0 = ck->nested();
-        if ((on & ~m1) >> FM_GV & 1u) r->gvt = gv_run(r);
+        for (k = 0; k < 2u; k++) if ((on & ~m1) >> (FM_GV + k) & 1u) r->gvt[k] = gv_run(r, k);
         for (k = 0; k < c->eng; k++) if (!(m1 >> k & 1u)) {
             uint32_t n0 = ck->nested();
             lane_render(r, k, 0u);
@@ -331,11 +338,11 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
         if (m1 && r->par->wait()) {                          /* held mid-job: its items here, as it left them */
             if (measuring) { r->s.c1_mis++; if (!r->s.c1_first) r->s.c1_first = r->s.n + 1u; }
             r->c1_lost = 1;
-            if (m1 >> FM_GV & 1u) r->gvt = gv_run(r);
+            for (k = 0; k < 2u; k++) if (m1 >> (FM_GV + k) & 1u) r->gvt[k] = gv_run(r, k);
             for (k = 0; k < c->eng; k++) if (m1 >> k & 1u) lane_render(r, k, 0u);
             m1 = 0;
         }
-        if (m1 >> FM_GV & 1u) r->gvt = r->gv1.t;
+        for (k = 0; k < 2u; k++) if (m1 >> (FM_GV + k) & 1u) r->gvt[k] = r->gv1.t[k];
         if (c->type & FM_PAR) {
             if (!m1) r->pmask = 0;
             if (measuring) {

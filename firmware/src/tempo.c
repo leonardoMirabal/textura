@@ -46,7 +46,7 @@ static void tempo_sync_publish(void)
     tm.gsync_half = 0;
     if (g) {
         s = beat_samples() * SYNC_UNITS[g] / 96u;
-        while (s > TX_FX_GD_TIME[127]) { s >>= 1; tm.gsync_half = 1; }   /* (TIME's top: 1.66 s) */
+        while (s > TX_FX_GD_TIME[TX_GD_TIME_MAX]) { s >>= 1; tm.gsync_half = 1; }   /* (TIME's top: 2.80 s) */
     }
     tm.gsync_smp = s;
     if (s != tm.gsync_sent && !ln_gsync(s)) tm.gsync_sent = s;   /* (a full queue: tempo_poll sends it again) */

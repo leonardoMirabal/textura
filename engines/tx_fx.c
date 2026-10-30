@@ -309,6 +309,7 @@ void tx_fx_init(tx_fx_t *fx)
     fx->reserve_us = TX_FX_RESERVE_US;
     fx->room_us = -1;
     fx->up = 0;
+    fx->two = 0;
 }
 TX_AUDIO_CODE void tx_fx_lane(void *u, unsigned k, int32_t *x, unsigned n)
 {
@@ -347,10 +348,16 @@ static const uint16_t FX_US_REV[TX_RVT_N] = {0, 390, 210, 280, 280, 280, 290, 18
 #define FX_DEV_GD_BASE 283u
 #define FX_DEV_GD_GRAIN1 44u
 #define FX_DEV_GD_GRAINP 64u
+TX_AUDIO_CODE uint32_t tx_fx_gd_dev_us(const tx_fx_t *fx, uint32_t cap)   /* the delay at cap grains (FM-1 us) */
+{
+    int pitched = fx->gd.p[TX_GD_PITCH] != 64 || fx->gd.p[TX_GD_REVERSE];
+    return FX_DEV_GD_BASE + cap * (pitched ? FX_DEV_GD_GRAINP : FX_DEV_GD_GRAIN1);
+}
 TX_AUDIO_CODE void tx_fx_gd_cap(tx_fx_t *fx)
 {
     int pitched = fx->gd.p[TX_GD_PITCH] != 64 || fx->gd.p[TX_GD_REVERSE];
     uint32_t room, cap;
+    if (fx->room_us < 0 && fx->two) { fx->gd.cap = TX_GD_MAXG; return; }   /* (the model, two cores: every grain) */
     if (fx->room_us < 0) {                                         /* the model: the reserve less the reverb's TYPE */
         uint32_t t = fx->rev.p[TX_RV_TYPE], c = fx->rev.cur, rv = t < TX_RVT_N ? FX_US_REV[t] : 0;
         if (c < TX_RVT_N && FX_US_REV[c] > rv) rv = FX_US_REV[c];      /* (a TYPE change: the dearer of the two) */
