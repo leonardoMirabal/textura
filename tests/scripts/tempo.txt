@@ -32,7 +32,7 @@
 # K4: the transport off
 5100 turn 5 -1
 5120 expect state running 0
-# the grain delay (FX twice: COMPRESSOR, GRAIN): SYNC 1/4 = a beat (22050 samples at 120); 1 BAR (88200) fits whole (TIME's top 2.80 s)
+# the grain delay (FX twice: COMPRESSOR, GRAIN): SYNC 1/4 = a beat (22050 samples at 120); 1 BAR (88200) fits whole (TIME's top 2.50 s)
 5180 btn 2
 5200 btn 2
 5220 expect state page GRAIN_1/3

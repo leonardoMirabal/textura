@@ -82,7 +82,12 @@ static uint32_t scn_crc(uint32_t c, const uint8_t *p, uint32_t n)   /* running: 
 /* ---- the state */
 static struct { uint8_t used, fam; char name[12]; } scn_meta[SCN_NU];   /* the user scenes' names (RAM) */
 static uint32_t scn_bank, scn_seq;             /* the valid copy (its place; 0: none yet) and its sequence */
+#ifdef DINGHY_HOST
 static scn_t scn_b[2];                          /* a load's scene and the undo's (their roles swap: scn_u) */
+#else
+static scn_t scn_b[2] __attribute__((section(".nozero")));   /* (NOINIT's spare room, app.ld: each one is written whole
+                                                 * before it is read: scn_factory, scn_capture, scn_read) */
+#endif
 static scn_t scn_sv;                            /* the scene being saved */
 static uint8_t scn_u, scn_undo_ok, scn_bidx[2];   /* (scn_bidx: each one's scene number, 0xFF: none) */
 static uint8_t scn_cur = 0xFF;                  /* the scene loaded last (0xFF: none) */

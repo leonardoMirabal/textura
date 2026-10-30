@@ -1328,7 +1328,8 @@ static void check_fx_grain_controls(tx_fx_t *fx)
     snprintf(msg, sizeof msg, "grain delay, GRAIN flipped 0 <-> 127: a click %.2fx the held settings' (10 at most)", wc);
     verdict("fx", "grain-flip", wc <= 10.0, msg, 0);
     /* the reverb's PREDELAY (HALL, MIX 64): swept, and flipped 0 <-> 127 (no click, zipper or level step; the trans
-     * after a move is the tail's interference with the shifted send on held tones: a time, as delay TIME) */
+     * after a move is the tail's interference with the shifted send on held tones: a time, as delay TIME; 1.30 dB
+     * with the kernels at the half rate, 1.63 at the full rate with every line modulated, so 2 dB at most, as TIME) */
     gs_sweep(fx, GS_REV | TX_RV_PREDELAY, 0, &zip, &jump);
     for (t = 0, wc = 0; t < 2u; t++) {
         unsigned a = t ? 127u : 0u, b = t ? 0u : 127u;
@@ -1339,9 +1340,9 @@ static void check_fx_grain_controls(tx_fx_t *fx)
         ref = h0.click > h1.click ? h0.click : h1.click;
         if (mv.click / (ref > 1.0 ? ref : 1.0) > wc) wc = mv.click / (ref > 1.0 ? ref : 1.0);
     }
-    snprintf(msg, sizeof msg, "reverb PREDELAY swept 0 .. 127 .. 0: a level step %.2f dB past the statics' (1.5 at most), "
+    snprintf(msg, sizeof msg, "reverb PREDELAY swept 0 .. 127 .. 0: a level step %.2f dB past the statics' (2 at most), "
              "zipper %.2f; flipped 0 <-> 127: a click %.2fx", jump, zip, wc);
-    verdict("fx", "predelay", jump <= 1.5 && zip <= 2.0 && wc <= 10.0, msg, 0);
+    verdict("fx", "predelay", jump <= 2.0 && zip <= 2.0 && wc <= 10.0, msg, 0);
     free(gs_chord);
 }
 static void check_fx(FILE *update)

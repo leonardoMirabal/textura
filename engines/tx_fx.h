@@ -124,40 +124,46 @@ enum { TX_RV_TYPE, TX_RV_MIX, TX_RV_DECAY, TX_RV_TONE, TX_RV_PREDELAY, TX_RV_SIZ
        TX_RV_SHIFT, TX_RV_NP };
 enum { TX_RVT_OFF, TX_RVT_ROOM, TX_RVT_HALL, TX_RVT_INF, TX_RVT_DARK, TX_RVT_DRIFT, TX_RVT_SWELL, TX_RVT_PLATE, TX_RVT_N };   /* (append only) */
 extern const tx_param_t tx_fx_reverb_params[TX_RV_NP];
-#define TX_PD_LEN 4096u            /* the pre-delay's line: 92.9 ms (int32: the send has headroom) */
-#define TX_RV_QZ 5u
+#define TX_PD_LEN 3536u            /* the pre-delay's line: its longest tap (80 ms, 3528) + 1, to 8 (int32: the send has
+                                    * headroom) */
 typedef struct {
     uint8_t p[TX_RV_NP];
     uint8_t cur, fade, running, pd_on;
     int32_t off, damp, dk;                       /* DECAY's size offset, TONE's damping, DECAY for the kernels (glide) */
     int32_t hp, he, lc, lca, lcv;                /* the kernels' DC blocker; LOW CUT */
     uint32_t pd_w, pd_d, pd_d0, pd_x, pd_fill;
-    int32_t inb[RV_DZ + CTL];                    /* the send: the 2:1 down's history, the block */
+    int32_t inb[CTL];                            /* the send, a control block */
     int32_t x[HL_NC];
-    int32_t shb[2048];                           /* SHIMMER: the tank's mid at half rate (46 ms window x 2) */
+#define SHN 2056u                                /* (the span's 2048 + the interpolation's 2 + the head's sample) */
+    int32_t shb[SHN];                            /* SHIMMER: the tank's mid (46 ms window + its reach) */
     uint32_t shw, shph;                          /* its write index, the two heads' phase (Q32) */
     int32_t shlp, she, shpk, shg;                /* its input low-pass and remainder, the block's peak, its guard gain */
     int32_t sh[HL_NC];                           /* the shifted mid, into the next control block's input */
-    int32_t m[TX_RV_QZ + HL_NC], s[TX_RV_QZ + HL_NC];   /* the TYPE's mid / side (history, then the block) */
-    int32_t rm[TX_BLOCK] TX_LINE;                /* ROOM: the send at full rate, gathered over the block (the other
-                                                 * core's body works on it in place: its own cache lines) */
+    int32_t m[HL_NC], s[HL_NC];                  /* the TYPE's mid / side, a control block */
     uint32_t r0, rn;                             /* ROOM: the gathered run's start and length */
     uint8_t rf[TX_BLOCK / CTL];                  /* ROOM: each control block's fade (0: none) */
     uint32_t rng;                                /* DRIFT: its walks' random numbers (never reseeded) */
     int32_t swe, swr;                            /* SWELL: the send's level (its envelope), the return's root gain (Q15) */
     int32_t pz;                                  /* PLATE's AUTO size: MIX latched while it rings (-1: take MIX now) */
     int32_t pd[TX_PD_LEN];
-    /* ROOM on two cores (bit-exact): the block's sends first (sv, with the 2:1 down's history; each control block's
+    /* ROOM on two cores (bit-exact): the block's sends first (sv; each control block's
      * SIZE and TONE glide in svo / svd), then the body (the CHAMBER, tx_fx_reverb_body: its wet part into rw) on the
      * other core while this one runs the tail; body_run hands it over (1: taken), body_wait waits (1: lost, run it
      * here). 0: one core. Set by the app after tx_fx_init. */
     int (*body_run)(void);
     int (*body_wait)(void);
-    int32_t sv[RV_DZ + TX_BLOCK];
-    int32_t svo[TX_BLOCK / CTL], svd[TX_BLOCK / CTL];
-    int32_t rw[TX_BLOCK] TX_LINE;                /* (written by the other core: its own cache lines) */
-    union { tx_hall_t h; tx_inf_t i; tx_plate_t p; struct { tx_chamber_t c; tx_hall_t h TX_LINE; } rm; } u TX_LINE;   /* (ROOM:
-                                                 * the body + a short hall, each on its own cache lines) */
+    tx_rv_par_t par;                             /* the kernels' own halves on the other core (0: one core; the app) */
+    /* the TYPE's state. ROOM: the body, a short hall, and its block's buffers (only ROOM uses them: in its union
+     * member): rm the send at full rate, gathered over the block (the other core's body works on it in place), rw the
+     * body's wet part (written by the other core), sv / svo / svd the sends (two cores); each on its own cache lines */
+    union {
+        tx_hall_t h; tx_inf_t i; tx_plate_t p;
+        struct {
+            tx_chamber_t c; tx_hall_t h TX_LINE;
+            int32_t rm[TX_BLOCK] TX_LINE, rw[TX_BLOCK] TX_LINE, sv[TX_BLOCK] TX_LINE;
+            int32_t svo[TX_BLOCK / CTL], svd[TX_BLOCK / CTL];
+        } rm;
+    } u TX_LINE;
 } tx_fx_reverb_t;
 void tx_fx_reverb_init(tx_fx_reverb_t *r);
 void tx_fx_reverb_param(tx_fx_reverb_t *r, unsigned id, unsigned v);

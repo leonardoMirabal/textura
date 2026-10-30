@@ -169,6 +169,11 @@ static void ln_bus(void *u, int32_t *L, int32_t *R, unsigned n)
 static void ln_rev_job(uint32_t a) { (void)a; TX_FAR(tx_fx_reverb_body)(&ln.fx.rev); }
 static int ln_rev_run(void) { return LN_PAR_ON() && LN_PAR_RUN(ln_rev_job, 0u); }
 static int ln_rev_wait(void) { int l = LN_PAR_WAIT(); if (l) ln.par_lost++; return l; }
+/* the reverb kernels' halves on the second core (tx_fx_reverb_t.par): one job, its function and argument here */
+static void (*ln_kfn)(void *);
+static void *ln_karg;
+static void ln_kjob(uint32_t a) { (void)a; ln_kfn(ln_karg); }
+static int ln_krun(void (*fn)(void *), void *a) { ln_kfn = fn; ln_karg = a; return LN_PAR_ON() && LN_PAR_RUN(ln_kjob, 0u); }
 #endif
 static void ln_init(void)
 {
@@ -179,6 +184,7 @@ static void ln_init(void)
     tx_fx_init(&ln.fx);
 #ifdef LN_PAR
     ln.fx.rev.body_run = ln_rev_run; ln.fx.rev.body_wait = ln_rev_wait;
+    ln.fx.rev.par.run = ln_krun; ln.fx.rev.par.wait = ln_rev_wait;
 #endif
     ln.mix.ins = tx_fx_lane; ln.mix.bus = tx_fx_bus_end; ln.mix.busq = tx_fx_bus_quiet; ln.mix.fx = &ln.fx;   /* (the
                                                  * bus's begin and the grains' voices: ln_block, ln_render) */

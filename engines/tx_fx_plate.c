@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* REVERB TYPE PLATE: a figure-8 plate tank, the classic published design (integer, half rate).
+/* REVERB TYPE PLATE: a figure-8 plate tank, the classic published design (integer; Frodhes runs it at the half rate,
+ * Textura at the full rate: the notes below are Frodhes', at 22.05 kHz; here every length x 2, HL_NC = 32).
  *
  * Included by rev_types.c (the framework), after fx.c: it uses fx.c's sh_tz, hl_c16, clampi, exp2_neg, osc_sine,
  * CTL, FS and HL_NC. Runs at the half rate (22.05 kHz), one control block = HL_NC = 16 samples a call:
@@ -49,7 +50,8 @@
 /* Textura: Frodhes' kernel (firmware/src/rev_plate.c, 0.9.5) as one of the reverb's TYPEs, its own file here. What
  * it computes is unchanged; adapted to the effects' framework (tx_fx.c, tx_fx_kern.h): the names (tx_plate_t, its
  * state in tx_fx_kern.h for the TYPEs' union; tx_tx_rev_ctl_t; tx_fx_sine), the 1 Hz LFO's step as an integer, the
- * guard copies by memcpy. */
+ * guard copies by memcpy. At the full rate (Textura): the lengths and the swing x 2, the decay from the same times,
+ * the damping and bandwidth one-poles as at the half rate (rv_pole). */
 #include "tx_fx_kern.h"
 
 #ifndef FR_RAM
@@ -58,13 +60,10 @@
 #endif
 #define REV_US_PLATE 200u
 
-#define PL_R(n) (((n) * 7409u + 5000u) / 10000u)       /* the design's 29.76 kHz lengths at 22.05 kHz */
-#define PL_N 16384u                                    /* the tank's ring (int16) */
-#define PL_M (PL_N - 1u)
-#define PL_IN 1024u                                    /* the input allpasses' ring */
-#define PL_G 17u                                       /* the guard: a block's 16 samples + the interpolation's next */
-#define PL_GAP 16u                                     /* between segments: >= one block */
-#define PL_MSL 14u                                     /* the modulated lines' room: excursion (11.9) + interpolation */
+#define PL_R(n) (((n) * 14818u + 5000u) / 10000u)      /* the design's 29.76 kHz lengths at 44.1 kHz */
+#define PL_M (PL_N - 1u)                               /* (PL_N, PL_IN, PL_G: tx_fx_kern.h) */
+#define PL_GAP HL_NC                                   /* between segments: >= one block */
+#define PL_MSL 28u                                     /* the modulated lines' room: excursion (23.8) + interpolation */
 /* the tank's 8 segments: the longest delay each holds (SIZE 127: x 255 / 256), their tops */
 #define PL_LM0 (PL_R(672u) + PL_MSL)                    /* left: modulated allpass */
 #define PL_LM1 PL_R(4453u)                              /* left: delay 1 */
@@ -128,7 +127,7 @@ void tx_plate_start(tx_plate_t *s)
     for (k = 0; k < 4u; k++)
         for (i = PL_ITOP[k] - PL_G; i < PL_ITOP[k]; i++)
             s->id[i] = 0;
-    s->bw = s->dl = s->dr = 0;
+    s->bw = s->dl = s->jr.dr = 0;
     s->cdec = s->cdamp = -1;
     s->sz = -1;
 }
@@ -164,6 +163,7 @@ static void pl_ctl(tx_plate_t *s, const tx_rev_ctl_t *c)
     if (new) {
         for (k = 0; k < 8u; k++)
             ls += s->d[k];
+        ls /= RV_X;                                     /* (a round's time in the design's half-rate samples) */
         /* g^4 per round of ls samples, 60 dB in T60 = 0.8 s x 7.5^(decay / 127): g = 2^-e, e = 9.2566 ls / 2^(2.907
          * decay / 127) (Q16), 2.907 / 127 = 1500 / 65536; + 104 a step (x 1.15 at 127) makes up the damping's,
          * the modulation's and the truncation's losses at the defaults (measured: tests/py/test_rev_plate.py) */
@@ -176,8 +176,8 @@ static void pl_ctl(tx_plate_t *s, const tx_rev_ctl_t *c)
         s->cdec = c->decay;
     }
     if (c->damp != s->cdamp) {
-        s->pdm = clampi(c->damp * 350, 0, 31000);      /* the poles (Q15): bright (0) .. dark; 60 (TONE 64): */
-        s->pbw = clampi(c->damp * 240, 0, 26000);      /* about HALL's colour; the input bandwidth (|b - u| < 82560: the product < 2^31) */
+        s->pdm = rv_pole(clampi(c->damp * 350, 0, 31000));      /* the poles (Q15): bright (0) .. dark; 60 (TONE 64): */
+        s->pbw = rv_pole(clampi(c->damp * 240, 0, 26000));      /* about HALL's colour; the input bandwidth (|b - u| < 74240: the product < 2^31) */
         s->cdamp = c->damp;
     }
 }
@@ -186,7 +186,7 @@ _Static_assert(3 * PL_RR >= PL_S_N, "a SIZE step's delays in PL_RR blocks");
 /* a read site in the tank: P[j] (j = 0 .. 16) is the sample of delay hi - j at the block's sample 0 (the block's
  * sample i reads P[i] for delay hi, P[i + 1] for hi - 1). While every read of the block is older than the start: the
  * zeros. The block where the reads cross the start reads write-times from -17 on (a delay grows at most 13 a block,
- * e 16): those were zeroed by the start */
+ * e 16; at the full rate 26 and 32, PL_G 33): those were zeroed by the start */
 static inline const int16_t *pl_ptr(const tx_plate_t *s, uint32_t top, uint32_t hi, uint32_t lo)
 {
     if (s->e + HL_NC <= lo) return s->zero;
@@ -219,7 +219,7 @@ static __attribute__((noinline)) int32_t pl_in(const int16_t *const *r, int16_t 
     for (i = 0; i < HL_NC; i++) {
         int32_t y, d, v, u = in[i] + (in[i] >> 1);  /* the lines 1.5x hot: 3.5 dB less rounding noise */
         int32_t e = b - u;
-        if ((uint32_t)(e + 82560) <= 165120u) b = u + sh_tz(e * pb, 15);
+        if ((uint32_t)(e + 74240) <= 148480u) b = u + sh_tz(e * pb, 15);   /* (pb <= 28916) */
         else {                                  /* (a send over ~1.7x full scale: (b - u) pb past 2^31; Frodhes' 0.9.6
                                                  * fix, BUGHUNT #22, in 32 bits: the same integers, toward zero) */
             int32_t lo = (e & 32767) * pb, q = (e >> 15) * pb + (lo >> 15);
@@ -293,6 +293,12 @@ static __attribute__((noinline)) void pl_taps_ms(const int16_t *const *t, int32_
     }
 }
 
+static void pl_job(void *a)                          /* the right half (on the other core, or here) */
+{
+    tx_plate_t *s = (tx_plate_t *)a;
+    s->jr.act = FR_FAR(pl_half)(s->x, s->jr.f, s->jr.t, s->jr.fm, s->jr.o, &s->jr.dr, &s->g);
+}
+
 TX_AUDIO_CODE void tx_plate_run(tx_plate_t *s, const int32_t *in, int32_t *mid, int32_t *side,
                                                     const tx_rev_ctl_t *c)
 {
@@ -301,7 +307,7 @@ TX_AUDIO_CODE void tx_plate_run(tx_plate_t *s, const int32_t *in, int32_t *mid, 
     uint32_t k, w, ex, dm0, dm1;
     int32_t act;
     pl_ctl(s, c);
-    ex = (uint32_t)c->mod * 24u;                       /* MOD 127: 3048 = 11.9 samples (Q8) */
+    ex = (uint32_t)c->mod * 48u;                       /* MOD 127: 6096 = 23.8 samples (Q8) */
     s->ph += PL_LFO;
     dm0 = (s->d[0] << 8) + (uint32_t)((tx_fx_sine(s->ph) * (int32_t)ex) >> 15);
     dm1 = (s->d[4] << 8) + (uint32_t)((tx_fx_sine(s->ph + 0x40000000u) * (int32_t)ex) >> 15);
@@ -326,11 +332,18 @@ TX_AUDIO_CODE void tx_plate_run(tx_plate_t *s, const int32_t *in, int32_t *mid, 
     pl_cpy(b + PL_N, b);
     for (k = 0; k < 8u; k++)
         o[k] = pl_wptr(s, b, PL_N, w + PL_TOP[k], 1u);
-    {
+    {   /* the two halves: the right one on the other core (or here, after), the left one here; each reads only
+         * what is at least a block old and writes its own segments */
         /* (volatile: read once; as a constant the compiler rebuilt the address in the loop, 4 instructions a sample) */
         const int32_t *volatile xv = s->x;
+        int taken;
+        for (k = 0; k < 4u; k++) s->jr.t[k] = t[4u + k], s->jr.o[k] = o[4u + k];
+        s->jr.f = t[3];
+        s->jr.fm = (int32_t)(dm1 & 255u);
+        taken = rv_fork(c->par, pl_job, s);
         act |= FR_FAR(pl_half)(xv, t[7], t, (int32_t)(dm0 & 255u), o, &s->dl, &s->g);
-        act |= FR_FAR(pl_half)(xv, t[3], t + 4, (int32_t)(dm1 & 255u), o + 4, &s->dr, &s->g);
+        rv_join(c->par, pl_job, s, taken);
+        act |= s->jr.act;
     }
     pl_taps(t + 8, mid);
     pl_taps_ms(t + 15, mid, side, s->ko);

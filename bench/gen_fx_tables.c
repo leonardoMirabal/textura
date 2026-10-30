@@ -10,6 +10,32 @@
 
 static FILE *hdr, *src;
 
+/* the reverb kernels' one-poles at the full rate: for a half-rate pole p (the designs' own, at 22.05 kHz), the pole at
+ * 44.1 kHz whose response (DC gain 1) is closest to it over 60 Hz .. 11 kHz in log magnitude, every octave alike (a
+ * least-squares fit; golden-section search). Matching the corner instead (sqrt p) leaves the top damped harder: the
+ * INFINITE tails 5-12 % shorter */
+static double pole_err(double p2, double p1)
+{
+    double e = 0;
+    int k;
+    for (k = 0; k < 300; k++) {
+        double f = 60.0 * pow(11025.0 / 60.0, k / 299.0), w1 = 2 * M_PI * f / 22050.0, w2 = 2 * M_PI * f / 44100.0;
+        double h1 = log((1 - p1) / sqrt(1 - 2 * p1 * cos(w1) + p1 * p1));
+        double h2 = log((1 - p2) / sqrt(1 - 2 * p2 * cos(w2) + p2 * p2));
+        e += (h2 - h1) * (h2 - h1);
+    }
+    return e;
+}
+static double pole_fit(double p1)
+{
+    double a = 0, b = 0.99999, g = (sqrt(5.0) - 1) / 2, c = b - g * (b - a), d = a + g * (b - a);
+    while (b - a > 1e-10) {
+        if (pole_err(c, p1) < pole_err(d, p1)) b = d; else a = c;
+        c = b - g * (b - a), d = a + g * (b - a);
+    }
+    return (a + b) / 2;
+}
+
 static void row(const char *type, const char *name, const long *v, int n, int per, const char *what)
 {
     int i;
@@ -77,6 +103,9 @@ int main(int argc, char **argv)
     row("uint32_t", "TX_FX_GD_PITCH", v, 25, 8, "the grains' rate, Q16, for -12 .. +12 semitones");
     for (i = 0; i < 128; i++) v[i] = lround(32768.0 * (1 - exp(-2 * M_PI * 400 * pow(40.0, i / 127.0) / FS)));
     row("uint16_t", "TX_FX_GD_TONE", v, 128, 12, "the feedback's one-pole low-pass, Q15: 400 Hz .. 16 kHz (exponential)");
+    for (i = 0; i < 65; i++) v[i] = i < 64 ? lround(32768.0 * pole_fit(i / 64.0)) : 32767;
+    for (i = 0; i < 65; i++) v[i] = v[i] > 32767 ? 32767 : v[i];
+    row("int16_t", "TX_FX_RV_POLE", v, 65, 13, "the reverb's one-pole poles at 44.1 kHz for the designs' half-rate poles, Q15 (in steps of 1/64)");
     fprintf(hdr, "\n#endif\n");
     fclose(hdr); fclose(src);
     return 0;

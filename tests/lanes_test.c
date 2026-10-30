@@ -17,7 +17,7 @@
 static pthread_mutex_t par_mx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t par_cv = PTHREAD_COND_INITIALIZER;
 static void (*par_fn)(uint32_t);
-static uint32_t par_arg, par_seq, par_done, par_jobs;
+static uint32_t par_arg, par_seq, par_done, par_jobs, par_kt;
 static void *par_main(void *u)
 {
     (void)u;
@@ -36,8 +36,11 @@ static void *par_main(void *u)
     }
     return 0;
 }
+static void ln_kjob(uint32_t a);
+static uint32_t par_rvt(void);
 static int par_run(void (*fn)(uint32_t), uint32_t a)
 {
+    if (fn == ln_kjob) par_kt |= 1u << par_rvt();        /* a reverb kernel's half: the TYPEs it ran for */
     pthread_mutex_lock(&par_mx);
     par_fn = fn; par_arg = a; par_seq++; par_jobs++;
     pthread_cond_broadcast(&par_cv);
@@ -57,6 +60,9 @@ static int par_wait(void)
 #define LN_PAR_WAIT() par_wait()
 #endif
 #include "../firmware/src/lanes.c"
+#ifdef LANES_TEST_PAR
+static uint32_t par_rvt(void) { return ln.fx.rev.cur; }
+#endif
 
 /* ---- the reference: the player's chain, inline (txw_select, txw_key_slot, txw_param, txw_fx_param, txw_render) */
 static tx_mix_t rm;
@@ -151,6 +157,7 @@ static const step_t SCENE[] = {
     {130, 'N', 1, 0, 20, 0, 0},                 /* lane 2's pan */
     {150, 'S', 0, "rainwater", 0, 0, 0},        /* a switch on lane 1: the source fades out over 4 blocks */
     {151, 'K', 0, 0, 62, 110, 1},
+    {160, 'F', 2, 0, 0, 3, 0},                  /* REVERB TYPE infinite: its tank's halves on the second core */
     {200, 'K', 0, 0, 62, 0, 0},
     {220, 'S', 1, 0, 0, 0, 0},                  /* lane 2 off: its tail fades */
     {230, 'S', 2, "source", 0, 0, 0},           /* lane 3: the source played by its generator */
@@ -159,6 +166,7 @@ static const step_t SCENE[] = {
     {231, 'K', 2, 0, 60, 100, 1},
     {232, 'F', 0, 0, 3, 2, 2},                  /* lane 3's DRIVE TYPE TSH8: refused while lane 2 has it */
     {232, 'F', 0, 0, 0, 90, 2},
+    {260, 'F', 2, 0, 0, 7, 0},                  /* REVERB TYPE plate: the same */
     {300, 'S', 1, "fire", 0, 0, 0},
     {300, 'K', 1, 0, 60, 100, 1},
     {301, 'M', 1, 0, 1, 0, 0},                  /* lane 2's generator, muted (a classic engine: no notes) */
@@ -270,7 +278,10 @@ int main(void)
 #ifdef LANES_TEST_PAR
     if (!ln.par_blocks) { printf("FAIL the second core rendered nothing\n"); fails++; }
     if (par_jobs <= ln.par_blocks) { printf("FAIL the reverb's ROOM body never ran on the second core\n"); fails++; }
-    printf("     lanes (two cores): %u blocks with lanes on the second core, %u jobs\n", ln.par_blocks, par_jobs);
+    if ((par_kt & (1u << TX_RVT_HALL | 1u << TX_RVT_INF | 1u << TX_RVT_PLATE)) != (1u << TX_RVT_HALL | 1u << TX_RVT_INF | 1u << TX_RVT_PLATE)) {
+        printf("FAIL the reverb kernels' halves: not on the second core for every TYPE (0x%x)\n", par_kt); fails++;
+    }
+    printf("     lanes (two cores): %u blocks with lanes on the second core, %u jobs, reverb TYPEs split 0x%x\n", ln.par_blocks, par_jobs, par_kt);
 #endif
     if (ln.fx.drv.ts_own != &ln.fx.drive[2] || ln.fx.drive[1].cur != TX_DRT_KHLON || ln.fx.drive[2].cur != TX_DRT_TSH8) {
         printf("FAIL the DRIVE TYPEs: TSH8 not handed from lane 2 to lane 3\n"); fails++;

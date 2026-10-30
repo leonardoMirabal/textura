@@ -4,17 +4,17 @@
  * each grain with its own start (SPRAY), pitch, direction and place, their sum fed back so every repeat is grained
  * again. Integers only; 32-bit products per sample (the wide ones split in two).
  *
- *   in (the mix's mid) + the feedback -> the line (mono, TX_GD_N samples (tx_fx_gd_len.h: 1.715 s) of block float,
+ *   in (the mix's mid) + the feedback -> the line (mono, TX_GD_N samples (tx_fx_gd_len.h: 2.551 s) of block float,
  *   12-bit mantissas and a 4-bit shift per 16 samples: 113 KB, its noise follows the signal: ~-109 dBFS at -40 dBFS,
  *   far below at -70)
- *   the ECHO: one tap at TIME (20 ms .. 1.66 s at 127, on to 2.80 s; a new TIME crossfades from the old tap in 23 ms: the
+ *   the ECHO: one tap at TIME (20 ms .. 1.66 s at 127, on to 2.50 s; a new TIME crossfades from the old tap in 23 ms: the
  *     echo moves without a level step)
  *   the GRAINS: GRAINS voices (1 .. 30) staggered on one clock (each grain SIZE long, Hann windows: they add up to a
  *     constant), each started at TIME + a random SPRAY, at PITCH (semitone steps, -12 .. +12), reversed by chance
  *     (REVERSE), panned at random within SPREAD; read with linear interpolation (whole samples at rate 1: exact)
  *   out = MIX x (ECHO .. GRAINS by GRAIN), added to the mix; the feedback: that, through TONE's low-pass, a soft knee
  *     (above half scale only: the quiet repeats stay exact), FEEDBACK's gain and a DC block, into the line
- *   FREEZE: the line stops taking input (a 10 ms fade): the whole line (2.85 s) circles, the grains keep reading them
+ *   FREEZE: the line stops taking input (a 10 ms fade): the whole line (2.55 s) circles, the grains keep reading them
  * The dynamic cap (cap, set by the chain each block): grains beyond it finish their window and do not start again, so
  * the delay costs what the effects reserve leaves (on the FM-1: ~14 us a sounding grain at rate 1, ~42 us pitched or
  * reversed, ~220 us the line, the echo and the feedback; each grain decodes its run of the line once a block).
@@ -28,7 +28,7 @@
 
 const tx_param_t tx_fx_grain_params[TX_GD_NP] = {
     {"MIX", 127, 0, "the delay's level (added to the sound): off (0) .. full"},
-    {"TIME", TX_GD_TIME_MAX, 70, "the echo's time: 20 ms .. 1.66 s (127) .. 2.80 s (exponential); the grains read around it"},
+    {"TIME", TX_GD_TIME_MAX, 70, "the echo's time: 20 ms .. 1.66 s (127) .. 2.50 s (exponential); the grains read around it"},
     {"FEEDBACK", 127, 50, "how long the repeats go on (each one grained again): none .. endless"},
     {"GRAINS", TX_GD_MAXG - 1u, 3, "grain voices on the repeats: 1 .. 30 (fewer when the CPU is short)"},
     {"SIZE", 127, 64, "each grain's length: 20 .. 500 ms"},
@@ -38,7 +38,7 @@ const tx_param_t tx_fx_grain_params[TX_GD_NP] = {
     {"SPREAD", 127, 64, "each grain's place: all in the middle .. anywhere left to right"},
     {"TONE", 127, 100, "the repeats' top: dark (400 Hz) .. open (16 kHz)"},
     {"GRAIN", 127, 64, "the clean echo (0) .. the grains (127)"},
-    {"FREEZE", 1, 0, "hold the line: the last 2.85 s go round, the grains keep playing them"},
+    {"FREEZE", 1, 0, "hold the line: the last 2.55 s go round, the grains keep playing them"},
 };
 
 TX_RAM static uint32_t rnd(uint32_t *s) { *s = *s * 1664525u + 1013904223u; return *s; }   /* (the grains' rng: d->rng,

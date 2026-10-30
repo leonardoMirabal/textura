@@ -254,8 +254,8 @@ TX_AUDIO_DATA const int16_t TX_FX_HANN[1025] = {
     0
 };
 
-/* the grain delay's TIME in samples: 20 ms .. 1.66 s at 127 .. 2.80 s at 142 (exponential; the line's top) */
-TX_AUDIO_DATA const uint32_t TX_FX_GD_TIME[143] = {
+/* the grain delay's TIME in samples: 20 ms .. 1.66 s at 127 .. 2.50 s at 139 (exponential; the line's top) */
+TX_AUDIO_DATA const uint32_t TX_FX_GD_TIME[140] = {
     882u, 913u, 946u, 979u, 1014u, 1050u, 1087u, 1125u,
     1165u, 1207u, 1249u, 1294u, 1339u, 1387u, 1436u, 1487u,
     1539u, 1594u, 1651u, 1709u, 1770u, 1832u, 1897u, 1964u,
@@ -273,7 +273,7 @@ TX_AUDIO_DATA const uint32_t TX_FX_GD_TIME[143] = {
     43535u, 45077u, 46674u, 48327u, 50039u, 51812u, 53648u, 55548u,
     57516u, 59554u, 61664u, 63848u, 66110u, 68452u, 70877u, 73388u,
     75988u, 78680u, 81467u, 84353u, 87342u, 90436u, 93640u, 96957u,
-    100392u, 103949u, 107631u, 111444u, 115392u, 119480u, 123372u
+    100392u, 103949u, 107631u, 110252u
 };
 
 /* the grains' clock, Q32 phase a sample: a grain 20 .. 500 ms long (exponential) */
@@ -317,5 +317,14 @@ TX_AUDIO_DATA const uint16_t TX_FX_GD_TONE[128] = {
     19793u, 20142u, 20492u, 20842u, 21192u, 21542u, 21891u, 22239u, 22585u, 22930u, 23273u, 23613u,
     23951u, 24285u, 24617u, 24944u, 25268u, 25587u, 25901u, 26210u, 26514u, 26811u, 27103u, 27389u,
     27668u, 27940u, 28205u, 28463u, 28713u, 28955u, 29189u, 29415u
+};
+
+/* the reverb's one-pole poles at 44.1 kHz for the designs' half-rate poles, Q15 (in steps of 1/64) */
+TX_AUDIO_DATA const int16_t TX_FX_RV_POLE[65] = {
+    0, 1286, 2473, 3580, 4617, 5594, 6520, 7401, 8240, 9044, 9815, 10556, 11270,
+    11959, 12626, 13271, 13897, 14505, 15095, 15670, 16229, 16775, 17307, 17826, 18334, 18830,
+    19315, 19791, 20256, 20712, 21159, 21598, 22028, 22451, 22866, 23273, 23674, 24068, 24456,
+    24837, 25212, 25581, 25944, 26302, 26655, 27003, 27345, 27682, 28015, 28343, 28667, 28986,
+    29301, 29612, 29919, 30221, 30520, 30815, 31105, 31393, 31676, 31955, 32231, 32502, 32767
 };
 

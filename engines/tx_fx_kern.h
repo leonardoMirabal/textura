@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include "tx_engine.h"
 #include "tx_fx_tables.h"
+#include "tx_fx_drv.h"                          /* (TX_LINE) */
 
 /* no <string.h> in engines/ (freestanding on the device: its libc's memset / memcpy, a byte at a time). Clears go
  * through tx_zero (words: a reverb TYPE's start clears 14 .. 30 KB in the audio interrupt); c must be 0 */
@@ -19,8 +20,8 @@ TX_INLINE void tx_fx_copy32(int32_t *d, const int32_t *s, unsigned n) { unsigned
 
 #define TX_FX_FS 44100u
 #define CTL 32u                     /* a control block: 32 frames (the reverb's step) */
-#define HL_NC (CTL / 2u)            /* its half-rate samples */
-#define RV_DZ 10u                   /* the 2:1 down's history: the send's 10 samples before the block */
+#define HL_NC CTL                   /* the kernels' samples a call: every kernel runs at the full rate (44.1 kHz) */
+#define RV_X 2u                     /* the kernels' designs are at the half rate: their lengths x RV_X here */
 
 TX_INLINE int32_t clampi(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 TX_INLINE int32_t mulq15(int32_t a, int32_t b) { return (a * b) >> 15; }          /* |a|, |b| small enough */
@@ -42,6 +43,14 @@ TX_INLINE int32_t tx_fx_sine(uint32_t ph)               /* Q32 phase -> +-32767 
     int32_t f = (int32_t)((ph >> 7) & 0x7FFFu);
     return TX_FX_SINE[i] + (((TX_FX_SINE[i + 1] - TX_FX_SINE[i]) * f) >> 15);
 }
+/* a design's half-rate one-pole at the full rate (TX_FX_RV_POLE: the closest response): a pole p (y = p y + (1 - p)
+ * x), Q15; a weight a (y += a (x - y)) is 1 - its pole */
+TX_INLINE int32_t rv_pole(int32_t p)
+{
+    int32_t i = p >> 9, f = p & 511;
+    return i >= 64 ? 32767 : TX_FX_RV_POLE[i] + (((TX_FX_RV_POLE[i + 1] - TX_FX_RV_POLE[i]) * f) >> 9);
+}
+TX_INLINE int32_t rv_weight(int32_t a) { return 32768 - rv_pole(32768 - a); }
 TX_INLINE uint32_t exp2_neg(uint32_t x)                 /* 2^(-x / 65536) in Q15 */
 {
     uint32_t i = x >> 16, u = 32768u - ((x & 0xFFFFu) >> 1), p = 2579u;
@@ -51,7 +60,8 @@ TX_INLINE uint32_t exp2_neg(uint32_t x)                 /* 2^(-x / 65536) in Q15
     return i < 15u ? p >> (i + 1u) : 0u;
 }
 
-/* ---- the reverb kernels' contract (Frodhes rev_types.c): half rate (22.05 kHz), HL_NC samples a call ---- */
+/* ---- the reverb kernels' contract (Frodhes rev_types.c; there at the half rate, here at the full): HL_NC samples a
+ * call ---- */
 typedef struct {            /* filled by the framework once per control block */
     int32_t decay;          /* 0..127 DECAY, after the framework's slew */
     int32_t damp;           /* 0..150 (TONE: 150 dark, 60 at its middle, 0 bright) */
@@ -60,41 +70,60 @@ typedef struct {            /* filled by the framework once per control block */
     int32_t freeze;         /* the infinite kernel: 0 normal; 1 SUSTAIN (DECAY 120..126); 2 FREEZE (DECAY 127) */
     int32_t dark;           /* the infinite kernel: DARK (no wander, the top held down, the input darker) */
     uint32_t *drift;        /* the infinite kernel: DRIFT (the wander a slow random walk; the framework's random state) */
+    const struct tx_rv_par *par;   /* the other core (0: none) */
 } tx_rev_ctl_t;
 
-/* the 2:1 down into every kernel: an 11-tap half-band, the level into the lines, a DC blocker (Frodhes fx.c rev_down) */
-#define RV_HB(c, d) (624 * ((c)[-(d)] + (c)[0]) - 152 * ((c)[-2 * (d)] + (c)[d]) + 40 * ((c)[-3 * (d)] + (c)[2 * (d)]))
+/* the kernels on two cores: the app's hooks (tx_fx_reverb_t.par). A kernel hands half of its lines (HALL, INFINITE)
+ * or one half of its tank (PLATE) to the other core and runs the rest here: each half writes only its own state and
+ * buffers (their own cache lines), and every read of the lines is older than the block, so the samples are the same
+ * on one core or two. run: fn(a) handed over (1: taken; 0: not, run it here); wait: 0 done, else lost mid-way (run
+ * here again: a fault's recovery, not the same samples) */
+typedef struct tx_rv_par {
+    int (*run)(void (*fn)(void *), void *a);
+    int (*wait)(void);
+} tx_rv_par_t;
+TX_INLINE int rv_fork(const tx_rv_par_t *p, void (*fn)(void *), void *a) { return p && p->run && p->run(fn, a); }
+TX_INLINE void rv_join(const tx_rv_par_t *p, void (*fn)(void *), void *a, int taken)
+{
+    if (!taken || p->wait()) fn(a);
+}
+
+/* the input of every kernel: the level into the lines, a DC blocker (Frodhes fx.c rev_down, without its 2:1 down) */
 #define HL_IN 10320                 /* the send's level into the int16 lines (4x Felucca's: 12 dB less rounding) */
 void tx_rev_down(const int32_t *in, int32_t *php, int32_t *phe, int32_t *out);
 
 /* HALL (tx_fx_hall.c: Felucca's hall, as Frodhes runs it) */
 #define HL_NL 8u
 #define HL_NAP 2u
-#define HL_N 752u
+#define HL_N 1536u
 typedef struct {
     int16_t comb[(HL_N + 1u) * HL_NL];   /* the 8 lines' ring: row t = their samples written at t; row HL_N repeats 0 */
-    int16_t ap[556 + 441];
+    int16_t ap[(131u + 307u) * RV_X];
     uint16_t w, d[HL_NAP];
-    int32_t lp[HL_NL], le[HL_NL];
     int32_t hp, he;
     int16_t g[HL_NL], sz;
     uint32_t ph;
     int32_t bx[HL_NC];
-    int16_t y[HL_NC][HL_NL];
+    uint32_t jw;                                 /* (the block's write row, kd, md: the other half's arguments) */
+    int32_t jkd, jmd;
+    struct {                                     /* lines 0..3, 4..7: their damping one-poles, their ends a block */
+        int32_t lp[HL_NL / 2u], le[HL_NL / 2u];
+        int16_t y[HL_NC][HL_NL / 2u];
+    } TX_LINE half[2];
 } tx_hall_t;
 void tx_hall_start(tx_hall_t *h);
-/* add: HL_NC half-rate samples added to the decimated input (the shimmer), or 0 */
+/* add: HL_NC samples added to the input (the shimmer), or 0 */
 void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t *add, int32_t size, int32_t damp, int32_t md, int32_t *mid,
-                 int32_t *side);
+                 int32_t *side, const tx_rv_par_t *par);
 
 /* INFINITE (tx_fx_inf.c: Frodhes' infinite tank, the LITE build; DARK as its variant) */
 #define RI_NL 8u
 #define RI_CPT 4u
-#define RI_NB (16u * RI_CPT)
-#define RI_N 1984u                  /* the lines' shared ring, a multiple of RI_NB (the longest line + its swing below) */
+#define RI_NB (HL_NC * RI_CPT)
+#define RI_N 3968u                  /* the lines' shared ring, a multiple of RI_NB (the longest line + its swing below) */
 #define RI_NDIF 3u
 #define RI_NLAP 4u
-#define RI_APSUM 597u               /* the diffusers' lines (127 + 193 + 277) */
+#define RI_APSUM (597u * RV_X)      /* the diffusers' lines (127 + 193 + 277, x 2) */
 typedef struct {
     uint32_t w, age, quiet, apfull;
     int32_t il, ie, ik;
@@ -106,8 +135,7 @@ typedef struct {
     uint32_t hw;
     int32_t rd;
     int32_t lv, tgt, dq, dqi;
-    uint8_t mlo, rr, fm, full;
-    int32_t yp[RI_NL], op[RI_NL], oe[RI_NL];
+    uint8_t mlo, fm, full, gdk;               /* (gdk: DARK's gains made) */
     int32_t ma[RI_NL];
     uint32_t ph[RI_NL];
     int32_t wu[RI_NL], wv[RI_NL];   /* DRIFT: each wandering read's walk (two one-poles toward a random target) */
@@ -117,9 +145,13 @@ typedef struct {
     uint16_t len[RI_NL], tlen[RI_NL];
     int16_t g[RI_NL];
     uint16_t apd[RI_NDIF + RI_NLAP];
+    int32_t eb0[RI_NL], eck[RI_NL];              /* (the line ends' gains and poles, where they start: the block's, */
+    uint32_t ef[RI_NL], ew;                      /* made before the two halves run; the write row) */
+    struct { int32_t yp[RI_NL / 2u], op[RI_NL / 2u], oe[RI_NL / 2u]; } TX_LINE hs[2];   /* lines 0..3, 4..7: their
+                                                 * interpolation, one-pole and remainder (each half its own lines) */
     int32_t x[RI_NB];
     int32_t m[RI_NB], s[RI_NB];
-    int32_t y[RI_NB][RI_NL];
+    struct { int32_t y[RI_NB][RI_NL / 2u]; } TX_LINE hy[2];   /* their ends, a tank block */
     int16_t ap[RI_APSUM];
     int16_t ring[(RI_N + 1u) * RI_NL];
 } tx_inf_t;
@@ -128,9 +160,9 @@ int tx_inf_active(const tx_inf_t *s);
 void tx_inf_run(tx_inf_t *s, const int32_t *in, int32_t *mid, int32_t *side, const tx_rev_ctl_t *c);
 
 /* PLATE (tx_fx_plate.c: Frodhes' plate kernel); its sizes here for the TYPEs' union (the same as in its file) */
-#define PL_N 16384u                                    /* the tank's ring (int16) */
-#define PL_IN 1024u                                    /* the input allpasses' ring */
-#define PL_G 17u                                       /* the guard: a block's 16 samples + the interpolation's next */
+#define PL_N 32768u                                    /* the tank's ring (int16) */
+#define PL_IN 2048u                                    /* the input allpasses' ring */
+#define PL_G (HL_NC + 1u)                              /* the guard: a block's samples + the interpolation's next */
 enum { PL_S_N = 22 };
 typedef struct {
     int16_t ring[PL_N + PL_G + 1u];                  /* (+ 1: whole words for pl_cpy) */
@@ -139,7 +171,7 @@ typedef struct {
     uint32_t w, e;                  /* the rings' write index (one a sample), samples since the start (to PL_WARM) */
     uint32_t ph;                    /* the LFO */
     uint32_t quiet;                 /* samples with no input and no line write (to PL_N) */
-    int32_t bw, dl, dr;             /* the bandwidth and the two damping one-poles */
+    int32_t bw, dl;                 /* the bandwidth and the left half's damping one-pole */
     int32_t g, g2, pdm, pbw;        /* decay, allpass 2's gain, the damping / bandwidth poles (Q15): g g2 pdm in
                                      * this order (pl_half's k[]) */
     int32_t sz, szn, rr;            /* the size that runs, the step being made (szn, rr: its block), -1 at the start */
@@ -149,6 +181,12 @@ typedef struct {
     uint16_t d[PL_S_N];             /* the delays at this size */
     uint16_t tk[PL_S_N];            /* the reads: their segment's top - their delay */
     int32_t x[HL_NC];
+    struct {                        /* the right half's arguments and state (its own lines: it may run on the other
+                                     * core): its reads, the left half's end, its writes, its damping one-pole */
+        const int16_t *t[4], *f;
+        int16_t *o[4];
+        int32_t fm, dr, act;
+    } TX_LINE jr;
 } tx_plate_t;
 void tx_plate_start(tx_plate_t *s);
 int tx_plate_active(const tx_plate_t *s);
