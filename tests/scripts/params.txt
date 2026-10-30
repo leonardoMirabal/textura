@@ -1,5 +1,5 @@
-# the params table: the SOUND pages (per-sound cards: the source's own and the hosted engine's), COMPRESSOR / DRIVE /
-# FILTER / GRAIN / REVERB with their ALGORITHM, CC on the lanes' channels and channel 5, NRPN. A few ids by number: they never
+# the params table: the SOUND pages (per-sound cards: the source's own and the hosted engine's), DRIVE / FILTER (the
+# four lanes' page, then the selected lane's) / GRAIN / REVERB with their ALGORITHM, CC on the lanes' channels and channel 5, NRPN. A few ids by number: they never
 # change ("p<hex id>": 0x008 = lane 1's first card, 0x125 = lane 2's FILTER FREQ, 0x40B = GRAIN FREEZE, 0x411 = REVERB
 # MIX)
 1700 btn 13
@@ -51,65 +51,71 @@
 2760 expect state lab2 RHYTHM
 2760 expect state host3.5 64
 2760 expect state card1 64
-# EDIT again: DRIVE (lane 4's, its first effect); ALGORITHM turns its type
-2765 btn 6
-2785 expect state page DRIVE
-2785 expect state lab0 AMOUNT
-2785 expect state lab3 TYPE
-2865 turn 2 30
-2865 turn 1 1
-2885 expect state card3 KHLON
-2965 shot
-# EDIT again: COMPRESSOR 1/2 (lane 4's, after its DRIVE: Frodhes' four knobs; on by default); ALGORITHM: COMP off /
-# on; CC 118 on lane 4's channel: its RAT only; on channel 5 (and the old global ids, 0x41A..): all four lanes'
-3000 btn 6
-3002 expect state page COMPRESSOR_1/2
-3002 expect state lab0 THR
-3002 expect state lab1 RAT
-3002 expect state lab2 ATK
-3002 expect state lab3 MKUP
-3002 expect state card0 -20_dB
-3002 expect state card1 1.5:1
-3002 expect state card2 8.5
-3002 expect state card3 +2.6_dB
-3002 expect state p32A 1
-3003 turn 1 -1
-3005 expect state msg COMP_OFF
-3005 expect state p32A 0
-3005 expect state p02A 1
-3006 turn 1 1
-3008 expect state msg COMP_ON
-3008 expect state p32A 1
-3009 midi 0xB3 118 127
-3011 expect state card1 20:1
-3011 expect state p32E 7
-3011 expect state p02E 0
-3012 midi 0xB4 118 0
-3014 expect state card1 1.5:1
-3014 expect state p32E 0
-3015 midi 0xB4 95 0
-3017 expect state p02A 0
-3017 expect state p12A 0
-3017 expect state p22A 0
-3017 expect state p32A 0
-3018 midi 0xB4 99 4
-3018 midi 0xB4 98 26
-3018 midi 0xB4 6 127
-3020 expect state p02A 1
-3020 expect state p32A 1
-3025 shot
-# EDIT again: FILTER 1/2; ALGORITHM: LP12; K2: the cutoff in Hz
+# EDIT again: DRIVE 1/2, the four lanes' AMOUNT (K2: lane 2's, which selects lane 2); ALGORITHM: lane 2's type
+2800 btn 6
+2820 expect state page DRIVE_1/2
+2820 expect state lab0 AMOUNT
+2820 expect state lab3 AMOUNT
+2830 turn 3 30
+2850 expect state sel 2
+2850 expect state p120 30
+2860 turn 1 1
+2880 expect state p123 1
+2880 expect state msg L2_DRIVE_KHLON
+2880 expect state p323 0
+2900 shot
+# SELECT: DRIVE 2/2, lane 2's: TYPE AMOUNT TONE MIX; OCT+: lane 3's, OCT-: lane 2's again
+2920 turn 0 1
+2940 expect state page DRIVE_2/2
+2940 expect state lab0 AMOUNT
+2940 expect state lab3 TYPE
+2940 expect state card3 KHLON
+2950 btn 1
+2970 expect state sel 3
+2970 expect state page DRIVE_2/2
+2970 expect state card3 FDRV
+2980 btn 0
+3000 expect state sel 2
+3000 shot
+# EDIT again: FILTER 1/3, the four lanes' FREQ (K3: lane 3's, which selects it); SELECT: 2/3 lane 3's; ALGORITHM:
+# LP12; K2: the cutoff in Hz; SELECT: 3/3 RATE SHAPE
 3100 btn 6
-3120 expect state page FILTER_1/2
+3120 expect state page FILTER_1/3
+3120 expect state lab0 FREQ
+3130 turn 4 -1
+3150 expect state sel 3
+3160 turn 0 1
+3180 expect state page FILTER_2/3
 3200 turn 1 1
 3220 expect state card0 LP12
+3220 expect state p224 1
 3300 turn 3 -40
 3400 shot
 3500 turn 0 1
-3520 expect state page FILTER_2/2
+3520 expect state page FILTER_3/3
 3520 expect state lab0 RATE
 3520 expect state lab2 -
-# FX: GRAIN 1/3; ALGORITHM: FREEZE
+# FX: COMPRESSOR 1/2 (Frodhes' four knobs; on by default); ALGORITHM: COMP off / on; CC 118 on channel 5: RAT
+3540 btn 2
+3545 expect state page COMPRESSOR_1/2
+3545 expect state lab0 THR
+3545 expect state lab1 RAT
+3545 expect state lab2 ATK
+3545 expect state lab3 MKUP
+3545 expect state card0 -20_dB
+3545 expect state card1 1.5:1
+3545 expect state card2 8.5
+3545 expect state card3 +2.6_dB
+3550 turn 1 -1
+3555 expect state msg COMP_OFF
+3560 turn 1 1
+3565 expect state msg COMP_ON
+3570 midi 0xB4 118 127
+3575 expect state card1 20:1
+3580 midi 0xB4 118 0
+3585 expect state card1 1.5:1
+3590 shot
+# FX again: GRAIN 1/3; ALGORITHM: FREEZE
 3600 btn 2
 3620 expect state page GRAIN_1/3
 3620 expect state lab2 SYNC

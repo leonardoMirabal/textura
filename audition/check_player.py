@@ -266,8 +266,10 @@ def main():
         # layer's own level: the fade's first block keeps most of the level of the block before (a cut drops it to 0),
         # and its largest step, from the last sample before it, stays near the steps just before (a cut would jump by
         # the level there, ~10x). Measured against the sounding cloud's whole run it failed now and then: a big new
-        # particle in the fade outdid the steps before it.)
+        # particle in the fade outdid the steps before it. The mix's COMPRESSOR off for it: its release lifting the
+        # decaying cloud, up to MKUP, failed it now and then too: the fade is the layer's, not the compressor's.)
         page.evaluate("""() => { const s = document.querySelector('#sliders input[data-id="0"]'); s.value = 0; s.oninput(); }""")
+        page.evaluate("window.txTest.fx(4, 0, 0, 0)")
         jumps = page.evaluate("""() => {
             const a = window.txTest.renderCopy(2);        // the test engine sounding, no new particles: its sample steps
             window.txTest.layerOff(0);
@@ -279,6 +281,7 @@ def main():
         check(jumps[3] > 0 and jumps[4] >= 0.3 * jumps[3] and jumps[1] <= jumps[0] * 1.5 and jumps[2] == 0,
               f"a layer switched off fades, no click: level {jumps[4]:.4f} in its first block vs {jumps[3]:.4f} before, largest "
               f"step {jumps[1]:.4f} vs {jumps[0]:.4f} just before; silent after ({jumps[2]})")
+        page.evaluate("window.txTest.fx(4, 0, 0, 1)")    # (the COMPRESSOR on again: its default)
         pick(0)                                         # back to the test engine, every key pressed again
         page.mouse.up(); page.keyboard.up("KeyD"); page.keyboard.up("KeyJ")
         page.keyboard.down("KeyD"); page.keyboard.down("KeyJ")

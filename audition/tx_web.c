@@ -48,17 +48,16 @@ static int gov_on = 1, gov_ready;
 static uint32_t gov_factor = 0u, gov_cost[TX_MIX_SLOTS], gov_lvl[TX_MIX_SLOTS];
 static void gov_init(void) { if (!gov_ready) { tx_gov_init(&gov, TX_MIX_SLOTS, 3193u); gov_ready = 1; } }
 
-static tx_fx_t fxc;                                     /* the effects: each layer's COMPRESSOR + DRIVE + FILTER, the
-                                                         * GRAIN DELAY, the REVERB */
+static tx_fx_t fxc;                                     /* the effects: each layer's DRIVE + FILTER, the REVERB */
 static void ready(void)                                 /* the mixer, once, before any call that uses it */
 {
     static int r;
     if (!r) {
         tx_mix_init(&mixer); mixer.ch = &chamber;
         tx_fx_init(&fxc); fxc.two = 1;                  /* (the FM-1's two cores: the grains as set) */
-        { unsigned i, k; for (k = 0; k < TX_FX_LANES; k++) for (i = 0; i < TX_CP_NP; i++) tx_comp_param(&fxc.comp[k], i, tx_comp_params[i].def); }
-                                                        /* (each layer's COMPRESSOR at the app's defaults, as the FM-1's: on) */
         mixer.ins = tx_fx_lane; mixer.bus = tx_fx_bus; mixer.busq = tx_fx_bus_quiet; mixer.fx = &fxc;
+        { unsigned i; for (i = 0; i < TX_CP_NP; i++) tx_comp_param(&mixer.comp, i, tx_comp_params[i].def); }   /* (the
+                                                         * app's defaults, as the FM-1's: on) */
         r = 1;
     }
 }
@@ -315,9 +314,9 @@ EMSCRIPTEN_KEEPALIVE const char *txw_max_sha(int i)
     return hex;
 }
 
-/* ---- EFFECTS (tx_fx.h): group 4 COMPRESSOR (tx_core_comp.h), 0 DRIVE and 1 FILTER (each layer's own, in that order,
- * on its signal before the pan), 3 GRAIN DELAY (on the mix), 2 REVERB (on the mix, last; its TYPE ROOM is the
- * CHAMBER's body + a short hall) */
+/* ---- EFFECTS (tx_fx.h): group 0 DRIVE and 1 FILTER (each layer's own, on its signal before the pan), 4 COMPRESSOR
+ * (the first effect on the mix: tx_core_comp.h), 3 GRAIN DELAY (on the mix, after it), 2 REVERB (on the mix, last; its
+ * TYPE ROOM is the CHAMBER's body + a short hall) */
 static const tx_param_t *fx_list(int g, int *n)
 {
     if (g == 0) { *n = TX_DR_NP; return tx_fx_drive_params; }
@@ -332,7 +331,7 @@ EMSCRIPTEN_KEEPALIVE const char *txw_fx_pname(int g, int i) { int n; const tx_pa
 EMSCRIPTEN_KEEPALIVE const char *txw_fx_phelp(int g, int i) { int n; const tx_param_t *p = fx_list(g, &n); return i >= 0 && i < n ? p[i].help : ""; }
 EMSCRIPTEN_KEEPALIVE int txw_fx_pmax(int g, int i) { int n; const tx_param_t *p = fx_list(g, &n); return i >= 0 && i < n ? p[i].max : 0; }
 EMSCRIPTEN_KEEPALIVE int txw_fx_pdef(int g, int i) { int n; const tx_param_t *p = fx_list(g, &n); return i >= 0 && i < n ? p[i].def : 0; }
-/* group g's parameter i to v (k: the layer, for COMPRESSOR / DRIVE / FILTER) */
+/* group g's parameter i to v (k: the layer, for DRIVE / FILTER) */
 EMSCRIPTEN_KEEPALIVE void txw_fx_param(int g, int k, int i, int v)
 {
     ready();
@@ -341,14 +340,9 @@ EMSCRIPTEN_KEEPALIVE void txw_fx_param(int g, int k, int i, int v)
     else if (g == 1 && k >= 0 && k < (int)TX_FX_LANES) tx_fx_filter_param(&fxc.filter[k], (unsigned)i, (unsigned)v);
     else if (g == 2) tx_fx_reverb_param(&fxc.rev, (unsigned)i, (unsigned)v);
     else if (g == 3) tx_fx_grain_param(&fxc.gd, (unsigned)i, (unsigned)v);
-    else if (g == 4 && k >= 0 && k < (int)TX_FX_LANES) tx_comp_param(&fxc.comp[k], (unsigned)i, (unsigned)v);
+    else if (g == 4) tx_comp_param(&mixer.comp, (unsigned)i, (unsigned)v);
 }
-EMSCRIPTEN_KEEPALIVE int txw_comp_gr(int k)             /* layer k's: dB x 10 (-1: off) */
-{
-    ready();
-    if (k < 0 || k >= (int)TX_FX_LANES) return -1;
-    return fxc.comp[k].p[TX_CP_ON] ? tx_comp_gr_db10(&fxc.comp[k]) : -1;
-}
+EMSCRIPTEN_KEEPALIVE int txw_comp_gr(void) { ready(); return mixer.comp.p[TX_CP_ON] ? tx_comp_gr_db10(&mixer.comp) : -1; }   /* dB x 10 (-1: off) */
 EMSCRIPTEN_KEEPALIVE int txw_fx_frozen(void) { ready(); return tx_fx_reverb_frozen(&fxc.rev); }
 EMSCRIPTEN_KEEPALIVE int txw_fx_running(void) { ready(); return !tx_fx_reverb_quiet(&fxc.rev); }
 EMSCRIPTEN_KEEPALIVE int txw_fx_grains(void) { ready(); return fxc.gd.on ? fxc.gd.act : -1; }   /* sounding (-1: off) */

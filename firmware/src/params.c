@@ -7,12 +7,10 @@
  *           8 .. 15   the sound's cards (what they turn depends on the sound: sound_cards.h)
  *           32 .. 35  DRIVE  AMOUNT TONE MIX TYPE          (tx_fx_drive_params order)
  *           36 .. 41  FILTER TYPE FREQ RESO LFO RATE SHAPE  (tx_fx_filter_params order)
- *           42 .. 47  COMPRESSOR: COMP THR ATK REL RAT MKUP (tx_comp_params order; Frodhes' COMPRESSOR's): the lane's
- *                     second insert (DRIVE, COMP, FILTER)
+ *           42 .. 47  reserved (a lane's COMPRESSOR, one firmware's: a scene's records of them are ignored)
  *   global  0 .. 11   GRAIN DELAY (tx_fx_grain_params order)   12 its SYNC (tempo.c)
  *           16 .. 25  REVERB (tx_fx_reverb_params order)
- *           26 .. 31  COMPRESSOR, as it was (the mix's): now every lane's at once (P_COMP_ALL: an older scene's
- *                     records, channel 5's CCs, an NRPN); its own value none (it reads the selected lane's)
+ *           26 .. 31  COMPRESSOR: COMP THR ATK REL RAT MKUP (tx_comp_params order; Frodhes' COMPRESSOR's)
  *           32 .. 37  TEMPO: BPM (40 .. 240) FINE (BPM in tenths) STATUS (read only) TRANSPORT TAP (over 63: a tap)
  *                     SCENE TEMPO (a scene's load sets its tempo: on / off, in the settings)
  *           40 .. 43  MIDI: CLOCK (INT MASTER FOLLOW AUTO) CLK IN USB, CLK IN TRS, CLK OUT (OFF / USB: MASTER sends)
@@ -60,18 +58,10 @@ static void p_cat(char *d, const char *s, uint32_t max) { uint32_t n = 0; while 
 #define P_ENV 6u                                /* the envelopes: n x 16 + param; the followers: 32 + n x 16 + param (mod.c) */
 #define P_MODS(s) ((s) == P_LFO || (s) == P_ENV || (s) == P_MAT)   /* the modulation's scopes (mod.c's) */
 #define NOID_P 0xFFFFu
-enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_DRIVE0 = 32, PL_FILTER0 = 36, PL_COMP0 = 42, PL_NUM = 48 };
+enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_DRIVE0 = 32, PL_FILTER0 = 36, PL_NUM = 42 };
 enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP0 = 26, PG_N_ = 32, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN,
        PG_TAP, PG_SCNTEMPO, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR };
 #define P_CH_GLOBAL 4u                          /* MIDI channel 5 (0-based 4) */
-#define P_COMP_ALL(s, i) ((s) == P_GLOBAL && (i) >= PG_COMP0 && (i) < PG_COMP0 + TX_CP_NP)   /* the old global COMPRESSOR:
-                                                 * all four lanes' */
-static uint32_t p_comp_of(uint32_t s, uint32_t i)   /* a compressor id's parameter (tx_comp_params), or TX_CP_NP */
-{
-    if (s < SC_N && i >= PL_COMP0 && i < PL_COMP0 + TX_CP_NP) return i - PL_COMP0;
-    if (P_COMP_ALL(s, i)) return i - PG_COMP0;
-    return TX_CP_NP;
-}
 
 /* how a value reads */
 enum { F_NUM, F_ENUM, F_ONOFF, F_SOUND, F_COUNT, F_ACTIVE, F_PAN, F_HZ_FL, F_HZ_LFO, F_MS_GD, F_MS_GS, F_MS_PD, F_SEMI,
@@ -167,7 +157,7 @@ static const p_gx_t *p_gx(uint32_t id)
     return 0;
 }
 
-/* the effects' values (the lanes' compressor, drive and filter, the grain delay, the reverb) */
+/* the effects' values (the lanes' drive and filter, the grain delay, the reverb) */
 static uint8_t pv_lane[P_LANES][PL_NUM];
 static uint8_t pv_glob[PG_N_];
 
@@ -282,8 +272,8 @@ static const tx_param_t *p_fx_desc(uint32_t id)   /* an effect's descriptor (0: 
     } else if (s == P_GLOBAL) {
         if (i < PG_GRAIN0 + TX_GD_NP) return &tx_fx_grain_params[i - PG_GRAIN0];
         if (i >= PG_REVERB0 && i < PG_REVERB0 + TX_RV_NP) return &tx_fx_reverb_params[i - PG_REVERB0];
+        if (i >= PG_COMP0 && i < PG_COMP0 + TX_CP_NP) return &tx_comp_params[i - PG_COMP0];
     }
-    if (p_comp_of(s, i) < TX_CP_NP) return &tx_comp_params[p_comp_of(s, i)];
     return 0;
 }
 static int p_valid(uint32_t id)
@@ -334,13 +324,7 @@ static uint32_t p_fmt(uint32_t id)
         if (i == PL_DRIVE0 + TX_DR_TYPE || i == PL_FILTER0 + TX_FL_TYPE || i == PL_FILTER0 + TX_FL_SHAPE) return F_ENUM;
         if (i == PL_FILTER0 + TX_FL_FREQ) return F_HZ_FL;
         if (i == PL_FILTER0 + TX_FL_RATE) return F_HZ_LFO;
-    }
-    if (p_comp_of(s, i) < TX_CP_NP) {           /* the COMPRESSOR: Frodhes' formats */
-        uint32_t c = p_comp_of(s, i);
-        return c == TX_CP_ON ? F_ONOFF : c == TX_CP_THR ? F_THR : c == TX_CP_ATK || c == TX_CP_REL ? F_R10
-             : c == TX_CP_RATIO ? F_ENUM : F_GAIN;
-    }
-    if (s == P_GLOBAL) {
+    } else if (s == P_GLOBAL) {
         if (p_gx(id)) return p_gx(id)->fmt;
         if (i == PG_GRAIN0 + TX_GD_FREEZE) return F_ONOFF;
         if (i == PG_GRAIN0 + TX_GD_TIME) return F_MS_GD;
@@ -349,21 +333,25 @@ static uint32_t p_fmt(uint32_t id)
         if (i == PG_GRAIN0 + TX_GD_GRAINS) return F_PLUS1;
         if (i == PG_REVERB0 + TX_RV_TYPE || i == PG_REVERB0 + TX_RV_SHIFT) return F_ENUM;
         if (i == PG_REVERB0 + TX_RV_PREDELAY) return F_MS_PD;
+        if (i == PG_COMP0 + TX_CP_ON) return F_ONOFF;           /* the COMPRESSOR: Frodhes' formats */
+        if (i == PG_COMP0 + TX_CP_THR) return F_THR;
+        if (i == PG_COMP0 + TX_CP_ATK || i == PG_COMP0 + TX_CP_REL) return F_R10;
+        if (i == PG_COMP0 + TX_CP_RATIO) return F_ENUM;
+        if (i == PG_COMP0 + TX_CP_MKUP) return F_GAIN;
     }
     return F_NUM;
 }
 static const char *const *p_names(uint32_t id)
 {
     uint32_t i = P_IDX(id);
-    if (p_comp_of(P_SCOPE(id), i) == TX_CP_RATIO) return N_RATIO;
     if (P_SCOPE(id) < P_LANES) return i == PL_DRIVE0 + TX_DR_TYPE ? N_DRIVE : i == PL_FILTER0 + TX_FL_TYPE ? N_FILTER : N_SHAPE;
+    if (i == PG_COMP0 + TX_CP_RATIO) return N_RATIO;
     return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : i == PG_CLOCK ? N_CLOCK : i == PG_OUT ? N_CLKOUT : i == PG_COLOR ? COLOR_NAME : N_SHIFT;
 }
 static int32_t p_get(uint32_t id)
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
     if (P_MODS(s)) return mod_valid(id) ? mod_get(id) : 0;
-    if (P_COMP_ALL(s, i)) return pv_lane[sc.sel < SC_N ? sc.sel : 0][PL_COMP0 + i - PG_COMP0];
     if (s == P_GLOBAL) {
         switch (i) {
         case PG_GSYNC: return (int32_t)tm_get(TG_GSYNC);
@@ -397,11 +385,6 @@ static void p_set(uint32_t id, int32_t v)
     if (!p_valid(id)) return;
     v = v < 0 ? 0 : v > hi ? hi : v;
     if (P_MODS(s)) { mod_set(id, v); return; }
-    if (P_COMP_ALL(s, i)) {                     /* (the old global COMPRESSOR: every lane's) */
-        uint32_t k;
-        for (k = 0; k < P_LANES; k++) p_set(PID(k, PL_COMP0 + i - PG_COMP0), v);
-        return;
-    }
     if (s == P_GLOBAL && p_gx(id)) {        /* the tempo's and the clock's */
         switch (i) {
         case PG_GSYNC: tempo_gsync((uint32_t)v); break;
@@ -421,7 +404,8 @@ static void p_set(uint32_t id, int32_t v)
     if (s == P_GLOBAL) {
         pv_glob[i] = (uint8_t)v;
         if (mod_holds(id)) return;              /* (modulated: the base only) */
-        if (i < PG_REVERB0) ln_fx(LN_FX_GRAIN, 0, i - PG_GRAIN0, (uint32_t)v);
+        if (i >= PG_COMP0) ln_fx(LN_FX_COMP, 0, i - PG_COMP0, (uint32_t)v);
+        else if (i < PG_REVERB0) ln_fx(LN_FX_GRAIN, 0, i - PG_GRAIN0, (uint32_t)v);
         else ln_fx(LN_FX_REVERB, 0, i - PG_REVERB0, (uint32_t)v);
         return;
     }
@@ -435,8 +419,7 @@ static void p_set(uint32_t id, int32_t v)
     if (i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX) { p_card_set(s, i - PL_CARD0, (uint32_t)v); return; }
     pv_lane[s][i] = (uint8_t)v;
     if (mod_holds(id)) return;
-    if (i >= PL_COMP0) ln_fx(LN_FX_COMP, s, i - PL_COMP0, (uint32_t)v);
-    else if (i >= PL_FILTER0) ln_fx(LN_FX_FILTER, s, i - PL_FILTER0, (uint32_t)v);
+    if (i >= PL_FILTER0) ln_fx(LN_FX_FILTER, s, i - PL_FILTER0, (uint32_t)v);
     else ln_fx(LN_FX_DRIVE, s, i - PL_DRIVE0, (uint32_t)v);
 }
 /* a value as the screen writes it, and its unit apart (0: none) */
@@ -514,14 +497,14 @@ static void p_init(void)
     for (k = 0; k < P_LANES; k++) {
         for (i = 0; i < TX_DR_NP; i++) pv_lane[k][PL_DRIVE0 + i] = tx_fx_drive_params[i].def;
         for (i = 0; i < TX_FL_NP; i++) pv_lane[k][PL_FILTER0 + i] = tx_fx_filter_params[i].def;
-        for (i = 0; i < TX_CP_NP; i++) {        /* (each lane's starts at the app's defaults, on: sent here) */
-            pv_lane[k][PL_COMP0 + i] = tx_comp_params[i].def;
-            ln_fx(LN_FX_COMP, k, i, pv_lane[k][PL_COMP0 + i]);
-        }
         pc[k].snd = -2;                         /* (resolved at the first look) */
     }
     for (i = 0; i < TX_GD_NP; i++) pv_glob[PG_GRAIN0 + i] = tx_fx_grain_params[i].def;
     for (i = 0; i < TX_RV_NP; i++) pv_glob[PG_REVERB0 + i] = tx_fx_reverb_params[i].def;
+    for (i = 0; i < TX_CP_NP; i++) {            /* (the mix starts with it off: the defaults sent here) */
+        pv_glob[PG_COMP0 + i] = tx_comp_params[i].def;
+        ln_fx(LN_FX_COMP, 0, i, pv_glob[PG_COMP0 + i]);
+    }
 }
 
 /* ---- MIDI: CC numbers (the lane's channel: P_CC_LANE; channel 5: P_CC_GLOBAL), NRPN */
@@ -533,8 +516,6 @@ static const p_cc_t P_CC_LANE[] = {
     {76, PL_DRIVE0 + TX_DR_AMOUNT}, {77, PL_DRIVE0 + TX_DR_TONE}, {78, PL_DRIVE0 + TX_DR_MIX}, {79, PL_DRIVE0 + TX_DR_TYPE},
     {102, PL_FILTER0 + TX_FL_TYPE}, {74, PL_FILTER0 + TX_FL_FREQ}, {71, PL_FILTER0 + TX_FL_RESO},
     {103, PL_FILTER0 + TX_FL_LFO}, {104, PL_FILTER0 + TX_FL_RATE}, {105, PL_FILTER0 + TX_FL_SHAPE},
-    {95, PL_COMP0 + TX_CP_ON}, {115, PL_COMP0 + TX_CP_THR}, {116, PL_COMP0 + TX_CP_ATK}, {117, PL_COMP0 + TX_CP_REL},
-    {118, PL_COMP0 + TX_CP_RATIO}, {119, PL_COMP0 + TX_CP_MKUP},
 };
 static const p_cc_t P_CC_GLOBAL[] = {
     {102, PG_GRAIN0 + TX_GD_MIX}, {103, PG_GRAIN0 + TX_GD_TIME}, {104, PG_GRAIN0 + TX_GD_FEEDBACK},
@@ -546,8 +527,7 @@ static const p_cc_t P_CC_GLOBAL[] = {
     {90, PG_REVERB0 + TX_RV_MOD}, {92, PG_REVERB0 + TX_RV_LOWCUT}, {93, PG_REVERB0 + TX_RV_SHIMMER},
     {94, PG_REVERB0 + TX_RV_SHIFT}, {114, PG_GSYNC},
     {95, PG_COMP0 + TX_CP_ON}, {115, PG_COMP0 + TX_CP_THR}, {116, PG_COMP0 + TX_CP_ATK}, {117, PG_COMP0 + TX_CP_REL},
-    {118, PG_COMP0 + TX_CP_RATIO}, {119, PG_COMP0 + TX_CP_MKUP},   /* (the COMPRESSOR of all four lanes; a lane's
-                                                 * channel: its own, the same numbers) */
+    {118, PG_COMP0 + TX_CP_RATIO}, {119, PG_COMP0 + TX_CP_MKUP},
     {3, PG_BPM}, {9, PG_TAP}, {80, PG_RUN},
 };
 /* a 7-bit value onto a parameter's range (0 .. hi): 127 always reaches hi */
@@ -560,14 +540,7 @@ static int32_t p_scale7(uint32_t id, uint32_t v)
 }
 static struct { uint8_t msb[5], lsb[5], on[5]; } p_nrpn;
 static uint32_t p_touched;                      /* (the screen: a parameter MIDI changed, id + 1) */
-static void p_midi_set(uint32_t id, int32_t v)
-{
-    if (!p_valid(id)) return;
-    p_set(id, v);
-    if (P_COMP_ALL(P_SCOPE(id), P_IDX(id))) id = PID(sc.sel, PL_COMP0 + P_IDX(id) - PG_COMP0);   /* (all lanes': the
-                                                 * selected lane's card) */
-    p_touched = id + 1u;
-}
+static void p_midi_set(uint32_t id, int32_t v) { if (p_valid(id)) { p_set(id, v); p_touched = id + 1u; } }
 /* a control change on channel ch (0-based): 1 if it was one of ours */
 static int p_cc(uint32_t ch, uint32_t cc, uint32_t v)
 {

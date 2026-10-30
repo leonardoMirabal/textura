@@ -4,7 +4,7 @@ firmware runs (the splash, then the LANDSCAPE page on the screen), ?selftest sta
 on-screen keys reach the firmware and its key LEDs come back (a black key selects its group's lane, LANDSCAPE stays; a white key
 starts it), the
 knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
-tests/py/test_web_knobs.py), HOME turns to MIXER, EDIT to SOUND / DRIVE, FX to GRAIN / REVERB, GLO to TEMPO / MIDI, LFO to
+tests/py/test_web_knobs.py), HOME turns to MIXER, EDIT to SOUND / DRIVE / FILTER, FX to GRAIN / REVERB, GLO to TEMPO / MIDI, LFO to
 LFO, ARP to MATRIX (the captions follow), SAVE saves a scene that a reload brings back, and the page fits a phone (390 px, no sideways scroll). Screenshots at desktop and phone width.
 
     make fw-web-check     (PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py)
@@ -110,7 +110,7 @@ def main():
         home.click(delay=60)
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "LANDSCAPE", "HOME once more: LANDSCAPE")
-        # EDIT: the lane's SOUND page, again: DRIVE, COMPRESSOR (the lane's chain); FX: GRAIN, again: REVERB (the
+        # EDIT: the lane's SOUND page, again: DRIVE (the four lanes'), FILTER; FX: COMPRESSOR, GRAIN, REVERB (the
         # captions follow)
         fx = pg.locator('button.b[data-name="FX"]')
         edit.click(delay=60)
@@ -120,20 +120,25 @@ def main():
         pg.screenshot(path=os.path.join(OUT, "desktop-sound.png"))
         edit.click(delay=60)
         pg.wait_for_timeout(300)
-        check(pg.evaluate(PAGE) == "DRIVE", "EDIT again: the lane's DRIVE page (its first effect)")
-        check(edit.locator("small").inner_text() == "COMP", "EDIT's caption on DRIVE: COMP")
+        check(pg.evaluate(PAGE) == "DRIVE", "EDIT again: the DRIVE page")
+        check(edit.locator("small").inner_text() == "FILTER", "EDIT's caption on DRIVE: FILTER")
+        pg.screenshot(path=os.path.join(OUT, "desktop-drive.png"))
         edit.click(delay=60)
         pg.wait_for_timeout(300)
-        check(pg.evaluate(PAGE) == "COMPRESSOR", "EDIT a third time: the lane's COMPRESSOR page")
-        check(edit.locator("small").inner_text() == "FILTER", "EDIT's caption on COMPRESSOR: FILTER")
+        check(pg.evaluate(PAGE) == "FILTER", "EDIT a third time: the FILTER page")
+        fx.click(delay=60)
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(PAGE) == "COMPRESSOR", "FX: the COMPRESSOR page (the mix's first effect)")
+        check(fx.locator("small").inner_text() == "GRAIN", "FX's caption on COMPRESSOR: GRAIN")
+        pg.wait_for_timeout(700)                         # (the gain-reduction meter in the footer)
         pg.screenshot(path=os.path.join(OUT, "desktop-compressor.png"))
         fx.click(delay=60)
         pg.wait_for_timeout(300)
-        check(pg.evaluate(PAGE) == "GRAIN", "FX: the GRAIN page")
+        check(pg.evaluate(PAGE) == "GRAIN", "FX again: the GRAIN page")
         check(fx.locator("small").inner_text() == "REVERB", "FX's caption on GRAIN: REVERB")
         fx.click(delay=60)
         pg.wait_for_timeout(300)
-        check(pg.evaluate(PAGE) == "REVERB", "FX again: the REVERB page")
+        check(pg.evaluate(PAGE) == "REVERB", "FX a third time: the REVERB page")
         pg.screenshot(path=os.path.join(OUT, "desktop-reverb.png"))
         glo = pg.locator('button.b[data-name="GLO"]')
         glo.click(delay=60)

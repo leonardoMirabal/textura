@@ -1,9 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura COMP core: a lane's compressor, an insert on its own signal (tx_fx.h: DRIVE -> COMP -> FILTER, mono,
- * before the pan; one per lane, each its own detector and controls). Its controls are Frodhes' COMPRESSOR's (COMP,
- * THR, ATK, REL, RAT, MKUP: the same ranges), on this detector:
+/* Textura COMP core: the master bus compressor, the first effect on the mix (tx_core_mix.c: the lanes' mix -> COMP ->
+ * GRAIN DELAY -> REVERB -> the output limiter). Its controls are Frodhes' COMPRESSOR's (COMP, THR, ATK, REL, RAT,
+ * MKUP: the same ranges), on this detector:
  *
- * The lane's power (|x| squared), averaged over each control block of 32 frames. Two power envelopes: a fast one (ATK 0.1 .. 50 ms, REL 20 ms .. 1.5 s) and a slow one
+ * Stereo-linked: one gain for both sides, from the louder side's power (max |L| |R|, squared), averaged over each
+ * control block of 32 frames. Two power envelopes: a fast one (ATK 0.1 .. 50 ms, REL 20 ms .. 1.5 s) and a slow one
  * (attack 400 ms, release 1.5 s); the detector is the larger, so a lone crack recovers at REL while a dense, steady
  * sound holds its gain (the release follows the programme, no pumping). A soft knee (12 dB wide) around THR (0 ..
  * -40 dBFS); RAT 1.5:1 .. 20:1; MKUP 0 .. +24 dB. The gain glides to its target over ~6 ms and ramps across each
@@ -36,11 +37,9 @@ typedef struct {
 
 void tx_comp_init(tx_comp_t *c);                         /* the defaults, but off (COMP 0: the app switches it on) */
 void tx_comp_param(tx_comp_t *c, unsigned id, unsigned v);   /* TX_CP_*: main loop (a few divisions) */
-/* in place over n frames of the lane's mono Q23 (|x| above 32 full scale is clamped) */
-TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *x, unsigned n);
+/* in place over n frames of the Q23 pair (|x| above 32 full scale is clamped) */
+TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *L, int32_t *R, unsigned n);
 /* the gain reduction now, dB x 10 (the make-up not counted) */
 static inline int32_t tx_comp_gr_db10(const tx_comp_t *c) { return (c->gr * 10 + 680) / 1361; }
-#define TX_COMP_US 22u             /* its FM-1 cost a block on a lane (host 0.24 us x the calibration, 2026-10-30); off: none */
-static inline uint32_t tx_comp_us(const tx_comp_t *c) { return c->p[TX_CP_ON] || c->g != 16384 ? TX_COMP_US : 0u; }
 
 #endif

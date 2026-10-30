@@ -226,11 +226,10 @@ static void start(fm_run_t *r)
     else if (c->kind == FM_K_C1) { scene_init(r, 0, c); scene_init(r, 1, c); r->c1_lost = 0; }
     else if (c->kind == FM_K_FX) {
         fx_setup(&r->fx, c->eng, c->type, c->decay);
+        tx_comp_init(&r->mix.comp);
         if (c->eng == FM_FX_COMP) {                          /* TYPE 0: its defaults; 1: THR -40 dBFS, 20:1, ATK 0 */
-            tx_comp_t *cp = &r->fx.comp[0];                  /* (lane 1's, after its DRIVE) */
-            tx_comp_init(cp);
-            tx_comp_param(cp, TX_CP_ON, 1);
-            if (c->type) { tx_comp_param(cp, TX_CP_THR, 127); tx_comp_param(cp, TX_CP_RATIO, 7); tx_comp_param(cp, TX_CP_ATK, 0); }
+            tx_comp_param(&r->mix.comp, TX_CP_ON, 1);
+            if (c->type) { tx_comp_param(&r->mix.comp, TX_CP_THR, 127); tx_comp_param(&r->mix.comp, TX_CP_RATIO, 7); tx_comp_param(&r->mix.comp, TX_CP_ATK, 0); }
         }
     }
     else {
@@ -332,7 +331,7 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
         for (j = 0; j < TX_BLOCK; j++) R[j] = L[j];
     } else if (c->kind == FM_K_FX) {
         if (c->eng == FM_FX_CLOCK) L[0] = R[0] = (int32_t)(clk_probe(r->blk) >> 9);   /* (its result: kept, hashed) */
-        else if (c->eng == FM_FX_COMP) TX_FAR(tx_comp_process)(&r->fx.comp[0], L, TX_BLOCK); /* a lane's (mono) */
+        else if (c->eng == FM_FX_COMP) TX_FAR(tx_comp_process)(&r->mix.comp, L, R, TX_BLOCK); /* the mix's own */
         else if (c->eng >= FM_FX_REVERB) tx_fx_bus(&r->fx, L, R, TX_BLOCK); else tx_fx_lane(&r->fx, 0, L, TX_BLOCK);
     } else {                                                 /* the lanes: every lane's events, the bus's begin, the
                                                               * inserts' prep (lane order), then the engines with

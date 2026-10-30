@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura COMP core: a lane's compressor (tx_core_comp.h). */
+/* Textura COMP core: the master bus compressor (tx_core_comp.h). */
 #include "tx_core_comp.h"
 #include "tx_core_math.h"
 
@@ -9,7 +9,7 @@
 #define K_SR 32                    /*                                                    release 1.5 s */
 
 const tx_param_t tx_comp_params[TX_CP_NP] = {
-    {"COMP", 1, 1, "the lane's compressor, after its DRIVE, before its FILTER: off / on"},
+    {"COMP", 1, 1, "the bus compressor, the first effect on the mix: off / on"},
     {"THR", 127, 64, "threshold 0 .. -40 dBFS (64: -20 dBFS)"},
     {"ATK", 127, 108, "attack 0.1 .. 50 ms (108: 20 ms)"},
     {"REL", 127, 59, "release 20 ms .. 1.5 s (59: 150 ms; a dense sound holds its gain longer: no pumping)"},
@@ -69,15 +69,15 @@ TX_RAM static int32_t env(int32_t e, int32_t p, int32_t ka, int32_t kr)
     return e + ((((p - e) >> 11) * (p > e ? ka : kr)) >> 5);   /* |p - e| < 2^26: 2^15 x 2^16 < 2^31 */
 }
 
-TX_RAM TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *x, unsigned n)
+TX_RAM TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *L, int32_t *R, unsigned n)
 {
     unsigned j0, j, m;
     if (!c->p[TX_CP_ON] && c->g == 16384) { c->on = 0; c->gr = 0; return; }   /* off: the samples untouched */
     for (j0 = 0; j0 < n; j0 += m) {
         int32_t g0 = c->g, gt, dg, g, p = 0, det;
         m = n - j0 < CB ? n - j0 : CB;
-        for (j = j0; j < j0 + m; j++) {                       /* the block's power: |x| squared */
-            int32_t v = (x[j] < 0 ? -x[j] : x[j]) >> 10;
+        for (j = j0; j < j0 + m; j++) {                       /* the block's power: the louder side, squared */
+            int32_t a = L[j] < 0 ? -L[j] : L[j], b = R[j] < 0 ? -R[j] : R[j], v = (a > b ? a : b) >> 10;
             v = v > 16383 ? 16383 : v;                        /* (2 full scale: v^2 < 2^28) */
             p += (v * v) >> 5;
         }
@@ -98,11 +98,13 @@ TX_RAM TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *x, unsigned n)
         c->g = g;
         dg = (g - g0) / (int32_t)m;
         for (j = j0, g = g0; j < j0 + m; j++) {                /* the gain ramped across the block */
-            int32_t l = x[j];
+            int32_t l = L[j], r = R[j];
             g += dg;
             if (j == j0 + m - 1u) g = c->g;
             l = l > (1 << 28) ? (1 << 28) : l < -(1 << 28) ? -(1 << 28) : l;
-            x[j] = (l >> 14) * g + (int32_t)((((uint32_t)l & 16383u) * (uint32_t)g) >> 14);
+            r = r > (1 << 28) ? (1 << 28) : r < -(1 << 28) ? -(1 << 28) : r;
+            L[j] = (l >> 14) * g + (int32_t)((((uint32_t)l & 16383u) * (uint32_t)g) >> 14);
+            R[j] = (r >> 14) * g + (int32_t)((((uint32_t)r & 16383u) * (uint32_t)g) >> 14);
         }
     }
 }
