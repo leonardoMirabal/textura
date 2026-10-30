@@ -95,6 +95,11 @@ typedef struct {
     uint32_t fill;                               /* samples written since it came on (older reads are 0) */
     int32_t mix;                                 /* MIX, gliding (Q15) */
     int32_t gbl;                                 /* GRAIN, gliding (Q15) */
+    int32_t gc, gct, gcr;                        /* the loop's make-up (Q12: 4096 = none), its target, the measured one */
+    int32_t sae, saf;                            /* the echo's and the loop's level (|x| / 4 summed a block, smoothed) */
+    int32_t hot, slv;                            /* FEEDBACK past 1: the share of its excess let through (Q12; under 0
+                                                  * down to -0.75 dB a pass), the loop's peak as heard (Q22, falling back
+                                                  * over ~3 s) */
     tx_gd_grain_t g[TX_GD_MAXG];
     uint32_t sync;                               /* the echo's delay from the tempo, samples (0: TIME's) */
     uint8_t ahead;                               /* (begin: the voices run before the input, this block) */

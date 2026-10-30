@@ -103,6 +103,13 @@ int main(int argc, char **argv)
     row("uint32_t", "TX_FX_GD_PITCH", v, 25, 8, "the grains' rate, Q16, for -12 .. +12 semitones");
     for (i = 0; i < 128; i++) v[i] = lround(32768.0 * (1 - exp(-2 * M_PI * 400 * pow(40.0, i / 127.0) / FS)));
     row("uint16_t", "TX_FX_GD_TONE", v, 128, 12, "the feedback's one-pole low-pass, Q15: 400 Hz .. 16 kHz (exponential)");
+    for (i = 0; i < 128; i++) {   /* FEEDBACK: 0 .. 64 as before (i x 258); then a pass's gain in dB, -5.98 at 64 rising as
+                                   * ((110 - i) / 46)^1.5 to 0 dB at 110 (endless), on to +2.5 dB at 127 (it runs away) */
+        double db64 = 20 * log10(64 * 258 / 32768.0);
+        double db = i <= 64 ? 0 : i <= 110 ? db64 * pow((110 - i) / 46.0, 1.5) : 2.5 * (i - 110) / 17.0;
+        v[i] = i <= 64 ? i * 258 : lround(32768.0 * pow(10.0, db / 20));
+    }
+    row("uint16_t", "TX_FX_GD_FB", v, 128, 12, "the grain delay's FEEDBACK, Q15: x 258 to 64, 1.0 at 110, +2.5 dB at 127 (dB a pass)");
     for (i = 0; i < 65; i++) v[i] = i < 64 ? lround(32768.0 * pole_fit(i / 64.0)) : 32767;
     for (i = 0; i < 65; i++) v[i] = v[i] > 32767 ? 32767 : v[i];
     row("int16_t", "TX_FX_RV_POLE", v, 65, 13, "the reverb's one-pole poles at 44.1 kHz for the designs' half-rate poles, Q15 (in steps of 1/64)");

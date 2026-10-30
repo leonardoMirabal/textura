@@ -15,6 +15,7 @@ extern const uint32_t TX_FX_GD_TIME[140];   /* the grain delay's TIME in samples
 extern const uint32_t TX_FX_GD_SIZE[128];   /* the grains' clock, Q32 phase a sample: a grain 20 .. 500 ms long (exponential) */
 extern const uint32_t TX_FX_GD_PITCH[25];   /* the grains' rate, Q16, for -12 .. +12 semitones */
 extern const uint16_t TX_FX_GD_TONE[128];   /* the feedback's one-pole low-pass, Q15: 400 Hz .. 16 kHz (exponential) */
+extern const uint16_t TX_FX_GD_FB[128];   /* the grain delay's FEEDBACK, Q15: x 258 to 64, 1.0 at 110, +2.5 dB at 127 (dB a pass) */
 extern const int16_t TX_FX_RV_POLE[65];   /* the reverb's one-pole poles at 44.1 kHz for the designs' half-rate poles, Q15 (in steps of 1/64) */
 
 #endif

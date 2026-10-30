@@ -19,7 +19,8 @@
  *          determinism + baseline (drip hold / max, gravel tap, test chord through the chamber at its defaults).
  * NOISE: the band filter at every corner (20 Hz .. 20 kHz, Q 0.5 .. 8, both paths, full gain) stays bounded.
  * FX: off = untouched; silence in = exact silence out; each reverb TYPE's tail ends in exact zeros; FREEZE holds its level
- *     for 3 minutes; renders against the baselines (fx-*).
+ *     for 3 minutes; the grain delay's FEEDBACK 127 runs up into a bounded wall that ends when FEEDBACK comes down;
+ *     renders against the baselines (fx-*).
  * Keys: every engine over the SMK-37's keybed (notes 48..84) at v1 / v127: no overflow, quiet after.
  * Distance: rockfall's DIST never makes a tap louder, nor its peak higher; under full scale from its default out.
  * Hosts: every engine run inside another (the source's hosted sounds, the storm's rain) fits its arena: one that does
@@ -1611,6 +1612,36 @@ static void check_fx(FILE *update)
                 snprintf(msg, sizeof msg, "grain delay FREEZE: %.0f .. %.0f s (4 turns of the line a window) %.1f .. %.1f dBFS (%.2f dB apart)",
                          FW * 256.0 / 44100.0, FW * 12 * 256.0 / 44100.0, 20 * log10(lo / 8388608.0 + 1e-12), 20 * log10(hi / 8388608.0 + 1e-12), 20 * log10(hi / (lo + 1e-9)));
                 verdict("fx", "freeze", lo > 0 && hi / lo < 1.189, msg, 0);
+            }
+        }
+        {   /* FEEDBACK 127: a burst runs up into a wall (at every GRAIN) that holds, bounded, and ends in exact zeros
+             * once FEEDBACK comes down to 50 */
+            static const uint8_t GR[3] = {0, 64, 127};
+            for (t = 0; t < 3; t++) {
+                double ac = 0, pk = 0;
+                tx_fx_init(fx);
+                tx_fx_grain_param(&fx->gd, TX_GD_MIX, 127); tx_fx_grain_param(&fx->gd, TX_GD_FEEDBACK, 127);
+                tx_fx_grain_param(&fx->gd, TX_GD_GRAIN, GR[t]);
+                rng = 7u; last = 0;
+                for (b = 0; b < 172u * 30u; b++) {
+                    unsigned z = 0;
+                    if (b == 172u * 20u) tx_fx_grain_param(&fx->gd, TX_GD_FEEDBACK, 50);
+                    for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = b < 4u ? fx_in(b * TX_BLOCK + j, &rng) : 0;
+                    tx_fx_bus(fx, L, R, TX_BLOCK);
+                    for (j = 0; j < TX_BLOCK; j++) {
+                        z |= L[j] | R[j];
+                        if (b >= 172u * 10u && b < 172u * 20u) {
+                            ac += (double)L[j] * L[j];
+                            if (fabs((double)L[j]) > pk) pk = fabs((double)L[j]);
+                        }
+                    }
+                    if (z) last = b;
+                }
+                ac = 10 * log10(ac / (172.0 * 10 * TX_BLOCK) / 70368744177664.0 + 1e-30);
+                pk = 20 * log10(pk / 8388608.0 + 1e-12);
+                snprintf(msg, sizeof msg, "grain delay, FEEDBACK 127, GRAIN %u: a burst's wall 10 .. 20 s on %.1f dBFS rms, peak %.1f; "
+                         "FEEDBACK 50 at 20 s: exact zeros after %.1f s", GR[t], ac, pk, last * 256.0 / 44100.0 - 20);
+                verdict("fx", "wall", ac > -40 && ac < -12 && pk < -3 && last < 172u * 28u, msg, 0);
             }
         }
         tx_fx_init(fx);                                    /* the cap: 16 pitched grains asked, INFINITE on */
