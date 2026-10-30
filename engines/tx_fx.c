@@ -317,6 +317,18 @@ TX_AUDIO_CODE void tx_fx_lane(void *u, unsigned k, int32_t *x, unsigned n)
     TX_FAR(tx_fx_drive_process)(&fx->drive[k], x, n);  /* (both in RAM on the FM-1: TX_RAM) */
     TX_FAR(tx_fx_filter_process)(&fx->filter[k], x, n);
 }
+TX_AUDIO_CODE void tx_fx_lane_prep(void *u, unsigned k)
+{
+    tx_fx_t *fx = (tx_fx_t *)u;
+    if (k < TX_FX_LANES) tx_fx_drive_prep(&fx->drive[k]);
+}
+TX_AUDIO_CODE void tx_fx_lane_run(void *u, unsigned k, int32_t *x, unsigned n, unsigned core)
+{
+    tx_fx_t *fx = (tx_fx_t *)u;
+    if (k >= TX_FX_LANES) return;
+    TX_FAR(tx_fx_drive_run)(&fx->drive[k], x, n, core ? &fx->scr1 : 0);
+    TX_FAR(tx_fx_filter_process)(&fx->filter[k], x, n);
+}
 uint32_t tx_fx_lane_us(const tx_fx_t *fx, unsigned k)
 {
     return k < TX_FX_LANES ? tx_fx_drive_us(&fx->drive[k]) + tx_fx_filter_us(&fx->filter[k]) : 0u;
@@ -356,11 +368,22 @@ TX_AUDIO_CODE void tx_fx_gd_cap(tx_fx_t *fx)
     else if (cap == fx->gd.cap) fx->up = 0;
     else if (++fx->up >= RV_FADE) fx->gd.cap++, fx->up = 0;
 }
-TX_AUDIO_CODE void tx_fx_bus(void *u, int32_t *L, int32_t *R, unsigned n)
+TX_AUDIO_CODE int tx_fx_bus_begin(void *u, unsigned n)
 {
     tx_fx_t *fx = (tx_fx_t *)u;
     tx_fx_gd_cap(fx);
-    TX_FAR(tx_fx_grain_process)(&fx->gd, L, R, n);     /* (in RAM on the FM-1: TX_RAM) */
+    return tx_fx_grain_begin(&fx->gd, n);
+}
+TX_AUDIO_CODE void tx_fx_bus_end(void *u, int32_t *L, int32_t *R, unsigned n)
+{
+    tx_fx_t *fx = (tx_fx_t *)u;
+    TX_FAR(tx_fx_grain_end)(&fx->gd, L, R, n);         /* (in RAM on the FM-1: TX_RAM) */
     TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);   /* (in RAM on the FM-1: TX_RAM; the plate's and INFINITE's runs in XIP) */
+}
+TX_AUDIO_CODE void tx_fx_bus(void *u, int32_t *L, int32_t *R, unsigned n)
+{
+    tx_fx_t *fx = (tx_fx_t *)u;
+    if (tx_fx_bus_begin(fx, n)) TX_FAR(tx_fx_grain_voices)(&fx->gd, n);
+    tx_fx_bus_end(fx, L, R, n);
 }
 int tx_fx_bus_quiet(void *u) { return tx_fx_reverb_quiet(&((tx_fx_t *)u)->rev) && tx_fx_grain_quiet(&((tx_fx_t *)u)->gd); }

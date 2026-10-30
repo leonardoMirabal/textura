@@ -2,7 +2,8 @@
 /* Textura DRIVE TYPEs: the state of Frodhes' four drive TYPEs (drive.c, drv_khlon.c, drv_tsh8.c, drv_ohcd.c,
  * drv_bhlue.c: our own) as instances. Each lane's DRIVE holds one TYPE's state at a time (a union: one TYPE runs on a
  * lane at a time); what every lane may share sits once in the effects (tx_drv_shared_t): the scratch buffers (the
- * lanes run one after the other) and TSH8's two diode tables (12.2 KB: TSH8 runs on one lane at a time). The code:
+ * lanes on one core run one after the other: tx_drv_scr_t, one a core) and TSH8's two diode tables (12.2 KB: TSH8
+ * runs on one lane at a time). The code:
  * tx_fx_drive.c (the framework) and tx_fx_drv_<type>.c (included by it); the tables: tx_drive_tables.h. */
 #ifndef TX_FX_DRV_H
 #define TX_FX_DRV_H
@@ -33,9 +34,12 @@ typedef struct { int32_t xa1, x1, h1, h2, u1, u2, w1, w2, z1, z2, xo, up, ax1, a
 typedef struct { tx_drv_bhk_t k; tx_drv_bhs_t s; int32_t ra, rt; } tx_drv_bh_t;                /* BHLUE */
 typedef union { tx_drv_kh_t kh; tx_drv_ts_t ts; tx_drv_oh_t oh; tx_drv_bh_t bh; } tx_drv_state_t;
 
-typedef struct {
+typedef struct {                   /* a core's scratch (the lanes it runs, one after the other) */
     int32_t q[TX_DRV_BLK];                    /* the lane's block at Q15, then the TYPE's wet signal (in place) */
-    int32_t t1[TX_DRV_BLK], t2[TX_DRV_BLK];   /* scratch: KHLON's driven path and its sum while it dips; TSH8's Vi */
+    int32_t t1[TX_DRV_BLK], t2[TX_DRV_BLK];   /* KHLON's driven path and its sum while it dips; TSH8's Vi */
+} __attribute__((aligned(64))) tx_drv_scr_t;
+typedef struct {
+    tx_drv_scr_t scr;                         /* the first core's scratch (the only one with one core) */
     int32_t ts_tab[2][2u * TX_DRV_TS_NODES];  /* TSH8: the diode table that runs ({g, F} a node), and the next one */
     int32_t ts_in[5];                         /* TSH8: the input biquad (fixed) */
     int32_t ts_trow, ts_brow, ts_bpos;        /* the table's AMOUNT step (-1: none), the one being built, where */

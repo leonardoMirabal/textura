@@ -138,20 +138,20 @@ static void drv_reset(tx_fx_drive_t *d, unsigned t)
     }
 }
 /* the TYPE that runs over q (n even, >= 4), in place; 1: not ready (TSH8 built its first table: q untouched) */
-static int drv_run(tx_fx_drive_t *d, int32_t *q, unsigned n, int32_t a, int32_t t)
+static int drv_run(tx_fx_drive_t *d, tx_drv_scr_t *w, int32_t *q, unsigned n, int32_t a, int32_t t)
 {
     switch (d->cur) {
-    case TX_DRT_KHLON: drv_khlon_run(&d->u.kh, d->sh, q, q, n, a, t); return 0;
-    case TX_DRT_TSH8: return drv_tsh8_run(&d->u.ts, d->sh, q, q, n, a, t);
+    case TX_DRT_KHLON: drv_khlon_run(&d->u.kh, w, q, q, n, a, t); return 0;
+    case TX_DRT_TSH8: return drv_tsh8_run(&d->u.ts, d->sh, w, q, q, n, a, t);
     case TX_DRT_OHCD: drv_ohcd_run(&d->u.oh, q, q, n, a, t); return 0;
     case TX_DRT_BHLUE: drv_bhlue_run(&d->u.bh, q, q, n, a, t); return 0;
     default: return 1;
     }
 }
 /* the TYPE that runs (d->cur >= 1) on x23; sw 0: fading out (a TYPE change). Off (on 0) costs nothing. */
-static void dr_types(tx_fx_drive_t *d, int32_t *x23, unsigned n, int sw)
+static void dr_types(tx_fx_drive_t *d, tx_drv_scr_t *w, int32_t *x23, unsigned n, int sw)
 {
-    int32_t amt = sw ? d->p[TX_DR_AMOUNT] : 0, mv = d->p[TX_DR_MIX], a, w0, w1, d4, *q = d->sh->q;
+    int32_t amt = sw ? d->p[TX_DR_AMOUNT] : 0, mv = d->p[TX_DR_MIX], a, w0, w1, d4, *q = w->q;
     int32_t wt = !amt ? 0 : mv >= 127 ? 32768 : (mv * 258 + 128) & ~255;   /* (multiples of 256: the ramp is exact) */
     unsigned i;
     if (!d->on) {                                         /* off: the lane untouched; on: from rest, from dry */
@@ -165,7 +165,7 @@ static void dr_types(tx_fx_drive_t *d, int32_t *x23, unsigned n, int sw)
         int32_t v = (x23[i] + 128) >> 8;
         q[i] = v < -(1 << 18) ? -(1 << 18) : v > (1 << 18) ? 1 << 18 : v;
     }
-    if (drv_run(d, q, n & ~1u, a, d->p[TX_DR_TONE])) return;   /* (not ready: dry, w held at 0) */
+    if (drv_run(d, w, q, n & ~1u, a, d->p[TX_DR_TONE])) return;   /* (not ready: dry, w held at 0) */
     w0 = d->w; w1 = w0 < wt ? (wt - w0 > (int32_t)(16u * n) ? w0 + (int32_t)(16u * n) : wt)
                             : (w0 - wt > (int32_t)(16u * n) ? w0 - (int32_t)(16u * n) : wt);
     if (w0 == 32768 && w1 == 32768) {
@@ -197,12 +197,22 @@ static int dr_switch(tx_fx_drive_t *d, unsigned t)
     else { d->ton = 0; d->tg = 4096; }                    /* (the classic shelf at rest, as its own off leaves it) */
     return 1;
 }
-TX_RAM TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x23, unsigned n)
+/* the two halves of a block: prep (a TYPE change: TSH8's owner, lane order) on one core for every lane first, then
+ * run on the core that renders the lane, with that core's scratch (w; 0: the shared one) */
+TX_AUDIO_CODE void tx_fx_drive_prep(tx_fx_drive_t *d)
+{
+    d->sw = 1;
+    if (d->p[TX_DR_TYPE] != d->cur) d->sw = (uint8_t)TX_FAR(dr_switch)(d, d->p[TX_DR_TYPE]);
+}
+TX_RAM TX_AUDIO_CODE void tx_fx_drive_run(tx_fx_drive_t *d, int32_t *x23, unsigned n, tx_drv_scr_t *w)
 {   /* (in RAM on the FM-1 with the classic drive; a TYPE change and the TYPEs run from flash: TX_FAR) */
-    int sw = 1;
-    if (d->p[TX_DR_TYPE] != d->cur) sw = TX_FAR(dr_switch)(d, d->p[TX_DR_TYPE]);
-    if (!d->cur) dr_classic(d, x23, n, sw ? d->p[TX_DR_AMOUNT] : 0);
-    else TX_FAR(dr_types)(d, x23, n, sw);
+    if (!d->cur) dr_classic(d, x23, n, d->sw ? d->p[TX_DR_AMOUNT] : 0);
+    else TX_FAR(dr_types)(d, w ? w : &d->sh->scr, x23, n, d->sw);
+}
+TX_RAM TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x23, unsigned n)
+{
+    TX_FAR(tx_fx_drive_prep)(d);                          /* (in flash) */
+    tx_fx_drive_run(d, x23, n, 0);
 }
 void tx_fx_drive_share(tx_fx_drive_t *d, tx_drv_shared_t *sh) { d->sh = sh; }
 void tx_fx_drive_shared_init(tx_drv_shared_t *sh)

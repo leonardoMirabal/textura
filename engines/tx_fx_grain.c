@@ -264,30 +264,37 @@ TX_RAM static unsigned gd_voice(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t T, 
     return on;
 }
 
-TX_RAM TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n)
+/* A block in three steps (tx_fx_grain_process runs them in turn): begin (MIX on: the line's start), the voices (the
+ * echo's run and the grains: they read only the line as the blocks before left it, never this block's input, so
+ * they may run before the input is there, on another core: tx_fx_bus_begin), the end (the blend with the input, the
+ * feedback, the write). begin returns 1 when the voices may run ahead: the line is not silent (a silent line idles
+ * on a silent input: that needs the input first) */
+TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
 {
-    int32_t mv = d->p[TX_GD_MIX], mixt = mv * 258, gb = d->p[TX_GD_GRAIN] * 258, fbk = d->p[TX_GD_FEEDBACK] * 258;
-    int32_t ta = TX_FX_GD_TONE[d->p[TX_GD_TONE]], wgt = d->p[TX_GD_FREEZE] ? 0 : 32768;
-    uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, inc = TX_FX_GD_SIZE[d->p[TX_GD_SIZE]];
-    uint32_t len = 0xFFFFFFFFu / inc, step = 0xFFFFFFFFu / G + 1u, tgt = d->sync ? d->sync : TX_FX_GD_TIME[d->p[TX_GD_TIME]], j, k, w0;
-    int32_t gnt = cap ? (int32_t)(65536u / (cap < 2u ? 2u : cap)) : 0;   /* the grains' level: 2 / sounding (Q15) */
-    int32_t e[TX_BLOCK], sl[TX_BLOCK], sr[TX_BLOCK];
-    unsigned act = 0;
-    int dry;
-    if (n > TX_BLOCK) n = TX_BLOCK;
+    int32_t mv = d->p[TX_GD_MIX], gb = d->p[TX_GD_GRAIN] * 258, wgt = d->p[TX_GD_FREEZE] ? 0 : 32768;
+    uint32_t k, tgt = d->sync ? d->sync : TX_FX_GD_TIME[d->p[TX_GD_TIME]];
+    (void)n;
+    d->ahead = 0;
     if (!d->on) {
-        if (!mv) return;
+        if (!mv) return 0;
         d->on = 1; d->fill = 0; d->mix = 0; d->zrun = 0; d->tap = tgt; d->tx = 0; d->lp = d->dcy = d->lpe = d->dce = 0;
         d->wg = 0;                                      /* (the line fades in, 10 ms: its first echo never starts on a
                                                          * step of the sound it caught mid-way) */
         d->gbl = gb > 32768 ? 32768 : gb;
         for (k = 0; k < TX_GD_MAXG; k++) d->g[k].on = 0;
     }
-    if (d->zrun >= TX_GD_N && wgt && !d->tx) {          /* the line silent (and taking input): idle while the input is */
-        for (j = 0; j < n && !L[j] && !R[j]; j++) {}
-        if (j == n) { d->act = 0; d->mix = mixt; if (!mv) d->on = 0; return; }
-    }
-    if (fbk > 33000) fbk = 33000;
+    d->ahead = !(d->zrun >= TX_GD_N && wgt && !d->tx);
+    return d->ahead;
+}
+/* the echo's run into e, the grains into sl, sr (unless dry); their count */
+TX_RAM TX_AUDIO_CODE void tx_fx_grain_voices(tx_fx_grain_t *d, unsigned n)
+{
+    int32_t gb = d->p[TX_GD_GRAIN] * 258, *e = d->we, *sl = d->wl, *sr = d->wr;
+    uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, inc = TX_FX_GD_SIZE[d->p[TX_GD_SIZE]];
+    uint32_t len = 0xFFFFFFFFu / inc, step = 0xFFFFFFFFu / G + 1u, tgt = d->sync ? d->sync : TX_FX_GD_TIME[d->p[TX_GD_TIME]], j, k, w0;
+    unsigned act = 0;
+    int dry;
+    if (n > TX_BLOCK) n = TX_BLOCK;
     if (gb > 32768) gb = 32768;
     dry = !gb && !d->gbl;                               /* GRAIN at 0 and settled: the grains move on unheard */
     w0 = d->w;
@@ -312,6 +319,30 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int3
         if (k < G || d->g[k].on)
             act += gd_voice(d, &d->g[k], d->ph + k * step, inc, n, k < cap && k < G, len, w0, dry ? 0 : sl, dry ? 0 : sr);
     d->ph += inc * n;
+    d->vact = act;
+}
+TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n)
+{
+    int32_t mv = d->p[TX_GD_MIX], mixt = mv * 258, gb = d->p[TX_GD_GRAIN] * 258, fbk = d->p[TX_GD_FEEDBACK] * 258;
+    int32_t ta = TX_FX_GD_TONE[d->p[TX_GD_TONE]], wgt = d->p[TX_GD_FREEZE] ? 0 : 32768;
+    uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, j, w0;
+    int32_t gnt = cap ? (int32_t)(65536u / (cap < 2u ? 2u : cap)) : 0;   /* the grains' level: 2 / sounding (Q15) */
+    int32_t *e = d->we, *sl = d->wl, *sr = d->wr;
+    int dry;
+    if (n > TX_BLOCK) n = TX_BLOCK;
+    if (!d->on) return;                                 /* (MIX 0 and faded: begin left it off) */
+    if (!d->ahead) {                                    /* the line silent (and taking input): idle while the input is */
+        if (d->zrun >= TX_GD_N && wgt && !d->tx) {
+            for (j = 0; j < n && !L[j] && !R[j]; j++) {}
+            if (j == n) { d->act = 0; d->mix = mixt; if (!mv) d->on = 0; return; }
+        }
+        tx_fx_grain_voices(d, n);
+    }
+    d->ahead = 0;
+    if (fbk > 33000) fbk = 33000;
+    if (gb > 32768) gb = 32768;
+    dry = !gb && !d->gbl;
+    w0 = d->w;
     /* the blend, the feedback into the line (gathered in sl, written after), the output */
     {
     uint32_t wj = w0, fj = d->fill;                     /* (the write index and the fill, sample by sample) */
@@ -349,6 +380,11 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int3
     }
     }
     gd_wrn(d, sl, n);
-    d->act = (uint8_t)(n ? (act + n / 2u) / n : 0);
+    d->act = (uint8_t)(n ? (d->vact + n / 2u) / n : 0);
     if (!mv && !d->mix) d->on = 0;
+}
+TX_RAM TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n)
+{
+    if (TX_FAR(tx_fx_grain_begin)(d, n)) tx_fx_grain_voices(d, n);   /* (begin in flash) */
+    tx_fx_grain_end(d, L, R, n);
 }

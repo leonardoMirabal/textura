@@ -30,7 +30,7 @@ typedef struct {
     uint32_t lfo_ph, lfo_rnd;
     int32_t lfo_sh, ic[2], op, pos, ow;
     int32_t dry[32];
-} tx_fx_filter_t;
+} __attribute__((aligned(64))) tx_fx_filter_t;   /* (its own cache lines: lanes on two cores) */
 void tx_fx_filter_init(tx_fx_filter_t *f);
 void tx_fx_filter_param(tx_fx_filter_t *f, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_filter_process(tx_fx_filter_t *f, int32_t *x, unsigned n);   /* mono Q23, in place */
@@ -48,11 +48,16 @@ typedef struct {
     uint8_t cur;                   /* the TYPE that runs (p[TX_DR_TYPE] after a change has faded through) */
     int32_t hp, lp1, lp2, w, tg, tlp;
     tx_drv_shared_t *sh;           /* what the lanes' TYPEs share (tx_fx_t; 0: the classic drive only) */
+    uint8_t sw;                    /* (tx_fx_drive_prep: the TYPE that runs goes on; 0: it fades out) */
     tx_drv_state_t u;              /* the TYPE's state */
-} tx_fx_drive_t;
+} __attribute__((aligned(64))) tx_fx_drive_t;   /* (its own cache lines: lanes on two cores) */
 void tx_fx_drive_init(tx_fx_drive_t *d);
 void tx_fx_drive_param(tx_fx_drive_t *d, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x, unsigned n);     /* mono Q23, in place */
+/* or in two halves (the lanes on two cores): prep for every lane in lane order, then run on any core with its own
+ * scratch (w; 0: the shared one): the same samples */
+TX_AUDIO_CODE void tx_fx_drive_prep(tx_fx_drive_t *d);
+TX_AUDIO_CODE void tx_fx_drive_run(tx_fx_drive_t *d, int32_t *x, unsigned n, tx_drv_scr_t *w);
 void tx_fx_drive_shared_init(tx_drv_shared_t *sh);
 void tx_fx_drive_share(tx_fx_drive_t *d, tx_drv_shared_t *sh);
 uint32_t tx_fx_drive_us(const tx_fx_drive_t *d);  /* its FM-1 cost now, us a block (0: off) */
@@ -92,11 +97,19 @@ typedef struct {
     int32_t gbl;                                 /* GRAIN, gliding (Q15) */
     tx_gd_grain_t g[TX_GD_MAXG];
     uint32_t sync;                               /* the echo's delay from the tempo, samples (0: TIME's) */
-} tx_fx_grain_t;
+    uint8_t ahead;                               /* (begin: the voices run before the input, this block) */
+    uint32_t vact;                               /* (the voices: grain samples sounding this block) */
+    int32_t we[TX_BLOCK], wl[TX_BLOCK], wr[TX_BLOCK];   /* (the voices' block: the echo, the grains L, R) */
+} __attribute__((aligned(64))) tx_fx_grain_t;   /* (its own cache lines: lanes on two cores) */
 void tx_fx_grain_init(tx_fx_grain_t *d);
 void tx_fx_grain_param(tx_fx_grain_t *d, unsigned id, unsigned v);
 void tx_fx_grain_sync(tx_fx_grain_t *d, unsigned samples);   /* the echo on the tempo (0: TIME again; at most TIME's top) */
 TX_AUDIO_CODE void tx_fx_grain_process(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n);   /* Q23, adds */
+/* or in three steps (the voices ahead of the input, on another core): begin (1: the voices may run now), voices, end
+ * (it runs the voices itself when begin said 0): the same samples */
+TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n);
+TX_AUDIO_CODE void tx_fx_grain_voices(tx_fx_grain_t *d, unsigned n);
+TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n);
 int tx_fx_grain_quiet(const tx_fx_grain_t *d);
 
 /* ---- REVERB (on the mix) */
@@ -141,6 +154,7 @@ int tx_fx_reverb_frozen(const tx_fx_reverb_t *r);   /* holding its tail (SUSTAIN
 typedef struct {
     tx_fx_drive_t drive[TX_FX_LANES];
     tx_drv_shared_t drv;           /* the DRIVE TYPEs' scratch and TSH8's tables (one lane at a time) */
+    tx_drv_scr_t scr1;             /* the second core's DRIVE scratch (tx_fx_lane_run, core 1) */
     tx_fx_filter_t filter[TX_FX_LANES];
     tx_fx_grain_t gd;
     tx_fx_reverb_t rev;
@@ -151,7 +165,15 @@ typedef struct {
 } tx_fx_t;
 void tx_fx_init(tx_fx_t *fx);
 TX_AUDIO_CODE void tx_fx_lane(void *fx, unsigned k, int32_t *x, unsigned n);          /* tx_mix_t.ins */
+/* or in two halves (the lanes on two cores, as tx_fx_drive_prep / run): prep every lane in lane order on one core,
+ * then run each lane on the core (0, 1) that renders it */
+TX_AUDIO_CODE void tx_fx_lane_prep(void *fx, unsigned k);
+TX_AUDIO_CODE void tx_fx_lane_run(void *fx, unsigned k, int32_t *x, unsigned n, unsigned core);
 TX_AUDIO_CODE void tx_fx_bus(void *fx, int32_t *L, int32_t *R, unsigned n);           /* tx_mix_t.bus */
+/* or split (the grains ahead, on another core, while the lanes render): begin (the cap, then 1: the grain voices may
+ * run now: tx_fx_grain_voices(&fx->gd, n)), then the lanes and the mix, then end (as tx_mix_t.bus): the same samples */
+TX_AUDIO_CODE int tx_fx_bus_begin(void *fx, unsigned n);
+TX_AUDIO_CODE void tx_fx_bus_end(void *fx, int32_t *L, int32_t *R, unsigned n);
 TX_AUDIO_CODE void tx_fx_gd_cap(tx_fx_t *fx);     /* the grain delay's cap for this block (tx_fx_bus calls it; an app
                                                    * that times the grains and the reverb apart calls it, then each) */
 int tx_fx_bus_quiet(void *fx);                                                         /* tx_mix_t.busq */

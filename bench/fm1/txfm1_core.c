@@ -3,6 +3,7 @@
 #include "txfm1_core.h"
 #include "tx_fx.h"
 #include "tx_core_mix.h"
+#include "tx_tables.h"
 
 extern const tx_engine_t *const tx_engines[];
 
@@ -16,10 +17,112 @@ struct fm_run_s {
     uint16_t next[4];
     fm_stats_t s;
     int32_t buf[4][TX_BLOCK];
+    const fm_par_t *par;
+    struct { const tx_engine_t *e; void *st; int32_t *out; uint8_t ping; } job;   /* C1: core 1's render */
+    struct { int32_t x[TX_BLOCK]; uint32_t t; } __attribute__((aligned(64))) lb[4];   /* LANES: each lane's engine block
+                                    * and its time (ticks), written by the core that renders it (its own lines) */
+    uint8_t pmask;                                           /* LANES FM_PAR: core 1's items this block (the lanes,
+                                                              * FM_GV: the grain delay's voices) */
+    struct { uint32_t t, busy; } __attribute__((aligned(64))) gv1;   /* core 1's own line: its voices', its job's ticks */
+    uint32_t gvt;                                            /* the voices' last time, ticks */
+    uint8_t c1_lost;                                         /* C1: core 1's copy lost (held mid-job): core 0's only */
 };
 
 uint32_t fm_run_bytes(void) { return (uint32_t)sizeof(fm_run_t); }
 const fm_stats_t *fm_stats(const fm_run_t *r) { return &r->s; }
+void fm_set_par(fm_run_t *r, const fm_par_t *p) { r->par = p; }
+
+/* the ping (C1, TYPE 1): no engine, a pattern from the block number (core 1 runs any code at all?) */
+static void c1_fill(int32_t *out, uint32_t blk, unsigned kind, const int32_t *in, void *st)
+{
+    uint32_t j;
+    if (kind == 5u) {                  /* 5: load: a pointer chase with read-modify-writes over its own 16 KB arena,
+                                        * 16384 steps a block (both cores busy on the bus at once, no engine code) */
+        uint32_t *w = (uint32_t *)st, i = blk & 4095u, a = blk, k;
+        for (k = 0; k < 16384u; k++) {
+            uint32_t v = w[i];
+            w[i] = v * 1664525u + 1013904223u + k;
+            a = (a ^ v) * 0x9E3779B1u + (a >> 7);
+            i = (v ^ a ^ k) & 4095u;
+            if ((k & 63u) == 63u) out[k >> 6] = (int32_t)a >> 9;
+        }
+        return;
+    }
+    if (kind == 3u) {                  /* 3: flash data (a constant table read through the XIP) */
+        for (j = 0; j < TX_BLOCK; j++) out[j] = (int32_t)TX_LOG2_FRAC[(blk * 7u + j * 13u) % 257u] << 4;
+        return;
+    }
+    if (kind == 4u) {                  /* 4: data core 0 wrote just before the job (in: buf[2]) */
+        for (j = 0; j < TX_BLOCK; j++) out[j] = in[j] ^ (int32_t)j;
+        return;
+    }
+    if (kind == 1u) {
+        for (j = 0; j < TX_BLOCK; j++) out[j] = (int32_t)((blk * 0x9E3779B1u) ^ (j * 0x85EBCA6Bu)) >> 9;
+        return;
+    }
+    for (j = 0; j < TX_BLOCK; j++) {   /* 2: the math ping: 64-bit products and 32-bit divisions, as the engines' */
+        uint32_t a = blk * 0x9E3779B1u + j, b = j * 0x85EBCA6Bu + 12345u;
+        int64_t p = (int64_t)(int32_t)a * (int32_t)b;
+        uint64_t q = (uint64_t)a * b;
+        int32_t d = (int32_t)a / (int32_t)((b >> 8) | 1u);
+        uint32_t u = a / ((b >> 12) | 1u);
+        out[j] = (int32_t)((uint32_t)(p >> 31) ^ (uint32_t)(q >> 32) ^ (uint32_t)d ^ u) >> 9;
+    }
+}
+
+/* core 1's work (C1): its copy of the scene (or the ping), one block; c1_job is the same on core 1 (its argument the
+ * run: a 32-bit address, the device's only) */
+static void c1_work(fm_run_t *r)
+{
+    if (r->job.ping) c1_fill(r->job.out, r->blk, r->job.ping, r->buf[2], r->job.st); else r->job.e->render(r->job.st, r->job.out, TX_BLOCK);
+}
+static void c1_job(uint32_t a) { c1_work((fm_run_t *)(uintptr_t)a); }
+
+/* LANES: lane k's engine, one block, into lb[k] (either core; ticks from now(), core 0 less its nested interrupts).
+ * The run and the clock for core 1's job: set by core 0 before it hands the job over (its argument: the block) */
+static uint32_t (*lane_now)(void);
+static fm_run_t *lane_run;
+#define FM_GV 4u                                             /* the split's item past the lanes: the grain voices */
+static void lane_render(fm_run_t *r, unsigned k, unsigned core)   /* its engine, then its inserts (prep done) */
+{
+    uint32_t j, a = lane_now();
+    for (j = 0; j < TX_BLOCK; j++) r->lb[k].x[j] = 0;
+    tx_engines[r->tab[r->c->lane[k]].eng]->render(r->arena[k], r->lb[k].x, TX_BLOCK);
+    tx_fx_lane_run(&r->fx, k, r->lb[k].x, TX_BLOCK, core);
+    r->lb[k].t = lane_now() - a;
+}
+static uint32_t gv_run(fm_run_t *r)                          /* the grain delay's voices, ticks */
+{
+    uint32_t a = lane_now();
+    TX_FAR(tx_fx_grain_voices)(&r->fx.gd, TX_BLOCK);
+    return lane_now() - a;
+}
+static void lanes_job(uint32_t a)                            /* core 1's: its items (pmask) */
+{
+    fm_run_t *r = lane_run;
+    unsigned k;
+    uint32_t t0 = lane_now();
+    (void)a;
+    if (r->pmask >> FM_GV & 1u) r->gv1.t = gv_run(r);
+    for (k = 0; k < r->c->eng; k++) if (r->pmask >> k & 1u) lane_render(r, k, 1u);
+    r->gv1.busy = lane_now() - t0;
+}
+/* core 1's items among on: the split whose larger half took least in the last block (the last split on a tie) */
+static uint32_t lanes_split(const fm_run_t *r, uint32_t on)
+{
+    uint32_t m, k, best = 0, bc = 0xFFFFFFFFu;
+    for (m = 1; m < (2u << FM_GV) - 1u; m++) {
+        uint32_t c0 = 0, c1 = 0, c;
+        if ((m & on) != m || m == on) continue;
+        for (k = 0; k <= FM_GV; k++) if (on >> k & 1u) {
+            uint32_t ck = (k == FM_GV ? r->gvt : r->lb[k].t) + 1u;
+            if (m >> k & 1u) c1 += ck; else c0 += ck;
+        }
+        c = c0 > c1 ? c0 : c1;
+        if (c < bc || (c == bc && m == r->pmask)) { bc = c; best = m; }
+    }
+    return best;
+}
 
 static void fx_setup(tx_fx_t *fx, unsigned kind, unsigned type, unsigned decay)
 {
@@ -96,6 +199,7 @@ static void start(fm_run_t *r)
     r->blk = 0;
     r->rng = 99u;
     if (c->kind == FM_K_SCENE) scene_init(r, 0, c);
+    else if (c->kind == FM_K_C1) { scene_init(r, 0, c); scene_init(r, 1, c); r->c1_lost = 0; }
     else if (c->kind == FM_K_FX) {
         fx_setup(&r->fx, c->eng, c->type, c->decay);
         tx_comp_init(&r->mix.comp);
@@ -106,8 +210,12 @@ static void start(fm_run_t *r)
     }
     else {
         lanes_fx(&r->fx, c->type);
+        if (c->type & FM_G15) r->fx.reserve_us = 100000u;   /* (the grains' cap never under the 15 asked) */
+        r->c1_lost = 0; r->pmask = 0; r->gvt = 0;
+        for (k = 0; k < 4u; k++) r->lb[k].t = 0;
         tx_mix_init(&r->mix);
-        r->mix.ins = tx_fx_lane; r->mix.bus = tx_fx_bus; r->mix.busq = tx_fx_bus_quiet; r->mix.fx = &r->fx;
+        r->mix.ins = tx_fx_lane; r->mix.busq = tx_fx_bus_quiet; r->mix.fx = &r->fx;
+        r->mix.bus = tx_fx_bus_end;                         /* (its begin and the grain voices: fm_step) */
         for (k = 0; k < c->eng; k++) { scene_init(r, k, &r->tab[c->lane[k]]); tx_mix_pan(&r->mix, k, 20u + 30u * k); }
     }
 }
@@ -116,6 +224,7 @@ void fm_begin(fm_run_t *r, const fm_cfg_t *tab, const fm_ev_t *ev, unsigned cfg,
 {
     unsigned i, k;
     r->tab = tab; r->ev = ev; r->c = &tab[cfg];
+    r->par = 0;                                              /* (none until fm_set_par: the host's) */
     r->nblk = r->c->nblk;
     r->warm = warm ? (FM_WARM < r->nblk ? FM_WARM : r->nblk) : 0u;
     for (i = 0; i < 8u; i++) {
@@ -124,6 +233,8 @@ void fm_begin(fm_run_t *r, const fm_cfg_t *tab, const fm_ev_t *ev, unsigned cfg,
     }
     r->s.worst = r->s.w8 = r->s.sum = r->s.raw_worst = r->s.raw_w8 = r->s.n = 0;
     for (k = 0; k < 4u; k++) r->s.lane_worst[k] = r->s.lane_w8[k] = 0;
+    r->s.c1_jobs = r->s.c1_mis = r->s.c1_first = r->s.c1_solo = 0;
+    r->s.c0_worst = r->s.c1_worst = r->s.c0_sum = r->s.c1_sum = 0;
     r->s.hash = 2166136261u;
     start(r);
 }
@@ -164,25 +275,84 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
         scene_events(r, 0, c, r->blk);
         for (j = 0; j < TX_BLOCK; j++) L[j] = 0;
         tx_engines[c->eng]->render(r->arena[0], L, TX_BLOCK);
+    } else if (c->kind == FM_K_C1) {                           /* the same scene on both cores at once, compared */
+        const tx_engine_t *e = tx_engines[c->eng];
+        int on1 = 0;
+        scene_events(r, 0, c, r->blk);
+        if (!r->c1_lost) {
+            scene_events(r, 1, c, r->blk);
+            for (j = 0; j < TX_BLOCK; j++) r->buf[1][j] = 0;
+            r->job.e = e; r->job.st = r->arena[1]; r->job.out = r->buf[1]; r->job.ping = c->type;
+            if (c->type == 4u)                                   /* (the shared ping's fresh input) */
+                for (j = 0; j < TX_BLOCK; j++) r->buf[2][j] = (int32_t)(r->blk * 0x9E3779B1u + j * 0x85EBCA6Bu) >> 9;
+            on1 = r->par && r->par->run(c1_job, (uint32_t)(uintptr_t)r);
+        }
+        for (j = 0; j < TX_BLOCK; j++) L[j] = 0;
+        if (c->type == 4u) for (j = 0; j < TX_BLOCK; j++) L[j] = ((int32_t)(r->blk * 0x9E3779B1u + j * 0x85EBCA6Bu) >> 9) ^ (int32_t)j;
+        else if (c->type) c1_fill(L, r->blk, c->type, 0, r->arena[0]); else e->render(r->arena[0], L, TX_BLOCK);
+        if (on1 && r->par->wait()) { on1 = 0; r->c1_lost = 1; }   /* (held mid-job: its copy is gone) */
+        if (!r->c1_lost) {
+            if (!on1) c1_work(r);
+            for (j = 0; j < TX_BLOCK && r->buf[1][j] == L[j]; j++) ;
+            if (measuring) {
+                if (on1) r->s.c1_jobs++; else r->s.c1_solo++;
+                if (j < TX_BLOCK && !r->s.c1_mis++) r->s.c1_first = r->s.n + 1u;
+            }
+        } else if (measuring) r->s.c1_solo++;
+        for (j = 0; j < TX_BLOCK; j++) R[j] = L[j];
     } else if (c->kind == FM_K_FX) {
         if (c->eng == FM_FX_CLOCK) L[0] = R[0] = (int32_t)(clk_probe(r->blk) >> 9);   /* (its result: kept, hashed) */
         else if (c->eng == FM_FX_COMP) TX_FAR(tx_comp_process)(&r->mix.comp, L, R, TX_BLOCK); /* the mix's own */
         else if (c->eng >= FM_FX_REVERB) tx_fx_bus(&r->fx, L, R, TX_BLOCK); else tx_fx_lane(&r->fx, 0, L, TX_BLOCK);
-    } else {
+    } else {                                                 /* the lanes: every lane's events, the bus's begin, the
+                                                              * inserts' prep (lane order), then the engines with
+                                                              * their inserts and the grain voices (FM_PAR: some on
+                                                              * core 1), then lane by lane the pan, the bus's end:
+                                                              * the same samples either way */
+        uint32_t m1 = 0, on = (1u << c->eng) - 1u, t0, c0;
         tx_mix_begin(&r->mix, TX_BLOCK);
+        lane_now = ck->now; lane_run = r;
+        for (k = 0; k < c->eng; k++) scene_events(r, k, &r->tab[c->lane[k]], r->blk);
+        if (tx_fx_bus_begin(&r->fx, TX_BLOCK)) on |= 1u << FM_GV;   /* (the grain voices may run now) */
+        for (k = 0; k < c->eng; k++) tx_fx_lane_prep(&r->fx, k);
+        if ((c->type & FM_PAR) && r->par && !r->c1_lost && (on & (on - 1u))) {
+            m1 = lanes_split(r, on);
+            r->pmask = (uint8_t)m1;
+            if (!r->par->run(lanes_job, r->blk)) m1 = 0;
+        }
+        t0 = ck->now(); c0 = ck->nested();
+        if ((on & ~m1) >> FM_GV & 1u) r->gvt = gv_run(r);
+        for (k = 0; k < c->eng; k++) if (!(m1 >> k & 1u)) {
+            uint32_t n0 = ck->nested();
+            lane_render(r, k, 0u);
+            r->lb[k].t -= ck->nested() - n0;                 /* (core 0's: less its nested interrupts) */
+        }
+        c0 = (ck->now() - t0) - (ck->nested() - c0);         /* core 0's busy ticks in the render phase */
+        if (m1 && r->par->wait()) {                          /* held mid-job: its items here, as it left them */
+            if (measuring) { r->s.c1_mis++; if (!r->s.c1_first) r->s.c1_first = r->s.n + 1u; }
+            r->c1_lost = 1;
+            if (m1 >> FM_GV & 1u) r->gvt = gv_run(r);
+            for (k = 0; k < c->eng; k++) if (m1 >> k & 1u) lane_render(r, k, 0u);
+            m1 = 0;
+        }
+        if (m1 >> FM_GV & 1u) r->gvt = r->gv1.t;
+        if (c->type & FM_PAR) {
+            if (!m1) r->pmask = 0;
+            if (measuring) {
+                uint32_t c1 = m1 ? r->gv1.busy : 0u;
+                if (m1) r->s.c1_jobs++; else r->s.c1_solo++;
+                if (c0 > r->s.c0_worst) r->s.c0_worst = c0;
+                if (c1 > r->s.c1_worst) r->s.c1_worst = c1;
+                r->s.c0_sum += c0 >> 4; r->s.c1_sum += c1 >> 4;
+            }
+        }
         for (k = 0; k < c->eng; k++) {
-            const fm_cfg_t *lc = &r->tab[c->lane[k]];
-            uint32_t a = ck->now(), an = ck->nested(), ld;
-            scene_events(r, k, lc, r->blk);
-            for (j = 0; j < TX_BLOCK; j++) r->buf[k][j] = 0;
-            tx_engines[lc->eng]->render(r->arena[k], r->buf[k], TX_BLOCK);
-            ld = (ck->now() - a) - (ck->nested() - an);
+            uint32_t ld = r->lb[k].t;
             if (measuring) {
                 if (ld > r->s.lane_worst[k]) r->s.lane_worst[k] = ld;
                 ring8(r->s.lane_ring[k], r->s.n, ld, &r->s.lane_w8[k]);
             }
-            tx_fx_lane(&r->fx, k, r->buf[k], TX_BLOCK);          /* the lane's inserts (tx_mix_slot_render's ins) */
-            tx_mix_add(&r->mix, k, r->buf[k], TX_BLOCK);
+            tx_mix_add(&r->mix, k, r->lb[k].x, TX_BLOCK);         /* (its inserts: lane_render) */
         }
         tx_mix_end(&r->mix, L, R, TX_BLOCK);
     }
@@ -198,12 +368,12 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
     if (raw > r->s.raw_worst) r->s.raw_worst = raw;
     ring8(r->s.ring, r->s.n, d, &r->s.w8);
     ring8(r->s.rraw, r->s.n, raw, &r->s.raw_w8);
-    r->s.sum += d;
+    r->s.sum += d >> 4;                                      /* (ticks / 16: 32 bits hold a 300 s row) */
     {
         uint32_t h = r->s.hash;
         for (j = 0; j < TX_BLOCK; j++) {
             uint32_t v = (uint32_t)L[j];
-            if (c->kind != FM_K_SCENE) v ^= (uint32_t)R[j] * 16777619u;
+            if (c->kind != FM_K_SCENE && c->kind != FM_K_C1) v ^= (uint32_t)R[j] * 16777619u;
             for (k = 0; k < 4u; k++) { h ^= (v >> (8u * k)) & 0xFFu; h *= 16777619u; }
         }
         r->s.hash = h;

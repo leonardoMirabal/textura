@@ -22,8 +22,27 @@
 #define APP_OUT_WRITTEN 1                       /* app_audio writes every sample of out */
 #ifdef DINGHY_HOST
 static void kv_host_vkey(uint32_t k, uint32_t raw) { (void)k; (void)raw; }   /* (tests/host.c "vkey": no key velocity scan yet) */
+#else
+/* the second core (core1.h): at boot, held, the supply raised to M-VAVE's own levels (C1_RAILS), then started; held
+ * again before every reset; a fault of its own stops it (no reset) and the lanes go on with one core */
+static int c1_start(void);
+static void c1_hold(void);
+static void c1_fault(const void *c);
+static void c1_rails(void);
+#define C1_RAILS
+#define APP_EARLY() (c1_hold(), c1_rails(), (void)c1_start())
+#define APP_RESET_PREP() c1_hold()
+#define APP_FAULT(c) c1_fault(c)
 #endif
 #include "platform.c"
+#ifndef DINGHY_HOST
+#include "core1.h"
+/* lanes.c LN_PAR: some lanes' engines on core 1. Its wait: past 3 ms (a job it lost, a fault) it is held for good */
+#define LN_PAR
+#define LN_PAR_ON() (c1_state == C1_ON)
+#define LN_PAR_RUN(fn, a) c1_run(fn, a)
+#define LN_PAR_WAIT() c1_wait_us(3000u)
+#endif
 #define LN_MOD                                  /* lanes.c calls the modulation (mod.c) at each block and note */
 static void mod_block(void);
 static void mod_key_isr(uint32_t k, uint32_t vel);
@@ -92,9 +111,17 @@ static uint32_t tx_palette_index(const char *name)
 /* the grain delay's measured room (lanes.c ln_bus), for a check on the FM-1: CC 116 on channel 16 asks, the reply is
  * CC 100 id / 101 - 102 value (14 bits, as Frodhes' CC 116 items) on channel 1: 20 the cap now, 21 the lowest cap,
  * 22 the room now (us), 23 the least room, 24 the longest audio interrupt (us), 25 the reverb (us, held), 26 the
- * lanes before the bus (held), 27 the rest (held); 21, 23 and 24 since the last ask, then they restart */
+ * lanes before the bus (held), 27 the rest (held); 21, 23 and 24 since the last ask, then they restart. Core 1
+ * (core1.h): 30 its state (C1_*: 1 running), 31 the bad reads it counted, 32 / 33 the blocks it rendered lanes in
+ * (low / high 14 bits), 34 the jobs lost, 35 the longest wait for it (us, since the last ask), 36 / 37 VDC14 / SYSVDD
+ * as the boot loader left them, 38 / 39 now, 40 its lanes in the last block (a mask), 41 its stack's deepest (bytes),
+ * 42 the governor's pool now (us) */
+/* an item: three USB-MIDI events; it waits (up to 50 ms) for room in the 64-event out queue (usb.c drops what does
+ * not fit: the reply is 23 items, 69 events, and its last ones were lost) */
 static void tx_dbg_item(uint32_t id, uint32_t v)
 {
+    uint32_t t0 = fm1_ticks();
+    while (usb.config && mo_w - mo_r > MQ - 3u && fm1_ticks() - t0 < 50000u * FM1_TICKS_PER_US) ;
     if (v > 16383u) v = 16383u;
     midi_send(0xB0, 100, id); midi_send(0xB0, 101, v >> 7); midi_send(0xB0, 102, v & 127u);
 }
@@ -110,6 +137,14 @@ static void tx_dbg_reply(void)
     tx_dbg_item(25, ln.rev_pk);
     tx_dbg_item(26, ln.pre_pk);
     tx_dbg_item(27, ln.post_pk);
+    tx_dbg_item(30, c1_state); tx_dbg_item(31, c1_mb.bad);
+    tx_dbg_item(32, ln.par_blocks & 16383u); tx_dbg_item(33, ln.par_blocks >> 14 & 16383u);
+    tx_dbg_item(34, ln.par_lost);
+    tx_dbg_item(35, c1_wait_max / C1_TPU); c1_wait_max = 0;
+    tx_dbg_item(36, c1_rail_boot[0]); tx_dbg_item(37, c1_rail_boot[1]);
+    tx_dbg_item(38, c1_rail(C1_P3_VDC14, 7u)); tx_dbg_item(39, c1_rail(C1_P3_SYSVDD, 15u));
+    tx_dbg_item(40, ln.par_mask); tx_dbg_item(41, c1_stack_used());
+    tx_dbg_item(42, ln.gov.budget);
 }
 #endif
 

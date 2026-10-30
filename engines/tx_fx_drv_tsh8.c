@@ -220,10 +220,11 @@ static __attribute__((noinline)) void ts_aa1x(const int32_t *g0f, const int32_t 
 }
 
 /* the four passes, in to out (out may be in); g0f: the table before a swap (crossfaded into gf), or 0 */
-static __attribute__((noinline)) void ts_kernel_aa(tx_drv_ts_t *s, tx_drv_shared_t *sh, const int32_t *g0f,
-                                                   const int32_t *gf, const int32_t *in, int32_t *out, uint32_t n)
+static __attribute__((noinline)) void ts_kernel_aa(tx_drv_ts_t *s, tx_drv_shared_t *sh, tx_drv_scr_t *w,
+                                                   const int32_t *g0f, const int32_t *gf, const int32_t *in,
+                                                   int32_t *out, uint32_t n)
 {
-    int32_t *vi = sh->t1;
+    int32_t *vi = w->t1;
     ts_in2q(sh->ts_in, s->is, in, vi, n);
     ts_br2qa(s->br, s->bs, vi, out, n);
     if (g0f) { ts_aa1x(g0f, gf, s->as, out); ts_aa1(gf, s->as, out + TSH8_XF, n - TSH8_XF); }
@@ -269,8 +270,8 @@ static void ts_first(tx_drv_shared_t *sh, int32_t a)
 
 /* the wet signal of the block, in -> out (out may be in), n even; returns 1 when it only built the first table (the
  * kernel not run, out untouched: the lane stays dry this block) */
-static int drv_tsh8_run(tx_drv_ts_t *s, tx_drv_shared_t *sh, const int32_t *in, int32_t *out, uint32_t n,
-                        int32_t a, int32_t t)
+static int drv_tsh8_run(tx_drv_ts_t *s, tx_drv_shared_t *sh, tx_drv_scr_t *w, const int32_t *in, int32_t *out,
+                        uint32_t n, int32_t a, int32_t t)
 {
     const int32_t *g0 = 0;
     if (s->ra < 0) {                                       /* (after a reset: the knobs) */
@@ -292,7 +293,7 @@ static int drv_tsh8_run(tx_drv_ts_t *s, tx_drv_shared_t *sh, const int32_t *in, 
         sh->ts_cur ^= 1u; sh->ts_trow = sh->ts_brow; sh->ts_bpos = -1;              /* crossfaded in */
         if (n >= TSH8_XF) g0 = sh->ts_tab[sh->ts_cur ^ 1u];
     }
-    ts_kernel_aa(s, sh, g0, sh->ts_tab[sh->ts_cur], in, out, n & ~1u);
+    ts_kernel_aa(s, sh, w, g0, sh->ts_tab[sh->ts_cur], in, out, n & ~1u);
     return 0;
 }
 #endif

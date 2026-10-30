@@ -43,7 +43,7 @@ LOADER_NAME = b"usb_hid_ota.bin"
 CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-function"]
 FR_FILES = ["firmware/hal", "firmware/crt0.S", "firmware/app.ld", "firmware/loader", "firmware/src",
             "tools/fm1pkg_make.py", "tools/lz4blk.py", "tools/fm1_install.py"]
-TX_OVER = ["firmware/src/platform.c", "firmware/src/gfx.c", "firmware/gen/felucca_font.h", "firmware/hal/fm1_cc.h",
+TX_OVER = ["firmware/src/platform.c", "firmware/src/core1.h", "firmware/src/gfx.c", "firmware/gen/felucca_font.h", "firmware/hal/fm1_cc.h",
            "firmware/hal/fm1_flash_map.h"]
 
 
@@ -153,7 +153,10 @@ def main():
     ap.add_argument("--no-stage", action="store_true", help="reuse build/fm1/tree")
     ap.add_argument("--app", action="store_true", help="the real app (firmware/src/textura.c), not the bench")
     ap.add_argument("--measure", action="store_true", help="with --app: the measuring link's report only, no image")
+    ap.add_argument("--define", action="append", default=[], help="the bench only: -D NAME for bench/txfm1.c")
     a = ap.parse_args()
+    if any(not re.fullmatch(r"[A-Z][A-Z0-9_]*", d) for d in a.define):
+        raise SystemExit("--define: NAME (A-Z, 0-9, _)")
     if not re.fullmatch(r"FM-1_\d{3}", a.id):
         raise SystemExit("--id: FM-1_NNN")
     name = "textura" if a.app else "txfm1"
@@ -191,6 +194,7 @@ def main():
              (f'{cc} {cf} {inc} -DFELUCCA_ID=\\"{a.id}\\" -DAPP_VER=\\"dev\\" -c firmware/src/textura.c -o o/textura.o'
               if a.app else
               f'{cc} {cf} {inc} -DFM1_PROF_TICK -DFELUCCA_ID=\\"{a.id}\\" -DAPP_VER=\\"bench\\" '
+              + "".join(f"-D{d} " for d in a.define) +
               "-c bench/txfm1.c -o o/txfm1.o")]
     if not a.eng_opt:
         a.eng_opt = "-Os" if a.app else "-O2"

@@ -20,6 +20,12 @@
  * and may define, before the #include:
  *   LCD_IDLE()        called while the screen's DMA sends a strip (the keys, MIDI: nothing waits for a redraw)
  *   FELUCCA_UAC 0     no USB audio (MIDI only)
+ *   APP_EARLY()       called once at boot before the audio and the timers start (the top of RAM still writable,
+ *                     the interrupts off): what must start first (the bench: the second core)
+ *   APP_RESET_PREP()  called before every reset this file makes (update, UBOOT, a crash) and first thing at boot:
+ *                     what must stop first (the bench: the second core held, its loop sits in RAM the boot reuses)
+ *   APP_FAULT(c)      called first in fm1_fault: returns for a fault of core 0 (the bench: a fault of the second core
+ *                     is recorded there and stops that core, no reset)
  */
 /* Frodhes: and APP_OUT_WRITTEN 1: app_audio writes every sample of out (then out is not cleared before it) */
 /* the panel by name: buttons (fm1_in.buttons, fm1_input_edges, fm1_led_key: bit / id), the encoders
@@ -95,6 +101,13 @@ static void fm1_led_key_glow(uint32_t id, int on)   /* as fm1_led_key, the dim l
 #endif
 #ifndef APP_VER
 #define APP_VER "0.0"
+#endif
+
+#ifndef APP_RESET_PREP
+#define APP_RESET_PREP() ((void)0)
+#endif
+#ifndef APP_FAULT
+#define APP_FAULT(c) ((void)(c))
 #endif
 
 bootguard_t bootguard __attribute__((section(".noinit")));
@@ -202,6 +215,7 @@ static void ota_show(uint32_t step, int32_t code)
 static void ota_commit(const uint8_t *parm)
 {
     bootguard_clear(&bootguard);
+    APP_RESET_PREP();
     usb_detach();
     fm1_delay_ms(30);
     fm1_enter_update(parm);
@@ -522,6 +536,7 @@ static void platform_poll(void)
         fm1_audio_stop();
         lcd_fill(0, 0, 240, 240, C_BLACK);
         draw_text_box(0, 110, 240, &FONT_S, "UBOOT (USB)", C_WHITE, 1);
+        APP_RESET_PREP();
         usb_detach();
         fm1_delay_ms(30);
         bootguard.pending = 0;
@@ -547,6 +562,8 @@ static void fm1_fault(const fm1_crash_t *c)
 {
     char b[12];
     uint32_t i, t0, v[3] = {c->vec, c->pc, c->rets};
+    APP_FAULT(c);
+    APP_RESET_PREP();
     fm1_audio_stop();
     lcd_fill(0, 0, 240, 240, RGB(160, 0, 0));
     draw_text_box(0, 20, 240, &FONT_S, APP_NAME " CRASH", C_WHITE, 1);
@@ -567,6 +584,7 @@ void fm1_cstart(void)
     extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
     extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
     uint32_t *s, *d, p3, boot_mode;
+    APP_RESET_PREP();                           /* (registers only: before the RAM is cleared) */
     fm1_time_init();
     fm1_reset_reason();
     p3 = fm1_boot.p3_rst;
@@ -600,6 +618,9 @@ void fm1_cstart(void)
 #if BOARD_SMK37
     smk_trim_read();                            /* (after fm1_input_init: it sets the defaults first) */
     smk_owner_check();
+#endif
+#ifdef APP_EARLY
+    APP_EARLY();
 #endif
     fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3);   /* (abuf is zero: .bss) */
     usb_start();

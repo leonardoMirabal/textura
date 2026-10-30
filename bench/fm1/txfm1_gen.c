@@ -80,6 +80,17 @@ static void lanes(const unsigned *l, unsigned n, const char *lab)
     nc++;
 }
 
+/* a second-core stress (FM_K_C1): scene configuration c rendered on both cores at once for secs, compared each block */
+static void c1(unsigned c, unsigned secs, unsigned ping, const char *lab)
+{
+    if (nc >= MAXC) { fprintf(stderr, "txfm1_gen: table full\n"); exit(2); }
+    cfg[nc] = cfg[c];
+    cfg[nc].kind = FM_K_C1; cfg[nc].type = (uint8_t)ping;
+    cfg[nc].nblk = (uint16_t)((secs * TX_FS) / TX_BLOCK);
+    snprintf(label[nc], sizeof label[nc], "%s", lab);
+    nc++;
+}
+
 static const char *const PRE[35] = {"rain_on_water", "stone_cloud", "cicadas", "water", "wind", "fire", "crickets",
     "sand", "gravel", "katydids", "bees", "ice", "wood", "minerals", "glass", "songbird", "chirper", "crow", "gull",
     "blackbird", "song_thrush", "nightingale", "robin", "wren", "hermit_thrush", "skylark", "wood_thrush",
@@ -147,13 +158,14 @@ int main(int argc, char **argv)
         }
         {   /* four lanes: the four highest w8 (rain on water, water, minerals, stone cloud at their worst), and the
              * mixes tx-budget prices (forest, storm, cave; at their intensities) */
-            unsigned l[4], lw[4], ls[4];
+            unsigned l[4], lw[4], ls[4], lf[4], lc[4];
             l[0] = worst[0]; l[1] = worst[3]; l[2] = worst[13]; l[3] = worst[1];
             for (k = 0; k < 4u; k++) lw[k] = l[k];
             lanes(l, 4, "4 lanes worst (rain TYPE 40, water TYPE 127, minerals HARD 127, stones SPACING 0)");
             l[0] = src(15, 64, 64, 0, 0, "songbird ACT 64 (forest)"); l[1] = src(4, 64, 64, 0, 0, "wind ACT 64 (forest)");
             l[2] = src(6, 64, 64, 0, 0, "crickets ACT 64 (forest)"); l[3] = src(3, 64, 64, 0, 0, "water ACT 64 (forest)");
             lanes(l, 4, "4 lanes forest");
+            for (k = 0; k < 4u; k++) lf[k] = l[k];
             l[0] = src(0, 96, 64, 0, 0, "rain ACT 96 (storm)"); l[1] = th;
             l[2] = src(4, 96, 64, 0, 0, "wind ACT 96 (storm)"); l[3] = src(3, 96, 64, 0, 0, "water ACT 96 (storm)");
             lanes(l, 4, "4 lanes storm");
@@ -161,6 +173,7 @@ int main(int argc, char **argv)
             l[0] = src(3, 16, 64, "TYPE", 16, "drips ACT 16 (cave)"); l[1] = src(13, 64, 64, 0, 0, "minerals ACT 64 (cave)");
             l[2] = def[3]; l[3] = src(4, 32, 64, 0, 0, "wind ACT 32 (cave)");
             lanes(l, 4, "4 lanes cave");
+            for (k = 0; k < 4u; k++) lc[k] = l[k];
             {   /* the storm and the worst four with effects left out (TYPE: a mask, txfm1_core.c FM_NO_*): what each
                  * part of the effects costs in the mix */
                 static const struct { unsigned m; const char *t; } OFF[] = {
@@ -180,6 +193,39 @@ int main(int argc, char **argv)
                 }
             }
             fx(FM_FX_CLOCK, 0, 0, "CLOCK probe (16384 dependent adds: MHz = 16384 / mean us)");
+            /* core 1 against core 0 (FM_K_C1): the ping (no engine) and each scene for 5 s (a fault shows fast), then
+             * the worst scenes a minute each, then minerals for five */
+            c1(worst[1], 5, 1, "C1 ping (no engine), 5 s");
+            c1(worst[1], 5, 2, "C1 math ping (64-bit products, divisions), 5 s");
+            c1(worst[1], 5, 3, "C1 flash ping (a table in the flash), 5 s");
+            c1(worst[1], 5, 4, "C1 shared ping (data core 0 just wrote), 5 s");
+            c1(worst[1], 5, 5, "C1 load (pointer chase, 16 KB each core), 5 s");
+            c1(worst[1], 60, 5, "C1 load (pointer chase, 16 KB each core), 60 s");
+            c1(worst[1], 5, 0, "C1 stones SPACING 0, 5 s");
+            c1(worst[3], 5, 0, "C1 water TYPE 127, 5 s");
+            c1(worst[13], 5, 0, "C1 minerals HARD 127, 5 s");
+            c1(worst[0], 5, 0, "C1 rain TYPE 40, 5 s");
+            c1(worst[0], 60, 0, "C1 rain TYPE 40, 60 s");
+            c1(worst[3], 60, 0, "C1 water TYPE 127, 60 s");
+            c1(worst[13], 60, 0, "C1 minerals HARD 127, 60 s");
+            c1(worst[1], 60, 0, "C1 stones SPACING 0, 60 s");
+            c1(worst[13], 300, 0, "C1 minerals HARD 127, 300 s");
+            {   /* the lanes on two cores (FM_PAR: as firmware/src/lanes.c), each beside the same on one, the grain
+                 * delay's 15 grains forced: the hashes must match (and the host's, one core); then longer runs */
+                static const char *const NM[4] = {"worst (stress)", "forest", "storm", "cave"};
+                const unsigned *L4[4] = {lw, lf, ls, lc};
+                char lab[96];
+                for (k = 0; k < 4u; k++) {
+                    snprintf(lab, sizeof lab, "4 lanes %s, 15 grains, one core", NM[k]);
+                    lanes(L4[k], 4, lab); cfg[nc - 1u].type = FM_G15;
+                    snprintf(lab, sizeof lab, "4 lanes %s, 15 grains, two cores", NM[k]);
+                    lanes(L4[k], 4, lab); cfg[nc - 1u].type = FM_G15 | FM_PAR;
+                }
+                lanes(ls, 4, "4 lanes storm, 15 grains, two cores, 60 s"); cfg[nc - 1u].type = FM_G15 | FM_PAR;
+                cfg[nc - 1u].nblk = (uint16_t)((60u * TX_FS) / TX_BLOCK);
+                lanes(lw, 4, "4 lanes worst (stress), 15 grains, two cores, 300 s"); cfg[nc - 1u].type = FM_G15 | FM_PAR;
+                cfg[nc - 1u].nblk = (uint16_t)((300u * TX_FS) / TX_BLOCK);
+            }
         }
     }
     if (!(f = fopen(argv[1], "w"))) { perror(argv[1]); return 2; }

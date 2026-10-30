@@ -6,9 +6,11 @@
  *   main loop   ln_select (a lane's engine: prepared in the spare arena, here, never in the audio interrupt),
  *               ln_key, ln_param, ln_level, ln_pan, ln_fx, ln_gen_on, ln_gen_param, ln_gen_mute: queued (ln_q), the
  *               interrupt takes them at its next block
- *   interrupt   ln_block: the queue, then per lane its generator (tx_core_gen: the lane playing on its own, its
- *               activity and notes, as the player's) and one block of it, the effects, Q23 stereo; then the CPU
- *               governor (tx_core_gov.h) when the app gives it the lanes' costs (LN_CLOCK or LN_COST_EST, below)
+ *   interrupt   ln_block: the queue, then every lane's generator (tx_core_gen: the lane playing on its own, its
+ *               activity and notes, as the player's), every lane's engine for one block (some on the second core:
+ *               LN_PAR, below), then lane by lane its inserts, its pan into the pair and its fade; the effects, Q23
+ *               stereo; then the CPU governor (tx_core_gov.h) when the app gives it the lanes' costs (LN_CLOCK or
+ *               LN_COST_EST, below)
  *
  * A switched-out engine fades over 4 blocks (23 ms) in its own arena while the new one starts in the spare, as the
  * player does, so a switch never clicks. One arena a lane and one spare for all of them (the player keeps two a lane):
@@ -43,6 +45,18 @@
 #define LN_EST_BASE 100u                        /* the stand-in: a lane's block, us, and each hero sounding more */
 #define LN_EST_HERO 20u                         /* (make tx-budget: 120..250 us typical, 5..60 a hero) */
 #define LN_EST_MOD 8u                           /* the modulation's stand-in, us (make tx-budget section 5: 4..30) */
+/* LN_PAR: a second core renders some of the lanes' engines while this one renders the rest. The app gives
+ *   LN_PAR_ON()            1 while the second core runs (it may stop for good at any block: then 0)
+ *   LN_PAR_RUN(fn, arg)    hands it fn(arg): 1 taken, 0 not (this core does the work)
+ *   LN_PAR_WAIT()          waits for it: 0 done, else it was stopped mid-job (its lanes' engines are left as it left
+ *                          them: they render here again, once; a click at most, and one core from then on)
+ * A lane's engine renders into its own block (ln_out: its own cache lines, nothing else written on them while the
+ * other core works); everything else (the generators before, the inserts, the pan, the fades, the governor after)
+ * stays on this core in lane order, and the pair is a sum of int32 terms: the samples are the same whichever core
+ * renders which lane, and the same as with one core (tests/lanes_test.c checks it with a thread as the second core).
+ * Which lanes go there: the split of the sounding lanes whose larger half costs least (the lanes' last costs: the
+ * governor's), ln.par_force a fixed one (the tests). While the second core runs, the governor's pool is twice
+ * LN_GOV_POOL_US (a lane alone still at most half of it: one core's pool). */
 
 /* LN_POOL: where the lanes' big state goes. On the FM-1 (textura.c) the platform's .pool (zeroed at start), as it is
  * far over the 96 KiB of .data + .bss; on the host (Mach-O has no such section) and in the tests, plain statics */
@@ -91,24 +105,43 @@ static struct {
                                                  * the bus and outside ln_block (the limiter, the platform's), us */
     uint32_t use_max, cap_lo;                   /* (the debug reply, textura.c) since its last read: the most used
                                                  * before the grains, the most the cap was under TX_GD_MAXG */
+    uint32_t gus[LN_N];                         /* (LN_CLOCK) the lane's generator this block, us */
+    uint32_t par_n;                             /* (LN_PAR) the block's frames, for the second core's job */
+    uint8_t par_mask, par_force;                /* the lanes it rendered this block; a fixed split (0: by cost) */
+    uint32_t par_blocks, par_lost;              /* blocks it rendered lanes in; jobs lost (held mid-job) */
+    uint32_t gv_us, gv_pk;                      /* (LN_CLOCK) the grain voices' last block, us; held (ln_bus) */
+    uint32_t c0_us, c1_us, c0_max, c1_max;      /* (LN_CLOCK) the render phase's busy time per core, last and the
+                                                 * most since the debug reply */
 } ln LN_POOL;
 static uint8_t ln_arena[LN_N + 1u][TX_STATE_MAX] __attribute__((aligned(64))) LN_POOL;
+typedef struct {                                /* a lane's engine block, written by the core that renders it */
+    int32_t x[TX_BLOCK];
+    uint32_t us;                                /* (LN_CLOCK) its render, us */
+} __attribute__((aligned(64))) ln_out_t;
+static ln_out_t ln_out[LN_N] LN_POOL;
+static struct { uint32_t gv_us, busy_us; } __attribute__((aligned(64))) ln_c1t LN_POOL;   /* (the second core's own
+                                                 * line: its job's grain voices and busy time, us) */
+#define LN_GV 4u                                /* the split's item past the lanes: the grain delay's voices */
 
 #if defined(LN_CLOCK) && defined(LN_ISR_US)
 #define LN_BUS_TIMED
 #define LN_HOLD(h, x) ((x) > (h) - ((h) >> 4) ? (x) : (h) - ((h) >> 4))
 /* the bus on the FM-1: the grain delay's room measured (above), the grains and the reverb timed apart */
+static int ln_bus_begin(tx_fx_t *fx, unsigned n)   /* at the block's start: the cap from the blocks before */
+{
+    uint32_t pre = ln.pre_pk > ln.gv_pk ? ln.pre_pk - ln.gv_pk : 0u, use = pre + ln.rev_pk + ln.post_pk;
+    fx->room_us = use < TX_GOV_ISR_TARGET ? (int32_t)(TX_GOV_ISR_TARGET - use) : 0;
+    if (use > ln.use_max) ln.use_max = use;
+    use = (uint32_t)tx_fx_bus_begin(fx, n);
+    if (TX_GD_MAXG - fx->gd.cap > ln.cap_lo) ln.cap_lo = TX_GD_MAXG - fx->gd.cap;
+    return (int)use;
+}
 static void ln_bus(void *u, int32_t *L, int32_t *R, unsigned n)
 {
     tx_fx_t *fx = (tx_fx_t *)u;
-    uint32_t t0 = LN_CLOCK(), t1, use;
+    uint32_t t0 = LN_CLOCK(), t1;
     ln.pre_pk = LN_HOLD(ln.pre_pk, LN_CLOCK_US(t0 - ln.t_blk));
-    use = ln.pre_pk + ln.rev_pk + ln.post_pk;
-    fx->room_us = use < TX_GOV_ISR_TARGET ? (int32_t)(TX_GOV_ISR_TARGET - use) : 0;
-    tx_fx_gd_cap(fx);
-    if (use > ln.use_max) ln.use_max = use;
-    if (TX_GD_MAXG - fx->gd.cap > ln.cap_lo) ln.cap_lo = TX_GD_MAXG - fx->gd.cap;
-    TX_FAR(tx_fx_grain_process)(&fx->gd, L, R, n);
+    TX_FAR(tx_fx_grain_end)(&fx->gd, L, R, n);
     t1 = LN_CLOCK();
     TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);
     ln.t_bus = LN_CLOCK();
@@ -123,7 +156,8 @@ static void ln_init(void)
     for (i = 0; i < sizeof ln; i++) b[i] = 0;
     tx_mix_init(&ln.mix);
     tx_fx_init(&ln.fx);
-    ln.mix.ins = tx_fx_lane; ln.mix.bus = tx_fx_bus; ln.mix.busq = tx_fx_bus_quiet; ln.mix.fx = &ln.fx;
+    ln.mix.ins = tx_fx_lane; ln.mix.bus = tx_fx_bus_end; ln.mix.busq = tx_fx_bus_quiet; ln.mix.fx = &ln.fx;   /* (the
+                                                 * bus's begin and the grains' voices: ln_block, ln_render) */
 #ifdef LN_BUS_TIMED
     ln.mix.bus = ln_bus;
 #endif
@@ -300,6 +334,109 @@ static void ln_event(const ln_ev_t *v)
     }
 }
 
+/* lane k's engine, one block, into ln_out[k], then its inserts (DRIVE, FILTER: their prep done, lane order, by
+ * ln_render), on either core (c: its DRIVE scratch); it writes nothing else */
+static void ln_render_lane(uint32_t k, uint32_t n, uint32_t c)
+{
+    int32_t *x = ln_out[k].x;
+    uint32_t j;
+#ifdef LN_CLOCK
+    uint32_t t0 = LN_CLOCK();
+#endif
+    for (j = 0; j < n; j++) x[j] = 0;
+    ln.mix.e[k]->render(ln.mix.st[k], x, n);
+#ifdef LN_CLOCK
+    ln_out[k].us = LN_CLOCK_US(LN_CLOCK() - t0);
+#endif
+    if (ln.mix.ins) tx_fx_lane_run(&ln.fx, k, x, n, c);
+}
+static void ln_gv(uint32_t *us)                 /* the grain delay's voices (either core) */
+{
+#ifdef LN_CLOCK
+    uint32_t t0 = LN_CLOCK();
+#endif
+    TX_FAR(tx_fx_grain_voices)(&ln.fx.gd, ln.par_n);
+#ifdef LN_CLOCK
+    *us = LN_CLOCK_US(LN_CLOCK() - t0);
+#else
+    (void)us;
+#endif
+}
+#ifdef LN_PAR
+static void ln_par_job(uint32_t mask)           /* the second core's job: its lanes, and maybe the grains' voices */
+{
+    uint32_t k;
+#ifdef LN_CLOCK
+    uint32_t t0 = LN_CLOCK();
+#endif
+    if (mask >> LN_GV & 1u) ln_gv(&ln_c1t.gv_us);
+    for (k = 0; k < LN_N; k++) if (mask >> k & 1u) ln_render_lane(k, ln.par_n, 1u);
+#ifdef LN_CLOCK
+    ln_c1t.busy_us = LN_CLOCK_US(LN_CLOCK() - t0);
+#endif
+}
+/* the second core's items among on (the lanes, LN_GV the grains' voices; two or more): the split whose larger half
+ * costs least, the last one on a tie */
+static uint32_t ln_par_split(uint32_t on)
+{
+    uint32_t m, k, best = 0, bc = 0xFFFFFFFFu;
+    if (ln.par_force) return ln.par_force & on;
+    for (m = 1; m < (2u << LN_GV) - 1u; m++) {
+        uint32_t c0 = 0, c1 = 0, c;
+        if ((m & on) != m || m == on) continue;
+        for (k = 0; k <= LN_GV; k++) if (on >> k & 1u) {
+            uint32_t ck = (k == LN_GV ? ln.gv_us : ln.gov_cost[k]) + 1u;   /* (not timed yet: 1) */
+            if (m >> k & 1u) c1 += ck; else c0 += ck;
+        }
+        c = c0 > c1 ? c0 : c1;
+        if (c < bc || (c == bc && m == ln.par_mask)) { bc = c; best = m; }
+    }
+    return best;
+}
+#endif
+/* every lane's engine and inserts, and (gv) the grain delay's voices: some on the second core (LN_PAR) */
+static void ln_render(uint32_t n, int gv)
+{
+    uint32_t k, on = 0, m1 = 0;
+#ifdef LN_CLOCK
+    uint32_t t0 = LN_CLOCK();
+#endif
+    for (k = 0; k < LN_N; k++) if (ln.mix.e[k]) on |= 1u << k;
+    if (ln.mix.ins) for (k = 0; k < LN_N; k++) if (on >> k & 1u) tx_fx_lane_prep(&ln.fx, k);
+    if (gv) on |= 1u << LN_GV;
+    ln.par_n = n;
+#ifdef LN_PAR
+    if ((on & (on - 1u)) && LN_PAR_ON()) {      /* two items or more */
+        m1 = ln_par_split(on);
+        if (m1 && !LN_PAR_RUN(ln_par_job, m1)) m1 = 0;
+    }
+#endif
+    if ((on & ~m1) >> LN_GV & 1u) ln_gv(&ln.gv_us);
+    for (k = 0; k < LN_N; k++) if ((on & ~m1) >> k & 1u) ln_render_lane(k, n, 0u);
+#ifdef LN_CLOCK
+    ln.c0_us = LN_CLOCK_US(LN_CLOCK() - t0);
+    if (ln.c0_us > ln.c0_max) ln.c0_max = ln.c0_us;
+#endif
+#ifdef LN_PAR
+    if (m1 && LN_PAR_WAIT()) {                  /* stopped mid-job: its items here, from where it left them */
+        if (m1 >> LN_GV & 1u) ln_gv(&ln.gv_us);
+        for (k = 0; k < LN_N; k++) if (m1 >> k & 1u) ln_render_lane(k, n, 0u);
+        ln.par_lost++;
+        m1 = 0;
+    }
+    if (m1) {
+        ln.par_blocks++;
+        if (m1 >> LN_GV & 1u) ln.gv_us = ln_c1t.gv_us;
+        ln.c1_us = ln_c1t.busy_us;
+        if (ln.c1_us > ln.c1_max) ln.c1_max = ln.c1_us;
+    } else ln.c1_us = 0;
+    ln.par_mask = (uint8_t)m1;
+#endif
+#ifdef LN_BUS_TIMED
+    ln.gv_pk = gv ? LN_HOLD(ln.gv_pk, (m1 >> LN_GV & 1u) ? 0u : ln.gv_us) : 0u;   /* (on this core: inside pre_pk) */
+#endif
+}
+
 /* one block (n <= TX_BLOCK frames): L, R Q23, limited to -1 dBFS */
 static void ln_block(int32_t *L, int32_t *R, uint32_t n)
 {
@@ -328,13 +465,11 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
     }
 #endif
     tx_mix_begin(&ln.mix, n);
-    for (k = 0; k < LN_N; k++) {
+    for (k = 0; k < LN_N; k++) {                /* the generators, in lane order (their notes reach the modulation) */
 #ifdef LN_CLOCK
         uint32_t t0 = LN_CLOCK();
 #endif
         ln.lpk[k] = 0; ln.lev[k] = 0;
-        if (!ln.mix.e[k] && !ln.ret_g[k] && !ln.dc[k]) continue;
-        ln.mix.slot_peak[k] = 0;                /* (a peak a block: the lane's own, before its old engine's fade) */
         if (ln.gen_on[k] && ln.mix.e[k]) {      /* the lane's generator: its activity and notes */
             tx_gen_ev_t ev[TX_GEN_EV_MAX];
             uint8_t in;
@@ -348,7 +483,24 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
 #endif
             }
         }
-        tx_mix_slot_render(&ln.mix, k, n);
+#ifdef LN_CLOCK
+        ln.gus[k] = LN_CLOCK_US(LN_CLOCK() - t0);
+#endif
+    }
+    {
+        int gv = 0;                             /* the bus's begin: the grains' cap, and may their voices run now? */
+#ifdef LN_BUS_TIMED
+        gv = ln_bus_begin(&ln.fx, n);
+#else
+        gv = tx_fx_bus_begin(&ln.fx, n);
+#endif
+        ln_render(n, gv);                       /* every lane's engine and inserts, the grains' voices (some on the
+                                                 * second core: LN_PAR) */
+    }
+    for (k = 0; k < LN_N; k++) {                /* lane by lane: its pan (tx_mix_slot_render's), its fade */
+        if (!ln.mix.e[k] && !ln.ret_g[k] && !ln.dc[k]) continue;
+        ln.mix.slot_peak[k] = 0;                /* (a peak a block: the lane's own, before its old engine's fade) */
+        if (ln.mix.e[k]) tx_mix_add(&ln.mix, k, ln_out[k].x, n);   /* (its inserts: ln_render_lane) */
         ln.lpk[k] = ln.mix.slot_peak[k];
         if (ln.mix.e[k] && ln.mix.e[k]->stats) {
             tx_stats_t st;
@@ -359,8 +511,8 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
         {                                       /* (the fade below is not the lane's: as the player) */
             uint32_t f = tx_fx_lane_us(&ln.fx, k);   /* its inserts (DRIVE, FILTER): apart, no hero buys them */
 #ifdef LN_CLOCK
-            uint32_t c = LN_CLOCK_US(LN_CLOCK() - t0);   /* (timed with the inserts: they are taken off) */
-            ln.gov_cost[k] = c > f ? c - f : 0u;
+            ln.gov_cost[k] = ln.mix.e[k] ? ln.gus[k] + ln_out[k].us : 0u;   /* (its generator and engine: the inserts
+                                                         * are not in it) */
 #else
             ln.gov_cost[k] = ln_cost_est(k);
 #endif
@@ -395,6 +547,9 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
         uint8_t on[LN_N];
         int pk;
         for (k = 0; k < LN_N; k++) on[k] = ln.mix.e[k] != 0;
+#ifdef LN_PAR
+        ln.gov.budget = LN_PAR_ON() ? 2u * LN_GOV_POOL_US : LN_GOV_POOL_US;
+#endif
         pk = tx_gov_block(&ln.gov, ln.gov_cost, ln.gov_lvl, on);
         if (pk >= 0 && ln.mix.e[pk]) ln.mix.e[pk]->param(ln.mix.st[pk], TX_PID_PARTICLES, ln.gov.cur[pk]);
     }

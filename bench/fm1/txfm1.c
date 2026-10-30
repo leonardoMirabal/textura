@@ -13,14 +13,37 @@
  *   CC 22 n      run it n times (1..3), each with its warm-up
  *   CC 23 r      run r's results (when done): items 1 worst, 2 w8, 3 mean, 4 raw worst, 5 raw w8 (us x 2),
  *                6..8 the hash (14 + 14 + 4 bits), 10 + 2k / 11 + 2k lane k's worst / w8 (us x 2), then 99 = r
+ *   CC 26 0x55   a soft reset (core 1 held first)
+ *   CC 24 items 30 / 31 VDC14 / SYSVDD as the boot loader left them, 32 / 33 now, 34 the SYS PLL multiplier (270 =
+ *                360 MHz), 35 1 = this image raises the supply (TXFM1_RAILS)
+ *   CC 25        core 1's last fault frame (c1_regs, .noinit: it outlives a reset): 26 words as 3 items each from 1,
+ *                90 present, then 99
  *   CC 24        the state: items 90 state (0 idle, 1 running, 2 done), 91 configuration, 92 runs done, 93 the number
  *                of configurations, 94 / 95 the system / user stack's deepest use (bytes, since boot), 96 the
- *                longest whole interrupt since the last CC 24 (us), 97 the pool's bytes free / 32, 98 the run's size / 1024
+ *                longest whole interrupt since the last CC 24 (us), 97 the pool's bytes free / 32, 98 the run's size / 1024;
+ *                core 1 (firmware/src/core1.h): 80 its state (C1_*), 81 the bad reads it counted, 82 / 83 its jobs (low / high 14
+ *                bits), 84 the longest wait for a job (us), 85 the last bad job number (low 14 bits), 86 its stack's
+ *                deepest use (bytes), 79 core 1 faulted (stopped, c1_fault); the last crash record (fm1_crash, it outlives
+ *                the reset): 60 present, 61 count, 62 vector, 63..77 pc, rets, sp, DBG_MSG, EMU_MSG (14 + 14 + 4 bits
+ *                each), 78 its uptime / 100 ms; 40..57 its ICFG, PSR, then core 1's sp, usp, ssp, psr as it started
+ *   C1 rows (FM_K_C1, CC 23): 20 / 21 the blocks core 1 rendered, 22 / 23 the blocks whose two renders differ, 24 / 25
+ *                the first of them (+ 1), 26 / 27 the blocks core 0 rendered both (low / high 14 bits each); LANES rows
+ *                on two cores (FM_PAR): the same items, the blocks core 1 rendered lanes in, the jobs lost, the block of
+ *                the loss (+ 1), the blocks core 0 rendered all; and 30 / 31 core 0's / core 1's worst busy time in the
+ *                render phase, 32 / 33 their means (us x 2)
  * Integers only. */
 #include <stdint.h>
 #define APP_NAME "TXFM1"
 #define APP_OUT_WRITTEN 1
+static int c1_start(void);
+static void c1_hold(void);
+static void c1_fault(const void *c);
+static void c1_rails(void);
+#define APP_EARLY() (c1_hold(), c1_rails(), (void)c1_start())   /* core 1 held, the supply (T1: raised), then started */
+#define APP_RESET_PREP() c1_hold()             /* and held before every reset */
+#define APP_FAULT(c) c1_fault(c)               /* its own faults: it stops, no reset */
 #include "platform.c"
+#include "core1.h"
 #include "txfm1_core.h"
 #include "fm1_cfg.h"
 
@@ -82,8 +105,12 @@ static uint32_t fm_used(const uint32_t *lo, const uint32_t *top)
     return (uint32_t)((top - p) * 4);
 }
 
+/* an item: three USB-MIDI events; it waits (up to 50 ms) for room in the 64-event out queue (usb.c drops what
+ * does not fit, and a state reply is longer than the queue: its last items, the one the host waits for, were lost) */
 static void fm_item(uint32_t id, uint32_t v)
 {
+    uint32_t t0 = fm1_ticks();
+    while (usb.config && mo_w - mo_r > MQ - 3u && fm1_ticks() - t0 < 50000u * FM_TPU) ;
     if (v > 16383u) v = 16383u;
     midi_send(0xB0, 100, id); midi_send(0xB0, 101, v >> 7); midi_send(0xB0, 102, v & 127u);
 }
@@ -104,10 +131,12 @@ static void fm_show(void)
     draw_text_box(0, 120, 240, &FONT_S, b, C_WHITE, 1);
 }
 
+static const fm_par_t fm_par = {c1_run, c1_wait};
 static void fm_start(void)
 {
     isr_st.max_us = 0;
     fm_begin(RUN, FM_CFG, FM_EV, fm_cfg, 1);
+    fm_set_par(RUN, &fm_par);
     fm_state = 1;
 }
 
@@ -126,17 +155,62 @@ static void fm_midi(void)
             fm_show();
         } else if (d1 == 23u && fm_state == 2u && d2 < fm_done) {
             const fm_stats_t *s = &fm_res[d2];
-            fm_item(1, us2(s->worst)); fm_item(2, us2(s->w8)); fm_item(3, s->n ? us2(s->sum / s->n) : 0u);
+            fm_item(1, us2(s->worst)); fm_item(2, us2(s->w8)); fm_item(3, s->n ? us2((s->sum / s->n) << 4) : 0u);
             fm_item(4, us2(s->raw_worst)); fm_item(5, us2(s->raw_w8));
             fm_item(6, s->hash & 16383u); fm_item(7, s->hash >> 14 & 16383u); fm_item(8, s->hash >> 28);
             if (FM_CFG[fm_cfg].kind == FM_K_LANES)
                 for (i = 0; i < 4u; i++) { fm_item(10u + 2u * i, us2(s->lane_worst[i])); fm_item(11u + 2u * i, us2(s->lane_w8[i])); }
+            if (FM_CFG[fm_cfg].kind == FM_K_C1 || (FM_CFG[fm_cfg].kind == FM_K_LANES && (FM_CFG[fm_cfg].type & FM_PAR))) {
+                const uint32_t v[4] = {s->c1_jobs, s->c1_mis, s->c1_first, s->c1_solo};
+                for (i = 0; i < 4u; i++) { fm_item(20u + 2u * i, v[i] & 16383u); fm_item(21u + 2u * i, v[i] >> 14); }
+            }
+            if (FM_CFG[fm_cfg].kind == FM_K_LANES && (FM_CFG[fm_cfg].type & FM_PAR)) {   /* each core's busy time */
+                fm_item(30, us2(s->c0_worst)); fm_item(31, us2(s->c1_worst));
+                fm_item(32, s->n ? us2((s->c0_sum / s->n) << 4) : 0u); fm_item(33, s->n ? us2((s->c1_sum / s->n) << 4) : 0u);
+            }
             fm_item(99, d2);
+        } else if (d1 == 26u && d2 == 0x55u) {   /* a soft reset (as the crash path's: core 1 held first) */
+            APP_RESET_PREP();
+            fm1_reboot();
+        } else if (d1 == 25u) {                 /* core 1's fault frame (c1_regs): items 1..78 (3 each), 99 */
+            for (i = 0; i < 26u; i++) {
+                fm_item(1u + 3u * i, c1_regs[i] & 16383u); fm_item(2u + 3u * i, c1_regs[i] >> 14 & 16383u);
+                fm_item(3u + 3u * i, c1_regs[i] >> 28);
+            }
+            fm_item(90, fm1_crash.magic == FM1_CRASH_MAGIC && c1_regs[26] == (C1_REGS_MAGIC ^ fm1_crash.count));
+            fm_item(99, 0);
         } else if (d1 == 24u) {
             r = isr_st.max_us; isr_st.max_us = 0;
             fm_item(90, fm_state == 3u ? 1u : fm_state); fm_item(91, fm_cfg); fm_item(92, fm_done); fm_item(93, FM_NCFG);
             fm_item(94, fm_used(W(_sstack_lo), W(_sstack_top))); fm_item(95, fm_used(W(_ustack_lo), W(_ustack_top)));
             fm_item(96, r);
+            {   /* the last crash record (.noinit: it outlives the reset), 32-bit values as 14 + 14 + 4 bits */
+                const uint32_t cv[5] = {fm1_crash.pc, fm1_crash.rets, fm1_crash.sp, fm1_crash.dbg, fm1_crash.emu};
+                fm_item(60, fm1_crash.magic == FM1_CRASH_MAGIC); fm_item(61, fm1_crash.count); fm_item(62, fm1_crash.vec);
+                for (i = 0; i < 5u; i++) {
+                    fm_item(63u + 3u * i, cv[i] & 16383u); fm_item(64u + 3u * i, cv[i] >> 14 & 16383u);
+                    fm_item(65u + 3u * i, cv[i] >> 28);
+                }
+                fm_item(78, fm1_crash.uptime_ms / 100u); fm_item(79, c1_faulted);
+            }
+            {   /* the crash record's ICFG, PSR; core 1's sp, usp, ssp, psr as it started (40..57, 14 + 14 + 4 bits) */
+                const uint32_t cv[6] = {fm1_crash.icfg, fm1_crash.psr, c1_mb.reg[0], c1_mb.reg[1], c1_mb.reg[2], c1_mb.reg[3]};
+                for (i = 0; i < 6u; i++) {
+                    fm_item(40u + 3u * i, cv[i] & 16383u); fm_item(41u + 3u * i, cv[i] >> 14 & 16383u);
+                    fm_item(42u + 3u * i, cv[i] >> 28);
+                }
+            }
+            fm_item(30, c1_rail_boot[0]); fm_item(31, c1_rail_boot[1]);
+            fm_item(32, c1_rail(C1_P3_VDC14, 7u)); fm_item(33, c1_rail(C1_P3_SYSVDD, 15u));
+            fm_item(34, (C1_PLL2_CON1 & 0xFFFu) + 2u);
+#ifdef TXFM1_RAILS
+            fm_item(35, 1);
+#else
+            fm_item(35, 0);
+#endif
+            fm_item(80, c1_state); fm_item(81, c1_mb.bad);
+            fm_item(82, c1_jobs & 16383u); fm_item(83, c1_jobs >> 14);
+            fm_item(84, c1_wait_max / C1_TPU); fm_item(85, c1_mb.bad_seq & 16383u); fm_item(86, c1_stack_used());
             {
                 extern uint32_t _pool_end[];
                 fm_item(97, (0x01C20000u + 0x54000u - (uint32_t)_pool_end) / 32u);   /* (x 32 bytes) */

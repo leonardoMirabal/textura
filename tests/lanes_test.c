@@ -3,9 +3,59 @@
  * out here the same way): the same engines, keys, parameters, effects and engine switches, block by block. Every
  * sample must match; so must the queue's count of lost events (0). Exit code = the failures.
  *
+ * LANES_TEST_PAR: the same with a thread as the second core (lanes.c LN_PAR), its split changed every block (every
+ * split of the lanes in turn, and the cost's), so the samples must not depend on which core renders which lane;
+ * built with the thread sanitizer it also finds what the two would race on.
+ *
  *   make fw-test (or: cc -Iengines -Ifirmware/src tests/lanes_test.c ENGINES -lm) */
 #include <stdio.h>
 #include <string.h>
+#ifdef LANES_TEST_PAR
+#include <pthread.h>
+#include <stdint.h>
+/* the second core: a thread that runs one job at a time (as firmware/src/core1.h's mailbox) */
+static pthread_mutex_t par_mx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t par_cv = PTHREAD_COND_INITIALIZER;
+static void (*par_fn)(uint32_t);
+static uint32_t par_arg, par_seq, par_done, par_jobs;
+static void *par_main(void *u)
+{
+    (void)u;
+    pthread_mutex_lock(&par_mx);
+    for (;;) {
+        while (par_done == par_seq) pthread_cond_wait(&par_cv, &par_mx);
+        {
+            void (*fn)(uint32_t) = par_fn;
+            uint32_t a = par_arg;
+            pthread_mutex_unlock(&par_mx);
+            fn(a);
+            pthread_mutex_lock(&par_mx);
+        }
+        par_done = par_seq;
+        pthread_cond_broadcast(&par_cv);
+    }
+    return 0;
+}
+static int par_run(void (*fn)(uint32_t), uint32_t a)
+{
+    pthread_mutex_lock(&par_mx);
+    par_fn = fn; par_arg = a; par_seq++; par_jobs++;
+    pthread_cond_broadcast(&par_cv);
+    pthread_mutex_unlock(&par_mx);
+    return 1;
+}
+static int par_wait(void)
+{
+    pthread_mutex_lock(&par_mx);
+    while (par_done != par_seq) pthread_cond_wait(&par_cv, &par_mx);
+    pthread_mutex_unlock(&par_mx);
+    return 0;
+}
+#define LN_PAR
+#define LN_PAR_ON() 1
+#define LN_PAR_RUN(fn, a) par_run(fn, a)
+#define LN_PAR_WAIT() par_wait()
+#endif
 #include "../firmware/src/lanes.c"
 
 /* ---- the reference: the player's chain, inline (txw_select, txw_key_slot, txw_param, txw_fx_param, txw_render) */
@@ -95,6 +145,8 @@ static const step_t SCENE[] = {
     {80, 'F', 0, 0, 0, 60, 1},                  /* lane 2's DRIVE AMOUNT */
     {90, 'F', 1, 0, 0, 1, 0},                   /* lane 1's FILTER TYPE low-pass */
     {100, 'F', 3, 0, 0, 80, 0},                 /* the GRAIN DELAY's MIX */
+    {110, 'F', 0, 0, 3, 2, 1},                  /* lane 2's DRIVE TYPE TSH8 (it owns TSH8's tables) */
+    {115, 'F', 3, 0, 3, 15, 0},                 /* the GRAIN DELAY's GRAINS: 16 */
     {120, 'L', 0, 0, 0, 70, 0},                 /* lane 1's LEVEL */
     {130, 'N', 1, 0, 20, 0, 0},                 /* lane 2's pan */
     {150, 'S', 0, "rainwater", 0, 0, 0},        /* a switch on lane 1: the source fades out over 4 blocks */
@@ -105,10 +157,13 @@ static const step_t SCENE[] = {
     {231, 'A', 2, 0, TX_GEN_ACTIVITY, 90, 0},
     {231, 'G', 2, 0, 1, 777, 0},
     {231, 'K', 2, 0, 60, 100, 1},
+    {232, 'F', 0, 0, 3, 2, 2},                  /* lane 3's DRIVE TYPE TSH8: refused while lane 2 has it */
+    {232, 'F', 0, 0, 0, 90, 2},
     {300, 'S', 1, "fire", 0, 0, 0},
     {300, 'K', 1, 0, 60, 100, 1},
     {301, 'M', 1, 0, 1, 0, 0},                  /* lane 2's generator, muted (a classic engine: no notes) */
     {301, 'G', 1, 0, 1, 4242, 0},
+    {310, 'F', 0, 0, 3, 1, 1},                  /* lane 2's DRIVE TYPE KHLON: TSH8 free, lane 3 takes it (lane order) */
     {350, 'G', 2, 0, 0, 0, 0},                  /* lane 3's generator off: its notes released */
     {360, 'G', 2, 0, 1, 99, 0},                 /* and on again: a new walk */
     {440, 'K', 2, 0, 60, 0, 0},
@@ -121,6 +176,16 @@ int main(void)
     uint32_t b, s = 0, seed = 12345u, fails = 0, j, loud = 0;
     ln_init();
     r_init();
+#ifdef LANES_TEST_PAR
+    {
+        pthread_t th;
+        pthread_attr_t at;
+        pthread_attr_init(&at);
+        pthread_attr_setstacksize(&at, 1u << 20);
+        if (pthread_create(&th, &at, par_main, 0)) { printf("FAIL no thread\n"); return 1; }
+        pthread_detach(th);
+    }
+#endif
     for (b = 0; SCENE[s].op; b++) {
         while (SCENE[s].op && SCENE[s].b == b) {
             const step_t *t = &SCENE[s++];
@@ -169,6 +234,10 @@ int main(void)
                 break;
             }
         }
+#ifdef LANES_TEST_PAR
+        ln.par_force = (uint8_t)(b % 32u);      /* every split of the lanes and the grains' voices in turn (0: by
+                                                 * cost) */
+#endif
         ln_block(L, R, TX_BLOCK);
         r_block(rL, rR);
         for (j = 0; j < TX_BLOCK; j++) {
@@ -194,6 +263,13 @@ int main(void)
             uint32_t seen = 1u << ln.spare, k;
             for (k = 0; k < LN_N; k++) { if (seen >> ln.ar[k] & 1u) { printf("FAIL the arenas: %u twice\n", ln.ar[k]); fails++; } seen |= 1u << ln.ar[k]; }
         }
+    }
+#ifdef LANES_TEST_PAR
+    if (!ln.par_blocks) { printf("FAIL the second core rendered nothing\n"); fails++; }
+    printf("     lanes (two cores): %u blocks with lanes on the second core, %u jobs\n", ln.par_blocks, par_jobs);
+#endif
+    if (ln.fx.drv.ts_own != &ln.fx.drive[2] || ln.fx.drive[1].cur != TX_DRT_KHLON || ln.fx.drive[2].cur != TX_DRT_TSH8) {
+        printf("FAIL the DRIVE TYPEs: TSH8 not handed from lane 2 to lane 3\n"); fails++;
     }
     if (ln.dropped) { printf("FAIL %u events dropped\n", ln.dropped); fails++; }
     if (!loud) { printf("FAIL the scene was silent\n"); fails++; }

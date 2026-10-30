@@ -277,7 +277,7 @@ static void kh_fade(tx_drv_kh_t *s, const int32_t *in, int32_t *u, int32_t *out,
 }
 
 /* the wet signal of the block, in -> out (out may be in); 3 <= n <= TX_DRV_BLK */
-static void drv_khlon_run(tx_drv_kh_t *s, tx_drv_shared_t *sh, const int32_t *in, int32_t *out, uint32_t n,
+static void drv_khlon_run(tx_drv_kh_t *s, tx_drv_scr_t *sh, const int32_t *in, int32_t *out, uint32_t n,
                           int32_t amount, int32_t tone)
 {
     uint32_t ta = (uint32_t)(amount - 1), tt = (uint32_t)(tone + ((tone + 1) >> 7));   /* 0..126, 0..128 */
