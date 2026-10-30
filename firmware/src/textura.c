@@ -276,14 +276,14 @@ static int host_sound_check(char *msg, unsigned n)   /* 0 if every lane runs the
             if (ln.fx.drive[k].p[i] != pv_lane[k][PL_DRIVE0 + i] && !mod_holds(PID(k, PL_DRIVE0 + i))) { snprintf(msg, n, "lane %u drive %u: %u, not %u", k + 1u, i, ln.fx.drive[k].p[i], pv_lane[k][PL_DRIVE0 + i]); return 1; }
         for (i = 0; i < TX_FL_NP; i++)
             if (ln.fx.filter[k].p[i] != pv_lane[k][PL_FILTER0 + i] && !mod_holds(PID(k, PL_FILTER0 + i))) { snprintf(msg, n, "lane %u filter %u: %u, not %u", k + 1u, i, ln.fx.filter[k].p[i], pv_lane[k][PL_FILTER0 + i]); return 1; }
+        for (i = 0; i < TX_CP_NP; i++)
+            if (ln.fx.comp[k].p[i] != pv_lane[k][PL_COMP0 + i]) { snprintf(msg, n, "lane %u comp %u: %u, not %u", k + 1u, i, ln.fx.comp[k].p[i], pv_lane[k][PL_COMP0 + i]); return 1; }
     }
     for (k = 0; k < TX_GD_NP; k++)
         if (ln.fx.gd.p[k] != pv_glob[PG_GRAIN0 + k] && !mod_holds(PID(P_GLOBAL, PG_GRAIN0 + k))) { snprintf(msg, n, "grain %u: %u, not %u", k, ln.fx.gd.p[k], pv_glob[PG_GRAIN0 + k]); return 1; }
     if (ln.fx.gd.sync != tm.gsync_smp) { snprintf(msg, n, "grain sync %u, not %u", ln.fx.gd.sync, tm.gsync_smp); return 1; }
     for (k = 0; k < TX_RV_NP; k++)
         if (ln.fx.rev.p[k] != pv_glob[PG_REVERB0 + k] && !mod_holds(PID(P_GLOBAL, PG_REVERB0 + k))) { snprintf(msg, n, "reverb %u: %u, not %u", k, ln.fx.rev.p[k], pv_glob[PG_REVERB0 + k]); return 1; }
-    for (k = 0; k < TX_CP_NP; k++)
-        if (ln.mix.comp.p[k] != pv_glob[PG_COMP0 + k]) { snprintf(msg, n, "comp %u: %u, not %u", k, ln.mix.comp.p[k], pv_glob[PG_COMP0 + k]); return 1; }
     return 0;
 }
 static int host_state(const char *key, char *v, unsigned n)
@@ -336,8 +336,9 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (sscanf(key, "lfo%u%c", &k, &c) == 1 && k < TX_LFO_N) snprintf(v, n, "%d", (int)mod_lfo[k].out);
     else if (sscanf(key, "live%x%c", &k, &c) == 1) { int32_t x; snprintf(v, n, "%d", mod_live(k, &x) ? (int)x : -1); }
     else if (!strcmp(key, "gdsync")) snprintf(v, n, "%u", ln.fx.gd.sync);         /* as the chain has it */
-    else if (!strcmp(key, "compred")) snprintf(v, n, "%d", tx_comp_gr_db10(&ln.mix.comp) >= 10);   /* the COMPRESSOR
-                                                         * reducing 1 dB or more now (its meter's reading) */
+    else if (!strcmp(key, "compred")) snprintf(v, n, "%d", tx_comp_gr_db10(&ln.fx.comp[sc.sel]) >= 10);   /* the selected
+                                                         * lane's COMPRESSOR reducing 1 dB or more now (its meter's) */
+    else if (sscanf(key, "compred%u%c", &k, &c) == 1 && k >= 1u && k <= SC_N) snprintf(v, n, "%d", tx_comp_gr_db10(&ln.fx.comp[k - 1u]) >= 10);
     else if (sscanf(key, "lab%u%c", &k, &c) == 1 && k < 4u) snprintf(v, n, "%s", ui_row_id(k) != NOID ? p_lab(ui_row_id(k)) : "-");
     else if (sscanf(key, "card%u%c", &k, &c) == 1 && k < 4u) {   /* the value as the card writes it */
         char t[24];

@@ -583,25 +583,25 @@ static void check_noise_core(void)
     verdict("noise", "stable", !bad, msg, 0);
 }
 
-/* ---- COMP: the bus compressor (Frodhes' controls). COMP off is bit-exact; a steady sine at -6 dBFS (power -9 dBFS)
+/* ---- COMP: a lane's compressor (Frodhes' controls; mono, the lane's first insert). COMP off is bit-exact; a steady sine at -6 dBFS (power -9 dBFS)
  * is reduced as THR and RAT say (the 12 dB soft knee included): THR 127 (-40) 3:1 20.6 dB, THR 64 (-20.2) 2:1 5.6 dB,
  * THR 32 (-10.1) 20:1 2.0 dB (in the knee), and with MKUP 0 the output follows; the controls moved under a steady
  * level (COMP on, THR, RAT, MKUP, ATK, REL to their ends and back, COMP off; 100 ms each) never step the output (a
  * glide), and once off it is exact again */
 static void comp_sine(tx_comp_t *c, int32_t *pk)
 {
-    static int32_t L[TX_BLOCK], R[TX_BLOCK];
+    static int32_t L[TX_BLOCK];
     unsigned b, j;
     *pk = 0;
     for (b = 0; b < 400u; b++) {                             /* 2.3 s of a 1 kHz sine at -6 dBFS */
-        for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = tx_sin_q15((b * TX_BLOCK + j) * 97391263u) * 128;   /* (1 kHz) */
-        tx_comp_process(c, L, R, TX_BLOCK);
+        for (j = 0; j < TX_BLOCK; j++) L[j] = tx_sin_q15((b * TX_BLOCK + j) * 97391263u) * 128;   /* (1 kHz) */
+        tx_comp_process(c, L, TX_BLOCK);
         if (b >= 300u) for (j = 0; j < TX_BLOCK; j++) *pk = L[j] > *pk ? L[j] : *pk;
     }
 }
 static void check_comp(void)
 {
-    static int32_t L[TX_BLOCK], R[TX_BLOCK], L0[TX_BLOCK], R0[TX_BLOCK];
+    static int32_t L[TX_BLOCK], L0[TX_BLOCK];
     static const struct { uint8_t thr, rat; int16_t gr10; } G[3] = {{127, 2, 206}, {64, 1, 56}, {32, 7, 20}};
     static const struct { uint8_t id, v; } MV[] = {
         {TX_CP_ON, 1}, {TX_CP_THR, 127}, {TX_CP_RATIO, 7}, {TX_CP_MKUP, 127}, {TX_CP_ATK, 0}, {TX_CP_REL, 0},
@@ -615,9 +615,9 @@ static void check_comp(void)
     tx_rng_seed(&r, 7u);
     tx_comp_init(&c);                                        /* (off) */
     for (b = 0; b < 200u; b++) {
-        for (j = 0; j < TX_BLOCK; j++) { L[j] = L0[j] = tx_rand_s15(&r) * 256; R[j] = R0[j] = tx_rand_s15(&r) * 200; }
-        tx_comp_process(&c, L, R, TX_BLOCK);
-        for (j = 0; j < TX_BLOCK; j++) same &= L[j] == L0[j] && R[j] == R0[j];
+        for (j = 0; j < TX_BLOCK; j++) L[j] = L0[j] = tx_rand_s15(&r) * 256;
+        tx_comp_process(&c, L, TX_BLOCK);
+        for (j = 0; j < TX_BLOCK; j++) same &= L[j] == L0[j];
     }
     verdict("comp", "bypass", same, "COMP off: the samples untouched (bit-exact)", 0);
     for (k = 0; k < 3u; k++) {
@@ -635,8 +635,8 @@ static void check_comp(void)
     for (k = 0; k < sizeof MV / sizeof MV[0]; k++) {
         tx_comp_param(&c, MV[k].id, MV[k].v);
         for (b = 0; b < 17u; b++) {                          /* 100 ms of a steady level: -26 dBFS */
-            for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = 419430;
-            tx_comp_process(&c, L, R, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) L[j] = 419430;
+            tx_comp_process(&c, L, TX_BLOCK);
             for (j = 0; j < TX_BLOCK; j++) {
                 int32_t d = L[j] - prev;
                 d = d < 0 ? -d : d;
@@ -959,6 +959,7 @@ static int run_mix(const char *const *names, unsigned comp, int chamber_on, char
     static double hl[TP_N], hr[TP_N];
     tx_sha256_t sha;
     static const unsigned PAN[4] = {20, 50, 80, 110};
+    static tx_comp_t cp[4];
     tx_mix_init(m);
     tx_chamber_init(ch);
     m->ch = ch; m->ch_on = chamber_on;
@@ -974,7 +975,8 @@ static int run_mix(const char *const *names, unsigned comp, int chamber_on, char
         tx_mix_pan(m, k, PAN[k]);
         if (s[k]->blocks > blocks) blocks = s[k]->blocks;
     }
-    tx_comp_param(&m->comp, TX_CP_ON, comp ? 1u : 0u);   /* (COMP at its defaults, or off) */
+    for (k = 0; k < 4; k++) { tx_comp_init(&cp[k]); tx_comp_param(&cp[k], TX_CP_ON, comp ? 1u : 0u); }   /* (each lane's
+                                                         * COMP at its defaults, or off) */
     tx_sha256_init(&sha);
     *raw_peak = *lim_peak = 0; *lim_blocks = 0;
     if (true_peak) { memset(hl, 0, sizeof hl); memset(hr, 0, sizeof hr); *true_peak = 0; }
@@ -982,6 +984,7 @@ static int run_mix(const char *const *names, unsigned comp, int chamber_on, char
         tx_mix_begin(m, TX_BLOCK);
         for (k = 0; k < 4; k++) {
             tx_script_step(m->e[k], st[k], s[k], b, &next[k], blk);
+            tx_comp_process(&cp[k], blk, TX_BLOCK);
             tx_mix_add(m, k, blk, TX_BLOCK);
         }
         tx_mix_end(m, L, R, TX_BLOCK);
@@ -1011,7 +1014,7 @@ static int run_layers(int chamber_on, char hex[65], int32_t *raw_peak, int32_t *
     return run_mix(LAYERS4, 0, chamber_on, hex, raw_peak, lim_peak, lim_blocks, 0);
 }
 
-/* truepeak: dense crackle (fire, ice, glass, sparks at their worst) through the mix, COMP off and on (its defaults): no sample over
+/* truepeak: dense crackle (fire, ice, glass, sparks at their worst) through the mix, COMP off and on (its defaults, each lane's): no sample over
  * -1 dBFS, and nothing between the samples at full scale once rebuilt (4x, to 20 kHz), so a converter or the USB
  * audio's 48 kHz resampler does not clip (the FM-1 clipped -1 dBFS samples by up to +1 dB at 48 kHz before; this mix
  * rebuilt to +1.6 dBFS) */

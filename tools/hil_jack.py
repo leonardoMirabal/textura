@@ -5,7 +5,7 @@
 From Frodhes' tools/hil_jack.py (the jack and USB recorded at once while MIDI plays the FM-1), with the persistent
 recorder (Ring, Capture, to_fs) from its tools/hil_scan.py; adapted to Textura: the landscapes are the factory scenes
 (program change on channel 1: F01 .. F10, each landscape at its start), the lanes are channels 1 .. 4 (CC 22 HOW
-ACTIVE starts a lane), the mix's COMPRESSOR is switched by CC 95 on channel 5 (COMP: 0 off, 127 on; params.c).
+ACTIVE starts a lane), every lane's COMPRESSOR is switched by CC 95 on channel 5 (COMP: 0 off, 127 on; params.c).
 
   hil_jack.py [--dev M6] [--ch 5] [--only NAME[,NAME]] [--secs 15] [--comp 0,127] [--dry-run]
 

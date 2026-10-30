@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura effects (stage S3): instances, no globals (as the engines), integers only.
  *
- *   per lane, a mono insert on the lane's own signal before it is panned (the lanes are mono): DRIVE, then FILTER
- *     (their cost is the lane's: the governor's pool). Off (DRIVE AMOUNT 0, FILTER TYPE OFF) = the lane untouched.
+ *   per lane, a mono insert on the lane's own signal before it is panned (the lanes are mono): COMP (the compressor,
+ *     tx_core_comp.h), then DRIVE, then FILTER (their cost is the lane's: the governor's pool). Off (COMP off, DRIVE
+ *     AMOUNT 0, FILTER TYPE OFF) = the lane untouched.
  *   on the stereo mix, before the limiter: the GRAIN DELAY (a delay whose repeats are grained), then the REVERB (a mono
  *   send of the mid, a stereo return):
  *     TYPE  OFF | ROOM (the CHAMBER's body modes + a short hall tail) | HALL | INFINITE | DARK | DRIFT | SWELL | PLATE
@@ -20,6 +21,7 @@
 #include "tx_fx_kern.h"
 #include "tx_fx_drv.h"
 #include "tx_fx_gd_len.h"
+#include "tx_core_comp.h"
 
 /* ---- FILTER (per lane): a TPT state-variable stage, stable at any setting (Frodhes' FILTER) */
 enum { TX_FL_TYPE, TX_FL_FREQ, TX_FL_RESO, TX_FL_LFO, TX_FL_RATE, TX_FL_SHAPE, TX_FL_NP };
@@ -182,6 +184,7 @@ int tx_fx_reverb_frozen(const tx_fx_reverb_t *r);   /* holding its tail (SUSTAIN
 #define TX_FX_LANES 4u
 #define TX_FX_RESERVE_US 880u     /* the effects' share of the block (CPU-BUDGET.md: 500 + the CHAMBER's, now a TYPE) */
 typedef struct {
+    tx_comp_t comp[TX_FX_LANES];   /* each lane's compressor, its first insert (COMP off: bypassed) */
     tx_fx_drive_t drive[TX_FX_LANES];
     tx_drv_shared_t drv;           /* the DRIVE TYPEs' scratch and TSH8's tables (one lane at a time) */
     tx_drv_scr_t scr1;             /* the second core's DRIVE scratch (tx_fx_lane_run, core 1) */

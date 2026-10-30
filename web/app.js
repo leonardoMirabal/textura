@@ -147,7 +147,7 @@ const KNOBS = [["MASTER", -1, 50, 22, "VOLUME"], ["SELECT", 0, 200, 22, "PAGES"]
 const HINT = { FX: "EFFECTS", SEL: "KEY MODE", ENV: "LEARN · AGAIN: ENV", LFO: "LEARN · AGAIN: LFO", EDIT: "SOUND", GLO: "TEMPO", HOME: "LANDSCAPE", SAVE: "SCENE · HOLD: UNDO", ARP: "MATRIX",
                SEQ: "", PLAY: "TAP · HOLD: RUN", REC: "ALL ON·OFF", "OCT−": "LANE", "OCT+": "LANE" };
 const HINT_ON = {                                    // what a button does on a given page (else HINT)
-  LANDSCAPE: { HOME: "BACK" }, SOUND: { EDIT: "DRIVE" }, COMPRESSOR: { FX: "GRAIN" }, GRAIN: { FX: "REVERB" }, TEMPO: { GLO: "MIDI" }, MIDI: { GLO: "DISPLAY" },
+  LANDSCAPE: { HOME: "BACK" }, SOUND: { EDIT: "COMP" }, COMPRESSOR: { EDIT: "DRIVE" }, DRIVE: { EDIT: "FILTER" }, GRAIN: { FX: "REVERB" }, TEMPO: { GLO: "MIDI" }, MIDI: { GLO: "DISPLAY" },
   LFO: { LFO: "NEXT" }, ENV: { ENV: "NEXT" },
 };
 let shownPage = "";

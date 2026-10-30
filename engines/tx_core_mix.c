@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura MIX core: four layers (-> their inserts) -> pan -> stereo -> the compressor -> CHAMBER (mid send) -> the bus
- * effects (grain delay, reverb) -> linked limiter (tx_core_mix.h). */
+/* Textura MIX core: four layers (-> their inserts: COMP, DRIVE, FILTER) -> pan -> stereo -> CHAMBER (mid send) -> the
+ * bus effects (grain delay, reverb) -> linked limiter (tx_core_mix.h). */
 #include "tx_core_mix.h"
 
 void tx_mix_init(tx_mix_t *m)
@@ -8,7 +8,6 @@ void tx_mix_init(tx_mix_t *m)
     unsigned k;
     tx_zero(m, sizeof *m);
     for (k = 0; k < TX_MIX_SLOTS; k++) { tx_mix_pan(m, k, 64); m->tg[k] = 4096; }
-    tx_comp_init(&m->comp);
     tx_limit_init(&m->lim);
     m->lim.ch = 2;                                           /* (interleaved: tx_mix_end) */
 }
@@ -70,7 +69,7 @@ TX_AUDIO_CODE void tx_mix_slot_render(tx_mix_t *m, unsigned k, unsigned n)
     if (k >= TX_MIX_SLOTS || !m->e[k]) return;
     for (j = 0; j < n; j++) m->blk[j] = 0;
     m->e[k]->render(m->st[k], m->blk, n);
-    if (m->ins) m->ins(m->fx, k, m->blk, n);                 /* the slot's inserts (drive, filter) */
+    if (m->ins) m->ins(m->fx, k, m->blk, n);                 /* the slot's inserts (compressor, drive, filter) */
     tx_mix_add(m, k, m->blk, n);
 }
 
@@ -78,8 +77,6 @@ TX_AUDIO_CODE void tx_mix_end(tx_mix_t *m, int32_t *L, int32_t *R, unsigned n)
 {
     unsigned j;
     int32_t pk = 0;
-    TX_FAR(tx_comp_process)(&m->comp, m->L, m->R, n);        /* the compressor, the first effect (off: returns at once;
-                                                              * in RAM on the FM-1: TX_RAM) */
     if (m->ch && m->ch_on) {                                 /* the chamber on the mid: its added part to both sides */
         for (j = 0; j < n; j++) m->mid[j] = m->blk[j] = (m->L[j] >> 1) + (m->R[j] >> 1);
         TX_FAR(tx_chamber_process)(m->ch, m->mid, n);   /* (in RAM on the FM-1: TX_RAM) */
