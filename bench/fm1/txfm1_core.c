@@ -111,6 +111,16 @@ static void lanes_job(uint32_t a)                            /* core 1's: its it
     for (k = 0; k < r->c->eng; k++) if (r->pmask >> k & 1u) lane_render(r, k, 1u);
     r->gv1.busy = lane_now() - t0;
 }
+/* the reverb's ROOM on two cores (FM_PAR, as firmware/src/lanes.c): its body (the CHAMBER) on core 1, the tail here */
+static void rev_job(uint32_t a) { (void)a; TX_FAR(tx_fx_reverb_body)(&lane_run->fx.rev); }
+static int rev_run(void) { fm_run_t *r = lane_run; return r->par && !r->c1_lost && r->par->run(rev_job, r->blk); }
+static int rev_wait(void)
+{
+    fm_run_t *r = lane_run;
+    if (!r->par->wait()) return 0;
+    r->c1_lost = 1;                                          /* (held mid-job: the body runs here, the run stays on one core) */
+    return 1;
+}
 /* core 1's items among on: the split whose larger half took least in the last block (the last split on a tie) */
 static uint32_t lanes_split(const fm_run_t *r, uint32_t on)
 {
@@ -221,6 +231,7 @@ static void start(fm_run_t *r)
         tx_mix_init(&r->mix);
         r->mix.ins = tx_fx_lane; r->mix.busq = tx_fx_bus_quiet; r->mix.fx = &r->fx;
         r->mix.bus = tx_fx_bus_end;                         /* (its begin and the grain voices: fm_step) */
+        if (c->type & FM_PAR) { r->fx.rev.body_run = rev_run; r->fx.rev.body_wait = rev_wait; }
         for (k = 0; k < c->eng; k++) { scene_init(r, k, &r->tab[c->lane[k]]); tx_mix_pan(&r->mix, k, 20u + 30u * k); }
     }
 }

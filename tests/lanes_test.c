@@ -168,6 +168,7 @@ static const step_t SCENE[] = {
     {330, 'F', 3, 0, 6, 76, 0},                 /* PITCH up: pitched, the cap down to 6 (the second half silent) */
     {350, 'G', 2, 0, 0, 0, 0},                  /* lane 3's generator off: its notes released */
     {360, 'G', 2, 0, 1, 99, 0},                 /* and on again: a new walk */
+    {380, 'F', 2, 0, 0, 1, 0},                  /* REVERB TYPE room: its body on the second core (two cores) */
     {440, 'K', 2, 0, 60, 0, 0},
     {450, 0, 0, 0, 0, 0, 0},
 };
@@ -268,6 +269,7 @@ int main(void)
     }
 #ifdef LANES_TEST_PAR
     if (!ln.par_blocks) { printf("FAIL the second core rendered nothing\n"); fails++; }
+    if (par_jobs <= ln.par_blocks) { printf("FAIL the reverb's ROOM body never ran on the second core\n"); fails++; }
     printf("     lanes (two cores): %u blocks with lanes on the second core, %u jobs\n", ln.par_blocks, par_jobs);
 #endif
     if (ln.fx.drv.ts_own != &ln.fx.drive[2] || ln.fx.drive[1].cur != TX_DRT_KHLON || ln.fx.drive[2].cur != TX_DRT_TSH8) {

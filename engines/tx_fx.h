@@ -139,18 +139,30 @@ typedef struct {
     int32_t shlp, she, shpk, shg;                /* its input low-pass and remainder, the block's peak, its guard gain */
     int32_t sh[HL_NC];                           /* the shifted mid, into the next control block's input */
     int32_t m[TX_RV_QZ + HL_NC], s[TX_RV_QZ + HL_NC];   /* the TYPE's mid / side (history, then the block) */
-    int32_t rm[TX_BLOCK];                        /* ROOM: the send at full rate, gathered over the block */
+    int32_t rm[TX_BLOCK] TX_LINE;                /* ROOM: the send at full rate, gathered over the block (the other
+                                                 * core's body works on it in place: its own cache lines) */
     uint32_t r0, rn;                             /* ROOM: the gathered run's start and length */
     uint8_t rf[TX_BLOCK / CTL];                  /* ROOM: each control block's fade (0: none) */
     uint32_t rng;                                /* DRIFT: its walks' random numbers (never reseeded) */
     int32_t swe, swr;                            /* SWELL: the send's level (its envelope), the return's root gain (Q15) */
     int32_t pz;                                  /* PLATE's AUTO size: MIX latched while it rings (-1: take MIX now) */
     int32_t pd[TX_PD_LEN];
-    union { tx_hall_t h; tx_inf_t i; tx_plate_t p; struct { tx_chamber_t c; tx_hall_t h; } rm; } u;   /* (ROOM: the body + a short hall) */
+    /* ROOM on two cores (bit-exact): the block's sends first (sv, with the 2:1 down's history; each control block's
+     * SIZE and TONE glide in svo / svd), then the body (the CHAMBER, tx_fx_reverb_body: its wet part into rw) on the
+     * other core while this one runs the tail; body_run hands it over (1: taken), body_wait waits (1: lost, run it
+     * here). 0: one core. Set by the app after tx_fx_init. */
+    int (*body_run)(void);
+    int (*body_wait)(void);
+    int32_t sv[RV_DZ + TX_BLOCK];
+    int32_t svo[TX_BLOCK / CTL], svd[TX_BLOCK / CTL];
+    int32_t rw[TX_BLOCK] TX_LINE;                /* (written by the other core: its own cache lines) */
+    union { tx_hall_t h; tx_inf_t i; tx_plate_t p; struct { tx_chamber_t c; tx_hall_t h TX_LINE; } rm; } u TX_LINE;   /* (ROOM:
+                                                 * the body + a short hall, each on its own cache lines) */
 } tx_fx_reverb_t;
 void tx_fx_reverb_init(tx_fx_reverb_t *r);
 void tx_fx_reverb_param(tx_fx_reverb_t *r, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *R, unsigned n);   /* Q23, adds */
+TX_AUDIO_CODE void tx_fx_reverb_body(tx_fx_reverb_t *r);   /* ROOM's body on the other core (body_run's job) */
 int tx_fx_reverb_quiet(const tx_fx_reverb_t *r);
 void tx_fx_reverb_relatch(tx_fx_reverb_t *r);   /* a whole sound loaded (a scene): PLATE's AUTO size from MIX at once */
 int tx_fx_reverb_frozen(const tx_fx_reverb_t *r);   /* holding its tail (SUSTAIN / FREEZE): never quiet */

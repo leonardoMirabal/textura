@@ -187,6 +187,16 @@ TX_RAM static void room_flush(tx_fx_reverb_t *r, int32_t *L, int32_t *R)
     r->rn = 0;
 }
 
+/* ROOM on two cores: the body over the gathered run (as room_flush, no fade), its wet part into rw */
+TX_RAM TX_AUDIO_CODE void tx_fx_reverb_body(tx_fx_reverb_t *r)
+{
+    int32_t *x = r->rm + r->r0;
+    uint32_t j, n = r->rn;
+    for (j = 0; j < n; j++) r->rw[j] = x[j];
+    tx_chamber_process(&r->u.rm.c, x, n);
+    for (j = 0; j < n; j++) r->rw[j] = x[j] - r->rw[j];
+}
+
 #define RV_RET(w) ((int32_t)(((int64_t)(w) * rk) >> 30) + (int32_t)((uint32_t)(w) >> 31))
 TX_RAM TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *R, unsigned n)
 {
@@ -197,13 +207,48 @@ TX_RAM TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, in
     int32_t damp = tv >= 64 ? 60 - ((tv - 64) * 60) / 63 : 60 + ((64 - tv) * 90) / 64;
     uint32_t sb, i, j, pd = FX_PDLY_SAMPLES(r->p[TX_RV_PREDELAY]);
     int32_t rk = (254 - v) * 4227330 + (4 * (254 - v)) / 254 + 1;   /* floor((254 - v) 2^30 / 254) + 1 */
-    int quiet = !r->running, dark = tgt == TX_RVT_DARK, shon = r->p[TX_RV_SHIMMER] != 0;
+    int quiet = !r->running, dark = tgt == TX_RVT_DARK, shon = r->p[TX_RV_SHIMMER] != 0, two = 0;
     if (!send && !r->running && !r->fade) return;
     r->running = 1;
     if (tgt == TX_RVT_DARK) damp += 60;                         /* DARK: TONE's damping 60 steps darker */
+    if (r->body_run && tgt == TX_RVT_ROOM && r->cur == TX_RVT_ROOM && send && !r->fade && n == TX_BLOCK && !r->rn) {
+        /* ROOM on two cores: every control block's send first (as below: the loop then takes them from sv), the body
+         * handed over, the tail here; no TYPE change and a send (no fade, no early end): the same samples */
+        for (j = 0; j < RV_DZ; j++) r->sv[j] = r->inb[CTL + j];
+        for (sb = 0; sb < n; sb += CTL) {
+            int32_t *in = r->sv + RV_DZ + sb;
+            unsigned cp[TX_CH_NP], q;
+            for (j = 0; j < CTL; j++) {
+                int32_t mq = (int32_t)(((L[sb + j] >> 1) + (R[sb + j] >> 1) + 128) >> 8);
+                in[j] = clampi((int32_t)(((int64_t)mq * send) >> 15), -131071, 131071);
+            }
+            if (lcv || r->lc) rev_locut(r, in, lcv);
+            if (pd || r->pd_on) predelay(r, in, pd);
+            if (r->off != off) r->off += r->off < off ? 1 : -1;
+            if (r->damp != damp) r->damp += r->damp < damp ? (damp - r->damp > 2 ? 2 : damp - r->damp)
+                                                           : -(r->damp - damp > 2 ? 2 : r->damp - damp);
+            if (r->dk != dv) r->dk += r->dk < dv ? 1 : -1;
+            r->svo[sb / CTL] = r->off; r->svd[sb / CTL] = r->damp;
+            cp[TX_CH_SIZE] = (unsigned)(zv ? zv : 76); cp[TX_CH_ABSORB] = (unsigned)(127 - r->dk);
+            cp[TX_CH_BODY] = (unsigned)((tv * 40) >> 6 > 127 ? 127 : (tv * 40) >> 6); cp[TX_CH_TAIL] = 0u;
+            for (q = 0; q < TX_CH_NP; q++) if (r->u.rm.c.p[q] != cp[q]) TX_FAR(tx_chamber_param)(&r->u.rm.c, q, cp[q]);
+            if (r->rn == 0) r->r0 = sb;
+            for (j = 0; j < CTL; j++) r->rm[sb + j] = in[j] * 256;
+            r->rf[sb / CTL] = 0;
+            r->rn += CTL;
+        }
+        for (j = 0; j < RV_DZ + CTL; j++) r->inb[j] = r->sv[n - CTL + j];   /* (the history as the loop leaves it) */
+        two = r->body_run() ? 1 : 2;                            /* 1: on the other core; 2: refused, here at the end */
+    }
     for (sb = 0; sb + CTL <= n; sb += CTL) {
         int32_t act = 0, *om = r->m + TX_RV_QZ, *os = r->s + TX_RV_QZ, *in = r->inb + RV_DZ, spk = 0;
         uint32_t cur;
+        if (two) {                                              /* (the sends are in: the tail's control block) */
+            in = r->sv + RV_DZ + sb;
+            r->off = r->svo[sb / CTL]; r->damp = r->svd[sb / CTL];
+            cur = r->cur;
+            goto tail;
+        }
         if (tgt && kern((uint32_t)tgt) != r->cur && !r->fade) {
             if (quiet || !r->cur) TX_FAR(rev_begin)(r, (uint32_t)tgt);   /* (TYPE starts: in XIP) */
             else r->fade = RV_FADE;
@@ -231,6 +276,7 @@ TX_RAM TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, in
             r->rf[sb / CTL] = r->fade;
             r->rn += CTL;
         }
+    tail:
         {   /* the half-rate TYPEs (and ROOM's tail: a short hall) */
             if (cur) for (i = 0; i < TX_RV_QZ; i++) r->m[i] = om[HL_NC - TX_RV_QZ + i], r->s[i] = os[HL_NC - TX_RV_QZ + i];
             if (cur == TX_RVT_HALL) tx_hall_run(&r->u.h, in, shon ? r->sh : 0, size + r->off, r->damp, md, om, os);
@@ -292,6 +338,13 @@ TX_RAM TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, in
             for (j = 0; j < sizeof r->inb / sizeof r->inb[0]; j++) r->inb[j] = 0;
             break;
         }
+    }
+    if (two) {                                         /* ROOM on two cores: its body's wet part, added */
+        if (two == 2 || r->body_wait()) tx_fx_reverb_body(r);   /* (refused or lost: here; lost mid-way is a fault's
+                                                 * recovery, not the same samples) */
+        for (j = 0; j < r->rn; j++) { L[r->r0 + j] += r->rw[j]; R[r->r0 + j] += r->rw[j]; }
+        r->rn = 0;
+        return;
     }
     if (r->rn) room_flush(r, L, R);                    /* (the room's body: its end is seen by the next block) */
 }

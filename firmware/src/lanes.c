@@ -164,6 +164,12 @@ static void ln_bus(void *u, int32_t *L, int32_t *R, unsigned n)
 }
 #endif
 
+#ifdef LN_PAR
+/* the reverb's ROOM on two cores (tx_fx_reverb_t.body_run): its body (the CHAMBER) on the second core, the tail here */
+static void ln_rev_job(uint32_t a) { (void)a; TX_FAR(tx_fx_reverb_body)(&ln.fx.rev); }
+static int ln_rev_run(void) { return LN_PAR_ON() && LN_PAR_RUN(ln_rev_job, 0u); }
+static int ln_rev_wait(void) { int l = LN_PAR_WAIT(); if (l) ln.par_lost++; return l; }
+#endif
 static void ln_init(void)
 {
     uint8_t *b = (uint8_t *)&ln;
@@ -171,6 +177,9 @@ static void ln_init(void)
     for (i = 0; i < sizeof ln; i++) b[i] = 0;
     tx_mix_init(&ln.mix);
     tx_fx_init(&ln.fx);
+#ifdef LN_PAR
+    ln.fx.rev.body_run = ln_rev_run; ln.fx.rev.body_wait = ln_rev_wait;
+#endif
     ln.mix.ins = tx_fx_lane; ln.mix.bus = tx_fx_bus_end; ln.mix.busq = tx_fx_bus_quiet; ln.mix.fx = &ln.fx;   /* (the
                                                  * bus's begin and the grains' voices: ln_block, ln_render) */
 #ifdef LN_BUS_TIMED
