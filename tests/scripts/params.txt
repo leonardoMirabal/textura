@@ -51,55 +51,55 @@
 2760 expect state lab2 RHYTHM
 2760 expect state host3.5 64
 2760 expect state card1 64
-# EDIT again: COMPRESSOR 1/2 (lane 4's, its first effect: Frodhes' four knobs; on by default); ALGORITHM: COMP off /
-# on; CC 118 on lane 4's channel: its RAT only; on channel 5 (and the old global ids, 0x41A..): all four lanes'
+# EDIT again: DRIVE (lane 4's, its first effect); ALGORITHM turns its type
 2765 btn 6
-2767 expect state page COMPRESSOR_1/2
-2767 expect state lab0 THR
-2767 expect state lab1 RAT
-2767 expect state lab2 ATK
-2767 expect state lab3 MKUP
-2767 expect state card0 -20_dB
-2767 expect state card1 1.5:1
-2767 expect state card2 8.5
-2767 expect state card3 +2.6_dB
-2767 expect state p32A 1
-2768 turn 1 -1
-2770 expect state msg COMP_OFF
-2770 expect state p32A 0
-2770 expect state p02A 1
-2771 turn 1 1
-2773 expect state msg COMP_ON
-2773 expect state p32A 1
-2774 midi 0xB3 118 127
-2776 expect state card1 20:1
-2776 expect state p32E 7
-2776 expect state p02E 0
-2777 midi 0xB4 118 0
-2779 expect state card1 1.5:1
-2779 expect state p32E 0
-2780 midi 0xB4 95 0
-2782 expect state p02A 0
-2782 expect state p12A 0
-2782 expect state p22A 0
-2782 expect state p32A 0
-2783 midi 0xB4 99 4
-2783 midi 0xB4 98 26
-2783 midi 0xB4 6 127
-2785 expect state p02A 1
-2785 expect state p32A 1
-2790 shot
-# EDIT again: DRIVE (lane 4's); ALGORITHM turns its type
-2800 btn 6
-2820 expect state page DRIVE
-2820 expect state lab0 AMOUNT
-2820 expect state lab3 TYPE
-2900 turn 2 30
-2900 turn 1 1
-2920 expect state card3 KHLON
-3000 shot
-# SELECT: FILTER 1/2; ALGORITHM: LP12; K2: the cutoff in Hz
-3100 turn 0 1
+2785 expect state page DRIVE
+2785 expect state lab0 AMOUNT
+2785 expect state lab3 TYPE
+2865 turn 2 30
+2865 turn 1 1
+2885 expect state card3 KHLON
+2965 shot
+# EDIT again: COMPRESSOR 1/2 (lane 4's, after its DRIVE: Frodhes' four knobs; on by default); ALGORITHM: COMP off /
+# on; CC 118 on lane 4's channel: its RAT only; on channel 5 (and the old global ids, 0x41A..): all four lanes'
+3000 btn 6
+3002 expect state page COMPRESSOR_1/2
+3002 expect state lab0 THR
+3002 expect state lab1 RAT
+3002 expect state lab2 ATK
+3002 expect state lab3 MKUP
+3002 expect state card0 -20_dB
+3002 expect state card1 1.5:1
+3002 expect state card2 8.5
+3002 expect state card3 +2.6_dB
+3002 expect state p32A 1
+3003 turn 1 -1
+3005 expect state msg COMP_OFF
+3005 expect state p32A 0
+3005 expect state p02A 1
+3006 turn 1 1
+3008 expect state msg COMP_ON
+3008 expect state p32A 1
+3009 midi 0xB3 118 127
+3011 expect state card1 20:1
+3011 expect state p32E 7
+3011 expect state p02E 0
+3012 midi 0xB4 118 0
+3014 expect state card1 1.5:1
+3014 expect state p32E 0
+3015 midi 0xB4 95 0
+3017 expect state p02A 0
+3017 expect state p12A 0
+3017 expect state p22A 0
+3017 expect state p32A 0
+3018 midi 0xB4 99 4
+3018 midi 0xB4 98 26
+3018 midi 0xB4 6 127
+3020 expect state p02A 1
+3020 expect state p32A 1
+3025 shot
+# EDIT again: FILTER 1/2; ALGORITHM: LP12; K2: the cutoff in Hz
+3100 btn 6
 3120 expect state page FILTER_1/2
 3200 turn 1 1
 3220 expect state card0 LP12

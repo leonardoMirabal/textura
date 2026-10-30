@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura MIX core: four layers (-> their inserts: COMP, DRIVE, FILTER) -> pan -> stereo -> CHAMBER (mid send) -> the
+/* Textura MIX core: four layers (-> their inserts: DRIVE, COMP, FILTER) -> pan -> stereo -> CHAMBER (mid send) -> the
  * bus effects (grain delay, reverb) -> linked limiter (tx_core_mix.h). */
 #include "tx_core_mix.h"
 
@@ -69,7 +69,7 @@ TX_AUDIO_CODE void tx_mix_slot_render(tx_mix_t *m, unsigned k, unsigned n)
     if (k >= TX_MIX_SLOTS || !m->e[k]) return;
     for (j = 0; j < n; j++) m->blk[j] = 0;
     m->e[k]->render(m->st[k], m->blk, n);
-    if (m->ins) m->ins(m->fx, k, m->blk, n);                 /* the slot's inserts (compressor, drive, filter) */
+    if (m->ins) m->ins(m->fx, k, m->blk, n);                 /* the slot's inserts (drive, compressor, filter) */
     tx_mix_add(m, k, m->blk, n);
 }
 

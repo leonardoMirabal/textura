@@ -363,8 +363,8 @@ TX_AUDIO_CODE void tx_fx_lane(void *u, unsigned k, int32_t *x, unsigned n)
 {
     tx_fx_t *fx = (tx_fx_t *)u;
     if (k >= TX_FX_LANES) return;
-    TX_FAR(tx_comp_process)(&fx->comp[k], x, n);       /* (all three in RAM on the FM-1: TX_RAM; off: returns at once) */
-    TX_FAR(tx_fx_drive_process)(&fx->drive[k], x, n);
+    TX_FAR(tx_fx_drive_process)(&fx->drive[k], x, n);  /* (all three in RAM on the FM-1: TX_RAM; off: returns at once) */
+    TX_FAR(tx_comp_process)(&fx->comp[k], x, n);
     TX_FAR(tx_fx_filter_process)(&fx->filter[k], x, n);
 }
 TX_AUDIO_CODE void tx_fx_lane_prep(void *u, unsigned k)
@@ -376,8 +376,8 @@ TX_AUDIO_CODE void tx_fx_lane_run(void *u, unsigned k, int32_t *x, unsigned n, u
 {
     tx_fx_t *fx = (tx_fx_t *)u;
     if (k >= TX_FX_LANES) return;
-    TX_FAR(tx_comp_process)(&fx->comp[k], x, n);
     TX_FAR(tx_fx_drive_run)(&fx->drive[k], x, n, core ? &fx->scr1 : 0);
+    TX_FAR(tx_comp_process)(&fx->comp[k], x, n);
     TX_FAR(tx_fx_filter_process)(&fx->filter[k], x, n);
 }
 uint32_t tx_fx_lane_us(const tx_fx_t *fx, unsigned k)

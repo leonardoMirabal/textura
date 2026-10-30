@@ -1,4 +1,4 @@
-# the COMPRESSOR (Frodhes' page, each lane's first effect: COMP, DRIVE, FILTER): OCT+ then EDIT twice opens lane 2's;
+# the COMPRESSOR (Frodhes' page, each lane's second effect: DRIVE, COMP, FILTER): OCT+ then EDIT 3 times opens lane 2's;
 # Storm's four lanes at HOW ACTIVE 64, every lane's COMP (on by default) with THR at -40 dBFS (CC 115 on channel 5:
 # all four lanes): the gain-reduction meter in the footer moves (the selected lane's); SELECT: 2/2 COMP REL;
 # ALGORITHM: lane 2's COMP off (its reduction gone, the footer's hint), lane 3's still on; OCT+: lane 3's page, its
@@ -13,7 +13,8 @@
 2300 midi 0xB4 115 127
 2380 btn 1
 2400 btn 6
-2420 btn 6
+2415 btn 6
+2430 btn 6
 2450 expect state page COMPRESSOR_1/2
 2450 expect state sel 2
 2450 expect state card0 -40_dB

@@ -583,7 +583,7 @@ static void check_noise_core(void)
     verdict("noise", "stable", !bad, msg, 0);
 }
 
-/* ---- COMP: a lane's compressor (Frodhes' controls; mono, the lane's first insert). COMP off is bit-exact; a steady sine at -6 dBFS (power -9 dBFS)
+/* ---- COMP: a lane's compressor (Frodhes' controls; mono, a lane's insert after DRIVE). COMP off is bit-exact; a steady sine at -6 dBFS (power -9 dBFS)
  * is reduced as THR and RAT say (the 12 dB soft knee included): THR 127 (-40) 3:1 20.6 dB, THR 64 (-20.2) 2:1 5.6 dB,
  * THR 32 (-10.1) 20:1 2.0 dB (in the knee), and with MKUP 0 the output follows; the controls moved under a steady
  * level (COMP on, THR, RAT, MKUP, ATK, REL to their ends and back, COMP off; 100 ms each) never step the output (a
@@ -1713,6 +1713,47 @@ static void check_fx(FILE *update)
         snprintf(msg, sizeof msg, "TSH8 asked on two lanes: the first has it, the second keeps FDRV, then takes it when the "
                  "first leaves (%u of 2)", own);
         verdict("fx", "drive-tsh8", own == 2u, msg, 0);
+    }
+    {   /* the lane's order: DRIVE, then COMP, then FILTER (one core and the second core's path alike); the other order
+         * differs (the order is heard) */
+        tx_fx_t *f2 = malloc(sizeof *f2), *f3 = malloc(sizeof *f3);
+        static int32_t y2[TX_BLOCK], y3[TX_BLOCK], y4[TX_BLOCK];
+        unsigned i, same = 1, par = 1, differ = 0;
+        if (f2 && f3) {
+            tx_fx_t *A[3] = {fx, f2, f3};
+            for (i = 0; i < 3u; i++) {
+                tx_fx_init(A[i]);
+                tx_fx_drive_param(&A[i]->drive[2], TX_DR_AMOUNT, 100); tx_fx_drive_param(&A[i]->drive[2], TX_DR_MIX, 127);
+                tx_comp_param(&A[i]->comp[2], TX_CP_ON, 1); tx_comp_param(&A[i]->comp[2], TX_CP_THR, 127);
+                tx_comp_param(&A[i]->comp[2], TX_CP_RATIO, 7);
+            }
+            rng = 11u;
+            for (b = 0; b < 200u; b++) {
+                for (j = 0; j < TX_BLOCK; j++) y[j] = y2[j] = y3[j] = y4[j] = fx_in(b * TX_BLOCK + j, &rng) * 2;
+                tx_fx_lane(fx, 2, y, TX_BLOCK);
+                tx_fx_lane_prep(f2, 2); tx_fx_lane_run(f2, 2, y2, TX_BLOCK, 1);
+                tx_fx_drive_process(&f3->drive[2], y3, TX_BLOCK); tx_comp_process(&f3->comp[2], y3, TX_BLOCK);
+                tx_fx_filter_process(&f3->filter[2], y3, TX_BLOCK);
+                for (j = 0; j < TX_BLOCK; j++) { same &= y[j] == y3[j]; par &= y2[j] == y3[j]; }
+            }
+            tx_fx_init(f3);                              /* the other order, the same controls */
+            tx_fx_drive_param(&f3->drive[2], TX_DR_AMOUNT, 100); tx_fx_drive_param(&f3->drive[2], TX_DR_MIX, 127);
+            tx_comp_param(&f3->comp[2], TX_CP_ON, 1); tx_comp_param(&f3->comp[2], TX_CP_THR, 127); tx_comp_param(&f3->comp[2], TX_CP_RATIO, 7);
+            tx_fx_init(f2);
+            tx_fx_drive_param(&f2->drive[2], TX_DR_AMOUNT, 100); tx_fx_drive_param(&f2->drive[2], TX_DR_MIX, 127);
+            tx_comp_param(&f2->comp[2], TX_CP_ON, 1); tx_comp_param(&f2->comp[2], TX_CP_THR, 127); tx_comp_param(&f2->comp[2], TX_CP_RATIO, 7);
+            rng = 11u;
+            for (b = 0; b < 200u; b++) {
+                for (j = 0; j < TX_BLOCK; j++) y2[j] = y4[j] = fx_in(b * TX_BLOCK + j, &rng) * 2;
+                tx_fx_lane(f2, 2, y2, TX_BLOCK);
+                tx_comp_process(&f3->comp[2], y4, TX_BLOCK); tx_fx_drive_process(&f3->drive[2], y4, TX_BLOCK);
+                for (j = 0; j < TX_BLOCK; j++) differ += y2[j] != y4[j];
+            }
+        }
+        snprintf(msg, sizeof msg, "a lane's inserts in the order DRIVE, COMP, FILTER: one core %s, the second core's path %s; "
+                 "COMP before DRIVE differs in %u samples", same ? "the same" : "NOT the same", par ? "the same" : "NOT the same", differ);
+        verdict("fx", "lane-order", f2 && f3 && same && par && differ > 1000u, msg, 0);
+        free(f2); free(f3);
     }
     /* the lane inserts: renders against the baselines (a drive at 90 / TONE 100 / MIX 100, the classic and each TYPE;
      * LP18 with its LFO) */

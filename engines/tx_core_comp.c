@@ -9,7 +9,7 @@
 #define K_SR 32                    /*                                                    release 1.5 s */
 
 const tx_param_t tx_comp_params[TX_CP_NP] = {
-    {"COMP", 1, 1, "the lane's compressor, its first effect (before DRIVE, FILTER): off / on"},
+    {"COMP", 1, 1, "the lane's compressor, after its DRIVE, before its FILTER: off / on"},
     {"THR", 127, 64, "threshold 0 .. -40 dBFS (64: -20 dBFS)"},
     {"ATK", 127, 108, "attack 0.1 .. 50 ms (108: 20 ms)"},
     {"REL", 127, 59, "release 20 ms .. 1.5 s (59: 150 ms; a dense sound holds its gain longer: no pumping)"},

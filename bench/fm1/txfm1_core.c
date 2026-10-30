@@ -227,7 +227,7 @@ static void start(fm_run_t *r)
     else if (c->kind == FM_K_FX) {
         fx_setup(&r->fx, c->eng, c->type, c->decay);
         if (c->eng == FM_FX_COMP) {                          /* TYPE 0: its defaults; 1: THR -40 dBFS, 20:1, ATK 0 */
-            tx_comp_t *cp = &r->fx.comp[0];                  /* (lane 1's, its first insert) */
+            tx_comp_t *cp = &r->fx.comp[0];                  /* (lane 1's, after its DRIVE) */
             tx_comp_init(cp);
             tx_comp_param(cp, TX_CP_ON, 1);
             if (c->type) { tx_comp_param(cp, TX_CP_THR, 127); tx_comp_param(cp, TX_CP_RATIO, 7); tx_comp_param(cp, TX_CP_ATK, 0); }

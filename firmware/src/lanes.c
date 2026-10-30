@@ -364,7 +364,7 @@ static void ln_event(const ln_ev_t *v)
     }
 }
 
-/* lane k's engine, one block, into ln_out[k], then its inserts (COMP, DRIVE, FILTER: their prep done, lane order, by
+/* lane k's engine, one block, into ln_out[k], then its inserts (DRIVE, COMP, FILTER: their prep done, lane order, by
  * ln_render), on either core (c: its DRIVE scratch); it writes nothing else */
 static void ln_render_lane(uint32_t k, uint32_t n, uint32_t c)
 {

@@ -432,9 +432,9 @@ function fxBox(box, g, vals, apply) {
            x => { vals[p] = x; apply(p, x); fxSave(); }, false, `fx${g}-${p}`);
   }
 }
-function fxLayer() {                                   // the edited layer's COMPRESSOR, DRIVE and FILTER
-  for (const g of [4, 0, 1]) fxBox($(g === 4 ? "fx-cp" : g ? "fx-fl" : "fx-dr"), g, fxv.lane[ed][g], (p, x) => M._txw_fx_param(g, ed, p, x));
-  $("fx-cp-title").firstChild.textContent = `COMPRESSOR (layer ${ed + 1}, its first) `;
+function fxLayer() {                                   // the edited layer's DRIVE, COMPRESSOR and FILTER
+  for (const g of [0, 4, 1]) fxBox($(g === 4 ? "fx-cp" : g ? "fx-fl" : "fx-dr"), g, fxv.lane[ed][g], (p, x) => M._txw_fx_param(g, ed, p, x));
+  $("fx-cp-title").firstChild.textContent = `COMPRESSOR (layer ${ed + 1}, after its DRIVE) `;
   $("fx-dr-title").textContent = `DRIVE (layer ${ed + 1})`;
   $("fx-fl-title").textContent = `FILTER (layer ${ed + 1})`;
 }
@@ -448,7 +448,7 @@ function buildChamber() {                             // (the old CHAMBER's plac
   try { if (!saved && localStorage.getItem("textura.chamber") === "1") fxv.rv = { 0: 1, 1: 127 }; } catch (e) { }   // CHAMBER on: ROOM
   for (const p in fxv.rv) M._txw_fx_param(2, 0, +p, fxv.rv[p]);
   for (const p in fxv.gd) M._txw_fx_param(3, 0, +p, fxv.gd[p]);
-  fxv.lane.forEach((l, k) => { for (const g of [4, 0, 1]) for (const p in l[g]) M._txw_fx_param(g, k, +p, l[g][p]); });
+  fxv.lane.forEach((l, k) => { for (const g of [0, 4, 1]) for (const p in l[g]) M._txw_fx_param(g, k, +p, l[g][p]); });
   fxBox($("fx-gd"), 3, fxv.gd, (p, x) => M._txw_fx_param(3, 0, p, x));
   fxBox($("fx-rv"), 2, fxv.rv, (p, x) => M._txw_fx_param(2, 0, p, x));
   fxLayer();

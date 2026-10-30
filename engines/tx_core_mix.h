@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura MIX core: stage S3, four layers. Up to TX_MIX_SLOTS engine instances (each in its own state arena, the
  * caller's), each panned (constant power, unity at the centre: gains sqrt(2) sin / cos), summed into a stereo pair
- * (a slot's inserts first: ins, tx_fx.h's COMP, DRIVE, FILTER); the CHAMBER (optional, mono) on
+ * (a slot's inserts first: ins, tx_fx.h's DRIVE, COMP, FILTER); the CHAMBER (optional, mono) on
  * the pair's mid, its added body and tail fed back to both sides; then the bus effects (the grain delay, the reverb)
  * and the output limiter, linked across the two channels. Integer, Q23 in int32 like every mix here.
  *

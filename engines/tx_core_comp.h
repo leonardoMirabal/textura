@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura COMP core: a lane's compressor, the first insert on its own signal (tx_fx.h: COMP -> DRIVE -> FILTER, mono,
+/* Textura COMP core: a lane's compressor, an insert on its own signal (tx_fx.h: DRIVE -> COMP -> FILTER, mono,
  * before the pan; one per lane, each its own detector and controls). Its controls are Frodhes' COMPRESSOR's (COMP,
  * THR, ATK, REL, RAT, MKUP: the same ranges), on this detector:
  *

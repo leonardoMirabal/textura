@@ -8,7 +8,7 @@
  *           32 .. 35  DRIVE  AMOUNT TONE MIX TYPE          (tx_fx_drive_params order)
  *           36 .. 41  FILTER TYPE FREQ RESO LFO RATE SHAPE  (tx_fx_filter_params order)
  *           42 .. 47  COMPRESSOR: COMP THR ATK REL RAT MKUP (tx_comp_params order; Frodhes' COMPRESSOR's): the lane's
- *                     first insert (COMP, DRIVE, FILTER)
+ *                     second insert (DRIVE, COMP, FILTER)
  *   global  0 .. 11   GRAIN DELAY (tx_fx_grain_params order)   12 its SYNC (tempo.c)
  *           16 .. 25  REVERB (tx_fx_reverb_params order)
  *           26 .. 31  COMPRESSOR, as it was (the mix's): now every lane's at once (P_COMP_ALL: an older scene's
