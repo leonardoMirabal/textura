@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """The Textura web panel (web/, build/web/) in headless Chromium (Playwright): the page loads without JS errors, the
 firmware runs (the splash, then the LANDSCAPE page on the screen), ?selftest starts the landscape and it sounds, the
-on-screen keys reach the firmware and its key LEDs come back (a black key selects its group's lane and page, a white key
+on-screen keys reach the firmware and its key LEDs come back (a black key selects its group's lane, LANDSCAPE stays; a white key
 starts it), the
 knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
 tests/py/test_web_knobs.py), HOME turns to MIXER, EDIT to SOUND / DRIVE, FX to GRAIN / REVERB, GLO to TEMPO / MIDI, LFO to
@@ -82,7 +82,8 @@ def main():
         check(pg.evaluate(LIT) > 3000, f"the screen is drawn ({pg.evaluate(LIT)} px lit)")
         pg.click("#start")
         pg.wait_for_timeout(300)
-        # a black key (C#5, key 20: the 4th group) selects lane 4 and its page; a white key (D4, key 9: HOW MANY 16) starts it
+        # a black key (C#5, key 20: the 4th group) selects lane 4, LANDSCAPE stays; a white key (D4, key 9: HOW MANY 16)
+        # starts it
         for k in (20, 9):
             pg.locator(f'#kb > .key[data-k="{k}"]').click(delay=80)
             pg.wait_for_timeout(150)
@@ -91,10 +92,13 @@ def main():
               "the white keys show HOW MANY (key LEDs back from the firmware)")
         check(pg.locator('#kb > .key[data-k="9"]').get_attribute("class").find("lit") >= 0, "the page lights the key")
         check(pg.evaluate(LED, 13) == 1, "REC's light: something plays")
-        check(pg.evaluate(PAGE) == "SOUND", "the black key brought its lane's SOUND page")
+        check(pg.evaluate(PAGE) == "LANDSCAPE", "the black key kept the LANDSCAPE page")
         pg.screenshot(path=os.path.join(OUT, "desktop.png"))
-        # HOME (on SOUND): LANDSCAPE, remembering SOUND; again: back to SOUND; once more: LANDSCAPE (the captions follow)
         home, edit = pg.locator('button.b[data-name="HOME"]'), pg.locator('button.b[data-name="EDIT"]')
+        edit.click(delay=60)                             # EDIT: the lane's SOUND page
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(PAGE) == "SOUND", "EDIT after the black key: its lane's SOUND page")
+        # HOME (on SOUND): LANDSCAPE, remembering SOUND; again: back to SOUND; once more: LANDSCAPE (the captions follow)
         check(home.locator("small").inner_text() == "LANDSCAPE", "HOME's caption on SOUND: LANDSCAPE")
         home.click(delay=60)
         pg.wait_for_timeout(300)

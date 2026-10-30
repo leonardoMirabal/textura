@@ -1,13 +1,15 @@
-# the LANDSCAPE key mode: black key groups (3, 2, 3, 2) = lanes 1..4 and their page, F#5 nothing; F3..E4 = HOW MANY,
+# the LANDSCAPE key mode: black key groups (3, 2, 3, 2) = lanes 1..4 shown on LANDSCAPE, F#5 nothing; F3..E4 = HOW MANY,
 # F4..G5 = HOW ACTIVE
 # landscape; ALGORITHM = landscape; OCT = lane; K1..K4 = the volumes of lanes 1..4; key LEDs (14 + key)
 1700 btn 13
 1800 expect state run0 1
-# C#5 (key 20): lane 4 (cave drips, stopped), its SOUND page; ALGORITHM: its next sound not on another lane (eaves
-# dripping), selected and stopped; HOME back
+# C#5 (key 20): lane 4 (cave drips, stopped), LANDSCAPE stays; EDIT: its SOUND page; ALGORITHM: its next sound not on
+# another lane (eaves dripping), selected and stopped; HOME back
 2000 keys 0x100000
 2050 keys 0
-2060 expect state sel 4
+2052 expect state sel 4
+2052 expect state page LANDSCAPE
+2055 btn 6
 2060 expect state page SOUND_1/2
 2060 expect state snd3 cave_drips
 2070 turn 1 1
@@ -48,14 +50,29 @@
 4140 expect state sel 4
 4140 expect state page LANDSCAPE
 4141 shot
-# OCT on a lane's page (SOUND): the new lane's SOUND page
+# a black key on LANDSCAPE: LANDSCAPE stays; EDIT: SOUND; OCT on a lane's page (SOUND): the new lane's SOUND page
 4142 keys 0x100000
-4144 keys 0
+4143 keys 0
+4144 expect state page LANDSCAPE
+4145 btn 6
 4146 expect state page SOUND_1/2
 4150 btn 0
 4160 expect state sel 3
 4160 expect state page SOUND_1/2
 4160 shot
+# a black key on a lane's page (SOUND): lane 2, on LANDSCAPE (left that way: HOME has no way back, LANDSCAPE stays)
+4170 keys 0x400
+4171 keys 0
+4172 expect state sel 2
+4172 expect state page LANDSCAPE
+4175 btn 8
+4177 expect state page LANDSCAPE
+# lane 3 again (F#4, key 13), its SOUND page
+4180 keys 0x2000
+4181 keys 0
+4182 expect state sel 3
+4185 btn 6
+4187 expect state page SOUND_1/2
 # ALGORITHM on SOUND: the next sound not on another lane; HOME back
 4200 turn 1 1
 4220 expect state snd2 cave_drips
@@ -63,6 +80,14 @@
 4350 btn 8
 4360 expect state sel 3
 4360 expect state page LANDSCAPE
+# a black key on LANDSCAPE keeps HOME's way back: HOME returns to the SOUND page it left, HOME again LANDSCAPE
+4370 keys 0x2000
+4371 keys 0
+4373 expect state page LANDSCAPE
+4375 btn 8
+4377 expect state page SOUND_1/2
+4380 btn 8
+4382 expect state page LANDSCAPE
 # ALGORITHM: the next landscape (after 300 ms); what played starts the new one low
 4400 turn 1 1
 4600 expect state landscape Water

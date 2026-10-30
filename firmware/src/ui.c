@@ -26,7 +26,8 @@
  *   ENV        the ENV / FOLLOW pages; held + a card turned: mod learn from the selected ENV or FOLLOW
  *   SEL        key mode: LANDSCAPE / PLAY      OCT- OCT+  LANDSCAPE mode: the previous / next lane (a lane's page,
  *              SOUND, DRIVE or FILTER, stays, for the new lane; any other goes to LANDSCAPE); PLAY mode: the octave
- *   black keys LANDSCAPE mode, by their groups: lanes 1..4 (a lane's page stays, any other goes to the lane's SOUND)
+ *   black keys LANDSCAPE mode, by their groups: lanes 1..4, shown on LANDSCAPE (it stays, any other page goes to it;
+ *              EDIT then opens the lane's SOUND)
  *   REC        LANDSCAPE mode: all lanes stop (remembered) / start again
  *   SAVE       the save mode (scenes.c: PRESETS / K1 the user scene, SAVE again saves, HOME cancels); held 700 ms:
  *              undo the last scene load            PRESETS  browse the scenes (loads 400 ms after the last detent)
@@ -775,11 +776,11 @@ static void ui_page_step(int32_t d)             /* SELECT: the next sub-page, th
         else if (ui_g > 0u) ui_goto(ui_g - 1u, ui_nsub(ui_g - 1u) - 1u);
     }
 }
-static void ui_lane_focus(uint32_t k)           /* a black key: lane k, and its page: a lane's page (SOUND, DRIVE,
-                                                 * FILTER) stays with the new lane, any other goes to the lane's SOUND 1 */
+static void ui_lane_focus(uint32_t k)           /* a black key: lane k, shown on LANDSCAPE (the 4 lanes, as HOME): it
+                                                 * stays there (HOME's way back kept), any other page goes to it */
 {
     sc_select(k);
-    if (ui_lane_page()) ui_goto(ui_g, ui_sub); else ui_goto(G_SOUND, 0);
+    ui_goto(G_LAND, 0);
     ui_say_n("LANE", sc.sel + 1);
 }
 static void ui_lane_step(int32_t d)             /* OCT: the previous / next lane; a lane's page stays with it, any other
