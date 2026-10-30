@@ -9,6 +9,17 @@
 #define TX_FX_DRV_H
 #include <stdint.h>
 
+/* TX_LINE: on the FM-1 a struct that one core writes while the other works starts on its own 64-byte cache lines
+ * (the lanes on two cores: firmware/src/lanes.c); on the host nothing (a plain malloc's 16 bytes would not honour it,
+ * and the samples do not depend on it) */
+#ifndef TX_LINE
+#ifdef __PI32V2__
+#define TX_LINE __attribute__((aligned(64)))
+#else
+#define TX_LINE
+#endif
+#endif
+
 enum { TX_DRT_FDRV, TX_DRT_KHLON, TX_DRT_TSH8, TX_DRT_OHCD, TX_DRT_BHLUE, TX_DRT_N };   /* DRIVE TYPE (append only) */
 #define TX_DRV_BLK 256u            /* the most samples a TYPE runs a call (the lane's block) */
 #define TX_DRV_TS_NODES 761u       /* TSH8's diode table (tx_drive_tables.h TSH8_NODES: checked there) */
@@ -37,7 +48,7 @@ typedef union { tx_drv_kh_t kh; tx_drv_ts_t ts; tx_drv_oh_t oh; tx_drv_bh_t bh; 
 typedef struct {                   /* a core's scratch (the lanes it runs, one after the other) */
     int32_t q[TX_DRV_BLK];                    /* the lane's block at Q15, then the TYPE's wet signal (in place) */
     int32_t t1[TX_DRV_BLK], t2[TX_DRV_BLK];   /* KHLON's driven path and its sum while it dips; TSH8's Vi */
-} __attribute__((aligned(64))) tx_drv_scr_t;
+} TX_LINE tx_drv_scr_t;
 typedef struct {
     tx_drv_scr_t scr;                         /* the first core's scratch (the only one with one core) */
     int32_t ts_tab[2][2u * TX_DRV_TS_NODES];  /* TSH8: the diode table that runs ({g, F} a node), and the next one */

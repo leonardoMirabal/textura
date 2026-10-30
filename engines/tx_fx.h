@@ -30,7 +30,7 @@ typedef struct {
     uint32_t lfo_ph, lfo_rnd;
     int32_t lfo_sh, ic[2], op, pos, ow;
     int32_t dry[32];
-} __attribute__((aligned(64))) tx_fx_filter_t;   /* (its own cache lines: lanes on two cores) */
+} TX_LINE tx_fx_filter_t;   /* (TX_LINE: its own cache lines on the FM-1) */
 void tx_fx_filter_init(tx_fx_filter_t *f);
 void tx_fx_filter_param(tx_fx_filter_t *f, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_filter_process(tx_fx_filter_t *f, int32_t *x, unsigned n);   /* mono Q23, in place */
@@ -50,7 +50,7 @@ typedef struct {
     tx_drv_shared_t *sh;           /* what the lanes' TYPEs share (tx_fx_t; 0: the classic drive only) */
     uint8_t sw;                    /* (tx_fx_drive_prep: the TYPE that runs goes on; 0: it fades out) */
     tx_drv_state_t u;              /* the TYPE's state */
-} __attribute__((aligned(64))) tx_fx_drive_t;   /* (its own cache lines: lanes on two cores) */
+} TX_LINE tx_fx_drive_t;   /* (TX_LINE: its own cache lines on the FM-1) */
 void tx_fx_drive_init(tx_fx_drive_t *d);
 void tx_fx_drive_param(tx_fx_drive_t *d, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x, unsigned n);     /* mono Q23, in place */
@@ -100,7 +100,7 @@ typedef struct {
     uint8_t ahead;                               /* (begin: the voices run before the input, this block) */
     uint32_t vact;                               /* (the voices: grain samples sounding this block) */
     int32_t we[TX_BLOCK], wl[TX_BLOCK], wr[TX_BLOCK];   /* (the voices' block: the echo, the grains L, R) */
-} __attribute__((aligned(64))) tx_fx_grain_t;   /* (its own cache lines: lanes on two cores) */
+} TX_LINE tx_fx_grain_t;   /* (TX_LINE: its own cache lines on the FM-1) */
 void tx_fx_grain_init(tx_fx_grain_t *d);
 void tx_fx_grain_param(tx_fx_grain_t *d, unsigned id, unsigned v);
 void tx_fx_grain_sync(tx_fx_grain_t *d, unsigned samples);   /* the echo on the tempo (0: TIME again; at most TIME's top) */
