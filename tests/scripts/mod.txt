@@ -50,7 +50,7 @@
 3100 shot
 # mod learn on MIXER 1/2: LFO held, K1 (L1 LEVEL) turned 12: a second route; the page stays
 3200 btn 8
-3220 btn 8
+3220 turn 0 1
 3240 expect state page MIXER_1/2
 3300 press 5
 3350 turn 2 12

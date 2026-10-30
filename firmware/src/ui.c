@@ -18,7 +18,9 @@
  *              which (ENV 1, ENV 2, FOLLOW 1, FOLLOW 2); MATRIX: which slot (1..16)
  *   K1..K4     LANDSCAPE: the volumes of lanes 1..4 (a lane's sound: its SOUND page; HOW MANY, HOW ACTIVE: the white
  *              keys); MIXER: lanes 1..4; else the cards
- *   HOME       LANDSCAPE (again: MIXER)        EDIT  SOUND (again: DRIVE)        FX  COMPRESSOR (again: GRAIN, REVERB)
+ *   HOME       LANDSCAPE, remembering the page it came from; on LANDSCAPE: back to that page (none remembered,
+ *              or it was left another way: LANDSCAPE stays)
+ *   EDIT       SOUND (again: DRIVE)        FX  COMPRESSOR (again: GRAIN, REVERB)
  *   GLO        TEMPO (again: MIDI, DISPLAY)        LFO  the LFO pages; held + a card turned: mod learn (the
  *              selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP  MATRIX
  *   ENV        the ENV / FOLLOW pages; held + a card turned: mod learn from the selected ENV or FOLLOW
@@ -754,8 +756,10 @@ static void ui_draw(void)
 }
 
 /* ---- input */
+static uint8_t ui_back_g = 0xFF, ui_back_sub;  /* HOME's way back: the page it left for LANDSCAPE (0xFF: none) */
 static void ui_goto(uint32_t g, uint32_t sub)
 {
+    if (g != G_LAND) ui_back_g = 0xFF;          /* (LANDSCAPE left: the way back is gone) */
     ui_g = (uint8_t)(g < G_N ? g : G_LAND);
     ui_sub = (uint8_t)(sub < ui_nsub(ui_g) ? sub : ui_nsub(ui_g) - 1u);
     ui_hot_card = 0xFF;
@@ -942,7 +946,14 @@ static void ui_input(uint32_t b, uint32_t rel)
         d[ENC_KNOB1] = d[ENC_KNOB2] = d[ENC_KNOB3] = 0;
         b &= ~(1u << BTN_HOME | 1u << BTN_OCT_DOWN);
     }
-    if (b >> BTN_HOME & 1u) ui_goto(ui_g == G_LAND ? G_MIX : G_LAND, 0);
+    if (b >> BTN_HOME & 1u) {
+        if (ui_g != G_LAND) {
+            uint8_t g = ui_g, s = ui_sub;
+            ui_goto(G_LAND, 0);
+            ui_back_g = g;
+            ui_back_sub = s;
+        } else if (ui_back_g != 0xFF) ui_goto(ui_back_g, ui_back_sub);
+    }
     if (b >> BTN_EDIT & 1u) ui_goto(ui_g == G_SOUND ? G_DRIVE : G_SOUND, 0);
     if (b >> BTN_FX & 1u) ui_goto(ui_g == G_COMP ? G_GRAIN : ui_g == G_GRAIN ? G_REVERB : G_COMP, 0);
     if (b >> BTN_GLO & 1u) ui_goto(ui_g == G_TEMPO ? G_MIDI : ui_g == G_MIDI ? G_DISPLAY : G_TEMPO, 0);
