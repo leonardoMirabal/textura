@@ -1,6 +1,6 @@
 # the LANDSCAPE key mode: black key groups (3, 2, 3, 2) = lanes 1..4 and their page, F#5 nothing; F3..E4 = HOW MANY,
 # F4..G5 = HOW ACTIVE
-# landscape; ALGORITHM = landscape; OCT = lane; K1..K4 = sound, how many, how active, volume; key LEDs (14 + key)
+# landscape; ALGORITHM = landscape; OCT = lane; K1..K4 = the volumes of lanes 1..4; key LEDs (14 + key)
 1700 btn 13
 1800 expect state run0 1
 # C#5 (key 20): lane 4 (cave drips, stopped), its SOUND page; ALGORITHM: its next sound not on another lane (eaves
@@ -35,31 +35,34 @@
 3650 keys 0
 3700 expect state run3 0
 3700 expect state cnt3 0
-# K2 / K3 on the selected lane, then K4
-3800 turn 3 2
-3820 expect state cnt3 1
-3820 expect state act3 1
-3900 turn 4 1
-3920 expect state act3 2
+# K4: lane 4's volume
 4000 turn 5 -10
 4020 expect state vol3 90
-# OCT- : lane 3, and from a page that is not a lane's, its SOUND page; OCT+ there: lane 4, the same page; HOME back
+# OCT- on LANDSCAPE: lane 3, LANDSCAPE stays; OCT+ from MIXER (not a lane's page): lane 4, LANDSCAPE
 4100 btn 0
 4120 expect state sel 3
-4120 expect state page SOUND_1/2
-4138 shot
-4140 btn 1
-4160 expect state sel 4
+4120 expect state page LANDSCAPE
+4130 turn 0 1
+4135 expect state page MIXER_1/2
+4138 btn 1
+4140 expect state sel 4
+4140 expect state page LANDSCAPE
+4141 shot
+# OCT on a lane's page (SOUND): the new lane's SOUND page
+4142 keys 0x100000
+4144 keys 0
+4146 expect state page SOUND_1/2
+4150 btn 0
+4160 expect state sel 3
 4160 expect state page SOUND_1/2
 4160 shot
-4170 btn 0
-4180 btn 8
-4190 expect state sel 3
-4190 expect state page LANDSCAPE
-# K1: the next sound not on another lane
-4200 turn 2 1
+# ALGORITHM on SOUND: the next sound not on another lane; HOME back
+4200 turn 1 1
 4220 expect state snd2 cave_drips
 4300 expect state run2 1
+4350 btn 8
+4360 expect state sel 3
+4360 expect state page LANDSCAPE
 # ALGORITHM: the next landscape (after 300 ms); what played starts the new one low
 4400 turn 1 1
 4600 expect state landscape Water

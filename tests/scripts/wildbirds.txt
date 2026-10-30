@@ -61,9 +61,9 @@
 3620 btn 0
 3650 expect state sel 2
 3700 btn 8
-3750 turn 2 1
+3710 btn 6
+3750 turn 1 1
 3800 expect state snd1 oystercatcher
-3850 btn 6
 3900 expect state lab0 SIZE
 3900 expect state lab1 DEPTH
 3900 expect state lab2 DIST
@@ -75,9 +75,9 @@
 4000 expect state lab3 EXCITE
 4050 turn 0 -1
 4150 btn 8
-4200 turn 2 1
+4160 btn 6
+4200 turn 1 1
 4250 expect state snd1 cuckoo
-4300 btn 6
 4350 expect state lab0 SIZE
 4350 expect state lab1 DEPTH
 4350 expect state lab2 DIST
@@ -89,9 +89,9 @@
 4450 expect state lab3 EXCITE
 4500 turn 0 -1
 4600 btn 8
-4650 turn 2 1
+4610 btn 6
+4650 turn 1 1
 4700 expect state snd1 woodpecker
-4750 btn 6
 4800 expect state lab0 SIZE
 4800 expect state lab1 DEPTH
 4800 expect state lab2 DIST
@@ -103,9 +103,9 @@
 4900 expect state lab3 -
 4950 turn 0 -1
 5050 btn 8
-5100 turn 2 1
+5060 btn 6
+5100 turn 1 1
 5150 expect state snd1 wood_pigeon
-5200 btn 6
 5250 expect state lab0 SIZE
 5250 expect state lab1 DEPTH
 5250 expect state lab2 DIST
@@ -117,9 +117,9 @@
 5350 expect state lab3 -
 5400 turn 0 -1
 5500 btn 8
-5550 turn 2 1
+5510 btn 6
+5550 turn 1 1
 5600 expect state snd1 nightjar
-5650 btn 6
 5700 expect state lab0 SIZE
 5700 expect state lab1 DEPTH
 5700 expect state lab2 DIST
@@ -131,9 +131,9 @@
 5800 expect state lab3 EXCITE
 5850 turn 0 -1
 5950 btn 8
-6000 turn 2 1
+5960 btn 6
+6000 turn 1 1
 6050 expect state snd1 bittern
-6100 btn 6
 6150 expect state lab0 SIZE
 6150 expect state lab1 DEPTH
 6150 expect state lab2 DIST

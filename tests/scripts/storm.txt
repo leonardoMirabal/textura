@@ -49,9 +49,9 @@
 # SCALE, WHOOSH / FOLIAGE, EDGE, DIST; winter GUST, EXPOSED, DRIFT, SCALE); hail's STONES (= DROPS), AREA, INSIDE,
 # BOUNCE / DIST
 8600 btn 8
-8650 turn 2 1
+8610 btn 6
+8650 turn 1 1
 8700 expect state snd1 ridge_gale
-8750 btn 6
 8800 expect state page SOUND_1/2
 8800 expect state lab0 GUST
 8800 expect state lab1 EXPOSED
@@ -63,15 +63,15 @@
 8900 expect state lab2 DIST
 8900 expect state lab3 -
 8950 btn 8
-9000 turn 2 2
+8960 btn 6
+9000 turn 1 2
 9050 expect state snd1 winter_storm
-9100 btn 6
 9150 expect state lab1 EXPOSED
 9150 expect state lab2 DRIFT
 9200 btn 8
-9250 turn 2 3
+9210 btn 6
+9250 turn 1 3
 9300 expect state snd1 hail_on_a_roof
-9350 btn 6
 9400 expect state page SOUND_1/2
 9400 expect state lab0 STONES
 9400 expect state lab1 AREA

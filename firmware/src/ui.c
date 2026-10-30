@@ -8,7 +8,7 @@
  * An element is drawn again when what it shows changes: each pass (every UI_SIG_MS) works out a signature of each
  * element's content and marks the ones that differ.
  *
- *   SELECT     the pages, in order: LANDSCAPE, MIXER 1/2 (levels) 2/2 (pans), SOUND 1..n (the selected lane's sound:
+ *   SELECT     the pages, in order (the first to the last, no wrap): LANDSCAPE, MIXER 1/2 (levels) 2/2 (pans), SOUND 1..n (the selected lane's sound:
  *              its cards, four a page), DRIVE, FILTER 1/2 2/2, COMPRESSOR 1/2 2/2 (Frodhes': THR RAT ATK MKUP, then
  *              COMP REL; the footer its gain-reduction meter), GRAIN 1/3 .. 3/3, REVERB 1/3 .. 3/3, LFO 1/3 .. 3/3,
  *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, TEMPO 1/2 2/2, MIDI, DISPLAY (COLOR: the screen's palette)
@@ -16,12 +16,15 @@
  *              type; FILTER: its type; COMPRESSOR: COMP (up on, down off); GRAIN: FREEZE (up on, down off); REVERB:
  *              its type; LFO: which (1..8); ENV:
  *              which (ENV 1, ENV 2, FOLLOW 1, FOLLOW 2); MATRIX: which slot (1..16)
- *   K1..K4     LANDSCAPE: the selected lane's SOUND, HOW MANY, HOW ACTIVE, VOLUME; MIXER: lanes 1..4; else the cards
+ *   K1..K4     LANDSCAPE: the volumes of lanes 1..4 (a lane's sound: its SOUND page; HOW MANY, HOW ACTIVE: the white
+ *              keys); MIXER: lanes 1..4; else the cards
  *   HOME       LANDSCAPE (again: MIXER)        EDIT  SOUND (again: DRIVE)        FX  COMPRESSOR (again: GRAIN, REVERB)
  *   GLO        TEMPO (again: MIDI, DISPLAY)        LFO  the LFO pages; held + a card turned: mod learn (the
  *              selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP  MATRIX
  *   ENV        the ENV / FOLLOW pages; held + a card turned: mod learn from the selected ENV or FOLLOW
- *   SEL        key mode: LANDSCAPE / PLAY      OCT- OCT+  LANDSCAPE mode: the lane (and its page); PLAY mode: the octave
+ *   SEL        key mode: LANDSCAPE / PLAY      OCT- OCT+  LANDSCAPE mode: the previous / next lane (a lane's page,
+ *              SOUND, DRIVE or FILTER, stays, for the new lane; any other goes to LANDSCAPE); PLAY mode: the octave
+ *   black keys LANDSCAPE mode, by their groups: lanes 1..4 (a lane's page stays, any other goes to the lane's SOUND)
  *   REC        LANDSCAPE mode: all lanes stop (remembered) / start again
  *   SAVE       the save mode (scenes.c: PRESETS / K1 the user scene, SAVE again saves, HOME cancels); held 700 ms:
  *              undo the last scene load            PRESETS  browse the scenes (loads 400 ms after the last detent)
@@ -159,12 +162,6 @@ static void ui_fit(char *s, int32_t w)
 
 /* ---- what is shown */
 static uint32_t ui_lane_act(uint32_t k) { return sc.run[k] ? sc_act_of(sc.step[k]) + 1u : 0u; }   /* 0 off, 1 .. 9 */
-static const char *ui_count_text(uint32_t c, char *t)
-{
-    if (!c) { p_strcpy(t, "OFF", 4); return t; }
-    p_fmt_int(t, 1 << (c - 1u));
-    return t;
-}
 static void ui_pan_text(uint32_t p, char *t)     /* 0 .. 127: L64 .. C .. R63 */
 {
     if (p == 64u) { p_strcpy(t, "C", 2); return; }
@@ -774,14 +771,20 @@ static void ui_page_step(int32_t d)             /* SELECT: the next sub-page, th
         else if (ui_g > 0u) ui_goto(ui_g - 1u, ui_nsub(ui_g - 1u) - 1u);
     }
 }
-static void ui_lane_focus(uint32_t k)           /* OCT, a black key: lane k, and its page: a lane's page (SOUND, DRIVE,
+static void ui_lane_focus(uint32_t k)           /* a black key: lane k, and its page: a lane's page (SOUND, DRIVE,
                                                  * FILTER) stays with the new lane, any other goes to the lane's SOUND 1 */
 {
     sc_select(k);
     if (ui_lane_page()) ui_goto(ui_g, ui_sub); else ui_goto(G_SOUND, 0);
     ui_say_n("LANE", sc.sel + 1);
 }
-static void ui_lane_step(int32_t d) { ui_lane_focus((uint32_t)clampi((int32_t)sc.sel + d, 0, (int32_t)SC_N - 1)); }
+static void ui_lane_step(int32_t d)             /* OCT: the previous / next lane; a lane's page stays with it, any other
+                                                 * goes to LANDSCAPE */
+{
+    sc_select((uint32_t)clampi((int32_t)sc.sel + d, 0, (int32_t)SC_N - 1));
+    if (ui_lane_page()) ui_goto(ui_g, ui_sub); else ui_goto(G_LAND, 0);
+    ui_say_n("LANE", sc.sel + 1);
+}
 /* a parameter turned by d detents: an amount or a choice by d, a toggle on (up) / off (down) */
 static void ui_turn(uint32_t id, int32_t d)
 {
@@ -822,9 +825,8 @@ static void ui_learn(uint32_t k, int32_t d)
 {
     uint32_t id = NOID;
     int s;
-    static const uint8_t LAND[4] = {0xFF, PL_COUNT, PL_ACTIVE, PL_LEVEL};   /* (LANDSCAPE: K2..K4, the selected lane's) */
     if (ui_g == G_MIX) id = PID(k, ui_sub ? PL_PAN : PL_LEVEL);
-    else if (ui_g == G_LAND) { if (LAND[k] != 0xFF) id = PID(sc.sel, LAND[k]); }
+    else if (ui_g == G_LAND) id = PID(k, PL_LEVEL);   /* (LANDSCAPE: lane k's volume) */
     else id = ui_row_id(k);
     ui_lfo_learned = 1;
     s = id == NOID ? -1 : mod_learn(ui_lsrc, id, d);
@@ -842,7 +844,6 @@ static void ui_learn(uint32_t k, int32_t d)
 }
 static void ui_knob(uint32_t k, int32_t d)
 {
-    uint32_t l = sc.sel;
     if (ui_lfo_down) { ui_learn(k, d); return; }
     if (ui_latched()) { ui_learn(k, d); ui_latch_t = fm1_ms - (LATCH_MS - 800u); if (!ui_latch_t) ui_latch_t = 1u; return; }
                                                 /* (latched: this turn's detents, until 800 ms after the last) */
@@ -853,25 +854,13 @@ static void ui_knob(uint32_t k, int32_t d)
         return;
     }
     if (ui_g != G_LAND) { uint32_t id = ui_row_id(k); if (id != NOID) ui_turn(id, d); return; }
-    if (sc.snd[l] < 0) return;
-    if (k == 0u) {
-        char t[32];
-        sc_sound_turn(d > 0 ? 1 : -1);
-        p_upper(t, sc_sound_name(l), 31);
+    if (sc.snd[k] < 0) return;                  /* LANDSCAPE: lane k's volume (an empty lane: none) */
+    sc_volume(k, (uint32_t)clampi((int32_t)sc_vol_of(k) + d, 0, 127));
+    {
+        char t[24], n[8];
+        p_strcpy(t, "LANE ", 23); p_fmt_int(n, (int32_t)k + 1); p_cat(t, n, 23); p_cat(t, " VOLUME ", 23);
+        p_fmt_int(n, (int32_t)sc_vol_of(k)); p_cat(t, n, 23);
         ui_say(t);
-    } else if (k == 1u) {
-        char t[12], m[24];
-        sc_count(l, (uint32_t)clampi((int32_t)sc_cnt_of(l) + (d > 0 ? 1 : -1), 0, (int32_t)LS_NCNT - 1));
-        p_strcpy(m, "HOW MANY ", 10); p_cat(m, ui_count_text(sc_cnt_of(l), t), 23);
-        ui_say(m);
-    } else if (k == 2u) {
-        int32_t a = (int32_t)ui_lane_act(l) + (d > 0 ? 1 : -1);   /* 0 off, 1 .. 9 */
-        if (a <= 0) { if (sc.run[l]) sc_count(l, 0); ui_say("HOW ACTIVE OFF"); return; }
-        sc_step(l, sc_act_step((uint32_t)clampi(a - 1, 0, (int32_t)LS_NACT - 1)));
-        ui_say_n("HOW ACTIVE", (int32_t)ui_lane_act(l));
-    } else {
-        sc_volume(l, (uint32_t)clampi((int32_t)sc_vol_of(l) + d, 0, 127));
-        ui_say_n("VOLUME", (int32_t)sc_vol_of(l));
     }
 }
 static void ui_algorithm(int32_t d)
