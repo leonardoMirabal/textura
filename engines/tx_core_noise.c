@@ -174,24 +174,39 @@ TX_INLINE void svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, const in
     for (j = 0; j < n; j++) silent |= in[j];
     silent = !silent;
     if (silent && tx_svf_bank_quiet(r, nr)) return;
-    for (i = 0; i + 1u < nr; i += 2u) {
-        SVF_IN(i, 0); SVF_IN(i + 1u, 1);
-        if (q >= 512)                                        /* Q <= 32 */
-            for (j = 0; j < n; j++) {
-                int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
-                int32_t x = ((v >> 8) * q) >> 14, y = 0;     /* Q15, x 1 / Q (|x| <= 2^16 / 4 for Q >= 4) */
-                SVF_LOW(0); SVF_LOW(1);
-                out[j] += y;
-            }
-        else                                                 /* high Q: the damping q band / 2^14 is under 1 LSB; */
-            for (j = 0; j < n; j++) {                        /* for |band| < 2^14 / q: error feedback keeps it exact */
-                int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
-                int32_t x = ((v >> 8) * q) >> 14, y = 0;
-                SVF_HIGH(0); SVF_HIGH(1);
-                out[j] += y;
-            }
-        SVF_OUT(i, 0); SVF_OUT(i + 1u, 1);
-    }
+    if (nr >= 4u && n <= TX_BLOCK) {                       /* two pairs or more: the input's x once for all of them */
+        int32_t xs[TX_BLOCK];
+        for (j = 0; j < n; j++) {
+            int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
+            xs[j] = ((v >> 8) * q) >> 14;
+        }
+        for (i = 0; i + 1u < nr; i += 2u) {
+            SVF_IN(i, 0); SVF_IN(i + 1u, 1);
+            if (q >= 512)
+                for (j = 0; j < n; j++) { int32_t x = xs[j], y = 0; SVF_LOW(0); SVF_LOW(1); out[j] += y; }
+            else
+                for (j = 0; j < n; j++) { int32_t x = xs[j], y = 0; SVF_HIGH(0); SVF_HIGH(1); out[j] += y; }
+            SVF_OUT(i, 0); SVF_OUT(i + 1u, 1);
+        }
+    } else
+        for (i = 0; i + 1u < nr; i += 2u) {
+            SVF_IN(i, 0); SVF_IN(i + 1u, 1);
+            if (q >= 512)                                        /* Q <= 32 */
+                for (j = 0; j < n; j++) {
+                    int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
+                    int32_t x = ((v >> 8) * q) >> 14, y = 0;     /* Q15, x 1 / Q (|x| <= 2^16 / 4 for Q >= 4) */
+                    SVF_LOW(0); SVF_LOW(1);
+                    out[j] += y;
+                }
+            else                                         /* high Q: the damping q band / 2^14 is under 1 LSB; */
+                for (j = 0; j < n; j++) {                /* for |band| < 2^14 / q: error feedback keeps it exact */
+                    int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
+                    int32_t x = ((v >> 8) * q) >> 14, y = 0;
+                    SVF_HIGH(0); SVF_HIGH(1);
+                    out[j] += y;
+                }
+            SVF_OUT(i, 0); SVF_OUT(i + 1u, 1);
+        }
     if (i < nr) {
         SVF_IN(i, 0);
         if (q >= 512)

@@ -177,6 +177,66 @@ void tx_flash_echo(tx_flash_t *f, uint32_t delay, int32_t gain_q15)
 
 #define MUL15(a, b) ((((a) >> 15) * (b)) + ((((a) & 0x7FFF) * (b)) >> 15))
 
+/* the N-wave: d's edges integrated (x), windowed by the ramp over 2L (s1, s2), into d (its own function: its state in
+ * registers). Returns nonzero while anything sounds */
+__attribute__((noinline)) static int32_t flash_ramp(tx_flash_t *f, int32_t *d, int32_t *t, unsigned n)
+{
+    int32_t x = f->x, s1 = f->s1, s2 = f->s2, L2 = f->l2, rc = f->recip, any = 0, n1 = f->n1, n2 = f->n2, ta = f->ta;
+    uint32_t nr = f->nr ? f->nr : 0x2545F491u;
+    int16_t *dl = f->dl;
+    unsigned p = f->dlpos, j;
+    for (j = 0; j < n; j++) {
+        int32_t xo, xc;
+        x += d[j];
+        xc = x > XMAX ? XMAX : x < -XMAX ? -XMAX : x;
+        xo = dl[p];                                      /* x[n - 2L] */
+        dl[p] = (int16_t)xc;
+        p = p + 1u >= (unsigned)L2 ? 0u : p + 1u;
+        s2 += s1 - L2 * xo;                              /* sum k x[n-k], k = 0 .. 2L-1 (uses the old S1) */
+        s1 += xc - xo;
+        d[j] = s1 - MUL15(s2, rc);                       /* the odd ramp +1 .. -1 */
+        any |= xc | s1 | s2;
+        {
+            int32_t u;
+            nr ^= nr << 13; nr ^= nr >> 17; nr ^= nr << 5;
+            u = (int32_t)(nr >> 17) - 16384;
+            n1 += MUL15(u * 64 - n1, ta);                /* (x 64, as the air's) */
+            n2 += MUL15(n1 - n2, ta);
+            t[j] = n2 >> 6;
+        }
+    }
+    f->n1 = n1; f->n2 = n2; f->nr = nr;
+    f->x = x; f->s1 = s1; f->s2 = s2; f->dlpos = (uint16_t)p;
+    return any;
+}
+
+/* the rolling tail's envelope and the output (ys: the air's output, nz: the tail's noise; its own function: its state
+ * in registers). Returns the envelope */
+__attribute__((noinline)) static int32_t flash_out(tx_flash_t *f, const int32_t *ys, const int32_t *nz, int32_t *out,
+                                                   unsigned n, int32_t *lp)
+{
+    int32_t env = f->env, epk = f->epk, trel = f->trel, tgn = f->tgain, oa = f->oatt, a = f->lpa, g = f->out_g;
+    int32_t lp1 = lp[0], lp2 = lp[1];
+    unsigned j;
+    for (j = 0; j < n; j++) {
+        int32_t yo, ay;
+        lp1 += MUL15(ys[j] * 64 - lp1, a);               /* (the air's states x 64: a far flash is quiet and its
+                                                          * corner low, and whole steps were a broadband hiss) */
+        lp2 += MUL15(lp1 - lp2, a);
+        yo = lp2 * (g >> 6); ay = (yo < 0 ? -yo : yo);
+        ay = (ay > (1 << 26) ? (1 << 26) : ay) << 4;   /* (x 16: the fall's last steps are under -70 dBFS) */
+        env = ay > env ? env + ((ay - env) >> 6) : env - (((env >> 12) * trel) >> 12) - (env > 0);
+        if (env > epk) epk = env;
+        else if (!ay && env > 0 && env < (epk >> TH_FSH)) env -= (env >> 10) + 1;   /* (36 dB under its peak: a quick
+                                                          * fade, never a cut) */
+        out[j] += MUL15(yo + ((((nz[j] * (env >> 16)) >> 1) >> 8) * tgn), oa);   /* (calibrated by render;
+                                                          * x 32768: exact) */
+    }
+    f->env = env; f->epk = env ? epk : 0;
+    lp[0] = lp1; lp[1] = lp2;
+    return env;
+}
+
 TX_AUDIO_CODE void tx_flash_add(tx_flash_t *f, tx_rng_t *r, int32_t *out, unsigned n)
 {
     unsigned i, j, s;
@@ -205,51 +265,29 @@ TX_AUDIO_CODE void tx_flash_add(tx_flash_t *f, tx_rng_t *r, int32_t *out, unsign
         }
     }
     /* integrate, N-wave window, air, out */
-    x = f->x; s1 = f->s1; s2 = f->s2; lp1 = f->lp1; lp2 = f->lp2;
+    lp1 = f->lp1; lp2 = f->lp2;
     {   /* the rolling tail (session 5: "a thunder tail never cuts"): the arrivals of the channel's segments end at
          * once, real thunder rolls on, its sound scattered and reflected by the ground and the air: a low noise
          * (~200 Hz, two one-poles) following the output's envelope, which falls with tau 1.5 s (ours) */
         int32_t env = f->env, n1 = f->n1, n2 = f->n2;
         uint32_t nr = f->nr ? f->nr : 0x2545F491u;
-        int32_t L2 = f->l2, rc = f->recip, a = f->lpa, g = f->out_g, trel = f->trel, tgn = f->tgain, ta = f->ta, oa = f->oatt, epk = f->epk;
-        int16_t *dl = f->dl;
-        unsigned p = f->dlpos;
-        for (j = 0; j < n; j++) {
-            int32_t xo, y, xc;
-            x += d[j];
-            xc = x > XMAX ? XMAX : x < -XMAX ? -XMAX : x;
-            xo = dl[p];                                      /* x[n - 2L] */
-            dl[p] = (int16_t)xc;
-            p = p + 1u >= (unsigned)L2 ? 0u : p + 1u;
-            s2 += s1 - L2 * xo;                              /* sum k x[n-k], k = 0 .. 2L-1 (uses the old S1) */
-            s1 += xc - xo;
-            y = s1 - MUL15(s2, rc);                          /* the odd ramp +1 .. -1 */
-            lp1 += MUL15(y * 64 - lp1, a);                   /* (the air's states x 64: a far flash is quiet and its
-                                                              * corner low, and whole steps were a broadband hiss) */
-            lp2 += MUL15(lp1 - lp2, a);
-            {
-                int32_t yo = lp2 * (g >> 6), ay = (yo < 0 ? -yo : yo), u;
-                ay = (ay > (1 << 26) ? (1 << 26) : ay) << 4;   /* (x 16: the fall's last steps are under -70 dBFS) */
-                env = ay > env ? env + ((ay - env) >> 6) : env - (((env >> 12) * trel) >> 12) - (env > 0);
-                if (env > epk) epk = env;
-                else if (!ay && env > 0 && env < (epk >> TH_FSH)) env -= (env >> 10) + 1;   /* (36 dB under its peak: a quick
-                                                              * fade, never a cut) */
-                nr ^= nr << 13; nr ^= nr >> 17; nr ^= nr << 5;
-                u = (int32_t)(nr >> 17) - 16384;
-                n1 += MUL15(u * 64 - n1, ta);                /* (x 64, as the air's) */
-                n2 += MUL15(n1 - n2, ta);
-                out[j] += MUL15(yo + (((((n2 >> 6) * (env >> 16)) >> 1) >> 8) * tgn), oa);   /* (calibrated by render;
-                                                              * x 32768: exact) */
-            }
-            any |= xc | s1 | s2;
+        int32_t t[TX_BLOCK];                                 /* (passes, each one's state in registers: the ramp y
+                                                              * and the air's yo in d (its edges taken: free), the
+                                                              * tail's noise in t, then the tail and out) */
+        any = flash_ramp(f, d, t, n);
+        n1 = f->n1; n2 = f->n2; nr = f->nr;
+        x = f->x; s1 = f->s1; s2 = f->s2;
+        {
+            int32_t lp[2];
+            lp[0] = lp1; lp[1] = lp2;
+            env = flash_out(f, d, t, out, n, lp);
+            lp1 = lp[0]; lp2 = lp[1];
         }
-        f->dlpos = (uint16_t)p;
         if (!env) n1 = n2 = 0;
-        f->env = env; f->epk = env ? epk : 0; f->n1 = n1; f->n2 = n2; f->nr = nr;
+        f->n1 = n1; f->n2 = n2; f->nr = nr;
     }
     for (j = 0; j < TX_TH_SMEAR + 1u; j++) d[j] = d[n + j];  /* carry the boxes' far edges */
     for (; j < n + TX_TH_SMEAR + 1u; j++) d[j] = 0;
-    f->x = x; f->s1 = s1; f->s2 = s2;
     f->clock = c0 + n;
     if (!any && ((lp1 > -1024 && lp1 < 1024 && lp2 > -1024 && lp2 < 1024) || (lp1 == f->lp1 && lp2 == f->lp2)))
         lp1 = lp2 = 0;                                       /* small, or frozen (the step rounds to zero) */

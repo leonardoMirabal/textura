@@ -174,6 +174,26 @@ TX_RAM static void gd_run(const tx_fx_grain_t *d, uint32_t s, unsigned cnt, int3
  * once (rate 1 from a whole sample: m samples; else the span its position covers, +1 for the interpolation), read
  * with a Q16 position in that run, windowed and placed into sl / sr. sl 0 (GRAIN at 0, the grains unheard): only its
  * position moves, as far as the reads would have taken it */
+/* a rate-1 segment's output: the window's gains only when it steps (the pitched loop keeps the product: its registers
+ * are full, the test and its spills cost more there than they save, measured on the FM-1) */
+TX_RAM __attribute__((noinline)) static void gd_win1(const int32_t *buf, unsigned m, uint32_t ph, uint32_t inc,
+                                                   int32_t gl, int32_t gr, int32_t *sl, int32_t *sr)
+{
+    int32_t ql = 0, qr = 0;
+    uint32_t wi = 1024u;                                /* (the window's step whose gains ql, qr hold: none yet) */
+    unsigned j;
+    for (j = 0; j < m; j++) {
+        int32_t b = buf[j];
+        ph += inc;
+        if (ph >> 22 != wi) {                           /* (a new step of the window: its gains) */
+            int32_t wv = TX_FX_HANN[wi = ph >> 22];
+            ql = (wv * gl) >> 15; qr = (wv * gr) >> 15;
+        }
+        sl[j] += mq15(b, ql);                           /* the window and the place in one gain per side */
+        sr[j] += mq15(b, qr);
+    }
+}
+
 TX_RAM static void gd_seg(const tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t ph, uint32_t inc, unsigned j0, unsigned m,
                    int32_t *sl, int32_t *sr)
 {
@@ -191,13 +211,7 @@ TX_RAM static void gd_seg(const tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t ph,
     if (g->rate == 65536 && !g->frac) {
         gd_run(d, g->pos, m, buf);
         g->pos = g->pos + m >= TX_GD_N ? g->pos + m - TX_GD_N : g->pos + m;
-        for (j = 0; j < m; j++) {
-            int32_t wv;
-            ph += inc;
-            wv = TX_FX_HANN[ph >> 22];
-            sl[j] += mq15(buf[j], (wv * gl) >> 15);      /* the window and the place in one gain per side */
-            sr[j] += mq15(buf[j], (wv * gr) >> 15);
-        }
+        gd_win1(buf, m, ph, inc, gl, gr, sl, sr);
     } else {
         int32_t r = g->rate, end = ((int32_t)g->frac + r * (int32_t)(m - 1u)) >> 16, lo = end < 0 ? end : 0;
         uint32_t base = lo < 0 ? gd_idx(g->pos, (uint32_t)-lo) : g->pos, P = g->frac + ((uint32_t)-lo << 16);
