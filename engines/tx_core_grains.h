@@ -105,10 +105,16 @@ TX_AUDIO_CODE static inline void tx_gr_render(tx_grains_t *g, tx_rng_t *r, int32
             unsigned end = sl < TX_GR_SLOTS ? sl * n / TX_GR_SLOTS : n;   /* its grains of this band at once */
             int32_t x = 0;
             unsigned k;
-            for (; j < end; j++) {
+            for (; j < end && (p1 | p2); j++) {             /* (the two samples after a grain: its input's tail) */
                 int32_t y = ((a1 * y1) >> 14) - ((a2 * y2) >> 14) - (p2 >> 1);
                 y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
                 p2 = p1; p1 = 0;
+                y2 = y1; y1 = y;
+                out[j] += y * gg;
+            }
+            for (; j < end; j++) {                           /* (then the ring alone) */
+                int32_t y = ((a1 * y1) >> 14) - ((a2 * y2) >> 14);
+                y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
                 y2 = y1; y1 = y;
                 out[j] += y * gg;
             }
