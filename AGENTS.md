@@ -58,6 +58,14 @@ still to be designed (**todo**).
 - Browser player: built to `build/audition/`, served with `python3 -m http.server` on localhost (Web MIDI works on
   localhost).
 - Firmware: **todo** (stage S4: port onto Frodhes' platform; build on macOS through Docker as Frodhes does).
+- On USB the FM-1 reads **Textura FM-1** (the device, its MIDI port and its audio interface; maker "Textura"). The
+  "FM-1" keeps the web installers working: thefirmwarehub.com probes only ports named like an FM-1, and a unit on
+  Textura must always take another firmware from there. It has its own
+  product id (`tools/fm1_bench.py`: the strings written into the copied `usb.c`, `USB_PID`; interim 1209:000A, a
+  pid.codes test PID for in-house tests only, until Textura's own is granted). The update loader keeps 1209:0002.
+  Our tools take a "Textura" port first and never a "Frodhes" one beside it (`tools/tx_ports.py`: `fm1_timing.py`,
+  `hil_jack.py`); a "Frodhes" port may be Frodhes' own FM-1. Install with `tools/tx_install.py PACKAGE.fwsc`; a unit
+  still on the firmware named "Frodhes" takes `--port Frodhes` once.
 
 ## 4. The change procedure
 

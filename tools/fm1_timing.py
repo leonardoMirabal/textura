@@ -23,9 +23,12 @@ from pathlib import Path
 
 import mido
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # (python -I: the tools' own helper)
+import tx_ports  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 FM1 = ROOT / "build" / "fm1"
-PORT_RE = re.compile(r"fm-1|txfm1|textura|felucca|dinghy|frodhes", re.I)   # the bench keeps Frodhes' USB name
+ALSO = r"fm-1|txfm1|felucca|dinghy"                  # after "Textura" (tx_ports: "Frodhes" only by --port)
 TPB_MS = 256 * 1000 / 44100
 PAR = []                                         # (labels(): the LANES rows on two cores)
 
@@ -42,10 +45,10 @@ def labels():
 
 class Dev:
     def __init__(self, name):
-        ins = [n for n in mido.get_input_names() if (name and name in n) or (not name and PORT_RE.search(n))]
-        outs = [n for n in mido.get_output_names() if (name and name in n) or (not name and PORT_RE.search(n))]
+        ins = tx_ports.pick(mido.get_input_names(), name, ALSO)
+        outs = tx_ports.pick(mido.get_output_names(), name, ALSO)
         if not ins or not outs:
-            raise SystemExit(f"fm1_timing: no FM-1 port (in {mido.get_input_names()}, out {mido.get_output_names()})")
+            raise SystemExit(f"fm1_timing: no FM-1 port: {tx_ports.why_none(mido.get_input_names(), name)}")
         self.i, self.o = mido.open_input(ins[0]), mido.open_output(outs[0])
         self.name = outs[0]
 
@@ -194,7 +197,9 @@ def main():
         if kinds[i] == 2 and not a.no_usb48 and stream is None:
             try:
                 import sounddevice as sd
-                dev = [k for k, x in enumerate(sd.query_devices()) if PORT_RE.search(x["name"]) and x["max_input_channels"] >= 2]
+                devs = sd.query_devices()
+                ok = tx_ports.pick([x["name"] for x in devs if x["max_input_channels"] >= 2], a.port, ALSO)
+                dev = [k for n in ok[:1] for k, x in enumerate(devs) if x["name"] == n and x["max_input_channels"] >= 2]
                 stream = sd.InputStream(device=dev[0], samplerate=48000, channels=2, blocksize=128, dtype="int16")
                 stream.start()
                 print("  USB audio open at 48 kHz (the four-lane cases)")

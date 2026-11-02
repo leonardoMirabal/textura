@@ -7,9 +7,10 @@ recorder (Ring, Capture, to_fs) from its tools/hil_scan.py; adapted to Textura: 
 (program change on channel 1: F01 .. F10, each landscape at its start), the lanes are channels 1 .. 4 (CC 22 HOW
 ACTIVE starts a lane), the mix's COMPRESSOR is switched by CC 95 on channel 5 (COMP: 0 off, 127 on; params.c).
 
-  hil_jack.py [--dev M6] [--ch 5] [--only NAME[,NAME]] [--secs 15] [--comp 0,127] [--dry-run]
+  hil_jack.py [--dev M6] [--ch 5] [--only NAME[,NAME]] [--secs 15] [--comp 0,127] [--port NAME] [--dry-run]
 
-The rig: the FM-1's USB audio (44.1 kHz) and USB MIDI (the port named "Frodhes": the only MIDI port opened), its
+The rig: the FM-1's USB audio (44.1 kHz) and USB MIDI (the port named "Textura": the only MIDI port opened;
+"Frodhes" only by --port Frodhes, a unit still on the old firmware, never beside a Textura port: tools/tx_ports.py), its
 headphone jack into the interface --dev input --ch (the MOTU M6 input 5, 48 kHz). The interface's input gain is never
 touched: every jack figure is re its full scale, so the differences are what matter.
 
@@ -37,7 +38,9 @@ import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FS = 48000
-PORT_KEY = "frodhes"                           # the FM-1's MIDI port and USB audio: never IAC or any other port
+# the FM-1's MIDI port and USB audio, never IAC or any other port (tools/tx_ports.py; python -I: the tools' own helper)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tx_ports  # noqa: E402
 LANDSCAPES = ("WATER", "STONES & SAND", "ICE & GLASS", "FIRE", "WOOD", "WIND", "STORM", "INSECTS", "SONGBIRDS",
               "WILD BIRDS")                     # (landscapes.h order: factory scene F01 .. F10)
 CH_GLOBAL = 4                                  # (0-based: channel 5)
@@ -200,17 +203,18 @@ def to_fs(x, sr, dur):
 
 # ---- the rig
 class Rig:
-    def __init__(self, devname, ch):
+    def __init__(self, devname, ch, port=None):
         import atexit
         import mido
         import sounddevice as sd
         self.mido = mido
-        names = [n for n in mido.get_output_names() if PORT_KEY in n.lower()]
+        names = tx_ports.pick(mido.get_output_names(), port)
         if not names:
-            sys.exit("no FM-1 MIDI port (a name with 'Frodhes')")
+            sys.exit(f"no FM-1 MIDI port: {tx_ports.why_none(mido.get_output_names(), port)}")
         self.out = mido.open_output(names[0])
         devs = sd.query_devices()
-        usb = [i for i, d in enumerate(devs) if PORT_KEY in d["name"].lower() and d["max_input_channels"] >= 2]
+        ok = tx_ports.pick([d["name"] for d in devs if d["max_input_channels"] >= 2], port)
+        usb = [i for n in ok[:1] for i, d in enumerate(devs) if d["name"] == n and d["max_input_channels"] >= 2]
         jack = [i for i, d in enumerate(devs) if d["name"] == devname and d["max_input_channels"] >= ch]
         if not usb or not jack:
             sys.exit(f"no FM-1 USB audio input or no '{devname}' input {ch}")
@@ -270,6 +274,7 @@ def main():
     ap.add_argument("--only", default="", help="landscapes by name, comma separated")
     ap.add_argument("--secs", type=float, default=15.0, help="each take's length (after 4 s to settle)")
     ap.add_argument("--comp", default="0,127", help="COMP off / on (CC 95 on channel 5: 0 off, 127 on, at its defaults)")
+    ap.add_argument("--port", help="the FM-1's MIDI port and USB audio (part of the name; default: Textura)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     only = [s.strip().upper() for s in a.only.split(",") if s.strip()]
@@ -281,7 +286,7 @@ def main():
                 f"COMP {c} (CC {CC_COMP} ch 5): default, then CC {CC_ACTIVE}=64 ch 1-4" for c in comps))
         print(f"~{len(todo) * (len(comps) * 2 * (a.secs + 6) + 20) / 60:.0f} min")
         return
-    r = Rig(a.dev, a.ch)
+    r = Rig(a.dev, a.ch, a.port)
     # the jack really there: F01 with its four lanes playing must read well over the input's silence (else the input
     # is not wired: stop before measuring a floor as music)
     r.send("pc", 0, 0)

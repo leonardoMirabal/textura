@@ -40,7 +40,8 @@
 #                      (tests/host.c): build/fw/textura-host OUT [SCRIPT [FPS]] -> OUT.wav, OUT-<ms>.ppm
 #   make fw-test       the firmware's checks: tests/lanes_test.c (the lanes = the player's chain, sample for sample)
 #                      and every host script in tests/scripts/ (its expects), and that firmware/src/landscapes.h is
-#                      still what audition/app.js gives (FAMILIES, QUICK)
+#                      still what audition/app.js gives (FAMILIES, QUICK); the FM-1's USB name and port choice
+#                      (tests/ports_check.py: "Textura" first, never a "Frodhes" port beside it)
 #   make fw-web        the firmware in a web browser -> build/web/ (web/build.sh, Emscripten from .local/emsdk;
 #                      REL=X.Y.Z stamps a version); make fw-web-serve serves it at http://localhost:8001
 #   make fw-web-check  the web panel in headless Chromium at desktop and phone width (tests/web_check.py)
@@ -153,6 +154,7 @@ fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/textura-host
 	then echo "ok    host power cycle (tests/power: a scene and the settings across a restart)"; \
 	else echo "FAIL  host power cycle ($(FW)/power1.log, power2.log)"; fail=1; fi; \
 	python3 -I tests/clock_check.py > $(FW)/clock.log 2>&1 && echo "ok    clock (tests/clock_check.py)" || { echo "FAIL  clock ($(FW)/clock.log)"; fail=1; }; \
+	python3 -I tests/ports_check.py > $(FW)/ports.log 2>&1 && echo "ok    ports (tests/ports_check.py: Textura first, never Frodhes beside it)" || { echo "FAIL  ports ($(FW)/ports.log)"; fail=1; }; \
 	exit $$fail
 
 fw-web:

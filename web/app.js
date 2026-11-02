@@ -280,7 +280,15 @@ async function setupMidi() {
     const acc = await navigator.requestMIDIAccess();
     const sel = $("midi"), fill = () => {
       const cur = sel.value; sel.length = 1;
-      for (const inp of acc.inputs.values()) { const o = document.createElement("option"); o.value = inp.id; o.textContent = inp.name; sel.appendChild(o); }
+      // (the list is the user's pick, never automatic: a "Textura" port first, and no "Frodhes" one beside it, as
+      // tools/tx_ports.py: a Frodhes FM-1 may be on the same computer)
+      const ins = [...acc.inputs.values()], tex = n => /textura/i.test(n || "");
+      const has = ins.some(i => tex(i.name));
+      ins.sort((a, b) => tex(b.name) - tex(a.name));
+      for (const inp of ins) {
+        if (has && /frodhes/i.test(inp.name || "")) continue;
+        const o = document.createElement("option"); o.value = inp.id; o.textContent = inp.name; sel.appendChild(o);
+      }
       sel.value = cur;
     };
     fill(); acc.onstatechange = fill;

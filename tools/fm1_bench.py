@@ -14,8 +14,9 @@ object by object (--measure: that report only, no image).
 
 The device side of Dinghy's platform (hal/, crt0, app.ld, the loader, usb.c, lcd.c, ota.c ...) is read from Frodhes'
 git at --rev (git archive: its checkout is never touched) into build/fm1/tree; Textura's own platform.c / gfx.c / fonts
-and the engines go over it. The JieLi toolchain (.local/jieli/toolchain, Linux x86-64) runs in one linux/amd64
-Docker container. Outputs in build/fm1: txfm1.bin, txfm1.elf, txfm1.map, stack.txt, textura-bench.fwsc.
+and the engines go over it; usb.c's product and manufacturer strings are made "Textura" (the device, the MIDI port
+and the audio interface; usb_name) and the app's USB product id is USB_PID. The JieLi toolchain
+(.local/jieli/toolchain, Linux x86-64) runs in one linux/amd64 Docker container. Outputs in build/fm1: txfm1.bin, txfm1.elf, txfm1.map, stack.txt, textura-bench.fwsc.
 Nothing here is committed: build/ and .local/ are ignored.
 """
 import argparse
@@ -49,6 +50,43 @@ TX_OVER = ["firmware/app.ld", "firmware/src/platform.c", "firmware/src/core1.h",
            "firmware/hal/fm1_flash_map.h"]
 
 
+# Textura's own USB identity in the app and the bench (never the update loader: FELUCCA_LOADER keeps 1209:0002, "Felucca
+# Update", Hügelton Instruments). Frodhes' usb.c (its header kept) is rewritten as it is copied:
+#   STR2, the product: the device, its MIDI port (the jacks are named by it) and its audio interface: "Textura FM-1"
+#     ("FM-1" in it: the web installers, thefirmwarehub.com's among them, probe only ports whose name has "fm-1",
+#     "felucca", "sloop", ...; without it a unit on Textura could not be given another firmware from there)
+#   STR1, the manufacturer: "Textura" (the loader's own branch keeps Frodhes' string)
+# (string descriptors 2 + 2 x 12 = 26 and 2 + 2 x 7 = 16 bytes.) The product id is set at the compile (FELUCCA_USB_PID, usb.c's #ifndef):
+# a computer keeps a MIDI device's name per VID:PID, so Textura needs its own, apart from Frodhes' units (0x0005 /
+# 0x0006 ...). USB_PID is that one place: 0x000A is interim, a pid.codes test PID (1209:0001 .. 0010 are its test
+# PIDs; 0001, 0002, 0004 .. 0009 are Felucca's / the loader's / Dinghy's / Frodhes'); the PID granted for Textura
+# replaces it here. A test PID is not unique (anyone may use it): in-house tests only, never a released image.
+USB_NAME = "Textura FM-1"
+USB_MAKER = "Textura"
+USB_PID = 0x000A
+USB_STR2_RE = re.compile(r"static const uint8_t STR2\[\] = \{16, 3, 'F', 0, 'r', 0, 'o', 0, 'd', 0, 'h', 0, 'e', 0, 's', 0\};")
+USB_STR1_RE = re.compile(r"static const uint8_t STR1\[\] = \{42, 3, 'H', 0, 0xFC, 0, [^;]*\};\n")
+
+
+def str_desc(text):
+    """a USB string descriptor's C initialiser (UTF-16LE, ASCII only): bLength, 3, the characters"""
+    if not text.isascii() or not 0 < len(text) <= 126:
+        raise SystemExit(f"fm1_bench: USB string {text!r}: 1 .. 126 ASCII characters")
+    return "{" + ", ".join([str(2 + 2 * len(text)), "3"] + [f"'{c}', 0" for c in text]) + "}"
+
+
+def usb_name(path):
+    src = path.read_text(encoding="utf-8")
+    new, k = USB_STR2_RE.subn(lambda m: f"static const uint8_t STR2[] = {str_desc(USB_NAME)};   /* Textura", src)
+    new, k1 = USB_STR1_RE.subn(lambda m: f"#ifdef FELUCCA_LOADER\n{m.group(0)}#else\nstatic const uint8_t STR1[] = "
+                                         f"{str_desc(USB_MAKER)};   /* Textura (tools/fm1_bench.py) */\n#endif\n", new)
+    if (k, k1) != (1, 1):
+        raise SystemExit(f"fm1_bench: {path}: the app's STR2 (\"Frodhes\") or STR1 (the manufacturer) not found once "
+                         f"({k}, {k1}): the USB name")
+    path.write_text(new.replace("/* Textura   /* Frodhes: the", "/* Textura (tools/fm1_bench.py; Frodhes: the", 1),
+                    encoding="utf-8")
+
+
 def stage(frodhes, rev, app=False):
     if TREE.exists():
         shutil.rmtree(TREE)
@@ -64,6 +102,7 @@ def stage(frodhes, rev, app=False):
     if app:                                   # (the app: all of Textura's own sources over Frodhes')
         for d in ("firmware/src", "firmware/gen"):
             shutil.copytree(ROOT / d, TREE / d, dirs_exist_ok=True)
+    usb_name(TREE / "firmware" / "src" / "usb.c")
     shutil.copytree(ROOT / "engines", TREE / "engines")
     shutil.copytree(ROOT / "bench" / "fm1", TREE / "bench")
     if not app:
@@ -191,9 +230,10 @@ def main():
              # the app
              f"{cc} -c firmware/crt0.S -o o/crt0.o", f"{cc} -c firmware/hal/fm1_vec.S -o o/fm1_vec.o",
              f"{cc} -c firmware/hal/fm1_isr.S -o o/fm1_isr.o",
-             (f'{cc} {cf} {inc} -DFELUCCA_ID=\\"{a.id}\\" -DAPP_VER=\\"dev\\" -c firmware/src/textura.c -o o/textura.o'
+             (f'{cc} {cf} {inc} -DFELUCCA_ID=\\"{a.id}\\" -DFELUCCA_USB_PID={USB_PID:#06x} -DAPP_VER=\\"dev\\" '
+              "-c firmware/src/textura.c -o o/textura.o"
               if a.app else
-              f'{cc} {cf} {inc} -DFM1_PROF_TICK -DFELUCCA_ID=\\"{a.id}\\" -DAPP_VER=\\"bench\\" '
+              f'{cc} {cf} {inc} -DFM1_PROF_TICK -DFELUCCA_ID=\\"{a.id}\\" -DFELUCCA_USB_PID={USB_PID:#06x} -DAPP_VER=\\"bench\\" '
               + "".join(f"-D{d} " for d in a.define) +
               "-c bench/txfm1.c -o o/txfm1.o")]
     if not a.eng_opt:
