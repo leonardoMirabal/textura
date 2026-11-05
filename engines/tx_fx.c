@@ -374,8 +374,13 @@ TX_AUDIO_CODE void tx_fx_lane_run(void *u, unsigned k, int32_t *x, unsigned n, u
 {
     tx_fx_t *fx = (tx_fx_t *)u;
     if (k >= TX_FX_LANES) return;
-    TX_FAR(tx_fx_drive_run)(&fx->drive[k], x, n, core ? &fx->scr1 : 0);
-    TX_FAR(tx_fx_filter_process)(&fx->filter[k], x, n);
+    if (core) {                                        /* core 1: the twins in XIP (TX_C1), its own DRIVE scratch */
+        TX_C1(tx_fx_drive_run)(&fx->drive[k], x, n, &fx->scr1);
+        TX_C1(tx_fx_filter_process)(&fx->filter[k], x, n);
+    } else {
+        TX_FAR(tx_fx_drive_run)(&fx->drive[k], x, n, 0);
+        TX_FAR(tx_fx_filter_process)(&fx->filter[k], x, n);
+    }
 }
 uint32_t tx_fx_lane_us(const tx_fx_t *fx, unsigned k)
 {

@@ -105,7 +105,7 @@ TX_RAM static void hall_half(tx_hall_t *h, uint32_t hf)
                                         &h->half[hf].le[j], kd));
     }
 }
-TX_RAM static void hall_job(void *a) { hall_half((tx_hall_t *)a, 1u); }   /* (the other core's: lines 4..7) */
+TX_RAM void tx_hall_job(void *a) { hall_half((tx_hall_t *)a, 1u); }   /* (the other core's: lines 4..7) */
 
 /* one control block (CTL frames of the send in, HL_NC samples out): mid, side */
 TX_RAM TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t *add, int32_t size, int32_t damp, int32_t md,
@@ -118,7 +118,7 @@ TX_RAM TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const i
     if (h->sz != size + 1) TX_FAR(hall_gains)(h, size);   /* (a SIZE change: in XIP) */
     h->ph += HL_LFO;
     h->jw = w; h->jkd = rv_weight(HL_KD(damp)); h->jmd = md;
-    taken = rv_fork(par, hall_job, h);                     /* the line ends: 4..7 there (or here, after), 0..3 here */
+    taken = rv_fork(par, TX_C1(tx_hall_job), h);           /* the line ends: 4..7 there (or here, after), 0..3 here */
     tx_rev_down(send, &h->hp, &h->he, h->bx);
     if (add) for (i = 0; i < HL_NC; i++) h->bx[i] += add[i];   /* (Textura: the shimmer, into the lines' input) */
     for (k = 0; k < HL_NAP; k++) {
@@ -128,7 +128,7 @@ TX_RAM TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const i
         a += HL_AP[k];
     }
     hall_half(h, 0u);
-    rv_join(par, hall_job, h, taken);
+    rv_join(par, tx_hall_job, h, taken);
     /* the feedback matrix (8 x 8, 0 on the diagonal, +-1 elsewhere), into the ring's next rows, and the outputs */
     o = h->comb + w * HL_NL;
     for (i = 0, y = h->half[0].y[0], z = h->half[1].y[0]; i < HL_NC; i++, y += HL_NL / 2u, z += HL_NL / 2u, o += HL_NL) {

@@ -34,6 +34,7 @@ typedef struct {
 void tx_fx_filter_init(tx_fx_filter_t *f);
 void tx_fx_filter_param(tx_fx_filter_t *f, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_filter_process(tx_fx_filter_t *f, int32_t *x, unsigned n);   /* mono Q23, in place */
+TX_TWIN(tx_fx_filter_process);
 #define TX_FX_US_FILTER 96u        /* the filter's FM-1 cost a block, its dearest TYPE (make tx-budget section 4) */
 static inline uint32_t tx_fx_filter_us(const tx_fx_filter_t *f) { return f->p[TX_FL_TYPE] ? TX_FX_US_FILTER : 0u; }
 
@@ -58,6 +59,7 @@ TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x, unsigned n)
  * scratch (w; 0: the shared one): the same samples */
 TX_AUDIO_CODE void tx_fx_drive_prep(tx_fx_drive_t *d);
 TX_AUDIO_CODE void tx_fx_drive_run(tx_fx_drive_t *d, int32_t *x, unsigned n, tx_drv_scr_t *w);
+TX_TWIN(tx_fx_drive_run);
 void tx_fx_drive_shared_init(tx_drv_shared_t *sh);
 void tx_fx_drive_share(tx_fx_drive_t *d, tx_drv_shared_t *sh);
 uint32_t tx_fx_drive_us(const tx_fx_drive_t *d);  /* its FM-1 cost now, us a block (0: off) */
@@ -121,6 +123,8 @@ TX_AUDIO_CODE void tx_fx_grain_voices(tx_fx_grain_t *d, unsigned n);
 TX_AUDIO_CODE void tx_fx_grain_split(tx_fx_grain_t *d, unsigned n);
 TX_AUDIO_CODE void tx_fx_grain_voices_a(tx_fx_grain_t *d, unsigned n);
 TX_AUDIO_CODE void tx_fx_grain_voices_b(tx_fx_grain_t *d, unsigned n);
+TX_TWIN(tx_fx_grain_voices_a);
+TX_TWIN(tx_fx_grain_voices_b);
 TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n);
 int tx_fx_grain_quiet(const tx_fx_grain_t *d);
 
@@ -174,6 +178,7 @@ void tx_fx_reverb_init(tx_fx_reverb_t *r);
 void tx_fx_reverb_param(tx_fx_reverb_t *r, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *R, unsigned n);   /* Q23, adds */
 TX_AUDIO_CODE void tx_fx_reverb_body(tx_fx_reverb_t *r);   /* ROOM's body on the other core (body_run's job) */
+TX_TWIN(tx_fx_reverb_body);
 int tx_fx_reverb_quiet(const tx_fx_reverb_t *r);
 void tx_fx_reverb_relatch(tx_fx_reverb_t *r);   /* a whole sound loaded (a scene): PLATE's AUTO size from MIX at once */
 int tx_fx_reverb_frozen(const tx_fx_reverb_t *r);   /* holding its tail (SUSTAIN / FREEZE): never quiet */

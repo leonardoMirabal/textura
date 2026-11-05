@@ -115,6 +115,8 @@ void tx_hall_start(tx_hall_t *h);
 /* add: HL_NC samples added to the input (the shimmer), or 0 */
 void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t *add, int32_t size, int32_t damp, int32_t md, int32_t *mid,
                  int32_t *side, const tx_rv_par_t *par);
+void tx_hall_job(void *a);          /* (the other core's half: lines 4..7; core 1 runs its twin) */
+TX_TWIN(tx_hall_job);
 
 /* INFINITE (tx_fx_inf.c: Frodhes' infinite tank, the LITE build; DARK as its variant) */
 #define RI_NL 8u

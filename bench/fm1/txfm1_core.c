@@ -94,10 +94,13 @@ static void lane_render(fm_run_t *r, unsigned k, unsigned core)   /* its engine,
     tx_fx_lane_run(&r->fx, k, r->lb[k].x, TX_BLOCK, core);
     r->lb[k].t = lane_now() - a;
 }
-static uint32_t gv_run(fm_run_t *r, unsigned h)             /* the grain delay's voices, half h, ticks */
+static uint32_t gv_run(fm_run_t *r, unsigned h, unsigned core)   /* the grain delay's voices, half h, ticks */
 {
     uint32_t a = lane_now();
-    if (h) TX_FAR(tx_fx_grain_voices_b)(&r->fx.gd, TX_BLOCK);
+    if (core) {                                              /* core 1: the twins in XIP (TX_C1) */
+        if (h) TX_C1(tx_fx_grain_voices_b)(&r->fx.gd, TX_BLOCK);
+        else TX_C1(tx_fx_grain_voices_a)(&r->fx.gd, TX_BLOCK);
+    } else if (h) TX_FAR(tx_fx_grain_voices_b)(&r->fx.gd, TX_BLOCK);
     else TX_FAR(tx_fx_grain_voices_a)(&r->fx.gd, TX_BLOCK);
     return lane_now() - a;
 }
@@ -107,12 +110,12 @@ static void lanes_job(uint32_t a)                            /* core 1's: its it
     unsigned k;
     uint32_t t0 = lane_now();
     (void)a;
-    for (k = 0; k < 2u; k++) if (r->pmask >> (FM_GV + k) & 1u) r->gv1.t[k] = gv_run(r, k);
+    for (k = 0; k < 2u; k++) if (r->pmask >> (FM_GV + k) & 1u) r->gv1.t[k] = gv_run(r, k, 1u);
     for (k = 0; k < r->c->eng; k++) if (r->pmask >> k & 1u) lane_render(r, k, 1u);
     r->gv1.busy = lane_now() - t0;
 }
 /* the reverb's ROOM on two cores (FM_PAR, as firmware/src/lanes.c): its body (the CHAMBER) on core 1, the tail here */
-static void rev_job(uint32_t a) { (void)a; TX_FAR(tx_fx_reverb_body)(&lane_run->fx.rev); }
+static void rev_job(uint32_t a) { (void)a; TX_C1(tx_fx_reverb_body)(&lane_run->fx.rev); }   /* (core 1: the twin) */
 static int rev_run(void) { fm_run_t *r = lane_run; return r->par && !r->c1_lost && r->par->run(rev_job, r->blk); }
 static int rev_wait(void)
 {
@@ -353,7 +356,7 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
             if (!r->par->run(lanes_job, r->blk)) m1 = 0;
         }
         t0 = ck->now(); c0 = ck->nested();
-        for (k = 0; k < 2u; k++) if ((on & ~m1) >> (FM_GV + k) & 1u) r->gvt[k] = gv_run(r, k);
+        for (k = 0; k < 2u; k++) if ((on & ~m1) >> (FM_GV + k) & 1u) r->gvt[k] = gv_run(r, k, 0u);
         for (k = 0; k < c->eng; k++) if (!(m1 >> k & 1u)) {
             uint32_t n0 = ck->nested();
             lane_render(r, k, 0u);
@@ -363,7 +366,7 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
         if (m1 && r->par->wait()) {                          /* held mid-job: its items here, as it left them */
             if (measuring) { r->s.c1_mis++; if (!r->s.c1_first) r->s.c1_first = r->s.n + 1u; }
             r->c1_lost = 1;
-            for (k = 0; k < 2u; k++) if (m1 >> (FM_GV + k) & 1u) r->gvt[k] = gv_run(r, k);
+            for (k = 0; k < 2u; k++) if (m1 >> (FM_GV + k) & 1u) r->gvt[k] = gv_run(r, k, 0u);
             for (k = 0; k < c->eng; k++) if (m1 >> k & 1u) lane_render(r, k, 0u);
             m1 = 0;
         }

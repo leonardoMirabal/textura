@@ -167,7 +167,7 @@ static void ln_bus(void *u, int32_t *L, int32_t *R, unsigned n)
 
 #ifdef LN_PAR
 /* the reverb's ROOM on two cores (tx_fx_reverb_t.body_run): its body (the CHAMBER) on the second core, the tail here */
-static void ln_rev_job(uint32_t a) { (void)a; TX_FAR(tx_fx_reverb_body)(&ln.fx.rev); }
+static void ln_rev_job(uint32_t a) { (void)a; TX_C1(tx_fx_reverb_body)(&ln.fx.rev); }   /* (core 1: the twin) */
 static int ln_rev_run(void) { return LN_PAR_ON() && LN_PAR_RUN(ln_rev_job, 0u); }
 static int ln_rev_wait(void) { int l = LN_PAR_WAIT(); if (l) ln.par_lost++; return l; }
 /* the reverb kernels' halves on the second core (tx_fx_reverb_t.par): one job, its function and argument here */
@@ -381,12 +381,15 @@ static void ln_render_lane(uint32_t k, uint32_t n, uint32_t c)
 #endif
     if (ln.mix.ins) tx_fx_lane_run(&ln.fx, k, x, n, c);
 }
-static void ln_gv(uint32_t h, uint32_t *us)     /* the grain delay's voices, half h (either core) */
+static void ln_gv(uint32_t h, uint32_t *us, uint32_t c)   /* the grain delay's voices, half h, on core c */
 {
 #ifdef LN_CLOCK
     uint32_t t0 = LN_CLOCK();
 #endif
-    if (h) TX_FAR(tx_fx_grain_voices_b)(&ln.fx.gd, ln.par_n);
+    if (c) {                                    /* core 1: the twins in XIP (TX_C1) */
+        if (h) TX_C1(tx_fx_grain_voices_b)(&ln.fx.gd, ln.par_n);
+        else TX_C1(tx_fx_grain_voices_a)(&ln.fx.gd, ln.par_n);
+    } else if (h) TX_FAR(tx_fx_grain_voices_b)(&ln.fx.gd, ln.par_n);
     else TX_FAR(tx_fx_grain_voices_a)(&ln.fx.gd, ln.par_n);
 #ifdef LN_CLOCK
     *us = LN_CLOCK_US(LN_CLOCK() - t0);
@@ -401,7 +404,7 @@ static void ln_par_job(uint32_t mask)           /* the second core's job: its la
 #ifdef LN_CLOCK
     uint32_t t0 = LN_CLOCK();
 #endif
-    for (k = 0; k < 2u; k++) if (mask >> (LN_GV + k) & 1u) ln_gv(k, &ln_c1t.gv_us[k]);
+    for (k = 0; k < 2u; k++) if (mask >> (LN_GV + k) & 1u) ln_gv(k, &ln_c1t.gv_us[k], 1u);
     for (k = 0; k < LN_N; k++) if (mask >> k & 1u) ln_render_lane(k, ln.par_n, 1u);
 #ifdef LN_CLOCK
     ln_c1t.busy_us = LN_CLOCK_US(LN_CLOCK() - t0);
@@ -443,7 +446,7 @@ static void ln_render(uint32_t n, int gv)
         if (m1 && !LN_PAR_RUN(ln_par_job, m1)) m1 = 0;
     }
 #endif
-    for (k = 0; k < 2u; k++) if ((on & ~m1) >> (LN_GV + k) & 1u) ln_gv(k, &ln.gv_us[k]);
+    for (k = 0; k < 2u; k++) if ((on & ~m1) >> (LN_GV + k) & 1u) ln_gv(k, &ln.gv_us[k], 0u);
     for (k = 0; k < LN_N; k++) if ((on & ~m1) >> k & 1u) ln_render_lane(k, n, 0u);
 #ifdef LN_CLOCK
     ln.c0_us = LN_CLOCK_US(LN_CLOCK() - t0);
@@ -451,7 +454,7 @@ static void ln_render(uint32_t n, int gv)
 #endif
 #ifdef LN_PAR
     if (m1 && LN_PAR_WAIT()) {                  /* stopped mid-job: its items here, from where it left them */
-        for (k = 0; k < 2u; k++) if (m1 >> (LN_GV + k) & 1u) ln_gv(k, &ln.gv_us[k]);
+        for (k = 0; k < 2u; k++) if (m1 >> (LN_GV + k) & 1u) ln_gv(k, &ln.gv_us[k], 0u);
         for (k = 0; k < LN_N; k++) if (m1 >> k & 1u) ln_render_lane(k, n, 0u);
         ln.par_lost++;
         m1 = 0;

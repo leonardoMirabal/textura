@@ -35,11 +35,30 @@
  * apart than a call reaches (23 bits): a TX_RAM function calls only TX_RAM code or inlines (TX_INLINE), and XIP calls
  * it through TX_FAR (its address in a register: one instruction more). On the host both are nothing. */
 #ifdef __PI32V2__
+#ifdef TX_TWIN_BUILD
+#define TX_RAM                     /* (core 1's twin: the same code in XIP, see TX_C1) */
+#else
 #define TX_RAM __attribute__((section(".ram_text.tx")))
+#endif
 #define TX_FAR(fn) (__extension__({ __typeof__(&(fn)) p_ = &(fn); __asm__("" : "+r"(p_)); p_; }))
+#define TX_SHARE                   /* (a flash function a TX_RAM one calls: global, so its twin calls this one copy) */
 #else
 #define TX_RAM
 #define TX_FAR(fn) fn
+#define TX_SHARE static
+#endif
+/* TX_C1(fn): core 1's copy of a TX_RAM function. On the FM-1 both cores fetching code from RAM at once slow each other,
+ * so core 1 runs twins in XIP: tools/fm1_bench.py builds every engine file with TX_RAM code a second time
+ * (TX_TWIN_BUILD: TX_RAM empty, each TX_RAM function fn renamed fn_c1, the file's other globals weak, so the one copy
+ * of those is kept) and core 1's jobs call fn_c1; core 0 keeps the RAM original. The same source, the same samples.
+ * TX_TWIN(fn) declares the twin (after fn). On the host, and with TX_NO_TWINS (fm1_bench.py --no-twins), TX_C1 is
+ * TX_FAR. */
+#if defined __PI32V2__ && !defined TX_TWIN_BUILD && !defined TX_NO_TWINS
+#define TX_C1(fn) fn##_c1
+#define TX_TWIN(fn) extern __typeof__(fn) fn##_c1
+#else
+#define TX_C1(fn) TX_FAR(fn)       /* (TX_NO_TWINS: the RAM code itself, out of a call's reach) */
+#define TX_TWIN(fn) extern __typeof__(fn) fn
 #endif
 #define TX_INLINE static inline __attribute__((always_inline))   /* (a helper a TX_RAM function may use) */
 

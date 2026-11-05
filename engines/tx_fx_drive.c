@@ -148,8 +148,9 @@ static int drv_run(tx_fx_drive_t *d, tx_drv_scr_t *w, int32_t *q, unsigned n, in
     default: return 1;
     }
 }
-/* the TYPE that runs (d->cur >= 1) on x23; sw 0: fading out (a TYPE change). Off (on 0) costs nothing. */
-static void dr_types(tx_fx_drive_t *d, tx_drv_scr_t *w, int32_t *x23, unsigned n, int sw)
+/* the TYPE that runs (d->cur >= 1) on x23; sw 0: fading out (a TYPE change). Off (on 0) costs nothing. (TX_SHARE:
+ * core 1's twin of tx_fx_drive_run calls this copy) */
+TX_SHARE void dr_types(tx_fx_drive_t *d, tx_drv_scr_t *w, int32_t *x23, unsigned n, int sw)
 {
     int32_t amt = sw ? d->p[TX_DR_AMOUNT] : 0, mv = d->p[TX_DR_MIX], a, w0, w1, d4, *q = w->q;
     int32_t wt = !amt ? 0 : mv >= 127 ? 32768 : (mv * 258 + 128) & ~255;   /* (multiples of 256: the ramp is exact) */
