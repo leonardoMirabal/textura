@@ -42,6 +42,9 @@
 #                      and every host script in tests/scripts/ (its expects), and that firmware/src/landscapes.h is
 #                      still what audition/app.js gives (FAMILIES, QUICK); the FM-1's USB name and port choice
 #                      (tests/ports_check.py: "Textura" first, never a "Frodhes" port beside it)
+#   make fw-c1map      the two cores' code per landscape (tests/c1prof.c, tools/c1map.py): what core 1 runs in its
+#                      jobs and core 0 meanwhile, calls and host time a block, each function's place in the FM-1
+#                      image (RAM / XIP; make fm1-app first) -> build/fw/c1map.txt
 #   make fw-web        the firmware in a web browser -> build/web/ (web/build.sh, Emscripten from .local/emsdk;
 #                      REL=X.Y.Z stamps a version); make fw-web-serve serves it at http://localhost:8001
 #   make fw-web-check  the web panel in headless Chromium at desktop and phone width (tests/web_check.py)
@@ -69,7 +72,7 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-timing
+PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-timing fw-c1map
 .PHONY: $(PHONY_FM1) fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-fonts tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
@@ -156,6 +159,18 @@ fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/textura-host
 	python3 -I tests/clock_check.py > $(FW)/clock.log 2>&1 && echo "ok    clock (tests/clock_check.py)" || { echo "FAIL  clock ($(FW)/clock.log)"; fail=1; }; \
 	python3 -I tests/ports_check.py > $(FW)/ports.log 2>&1 && echo "ok    ports (tests/ports_check.py: Textura first, never Frodhes beside it)" || { echo "FAIL  ports ($(FW)/ports.log)"; fail=1; }; \
 	exit $$fail
+
+$(FW)/textura-c1prof: $(FW_DEPS) $(ENG_SRC) $(ENG_HDR) tests/c1prof.c tests/c1prof.h
+	@mkdir -p $(FW)
+	$(CC) $(CFLAGS_FW) -include tests/c1prof.h -finstrument-functions-after-inlining -o $@ firmware/src/textura.c \
+	  $(ENG_SRC) -x c tests/c1prof.c -lm
+
+fw-c1map: $(FW)/textura-c1prof
+	@$(HEAVY) sh -c 'for n in 0 1 2 3 4 5 6 7 8 9; do printf "1500 midi 0xC0 $$n 0\n21500 end\n" > $(FW)/c1map$$n.txt; \
+	  C1PROF_OUT=$(FW)/c1prof$$n.txt $(FW)/textura-c1prof $(FW)/c1map$$n $(FW)/c1map$$n.txt > /dev/null || exit 1; \
+	  rm -f $(FW)/c1map$$n.wav $(FW)/c1map$$n-*.ppm; done' && \
+	python3 -I tools/c1map.py $(FW)/textura-c1prof $(FM1)/textura-app.elf $(foreach n,0 1 2 3 4 5 6 7 8 9,$(FW)/c1prof$(n).txt) \
+	  > $(FW)/c1map.txt && echo "fw-c1map: $(FW)/c1map.txt"
 
 fw-web:
 	sh web/build.sh $(if $(REL),--release $(REL),)

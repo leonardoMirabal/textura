@@ -26,6 +26,9 @@
  *                     what must stop first (the bench: the second core held, its loop sits in RAM the boot reuses)
  *   APP_FAULT(c)      called first in fm1_fault: returns for a fault of core 0 (the bench: a fault of the second core
  *                     is recorded there and stops that core, no reset)
+ *   APP_CRASH_MS      how long the crash screen shows before the reboot (default 8000; the record outlives it)
+ *   APP_WDT_RUN       the watchdog's timeout once the main loop runs (fm1_wdt_arm's t: 0x0A 1 s .. 0x0F 32 s; default
+ *                     0x0D, 8 s, as at boot): a freeze resets after it. An update session runs under 0x0D
  */
 /* Frodhes: and APP_OUT_WRITTEN 1: app_audio writes every sample of out (then out is not cleared before it) */
 /* the panel by name: buttons (fm1_in.buttons, fm1_input_edges, fm1_led_key: bit / id), the encoders
@@ -108,6 +111,12 @@ static void fm1_led_key_glow(uint32_t id, int on)   /* as fm1_led_key, the dim l
 #endif
 #ifndef APP_FAULT
 #define APP_FAULT(c) ((void)(c))
+#endif
+#ifndef APP_CRASH_MS
+#define APP_CRASH_MS 8000u
+#endif
+#ifndef APP_WDT_RUN
+#define APP_WDT_RUN 0x0Du
 #endif
 
 bootguard_t bootguard __attribute__((section(".noinit")));
@@ -524,14 +533,24 @@ extern void isr_alnk0(void);
 static void platform_poll(void)
 {
     static int32_t knob_avg = 512 * 16;
+    static uint8_t wdt_run;
     int32_t a;
+    if (!wdt_run) {                             /* the main loop runs: the watchdog's own timeout from now on */
+        wdt_run = 1;
+        fm1_irq_off();
+        fm1_wdt_arm(APP_WDT_RUN);
+        fm1_irq_on();
+    }
     fm1_wdt_feed();
     usb_retry(fm1_ms);
     ota_service();
     if (usb.ota_req) {
         usb.ota_req = 0;
-        if (flash_ok)
+        if (flash_ok) {
+            fm1_irq_off(); fm1_wdt_arm(0x0D); fm1_irq_on();   /* (an update session: the boot's 8 s) */
             ota_session();                      /* returns only if nothing was committed */
+            fm1_irq_off(); fm1_wdt_arm(APP_WDT_RUN); fm1_irq_on();
+        }
     }
     if (usb.uboot_req) {
         fm1_audio_stop();
@@ -575,7 +594,7 @@ static void fm1_fault(const fm1_crash_t *c)
         draw_text_box(10, 60 + i * 20, 220, &FONT_S, b, C_WHITE, 0);
     }
     t0 = fm1_ticks();
-    while ((uint32_t)(fm1_ticks() - t0) < 8000u * 1000u * FM1_TICKS_PER_US)
+    while ((uint32_t)(fm1_ticks() - t0) < APP_CRASH_MS * 1000u * FM1_TICKS_PER_US)
         fm1_wdt_feed();
     fm1_reboot();
 }

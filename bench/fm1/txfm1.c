@@ -15,7 +15,8 @@
  *                6..8 the hash (14 + 14 + 4 bits), 10 + 2k / 11 + 2k lane k's worst / w8 (us x 2), then 99 = r
  *   CC 26 0x55   a soft reset (core 1 held first)
  *   CC 24 items 30 / 31 VDC14 / SYSVDD as the boot loader left them, 32 / 33 now, 34 the SYS PLL multiplier (270 =
- *                360 MHz), 35 1 = this image raises the supply (TXFM1_RAILS)
+ *                360 MHz), 35 1 = this image raises the supply (TXFM1_RAILS); core 1's late jobs 36, holds for good 37,
+ *                retries 38 (C1_RETRY); 39 SYS_DIV's low 14 bits, 58 1 = C1_HSB2 wrote it, 59 the reset's P33 reason
  *   CC 25        core 1's last fault frame (c1_regs, .noinit: it outlives a reset): 26 words as 3 items each from 1,
  *                90 present, then 99
  *   CC 24        the state: items 90 state (0 idle, 1 running, 2 done), 91 configuration, 92 runs done, 93 the number
@@ -23,7 +24,8 @@
  *                longest whole interrupt since the last CC 24 (us), 97 the pool's bytes free / 32, 98 the run's size / 1024;
  *                core 1 (firmware/src/core1.h): 80 its state (C1_*), 81 the bad reads it counted, 82 / 83 its jobs (low / high 14
  *                bits), 84 the longest wait for a job (us), 85 the last bad job number (low 14 bits), 86 its stack's
- *                deepest use (bytes), 79 core 1 faulted (stopped, c1_fault); the last crash record (fm1_crash, it outlives
+ *                deepest use (bytes), 87 its read-again recoveries, 88 core 0's, 89 the jobs it refused (core 0 did
+ *                them), 79 core 1 faulted (stopped, c1_fault); the last crash record (fm1_crash, it outlives
  *                the reset): 60 present, 61 count, 62 vector, 63..77 pc, rets, sp, DBG_MSG, EMU_MSG (14 + 14 + 4 bits
  *                each), 78 its uptime / 100 ms; 40..57 its ICFG, PSR, then core 1's sp, usp, ssp, psr as it started
  *   C1 rows (FM_K_C1, CC 23): 20 / 21 the blocks core 1 rendered, 22 / 23 the blocks whose two renders differ, 24 / 25
@@ -39,7 +41,9 @@ static int c1_start(void);
 static void c1_hold(void);
 static void c1_fault(const void *c);
 static void c1_rails(void);
-#define APP_EARLY() (c1_hold(), c1_rails(), (void)c1_start())   /* core 1 held, the supply (T1: raised), then started */
+static void c1_hsb2(uint32_t power_on);
+#define APP_EARLY() (c1_hold(), c1_rails(), c1_hsb2((fm1_boot.p3_rst & 1u) && !(fm1_boot.p3_rst & 4u)), \
+                     (void)c1_start())          /* core 1 held, the supply (T1: raised; C1_HSB2: the bus slowed), started */
 #define APP_RESET_PREP() c1_hold()             /* and held before every reset */
 #define APP_FAULT(c) c1_fault(c)               /* its own faults: it stops, no reset */
 #include "platform.c"
@@ -154,7 +158,7 @@ static void fm_midi(void)
             fm_show();
         } else if (d1 == 23u && fm_state == 2u && d2 < fm_done) {
             const fm_stats_t *s = &fm_res[d2];
-            fm_item(1, us2(s->worst)); fm_item(2, us2(s->w8)); fm_item(3, s->n ? us2((s->sum / s->n) << 4) : 0u);
+            fm_item(1, us2(s->worst)); fm_item(2, us2(s->w8)); fm_item(3, s->n ? us2((s->sum / s->n) << s->sum_sh) : 0u);
             fm_item(4, us2(s->raw_worst)); fm_item(5, us2(s->raw_w8));
             fm_item(6, s->hash & 16383u); fm_item(7, s->hash >> 14 & 16383u); fm_item(8, s->hash >> 28);
             if (FM_CFG[fm_cfg].kind == FM_K_LANES)
@@ -165,7 +169,8 @@ static void fm_midi(void)
             }
             if (FM_CFG[fm_cfg].kind == FM_K_LANES && (FM_CFG[fm_cfg].type & FM_PAR)) {   /* each core's busy time */
                 fm_item(30, us2(s->c0_worst)); fm_item(31, us2(s->c1_worst));
-                fm_item(32, s->n ? us2((s->c0_sum / s->n) << 4) : 0u); fm_item(33, s->n ? us2((s->c1_sum / s->n) << 4) : 0u);
+                fm_item(32, s->n ? us2((s->c0_sum / s->n) << s->sum_sh) : 0u);
+                fm_item(33, s->n ? us2((s->c1_sum / s->n) << s->sum_sh) : 0u);
             }
             fm_item(99, d2);
         } else if (d1 == 26u && d2 == 0x55u) {   /* a soft reset (as the crash path's: core 1 held first) */
@@ -210,6 +215,9 @@ static void fm_midi(void)
             fm_item(80, c1_state); fm_item(81, c1_mb.bad);
             fm_item(82, c1_jobs & 16383u); fm_item(83, c1_jobs >> 14);
             fm_item(84, c1_wait_max / C1_TPU); fm_item(85, c1_mb.bad_seq & 16383u); fm_item(86, c1_stack_used());
+            fm_item(87, c1_mb.rec); fm_item(88, c1_rec0); fm_item(89, c1_ref);
+            fm_item(36, c1_late); fm_item(37, c1_holds); fm_item(38, c1_retries);
+            fm_item(39, c1_hsb[1] & 16383u); fm_item(58, c1_hsb[2]); fm_item(59, fm1_boot.p3_rst);
             {
                 extern uint32_t _pool_end[];
                 fm_item(97, (0x01C20000u + 0x54000u - (uint32_t)_pool_end) / 32u);   /* (x 32 bytes) */
@@ -228,6 +236,7 @@ static void app_main(void)
     if (fm_run_bytes() > FM_RUN_MAX) draw_text_box(0, 160, 240, &FONT_S, "RUN STATE TOO BIG", C_WHITE, 1);
     for (;;) {
         platform_poll();
+        c1_retry_poll(fm1_ms);                  /* (C1_RETRY only) */
         if (fm_run_bytes() <= FM_RUN_MAX) fm_midi();
         if (fm_state == 3u) fm_start();
         if (shown != (uint8_t)(fm_state + 4u * fm_done)) { shown = (uint8_t)(fm_state + 4u * fm_done); fm_show(); }

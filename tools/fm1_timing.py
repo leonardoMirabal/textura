@@ -80,16 +80,18 @@ class Dev:
         return self.items(98)
 
 
-C1_STATES = ["off", "on", "held: bad read", "held: late job", "held: no answer", "off: the supply not raised"]
+C1_STATES = ["off", "on", "held: refusals too often", "held: late job", "held: no answer", "off: the supply not raised"]
 
 
 def c1_state(st):
-    """txfm1's core-1 items (CC 24: 80..86)"""
+    """txfm1's core-1 items (CC 24: 80..89, 36..39, 58, 59)"""
     if not st or 80 not in st:
         return "no core-1 items"
     k = st[80]
     return (f"{C1_STATES[k] if k < len(C1_STATES) else k}, bad reads {st.get(81)}, jobs {st.get(82, 0) | st.get(83, 0) << 14}"
-            f", wait max {st.get(84)} us, last bad job {st.get(85)}, stack {st.get(86)} B")
+            f", wait max {st.get(84)} us, last bad job {st.get(85)}, stack {st.get(86)} B; recovered core 1 {st.get(87)}"
+            f" core 0 {st.get(88)}, refused {st.get(89)}, late {st.get(36)}, holds {st.get(37)}, retries {st.get(38)}"
+            f"; SYS_DIV {st.get(39, 0):#x}{' (C1_HSB2 wrote it)' if st.get(58) else ''}, reset reason {st.get(59)}")
 
 
 def crash(st):

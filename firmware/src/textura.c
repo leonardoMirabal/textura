@@ -24,16 +24,23 @@
 static void kv_host_vkey(uint32_t k, uint32_t raw) { (void)k; (void)raw; }   /* (tests/host.c "vkey": no key velocity scan yet) */
 #else
 /* the second core (core1.h): at boot, held, the supply raised to M-VAVE's own levels (C1_RAILS), then started; held
- * again before every reset; a fault of its own stops it (no reset) and the lanes go on with one core */
+ * again before every reset; a fault of its own stops it (no reset) and the lanes go on with one core. C1_HSB2 (a device
+ * A/B only, never shipped: core1.h) slows the bus first */
 static int c1_start(void);
 static void c1_hold(void);
 static void c1_fault(const void *c);
 static void c1_rails(void);
+static void c1_hsb2(uint32_t power_on);
 static void tx_stk_paint(void);
 #define C1_RAILS
-#define APP_EARLY() (tx_stk_paint(), c1_hold(), c1_rails(), (void)c1_start())
+#define APP_EARLY() (tx_stk_paint(), c1_hold(), c1_rails(), \
+                     c1_hsb2((fm1_boot.p3_rst & 1u) && !(fm1_boot.p3_rst & 4u)), (void)c1_start())
 #define APP_RESET_PREP() c1_hold()
 #define APP_FAULT(c) c1_fault(c)
+/* a fault of core 0 or a freeze: back playing by itself, soon. The crash screen shows half a second (the record outlives
+ * the reset: tx_dbg items 60..), the watchdog resets a main loop stopped for 1 s; the boot loads the last scene */
+#define APP_CRASH_MS 500u
+#define APP_WDT_RUN 0x0Au
 #endif
 #include "platform.c"
 #ifndef DINGHY_HOST
@@ -136,13 +143,16 @@ static uint32_t tx_palette_index(const char *name)
  * (core1.h): 30 its state (C1_*: 1 running), 31 the bad reads it counted, 32 / 33 the blocks it rendered lanes in
  * (low / high 14 bits), 34 the jobs lost, 35 the longest wait for it (us, since the last ask), 36 / 37 VDC14 / SYSVDD
  * as the boot loader left them, 38 / 39 now, 40 its lanes in the last block (a mask), 41 its stack's deepest (bytes),
- * 42 the governor's pool now (us), 43 / 44 the user / system stack's deepest (4-byte words, since boot) */
+ * 42 the governor's pool now (us), 43 / 44 the user / system stack's deepest (4-byte words, since boot); the mailbox
+ * (core1.h): 45 core 1's read-again recoveries, 46 core 0's, 47 the jobs core 1 refused (done here), 48 late jobs, 49
+ * holds for good, 50 retries (C1_RETRY), 51 SYS_DIV's low 14 bits now, 52 1 = C1_HSB2 wrote it; 53 the crash count
+ * (fm1_crash), 54 its vector, 55 the reset's P33 reason (bit 0 power-on, 2 watchdog, 6 soft) */
 /* an item: three USB-MIDI events; it waits (up to 50 ms) for room in the 64-event out queue (usb.c drops what does
  * not fit: the reply is 23 items, 69 events, and its last ones were lost) */
 static void tx_dbg_item(uint32_t id, uint32_t v)
 {
     uint32_t t0 = fm1_ticks();
-    while (usb.config && mo_w - mo_r > MQ - 3u && fm1_ticks() - t0 < 50000u * FM1_TICKS_PER_US) ;
+    while (usb.config && mo_w - mo_r > MQ - 3u && fm1_ticks() - t0 < 50000u * FM1_TICKS_PER_US) fm1_wdt_feed();
     if (v > 16383u) v = 16383u;
     midi_send(0xB0, 100, id); midi_send(0xB0, 101, v >> 7); midi_send(0xB0, 102, v & 127u);
 }
@@ -168,6 +178,12 @@ static void tx_dbg_reply(void)
     tx_dbg_item(42, ln.gov.budget);
     tx_dbg_item(43, tx_stk_used((const uint32_t *)_ustack_lo, (const uint32_t *)_guard1));
     tx_dbg_item(44, tx_stk_used((const uint32_t *)_sstack_lo, (const uint32_t *)_sstack_top));
+    tx_dbg_item(45, c1_mb.rec); tx_dbg_item(46, c1_rec0); tx_dbg_item(47, c1_ref); tx_dbg_item(48, c1_late);
+    tx_dbg_item(49, c1_holds); tx_dbg_item(50, c1_retries);
+    tx_dbg_item(51, c1_hsb[1] & 16383u); tx_dbg_item(52, c1_hsb[2]);
+    tx_dbg_item(53, fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.count : 0u);
+    tx_dbg_item(54, fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.vec : 0u);
+    tx_dbg_item(55, fm1_boot.p3_rst);
 }
 #endif
 
@@ -206,6 +222,9 @@ static void app_main(void)
     for (;;) {
         uint32_t rel, b;
         platform_poll();
+#ifndef DINGHY_HOST
+        c1_retry_poll(fm1_ms);                  /* (C1_RETRY only: core 1 started again after a hold) */
+#endif
         b = fm1_input_edges(&rel);
         ui_input(b, rel);
         nt_poll();

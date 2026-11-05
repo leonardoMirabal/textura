@@ -13,12 +13,16 @@
  *   It must start at boot, before the audio and the timers (started later it does not reach its entry).
  *   Holding it cuts the read it has on the bus: the chip flags an AXI read invalid a few instructions later, which
  *   the bus guard would trap on core 0, so the bus traps are off around a hold and the flag is cleared.
- *   Some units read wrong words on core 1 now and then (under load most): every job carries a check word (its
- *   function, argument and number); core 1 runs only the next job with a matching check, counts anything else,
- *   and core 0 holds it at the first bad read or a job not done in time: one core from then on.
+ *   Some units read wrong words now and then while both cores are busy (single bits, the memory itself intact: the
+ *   read path): every job carries a check word (its function, argument and number). A mismatch is read again
+ *   (C1_REREAD times) before it counts: core 1 runs the job when a read-again matches (a recovery, counted), else
+ *   refuses it for good (its number consumed, counted: core 0 renders the work itself, core 1 stays on); core 0
+ *   reads its "done" twice. Core 0 holds core 1 for good on a job not done in time (C1_LATE, it may be running
+ *   wild), or when refusals come too often (C1_BAD); C1_RETRY (off by default) starts it again later, bounded.
  *
  * Core 1 waits in RAM (.ram_text: no flash fetch while idle); its jobs run in the audio interrupt, which waits for
- * them before it returns, and the flash is turned off only with the interrupts off: never under a job. */
+ * them before it returns, and the flash is turned off only with the interrupts off: never under a job. Both cores
+ * look at the mailbox once every C1_POLL_TICKS (a timer read between: the RAM is left alone meanwhile). */
 #ifndef CORE1_H
 #define CORE1_H
 #include <stdint.h>
@@ -37,6 +41,15 @@
 #define C1_TPU 24u                               /* fm1_ticks per us */
 #define C1_STACK (8192u / 4u)                    /* words: a render's deepest (the bench's engines) and room */
 #define C1_RAM __attribute__((section(".ram_text.c1"), used))
+#ifndef C1_REREAD
+#define C1_REREAD 3u                             /* reads again on a mismatch before it counts */
+#endif
+#ifndef C1_POLL_TICKS
+#define C1_POLL_TICKS 24u                        /* each core's mailbox poll: once a us (0: as fast as it goes) */
+#endif
+#define C1_REF_WIN 64u                           /* refusals: + this each, - 1 a job done; over C1_REF_MAX of them in
+                                                  * about C1_REF_WIN jobs: held for good (C1_BAD) */
+#define C1_REF_MAX 16u
 
 /* the mailbox: core 0 writes the first line only, core 1 the second only (each core's writes on lines of its own) */
 typedef struct {
@@ -46,9 +59,11 @@ typedef struct {
     volatile uint32_t chk;                       /* C1_CHK(fn, arg, seq), written before seq */
     uint32_t pad0[12];
     volatile uint32_t alive, done;               /* core 1: it runs; the last job it finished */
-    volatile uint32_t bad, bad_seq, bad_done;    /* the jobs it refused (a wrong number or check): count, last */
+    volatile uint32_t bad, bad_seq, bad_done;    /* the jobs it refused (a number or check wrong after C1_REREAD
+                                                  * reads again): count, the last one's number, the function it read */
     volatile uint32_t reg[4];                    /* its sp, usp, ssp, psr as c1_main starts (where its stacks really are) */
-    uint32_t pad1[7];
+    volatile uint32_t rec;                       /* mismatches a read-again cleared */
+    uint32_t pad1[6];
 } c1_mb_t;
 #define C1_CHK(fn, arg, seq) ((uint32_t)(uintptr_t)(fn) ^ (arg) ^ ((seq) * 0x9E3779B1u) ^ 0xC1C1A5A5u)
 
@@ -58,10 +73,15 @@ static c1_mb_t c1_mb __attribute__((aligned(64)));
 uint32_t c1_stk[C1_STACK + 64u] __attribute__((aligned(8), section(".nozero")));   /* (NOINIT's spare room, app.ld:
                                                  * painted by c1_start, never cleared) */
 #define C1_MARK 0x43314D4Bu                      /* painted at start: how deep its stack has gone (c1_stack_used) */
-enum { C1_OFF, C1_ON, C1_BAD, C1_LATE, C1_DEAF, C1_LOWV };   /* not started, running, held: a bad read / a late job / no
-                                                 * answer / the supply not raised (never started) */
+enum { C1_OFF, C1_ON, C1_BAD, C1_LATE, C1_DEAF, C1_LOWV };   /* not started, running, held: refusals too often / a late
+                                                 * job / no answer / the supply not raised (never started) */
 static uint8_t c1_state;
 static uint32_t c1_wait_max, c1_jobs;
+static uint32_t c1_s, c1_bad0;                   /* core 0: the job handed last, core 1's refusals before it */
+static uint32_t c1_rec0, c1_ref, c1_ref_win, c1_desync, c1_late, c1_holds;   /* core 0's read-again recoveries, the
+                                                 * jobs core 1 refused (core 0 did them), the refusal window, a mailbox
+                                                 * not as core 0 left it (held), late jobs, holds for good */
+static void c1_stop(uint8_t why);
 
 void c1_main(void);
 void c1_entry(void);
@@ -79,9 +99,18 @@ __asm__(".section .ram_text.c1e,\"ax\",@progbits\n"
         "\trti\n"
         ".text\n");
 
+/* a pause between two looks at the mailbox (registers and the timer only: inline, in RAM on core 1) */
+static inline __attribute__((always_inline)) void c1_pause(void)
+{
+#if C1_POLL_TICKS
+    uint32_t t0 = fm1_ticks();
+    while (fm1_ticks() - t0 < C1_POLL_TICKS) ;
+#endif
+}
+
 void __attribute__((section(".ram_text.c1"), used, noreturn)) c1_main(void)
 {
-    uint32_t done, bad_last = 0xFFFFFFFFu;
+    uint32_t done;
     C1_EMU_CON &= ~(1u << 3);                    /* its stack limit: its two stacks (as core 0's, fm1_guard.h) */
     C1_EMU_SSP_L = (uint32_t)(uintptr_t)(c1_stk + 64);   /* (the lowest 256 bytes: the margin below the limit) */
     C1_EMU_SSP_H = (uint32_t)(uintptr_t)(c1_stk + C1_STACK + 64u) - 1u;
@@ -97,29 +126,38 @@ void __attribute__((section(".ram_text.c1"), used, noreturn)) c1_main(void)
     c1_mb.alive = 1;
     C1_SYNC();
     for (;;) {
-        uint32_t s = c1_mb.seq;
+        uint32_t s = c1_mb.seq, k, a = 0, job = 0;
+        void (*fn)(uint32_t) = 0;
         C1_SYNC();
-        if (s == done) continue;
-        if (s == done + 1u) {
-            void (*fn)(uint32_t) = c1_mb.fn;
-            uint32_t a = c1_mb.arg;
-            if (fn && c1_mb.chk == C1_CHK(fn, a, s)) {
-                fn(a);
-                done = s;                        /* (its own count, in a register: a misread done never moves it) */
-                C1_SYNC();
-                c1_mb.done = s;
-                C1_SYNC();
-                continue;
-            }
+        if (s != done + 1u) {                    /* idle; or a number no job has (a misread: the next look reads it
+                                                  * again) */
+            if (s != done) { c1_mb.rec++; C1_SYNC(); }
+            c1_pause();
+            continue;
         }
-        if (s != bad_last) {                     /* a number that is not the next job, or a check that fails: once
-                                                  * per value (it stays until core 0 holds it) */
-            bad_last = s;
-            c1_mb.bad_seq = s; c1_mb.bad_done = done;
+        for (k = 0; ; k++) {                     /* the next number: its job and check, a mismatch read again */
+            fn = c1_mb.fn;
+            a = c1_mb.arg;
+            C1_SYNC();
+            if (fn && c1_mb.chk == C1_CHK(fn, a, s)) { job = 1; break; }
+            if (k == C1_REREAD) break;
+            C1_SYNC();
+            if (c1_mb.seq != s) break;           /* (the number was the misread: no job) */
+        }
+        if (k && (job || k < C1_REREAD)) { c1_mb.rec++; C1_SYNC(); }   /* (cleared by a read-again) */
+        if (job) {
+            fn(a);
+            done = s;                            /* (its own count, in a register: a misread done never moves it) */
+        } else if (k == C1_REREAD) {             /* refused: number s (core 0 hands only done + 1) is consumed, never
+                                                  * run; core 0 sees bad move with done and does the work itself */
+            done = s;
+            c1_mb.bad_seq = s; c1_mb.bad_done = (uint32_t)(uintptr_t)fn;
             C1_SYNC();
             c1_mb.bad++;
-            C1_SYNC();
-        }
+        } else continue;
+        C1_SYNC();
+        c1_mb.done = done;
+        C1_SYNC();
     }
 }
 
@@ -207,6 +245,7 @@ static int c1_start(void)
     for (i = 0; i < C1_STACK; i++) c1_stk[i] = C1_MARK;
     c1_mb.alive = 0; c1_mb.bad = 0;
     c1_mb.done = c1_mb.seq;
+    c1_s = c1_mb.seq; c1_bad0 = 0;
     c1_mb.fn = 0;
     C1_SYNC();
     for (i = 0; i < 32u; i++) C1_IRQ(i) = 0;
@@ -214,7 +253,8 @@ static int c1_start(void)
     FM1_PC_LIMIT0_L = 0u; FM1_PC_LIMIT0_H = 0xFFFFFFFFu;
     FM1_PC_LIMIT1_L = 0u; FM1_PC_LIMIT1_H = 0xFFFFFFFFu;
     fm1__dbg_lock();
-    C1_BOOT = (uint32_t)(uintptr_t)&c1_entry;
+    if (C1_BOOT != (uint32_t)(uintptr_t)&c1_entry)   /* (a retry: the top of RAM is locked by then, the word set) */
+        C1_BOOT = (uint32_t)(uintptr_t)&c1_entry;
     g = C1_GATE;
     C1_GATE = g | 0x8u;
     C1_SYNC();
@@ -235,30 +275,64 @@ static int c1_run(void (*fn)(uint32_t), uint32_t arg)
 {
     uint32_t s;
     if (c1_state != C1_ON) return 0;
-    s = c1_mb.seq + 1u;
+    C1_SYNC();
+    if (c1_mb.done != c1_s || c1_mb.seq != c1_s) {   /* (the mailbox as core 0 left it? read again first) */
+        C1_SYNC();
+        if (c1_mb.done != c1_s || c1_mb.seq != c1_s) { c1_desync++; c1_stop(C1_BAD); return 0; }   /* (never: held) */
+        c1_rec0++;
+    }
+    c1_bad0 = c1_mb.bad;
+    s = c1_s + 1u;
     c1_mb.fn = fn;
     c1_mb.arg = arg;
     c1_mb.chk = C1_CHK(fn, arg, s);
     C1_SYNC();
     c1_mb.seq = s;
     C1_SYNC();
+    c1_s = s;
     return 1;
 }
 
-/* wait for the job: 0 = done; -1 = a bad read or not done in us: core 1 held from now on (the caller redoes it) */
+static void c1_stop(uint8_t why)                 /* held for good (C1_RETRY: until a retry) */
+{
+    c1_hold(); c1_axi(1); c1_state = why; c1_holds++;
+}
+
+/* wait for the job: 0 = done; -2 = core 1 refused it (a bad read it could not clear: the caller does the work, core 1
+ * stays on); -1 = not done in us (or refusals too often): core 1 held from now on (the caller redoes the work) */
 static int c1_wait_us(uint32_t us)
 {
     uint32_t t0 = fm1_ticks();
     for (;;) {
         C1_SYNC();
-        if (c1_mb.bad) { c1_hold(); c1_axi(1); c1_state = C1_BAD; return -1; }
-        if (c1_mb.done == c1_mb.seq) {
-            uint32_t t = fm1_ticks() - t0;
-            if (t > c1_wait_max) c1_wait_max = t;
-            c1_jobs++;
-            return 0;
+        if (c1_mb.done == c1_s) {
+            C1_SYNC();
+            if (c1_mb.done == c1_s) {            /* (twice: a word read wrong once is not believed) */
+                uint32_t t = fm1_ticks() - t0;
+                if (t > c1_wait_max) c1_wait_max = t;
+                if (c1_mb.bad != c1_bad0) {      /* (twice too) */
+                    C1_SYNC();
+                    if (c1_mb.bad != c1_bad0) {
+                        c1_ref++;
+                        c1_ref_win += C1_REF_WIN;
+                        if (c1_ref_win > C1_REF_MAX * C1_REF_WIN) { c1_stop(C1_BAD); return -1; }
+                        return -2;
+                    }
+                    c1_rec0++;
+                }
+                if (c1_ref_win) c1_ref_win--;
+                c1_jobs++;
+                return 0;
+            }
+            c1_rec0++;
         }
-        if (fm1_ticks() - t0 > us * C1_TPU) { c1_hold(); c1_axi(1); c1_state = C1_LATE; return -1; }
+        if (fm1_ticks() - t0 > us * C1_TPU) { c1_late++; c1_stop(C1_LATE); return -1; }
+#if C1_POLL_TICKS
+        {
+            uint32_t t1 = fm1_ticks();
+            while (fm1_ticks() - t1 < C1_POLL_TICKS) ;
+        }
+#endif
     }
 }
 
@@ -291,6 +365,69 @@ static void c1_fault(const void *v)
     C1_SYNC();
     for (;;) ;
 }
+
+/* C1_RETRY (off by default: a device test first): core 1 held for good (C1_BAD, C1_LATE: a refusal burst, a late job,
+ * a fault of its own) is started again after C1_RETRY_MS, at most C1_RETRY_MAX times; from the main loop (c1_retry_poll),
+ * interrupts off for the start (up to 20 ms: a block or so of audio is lost). Unproven: core 1 started after the audio
+ * and the timers did not reach its entry in the first probes, and the start sets SYS_DIV's bit 3 (C1_GATE: the SDK's
+ * start sequence) while the audio runs; the result (C1_ON, or C1_DEAF / C1_LOWV and no more tries) is in the state */
+#ifndef C1_RETRY_MS
+#define C1_RETRY_MS 10000u
+#endif
+#ifndef C1_RETRY_MAX
+#define C1_RETRY_MAX 3u
+#endif
+static uint8_t c1_retries;
+#ifdef C1_RETRY
+static void c1_retry_poll(uint32_t now_ms)
+{
+    static uint32_t since;
+    static uint8_t armed;
+    if (c1_state != C1_BAD && c1_state != C1_LATE) { armed = 0; return; }
+    if (c1_retries >= C1_RETRY_MAX) return;
+    if (!armed) { armed = 1; since = now_ms; return; }
+    if (now_ms - since < C1_RETRY_MS) return;
+    armed = 0;
+    c1_retries++;
+    fm1_irq_off();
+    c1_faulted = 0;
+    (void)c1_start();                            /* (C1_ON again, or DEAF / LOWV: then no more tries) */
+    fm1_irq_on();
+}
+#else
+static void c1_retry_poll(uint32_t now_ms) { (void)now_ms; }
+#endif
+
+/* C1_HSB2 (off by default, never in a shipped image: a device A/B test, the user's go first): the HSB bus divider 1 ->
+ * 2 (JieLi's clock note: HSB_DIV 2 above 320 MHz; the FM-1's boot loader leaves 1: SYS_DIV 0x00010200, the field
+ * [7:0] = divider - 1). Set once at boot, core 1 held, interrupts off, before the audio, from RAM (no flash fetch while
+ * the bus changes), only after a power-on reset (a hang here ends in a watchdog reset, whose boot leaves the bus as
+ * the boot loader set it: no boot loop), only from exactly 0x00010200 (else nothing is written), read back and put
+ * back on a mismatch. LSB (= HSB / 3) slows with it: the LCD's SPI and the ADC; whether the flash (SFC) does is not
+ * known. c1_hsb[0] SYS_DIV as found, [1] after, [2] 1 = written */
+#define C1_SYS_DIV (*(volatile uint32_t *)0x00010008u)   /* (JL_CLOCK SYS_DIV: the register C1_GATE's bit 3 is in) */
+static uint32_t c1_hsb[3];
+#ifdef C1_HSB2
+static void __attribute__((section(".ram_text.c1"), used, noinline)) c1_hsb_set(void)
+{
+    uint32_t v = C1_SYS_DIV;
+    c1_hsb[0] = v;
+    if (v == 0x00010200u) {
+        C1_SYS_DIV = 0x00010201u;
+        C1_SYNC();
+        if (C1_SYS_DIV != 0x00010201u) { C1_SYS_DIV = v; C1_SYNC(); }
+        else c1_hsb[2] = 1;
+    }
+    c1_hsb[1] = C1_SYS_DIV;
+}
+static void c1_hsb2(uint32_t power_on)           /* APP_EARLY: after c1_hold, before c1_start, interrupts off */
+{
+    void (*volatile f)(void) = c1_hsb_set;       /* (RAM is out of a call's reach) */
+    if (power_on) f(); else c1_hsb[0] = c1_hsb[1] = C1_SYS_DIV;
+}
+#else
+static void c1_hsb2(uint32_t power_on) { (void)power_on; c1_hsb[0] = c1_hsb[1] = C1_SYS_DIV; }
+#endif
 
 /* bytes of core 1's user stack ever used (painted by c1_start, at boot) */
 static uint32_t c1_stack_used(void)

@@ -105,7 +105,7 @@ int main(int argc, char **argv)
             hash = s->hash;
             if (s->worst / 24.0 < w) w = s->worst / 24.0;
             if (s->w8 / 24.0 < w8) w8 = s->w8 / 24.0;
-            if (s->sum * 16.0 / 24.0 / s->n < m) m = s->sum * 16.0 / 24.0 / s->n;
+            if (s->sum * (double)(1u << s->sum_sh) / 24.0 / s->n < m) m = s->sum * (double)(1u << s->sum_sh) / 24.0 / s->n;
             for (k = 0; k < nl; k++) {
                 if (s->lane_worst[k] / 24.0 < lw[k]) lw[k] = s->lane_worst[k] / 24.0;
                 if (s->lane_w8[k] / 24.0 < l8[k]) l8[k] = s->lane_w8[k] / 24.0;

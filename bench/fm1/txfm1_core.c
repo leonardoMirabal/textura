@@ -264,6 +264,7 @@ void fm_begin(fm_run_t *r, const fm_cfg_t *tab, const fm_ev_t *ev, unsigned cfg,
     for (k = 0; k < 4u; k++) r->s.lane_worst[k] = r->s.lane_w8[k] = 0;
     r->s.c1_jobs = r->s.c1_mis = r->s.c1_first = r->s.c1_solo = 0;
     r->s.c0_worst = r->s.c1_worst = r->s.c0_sum = r->s.c1_sum = 0;
+    r->s.sum_sh = r->nblk > 65535u ? 8u : 4u;
     r->s.hash = 2166136261u;
     start(r);
 }
@@ -374,7 +375,7 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
                 if (m1) r->s.c1_jobs++; else r->s.c1_solo++;
                 if (c0 > r->s.c0_worst) r->s.c0_worst = c0;
                 if (c1 > r->s.c1_worst) r->s.c1_worst = c1;
-                r->s.c0_sum += c0 >> 4; r->s.c1_sum += c1 >> 4;
+                r->s.c0_sum += c0 >> r->s.sum_sh; r->s.c1_sum += c1 >> r->s.sum_sh;
             }
         }
         for (k = 0; k < c->eng; k++) {
@@ -399,7 +400,7 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
     if (raw > r->s.raw_worst) r->s.raw_worst = raw;
     ring8(r->s.ring, r->s.n, d, &r->s.w8);
     ring8(r->s.rraw, r->s.n, raw, &r->s.raw_w8);
-    r->s.sum += d >> 4;                                      /* (ticks / 16: 32 bits hold a 300 s row) */
+    r->s.sum += d >> r->s.sum_sh;                            /* (ticks / 16: 32 bits hold a 300 s row; / 256 a 2 h one) */
     {
         uint32_t h = r->s.hash;
         for (j = 0; j < TX_BLOCK; j++) {

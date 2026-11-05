@@ -48,8 +48,9 @@
 /* LN_PAR: a second core renders some of the lanes' engines while this one renders the rest. The app gives
  *   LN_PAR_ON()            1 while the second core runs (it may stop for good at any block: then 0)
  *   LN_PAR_RUN(fn, arg)    hands it fn(arg): 1 taken, 0 not (this core does the work)
- *   LN_PAR_WAIT()          waits for it: 0 done, else it was stopped mid-job (its lanes' engines are left as it left
- *                          them: they render here again, once; a click at most, and one core from then on)
+ *   LN_PAR_WAIT()          waits for it: 0 done, else the work is this core's: it refused the job (a bad read it
+ *                          could not clear: nothing done, it stays on), or it was stopped mid-job (its lanes' engines
+ *                          are left as it left them: they render here again, once; a click at most, one core then)
  * A lane's engine renders into its own block (ln_out: its own cache lines, nothing else written on them while the
  * other core works); everything else (the generators before, the inserts, the pan, the fades, the governor after)
  * stays on this core in lane order, and the pair is a sum of int32 terms: the samples are the same whichever core
@@ -108,7 +109,7 @@ static struct {
     uint32_t gus[LN_N];                         /* (LN_CLOCK) the lane's generator this block, us */
     uint32_t par_n;                             /* (LN_PAR) the block's frames, for the second core's job */
     uint8_t par_mask, par_force;                /* the lanes it rendered this block; a fixed split (0: by cost) */
-    uint32_t par_blocks, par_lost;              /* blocks it rendered lanes in; jobs lost (held mid-job) */
+    uint32_t par_blocks, par_lost;              /* blocks it rendered lanes in; jobs lost (refused, held mid-job) */
     uint32_t gv_us[2], gv_pk;                   /* (LN_CLOCK) the grain voices' halves' last block, us; held, those on
                                                  * this core (ln_bus) */
     uint32_t isr_pk;                            /* (LN_BUS_TIMED) the whole interrupt, held (two cores: the grains' cap) */

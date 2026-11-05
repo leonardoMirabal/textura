@@ -38,14 +38,15 @@ typedef struct {
                                     * math ping (64-bit products, divisions), 3 flash data, 4 data core 0 just wrote,
                                     * 5 load (a pointer chase over its own arena, no engine code) */
     uint16_t ev, nev;              /* SCENE: its events in FM_EV[] */
-    uint16_t nblk;                 /* blocks measured */
+    uint32_t nblk;                 /* blocks measured (a soak row: 2 h = 1.24 M) */
     uint16_t lane[4];              /* LANES: the scene configurations of the lanes */
     uint32_t seed;
 } fm_cfg_t;
 
 /* the stats of one run (ticks per block) */
 typedef struct {
-    uint32_t worst, w8, sum, raw_worst, raw_w8, n;   /* (sum: ticks / 16) */
+    uint32_t worst, w8, sum, raw_worst, raw_w8, n;   /* (sum, c0_sum, c1_sum: ticks >> sum_sh) */
+    uint32_t sum_sh;               /* 4, or 8 for a row over 65535 blocks (32 bits hold a 2 h soak) */
     uint32_t hash;                 /* FNV-1a over the output samples (Q23, as int32) */
     uint32_t ring[8], rraw[8];
     uint32_t lane_worst[4], lane_w8[4], lane_ring[4][8];

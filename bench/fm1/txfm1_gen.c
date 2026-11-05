@@ -231,6 +231,13 @@ int main(int argc, char **argv)
                 }
                 lanes(lw, 4, "4 lanes worst (stress), 30 grains, two cores, 300 s"); cfg[nc - 1u].type = FM_G30 | FM_PAR;
                 cfg[nc - 1u].nblk = (uint16_t)((300u * TX_FS) / TX_BLOCK);
+                /* the soak: the storm (the landscape whose lanes keep both cores busiest at once: make fw-c1map), its
+                 * grains on both cores, 30 min and 2 h; fm1_timing reads core 1's counts (bad reads, recoveries,
+                 * refusals, late jobs, holds) with the state after each */
+                lanes(ls, 4, "SOAK storm, 15 grains, two cores, 30 min"); cfg[nc - 1u].type = FM_G15 | FM_PAR;
+                cfg[nc - 1u].nblk = (1800u * TX_FS) / TX_BLOCK;
+                lanes(ls, 4, "SOAK storm, 15 grains, two cores, 2 h"); cfg[nc - 1u].type = FM_G15 | FM_PAR;
+                cfg[nc - 1u].nblk = (7200u * TX_FS) / TX_BLOCK;
             }
         }
     }
