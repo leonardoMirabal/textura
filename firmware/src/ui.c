@@ -798,31 +798,62 @@ static uint32_t ui_sig_of(uint32_t e)
     return h;
 }
 
-/* ---- the splash: the mark, the name, what it is, the version */
+/* ---- the splash: the mark (three planes of straight lines), the name, what it is, the version */
+static void sp_pix(int32_t x, int32_t y, uint16_t c, uint32_t a)   /* c at a/256 over what is there: the brighter wins */
+{
+    uint32_t i, o, r, g, b;
+    y += cv_oy;
+    if ((uint32_t)x >= cv_w || (uint32_t)y >= cv_h) return;
+    i = (uint32_t)y * cv_w + (uint32_t)x;
+    o = swap16(cv_px[i]);
+    r = ((c >> 11) * a) >> 8; g = ((c >> 5 & 63u) * a) >> 8; b = ((c & 31u) * a) >> 8;
+    if ((o >> 11) > r) r = o >> 11;
+    if ((o >> 5 & 63u) > g) g = o >> 5 & 63u;
+    if ((o & 31u) > b) b = o & 31u;
+    cv_px[i] = swap16((r << 11) | (g << 5) | b);
+}
+static void sp_line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t c)   /* anti-aliased, ends in 1/16 px */
+{
+    int32_t steep = (y1 > y0 ? y1 - y0 : y0 - y1) > (x1 > x0 ? x1 - x0 : x0 - x1), t, x, e, q;
+    if (steep) { t = x0; x0 = y0; y0 = t; t = x1; x1 = y1; y1 = t; }
+    if (x0 > x1) { t = x0; x0 = x1; x1 = t; t = y0; y0 = y1; y1 = t; }
+    if (x1 == x0) return;
+    for (x = x0 >> 4, e = x1 >> 4; x <= e; x++) {
+        q = y0 * 16 + ((x * 16 + 8 - x0) * (y1 - y0) * 16) / (x1 - x0);   /* the line's y here, 1/256 px */
+        if (steep) { sp_pix(q >> 8, x, c, 256u - (uint32_t)(q & 255)); sp_pix((q >> 8) + 1, x, c, (uint32_t)(q & 255)); }
+        else { sp_pix(x, q >> 8, c, 256u - (uint32_t)(q & 255)); sp_pix(x, (q >> 8) + 1, c, (uint32_t)(q & 255)); }
+    }
+}
+static const int16_t SP_PLANE[3][8] = {         /* a plane: lines strung from edge A-B to edge D-C (A, B, C, D: x, y) */
+    {34, 28, 150, 16, 206, 90, 70, 116}, {150, 16, 206, 90, 70, 116, 34, 28}, {92, 16, 206, 54, 150, 116, 34, 78}};
+static void sp_mark(void)
+{
+    uint32_t k, i;
+    for (k = 0; k < 3u; k++) {
+        const int16_t *p = SP_PLANE[k];
+        for (i = 0; i <= 28u; i++) {            /* 29 lines a plane, ends in 1/16 px */
+            int32_t u = (int32_t)i;
+            sp_line(p[0] * 16 + (p[2] - p[0]) * 16 * u / 28, p[1] * 16 + (p[3] - p[1]) * 16 * u / 28,
+                    p[6] * 16 + (p[4] - p[6]) * 16 * u / 28, p[7] * 16 + (p[5] - p[7]) * 16 * u / 28, pal[1u + k]);
+        }
+    }
+}
 static uint32_t ui_splash_t;
 static uint8_t ui_splash_on;
 static void ui_splash(void)
 {
-    uint32_t i, r = 0x2545F491u;
     char v[24];
     mt_update();
     lcd_fill(0, 0, 240, 240, C_BLACK);
-    cv_begin(240, 64, C_BLACK);                 /* particles scattered over a line, denser to the middle */
-    for (i = 0; i < 48u; i++) {
-        int32_t x, y, s;
-        r ^= r << 13; r ^= r >> 17; r ^= r << 5;
-        x = 120 + (int32_t)((r & 127u) + (r >> 7 & 127u)) - 127;
-        y = 6 + (int32_t)(r >> 14 & 31u) - (int32_t)((x > 120 ? x - 120 : 120 - x) >> 3);
-        s = 2 + (int32_t)(r >> 20 & 1u);
-        if (y < 2) y = 2;
-        cv_rect(x, y, s, s, i % 7u == 3u ? C_HI : i & 1u ? C_GRAY : C_DIM);
-    }
-    cv_rect(40, 44, 160, 2, C_LINE);
-    cv_blit(0, 46);
+    cv_begin(240, 64, C_BLACK);                 /* the mark, rows 16 .. 116, in two strips */
+    cv_oy = -16; sp_mark(); cv_blit(0, 16);
+    cv_begin(240, 37, C_BLACK);
+    cv_oy = -80; sp_mark(); cv_blit(0, 80);
+    cv_oy = 0;
     cv_begin(240, 64, C_BLACK);
     ft_big(16, "TEXTURA", UI_ACC);
     ft_c(48, "TEXTURE SYNTHESIZER", FC_LAB);
-    cv_blit(0, 110);
+    cv_blit(0, 130);
     cv_begin(240, 20, C_BLACK);
     p_strcpy(v, "VERSION ", 8); p_upper(v + 8, APP_VER, 12);
     ft_c(10, v, FC_DIM);
