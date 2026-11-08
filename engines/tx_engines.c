@@ -39,19 +39,13 @@ extern const tx_engine_t tx_eng_wood;
 extern const tx_engine_t tx_eng_ice;
 extern const tx_engine_t tx_eng_source;
 
-/* TX_APP (the FM-1 app: tools/fm1_bench.py --app): only the engines the firmware can reach, by a landscape
- * (firmware/src/landscapes.h, eng 1), the source's HOST[] table or storm's rain; the others are left out of its flash */
 const tx_engine_t *const tx_engines[] = {
-#ifndef TX_APP
     &tx_eng_test,
-#endif
     &tx_eng_drip,
     &tx_eng_candle,
     &tx_eng_sparks,
     &tx_eng_gravel,
-#ifndef TX_APP
     &tx_eng_rainstick,
-#endif
     &tx_eng_mineral,
     &tx_eng_pebble,
     &tx_eng_thunder,
@@ -61,34 +55,22 @@ const tx_engine_t *const tx_engines[] = {
     &tx_eng_wind,
     &tx_eng_sand,
     &tx_eng_lakeice,
-#ifndef TX_APP
     &tx_eng_spring,
-#endif
-#ifndef TX_APP
     &tx_eng_chimes,
-#endif
     &tx_eng_rainsurf,
     &tx_eng_rockfall,
-#ifndef TX_APP
     &tx_eng_plate,
-#endif
     &tx_eng_rainwater,
     &tx_eng_stream,
     &tx_eng_surf,
     &tx_eng_storm,
     &tx_eng_crickets,
-#ifndef TX_APP
     &tx_eng_cicadas,
-#endif
     &tx_eng_katydids,
-#ifndef TX_APP
     &tx_eng_crumple,
-#endif
     &tx_eng_fire,
     &tx_eng_stonedrum,
-#ifndef TX_APP
     &tx_eng_stonecloud,
-#endif
     &tx_eng_minerals,
     &tx_eng_glass,
     &tx_eng_wood,
