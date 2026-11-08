@@ -6,7 +6,6 @@
 
 extern const int16_t TX_FX_SINE[1025];   /* Q15 sine over one cycle (+ guard) */
 extern const int16_t TX_FX_TANH[257];   /* Q15 tanh over [-4, 4) in steps of 1/32 (the soft clip) */
-extern const uint32_t TX_FX_LFO_INC[128];   /* the LFO's Q32 phase step a sample: 0.5 .. 12 Hz, exponential */
 extern const uint16_t TX_FX_DRV_LVL[128];   /* the drive's make-up trim (Q15): level-neutral over AMOUNT */
 extern const uint32_t TX_FX_FL_G[258];   /* the filter's g = tan(pi fc / fs), Q24, fc 30 Hz .. 16 kHz (log, 256 steps + guards) */
 extern const uint32_t TX_FX_FL_K[128];   /* the filter's damping k = 1 / Q, Q24: Q 0.707 .. 20 (exponential) */

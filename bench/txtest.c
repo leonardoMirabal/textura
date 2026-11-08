@@ -1570,8 +1570,8 @@ static void check_fx(FILE *update)
     /* silence in, every effect on: exact zeros out */
     tx_fx_init(fx);
     tx_fx_drive_set(fx, TX_DR_AMOUNT, 90);
-    tx_fx_filter_param(&fx->filter[0], TX_FL_TYPE, 2); tx_fx_filter_param(&fx->filter[0], TX_FL_FREQ, 60);
-    tx_fx_filter_param(&fx->filter[0], TX_FL_RESO, 90); tx_fx_filter_param(&fx->filter[0], TX_FL_LFO, 80);
+    tx_fx_drive_set(fx, TX_FX_MF_ID + TX_MF_LOW, 40); tx_fx_drive_set(fx, TX_FX_MF_ID + TX_MF_HIGH, 60);
+    tx_fx_drive_set(fx, TX_FX_MF_ID + TX_MF_RESO, 127); tx_fx_drive_set(fx, TX_FX_MF_ID + TX_MF_SLOPE, 1);
     for (t = TX_RVT_ROOM; t < TX_RVT_N; t++) {
         tx_fx_reverb_init(&fx->rev);
         tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, t); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 127);
@@ -1586,7 +1586,7 @@ static void check_fx(FILE *update)
             for (j = 0; j < TX_BLOCK; j++) nz += y[j] != 0 || L[j] != 0 || R[j] != 0;
         }
     }
-    snprintf(msg, sizeof msg, "zeros in, drive + filter (LP18, LFO) + grain delay + every reverb TYPE with shimmer: %u nonzero samples out", nz);
+    snprintf(msg, sizeof msg, "zeros in, drive + the mix's filter (24 dB band, RESONANCE 127) + grain delay + every reverb TYPE with shimmer: %u nonzero samples out", nz);
     verdict("fx", "silence", !nz, msg, 0);
     /* each TYPE: the burst, its tail ends in exact zeros; renders against the baselines */
     for (t = TX_RVT_ROOM; t < TX_RVT_N; t++) {
@@ -1689,8 +1689,8 @@ static void check_fx(FILE *update)
                 if (k < TX_DRT_N) {
                     tx_fx_drive_param(&fx->drive[0], TX_DR_TYPE, k);
                     tx_fx_drive_param(&fx->drive[0], TX_DR_AMOUNT, 127);
-                    tx_fx_filter_param(&fx->filter[0], TX_FL_TYPE, 1u + k);
-                    tx_fx_filter_param(&fx->filter[0], TX_FL_RESO, 127);
+                    tx_fx_mfilter_param(&fx->mf, TX_MF_LOW, 20u * k); tx_fx_mfilter_param(&fx->mf, TX_MF_HIGH, 127u - 20u * k);
+                    tx_fx_mfilter_param(&fx->mf, TX_MF_RESO, 127); tx_fx_mfilter_param(&fx->mf, TX_MF_SLOPE, k & 1u);
                 } else {
                     tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, k - TX_DRT_N + 1u);
                     tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 127);
@@ -1699,11 +1699,11 @@ static void check_fx(FILE *update)
                 for (b = 0; b < 100u; b++) {
                     for (j = 0; j < TX_BLOCK; j++)
                         y[j] = L[j] = R[j] = (b * TX_BLOCK + j) / PER[q] & 1u ? 1 << 27 : -(1 << 27);
-                    if (k < TX_DRT_N) tx_fx_drive_process(&fx->drive[0], y, TX_BLOCK), tx_fx_lane(fx, 0, y, TX_BLOCK);
+                    if (k < TX_DRT_N) tx_fx_drive_process(&fx->drive[0], y, TX_BLOCK), tx_fx_mfilter_process(&fx->mf, y, L, TX_BLOCK);
                     else tx_fx_bus(fx, L, R, TX_BLOCK);
                 }
             }
-        verdict("fx", "hot input", 1, "a 16 x square into every DRIVE TYPE (AMOUNT 127) and reverb TYPE: no overflow",
+        verdict("fx", "hot input", 1, "a 16 x square into every DRIVE TYPE (AMOUNT 127), the mix's FILTER (RESONANCE 127) and every reverb TYPE: no overflow",
                 0);
     }
     /* SWELL: 3 s played (the burst again and again), then silence: the wet part (MIX 127: the out) after the playing
@@ -1918,8 +1918,8 @@ static void check_fx(FILE *update)
                  "to OHCD and back (%u of 3); %u samples differ between the sides", own, dry);
         verdict("fx", "drive-tsh8", own == 3u && !dry, msg, 0);
     }
-    /* the DRIVE (one side) and the lane's FILTER: renders against the baselines (a drive at 90 / TONE 100 / MIX 100,
-     * the classic and each TYPE; LP18 with its LFO) */
+    /* the DRIVE (one side) and the mix's FILTER: renders against the baselines (a drive at 90 / TONE 100 / MIX 100,
+     * the classic and each TYPE; the FILTER a 24 dB band with RESONANCE, its HIGH CUT moving: fx-mfilter) */
     for (t = 0; t < 2u + TX_DRT_N - 1u; t++) {
         tx_sha256_t h, h2;
         const char *bl;
@@ -1928,21 +1928,26 @@ static void check_fx(FILE *update)
             tx_fx_init(fx);
             if (t != 1u) { tx_fx_drive_param(&fx->drive[0], TX_DR_AMOUNT, 90); tx_fx_drive_param(&fx->drive[0], TX_DR_TONE, 100);
                            tx_fx_drive_param(&fx->drive[0], TX_DR_MIX, 100); tx_fx_drive_param(&fx->drive[0], TX_DR_TYPE, t ? t - 1u : 0u); }
-            else { tx_fx_filter_param(&fx->filter[1], TX_FL_TYPE, 2); tx_fx_filter_param(&fx->filter[1], TX_FL_FREQ, 70);
-                   tx_fx_filter_param(&fx->filter[1], TX_FL_RESO, 100); tx_fx_filter_param(&fx->filter[1], TX_FL_LFO, 90); }
+            else { tx_fx_mfilter_param(&fx->mf, TX_MF_LOW, 30); tx_fx_mfilter_param(&fx->mf, TX_MF_HIGH, 70);
+                   tx_fx_mfilter_param(&fx->mf, TX_MF_RESO, 100); tx_fx_mfilter_param(&fx->mf, TX_MF_SLOPE, 1); }
             tx_sha256_init(pass ? &h2 : &h);
             rng = 7u; pk = 0;
             for (b = 0; b < 400u; b++) {
                 for (j = 0; j < TX_BLOCK; j++) y[j] = fx_in((b % 200u) * TX_BLOCK + j, &rng) * 4;
                 tx_fx_drive_process(&fx->drive[0], y, TX_BLOCK);     /* (the DRIVE alone, as on one side of the mix) */
-                tx_fx_lane(fx, 1, y, TX_BLOCK);
+                if (t == 1u) {                                      /* (the FILTER on the pair: y, and y negated) */
+                    int32_t yr[TX_BLOCK];
+                    if (!(b % 50u)) tx_fx_mfilter_param(&fx->mf, TX_MF_HIGH, 50u + (b / 50u) * 9u);
+                    for (j = 0; j < TX_BLOCK; j++) yr[j] = -y[j];
+                    tx_fx_mfilter_process(&fx->mf, y, yr, TX_BLOCK);
+                }
                 for (j = 0; j < TX_BLOCK; j++) { int32_t a = y[j] < 0 ? -y[j] : y[j]; if (a > pk) pk = a; }
                 fx_hash(pass ? &h2 : &h, y, TX_BLOCK);
             }
         }
         tx_sha256_hex(&h, hex); tx_sha256_hex(&h2, hex2);
         {
-            static const char *const FN[2u + TX_DRT_N - 1u] = {"drive", "filter", "khlon", "tsh8", "ohcd", "bhlue"};
+            static const char *const FN[2u + TX_DRT_N - 1u] = {"drive", "mfilter", "khlon", "tsh8", "ohcd", "bhlue"};
             snprintf(name, sizeof name, "fx-%s", FN[t]);
         }
         if (strcmp(hex, hex2)) { verdict("fx", "determinism", 0, name, ": two renders differ"); continue; }

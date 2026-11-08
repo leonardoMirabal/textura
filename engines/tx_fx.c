@@ -412,7 +412,6 @@ void tx_fx_init(tx_fx_t *fx)
     tx_fx_drive_pair(&fx->drive[1], &fx->drive[0]);
     fx->scr1 = 0; fx->dr_x = 0; fx->dr_n = 0;
     tx_fx_mfilter_init(&fx->mf);
-    for (k = 0; k < TX_FX_LANES; k++) tx_fx_filter_init(&fx->filter[k]);
     tx_fx_grain_init(&fx->gd);
     tx_fx_reverb_init(&fx->rev);
     fx->reserve_us = TX_FX_RESERVE_US;
@@ -420,23 +419,12 @@ void tx_fx_init(tx_fx_t *fx)
     fx->up = 0;
     fx->two = 0;
 }
-TX_AUDIO_CODE void tx_fx_lane(void *u, unsigned k, int32_t *x, unsigned n)
-{
-    tx_fx_t *fx = (tx_fx_t *)u;
-    if (k >= TX_FX_LANES) return;
-    TX_FAR(tx_fx_filter_process)(&fx->filter[k], x, n);   /* (in RAM on the FM-1: TX_RAM) */
-}
+TX_AUDIO_CODE void tx_fx_lane(void *u, unsigned k, int32_t *x, unsigned n) { (void)u; (void)k; (void)x; (void)n; }
 TX_AUDIO_CODE void tx_fx_lane_run(void *u, unsigned k, int32_t *x, unsigned n, unsigned core)
 {
-    tx_fx_t *fx = (tx_fx_t *)u;
-    if (k >= TX_FX_LANES) return;
-    if (core) TX_C1(tx_fx_filter_process)(&fx->filter[k], x, n);   /* core 1: the twin in XIP (TX_C1) */
-    else TX_FAR(tx_fx_filter_process)(&fx->filter[k], x, n);
+    (void)u; (void)k; (void)x; (void)n; (void)core;     /* (no lane insert: each lane's FILTER is retired) */
 }
-uint32_t tx_fx_lane_us(const tx_fx_t *fx, unsigned k)
-{
-    return k < TX_FX_LANES ? tx_fx_filter_us(&fx->filter[k]) : 0u;
-}
+uint32_t tx_fx_lane_us(const tx_fx_t *fx, unsigned k) { (void)fx; (void)k; return 0u; }
 /* the mix's DRIVE: one set of settings on the pair */
 void tx_fx_drive_set(tx_fx_t *fx, unsigned id, unsigned v)
 {

@@ -94,7 +94,7 @@ static uint32_t (*lane_now)(void);
 static fm_run_t *lane_run;
 #define FM_GV 4u                                             /* the split's items past the lanes: the grain voices'
                                                               * halves (the echo and the first, the second) */
-static void lane_render(fm_run_t *r, unsigned k, unsigned core)   /* its engine, then its insert (the filter) */
+static void lane_render(fm_run_t *r, unsigned k, unsigned core)   /* its engine, then its insert (none now) */
 {
     uint32_t j, a = lane_now();
     for (j = 0; j < TX_BLOCK; j++) r->lb[k].x[j] = 0;
@@ -195,9 +195,9 @@ static void fx_setup(tx_fx_t *fx, unsigned kind, unsigned type, unsigned decay)
         tx_fx_drive_set(fx, TX_DR_AMOUNT, 90); tx_fx_drive_set(fx, TX_DR_TONE, 100);
         tx_fx_drive_set(fx, TX_DR_MIX, type ? 127 : 100); tx_fx_drive_set(fx, TX_DR_TYPE, type);
     }
-    if (kind == FM_FX_FILTER) {
-        tx_fx_filter_param(&fx->filter[0], TX_FL_TYPE, 2); tx_fx_filter_param(&fx->filter[0], TX_FL_RESO, 90);
-        tx_fx_filter_param(&fx->filter[0], TX_FL_LFO, 90); tx_fx_filter_param(&fx->filter[0], TX_FL_FREQ, 70);
+    if (kind == FM_FX_FILTER) {                              /* the mix's FILTER: both edges, 24 dB (its dearest) */
+        tx_fx_drive_set(fx, TX_FX_MF_ID + TX_MF_LOW, 30); tx_fx_drive_set(fx, TX_FX_MF_ID + TX_MF_HIGH, 70);
+        tx_fx_drive_set(fx, TX_FX_MF_ID + TX_MF_RESO, 64); tx_fx_drive_set(fx, TX_FX_MF_ID + TX_MF_SLOPE, 1);
     }
     if (kind == FM_FX_REVERB) {
         tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, type); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 90);
@@ -213,21 +213,17 @@ static void fx_setup(tx_fx_t *fx, unsigned kind, unsigned type, unsigned decay)
     }
 }
 
-/* the lanes' bus: a filter on every lane, the mix's drive, a ROOM reverb, the grain delay (16 grains, pitched); off:
+/* the lanes' bus: the mix's drive and FILTER (a 12 dB band), a ROOM reverb, the grain delay (16 grains, pitched); off:
  * the effects left out (FM_NO_*) */
 static void lanes_fx(tx_fx_t *fx, unsigned off)
 {
-    unsigned k;
     tx_fx_init(fx);
     tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, TX_RVT_ROOM); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 60);
     tx_fx_reverb_param(&fx->rev, TX_RV_DECAY, 100);
     tx_fx_grain_param(&fx->gd, TX_GD_MIX, 80); tx_fx_grain_param(&fx->gd, TX_GD_GRAINS, 15);
     tx_fx_grain_param(&fx->gd, TX_GD_PITCH, 71); tx_fx_grain_param(&fx->gd, TX_GD_FEEDBACK, 70);
     tx_fx_drive_set(fx, TX_DR_AMOUNT, off & FM_NO_DRIVE ? 0 : 70); tx_fx_drive_set(fx, TX_DR_MIX, 100);
-    for (k = 0; k < TX_FX_LANES; k++) {
-        tx_fx_filter_param(&fx->filter[k], TX_FL_TYPE, 2); tx_fx_filter_param(&fx->filter[k], TX_FL_FREQ, 90);
-        if (off & FM_NO_FILTER) tx_fx_filter_param(&fx->filter[k], TX_FL_TYPE, 0);
-    }
+    if (!(off & FM_NO_FILTER)) { tx_fx_drive_set(fx, TX_FX_MF_ID + TX_MF_LOW, 20); tx_fx_drive_set(fx, TX_FX_MF_ID + TX_MF_HIGH, 100); }
     if (off & FM_NO_GRAIN) tx_fx_grain_param(&fx->gd, TX_GD_MIX, 0);
     if (off & FM_NO_REVERB) {                                /* (the grains' cap as with the ROOM: its 390 us less) */
         tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, TX_RVT_OFF); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 0);
@@ -375,8 +371,9 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
     } else if (c->kind == FM_K_FX) {
         if (c->eng == FM_FX_CLOCK) L[0] = R[0] = (int32_t)(clk_probe(r->blk) >> 9);   /* (its result: kept, hashed) */
         else if (c->eng == FM_FX_COMP) TX_FAR(tx_comp_process)(&r->mix.comp, L, R, TX_BLOCK); /* the mix's own */
-        else if (c->eng == FM_FX_DRIVE) tx_fx_drive_mix(&r->fx, L, R, TX_BLOCK);   /* (the mix's: the pair) */
-        else if (c->eng >= FM_FX_REVERB) tx_fx_bus(&r->fx, L, R, TX_BLOCK); else tx_fx_lane(&r->fx, 0, L, TX_BLOCK);
+        else if (c->eng == FM_FX_DRIVE || c->eng == FM_FX_FILTER) tx_fx_drive_mix(&r->fx, L, R, TX_BLOCK);   /* (the
+                                                              * mix's pair: the DRIVE, then the FILTER) */
+        else tx_fx_bus(&r->fx, L, R, TX_BLOCK);
     } else {                                                 /* the lanes: every lane's events, the bus's begin, then
                                                               * the engines with their filters and the grain voices
                                                               * (FM_PAR: some on core 1), then lane by lane the pan,

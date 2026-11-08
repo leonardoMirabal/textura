@@ -312,13 +312,12 @@ EMSCRIPTEN_KEEPALIVE const char *txw_max_sha(int i)
     return hex;
 }
 
-/* ---- EFFECTS (tx_fx.h): group 1 FILTER (each layer's own, on its signal before the pan), 0 DRIVE (the first effect
- * on the mix), 4 COMPRESSOR (on the mix, after it: tx_core_comp.h), 3 GRAIN DELAY (on the mix, after it), 2 REVERB (on
+/* ---- EFFECTS (tx_fx.h): 0 DRIVE (the first effect on the mix), 1 FILTER (the mix's, right after the DRIVE: a band), 4 COMPRESSOR (on the mix, after it: tx_core_comp.h), 3 GRAIN DELAY (on the mix, after it), 2 REVERB (on
  * the mix, last; its TYPE ROOM is the CHAMBER's body + a short hall) */
 static const tx_param_t *fx_list(int g, int *n)
 {
     if (g == 0) { *n = TX_DR_NP; return tx_fx_drive_params; }
-    if (g == 1) { *n = TX_FL_NP; return tx_fx_filter_params; }
+    if (g == 1) { *n = TX_MF_NP; return tx_fx_mfilter_params; }
     if (g == 2) { *n = TX_RV_NP; return tx_fx_reverb_params; }
     if (g == 3) { *n = TX_GD_NP; return tx_fx_grain_params; }
     if (g == 4) { *n = TX_CP_NP; return tx_comp_params; }
@@ -329,13 +328,13 @@ EMSCRIPTEN_KEEPALIVE const char *txw_fx_pname(int g, int i) { int n; const tx_pa
 EMSCRIPTEN_KEEPALIVE const char *txw_fx_phelp(int g, int i) { int n; const tx_param_t *p = fx_list(g, &n); return i >= 0 && i < n ? p[i].help : ""; }
 EMSCRIPTEN_KEEPALIVE int txw_fx_pmax(int g, int i) { int n; const tx_param_t *p = fx_list(g, &n); return i >= 0 && i < n ? p[i].max : 0; }
 EMSCRIPTEN_KEEPALIVE int txw_fx_pdef(int g, int i) { int n; const tx_param_t *p = fx_list(g, &n); return i >= 0 && i < n ? p[i].def : 0; }
-/* group g's parameter i to v (k: the layer, for FILTER) */
+/* group g's parameter i to v (k: unused, every effect is the mix's) */
 EMSCRIPTEN_KEEPALIVE void txw_fx_param(int g, int k, int i, int v)
 {
     ready();
     if (v < 0) v = 0;
     if (g == 0) tx_fx_drive_set(&fxc, (unsigned)i, (unsigned)v);
-    else if (g == 1 && k >= 0 && k < (int)TX_FX_LANES) tx_fx_filter_param(&fxc.filter[k], (unsigned)i, (unsigned)v);
+    else if (g == 1) tx_fx_drive_set(&fxc, TX_FX_MF_ID + (unsigned)i, (unsigned)v);   /* (the mix's first stage) */
     else if (g == 2) tx_fx_reverb_param(&fxc.rev, (unsigned)i, (unsigned)v);
     else if (g == 3) tx_fx_grain_param(&fxc.gd, (unsigned)i, (unsigned)v);
     else if (g == 4) tx_comp_param(&mixer.comp, (unsigned)i, (unsigned)v);

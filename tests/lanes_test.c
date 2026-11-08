@@ -159,7 +159,8 @@ static const step_t SCENE[] = {
     {60, 'F', 2, 0, 0, 2, 0},                   /* REVERB TYPE hall */
     {60, 'F', 2, 0, 1, 60, 0},                  /* its MIX */
     {80, 'F', 0, 0, 0, 60, 0},                  /* the mix's DRIVE AMOUNT */
-    {90, 'F', 1, 0, 0, 1, 0},                   /* lane 1's FILTER TYPE low-pass */
+    {90, 'F', 0, 0, TX_FX_MF_ID + TX_MF_HIGH, 70, 0},   /* the mix's FILTER: HIGH CUT (the DRIVE's group) */
+    {95, 'F', 0, 0, TX_FX_MF_ID + TX_MF_LOW, 25, 0},    /* LOW CUT */
     {100, 'F', 3, 0, 0, 80, 0},                 /* the GRAIN DELAY's MIX */
     {110, 'F', 0, 0, 3, 2, 0},                  /* the DRIVE's TYPE TSH8 (its left side owns the tables) */
     {115, 'F', 3, 0, 3, 15, 0},                 /* the GRAIN DELAY's GRAINS: 16 */
@@ -252,10 +253,9 @@ int main(void)
                 ln_gen_mute((uint32_t)t->k, (uint32_t)t->a);
                 rgen_mute[t->k] = t->a != 0;
                 break;
-            case 'F':                           /* group k: 0 drive (the mix's), 1 filter (lane c), 2 reverb, 3 grain */
+            case 'F':                           /* group k: 0 drive and the mix's FILTER, 2 reverb, 3 grain */
                 ln_fx((uint32_t)t->k, (uint32_t)t->c, (uint32_t)t->a, (uint32_t)t->v);
                 if (t->k == 0) tx_fx_drive_set(&rfx, (unsigned)t->a, (unsigned)t->v);
-                else if (t->k == 1) tx_fx_filter_param(&rfx.filter[t->c], (unsigned)t->a, (unsigned)t->v);
                 else if (t->k == 2) tx_fx_reverb_param(&rfx.rev, (unsigned)t->a, (unsigned)t->v);
                 else tx_fx_grain_param(&rfx.gd, (unsigned)t->a, (unsigned)t->v);
                 break;

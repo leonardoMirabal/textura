@@ -72,8 +72,6 @@ int main(int argc, char **argv)
     row("int16_t", "TX_FX_SINE", v, 1025, 16, "Q15 sine over one cycle (+ guard)");
     for (i = 0; i < 257; i++) v[i] = lround(32767 * tanh(-4 + i / 32.0));
     row("int16_t", "TX_FX_TANH", v, 257, 16, "Q15 tanh over [-4, 4) in steps of 1/32 (the soft clip)");
-    for (i = 0; i < 128; i++) v[i] = lround(0.5 * pow(24, i / 127.0) / FS * 4294967296.0);
-    row("uint32_t", "TX_FX_LFO_INC", v, 128, 8, "the LFO's Q32 phase step a sample: 0.5 .. 12 Hz, exponential");
     for (i = 0; i < 128; i++) v[i] = lround(32767 * pow(10, (-0.0896 * i - (i > 16 ? drv_rise(i) : 0.0)) / 20));
     row("uint16_t", "TX_FX_DRV_LVL", v, 128, 12, "the drive's make-up trim (Q15): level-neutral over AMOUNT");
     for (i = 0; i < 258; i++) v[i] = lround(tan(M_PI * 30 * pow(16000 / 30.0, (i < 256 ? i : 256) / 256.0) / FS) * 16777216.0);

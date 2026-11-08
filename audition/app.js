@@ -363,7 +363,6 @@ function editLayer(k) {
   ed = k;
   M._txw_slot(k);
   buildSliders();
-  if ($("fx-dr").childElementCount || $("fx-rv").childElementCount) fxLayer();
   showLayers();
   showEngine();
 }
@@ -421,9 +420,10 @@ function saveLayers() {
   try { localStorage.setItem("textura.layers", JSON.stringify({ mode: keyMode, layers: layers.map(l => ({ eng: l.eng, pan: l.pan, lo: l.lo, hi: l.hi })) })); } catch (e) { }
 }
 
-// ---- EFFECTS (tx_fx.h): on the mix DRIVE (group 0), COMPRESSOR (4), GRAIN DELAY (3), REVERB (2; TYPE ROOM is the old
-// CHAMBER), each layer's FILTER (1) on its own signal. The values are kept in this browser (textura.fx)
-const fxv = { rv: {}, gd: {}, cp: {}, dr: {}, lane: [0, 1, 2, 3].map(() => ({ 1: {} })) };
+// ---- EFFECTS (tx_fx.h): on the mix DRIVE (group 0), FILTER (1: a band, after the drive), COMPRESSOR (4), GRAIN DELAY
+// (3), REVERB (2; TYPE ROOM is the old CHAMBER). The values are kept in this browser (textura.fx; a layer's own FILTER
+// of before is dropped)
+const fxv = { rv: {}, gd: {}, cp: {}, dr: {}, fl: {} };
 function fxSave() { try { localStorage.setItem("textura.fx", JSON.stringify({ ...fxv, cmp: fxv.cp, cp: undefined })); } catch (e) { } }
 function fxBox(box, g, vals, apply) {
   box.textContent = "";
@@ -432,10 +432,6 @@ function fxBox(box, g, vals, apply) {
     slider(box, S(M._txw_fx_pname(g, p)), S(M._txw_fx_phelp(g, p)), 0, M._txw_fx_pmax(g, p), v,
            x => { vals[p] = x; apply(p, x); fxSave(); }, false, `fx${g}-${p}`);
   }
-}
-function fxLayer() {                                   // the edited layer's FILTER
-  fxBox($("fx-fl"), 1, fxv.lane[ed][1], (p, x) => M._txw_fx_param(1, ed, p, x));
-  $("fx-fl-title").textContent = `FILTER (layer ${ed + 1})`;
 }
 function buildChamber() {                             // (the old CHAMBER's place: now the effects)
   let saved = null;
@@ -449,18 +445,19 @@ function buildChamber() {                             // (the old CHAMBER's plac
     const d = saved.lane.filter(l => l && l[0] && l[0][0] > 0).sort((a, b) => b[0][0] - a[0][0])[0];
     if (d) Object.assign(fxv.dr, d[0]);
   }
-  if (saved && saved.rv && saved.lane) { Object.assign(fxv.rv, saved.rv); saved.lane.forEach((l, k) => { if (k < 4) fxv.lane[k] = { 1: l[1] || {} }; }); }
+  if (saved && saved.rv && (saved.lane || saved.fl)) Object.assign(fxv.rv, saved.rv);
+  if (saved && saved.fl) Object.assign(fxv.fl, saved.fl);
   try { if (!saved && localStorage.getItem("textura.chamber") === "1") fxv.rv = { 0: 1, 1: 127 }; } catch (e) { }   // CHAMBER on: ROOM
   for (const p in fxv.rv) M._txw_fx_param(2, 0, +p, fxv.rv[p]);
   for (const p in fxv.gd) M._txw_fx_param(3, 0, +p, fxv.gd[p]);
   for (const p in fxv.cp) M._txw_fx_param(4, 0, +p, fxv.cp[p]);
   for (const p in fxv.dr) M._txw_fx_param(0, 0, +p, fxv.dr[p]);
-  fxv.lane.forEach((l, k) => { for (const p in l[1]) M._txw_fx_param(1, k, +p, l[1][p]); });
+  for (const p in fxv.fl) M._txw_fx_param(1, 0, +p, fxv.fl[p]);
   fxBox($("fx-dr"), 0, fxv.dr, (p, x) => M._txw_fx_param(0, 0, p, x));
+  fxBox($("fx-fl"), 1, fxv.fl, (p, x) => M._txw_fx_param(1, 0, p, x));
   fxBox($("fx-cp"), 4, fxv.cp, (p, x) => M._txw_fx_param(4, 0, p, x));
   fxBox($("fx-gd"), 3, fxv.gd, (p, x) => M._txw_fx_param(3, 0, p, x));
   fxBox($("fx-rv"), 2, fxv.rv, (p, x) => M._txw_fx_param(2, 0, p, x));
-  fxLayer();
 }
 
 function slider(box, name, help, lo, hi, def, set, shared, id) {

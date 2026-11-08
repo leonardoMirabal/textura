@@ -152,7 +152,7 @@ int main(int argc, char **argv)
                 snprintf(lab, sizeof lab, "GRAIN %u pitched", k); fx(FM_FX_GRAIN, k, 1, lab);
             }
             for (k = 0; k < 5u; k++) { snprintf(lab, sizeof lab, "DRIVE %s", DT[k]); fx(FM_FX_DRIVE, k, 0, lab); }
-            fx(FM_FX_FILTER, 0, 0, "FILTER");
+            fx(FM_FX_FILTER, 0, 0, "FILTER (the mix's, 24 dB band)");
             fx(FM_FX_COMP, 0, 0, "COMP (the defaults)");
             fx(FM_FX_COMP, 1, 0, "COMP THR -40 20:1 ATK 0");
         }

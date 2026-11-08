@@ -3,14 +3,15 @@
  *
  * A scene is everything a sound place is: the landscape, each lane's sound, HOW MANY, HOW ACTIVE, playing or not, its
  * level, pan and mute, its name, then a list of (parameter id, value) records: the lanes' cards (the ones set), the tempo,
- * and of the lanes' filter, the grain delay and its SYNC, the reverb, the compressor, the drive, the mix's filter, the eight LFOs, the
+ * and of the grain delay and its SYNC, the reverb, the compressor, the drive, the mix's filter, the eight LFOs, the
  * envelopes, the followers and the matrix the values away from their defaults (scn_def_*). A load sets every one of those to its default first,
  * then the scene's records over them, so a record of an older firmware loads into a newer one (an id it lacks gets
  * its default; ids never change, params.c). The tempo is set only with SCENE TEMPO on (tempo.c), and the mix's
  * effects (DRIVE, FILTER, COMPRESSOR, GRAIN, REVERB) only with SCENE FX at RECALL (and by the boot's load): at KEEP, the
  * default, a load leaves them as they are and their tails ring on (a save always keeps them). A scene saved with
  * a DRIVE on each lane (ids 32 .. 35 of a lane, retired) loads that onto the mix's one DRIVE: the lane with the most
- * AMOUNT gives its AMOUNT, TONE, MIX and TYPE (the first such lane on a tie; none above 0: the DRIVE stays off).
+ * AMOUNT gives its AMOUNT, TONE, MIX and TYPE (the first such lane on a tie; none above 0: the DRIVE stays off). A
+ * lane's FILTER (ids 36 .. 41 of a lane, retired: the mix has one FILTER) and a matrix route onto it are skipped.
  *
  *   factory   F001 .. F100: the factory presets (presets.c: four lanes of any families, their levels balanced,
  *             a touch of reverb or echo that comes with SCENE FX RECALL), the modulation at its defaults
@@ -27,9 +28,9 @@
  *
  * A load never cuts: a lane that keeps its sound plays on untouched; a lane that gets another one switches, its old
  * sound playing on till its turn (one lane at a time, ~150 ms apart), then fading out under the new one (lanes.c);
- * the lanes' levels, pans, HOW MANY, HOW ACTIVE (scape.c) and their numbers (the cards, the FILTER's FREQ, RESO, LFO,
- * RATE: scn_put) glide 500 ms; a switched lane's cards are set as soon as its new engine is in. A load asked for while
- * one runs (a preview, a program change) waits for it, the last one asked wins.
+ * the lanes' levels, pans, HOW MANY, HOW ACTIVE (scape.c) and their numbers (the cards: scn_put) glide 500 ms; a
+ * switched lane's cards are set as soon as its new engine is in. A load asked for while one runs (a preview, a
+ * program change) waits for it, the last one asked wins.
  *
  * A load and a save both run beside the main loop, a slice a pass: a load sets the lanes first, waits for their
  * engines, then sends its records SCN_SLICE at a time while lanes.c's queue has room; a save erases one sector a
@@ -56,11 +57,11 @@
 #define SCN_SLICE 16u                           /* records a load sends a pass */
 #define SCN_SETTLE_MS 120u                      /* a load: the lanes' engines first, this long at least */
 #define SCN_BROWSE_MS 400u
-#define SCN_GLIDE_MS 500u                       /* a load: a lane's numbers (its cards, its FILTER's) glide this long */
+#define SCN_GLIDE_MS 500u                       /* a load: a lane's numbers (its cards) glide this long */
 #define SCN_GLIDE_TICK 10u
 #define SCN_CARDS_MS 24u                        /* a switched lane: its cards this long after its switch (its hosted
                                                  * engine in) */
-#define SCN_GL_N 48u                            /* (glides at once: 4 lanes' cards and FILTER numbers) */
+#define SCN_GL_N 48u                            /* (glides at once: 4 lanes' cards) */
 #define SCN_UNDO_MS 700u
 #define SET_SAVE_MS 2000u
 #define SET_VER 1u
@@ -157,10 +158,9 @@ static void scn_name_of(uint32_t idx, char *s)  /* "F003 GARDEN RAIN", "U05 WATE
     else p_cat(s, "----", 16);
 }
 
-/* ---- the defaults a load starts from: the lanes' filter, the grain delay and its SYNC, the reverb, the compressor,
+/* ---- the defaults a load starts from: the grain delay and its SYNC, the reverb, the compressor,
  * the drive, the mix's filter, the LFOs, the envelopes, the followers, the matrix (in that order; SCN_DEF_N of them) */
-#define SCN_DEF_LANE TX_FL_NP
-#define SCN_DEF_GLOB (SC_N * SCN_DEF_LANE)
+#define SCN_DEF_GLOB 0u                          /* (the lanes' FILTER once came first: retired) */
 #define SCN_DEF_LFO (SCN_DEF_GLOB + TX_GD_NP + 1u + TX_RV_NP + TX_CP_NP + TX_DR_NP + TX_MF_NP)
 #define SCN_DEF_ENV (SCN_DEF_LFO + TX_LFO_N * TX_LP_N)
 #define SCN_DEF_FOL (SCN_DEF_ENV + TX_ENV_N * TX_EP_N)
@@ -169,11 +169,6 @@ static void scn_name_of(uint32_t idx, char *s)  /* "F003 GARDEN RAIN", "U05 WATE
 static uint8_t scn_lfo_def[TX_LFO_N][TX_LP_N];  /* (tx_lfo_init's, per LFO: taken at boot) */
 static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id */
 {
-    uint32_t k;
-    if (i < SCN_DEF_GLOB) {
-        k = i / SCN_DEF_LANE; i %= SCN_DEF_LANE;
-        return PID(k, PL_FILTER0 + i);
-    }
     if (i < SCN_DEF_LFO) {
         i -= SCN_DEF_GLOB;
         if (i < TX_GD_NP) return PID(P_GLOBAL, PG_GRAIN0 + i);
@@ -193,10 +188,7 @@ static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id *
 static int32_t scn_def_of(uint32_t id)          /* an id's default (-1: none: the cards, the tempo) */
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
-    if (s < SC_N) {
-        if (i >= PL_FILTER0 && i < PL_FILTER0 + TX_FL_NP) return tx_fx_filter_params[i - PL_FILTER0].def;
-        return -1;
-    }
+    if (s < SC_N) return -1;
     if (s == P_GLOBAL) {
         if (i < PG_GRAIN0 + TX_GD_NP) return tx_fx_grain_params[i - PG_GRAIN0].def;
         if (i == PG_GSYNC) return 0;
@@ -281,7 +273,7 @@ static void scn_factory(scn_t *s, uint32_t i)
     for (k = 0; k < PR_FX_NP; k++) scn_add_nd(s, PID(P_GLOBAL, FX_ID[k]), PR_FX[fx][k]);
 }
 
-/* ---- the glides: a load sets a lane's numbers (a card, the FILTER's FREQ, RESO, LFO, RATE) over SCN_GLIDE_MS, from
+/* ---- the glides: a load sets a lane's numbers (its cards) over SCN_GLIDE_MS, from
  * what they are to the scene's, so a lane that goes on playing never steps; the choices (a TYPE, a SHAPE, a card of
  * under 16 values) and everything else are set at once */
 static void scn_put(uint32_t id, int32_t v)
@@ -449,6 +441,9 @@ static void scn_apply_poll(void)
             if (rs == scn_ap_drv) p_set(PID(P_GLOBAL, PG_DRIVE0 + ri - PL_ODRIVE0), r->v);
         }
         else if (rs < SC_N && ri >= PL_CARD0 && ri < PL_CARD0 + SCD_MAX && (scn_ap_cd >> rs & 1u)) continue;   /* (set) */
+        else if (rs == P_MAT && ri < MOD_NS * MQ_N && ri % MQ_N == MQ_TGT && mod_tgt_retired((uint32_t)r->v)) {}
+                                                /* (a route onto a lane's FILTER, retired: dropped, the slot's TARGET
+                                                 * stays NONE) */
         else if (p_valid(r->id)) scn_put(r->id, r->v);
         n++;
     }

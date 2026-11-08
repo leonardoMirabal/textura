@@ -295,11 +295,7 @@ static int host_sound_check(char *msg, unsigned n)   /* 0 if every lane runs the
     for (k = 0; k < SC_N; k++)
         if (ln.mix.e[k] != sc.eng[k]) { snprintf(msg, n, "lane %u runs %s, not %s", k + 1u, ln.mix.e[k] ? ln.mix.e[k]->name : "-", sc.eng[k] ? sc.eng[k]->name : "-"); return 1; }
     if (ln.dropped) { snprintf(msg, n, "%u events dropped", ln.dropped); return 1; }
-    for (k = 0; k < SC_N; k++) {                /* the chain plays the effects' values the table holds */
-        uint32_t i;
-        for (i = 0; i < TX_FL_NP; i++)
-            if (ln.fx.filter[k].p[i] != pv_lane[k][PL_FILTER0 + i] && !mod_holds(PID(k, PL_FILTER0 + i))) { snprintf(msg, n, "lane %u filter %u: %u, not %u", k + 1u, i, ln.fx.filter[k].p[i], pv_lane[k][PL_FILTER0 + i]); return 1; }
-    }
+    /* the chain plays the effects' values the table holds */
     for (k = 0; k < TX_DR_NP; k++)                  /* the mix's DRIVE: both sides */
         if ((ln.fx.drive[0].p[k] != pv_glob[PG_DRIVE0 + k] || ln.fx.drive[1].p[k] != pv_glob[PG_DRIVE0 + k])
             && !mod_holds(PID(P_GLOBAL, PG_DRIVE0 + k))) { snprintf(msg, n, "drive %u: %u %u, not %u", k, ln.fx.drive[0].p[k], ln.fx.drive[1].p[k], pv_glob[PG_DRIVE0 + k]); return 1; }

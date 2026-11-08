@@ -8,7 +8,8 @@
  * MOD_SENDS a block in rotation (and one more each block refreshed, so a value the panel sent meanwhile is put back).
  *
  * In the main loop (mod_poll): the routes. Each slot's TARGET is an index into one list (mod_tgt_*): lane 1..4 or ALL
- * LANES (LEVEL, PAN, HOW MANY, HOW ACTIVE, the sound's 8 cards, FILTER FREQ / RESO / LFO / RATE), the grain delay's
+ * LANES (LEVEL, PAN, HOW MANY, HOW ACTIVE, the sound's 8 cards; FILTER FREQ / RESO / LFO / RATE once: retired, skipped,
+ * a scene's routes onto them dropped), the grain delay's
  * and the reverb's amounts, each LFO's RATE and LEVEL, the mix's DRIVE AMOUNT / TONE / MIX, the mix's FILTER LOW CUT /
  * HIGH CUT (appended; a lane's DRIVE
  * targets of before, still in the list where they were, are the mix's DRIVE now: mod_tgt_drv). Never: a TYPE, FREEZE, SYNC, SHIFT, a
@@ -206,20 +207,23 @@ static uint32_t mod_tgt_drv(uint32_t T)         /* the mix's DRIVE parameter T i
         return (T - 1u) % MT_LANE_N - MT_LDRV;   /* (TX_DR_AMOUNT TONE MIX: 0 1 2) */
     return TX_DR_NP;
 }
+static int mod_tgt_retired(uint32_t T)          /* a lane's FILTER FREQ / RESO / LFO / RATE (15 .. 18): retired, dropped */
+{
+    return T && T < MT_GRAIN0 && (T - 1u) % MT_LANE_N >= 15u;
+}
 static uint32_t mod_tgt_lanes(uint32_t T)       /* 0..3, 4 ALL, 5 none (a global) */
 {
     return T && T < MT_GRAIN0 && mod_tgt_drv(T) == TX_DR_NP ? (T - 1u) / MT_LANE_N : 5u;
 }
 static uint32_t mod_tgt_pid(uint32_t T, uint32_t k)   /* the param id it is on lane k */
 {
-    if (!T || T >= MT_N) return NOID_P;
+    if (!T || T >= MT_N || mod_tgt_retired(T)) return NOID_P;
     if (mod_tgt_drv(T) < TX_DR_NP) return PID(P_GLOBAL, PG_DRIVE0 + mod_tgt_drv(T));
     if (T >= MT_MF0) return PID(P_GLOBAL, PG_MF0 + (T - MT_MF0));   /* (TX_MF_LOW, TX_MF_HIGH) */
     if (T < MT_GRAIN0) {
         static const uint8_t J[MT_LANE_N] = {PL_LEVEL, PL_PAN, PL_COUNT, PL_ACTIVE, PL_CARD0, PL_CARD0 + 1, PL_CARD0 + 2,
             PL_CARD0 + 3, PL_CARD0 + 4, PL_CARD0 + 5, PL_CARD0 + 6, PL_CARD0 + 7, 0, 0, 0,   /* (12 .. 14: mod_tgt_drv) */
-            PL_FILTER0 + TX_FL_FREQ, PL_FILTER0 + TX_FL_RESO,
-            PL_FILTER0 + TX_FL_LFO, PL_FILTER0 + TX_FL_RATE};
+            0, 0, 0, 0};                        /* (15 .. 18: retired, mod_tgt_retired) */
         return PID(k, J[(T - 1u) % MT_LANE_N]);
     }
     if (T < MT_REV0) return PID(P_GLOBAL, PG_GRAIN0 + MT_GRAIN[T - MT_GRAIN0]);
@@ -231,7 +235,7 @@ static void mod_tgt_text(uint32_t T, char *s)
 {
     uint32_t sc_ = mod_tgt_lanes(T), k = sc_ < 4u ? sc_ : sc.sel;
     s[0] = 0;
-    if (!T || T >= MT_N) { p_strcpy(s, "NONE", 5); return; }
+    if (!T || T >= MT_N || mod_tgt_retired(T)) { p_strcpy(s, "NONE", 5); return; }
     if (mod_tgt_drv(T) < TX_DR_NP) { p_strcpy(s, "DRV ", 4); p_cat(s, p_lab(mod_tgt_pid(T, 0)), 23); return; }
     if (T >= MT_MF0) { p_strcpy(s, "FLT ", 4); p_cat(s, p_lab(mod_tgt_pid(T, 0)), 23); return; }
     if (sc_ < 4u) { s[0] = 'L'; s[1] = (char)('1' + sc_); s[2] = ' '; s[3] = 0; }
@@ -241,7 +245,6 @@ static void mod_tgt_text(uint32_t T, char *s)
     else { p_strcpy(s, "LFO", 3); { char n[2] = {(char)('1' + (T - MT_LFO0) / 2u), 0}; p_cat(s, n, 23); } p_cat(s, " ", 23); }
     if (T < MT_GRAIN0) {
         uint32_t j = (T - 1u) % MT_LANE_N;
-        if (j >= 15u) p_cat(s, "FLT ", 23);
         if (j >= 4u && j < 12u && !p_valid(mod_tgt_pid(T, k))) { char c[4] = {'C', (char)('1' + j - 4u), 0, 0}; p_cat(s, c, 23); return; }
     }
     p_cat(s, p_lab(mod_tgt_pid(T, k)), 23);
@@ -310,11 +313,6 @@ static int mod_concrete(uint32_t T, uint32_t k, mt_t *o)   /* target T on lane k
         if (c->cv[j] == 0xFF) c->cv[j] = (uint8_t)p_card_get(k, j);   /* (the value now is the base from here on) */
         o->kind = c->kind[j] & CK_HOST ? MK_HOST : MK_ENG; o->pid = c->id[j]; o->hi = c->hi[j];
         o->inv = (uint8_t)((c->kind[j] & CK_INV) != 0); o->base = c->cv[j]; o->eng = sc.eng[k];
-        return 1;
-    }
-    if (i >= PL_FILTER0 && i < PL_FILTER0 + TX_FL_NP) {
-        o->kind = MK_FX; o->grp = LN_FX_FILTER; o->pid = (uint8_t)(i - PL_FILTER0);
-        o->hi = (uint8_t)p_hi(id); o->base = pv_lane[k][i];
         return 1;
     }
     return 0;
@@ -539,7 +537,12 @@ static void mod_set(uint32_t id, int32_t v)
     if (i == MQ_CC) { mod_cc = (uint8_t)v; return; }
     switch (i % MQ_N) {
     case MQ_SRC: mslot[i / MQ_N].src = (uint8_t)v; break;
-    case MQ_TGT: mslot[i / MQ_N].tgt = (uint8_t)v; break;
+    case MQ_TGT: {                              /* (past a retired target, the way it was turned; none there: as it was) */
+        int32_t o = mslot[i / MQ_N].tgt, st = v > o ? 1 : -1;
+        while (v > 0 && v < (int32_t)MT_N && mod_tgt_retired((uint32_t)v)) v += st;
+        if (v >= 0 && v < (int32_t)MT_N) mslot[i / MQ_N].tgt = (uint8_t)v;
+        break;
+    }
     case MQ_DEPTH: mslot[i / MQ_N].depth = (uint8_t)v; break;
     default: mslot[i / MQ_N].spread = (uint8_t)v; break;
     }

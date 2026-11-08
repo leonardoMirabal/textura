@@ -3,7 +3,7 @@
 firmware runs (the splash, then the LANDSCAPE page on the screen), ?selftest starts the landscape and it sounds, the
 on-screen keys reach the firmware and its key LEDs come back (a black key selects its group's lane, LANDSCAPE stays,
 held it mutes the lane; a white key starts it), the knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
-tests/py/test_web_knobs.py), HOME turns to MIXER, EDIT to SOUND / LANE FILTER, FX to DRIVE / FILTER / COMPRESSOR / GRAIN / REVERB, GLO to TEMPO / MIDI, LFO to
+tests/py/test_web_knobs.py), HOME turns to MIXER, EDIT to SOUND, FX to DRIVE / FILTER / COMPRESSOR / GRAIN / REVERB, GLO to TEMPO / MIDI, LFO to
 LFO, ARP to MATRIX (the captions follow), SAVE saves a scene that a reload brings back, and the page fits a phone (390 px, no sideways scroll). Screenshots at desktop and phone width.
 
     make fw-web-check     (PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py)
@@ -127,18 +127,17 @@ def main():
         home.click(delay=60)
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "LANDSCAPE", "HOME once more: LANDSCAPE")
-        # EDIT: the lane's SOUND page, again: LANE FILTER (the four lanes'); FX: DRIVE, FILTER, COMPRESSOR, GRAIN, REVERB
-        # (the mix's; the captions follow)
+        # EDIT: the lane's SOUND page (again: its next page); FX: DRIVE, FILTER, COMPRESSOR, GRAIN, REVERB (the mix's;
+        # the captions follow)
         fx = pg.locator('button.b[data-name="FX"]')
         edit.click(delay=60)
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "SOUND", "EDIT: the SOUND page")
-        check(edit.locator("small").inner_text() == "LANE FILTER", "EDIT's caption on SOUND: LANE FILTER")
+        check(edit.locator("small").inner_text() == "NEXT", "EDIT's caption on SOUND: NEXT")
         pg.screenshot(path=os.path.join(OUT, "desktop-sound.png"))
         edit.click(delay=60)
         pg.wait_for_timeout(300)
-        check(pg.evaluate(PAGE) == "LANE FILTER", "EDIT again: the LANE FILTER page")
-        check(edit.locator("small").inner_text() == "SOUND", "EDIT's caption on LANE FILTER: SOUND")
+        check(pg.evaluate(PAGE) == "SOUND", "EDIT again: still SOUND (its next page)")
         fx.click(delay=60)
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "DRIVE", "FX: the DRIVE page (the mix's first effect)")

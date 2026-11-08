@@ -124,7 +124,7 @@ def main():
             check(want is not None and sha == want, f"{name}: wasm render of the max scene = native baseline ({sha[:16]})")
         nfx = [page.evaluate(f"Module._txw_fx_n({g})") for g in range(4)]
         nsl = [page.eval_on_selector_all(f"#{b} input", "x => x.length") for b in ("fx-dr", "fx-fl", "fx-rv", "fx-gd")]
-        check(nfx == nsl and nfx == [4, 6, 10, 12], f"EFFECTS: drive / filter / reverb / grain delay sliders {nsl} = their parameters {nfx}")
+        check(nfx == nsl and nfx == [4, 4, 10, 12], f"EFFECTS: drive / filter (the mix's) / reverb / grain delay sliders {nsl} = their parameters {nfx}")
         idrip = next((i for i in range(n) if page.evaluate(f"Module.UTF8ToString(Module._txw_name({i}))") == "drip"), None)
         if idrip is not None:
             sha = page.evaluate(f"window.txTest.chSha({idrip})")
@@ -249,10 +249,10 @@ def main():
         page.evaluate("window.txTest.fx(3, 0, 0, 0)")
         page.evaluate("window.txTest.fx(2, 0, 8, 0)")
         page.evaluate("window.txTest.fx(2, 0, 2, 64)")
-        page.evaluate("window.txTest.fx(0, 0, 0, 90)")  # the mix's DRIVE and layer 1's FILTER on: still sounds
-        page.evaluate("window.txTest.fx(1, 0, 0, 2)")
+        page.evaluate("window.txTest.fx(0, 0, 0, 90)")  # the mix's DRIVE and its FILTER (LOW CUT 40) on: still sounds
+        page.evaluate("window.txTest.fx(1, 0, 0, 40)")
         lv = page.evaluate("window.txTest.render(16)")
-        check(lv > 0, f"DRIVE (the mix) + FILTER on layer 1: the output sounds (peak {lv})")
+        check(lv > 0, f"DRIVE + FILTER (the mix's): the output sounds (peak {lv})")
         for g, p in ((0, 0), (1, 0), (2, 0), (2, 1)):  # all off again, MIX 0: no tail left (the classic checks below)
             page.evaluate(f"window.txTest.fx({g}, 0, {p}, 0)")
         # a switch with keys held: the new engine takes them over; switching a sounding layer off fades (no click)

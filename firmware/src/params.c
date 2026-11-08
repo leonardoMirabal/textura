@@ -7,7 +7,8 @@
  *           8 .. 15   the sound's cards (what they turn depends on the sound: sound_cards.h)
  *           32 .. 35  retired (a lane's DRIVE, up to one firmware: a scene's records of them go to the mix's DRIVE,
  *                     the lane with the most AMOUNT: scenes.c)
- *           36 .. 41  FILTER TYPE FREQ RESO LFO RATE SHAPE  (tx_fx_filter_params order)
+ *           36 .. 41  retired (a lane's FILTER, up to one firmware: the mix has one FILTER now, globals 52 .. 55; a
+ *                     scene's records of them are skipped)
  *           42 .. 47  reserved (a lane's COMPRESSOR, one firmware's: a scene's records of them are ignored)
  *   global  0 .. 11   GRAIN DELAY (tx_fx_grain_params order)   12 its SYNC (tempo.c)
  *           16 .. 25  REVERB (tx_fx_reverb_params order)
@@ -65,18 +66,17 @@ static void p_cat(char *d, const char *s, uint32_t max) { uint32_t n = 0; while 
 #define P_ENV 6u                                /* the envelopes: n x 16 + param; the followers: 32 + n x 16 + param (mod.c) */
 #define P_MODS(s) ((s) == P_LFO || (s) == P_ENV || (s) == P_MAT)   /* the modulation's scopes (mod.c's) */
 #define NOID_P 0xFFFFu
-enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_ODRIVE0 = 32, PL_FILTER0 = 36, PL_NUM = 42 };
+enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_ODRIVE0 = 32, PL_OFILTER0 = 36 };   /* (PL_OFILTER0:
+                                                 * the retired lane FILTER's ids, 36 .. 41) */
 enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP0 = 26, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN, PG_TAP,
        PG_SCNTEMPO, PG_SCNFX, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR, PG_DRIVE0 = 48, PG_MF0 = 52, PG_N_ = 56 };   /* (PL_ODRIVE0:
                                                  * the retired lane DRIVE's ids; pv_glob: the effects' values, 0 .. 55) */
 #define P_CH_GLOBAL 4u                          /* MIDI channel 5 (0-based 4) */
 
 /* how a value reads */
-enum { F_NUM, F_ENUM, F_ONOFF, F_SOUND, F_COUNT, F_ACTIVE, F_PAN, F_HZ_FL, F_HZ_LFO, F_MS_GD, F_MS_GS, F_MS_PD, F_SEMI,
+enum { F_NUM, F_ENUM, F_ONOFF, F_SOUND, F_COUNT, F_ACTIVE, F_PAN, F_HZ_FL, F_MS_GD, F_MS_GS, F_MS_PD, F_SEMI,
        F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_THR, F_R10, F_GAIN, F_MIX, F_HZ_LO, F_HZ_HI };
 static const char *const N_DRIVE[] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
-static const char *const N_FILTER[] = {"OFF", "LP12", "LP18", "HP12", "HP18", "BP", "NOTCH"};
-static const char *const N_SHAPE[] = {"SINE", "TRI", "SAW UP", "SAW DN", "SQUARE", "RANDOM"};
 static const char *const N_REVERB[] = {"OFF", "ROOM", "HALL", "INFINITE", "DARK", "DRIFT", "SWELL", "PLATE"};
 static const char *const N_SHIFT[] = {"+OCT", "+5TH", "+OCT+5", "-OCT"};
 static const char *const N_CLOCK[] = {"INT", "MASTER", "FOLLOW", "AUTO"};
@@ -169,8 +169,7 @@ static const p_gx_t *p_gx(uint32_t id)
     return 0;
 }
 
-/* the effects' values (the lanes' filter; the drive, the compressor, the grain delay, the reverb) */
-static uint8_t pv_lane[P_LANES][PL_NUM];
+/* the effects' values (the drive, its filter, the compressor, the grain delay, the reverb) */
 static uint8_t pv_glob[PG_N_];
 
 /* ---- the cards of each lane's sound, resolved when its sound changes */
@@ -279,9 +278,7 @@ static void p_card_set(uint32_t k, uint32_t i, uint32_t v)
 static const tx_param_t *p_fx_desc(uint32_t id)   /* an effect's descriptor (0: not an effect) */
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
-    if (s < P_LANES) {
-        if (i >= PL_FILTER0 && i < PL_FILTER0 + TX_FL_NP) return &tx_fx_filter_params[i - PL_FILTER0];
-    } else if (s == P_GLOBAL) {
+    if (s == P_GLOBAL) {
         if (i < PG_GRAIN0 + TX_GD_NP) return &tx_fx_grain_params[i - PG_GRAIN0];
         if (i >= PG_REVERB0 && i < PG_REVERB0 + TX_RV_NP) return &tx_fx_reverb_params[i - PG_REVERB0];
         if (i >= PG_COMP0 && i < PG_COMP0 + TX_CP_NP) return &tx_comp_params[i - PG_COMP0];
@@ -335,9 +332,6 @@ static uint32_t p_fmt(uint32_t id)
         if (i == PL_COUNT) return F_COUNT;
         if (i == PL_ACTIVE) return F_ACTIVE;
         if (i == PL_PAN) return F_PAN;
-        if (i == PL_FILTER0 + TX_FL_TYPE || i == PL_FILTER0 + TX_FL_SHAPE) return F_ENUM;
-        if (i == PL_FILTER0 + TX_FL_FREQ) return F_HZ_FL;
-        if (i == PL_FILTER0 + TX_FL_RATE) return F_HZ_LFO;
     } else if (s == P_GLOBAL) {
         if (p_gx(id)) return p_gx(id)->fmt;
         if (i == PG_GRAIN0 + TX_GD_FREEZE) return F_ONOFF;
@@ -363,7 +357,6 @@ static uint32_t p_fmt(uint32_t id)
 static const char *const *p_names(uint32_t id)
 {
     uint32_t i = P_IDX(id);
-    if (P_SCOPE(id) < P_LANES) return i == PL_FILTER0 + TX_FL_TYPE ? N_FILTER : N_SHAPE;
     if (i == PG_COMP0 + TX_CP_RATIO) return N_RATIO;
     if (i == PG_DRIVE0 + TX_DR_TYPE) return N_DRIVE;
     if (i == PG_MF0 + TX_MF_SLOPE) return N_SLOPE;
@@ -398,7 +391,7 @@ static int32_t p_get(uint32_t id)
     case PL_PAN: return sc.pan[s];
     }
     if (i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX) return p_card_get(s, i - PL_CARD0);
-    return i < PL_NUM ? pv_lane[s][i] : 0;
+    return 0;
 }
 static void p_set(uint32_t id, int32_t v)
 {
@@ -443,9 +436,6 @@ static void p_set(uint32_t id, int32_t v)
     case PL_PAN: sc_pan(s, (uint32_t)v); return;
     }
     if (i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX) { p_card_set(s, i - PL_CARD0, (uint32_t)v); return; }
-    pv_lane[s][i] = (uint8_t)v;
-    if (mod_holds(id)) return;
-    if (i >= PL_FILTER0) ln_fx(LN_FX_FILTER, s, i - PL_FILTER0, (uint32_t)v);
 }
 /* a value as the screen writes it, and its unit apart (0: none) */
 static const char *p_text(uint32_t id, char *t)
@@ -470,11 +460,6 @@ static const char *p_text(uint32_t id, char *t)
         uint32_t hz = (30u * tx_exp2((int32_t)(16 << 16) + v * 593700 / 127)) >> 16;
         if (hz >= 1000u) { p_fmt_int(t, (int32_t)(hz / 1000u)); p_cat(t, ".", 15); { char d[2] = {(char)('0' + hz / 100u % 10u), 0}; p_cat(t, d, 15); } return "kHz"; }
         p_fmt_int(t, (int32_t)hz); return "Hz";
-    }
-    case F_HZ_LFO: {                            /* tenths of a Hz from the LFO's phase step */
-        uint32_t h10 = (((TX_FX_LFO_INC[v] >> 10) * 441000u) + (1u << 21)) >> 22;
-        char d[2] = {(char)('0' + h10 % 10u), 0};
-        p_fmt_int(t, (int32_t)(h10 / 10u)); p_cat(t, ".", 15); p_cat(t, d, 15); return "Hz";
     }
     case F_MS_GD:                               /* (SYNC set: the division instead) */
         if (tm_get(TG_GSYNC)) { p_strcpy(t, tm_get(TG_HALF) ? "~" : "", 1); p_cat(t, tempo_div_name(tm_get(TG_GSYNC)), 15); return 0; }
@@ -526,10 +511,7 @@ static uint32_t p_kind(uint32_t id)
 static void p_init(void)
 {
     uint32_t k, i;
-    for (k = 0; k < P_LANES; k++) {
-        for (i = 0; i < TX_FL_NP; i++) pv_lane[k][PL_FILTER0 + i] = tx_fx_filter_params[i].def;
-        pc[k].snd = -2;                         /* (resolved at the first look) */
-    }
+    for (k = 0; k < P_LANES; k++) pc[k].snd = -2;   /* (resolved at the first look) */
     for (i = 0; i < TX_GD_NP; i++) pv_glob[PG_GRAIN0 + i] = tx_fx_grain_params[i].def;
     for (i = 0; i < TX_RV_NP; i++) pv_glob[PG_REVERB0 + i] = tx_fx_reverb_params[i].def;
     for (i = 0; i < TX_DR_NP; i++) pv_glob[PG_DRIVE0 + i] = tx_fx_drive_params[i].def;   /* (the effects' own: no send) */
@@ -546,8 +528,6 @@ static const p_cc_t P_CC_LANE[] = {
     {7, PL_LEVEL}, {10, PL_PAN}, {20, PL_SOUND}, {21, PL_COUNT}, {22, PL_ACTIVE},
     {14, PL_CARD0}, {15, PL_CARD0 + 1}, {16, PL_CARD0 + 2}, {17, PL_CARD0 + 3}, {18, PL_CARD0 + 4}, {19, PL_CARD0 + 5},
     {23, PL_CARD0 + 6}, {24, PL_CARD0 + 7},
-    {102, PL_FILTER0 + TX_FL_TYPE}, {74, PL_FILTER0 + TX_FL_FREQ}, {71, PL_FILTER0 + TX_FL_RESO},
-    {103, PL_FILTER0 + TX_FL_LFO}, {104, PL_FILTER0 + TX_FL_RATE}, {105, PL_FILTER0 + TX_FL_SHAPE},
 };
 static const p_cc_t P_CC_GLOBAL[] = {
     {102, PG_GRAIN0 + TX_GD_MIX}, {103, PG_GRAIN0 + TX_GD_TIME}, {104, PG_GRAIN0 + TX_GD_FEEDBACK},

@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura effects (stage S3): instances, no globals (as the engines), integers only.
  *
- *   per lane, a mono insert on the lane's own signal before it is panned (the lanes are mono): FILTER (its cost is
- *     the lane's: the governor's pool). Off (FILTER TYPE OFF) = the lane untouched.
+ *   per lane: no insert (tx_fx_lane: the lane untouched; each lane's FILTER is retired, the mix has one).
  *   on the stereo mix: the DRIVE first (tx_fx_drive_mix: one DRIVE, a pair of instances for L and R with the same
  *   settings; tx_mix_t.pre, before the mix's compressor; AMOUNT 0 = the mix untouched), the FILTER after it (a band:
  *   LOW CUT, HIGH CUT; both at their ends = the mix untouched), then (tx_core_mix.c) the
@@ -48,22 +47,11 @@ void tx_fx_mix_glide(int32_t *x, int32_t t, int32_t step, unsigned np, int32_t *
 TX_AUDIO_CODE void tx_fx_drywet(int32_t *L, int32_t *R, const int32_t *wl, const int32_t *wr, unsigned n, int32_t d0,
                                 int32_t d1, int32_t w0, int32_t w1, int32_t k);
 
-/* ---- FILTER (per lane): a TPT state-variable stage, stable at any setting (Frodhes' FILTER) */
-enum { TX_FL_TYPE, TX_FL_FREQ, TX_FL_RESO, TX_FL_LFO, TX_FL_RATE, TX_FL_SHAPE, TX_FL_NP };
-extern const tx_param_t tx_fx_filter_params[TX_FL_NP];
-typedef struct {
-    uint8_t p[TX_FL_NP];
-    uint8_t was_on;
-    uint32_t lfo_ph, lfo_rnd;
-    int32_t lfo_sh, ic[2], op, pos, ow;
-    int32_t dry[32];
-} TX_LINE tx_fx_filter_t;   /* (TX_LINE: its own cache lines on the FM-1) */
-void tx_fx_filter_init(tx_fx_filter_t *f);
-void tx_fx_filter_param(tx_fx_filter_t *f, unsigned id, unsigned v);
-TX_AUDIO_CODE void tx_fx_filter_process(tx_fx_filter_t *f, int32_t *x, unsigned n);   /* mono Q23, in place */
-TX_TWIN(tx_fx_filter_process);
-#define TX_FX_US_FILTER 96u        /* the filter's FM-1 cost a block, its dearest TYPE (make tx-budget section 4) */
-static inline uint32_t tx_fx_filter_us(const tx_fx_filter_t *f) { return f->p[TX_FL_TYPE] ? TX_FX_US_FILTER : 0u; }
+/* ---- the lane inserts: none now (each lane's FILTER retired: one FILTER on the mix, below). tx_fx_filter_t and
+ * tx_fx_filter_param stay as empty stubs only while firmware/src/lanes.c still names them (its LN_FX_FILTER, never
+ * sent any more); they go with that line */
+typedef struct { uint8_t none; } tx_fx_filter_t;
+static inline void tx_fx_filter_param(tx_fx_filter_t *f, unsigned id, unsigned v) { (void)f; (void)id; (void)v; }
 
 /* ---- DRIVE (one, on the mix: a pair of these, L and R): Felucca's track drive as Frodhes' classic FDRV (TYPE 0) and Frodhes' four circuit TYPEs
  * (tx_fx_drive.c, tx_fx_drv_<type>.c; their state: tx_fx_drv.h) */
@@ -247,7 +235,7 @@ typedef struct {
     int32_t *dr_x;                 /* (tx_fx_drive_mix: the side the other core drives this block) */
     unsigned dr_n;
     tx_fx_mfilter_t mf;            /* the mix's FILTER, after the DRIVE (tx_fx_drive_set: TX_FX_MF_ID + TX_MF_*) */
-    tx_fx_filter_t filter[TX_FX_LANES];
+    tx_fx_filter_t filter[TX_FX_LANES];   /* (retired: empty stubs, lanes.c's) */
     tx_fx_grain_t gd;
     tx_fx_reverb_t rev;
     uint32_t reserve_us;           /* the effects reserve (TX_FX_RESERVE_US): the grain delay gets what the reverb leaves */
@@ -258,7 +246,8 @@ typedef struct {
                                     * every grain asked (the device trims them only on a busy block or on one core) */
 } tx_fx_t;
 void tx_fx_init(tx_fx_t *fx);
-TX_AUDIO_CODE void tx_fx_lane(void *fx, unsigned k, int32_t *x, unsigned n);          /* tx_mix_t.ins */
+TX_AUDIO_CODE void tx_fx_lane(void *fx, unsigned k, int32_t *x, unsigned n);          /* tx_mix_t.ins (no insert now:
+                                                 * the lane untouched) */
 /* or on the core (0, 1) that renders the lane (the lanes on two cores): the same samples */
 TX_AUDIO_CODE void tx_fx_lane_run(void *fx, unsigned k, int32_t *x, unsigned n, unsigned core);
 /* the mix's first stage, DRIVE then FILTER: TX_DR_* the DRIVE on both sides, TX_FX_MF_ID + TX_MF_* the FILTER */
@@ -281,6 +270,6 @@ TX_AUDIO_CODE void tx_fx_gd_cap(tx_fx_t *fx);     /* the grain delay's cap for t
                                                    * that times the grains and the reverb apart calls it, then each) */
 int tx_fx_bus_quiet(void *fx);                                                         /* tx_mix_t.busq */
 uint32_t tx_fx_lane_us(const tx_fx_t *fx, unsigned k);    /* lane k's insert now, FM-1 us a block (the governor's
-                                                          * tx_gov_fixed: FILTER) */
+                                                          * tx_gov_fixed: 0, none) */
 
 #endif

@@ -227,7 +227,7 @@ static const mixdef_t MIXES[] = {
 
 /* ---- the effects (tx_fx.h): one effect on a busy input (noise at -12 dBFS, all the time), its block's cost on the
  * FM-1 (the per-block minimum over runs, then the 75th percentile: the cost is flat, the host is not). kind 0 drive (one
- * side of the mix's pair: the mix pays two), 1 filter, 2 reverb, 3 grain delay, 4 the mix's FILTER (type 0: one edge,
+ * side of the mix's pair: the mix pays two), 2 reverb, 3 grain delay, 4 the mix's FILTER (type 0: one edge,
  * 12 dB; 1: both edges, 24 dB, RESONANCE 64; on the pair) */
 static int fxc_cmp(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
 static double fx_cost(int kind, unsigned type, unsigned decay)
@@ -243,8 +243,6 @@ static double fx_cost(int kind, unsigned type, unsigned decay)
         tx_fx_init(&fx);
         if (kind == 0) { tx_fx_drive_param(&fx.drive[0], TX_DR_AMOUNT, 90); tx_fx_drive_param(&fx.drive[0], TX_DR_TONE, 100);
                          tx_fx_drive_param(&fx.drive[0], TX_DR_MIX, type ? 127 : 100); tx_fx_drive_param(&fx.drive[0], TX_DR_TYPE, type); }
-        if (kind == 1) { tx_fx_filter_param(&fx.filter[0], TX_FL_TYPE, 2); tx_fx_filter_param(&fx.filter[0], TX_FL_RESO, 90);
-                         tx_fx_filter_param(&fx.filter[0], TX_FL_LFO, 90); tx_fx_filter_param(&fx.filter[0], TX_FL_FREQ, 70); }
         if (kind == 2) { tx_fx_reverb_param(&fx.rev, TX_RV_TYPE, type); tx_fx_reverb_param(&fx.rev, TX_RV_MIX, 90);
                          tx_fx_reverb_param(&fx.rev, TX_RV_DECAY, decay < 127 ? decay : 100);
                          tx_fx_reverb_param(&fx.rev, TX_RV_PREDELAY, 40); tx_fx_reverb_param(&fx.rev, TX_RV_LOWCUT, 30);
@@ -263,7 +261,7 @@ static double fx_cost(int kind, unsigned type, unsigned decay)
             t0 = tx_now_ns();
             if (kind == 4) tx_fx_mfilter_process(&fx.mf, L, R, TX_BLOCK);
             else if (kind >= 2) tx_fx_bus(&fx, L, R, TX_BLOCK);
-            else if (kind) tx_fx_lane(&fx, 0, L, TX_BLOCK); else tx_fx_drive_process(&fx.drive[0], L, TX_BLOCK);
+            else tx_fx_drive_process(&fx.drive[0], L, TX_BLOCK);
             if (r) t[r - 1][b] = tx_now_ns() - t0;
         }
     }
@@ -464,7 +462,7 @@ int main(int argc, char **argv)
     }
     {   /* the effects: each one's cost, the chain against the effects reserve */
         static const char *const RT[TX_RVT_N] = {"off", "ROOM (the CHAMBER)", "HALL", "INFINITE", "DARK", "DRIFT", "SWELL", "PLATE"};
-        double dr = fx_cost(0, 0, 0), fl = fx_cost(1, 0, 0), rv[TX_RVT_N], fz = fx_cost(2, TX_RVT_INF, 127), worst = 0;
+        double dr = fx_cost(0, 0, 0), rv[TX_RVT_N], fz = fx_cost(2, TX_RVT_INF, 127), worst = 0;
         unsigned t;
         printf("\n4. effects (FM-1 us a block on a busy input, the 75th percentile of the per-block minima; tx_fx.h)\n");
         printf("   DRIVE (a lane, AMOUNT 90, TONE 100, MIX 100)            %5.0f us  (%4.1f %%)  per lane, from the lanes' pool\n", dr, 100 * dr / BLOCK_US);
@@ -479,7 +477,6 @@ int main(int argc, char **argv)
                        c, 100 * c / BLOCK_US, (unsigned)tx_fx_drive_us(&dd));
             }
         }
-        printf("   FILTER (a lane, LP18, RESO 90, LFO 90)                  %5.0f us  (%4.1f %%)  per lane, from the lanes' pool\n", fl, 100 * fl / BLOCK_US);
         {
             double m1 = fx_cost(4, 0, 0), m2 = fx_cost(4, 1, 0);
             tx_fx_mfilter_t mf;
