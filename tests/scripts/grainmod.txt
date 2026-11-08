@@ -1,0 +1,87 @@
+# the GRAIN delay's animation (FX four times: DRIVE, FILTER, COMPRESSOR, GRAIN; page 2/4): MOD (0: the plain delay,
+# its defaults untouched), MOD RATE, INTERVALS (5TH+OCT by default); CC 81 82 83 on channel 5; MOD up: its amount glides
+# in (gdmod 32766 at 127), the time drifts (gdwow 1); MOD 0: back to the plain delay (gdmod 0, gdwow 0); GRAIN MOD on the
+# matrix; a scene stores it; SCENE FX KEEP leaves it, RECALL sets it
+1700 btn 13
+1800 expect state run0 1
+1900 midi 0xB4 102 90
+1950 btn 2
+1960 btn 2
+1970 btn 2
+1980 btn 2
+2000 expect state page GRAIN_1/4
+2020 turn 0 1
+2040 expect state page GRAIN_2/4
+2040 expect state lab0 MOD
+2040 expect state lab1 MOD_RATE
+2040 expect state lab2 INTERVALS
+2040 expect state lab3 GRAIN
+2040 expect state card0 0
+2040 expect state card1 40
+2040 expect state card2 5TH+OCT
+2040 expect state gdmod 0
+2040 expect state gdwow 0
+2040 expect sound
+# K1: MOD 127; after its glide the amount is whole and the time drifts
+2100 turn 2 127
+2120 expect state p40D 127
+2300 turn 3 30
+2320 expect state p40E 70
+2400 turn 4 3
+2420 expect state p40F 5
+2420 expect state card2 MINOR
+3200 expect state gdmod 32766
+3200 expect state gdwow 1
+3200 expect sound
+3200 expect rms > -70
+3250 shot
+# CC 83: INTERVALS 0 .. 127 reaches UP; CC 81: MOD 0: back to the plain delay
+3300 midi 0xB4 83 127
+3320 expect state p40F 7
+3320 expect state card2 UP
+3400 midi 0xB4 81 0
+3420 expect state p40D 0
+4400 expect state gdmod 0
+4400 expect state gdwow 0
+4400 expect sound
+# the matrix (ARP): LFO 1 > GRAIN MOD (the last TARGET), depth +50 %: the route holds MOD; gone: MOD back to its base
+4500 btn 10
+4520 turn 2 1
+4540 turn 3 200
+4560 expect state card1 GRAIN_MOD
+4580 turn 4 50
+4700 expect state routes 1
+4700 expect sound
+4800 turn 3 -200
+4900 expect state routes 0
+4900 expect state p40D 0
+# saved to U01 with MOD 100 (CC 81)
+5000 midi 0xB4 81 100
+5020 expect state p40D 100
+5100 btn 9
+5200 btn 9
+5800 expect state saving 0
+5900 midi 0xB4 81 0
+# KEEP (the default): U01 loads, MOD stays 0
+6000 midi 0xC0 100 0
+6600 expect state loading 0
+6600 expect state p40D 0
+6600 expect preset
+# RECALL (GLO, SELECT: TEMPO 2/2, K2): U01 brings MOD 100 back; F001 the default (0)
+6700 btn 7
+6720 turn 0 1
+6740 expect state page TEMPO_2/2
+6760 turn 3 1
+6780 expect state p426 1
+6800 midi 0xC0 100 0
+7400 expect state loading 0
+7400 expect state p40D 100
+7400 expect preset
+7500 midi 0xC0 0 0
+8100 expect state loading 0
+8100 expect state p40D 0
+8100 expect preset
+8200 turn 3 -1
+8220 expect state p426 0
+8300 expect state dropped 0
+8400 end

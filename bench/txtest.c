@@ -1349,6 +1349,20 @@ static void check_fx_grain_controls(tx_fx_t *fx)
     gs_sweep(fx, GS_REV | TX_RV_MIX, 0, &zip, &jump);
     snprintf(msg, sizeof msg, "reverb (HALL), MIX swept 0 .. 127 .. 0 on a ringing chord: zipper %.2f (2 at most)", zip);
     verdict("fx", "rv-mix-sweep", zip <= 2.0, msg, 0);
+    /* the grain delay's MOD: swept, and flipped 0 <-> 127 (its glide: no zipper, no click) */
+    gs_sweep(fx, TX_GD_MOD, 1, &zip, &jump);
+    for (t = 0, wc = 0; t < 2u; t++) {
+        unsigned a = t ? 127u : 0u, b = t ? 0u : 127u;
+        double ref;
+        gs_render(fx, TX_GD_MOD, 1, 'f', a, b, &mv);
+        gs_render(fx, TX_GD_MOD, 1, 's', a, 0, &h0);
+        gs_render(fx, TX_GD_MOD, 1, 's', b, 0, &h1);
+        ref = h0.click > h1.click ? h0.click : h1.click;
+        if (mv.click / (ref > 1.0 ? ref : 1.0) > wc) wc = mv.click / (ref > 1.0 ? ref : 1.0);
+    }
+    snprintf(msg, sizeof msg, "grain delay, MOD swept 0 .. 127 .. 0: a level step %.2f dB past the statics' (2 at most), "
+             "zipper %.2f; flipped 0 <-> 127: a click %.2fx", jump, zip, wc);
+    verdict("fx", "mod-sweep", jump <= 2.0 && zip <= 2.0 && wc <= 10.0, msg, 0);
     free(gs_chord);
 }
 /* MIX, dry / wet (tx_fx.h): the law at equal power; the GRAIN DELAY and the REVERB at MIX 0 (the dry alone, exactly),
@@ -1488,6 +1502,118 @@ static double mf_gain(unsigned lo, unsigned hi, unsigned reso, unsigned slope, u
         if (b >= 60u) for (j = 0; j < TX_BLOCK; j++) { int32_t a = L[j] < 0 ? -L[j] : L[j]; if (a > pk) pk = a; if (R[j] != L[j]) return 999; }
     }
     return 20 * log10((pk + 1) / 4194304.0);
+}
+/* the GRAIN delay's MOD on a steady 440 Hz tone (MIX 127, FEEDBACK 0, SPRAY 0, SIZE 127): its grains sound only the
+ * INTERVALS' ratios (the energy within +-3 % of 440 x a ratio of the set, or of unison, over the whole output's); at
+ * MOD 127 a good share leaves unison; GRAIN 0 (the echo alone): the time's drift bends the pitch, under ~1.3 % and
+ * moving; the drifts' turns at random (their gaps' CV >= 0.9); MOD back to 0: the plain delay again, exactly */
+static double gm_band(const double *y, unsigned n, double f0)   /* the energy within f0 +-3 % (Goertzel, 0.5 Hz steps) */
+{
+    double e = 0, f;
+    for (f = f0 * 0.97; f <= f0 * 1.03; f += 0.5) {
+        double w = 2.0 * cos(6.283185307179586 * f / 44100.0), s1 = 0, s2 = 0, s0;
+        unsigned i;
+        for (i = 0; i < n; i++) { s0 = y[i] + w * s1 - s2; s2 = s1; s1 = s0; }
+        e += 2.0 * (s1 * s1 + s2 * s2 - w * s1 * s2) / ((double)n * n);   /* (a bin's share of the mean power) */
+    }
+    return e * 0.5 / (44100.0 / n);         /* (0.5 Hz steps over the n-sample bins) */
+}
+static void gm_run(tx_fx_grain_t *d, unsigned mod, unsigned ivl, unsigned grain, double *y, unsigned n)
+{
+    int32_t L[TX_BLOCK], R[TX_BLOCK];
+    unsigned b, j, nb = (n + 2u * 44100u + TX_BLOCK - 1u) / TX_BLOCK, i = 0;
+    tx_fx_grain_init(d);
+    tx_fx_grain_param(d, TX_GD_MIX, 127); tx_fx_grain_param(d, TX_GD_FEEDBACK, 0); tx_fx_grain_param(d, TX_GD_SPRAY, 0);
+    tx_fx_grain_param(d, TX_GD_SIZE, 127); tx_fx_grain_param(d, TX_GD_GRAIN, grain); tx_fx_grain_param(d, TX_GD_MOD, mod);
+    tx_fx_grain_param(d, TX_GD_IVL, ivl); tx_fx_grain_param(d, TX_GD_GRAINS, 7); tx_fx_grain_param(d, TX_GD_TIME, 40);
+    for (b = 0; b < nb; b++) {
+        for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = tx_sin_q15((b * TX_BLOCK + j) * 42852281u) * 64;   /* (440 Hz) */
+        tx_fx_grain_process(d, L, R, TX_BLOCK);
+        if (b * TX_BLOCK >= 2u * 44100u) for (j = 0; j < TX_BLOCK && i < n; j++) y[i++] = (L[j] + R[j]) / 2.0;
+    }
+}
+static void check_grain_mod(void)
+{
+    static const char *const nm[TX_GDI_N] = {"NONE", "OCTAVES", "5TH+OCT", "4TH+5TH", "MAJOR", "MINOR", "ALL", "UP"};
+    static const double iv[TX_GDI_N][9] = {{1}, {1, 0.5, 2}, {1, 0.5, 2. / 3, 1.5, 2}, {1, 0.75, 4. / 3, 2. / 3, 1.5},
+        {1, 1.25, 1.5, 2, 0.5}, {1, 1.2, 1.5, 2, 0.5}, {1, 0.5, 2. / 3, 0.75, 0.8, 1.25, 4. / 3, 1.5, 2}, {1, 1.5, 2}};
+    tx_fx_grain_t *d = malloc(sizeof *d);
+    unsigned n = 2u * 44100u, s, k, ok = 1, i;
+    double *y = malloc(n * sizeof *y), worst = 1, off = 0, tot, in, uni;
+    char msg[300];
+    if (!d || !y) { free(d); free(y); return; }
+    for (s = 0; s < TX_GDI_N; s++) {
+        gm_run(d, 127, s, 127, y, n);
+        for (i = 0, tot = 0; i < n; i++) tot += y[i] * y[i] / n;
+        for (k = 0, in = 0; k < 9u && iv[s][k] > 0; k++) in += gm_band(y, n, 440.0 * iv[s][k]);
+        uni = gm_band(y, n, 440.0);
+        if (in / tot < worst) worst = in / tot;
+        if (s == TX_GDI_5OCT) off = 1.0 - uni / tot;
+        if (!s && uni / tot < 0.9) ok = 0;
+    }
+    snprintf(msg, sizeof msg, "grain MOD 127 on 440 Hz: the INTERVALS' ratios hold %.1f %% of the energy at worst (90 at "
+             "least), 5TH+OCT %.0f %% off unison (30 at least)", 100.0 * worst, 100.0 * off);
+    verdict("fx", "mod-intervals", ok && worst >= 0.90 && off >= 0.30, msg, 0);
+    (void)nm;
+    {   /* the echo alone: its pitch from the zero crossings, 50 ms windows */
+        double dev = 0, mn = 1e9, mx = 0;
+        unsigned cnt = 0, w0 = 0;
+        double *z = malloc(10u * 44100u * sizeof *z);
+        if (!z) { free(d); free(y); return; }
+        gm_run(d, 127, TX_GDI_NONE, 0, z, 10u * 44100u);
+#define y z
+        for (i = 1; i < 10u * 44100u; i++)
+            if (y[i - 1] < 0 && y[i] >= 0) {
+                if (!cnt) w0 = i;
+                cnt++;
+                if (i - w0 >= 2205u && cnt > 1u) {
+                    double f = (cnt - 1) * 44100.0 / (i - w0 + (y[i - 1] / (y[i - 1] - y[i]))
+                               - (y[w0 - 1] / (y[w0 - 1] - y[w0])));
+                    if (f < mn) mn = f;
+                    if (f > mx) mx = f;
+                    cnt = 1; w0 = i;
+                }
+            }
+#undef y
+        free(z);
+        dev = (mx / 440.0 - 1) > (1 - mn / 440.0) ? mx / 440.0 - 1 : 1 - mn / 440.0;
+        snprintf(msg, sizeof msg, "grain MOD 127, the echo alone: its pitch %.1f .. %.1f Hz (a bend of %.2f %%: 0.1 .. 1.3)",
+                 mn, mx, 100.0 * dev);
+        verdict("fx", "mod-wow", dev >= 0.001 && dev <= 0.013, msg, 0);
+    }
+    {   /* the turns: their gaps over 60 000 blocks (MOD RATE 64) */
+        int32_t L[TX_BLOCK] = {0}, R[TX_BLOCK] = {0}, prev;
+        unsigned b, gl = 0, ng = 0;
+        double sm = 0, sq = 0, mean, cv;
+        tx_fx_grain_init(d);
+        tx_fx_grain_param(d, TX_GD_MIX, 127); tx_fx_grain_param(d, TX_GD_MOD, 127); tx_fx_grain_param(d, TX_GD_MODRATE, 64);
+        tx_fx_grain_process(d, L, R, TX_BLOCK);
+        prev = d->dt[0];
+        for (b = 0; b < 60000u; b++) {
+            tx_fx_grain_begin(d, TX_BLOCK);
+            gl++;
+            if (d->dt[0] != prev) { if (ng) { sm += gl; sq += (double)gl * gl; } ng++; gl = 0; prev = d->dt[0]; }
+        }
+        mean = sm / (ng - 1); cv = sqrt(sq / (ng - 1) - mean * mean) / mean;
+        snprintf(msg, sizeof msg, "grain MOD's turns (MOD RATE 64): %u, %.0f ms apart on average, CV %.2f (0.9 at least)",
+                 ng, mean * 256000.0 / 44100.0, cv);
+        verdict("fx", "mod-turns", ng > 100u && cv >= 0.9, msg, 0);
+    }
+    {   /* back to 0: the plain delay exactly (its state settled: the clock's step SIZE's, no drift) */
+        int32_t L[TX_BLOCK], R[TX_BLOCK];
+        unsigned b, j, sz;
+        gm_run(d, 127, TX_GDI_ALL, 64, y, 44100u);
+        tx_fx_grain_param(d, TX_GD_MOD, 0);
+        for (b = 0; b < 400u; b++) {
+            for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = 0;
+            tx_fx_grain_process(d, L, R, TX_BLOCK);
+        }
+        sz = d->p[TX_GD_SIZE];
+        snprintf(msg, sizeof msg, "grain MOD back to 0: settled in 0.7 s (amount %d, drift %d, the clock SIZE's: %s)",
+                 (int)d->mg, (int)d->wq1, d->ginc == TX_FX_GD_SIZE[sz] ? "yes" : "no");
+        verdict("fx", "mod-off", !d->mg && !d->wq1 && !d->wvel && d->ginc == TX_FX_GD_SIZE[sz], msg, 0);
+    }
+    free(d); free(y);
 }
 static void check_mfilter(void)
 {
@@ -1995,6 +2121,7 @@ int main(int argc, char **argv)
     check_layers(update);
     check_fx(update);
     check_mfilter();
+    check_grain_mod();
     check_noise_core();
     check_comp();
     check_truepeak();

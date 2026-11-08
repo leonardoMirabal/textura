@@ -37,7 +37,7 @@
 5180 btn 2
 5200 btn 2
 5210 btn 2
-5220 expect state page GRAIN_1/3
+5220 expect state page GRAIN_1/4
 5220 expect state lab2 SYNC
 5300 turn 4 9
 5320 expect state card2 1/4

@@ -171,7 +171,7 @@ static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id *
 {
     if (i < SCN_DEF_LFO) {
         i -= SCN_DEF_GLOB;
-        if (i < TX_GD_NP) return PID(P_GLOBAL, PG_GRAIN0 + i);
+        if (i < TX_GD_NP) return PID(P_GLOBAL, PG_GD(i));
         if (i == TX_GD_NP) return PID(P_GLOBAL, PG_GSYNC);
         i -= TX_GD_NP + 1u;
         if (i < TX_RV_NP) return PID(P_GLOBAL, PG_REVERB0 + i);
@@ -190,8 +190,8 @@ static int32_t scn_def_of(uint32_t id)          /* an id's default (-1: none: th
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
     if (s < SC_N) return -1;
     if (s == P_GLOBAL) {
-        if (i < PG_GRAIN0 + TX_GD_NP) return tx_fx_grain_params[i - PG_GRAIN0].def;
         if (i == PG_GSYNC) return 0;
+        if (i < PG_REVERB0) return tx_fx_grain_params[PG_GDE(i)].def;
         if (i >= PG_REVERB0 && i < PG_REVERB0 + TX_RV_NP) return tx_fx_reverb_params[i - PG_REVERB0].def;
         if (i >= PG_COMP0 && i < PG_COMP0 + TX_CP_NP) return tx_comp_params[i - PG_COMP0].def;
         if (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP) return tx_fx_drive_params[i - PG_DRIVE0].def;

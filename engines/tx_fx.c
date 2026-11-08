@@ -474,6 +474,7 @@ uint32_t tx_fx_drive_mix_us(const tx_fx_t *fx)
 /* the grain delay's dynamic cap: the grains the effects reserve leaves after the reverb's TYPE (FM-1 us a block,
  * CPU-BUDGET.md section 8: the reverb's worst per TYPE, the delay's line + echo, a sounding grain) */
 #define FX_US_GD_BASE 220u         /* the line, the echo, the feedback (make tx-budget section 4, 2026-10-25) */
+#define FX_US_GD_WOW 20u           /* MOD: the echo's moving read (make tx-budget section 4: ~15) */
 #define FX_US_GD_GRAIN1 14u        /* a grain at rate 1 (whole samples: a run decoded, one read a sample) */
 #define FX_US_GD_GRAINP 42u        /* a pitched or reversed grain (its run decoded, the interpolation) */
 #define FX_US_SHIMMER 75u          /* the shimmer on top of its reverb */
@@ -487,24 +488,26 @@ static const uint16_t FX_US_REV[TX_RVT_N] = {0, 390, 210, 280, 280, 280, 290, 18
 #define FX_DEV_GD_GRAINP 64u
 TX_AUDIO_CODE uint32_t tx_fx_gd_dev_us(const tx_fx_t *fx, uint32_t cap)   /* the delay at cap grains (FM-1 us) */
 {
-    int pitched = fx->gd.p[TX_GD_PITCH] != 64 || fx->gd.p[TX_GD_REVERSE];
-    return FX_DEV_GD_BASE + cap * (pitched ? FX_DEV_GD_GRAINP : FX_DEV_GD_GRAIN1);
+    int pitched = fx->gd.p[TX_GD_PITCH] != 64 || fx->gd.p[TX_GD_REVERSE] || fx->gd.mg;   /* (MOD: grains pitched, bent) */
+    return FX_DEV_GD_BASE + (fx->gd.mg ? FX_US_GD_WOW : 0u) + cap * (pitched ? FX_DEV_GD_GRAINP : FX_DEV_GD_GRAIN1);
 }
 TX_AUDIO_CODE void tx_fx_gd_cap(tx_fx_t *fx)
 {
-    int pitched = fx->gd.p[TX_GD_PITCH] != 64 || fx->gd.p[TX_GD_REVERSE];
+    int pitched = fx->gd.p[TX_GD_PITCH] != 64 || fx->gd.p[TX_GD_REVERSE] || fx->gd.mg;   /* (MOD: grains pitched, bent) */
     uint32_t room, cap;
     if (fx->room_us < 0 && fx->two) { fx->gd.cap = TX_GD_MAXG; return; }   /* (the model, two cores: every grain) */
     if (fx->room_us < 0) {                                         /* the model: the reserve less the reverb's TYPE */
         uint32_t t = fx->rev.p[TX_RV_TYPE], c = fx->rev.cur, rv = t < TX_RVT_N ? FX_US_REV[t] : 0;
         if (c < TX_RVT_N && FX_US_REV[c] > rv) rv = FX_US_REV[c];      /* (a TYPE change: the dearer of the two) */
         if (rv && fx->rev.p[TX_RV_SHIMMER]) rv += FX_US_SHIMMER;
+        if (fx->gd.mg) rv += FX_US_GD_WOW;
         room = fx->reserve_us > rv + FX_US_GD_BASE ? fx->reserve_us - rv - FX_US_GD_BASE : 0;
         room /= pitched ? FX_US_GD_GRAINP : FX_US_GD_GRAIN1;
         fx->gd.cap = (uint8_t)(room > TX_GD_MAXG ? TX_GD_MAXG : room);
         return;
     }
-    room = (uint32_t)fx->room_us > FX_DEV_GD_BASE ? (uint32_t)fx->room_us - FX_DEV_GD_BASE : 0;
+    room = (uint32_t)fx->room_us > FX_DEV_GD_BASE + (fx->gd.mg ? FX_US_GD_WOW : 0u)
+         ? (uint32_t)fx->room_us - FX_DEV_GD_BASE - (fx->gd.mg ? FX_US_GD_WOW : 0u) : 0;
     cap = room / (pitched ? FX_DEV_GD_GRAINP : FX_DEV_GD_GRAIN1);
     if (cap > TX_GD_MAXG) cap = TX_GD_MAXG;
     if (!cap) cap = 1;

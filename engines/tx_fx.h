@@ -102,7 +102,9 @@ uint32_t tx_fx_mfilter_us(const tx_fx_mfilter_t *f);   /* its FM-1 cost now, us 
 
 /* ---- GRAIN DELAY (on the mix, before the reverb; tx_fx_grain.c): a delay whose repeats are grained */
 enum { TX_GD_MIX, TX_GD_TIME, TX_GD_FEEDBACK, TX_GD_GRAINS, TX_GD_SIZE, TX_GD_SPRAY, TX_GD_PITCH, TX_GD_REVERSE,
-       TX_GD_SPREAD, TX_GD_TONE, TX_GD_GRAIN, TX_GD_FREEZE, TX_GD_NP };
+       TX_GD_SPREAD, TX_GD_TONE, TX_GD_GRAIN, TX_GD_FREEZE, TX_GD_MOD, TX_GD_MODRATE, TX_GD_IVL, TX_GD_NP };   /* (append
+                                                 * only) */
+enum { TX_GDI_NONE, TX_GDI_OCT, TX_GDI_5OCT, TX_GDI_45, TX_GDI_MAJ, TX_GDI_MIN, TX_GDI_ALL, TX_GDI_UP, TX_GDI_N };   /* INTERVALS */
 extern const tx_param_t tx_fx_grain_params[TX_GD_NP];
 #define TX_GD_MAXG 30u                           /* (GRAINS 1 .. 30) */
 typedef struct {
@@ -146,6 +148,16 @@ typedef struct {
     uint32_t rng2;                               /* (the second half's rng: where the first half's ends) */
     int32_t we[TX_BLOCK], wl[TX_BLOCK], wr[TX_BLOCK];   /* (the voices' block: the echo, the grains L, R) */
     int32_t wl2[TX_BLOCK], wr2[TX_BLOCK];        /* (the second half's grains, L, R) */
+    /* MOD (tx_fx_grain_begin sets these once a block; the voices only read them) */
+    int32_t mg;                                  /* MOD's amount, gliding (Q15; 0: none, the plain delay exactly) */
+    int32_t dt[4], da[4], du[4];                 /* the drifts (the delay's time, SIZE, SPRAY, the grains' pitch and
+                                                  * direction): a random target, two poles after it (Q15) */
+    uint32_t mrng;                               /* (their rng) */
+    int32_t wm;                                  /* the delay's drift's reach, gliding (samples) */
+    int32_t wq0, wq1, wvel;                      /* the delay's drift at the block's start and end (Q16 samples), its
+                                                  * step a sample (Q16) */
+    uint32_t ginc, glen;                         /* the grains' clock step this block (SIZE and its drift), a grain's
+                                                  * longest length (samples) */
 } TX_LINE tx_fx_grain_t;   /* (TX_LINE: its own cache lines on the FM-1) */
 void tx_fx_grain_init(tx_fx_grain_t *d);
 void tx_fx_grain_param(tx_fx_grain_t *d, unsigned id, unsigned v);

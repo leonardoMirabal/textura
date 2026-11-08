@@ -252,8 +252,9 @@ static double fx_cost(int kind, unsigned type, unsigned decay)
                                      tx_fx_mfilter_param(&fx.mf, TX_MF_RESO, 64); } }
         if (kind == 3) { fx.reserve_us = 100000u;                       /* (no cap: the cost of every grain asked) */
                          tx_fx_grain_param(&fx.gd, TX_GD_MIX, 100); tx_fx_grain_param(&fx.gd, TX_GD_GRAINS, type - 1u);
-                         tx_fx_grain_param(&fx.gd, TX_GD_PITCH, decay ? 71 : 64); tx_fx_grain_param(&fx.gd, TX_GD_FEEDBACK, 70);
-                         tx_fx_grain_param(&fx.gd, TX_GD_SPRAY, 30); }
+                         tx_fx_grain_param(&fx.gd, TX_GD_PITCH, decay == 1 ? 71 : 64); tx_fx_grain_param(&fx.gd, TX_GD_FEEDBACK, 70);
+                         tx_fx_grain_param(&fx.gd, TX_GD_SPRAY, 30);
+                         if (decay == 2) tx_fx_grain_param(&fx.gd, TX_GD_MOD, 127); }   /* (2: MOD 127, ALL) */
         for (b = 0; b < nb; b++) {
             uint64_t t0;
             if (b == 200u && decay == 127) tx_fx_reverb_param(&fx.rev, TX_RV_DECAY, 127);
@@ -500,8 +501,8 @@ int main(int argc, char **argv)
             static const unsigned NG[4] = {1, 4, 8, 16};
             unsigned q;
             for (q = 0; q < 4; q++)
-                printf("   GRAIN DELAY, %2u grains sounding (rate 1 / pitched)         %5.0f / %5.0f us  (%4.1f %%)\n", NG[q],
-                       fx_cost(3, NG[q], 0), fx_cost(3, NG[q], 1), 100 * fx_cost(3, NG[q], 1) / BLOCK_US);
+                printf("   GRAIN DELAY, %2u grains sounding (rate 1 / pitched / MOD 127)   %5.0f / %5.0f / %5.0f us  (%4.1f %%)\n", NG[q],
+                       fx_cost(3, NG[q], 0), fx_cost(3, NG[q], 1), fx_cost(3, NG[q], 2), 100 * fx_cost(3, NG[q], 2) / BLOCK_US);
         }
         printf("   the reverb's worst TYPE %.0f us of the effects reserve (%.0f us, CHAMBER's %.0f folded in: it is a TYPE now)\n",
                worst, FX_RESERVE_US + chamber, chamber);

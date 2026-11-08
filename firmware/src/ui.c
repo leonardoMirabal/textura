@@ -62,23 +62,25 @@ enum { G_LAND, G_MIX, G_SOUND, G_DRIVE, G_MFILT, G_COMP, G_GRAIN, G_REVERB, G_LF
        G_DISPLAY, G_N };
 static const char *const G_TITLE[G_N] = {"LANDSCAPE", "MIXER", "SOUND", "DRIVE", "FILTER", "COMPRESSOR", "GRAIN", "REVERB",
                                          "LFO", "ENV", "MATRIX", "TEMPO", "MIDI", "DISPLAY"};
-static const uint8_t G_NSUB[G_N] = {1, 2, 0, 1, 1, 2, 3, 3, 3, 2, 1, 2, 1, 1};   /* (SOUND: as many as its cards need; ENV:
+static const uint8_t G_NSUB[G_N] = {1, 2, 0, 1, 1, 2, 4, 3, 3, 2, 1, 2, 1, 1};   /* (SOUND: as many as its cards need; ENV:
                                                          * a FOLLOW has one) */
 #define LA P_LANE_ANY
 #define NOID 0xFFFFu
 /* the effects' pages: a parameter per knob (a global, or the selected LFO's, ENV's, slot's), from G_FX0 */
-static const uint8_t G_FX0[G_N] = {0, 0, 0, 0, 20, 18, 1, 4, 7, 13, 10, 11, 16, 17};   /* (ENV: 13, 14; FOLLOW: 15) */
+static const uint8_t G_FX0[G_N] = {0, 0, 0, 0, 21, 19, 1, 5, 8, 14, 11, 12, 17, 18};   /* (ENV: 14, 15; FOLLOW: 16) */
 #define LFO_ANY(p) PID(P_LFO, 0xF0u | (p))        /* the selected LFO's (ui_lfo) */
 #define ENV_ANY(p) PID(P_ENV, 0xF0u | (p))        /* the selected ENV's or FOLLOW's (ui_env) */
 #define MAT_ANY(q) PID(P_MAT, 0xF0u | (q))        /* the selected slot's (ui_slot) */
 #define CMP(p) PID(P_GLOBAL, PG_COMP0 + (p))
 #define DRV(p) PID(P_GLOBAL, PG_DRIVE0 + (p))
 #define MFL(p) PID(P_GLOBAL, PG_MF0 + (p))
-static const uint16_t FX_IDS[21][4] = {
+#define GDL(p) PID(P_GLOBAL, PG_GD(p))
+static const uint16_t FX_IDS[22][4] = {
     {DRV(TX_DR_AMOUNT), DRV(TX_DR_TONE), DRV(TX_DR_MIX), DRV(TX_DR_TYPE)},   /* DRIVE: the mix's */
     {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_MIX), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_TIME), PID(P_GLOBAL, PG_GSYNC), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_FEEDBACK)},
+    {GDL(TX_GD_MOD), GDL(TX_GD_MODRATE), GDL(TX_GD_IVL), GDL(TX_GD_GRAIN)},   /* GRAIN 2/4: the animation, the grains' share */
     {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_GRAINS), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_SIZE), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_SPRAY), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_PITCH)},
-    {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_REVERSE), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_SPREAD), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_TONE), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_GRAIN)},
+    {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_REVERSE), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_SPREAD), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_TONE), NOID},
     {PID(P_GLOBAL, PG_REVERB0 + TX_RV_TYPE), PID(P_GLOBAL, PG_REVERB0 + TX_RV_MIX), PID(P_GLOBAL, PG_REVERB0 + TX_RV_DECAY), PID(P_GLOBAL, PG_REVERB0 + TX_RV_TONE)},
     {PID(P_GLOBAL, PG_REVERB0 + TX_RV_PREDELAY), PID(P_GLOBAL, PG_REVERB0 + TX_RV_SIZE), PID(P_GLOBAL, PG_REVERB0 + TX_RV_MOD), PID(P_GLOBAL, PG_REVERB0 + TX_RV_LOWCUT)},
     {PID(P_GLOBAL, PG_REVERB0 + TX_RV_SHIMMER), PID(P_GLOBAL, PG_REVERB0 + TX_RV_SHIFT), NOID, NOID},

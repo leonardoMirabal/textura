@@ -302,7 +302,7 @@ static int host_sound_check(char *msg, unsigned n)   /* 0 if every lane runs the
     for (k = 0; k < TX_MF_NP; k++)                  /* the mix's FILTER */
         if (ln.fx.mf.p[k] != pv_glob[PG_MF0 + k] && !mod_holds(PID(P_GLOBAL, PG_MF0 + k))) { snprintf(msg, n, "filter %u: %u, not %u", k, ln.fx.mf.p[k], pv_glob[PG_MF0 + k]); return 1; }
     for (k = 0; k < TX_GD_NP; k++)
-        if (ln.fx.gd.p[k] != pv_glob[PG_GRAIN0 + k] && !mod_holds(PID(P_GLOBAL, PG_GRAIN0 + k))) { snprintf(msg, n, "grain %u: %u, not %u", k, ln.fx.gd.p[k], pv_glob[PG_GRAIN0 + k]); return 1; }
+        if (ln.fx.gd.p[k] != pv_glob[PG_GD(k)] && !mod_holds(PID(P_GLOBAL, PG_GD(k)))) { snprintf(msg, n, "grain %u: %u, not %u", k, ln.fx.gd.p[k], pv_glob[PG_GD(k)]); return 1; }
     if (ln.fx.gd.sync != tm.gsync_smp) { snprintf(msg, n, "grain sync %u, not %u", ln.fx.gd.sync, tm.gsync_smp); return 1; }
     for (k = 0; k < TX_RV_NP; k++)
         if (ln.fx.rev.p[k] != pv_glob[PG_REVERB0 + k] && !mod_holds(PID(P_GLOBAL, PG_REVERB0 + k))) { snprintf(msg, n, "reverb %u: %u, not %u", k, ln.fx.rev.p[k], pv_glob[PG_REVERB0 + k]); return 1; }
@@ -393,6 +393,8 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "mfon")) snprintf(v, n, "%d", (ln.fx.mf.w[0] != 0) + 2 * (ln.fx.mf.w[1] != 0));   /* the mix's
                                                  * FILTER: its edges running (1 LOW CUT, 2 HIGH CUT; 0: untouched) */
     else if (!strcmp(key, "gdsync")) snprintf(v, n, "%u", ln.fx.gd.sync);         /* as the chain has it */
+    else if (!strcmp(key, "gdmod")) snprintf(v, n, "%d", (int)ln.fx.gd.mg);   /* the GRAIN's MOD, gliding (Q15) */
+    else if (!strcmp(key, "gdwow")) snprintf(v, n, "%d", (int)(ln.fx.gd.wq1 != 0));   /* its time drifting now */
     else if (!strcmp(key, "compred")) snprintf(v, n, "%d", tx_comp_gr_db10(&ln.mix.comp) >= 10);   /* the COMPRESSOR
                                                          * reducing 1 dB or more now (its meter's reading) */
     else if (sscanf(key, "lab%u%c", &k, &c) == 1 && k < 4u) snprintf(v, n, "%s", ui_row_id(k) != NOID ? p_lab(ui_row_id(k)) : "-");
