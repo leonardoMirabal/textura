@@ -31,6 +31,7 @@
 #include "tx_core_chamber.h"
 #include "tx_fx.h"
 #include "tx_mod.h"
+#include "tx_groove.h"
 
 #define FM1_WORST_US 3620.0        /* as txbench: Frodhes' worst block on the FM-1 at the pinned revision */
 #define FR_SKIP_BLOCKS 20u
@@ -318,6 +319,36 @@ static double mod_cost(unsigned shape, unsigned rate, unsigned sync, unsigned nr
     return v[nv * 3 / 4];
 }
 
+/* GROOVE (the firmware's lanes, in the interrupt): the four lanes' multipliers a block, TYPE t at AMOUNT 127 (FM-1 us, the
+ * 3/4 quantile) */
+static double groove_cost(unsigned type)
+{
+    static tx_groove_lane_t l[4];
+    static uint64_t t[MAXR][1500];
+    static double v[1500];
+    unsigned r, b, n, nb = 1500, nv = 0;
+    uint32_t pos;
+    volatile int32_t sink = 0;
+    for (r = 0; r <= runs; r++) {
+        for (n = 0; n < 4u; n++) { tx_groove_lane_init(&l[n], 77u + n); l[n].part = (uint8_t)(1u + n % 3u); l[n].wl = 3; }
+        pos = 0;
+        for (b = 0; b < nb; b++) {
+            uint64_t t0 = tx_now_ns();
+            for (n = 0; n < 4u; n++) sink += tx_groove_mul(&l[n], type, 127, 0, pos);
+            if (r) t[r - 1][b] = tx_now_ns() - t0;
+            pos = (pos + (1610612736u / 22050u) * 256u) % (TX_POS_WRAP << 8);   /* (120 BPM) */
+        }
+    }
+    (void)sink;
+    for (b = 300; b < nb; b++) {
+        uint64_t m = t[0][b];
+        for (r = 1; r < runs; r++) if (t[r][b] < m) m = t[r][b];
+        v[nv++] = m / 1000.0 * factor;
+    }
+    qsort(v, nv, sizeof v[0], fxc_cmp);
+    return v[nv * 3 / 4];
+}
+
 int main(int argc, char **argv)
 {
     const tx_engine_t *src = tx_engine_find("source");
@@ -526,6 +557,20 @@ int main(int argc, char **argv)
         printf("   worst %.0f us (%.1f %%) of the effects reserve (%.0f us); + the firmware's target pass (131 targets, at\n"
                "   most 8 parameter sends a block: the engines' own parameter calls, already in their costs)\n",
                worst, 100 * worst / BLOCK_US, FX_RESERVE_US + chamber);
+    }
+    {   /* GROOVE: in the interrupt every block (groove.c gr_isr), the four lanes */
+        static const unsigned T[] = {0, 5, 63, 72, 243};   /* LOOSE 16, 3:4:5, SON MONTUNO (32 steps), SLOW 4, E(18,19) */
+        double worst = 0;
+        unsigned i;
+        printf("\n6. GROOVE (FM-1 us a block: the four lanes' multipliers, AMOUNT 127; tx_groove.h)\n");
+        for (i = 0; i < sizeof T / sizeof T[0]; i++) {
+            char nm[16];
+            double c = groove_cost(T[i]);
+            tx_groove_name(T[i], nm);
+            if (c > worst) worst = c;
+            printf("   %-12s %5.1f us  (%4.2f %%)\n", nm, c, 100 * c / BLOCK_US);
+        }
+        printf("   worst %.1f us (%.2f %%) of a block; AMOUNT 0: its early return alone\n", worst, 100 * worst / BLOCK_US);
     }
     printf("\nEstimates from host times x the calibration (+-30 %%); the FM-1 decides at the port (whole-interrupt "
            "counters, CC 116). Platform figures are Frodhes' 0.9.5 measurements; Textura's own come at S4.\n");

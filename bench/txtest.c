@@ -37,6 +37,7 @@
 #include "tx_core_limit.h"
 #include "tx_core_mix.h"
 #include "tx_core_gen.h"
+#include "tx_groove.h"
 #include "tx_core_gov.h"
 #include "tx_fx.h"
 
@@ -1532,6 +1533,106 @@ static void gm_run(tx_fx_grain_t *d, unsigned mod, unsigned ivl, unsigned grain,
         if (b * TX_BLOCK >= 2u * 44100u) for (j = 0; j < TX_BLOCK && i < n; j++) y[i++] = (L[j] + R[j]) / 2.0;
     }
 }
+/* GROOVE (tx_groove.h) on a lane's generator, 5 min at 120 BPM, an insect's weight on PULSE of LOOSE 16 (its slots the
+ * beats): at AMOUNT 0 the multiplier is 4096 exactly (the generator as before, bit for bit); at the default and at
+ * 127 the notes lean toward the beats (the share within +-1/32 beat of a beat over the free share) while their gaps
+ * stay natural (CV), and the onsets' envelope shows no loop: its autocorrelation at 2 .. 16 bars no stronger than at
+ * a beat (the pulse's own). Also a 3:4:5 across three lanes: each lane leans to its own cycle */
+typedef struct { double cv, near, ac; unsigned n; } gv_res_t;
+static void gv_run(unsigned amount, unsigned type, unsigned part, unsigned cycle, gv_res_t *o)
+{
+    static tx_gen_t g;
+    static float env[60000 * 8];
+    tx_groove_lane_t l;
+    tx_gen_ev_t ev[TX_GEN_EV_MAX];
+    uint32_t b, pos = 0, frac = 0, inc = 1610612736u / 22050u, nb = 300u * 44100u / TX_BLOCK, nbin = 0, near = 0, nn = 0;
+    double last = -1, sm = 0, sq = 0, ng = 0;
+    uint8_t in;
+    unsigned q, k;
+    tx_gen_init(&g, 7u);
+    tx_gen_param(&g, TX_GEN_ACTIVITY, 100);
+    tx_groove_lane_init(&l, 11u);
+    l.part = (uint8_t)part; l.cycle = (uint8_t)cycle; l.wl = 3;
+    memset(env, 0, sizeof env);
+    for (b = 0; b < nb; b++) {
+        int32_t m = tx_groove_mul(&l, type, amount, 0, pos);
+        unsigned ne;
+        if (!amount && b > 2000u && m != 4096) { o->n = 0; return; }
+        g.rlean = (int16_t)(m - 4096);
+        ne = tx_gen_block(&g, TX_BLOCK, ev, TX_GEN_EV_MAX, &in);
+        for (q = 0; q < ne; q++) if (ev[q].vel) {
+            double t = b * (double)TX_BLOCK + ev[q].off, tk = pos / 256.0 + ev[q].off * 96.0 / 22050.0;
+            int32_t dd = tx_groove_dist(&l, type, 0, (uint32_t)tk);
+            if (last >= 0) { double gp = t - last; sm += gp; sq += gp * gp; ng++; }
+            last = t; nn++;
+            if (dd <= 3) near++;
+            k = (uint32_t)(tk / 12.0);
+            if (k < sizeof env / sizeof *env) env[k] += 1.0f;
+        }
+        { uint32_t f = frac + inc; pos += f >> 8; frac = f & 255u; }
+    }
+    nbin = pos / 256u / 12u;
+    if (nbin > sizeof env / sizeof *env) nbin = sizeof env / sizeof *env;
+    {
+        double mean = sm / ng, mu = 0, r0 = 0, rb, best = 0;
+        unsigned i, lag;
+        o->cv = sqrt(sq / ng - mean * mean) / mean;
+        o->near = (double)near / nn; o->n = nn;
+        for (i = 0; i < nbin; i++) mu += env[i] / nbin;
+        for (i = 0; i < nbin; i++) r0 += (env[i] - mu) * (env[i] - mu);
+        for (lag = 8, rb = 0, i = 0; i + lag < nbin; i++) rb += (env[i] - mu) * (env[i + lag] - mu);
+        rb /= r0;
+        for (k = 2; k <= 16u; k++) {
+            double rk = 0;
+            lag = 32u * k;
+            for (i = 0; i + lag < nbin; i++) rk += (env[i] - mu) * (env[i + lag] - mu);
+            rk /= r0;
+            if (rk > best) best = rk;
+        }
+        o->ac = best - (rb > 0 ? rb : 0);
+    }
+}
+static void check_groove(void)
+{
+    gv_res_t z, d, mx, p3, p4, p5;
+    char msg[400];
+    char nm[16];
+    gv_run(0, 0, TX_GRP_PULSE, 0, &z);
+    verdict("groove", "off", z.n > 0, "GROOVE 0: the generator's rate untouched (4096 exactly, its notes as before)", 0);
+    gv_run(TX_GR_AMOUNT_DEF, 0, TX_GRP_PULSE, 0, &d);
+    gv_run(127, 0, TX_GRP_PULSE, 0, &mx);
+    snprintf(msg, sizeof msg, "%u notes; near a beat (+-1/32): free %.1f %%, default %.1f %%, 127 %.1f %%; gaps' CV %.2f / "
+             "%.2f / %.2f; a loop (bars over the beat's autocorrelation) %.3f / %.3f / %.3f", d.n, 100 * z.near,
+             100 * d.near, 100 * mx.near, z.cv, d.cv, mx.cv, z.ac, d.ac, mx.ac);
+    verdict("groove", "organic", d.near > z.near * 1.1 && mx.near > z.near * 1.6 && d.cv >= 0.9 && mx.cv >= 0.9
+            && d.ac < 0.05 && mx.ac < 0.05, msg, 0);
+    gv_run(127, 5, TX_GRP_PULSE, 0, &p3);
+    gv_run(127, 5, TX_GRP_OFFBEAT, 0, &p4);
+    gv_run(127, 5, TX_GRP_FILL, 0, &p5);
+    tx_groove_name(5, nm);
+    snprintf(msg, sizeof msg, "%s at 127: each lane near its own cycle's slots: 3 %.1f %%, 4 %.1f %%, 5 %.1f %% (free "
+             "%.1f .. %.1f %%)", nm, 100 * p3.near, 100 * p4.near, 100 * p5.near, 100 * 7.0 * 3 / 384, 100 * 7.0 * 5 / 384);
+    verdict("groove", "poly", p3.near > 2.0 * 7 * 3 / 384 && p4.near > 2.0 * 7 * 4 / 384 && p5.near > 2.0 * 7 * 5 / 384, msg, 0);
+    snprintf(msg, sizeof msg, "%u TYPES (the named, then E(k, n))", tx_groove_ntypes());
+    verdict("groove", "types", tx_groove_ntypes() >= 200u && tx_groove_ntypes() <= 256u, msg, 0);
+    {                                           /* the multiplier's range (a lane's tx_gen rlean holds it less 1) */
+        static const uint8_t CY[3] = {0, 2, 9};
+        unsigned t, pt, c, w, b;
+        int32_t lo = 4096, hi = 4096;
+        for (t = 0; t < tx_groove_ntypes(); t++) for (pt = TX_GRP_PULSE; pt <= TX_GRP_FILL; pt++)
+            for (c = 0; c < 3u; c++) for (w = 1; w <= 3u; w += 2u) {
+                tx_groove_lane_t l;
+                tx_groove_lane_init(&l, t * 31u + pt);
+                l.part = (uint8_t)pt; l.cycle = CY[c]; l.wl = (uint8_t)w;
+                for (b = 0; b < 1300u; b++) {
+                    int32_t m = tx_groove_mul(&l, t, 127, b % 5u, b * 1229u);
+                    if (b >= 560u) { if (m < lo) lo = m; if (m > hi) hi = m; }
+                }
+            }
+        snprintf(msg, sizeof msg, "every TYPE, PART, CYCLE at 127: the multiplier %d .. %d (1 .. under 24000)", (int)lo, (int)hi);
+        verdict("groove", "range", lo >= 1 && hi < 24000, msg, 0);
+    }
+}
 static void check_grain_mod(void)
 {
     static const char *const nm[TX_GDI_N] = {"NONE", "OCTAVES", "5TH+OCT", "4TH+5TH", "MAJOR", "MINOR", "ALL", "UP"};
@@ -2141,6 +2242,7 @@ int main(int argc, char **argv)
     check_fx(update);
     check_mfilter();
     check_grain_mod();
+    check_groove();
     check_noise_core();
     check_comp();
     check_truepeak();

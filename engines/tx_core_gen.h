@@ -68,7 +68,9 @@ typedef struct {
     int8_t mrec[TX_GEN_MLEN];                  /* the phrase being recorded (offsets from the centre) */
     tx_gen_motif_t mot[TX_GEN_MOT];
     struct { uint32_t wait; uint8_t note, pad[3]; } off[TX_GEN_OFFS];
-    uint8_t noff, intensity, pad[2];
+    uint8_t noff, intensity;
+    int16_t rlean;                             /* the rate's multiplier this block less 1 (Q12; 0: none): a GROOVE's lean, set by
+                                                * the lane before tx_gen_block (tx_groove.h) */
     uint32_t notes;                            /* notes since init */
     uint8_t hist[TX_GEN_HIST], phist[TX_GEN_PHIST];
 } tx_gen_t;

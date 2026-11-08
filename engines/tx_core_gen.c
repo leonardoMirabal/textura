@@ -191,6 +191,7 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
                                                              /* (the excited rate held at 25 /s, 1.25 x the top: on the
                                                              * even curve the top is reached often, and a burst over it
                                                              * would rattle, 40+ notes in a second) */
+        inc = (inc * (uint32_t)(4096 + g->rlean)) >> 12;   /* (a GROOVE: the rate leans toward its pulse; 0: exact) */
         g->acc += inc;
         g->exc -= (int32_t)(((uint32_t)g->exc * 950u) >> 16) + (g->exc > 0);   /* tau 0.4 s */
         if (g->exc < 0) g->exc = 0;
