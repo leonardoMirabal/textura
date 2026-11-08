@@ -13,7 +13,8 @@
  *            M7 / optical glass ~6000; a shard on the floor is damped by it: lower).
  *   fall     each shard falls from its height (HEIGHT x 0.5 .. 1) to the floor: t = sqrt(2 h / g); then bounces with
  *            restitution e (BOUNCE): flight times 2 e^k v0 / g, impact speeds e^k v0, each impact a hard contact
- *            that restrikes the shard's modes phase-correctly (MODAL) and clicks; stops under 5 cm/s or 6 bounces.
+ *            that restrikes the shard's modes phase-correctly (MODAL), each mode as driven at the spot it lands on,
+ *            and clicks; stops under 5 cm/s or 6 bounces.
  *   floor    every impact of a big shard also knocks the floor: two low modes (70-150 Hz, Q 4; a shattering
  *            recording shows 65-180 Hz peaks at its impacts: ours).
  * KIND: the pane above; or
@@ -60,6 +61,11 @@ static const tx_param_t PARAMS[NP] = {
 #define NRING 16u                  /* ringing shards (the PARTICLES pool) */
 #define A_REF 60000000             /* a mode's amplitude for the largest shard at the crack (Q30; by render) */
 #define C_GLASS 4980u
+/* a tumbling shard lands on another spot each time: each impact drives each of its modes SPOT_LO_L2 .. + 12 dB (log2
+ * Q16; the mode's shape at that spot: a shard's knocks were one shape, scaled); the range sits 1.3 dB low so the mean
+ * power stays (E g^2 = 1); the signs stay the modes' own, so a restrike still adds to the ring in phase */
+#define SPOT_RANGE_L2 130624       /* 12 dB */
+#define SPOT_LO_L2 (-79463)        /* -7.3 dB */
 
 typedef struct {
     uint32_t t;                    /* samples to the next impact (from the block start) */
@@ -94,6 +100,7 @@ typedef struct {
     uint16_t dropped;
     tx_vary_t vy;
     uint8_t rk, rd, kind, pad2;    /* this break's clicks: high-pass and decay shifts; KIND */
+    tx_rng_t srng;                 /* where each impact lands on its shard (its own: the times stay) */
 } glass_t;
 
 static void set_param(glass_t *s, unsigned id, unsigned v)
@@ -136,6 +143,7 @@ static void glass_init(void *st, uint32_t seed)
     s->level = tx_level_q15(100);
     s->quiet = 1;
     tx_vary_init(&((glass_t *)st)->vy, seed, VARY_LO, VARY_HI, VARY_TILT, VARY_DRIFT, VARY_SPLIT);
+    tx_rng_seed(&s->srng, seed ^ 0x6A55D0C5u);
 }
 
 static void glass_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
@@ -167,11 +175,18 @@ static void impact(glass_t *s, shard_t *h, unsigned o, int32_t v_mm)
     if (a > (1 << 29)) a = 1 << 29;
     if (h->ring != 0xFF) {
         ringv_t *r = &s->rv[h->ring];
+        uint32_t u = s->kind == K_BOTTLES ? 0u : tx_rand(&s->srng);   /* (a bottle: knocked shell to shell, its
+                                                              * weights below) */
         unsigned k;
         for (k = 0; k < NMS; k++) if (r->m[k].inc) {
             int32_t ak = s->kind == K_BOTTLES ? a >> (k == 1u ? 0 : k == 0u ? 2 : 1) : a >> k;   /* (a bottle: its shell ring
                                                               * first; the whole bottle's bending -12 dB: the references'
                                                               * 0.5 kHz octave 5-12 dB under ours) */
+            if (s->kind != K_BOTTLES) {                      /* where it lands: the mode's drive there */
+                int32_t g = (int32_t)tx_exp2((int32_t)((((u >> (8u * k)) & 255u) * (uint32_t)SPOT_RANGE_L2) >> 8)
+                                             + SPOT_LO_L2 + (8 << 16));   /* Q8: 0.43 .. 1.72 */
+                ak = (int32_t)(((int64_t)ak * g) >> 8);
+            }
             tx_mode_strike(&r->m[k], (k & 1u) ? -ak : ak);
         }
         if (h->a > A_REF / 3 && s->kind == K_PANE)                                /* the floor: the big shards only, softly (ours; every */
