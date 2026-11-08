@@ -1,0 +1,112 @@
+# the classic engines in the sound browser (audition/app.js FAMILIES [name, "#engine"]): stone clinks (stonecloud) in
+# Stones & sand, rain stick (rainstick) and crumpled paper (crumple) in Wood, wind chimes (chimes) in Wind, thunder
+# sheet (plate) and thunder spring (spring) in Storm, cicada up close (cicadas) in Insects. Each is picked on lane 1
+# and plays (its engine makes events); a classic engine's cards are its own parameters less those its activity map
+# moves (the rain stick: SEEDS on the keys). The rain stick is held and turned over again at random gaps (its seeds
+# run out in seconds when it is only held: it went silent): still alive after 30 s
+1700 btn 11
+1750 btn 8
+1800 turn 1 -20
+1850 turn 1 4
+1900 btn 6
+1950 turn 1 -20
+2000 turn 1 7
+2050 btn 6
+2100 expect state browser 0
+2100 expect state snd0 rain_stick
+2200 keys 0x800
+2250 keys 0
+2300 keys 0x4000000
+2350 keys 0
+2700 expect state lane0 rainstick
+2700 expect state run0 1
+3000 btn 6
+3050 expect state page SOUND_1/2
+3050 expect state lab0 TIME
+3050 expect state lab1 GRAIN
+3050 expect state lab2 LENGTH
+3050 expect state lab3 BODY
+3100 btn 8
+3150 expect state page LANDSCAPE
+11000 expect state alive0 1
+21000 expect state alive0 1
+31000 expect state alive0 1
+31100 btn 11
+31150 btn 8
+31200 turn 1 -20
+31250 turn 1 4
+31300 btn 6
+31350 turn 1 -20
+31400 turn 1 8
+31450 btn 6
+31500 expect state browser 0
+31500 expect state snd0 crumpled_paper
+32100 expect state lane0 crumple
+32100 expect state run0 1
+35100 expect state alive0 1
+35200 btn 11
+35250 btn 8
+35300 turn 1 -20
+35350 turn 1 1
+35400 btn 6
+35450 turn 1 -20
+35500 turn 1 9
+35550 btn 6
+35600 expect state browser 0
+35600 expect state snd0 stone_clinks
+36200 expect state lane0 stonecloud
+36200 expect state run0 1
+39200 expect state alive0 1
+39300 btn 11
+39350 btn 8
+39400 turn 1 -20
+39450 turn 1 5
+39500 btn 6
+39550 turn 1 -20
+39600 turn 1 10
+39650 btn 6
+39700 expect state browser 0
+39700 expect state snd0 wind_chimes
+40300 expect state lane0 chimes
+40300 expect state run0 1
+43300 expect state alive0 1
+43400 btn 11
+43450 btn 8
+43500 turn 1 -20
+43550 turn 1 6
+43600 btn 6
+43650 turn 1 -20
+43700 turn 1 10
+43750 btn 6
+43800 expect state browser 0
+43800 expect state snd0 thunder_sheet
+44400 expect state lane0 plate
+44400 expect state run0 1
+47400 expect state alive0 1
+47500 btn 11
+47550 btn 8
+47600 turn 1 -20
+47650 turn 1 6
+47700 btn 6
+47750 turn 1 -20
+47800 turn 1 11
+47850 btn 6
+47900 expect state browser 0
+47900 expect state snd0 thunder_spring
+48500 expect state lane0 spring
+48500 expect state run0 1
+51500 expect state alive0 1
+51600 btn 11
+51650 btn 8
+51700 turn 1 -20
+51750 turn 1 7
+51800 btn 6
+51850 turn 1 -20
+51900 turn 1 10
+51950 btn 6
+52000 expect state browser 0
+52000 expect state snd0 cicada_up_close
+52600 expect state lane0 cicadas
+52600 expect state run0 1
+55600 expect state alive0 1
+55900 end

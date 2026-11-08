@@ -480,18 +480,19 @@ function setSlider(id, val) {                         // from MIDI CC (the edite
 }
 
 // ---- SOURCE (engine "source"): its preset, ACTIVITY and PROXIMITY in a panel of their own; and LANE MODE, the keyboard
-// as on the FM-1: F3 .. G5. A landscape is one family of sounds (up to 10, picked in the Sounds row; up to 4 play at
+// as on the FM-1: F3 .. G5. A landscape is one family of sounds (up to 12, picked in the Sounds row; up to 4 play at
 // once, one per lane); the black keys' groups (3, 2, 3, 2) select the lanes (F#5 nothing), the 16 white keys the
 // selected lane's two faders, F3 off .. G5 a full cloud. No key changes the landscape.
 let SRC_PRESETS = ["rain on water", "stone cloud", "cicadas", "water drops"];   // (read from the PRESET help line)
-// a family's sounds: [name, source preset, TYPE] (TYPE reaches the preset's family members), or "#engine" (a classic)
+// a family's sounds: [name, source preset, TYPE] (TYPE reaches the preset's family members), or "#engine" (a classic
+// engine, by its own name), or [name, "#engine"] (a classic engine under the sound's name)
 const FAMILIES = [
   ["Water", [["rain on water", "rain on water", 0], ["lake lapping", "water", 120], ["water drops", "water", 0],
     ["cave drips", "water", 16], ["eaves dripping", "water", 32], ["brook", "water", 48], ["bubbling spring", "water", 64],
     ["waterfall", "water", 80], ["waves on sand", "water", 96], ["waves on shingle", "water", 112]]],
   ["Stones & sand", [["stones", "stone cloud", 0], ["rockfall", "stone cloud", 32], ["ringing rocks", "stone cloud", 100],
     ["gravel", "gravel", 0], ["marbles", "gravel", 96], ["sand", "sand", 0], ["singing dune", "sand", 96],
-    ["minerals", "minerals", 0], ["stone friction", "minerals", 96]]],
+    ["minerals", "minerals", 0], ["stone friction", "minerals", 96], ["stone clinks", "#stonecloud"]]],
   ["Ice & glass", [["icicles", "ice", 8], ["ice in a glass", "ice", 24], ["frost tinkling", "ice", 40], ["snow underfoot", "ice", 56],
     ["lake ice", "ice", 72], ["frozen lake booming", "ice", 104], ["thin ice underfoot", "ice", 120], ["glass pane", "glass", 0],
     ["bottles", "glass", 64], ["shards settling", "glass", 110]]],
@@ -499,16 +500,19 @@ const FAMILIES = [
     ["kindling", "fire", 36], ["pine fire", "fire", 44], ["leaves, paper", "fire", 52], ["torch", "fire", 60], ["flame", "fire", 96],
     ["#sparks"]]],
   ["Wood", [["spruce", "wood", 9], ["pine", "wood", 27], ["maple", "wood", 46], ["oak", "wood", 64], ["green branch", "wood", 82],
-    ["tree trunk", "wood", 100], ["twigs underfoot", "wood", 118]]],
+    ["tree trunk", "wood", 100], ["twigs underfoot", "wood", 118], ["rain stick", "#rainstick"],
+    ["crumpled paper", "#crumple"]]],
   ["Wind", [["wind", "wind", 0], ["breeze in grass", "wind", 9], ["wind in pines", "wind", 16], ["leafy trees", "wind", 22],
     ["open moor", "wind", 28], ["sea wind", "wind", 35], ["ridge gale", "wind", 41], ["gusty autumn", "wind", 48],
-    ["winter storm", "wind", 54], ["desert wind", "wind", 61]]],
+    ["winter storm", "wind", 54], ["desert wind", "wind", 61], ["wind chimes", "#chimes"]]],
   ["Storm", [["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 50], ["#storm"], ["#thunder"], ["ridge gale", "wind", 41],
     ["winter storm", "wind", 54], ["hail on a roof", "rain on water", 103], ["hail on a car", "rain on water", 110],
-    ["hail in leaves", "rain on water", 117], ["sleet on a window", "rain on water", 124]]],
+    ["hail in leaves", "rain on water", 117], ["sleet on a window", "rain on water", 124], ["thunder sheet", "#plate"],
+    ["thunder spring", "#spring"]]],
   ["Insects", [["field cricket", "crickets", 10], ["tree cricket", "crickets", 53], ["mole cricket", "crickets", 74],
     ["cicada", "cicadas", 0], ["small cicada", "cicadas", 20], ["cicada chorus", "cicadas", 64], ["katydid", "katydids", 16],
-    ["grasshopper", "katydids", 80], ["honeybee", "bees", 10], ["bumblebee", "bees", 53]]],
+    ["grasshopper", "katydids", 80], ["honeybee", "bees", 10], ["bumblebee", "bees", 53],
+    ["cicada up close", "#cicadas"]]],
   ["Songbirds", ["songbird", "blackbird", "song thrush", "nightingale", "robin", "wren", "hermit thrush", "skylark",
     "wood thrush", "reed warbler"].map(n => [n, n, 0])],
   ["Wild birds", ["chirper", "crow", "gull", "curlew", "oystercatcher", "cuckoo", "woodpecker", "wood pigeon", "nightjar",
@@ -521,18 +525,20 @@ const LEVEL_DB = {
   "Water": {"rain on water": 2, "lake lapping": 3, "water drops": -1, "cave drips": 2, "eaves dripping": -1,
     "brook": -2, "bubbling spring": 4, "waterfall": 4, "waves on sand": 6, "waves on shingle": 4},
   "Stones & sand": {"stones": 13, "rockfall": 10, "ringing rocks": -5, "gravel": -1, "marbles": 10, "sand": 2,
-    "singing dune": 0, "minerals": 5, "stone friction": -3},
+    "singing dune": 0, "minerals": 5, "stone friction": -3, "stone clinks": -1},
   "Ice & glass": {"icicles": -8, "ice in a glass": -23, "frost tinkling": -9, "snow underfoot": -10, "lake ice": -3,
     "frozen lake booming": -2, "thin ice underfoot": -5, "glass pane": -2, "bottles": 3, "shards settling": 8},
   "Fire": {"campfire": -22, "bonfire": -10, "fireplace": -17, "embers": -9, "kindling": -16, "pine fire": -18,
     "leaves, paper": -16, "torch": -14, "flame": -10, "sparks": 8},
-  "Wood": {"spruce": 5, "pine": 0, "maple": -6, "oak": 4, "green branch": 3, "tree trunk": -1, "twigs underfoot": -6},
+  "Wood": {"spruce": 5, "pine": 0, "maple": -6, "oak": 4, "green branch": 3, "tree trunk": -1, "twigs underfoot": -6,
+    "rain stick": 0, "crumpled paper": -1},
   "Wind": {"wind": 0, "breeze in grass": -2, "wind in pines": -8, "leafy trees": 2, "open moor": -8, "sea wind": -4,
-    "ridge gale": -12, "gusty autumn": -8, "winter storm": -16, "desert wind": -5},
+    "ridge gale": -12, "gusty autumn": -8, "winter storm": -16, "desert wind": -5, "wind chimes": -4},
   "Storm": {"rain on water": 0, "rain on a roof": 9, "storm": 4, "thunder": 0, "ridge gale": -14, "winter storm": -9,
-    "hail on a roof": 4, "hail on a car": 2, "hail in leaves": 7, "sleet on a window": 7},
+    "hail on a roof": 4, "hail on a car": 2, "hail in leaves": 7, "sleet on a window": 7, "thunder sheet": -5,
+    "thunder spring": -1},
   "Insects": {"field cricket": 5, "tree cricket": 10, "mole cricket": 0, "cicada": 8, "small cicada": 10,
-    "cicada chorus": 8, "katydid": 16, "grasshopper": 20, "honeybee": -7, "bumblebee": -5},
+    "cicada chorus": 8, "katydid": 16, "grasshopper": 20, "honeybee": -7, "bumblebee": -5, "cicada up close": 0},
   "Songbirds": {"songbird": 17, "blackbird": 17, "song thrush": 15, "nightingale": 12, "robin": 17, "wren": 13,
     "hermit thrush": 13, "skylark": 15, "wood thrush": 15, "reed warbler": 15},
   "Wild birds": {"chirper": 17, "crow": 17, "gull": 12, "curlew": 12, "oystercatcher": 16, "cuckoo": 14,
@@ -670,14 +676,18 @@ window.txTest.hostSet = (name, v) => {               // through the slider, as a
 // amount parameters: each [name, value at C4, value at C6], linear in the knob (the knobs are log in their units), gliding
 // over ~1 s. "every": seconds between presses at C4 and at C6 (the press rate r4 + (r6 - r4) x^2.5 between them, exponential
 // gaps): the one-shot engines. The stone cloud's DENSITY and the sparks' RATE are perceptually even in their rates (14 =
-// 0.44 hits/s as 10 was on the old log scale; sparks 4 .. 105 = 0.2 .. 313 /s as 10 .. 120 were).
+// 0.44 hits/s as 10 was on the old log scale; sparks 4 .. 105 = 0.2 .. 313 /s as 10 .. 120 were). "turn": held, and
+// turned over again at those gaps (key up and down at once: the rain stick, whose seeds run out). "lin": the sound's own
+// measured curve (tx_core_lin.h tx_lin_tab): the place on that path (0 .. 127) at the keys' 0, 8 .. 120, 127, so each
+// step sounds the same more (its loudness and sounding share measured along the path, fitted as tools/gen_lin.py does).
 const QUICK = {
   test: { p: [["RATE", 10, 120]] },
   drip: { p: [["RATE", 20, 127]] },
   candle: { p: [["SPUTTER", 40, 127], ["FLOW", 5, 60]] },
   sparks: { p: [["RATE", 4, 105], ["BURST", 20, 80]] },
   gravel: { p: [["AMOUNT", 20, 120], ["RATE", 30, 110]] },
-  rainstick: { p: [["SEEDS", 10, 127]] },
+  rainstick: { p: [["SEEDS", 10, 127]], every: [8, 1.5], turn: 1,
+    lin: [0, 13, 18, 24, 47, 54, 59, 64, 68, 72, 76, 81, 86, 98, 106, 111, 127] },
   mineral: { p: [["SPEED", 20, 110], ["PRESSURE", 30, 100]] },
   pebble: { p: [["SPEED", 20, 115]] },
   thunder: { p: [["DIST", 110, 25], ["ENERGY", 40, 100]], every: [40, 8] },
@@ -686,22 +696,28 @@ const QUICK = {
   aeolian: { p: [["WIND", 20, 127], ["GUST", 20, 80]] },
   sand: { p: [["ORIFICE", 25, 110]] },
   lakeice: { p: [["RATE", 0, 110]] },
-  spring: { p: [], every: [20, 0.25] },
-  chimes: { p: [["WIND", 10, 127], ["GUST", 30, 90]] },
+  spring: { p: [], every: [20, 0.25],
+    lin: [0, 20, 26, 30, 36, 41, 45, 48, 51, 54, 57, 60, 63, 70, 81, 92, 112] },
+  chimes: { p: [["WIND", 10, 127], ["GUST", 30, 90]],
+    lin: [0, 7, 11, 15, 18, 21, 24, 26, 29, 32, 35, 39, 45, 55, 64, 77, 104] },
   rainsurf: { p: [["RATE", 10, 127], ["AREA", 30, 100]] },
   rockfall: { p: [["VOLUME", 30, 110]], every: [120, 6] },
-  plate: { p: [["CRASH", 40, 127]], every: [20, 0.35] },
+  plate: { p: [["CRASH", 40, 127]], every: [20, 0.35],
+    lin: [0, 20, 24, 28, 31, 37, 42, 45, 48, 51, 53, 56, 62, 72, 84, 96, 120] },
   rainwater: { p: [["RATE", 10, 127], ["AREA", 60, 120]] },
   stream: { p: [["FLOW", 10, 127], ["ROAR", 0, 90]] },
   surf: { p: [["HEIGHT", 10, 127], ["CHOP", 30, 90]] },
   storm: { p: [["INTENSITY", 0, 127]] },
   crickets: { p: [["COUNT", 1, 32], ["ACTIVITY", 0, 127]] },
-  cicadas: { p: [["CHORUS", 0, 127]] },
+  cicadas: { p: [["CHORUS", 0, 127]],
+    lin: [0, 5, 11, 17, 24, 31, 38, 46, 54, 62, 70, 78, 86, 95, 104, 112, 120] },
   katydids: { p: [["COUNT", 1, 16], ["ACTIVITY", 0, 127]] },
-  crumple: { p: [["RATE", 10, 120]] },
+  crumple: { p: [["RATE", 10, 120]],
+    lin: [0, 12, 19, 28, 37, 44, 54, 61, 68, 76, 86, 92, 99, 107, 116, 122, 127] },
   fire: { p: [["MOIST", 20, 120], ["SIZE", 20, 100], ["ROAR", 30, 120]] },
   stonedrum: { p: [], every: [12, 0.12] },
-  stonecloud: { p: [["DENSITY", 14, 127]] },
+  stonecloud: { p: [["DENSITY", 14, 127]],
+    lin: [0, 26, 32, 37, 43, 49, 55, 59, 63, 67, 70, 76, 83, 90, 99, 111, 127] },
   minerals: { p: [], every: [10, 0.15] },
   glass: { p: [["ENERGY", 60, 127]], every: [40, 2] },
   wood: { p: [["LOAD", 110, 15], ["CREAK", 15, 70]], every: [30, 2] },
@@ -718,7 +734,14 @@ function pidOf(k, name) {                             // a parameter id of layer
 }
 function quickPos(k) {                               // a classic engine has no population: how many and how active
   const c = laneMode ? Math.max(0, laneCnt[k] - 1) / (NCNT - 2) : 1;   // together move its density, 0 .. 1
-  return laneMode ? Math.min(1, 0.5 * c + 0.5 * quick[k].step / 14) : quick[k].step / 14;
+  const x = laneMode ? Math.min(1, 0.5 * c + 0.5 * quick[k].step / 14) : quick[k].step / 14, q = QUICK[engName(k)];
+  return q && q.lin ? linTab(q.lin, x * 127) / 127 : x;
+}
+function linTab(t, u) {                              // a measured curve (tx_core_lin.h tx_lin_tab): the place at u = 0, 8 .. 120, 127
+  if (u <= 0) return t[0];
+  if (u >= 127) return t[16];
+  const i = Math.min(15, Math.floor(u / 8)), w = i < 15 ? 8 : 7;
+  return t[i] + (t[i + 1] - t[i]) * (u - 8 * i) / w;
 }
 function quickTargets(k) {                            // the parameter values for layer k's step
   const q = QUICK[engName(k)], t = {};
@@ -745,8 +768,8 @@ setInterval(quickTick, 50);
 function quickPress(k) {                              // a one-shot engine's next press, at the step's rate
   const q = QUICK[engName(k)];
   if (!q || !q.every || !laneRun[k]) return;
-  M._txw_key_slot(k, 60, 100, 1);
-  setTimeout(() => M._txw_key_slot(k, 60, 0, 0), 150);
+  if (q.turn) { M._txw_key_slot(k, 60, 0, 0); M._txw_key_slot(k, 60, 100, 1); }   // (held: turned over again)
+  else { M._txw_key_slot(k, 60, 100, 1); setTimeout(() => M._txw_key_slot(k, 60, 0, 0), 150); }
   quickNext(k);
 }
 function quickNext(k, first) {                        // the next press after a random (exponential) gap at the step's rate
@@ -783,8 +806,9 @@ function laneStart(k, on) {                           // a lane plays on its own
   genRun(k);
   const q = QUICK[engName(k)];
   if (on && layers[k].eng !== srcEng) { quick[k].cur = {}; quickTick(); }   // a classic engine: its settings first, no glide
-  if (q && q.every && layers[k].eng !== srcEng) { srcHold(k, false); if (on) quickNext(k, true); }   // (its first strike after a gap)
-  else srcHold(k, on);
+  if (q && q.every && !q.turn && layers[k].eng !== srcEng) { srcHold(k, false); if (on) quickNext(k, true); }   // (its first
+  else { srcHold(k, on); if (on && q && q.turn && layers[k].eng !== srcEng) quickNext(k); }   // strike after a gap; a turned
+  // engine is held from the start and turned over again at the gaps)
 }
 function laneSelect(i) {
   if (i < 0 || i > 3) return;                        // (4 lanes: 4 sounds at once)
@@ -796,12 +820,12 @@ function laneSelect(i) {
   gridMark();
 }
 function soundLoad(k, i) {                            // the family's sound i into lane k (stopped, at nothing)
-  const [nm, pre, type] = FAMILIES[fam][1][i];
+  const [nm, pre, type] = FAMILIES[fam][1][i], cls = sndEng(FAMILIES[fam][1][i]);
   if (laneRun[k]) laneStart(k, false);
   gen[k].step = 0; quick[k].step = 0; laneCnt[k] = 0;
-  if (nm.startsWith("#")) {
+  if (cls) {
     let e = -1;
-    for (let q = 0; q < M._txw_count(); q++) if (S(M._txw_name(q)) === nm.slice(1)) e = q;
+    for (let q = 0; q < M._txw_count(); q++) if (S(M._txw_name(q)) === cls) e = q;
     if (e >= 0) { const e0 = ed; editLayer(k); selectEngine(e); editLayer(e0); }
   } else {
     srcLayer(k);
@@ -811,6 +835,9 @@ function soundLoad(k, i) {                            // the family's sound i in
   }
   laneSnd[k] = i;
   laneVol(k);
+}
+function sndEng(s) {                                 // a classic engine's sound ("#engine", or [name, "#engine"]): its engine
+  return s[0].startsWith("#") ? s[0].slice(1) : s[1] && s[1].startsWith("#") ? s[1].slice(1) : null;
 }
 function soundName(i) { const s = FAMILIES[fam][1][i]; return s ? s[0].replace("#", "") : "–"; }
 function soundKey(i) {                                // the family's sound i: select its lane (loading it into a free one)

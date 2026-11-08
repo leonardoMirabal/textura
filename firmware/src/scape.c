@@ -9,8 +9,9 @@
  * sent later; meanwhile the old engine plays on, then fades out under the new one (lanes.c). A scene's load (and a
  * switch) glides a lane's level, pan, trim, HOW MANY and HOW ACTIVE from what was sent to what is wanted (sc_glide,
  * SC_GLIDE_MS). A sound is a SOURCE preset + TYPE, or a classic engine: those have no population, so HOW MANY and
- * HOW ACTIVE together move a few of their own parameters (the QUICK maps), and the one-shot ones (thunder, glass ...)
- * are pressed again and again at random (exponential) gaps.
+ * HOW ACTIVE together move a few of their own parameters (the QUICK maps, through the sound's own measured curve where
+ * it has one), the one-shot ones (thunder, glass ...) are pressed again and again at random (exponential) gaps, and a
+ * turned one (the rain stick) is held and turned over again at such gaps.
  *
  * Main loop only (sc_poll every pass): integers, no division in 64 bits. */
 #include "landscapes.h"
@@ -111,7 +112,8 @@ static const ls_quick_t *sc_quick(const tx_engine_t *e)
     return 0;
 }
 static int sc_is_src(uint32_t k) { return sc.eng[k] && sc.eng[k] == sc.src; }
-static int sc_oneshot(uint32_t k) { return !sc_is_src(k) && sc.q[k] && sc.q[k]->every_ms; }
+static int sc_oneshot(uint32_t k) { return !sc_is_src(k) && sc.q[k] && sc.q[k]->every_ms && !sc.q[k]->turn; }
+static int sc_turned(uint32_t k) { return !sc_is_src(k) && sc.q[k] && sc.q[k]->turn; }   /* held, turned over at gaps */
 static uint32_t sc_cnt_of(uint32_t k) { return sc.run[k] ? sc.cnt[k] : 0u; }
 static uint32_t sc_step_of(uint32_t k) { return sc.run[k] ? sc.step[k] : 0u; }
 static uint32_t sc_vol_of(uint32_t k)
@@ -208,7 +210,10 @@ static uint32_t sc_quick_pos(uint32_t k)        /* 0 .. 65536 */
     if (sc.notes[k]) a = (uint32_t)ln_gen_activity(k) * 65536u / 254u;   /* the generator's wander (/ 127, x 0.5) */
     else a = sc.step[k] * 65536u / (2u * SC_STEPS);
     x = c / 2u + a;
-    return x > 65536u ? 65536u : x;
+    if (x > 65536u) x = 65536u;
+    if (sc.q[k] && sc.q[k]->lin)                /* the sound's own measured curve: the place on its path */
+        x = ((uint32_t)tx_lin_tab(LS_LIN[sc.q[k]->lin - 1u], (int32_t)((x * 127u) >> 8)) << 8) / 127u;
+    return x;
 }
 static void sc_quick_tick(uint32_t k, int jump)
 {
@@ -252,6 +257,7 @@ static void sc_start(uint32_t k, int on)        /* laneStart: the lane plays on 
         if (g > SC_PRESS_MS + 2500u) g = SC_PRESS_MS + tx_rand(&sc.rng) % 2500u;
         sc.q_next[k] = fm1_ms + g + 1u;
     }
+    if (on && sc_turned(k)) sc.q_next[k] = fm1_ms + sc_quick_gap(k) + 1u;   /* (held now, turned over later) */
     sc_sync(k);
 }
 static void sc_step(uint32_t k, uint32_t w);
@@ -411,6 +417,10 @@ static void sc_poll(void)
         if (sc.run[k] && sc.q_next[k] && sc_oneshot(k) && sc.a_eng[k] == sc.eng[k] && (int32_t)(fm1_ms - sc.q_next[k]) >= 0) {
             ln_key(k, SC_HOLD_NOTE, SC_HOLD_VEL, 1);   /* quickPress */
             sc.q_rel[k] = fm1_ms + SC_PRESS_MS; if (!sc.q_rel[k]) sc.q_rel[k] = 1;
+            sc.q_next[k] = fm1_ms + sc_quick_gap(k); if (!sc.q_next[k]) sc.q_next[k] = 1;
+        }
+        if (sc.run[k] && sc.q_next[k] && sc_turned(k) && sc.a_held[k] && sc.a_eng[k] == sc.eng[k] && (int32_t)(fm1_ms - sc.q_next[k]) >= 0) {
+            ln_key(k, SC_HOLD_NOTE, 0, 0); ln_key(k, SC_HOLD_NOTE, SC_HOLD_VEL, 1);   /* turned over again */
             sc.q_next[k] = fm1_ms + sc_quick_gap(k); if (!sc.q_next[k]) sc.q_next[k] = 1;
         }
     }

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura lanes: the sound behind the panel. Four lanes, each an engine instance (engines/: the same code the bench
- * and the audition player run), each through its own FILTER, panned into a stereo pair, then the DRIVE, the
+ * and the audition player run), each panned into a stereo pair, then the DRIVE, the FILTER, the
  * COMPRESSOR, the GRAIN DELAY, the REVERB and the output limiter (tx_core_mix.h, tx_fx.h): the audition player's chain (audition/tx_web.c).
  *
  *   main loop   ln_select (a lane's engine: prepared in the spare arena, here, never in the audio interrupt),
@@ -8,13 +8,13 @@
  *               interrupt takes them at its next block
  *   interrupt   ln_block: the queue, then every lane's generator (tx_core_gen: the lane playing on its own, its
  *               activity and notes, as the player's), every lane's engine for one block (some on the second core:
- *               LN_PAR, below) over its ring, then lane by lane its inserts, its pan into the pair; the effects, Q23
+ *               LN_PAR, below) over its ring, then lane by lane its pan into the pair; the effects, Q23
  *               stereo; then the CPU governor (tx_core_gov.h) when the app gives it the lanes' costs (LN_CLOCK or
  *               LN_COST_EST, below)
  *
  * A switched-out engine rings out in its own arena while the new one starts in the spare, as the player does
  * (tx_core_ring.h: its tail at full level up to 302 ms, then a 151 ms fade; done at once when quiet), so a switch is
- * never a cut. It renders under the new engine, through the lane's insert, gate, trim and pan, so a switch changes
+ * never a cut. It renders under the new engine, through the lane's gate, trim and pan, so a switch changes
  * none of those under it. One arena a lane and one spare for all of them (the player keeps two a lane): the rung-out
  * engine's arena becomes the spare, so while one lane's switch rings another sounding lane's waits (ln_can_select,
  * ln_select: -1, call again; a lane silent of its engine needs no spare) and ln_hurry has the ringing ones skip the
@@ -36,7 +36,7 @@
 #define LN_GOV_POOL_US TX_GOV_POOL_DEVICE       /* the sources' CPU pool on the FM-1 (CLAUDE.md: ~2500 us a block) */
 /* The governor's costs, FM-1 us a block, from the app:
  *   LN_CLOCK(), LN_CLOCK_US(d)   the device: its free-running clock (wrapping) and a difference of it in us; each
- *                                lane's block is timed (less its inserts, which the governor is given apart) and so
+ *                                lane's block is timed (its generator and engine) and so
  *                                is the modulation
  *   LN_COST_EST                  the host and the web (no FM-1 clock): a stand-in from the heroes sounding, the same
  *                                every run, so the tests can rely on it
@@ -62,7 +62,7 @@
  *                          could not clear: nothing done, it stays on), or it was stopped mid-job (its lanes' engines
  *                          are left as it left them: they render here again, once; a click at most, one core then)
  * A lane's engine renders into its own block (ln_out: its own cache lines, nothing else written on them while the
- * other core works); everything else (the generators before, the inserts, the pan, the fades, the governor after)
+ * other core works); everything else (the generators before, the pan, the fades, the governor after)
  * stays on this core in lane order, and the pair is a sum of int32 terms: the samples are the same whichever core
  * renders which lane, and the same as with one core (tests/lanes_test.c checks it with a thread as the second core).
  * Which lanes go there: the split of the sounding lanes whose larger half costs least (the lanes' last costs: the
@@ -90,7 +90,7 @@ enum { LN_EV_KEY, LN_EV_PARAM, LN_EV_PAN, LN_EV_SWAP, LN_EV_OFF, LN_EV_FX, LN_EV
 const tx_engine_t *tx_source_hosted(const void *st);
 int tx_source_host_value(const void *st, unsigned id);
 void tx_source_host_param(void *st, unsigned id, unsigned val);
-enum { LN_FX_DRIVE, LN_FX_FILTER, LN_FX_REVERB, LN_FX_GRAIN, LN_FX_RELATCH, LN_FX_COMP };   /* ln_fx groups (as the player's
+enum { LN_FX_DRIVE, LN_FX_REVERB = 2, LN_FX_GRAIN, LN_FX_RELATCH, LN_FX_COMP };   /* ln_fx groups (1: the lanes' FILTER, retired; as the player's
                                                  * txw_fx_param; RELATCH: a whole sound loaded, tx_fx_reverb_relatch) */
 typedef struct { uint8_t kind, lane, a, b, c; } ln_ev_t;
 
@@ -139,7 +139,7 @@ typedef struct {                                /* a lane's engine block, writte
     int32_t x[TX_BLOCK];
     uint32_t us;                                /* (LN_CLOCK) its render, us */
     tx_ring_t ring;                             /* the switched-out engine, ringing out (tx_core_ring.h): rendered
-                                                 * with the lane, so on the lane's core and under its insert */
+                                                 * with the lane, so on the lane's core */
     uint32_t rus, rhp;                          /* the ring's last block: (LN_CLOCK) us; its heroes sounding */
     int32_t rpk;                                /* its peak (0: silent or done; the tests) */
 } __attribute__((aligned(64))) ln_out_t;
@@ -231,7 +231,7 @@ static void ln_init(void)
 #ifdef LN_PIPE
     ln.mix.pre1 = tx_fx_drive_mix_c1; ln.mix.bus1 = tx_fx_bus_end_c1;   /* (the mix end on the second core) */
 #endif
-    ln.mix.ins = tx_fx_lane; ln.mix.pre = tx_fx_drive_mix; ln.mix.bus = tx_fx_bus_end; ln.mix.busq = tx_fx_bus_quiet; ln.mix.fx = &ln.fx;   /* (the
+    ln.mix.pre = tx_fx_drive_mix; ln.mix.bus = tx_fx_bus_end; ln.mix.busq = tx_fx_bus_quiet; ln.mix.fx = &ln.fx;   /* (the
                                                  * bus's begin and the grains' voices: ln_block, ln_render) */
 #ifdef LN_BUS_TIMED
     ln.mix.bus = ln_bus;
@@ -415,7 +415,6 @@ static void ln_event(const ln_ev_t *v)
         break;
     case LN_EV_FX:
         if (v->a == LN_FX_DRIVE) tx_fx_drive_set(&ln.fx, v->b, v->c);
-        else if (v->a == LN_FX_FILTER && k < TX_FX_LANES) tx_fx_filter_param(&ln.fx.filter[k], v->b, v->c);
         else if (v->a == LN_FX_REVERB) tx_fx_reverb_param(&ln.fx.rev, v->b, v->c);
         else if (v->a == LN_FX_GRAIN) tx_fx_grain_param(&ln.fx.gd, v->b, v->c);
         else if (v->a == LN_FX_RELATCH) tx_fx_reverb_relatch(&ln.fx.rev);
@@ -441,10 +440,9 @@ static void ln_ring_lane(ln_out_t *o, uint32_t n)
     for (j = 0; j < n; j++) { int32_t a = o->x[j] < 0 ? -o->x[j] : o->x[j]; if (a > pk) pk = a; }
     o->rpk = pk;
 }
-/* lane k's engine, one block, into ln_out[k] over its ring (the old engine: the same insert, gate, trim and pan, so a
- * switch changes none of them under it), then its insert (FILTER), on either core (c: 1 the second, its twin); it
- * writes nothing else */
-static void ln_render_lane(uint32_t k, uint32_t n, uint32_t c)
+/* lane k's engine, one block, into ln_out[k] over its ring (the old engine: the same gate, trim and pan, so a switch
+ * changes none of them under it), on either core; it writes nothing else */
+static void ln_render_lane(uint32_t k, uint32_t n)
 {
     ln_out_t *o = &ln_out[k];
 #ifdef LN_CLOCK
@@ -458,7 +456,6 @@ static void ln_render_lane(uint32_t k, uint32_t n, uint32_t c)
 #ifdef LN_CLOCK
     o->us = LN_CLOCK_US(LN_CLOCK() - t0);
 #endif
-    if (ln.mix.ins) tx_fx_lane_run(&ln.fx, k, o->x, n, c);
 }
 static void ln_gv(uint32_t h, uint32_t *us, uint32_t c)   /* the grain delay's voices, half h, on core c */
 {
@@ -484,7 +481,7 @@ static void ln_par_job(uint32_t mask)           /* the second core's job: its la
     uint32_t t0 = LN_CLOCK();
 #endif
     for (k = 0; k < 2u; k++) if (mask >> (LN_GV + k) & 1u) ln_gv(k, &ln_c1t.gv_us[k], 1u);
-    for (k = 0; k < LN_N; k++) if (mask >> k & 1u) ln_render_lane(k, ln.par_n, 1u);
+    for (k = 0; k < LN_N; k++) if (mask >> k & 1u) ln_render_lane(k, ln.par_n);
 #ifdef LN_CLOCK
     ln_c1t.busy_us = LN_CLOCK_US(LN_CLOCK() - t0);
 #endif
@@ -508,7 +505,7 @@ static uint32_t ln_par_split(uint32_t on)
     return best;
 }
 #endif
-/* every lane's engine and inserts, and (gv) the grain delay's voices: some on the second core (LN_PAR) */
+/* every lane's engine, and (gv) the grain delay's voices: some on the second core (LN_PAR) */
 static void ln_render(uint32_t n, int gv)
 {
     uint32_t k, on = 0, m1 = 0;
@@ -525,7 +522,7 @@ static void ln_render(uint32_t n, int gv)
     }
 #endif
     for (k = 0; k < 2u; k++) if ((on & ~m1) >> (LN_GV + k) & 1u) ln_gv(k, &ln.gv_us[k], 0u);
-    for (k = 0; k < LN_N; k++) if ((on & ~m1) >> k & 1u) ln_render_lane(k, n, 0u);
+    for (k = 0; k < LN_N; k++) if ((on & ~m1) >> k & 1u) ln_render_lane(k, n);
 #ifdef LN_CLOCK
     ln.c0_us = LN_CLOCK_US(LN_CLOCK() - t0);
     if (ln.c0_us > ln.c0_max) ln.c0_max = ln.c0_us;
@@ -533,7 +530,7 @@ static void ln_render(uint32_t n, int gv)
 #ifdef LN_PAR
     if (m1 && LN_PAR_WAIT()) {                  /* stopped mid-job: its items here, from where it left them */
         for (k = 0; k < 2u; k++) if (m1 >> (LN_GV + k) & 1u) ln_gv(k, &ln.gv_us[k], 0u);
-        for (k = 0; k < LN_N; k++) if (m1 >> k & 1u) ln_render_lane(k, n, 0u);
+        for (k = 0; k < LN_N; k++) if (m1 >> k & 1u) ln_render_lane(k, n);
         ln.par_lost++;
         m1 = 0;
     }
@@ -629,17 +626,17 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
 #else
         gv = tx_fx_bus_begin(&ln.fx, n);
 #endif
-        ln_render(n, gv);                       /* every lane's engine and inserts, the grains' voices (some on the
+        ln_render(n, gv);                       /* every lane's engine, the grains' voices (some on the
                                                  * second core: LN_PAR) */
     }
     for (k = 0; k < LN_N; k++) {                /* lane by lane: its pan (tx_mix_slot_render's), its ring */
         ln_out_t *o = &ln_out[k];
-        if (!ln.mix.e[k]) {                     /* an emptied lane: its ring alone, here (no insert) */
+        if (!ln.mix.e[k]) {                     /* an emptied lane: its ring alone, here */
             if (!tx_ring_on(&o->ring)) { o->rpk = 0; continue; }
             ln_ring_lane(o, n);
         }
         ln.mix.slot_peak[k] = 0;                /* (a peak a block: the lane's, its ring's under it) */
-        tx_mix_add(&ln.mix, k, o->x, n);        /* (its inserts: ln_render_lane) */
+        tx_mix_add(&ln.mix, k, o->x, n);
         ln.lpk[k] = ln.mix.slot_peak[k];
         if (ln.mix.e[k] && ln.mix.e[k]->stats) {
             tx_stats_t st;
@@ -648,14 +645,11 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
         } else ln.lhero[k] = 0xFFFFu;
 #ifdef LN_GOV
         {                                       /* (the fade below is not the lane's: as the player) */
-            uint32_t f = tx_fx_lane_us(&ln.fx, k);   /* its insert (FILTER): apart, no hero buys it */
 #ifdef LN_CLOCK
-            ln.gov_cost[k] = ln.mix.e[k] ? ln.gus[k] + ln_out[k].us : 0u;   /* (its generator and engine: the inserts
-                                                         * are not in it) */
+            ln.gov_cost[k] = ln.mix.e[k] ? ln.gus[k] + ln_out[k].us : 0u;   /* (its generator and engine) */
 #else
             ln.gov_cost[k] = ln_cost_est(k);
 #endif
-            tx_gov_fixed(&ln.gov, k, ln.mix.e[k] ? f : 0u);
         }
 #endif
         ln.gov_lvl[k] = (uint32_t)ln.mix.slot_peak[k];

@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #define LS_N 10u                     /* landscapes */
-#define LS_SND_MAX 10u               /* sounds in a landscape at most (the black keys) */
+#define LS_SND_MAX 12u               /* sounds in a landscape at most (16: presets.c keeps one in 4 bits) */
 #define LS_NCNT 7u                  /* HOW MANY: off, then 1, 2, 4, 10, 19, 32 (the source's COUNT: LS_COUNT_V; shown: LS_COUNT_N) */
 #define LS_NACT 9u                  /* HOW ACTIVE: rare .. busy */
 typedef struct { const char *name, *src; uint8_t type, eng; uint16_t trim; } ls_sound_t;   /* eng 1: src is a classic
@@ -14,58 +14,69 @@ typedef struct { const char *name, *src; uint8_t type, eng; uint16_t trim; } ls_
 typedef struct { const char *name; uint8_t n; ls_sound_t s[LS_SND_MAX]; } ls_family_t;
 static const ls_family_t LS[LS_N] = {
     {"Water", 10, {{"rain on water", "rain on water", 0, 0, 5157}, {"lake lapping", "water", 120, 0, 5786}, {"water drops", "water", 0, 0, 3651}, {"cave drips", "water", 16, 0, 5157}, {"eaves dripping", "water", 32, 0, 3651}, {"brook", "water", 48, 0, 3254}, {"bubbling spring", "water", 64, 0, 6492}, {"waterfall", "water", 80, 0, 6492}, {"waves on sand", "water", 96, 0, 8173}, {"waves on shingle", "water", 112, 0, 6492}}},
-    {"Stones & sand", 9, {{"stones", "stone cloud", 0, 0, 18296}, {"rockfall", "stone cloud", 32, 0, 12953}, {"ringing rocks", "stone cloud", 100, 0, 2303}, {"gravel", "gravel", 0, 0, 3651}, {"marbles", "gravel", 96, 0, 12953}, {"sand", "sand", 0, 0, 5157}, {"singing dune", "sand", 96, 0, 4096}, {"minerals", "minerals", 0, 0, 7284}, {"stone friction", "minerals", 96, 0, 2900}}},
+    {"Stones & sand", 10, {{"stones", "stone cloud", 0, 0, 18296}, {"rockfall", "stone cloud", 32, 0, 12953}, {"ringing rocks", "stone cloud", 100, 0, 2303}, {"gravel", "gravel", 0, 0, 3651}, {"marbles", "gravel", 96, 0, 12953}, {"sand", "sand", 0, 0, 5157}, {"singing dune", "sand", 96, 0, 4096}, {"minerals", "minerals", 0, 0, 7284}, {"stone friction", "minerals", 96, 0, 2900}, {"stone clinks", "stonecloud", 0, 1, 3651}}},
     {"Ice & glass", 10, {{"icicles", "ice", 8, 0, 1631}, {"ice in a glass", "ice", 24, 0, 290}, {"frost tinkling", "ice", 40, 0, 1453}, {"snow underfoot", "ice", 56, 0, 1295}, {"lake ice", "ice", 72, 0, 2900}, {"frozen lake booming", "ice", 104, 0, 3254}, {"thin ice underfoot", "ice", 120, 0, 2303}, {"glass pane", "glass", 0, 0, 3254}, {"bottles", "glass", 64, 0, 5786}, {"shards settling", "glass", 110, 0, 10289}}},
     {"Fire", 10, {{"campfire", "fire", 0, 0, 325}, {"bonfire", "fire", 12, 0, 1295}, {"fireplace", "fire", 20, 0, 579}, {"embers", "fire", 28, 0, 1453}, {"kindling", "fire", 36, 0, 649}, {"pine fire", "fire", 44, 0, 516}, {"leaves, paper", "fire", 52, 0, 649}, {"torch", "fire", 60, 0, 817}, {"flame", "fire", 96, 0, 1295}, {"sparks", "sparks", 0, 1, 10289}}},
-    {"Wood", 7, {{"spruce", "wood", 9, 0, 7284}, {"pine", "wood", 27, 0, 4096}, {"maple", "wood", 46, 0, 2053}, {"oak", "wood", 64, 0, 6492}, {"green branch", "wood", 82, 0, 5786}, {"tree trunk", "wood", 100, 0, 3651}, {"twigs underfoot", "wood", 118, 0, 2053}}},
-    {"Wind", 10, {{"wind", "wind", 0, 0, 4096}, {"breeze in grass", "wind", 9, 0, 3254}, {"wind in pines", "wind", 16, 0, 1631}, {"leafy trees", "wind", 22, 0, 5157}, {"open moor", "wind", 28, 0, 1631}, {"sea wind", "wind", 35, 0, 2584}, {"ridge gale", "wind", 41, 0, 1029}, {"gusty autumn", "wind", 48, 0, 1631}, {"winter storm", "wind", 54, 0, 649}, {"desert wind", "wind", 61, 0, 2303}}},
-    {"Storm", 10, {{"rain on water", "rain on water", 0, 0, 4096}, {"rain on a roof", "rain on water", 50, 0, 11544}, {"storm", "storm", 0, 1, 6492}, {"thunder", "thunder", 0, 1, 4096}, {"ridge gale", "wind", 41, 0, 817}, {"winter storm", "wind", 54, 0, 1453}, {"hail on a roof", "rain on water", 103, 0, 6492}, {"hail on a car", "rain on water", 110, 0, 5157}, {"hail in leaves", "rain on water", 117, 0, 9170}, {"sleet on a window", "rain on water", 124, 0, 9170}}},
-    {"Insects", 10, {{"field cricket", "crickets", 10, 0, 7284}, {"tree cricket", "crickets", 53, 0, 12953}, {"mole cricket", "crickets", 74, 0, 4096}, {"cicada", "cicadas", 0, 0, 10289}, {"small cicada", "cicadas", 20, 0, 12953}, {"cicada chorus", "cicadas", 64, 0, 10289}, {"katydid", "katydids", 16, 0, 25844}, {"grasshopper", "katydids", 80, 0, 40960}, {"honeybee", "bees", 10, 0, 1830}, {"bumblebee", "bees", 53, 0, 2303}}},
+    {"Wood", 9, {{"spruce", "wood", 9, 0, 7284}, {"pine", "wood", 27, 0, 4096}, {"maple", "wood", 46, 0, 2053}, {"oak", "wood", 64, 0, 6492}, {"green branch", "wood", 82, 0, 5786}, {"tree trunk", "wood", 100, 0, 3651}, {"twigs underfoot", "wood", 118, 0, 2053}, {"rain stick", "rainstick", 0, 1, 4096}, {"crumpled paper", "crumple", 0, 1, 3651}}},
+    {"Wind", 11, {{"wind", "wind", 0, 0, 4096}, {"breeze in grass", "wind", 9, 0, 3254}, {"wind in pines", "wind", 16, 0, 1631}, {"leafy trees", "wind", 22, 0, 5157}, {"open moor", "wind", 28, 0, 1631}, {"sea wind", "wind", 35, 0, 2584}, {"ridge gale", "wind", 41, 0, 1029}, {"gusty autumn", "wind", 48, 0, 1631}, {"winter storm", "wind", 54, 0, 649}, {"desert wind", "wind", 61, 0, 2303}, {"wind chimes", "chimes", 0, 1, 2584}}},
+    {"Storm", 12, {{"rain on water", "rain on water", 0, 0, 4096}, {"rain on a roof", "rain on water", 50, 0, 11544}, {"storm", "storm", 0, 1, 6492}, {"thunder", "thunder", 0, 1, 4096}, {"ridge gale", "wind", 41, 0, 817}, {"winter storm", "wind", 54, 0, 1453}, {"hail on a roof", "rain on water", 103, 0, 6492}, {"hail on a car", "rain on water", 110, 0, 5157}, {"hail in leaves", "rain on water", 117, 0, 9170}, {"sleet on a window", "rain on water", 124, 0, 9170}, {"thunder sheet", "plate", 0, 1, 2303}, {"thunder spring", "spring", 0, 1, 3651}}},
+    {"Insects", 11, {{"field cricket", "crickets", 10, 0, 7284}, {"tree cricket", "crickets", 53, 0, 12953}, {"mole cricket", "crickets", 74, 0, 4096}, {"cicada", "cicadas", 0, 0, 10289}, {"small cicada", "cicadas", 20, 0, 12953}, {"cicada chorus", "cicadas", 64, 0, 10289}, {"katydid", "katydids", 16, 0, 25844}, {"grasshopper", "katydids", 80, 0, 40960}, {"honeybee", "bees", 10, 0, 1830}, {"bumblebee", "bees", 53, 0, 2303}, {"cicada up close", "cicadas", 0, 1, 4096}}},
     {"Songbirds", 10, {{"songbird", "songbird", 0, 0, 28997}, {"blackbird", "blackbird", 0, 0, 28997}, {"song thrush", "song thrush", 0, 0, 23034}, {"nightingale", "nightingale", 0, 0, 16306}, {"robin", "robin", 0, 0, 28997}, {"wren", "wren", 0, 0, 18296}, {"hermit thrush", "hermit thrush", 0, 0, 18296}, {"skylark", "skylark", 0, 0, 23034}, {"wood thrush", "wood thrush", 0, 0, 23034}, {"reed warbler", "reed warbler", 0, 0, 23034}}},
     {"Wild birds", 10, {{"chirper", "chirper", 0, 0, 28997}, {"crow", "crow", 0, 0, 28997}, {"gull", "gull", 0, 0, 16306}, {"curlew", "curlew", 0, 0, 16306}, {"oystercatcher", "oystercatcher", 0, 0, 25844}, {"cuckoo", "cuckoo", 0, 0, 20529}, {"woodpecker", "woodpecker", 0, 0, 36506}, {"wood pigeon", "wood pigeon", 0, 0, 8173}, {"nightjar", "nightjar", 0, 0, 20529}, {"bittern", "bittern", 0, 0, 18296}}},
 };
 static const uint8_t LS_COUNT_V[LS_NCNT] = {0, 1, 20, 39, 58, 77, 96};
 static const uint8_t LS_COUNT_N[LS_NCNT] = {0, 1, 2, 4, 10, 19, 32};   /* the count shown */
 /* a classic engine's activity map: each parameter from its value at C4 (lo) to C6 (hi), linear in the step;
- * a one-shot engine's presses: the mean gap at C4 (ms) and log2(gap at C6 / gap at C4) in Q16 (0 ms: held) */
+ * a one-shot engine's presses: the mean gap at C4 (ms) and log2(gap at C6 / gap at C4) in Q16 (0 ms: held);
+ * turn 1: held, and turned over again at those gaps; lin: 1 + its measured curve in LS_LIN (0: none) */
 typedef struct { const char *name; int16_t lo, hi; } ls_qp_t;
-typedef struct { const char *eng; uint8_t np; ls_qp_t p[3]; uint32_t every_ms; int32_t every_oct_q16; } ls_quick_t;
+typedef struct { const char *eng; uint8_t np, lin, turn; ls_qp_t p[3]; uint32_t every_ms; int32_t every_oct_q16; } ls_quick_t;
+#define LS_NLIN 7u
+static const uint8_t LS_LIN[LS_NLIN][17] = {   /* the place (0 .. 127) at the keys' 0, 8 .. 120, 127 (tx_lin_tab) */
+    {0, 13, 18, 24, 47, 54, 59, 64, 68, 72, 76, 81, 86, 98, 106, 111, 127},
+    {0, 20, 26, 30, 36, 41, 45, 48, 51, 54, 57, 60, 63, 70, 81, 92, 112},
+    {0, 7, 11, 15, 18, 21, 24, 26, 29, 32, 35, 39, 45, 55, 64, 77, 104},
+    {0, 20, 24, 28, 31, 37, 42, 45, 48, 51, 53, 56, 62, 72, 84, 96, 120},
+    {0, 5, 11, 17, 24, 31, 38, 46, 54, 62, 70, 78, 86, 95, 104, 112, 120},
+    {0, 12, 19, 28, 37, 44, 54, 61, 68, 76, 86, 92, 99, 107, 116, 122, 127},
+    {0, 26, 32, 37, 43, 49, 55, 59, 63, 67, 70, 76, 83, 90, 99, 111, 127},
+};
 #define LS_NQUICK 34u
 static const ls_quick_t LS_QUICK[LS_NQUICK] = {
-    {"test", 1, {{"RATE", 10, 120}}, 0u, 0},
-    {"drip", 1, {{"RATE", 20, 127}}, 0u, 0},
-    {"candle", 2, {{"SPUTTER", 40, 127}, {"FLOW", 5, 60}}, 0u, 0},
-    {"sparks", 2, {{"RATE", 4, 105}, {"BURST", 20, 80}}, 0u, 0},
-    {"gravel", 2, {{"AMOUNT", 20, 120}, {"RATE", 30, 110}}, 0u, 0},
-    {"rainstick", 1, {{"SEEDS", 10, 127}}, 0u, 0},
-    {"mineral", 2, {{"SPEED", 20, 110}, {"PRESSURE", 30, 100}}, 0u, 0},
-    {"pebble", 1, {{"SPEED", 20, 115}}, 0u, 0},
-    {"thunder", 2, {{"DIST", 110, 25}, {"ENERGY", 40, 100}}, 40000u, -152170},
-    {"bees", 1, {{"SWARM", 0, 127}}, 0u, 0},
-    {"sandsong", 1, {{"FLOW", 40, 127}}, 0u, 0},
-    {"aeolian", 2, {{"WIND", 20, 127}, {"GUST", 20, 80}}, 0u, 0},
-    {"sand", 1, {{"ORIFICE", 25, 110}}, 0u, 0},
-    {"lakeice", 1, {{"RATE", 0, 110}}, 0u, 0},
-    {"spring", 0, {{0, 0, 0}}, 20000u, -414314},
-    {"chimes", 2, {{"WIND", 10, 127}, {"GUST", 30, 90}}, 0u, 0},
-    {"rainsurf", 2, {{"RATE", 10, 127}, {"AREA", 30, 100}}, 0u, 0},
-    {"rockfall", 1, {{"VOLUME", 30, 110}}, 120000u, -283242},
-    {"plate", 1, {{"CRASH", 40, 127}}, 20000u, -382501},
-    {"rainwater", 2, {{"RATE", 10, 127}, {"AREA", 60, 120}}, 0u, 0},
-    {"stream", 2, {{"FLOW", 10, 127}, {"ROAR", 0, 90}}, 0u, 0},
-    {"surf", 2, {{"HEIGHT", 10, 127}, {"CHOP", 30, 90}}, 0u, 0},
-    {"storm", 1, {{"INTENSITY", 0, 127}}, 0u, 0},
-    {"crickets", 2, {{"COUNT", 1, 32}, {"ACTIVITY", 0, 127}}, 0u, 0},
-    {"cicadas", 1, {{"CHORUS", 0, 127}}, 0u, 0},
-    {"katydids", 2, {{"COUNT", 1, 16}, {"ACTIVITY", 0, 127}}, 0u, 0},
-    {"crumple", 1, {{"RATE", 10, 120}}, 0u, 0},
-    {"fire", 3, {{"MOIST", 20, 120}, {"SIZE", 20, 100}, {"ROAR", 30, 120}}, 0u, 0},
-    {"stonedrum", 0, {{0, 0, 0}}, 12000u, -435412},
-    {"stonecloud", 1, {{"DENSITY", 14, 127}}, 0u, 0},
-    {"minerals", 0, {{0, 0, 0}}, 10000u, -397076},
-    {"glass", 1, {{"ENERGY", 60, 127}}, 40000u, -283242},
-    {"wood", 2, {{"LOAD", 110, 15}, {"CREAK", 15, 70}}, 30000u, -256042},
-    {"ice", 1, {{"AMOUNT", 20, 127}}, 30000u, -283242},
+    {"test", 1, 0, 0, {{"RATE", 10, 120}}, 0u, 0},
+    {"drip", 1, 0, 0, {{"RATE", 20, 127}}, 0u, 0},
+    {"candle", 2, 0, 0, {{"SPUTTER", 40, 127}, {"FLOW", 5, 60}}, 0u, 0},
+    {"sparks", 2, 0, 0, {{"RATE", 4, 105}, {"BURST", 20, 80}}, 0u, 0},
+    {"gravel", 2, 0, 0, {{"AMOUNT", 20, 120}, {"RATE", 30, 110}}, 0u, 0},
+    {"rainstick", 1, 1, 1, {{"SEEDS", 10, 127}}, 8000u, -158272},
+    {"mineral", 2, 0, 0, {{"SPEED", 20, 110}, {"PRESSURE", 30, 100}}, 0u, 0},
+    {"pebble", 1, 0, 0, {{"SPEED", 20, 115}}, 0u, 0},
+    {"thunder", 2, 0, 0, {{"DIST", 110, 25}, {"ENERGY", 40, 100}}, 40000u, -152170},
+    {"bees", 1, 0, 0, {{"SWARM", 0, 127}}, 0u, 0},
+    {"sandsong", 1, 0, 0, {{"FLOW", 40, 127}}, 0u, 0},
+    {"aeolian", 2, 0, 0, {{"WIND", 20, 127}, {"GUST", 20, 80}}, 0u, 0},
+    {"sand", 1, 0, 0, {{"ORIFICE", 25, 110}}, 0u, 0},
+    {"lakeice", 1, 0, 0, {{"RATE", 0, 110}}, 0u, 0},
+    {"spring", 0, 2, 0, {{0, 0, 0}}, 20000u, -414314},
+    {"chimes", 2, 3, 0, {{"WIND", 10, 127}, {"GUST", 30, 90}}, 0u, 0},
+    {"rainsurf", 2, 0, 0, {{"RATE", 10, 127}, {"AREA", 30, 100}}, 0u, 0},
+    {"rockfall", 1, 0, 0, {{"VOLUME", 30, 110}}, 120000u, -283242},
+    {"plate", 1, 4, 0, {{"CRASH", 40, 127}}, 20000u, -382501},
+    {"rainwater", 2, 0, 0, {{"RATE", 10, 127}, {"AREA", 60, 120}}, 0u, 0},
+    {"stream", 2, 0, 0, {{"FLOW", 10, 127}, {"ROAR", 0, 90}}, 0u, 0},
+    {"surf", 2, 0, 0, {{"HEIGHT", 10, 127}, {"CHOP", 30, 90}}, 0u, 0},
+    {"storm", 1, 0, 0, {{"INTENSITY", 0, 127}}, 0u, 0},
+    {"crickets", 2, 0, 0, {{"COUNT", 1, 32}, {"ACTIVITY", 0, 127}}, 0u, 0},
+    {"cicadas", 1, 5, 0, {{"CHORUS", 0, 127}}, 0u, 0},
+    {"katydids", 2, 0, 0, {{"COUNT", 1, 16}, {"ACTIVITY", 0, 127}}, 0u, 0},
+    {"crumple", 1, 6, 0, {{"RATE", 10, 120}}, 0u, 0},
+    {"fire", 3, 0, 0, {{"MOIST", 20, 120}, {"SIZE", 20, 100}, {"ROAR", 30, 120}}, 0u, 0},
+    {"stonedrum", 0, 0, 0, {{0, 0, 0}}, 12000u, -435412},
+    {"stonecloud", 1, 7, 0, {{"DENSITY", 14, 127}}, 0u, 0},
+    {"minerals", 0, 0, 0, {{0, 0, 0}}, 10000u, -397076},
+    {"glass", 1, 0, 0, {{"ENERGY", 60, 127}}, 40000u, -283242},
+    {"wood", 2, 0, 0, {{"LOAD", 110, 15}, {"CREAK", 15, 70}}, 30000u, -256042},
+    {"ice", 1, 0, 0, {{"AMOUNT", 20, 127}}, 30000u, -283242},
 };
 
 #endif
