@@ -5,8 +5,10 @@
  * setFamily, startLandscape) in C, on the tables tools/gen_landscapes.py writes from app.js (landscapes.h).
  *
  * The state here is what the player wants; sc_sync sends a lane's engine only what differs from what it was last sent
- * (lanes.c's queue), so a change made while a lane's last engine switch still fades (ln_select busy) is simply sent a
- * few blocks later. A sound is a SOURCE preset + TYPE, or a classic engine: those have no population, so HOW MANY and
+ * (lanes.c's queue), so a change made while a lane's last engine switch still rings (ln_can_select: no) is simply
+ * sent later; meanwhile the old engine plays on, then fades out under the new one (lanes.c). A scene's load (and a
+ * switch) glides a lane's level, pan, trim, HOW MANY and HOW ACTIVE from what was sent to what is wanted (sc_glide,
+ * SC_GLIDE_MS). A sound is a SOURCE preset + TYPE, or a classic engine: those have no population, so HOW MANY and
  * HOW ACTIVE together move a few of their own parameters (the QUICK maps), and the one-shot ones (thunder, glass ...)
  * are pressed again and again at random (exponential) gaps.
  *
@@ -21,6 +23,9 @@
 #define SC_HOLD_VEL 100u
 #define SC_PRESS_MS 150u                        /* a one-shot engine's press, and its shortest gap */
 #define SC_FAM_MS 300u                          /* ALGORITHM: the landscape changes this long after the last detent */
+#define SC_GLIDE_MS 500u                        /* a scene's (a switch's) lane settings: from the old to the new */
+#define SC_GLIDE_TICK 10u                       /* (its steps) */
+enum { SC_GL_LEVEL, SC_GL_PAN, SC_GL_TRIM, SC_GL_COUNT, SC_GL_ACT };
 
 static const uint16_t SC_BLINK_MS[LS_NACT] = {1600, 1498, 1155, 776, 503, 333, 228, 163, 120};   /* the blink's rate on the
                                                  * keys' curve: 1 / (1 / 1.6 s + (1 / 0.12 s - 1 / 1.6 s) (a / 8)^2.5) */
@@ -38,12 +43,21 @@ static struct {
     uint8_t preset[SC_N], type[SC_N];           /* (the source) */
     uint8_t cnt[SC_N], step[SC_N], run[SC_N], notes[SC_N], pan[SC_N];
     uint8_t mute[SC_N];                         /* muted: the lane plays on, its output gated (lanes.c ln_gate) */
+    uint8_t reswap[SC_N];                       /* the source's sound changed (PRESET / TYPE): a fresh instance, the
+                                                 * old one rings out (lanes.c), never re-made in place (a cut) */
+    uint32_t nsel[SC_N], sel_t[SC_N];           /* the lane's engine switches so far (the tests: a lane left alone);
+                                                 * the last one's time */
     const ls_quick_t *q[SC_N];                  /* a classic engine's map (0: none) */
     /* and as last sent */
     const tx_engine_t *a_eng[SC_N];
     int16_t a_preset[SC_N], a_type[SC_N], a_count[SC_N], a_act[SC_N], a_level[SC_N], a_pan[SC_N];
     int32_t a_trim[SC_N];                       /* (the sound's own level, Q12: landscapes.h) */
     uint8_t a_gen[SC_N], a_mute[SC_N], a_held[SC_N], a_gate[SC_N];   /* (a_gate: muted as last sent) */
+    /* the glide (sc_glide): LEVEL, PAN, the sound's trim, HOW MANY (COUNT), HOW ACTIVE (ACTIVITY) on their way from
+     * what was sent (-1: nothing yet, so no glide) to what is wanted, SC_GLIDE_MS end to end */
+    int32_t gl_from[SC_N][5];
+    uint32_t gl_t0[SC_N], gl_tick;
+    uint8_t gl_on[SC_N];
     /* the classic engines' glide and presses */
     int8_t q_id[SC_N][3];
     int32_t q_cur[SC_N][3];                     /* Q8 (-1 << 30: not yet sent) */
@@ -107,18 +121,54 @@ static uint32_t sc_vol_of(uint32_t k)
 static const char *sc_sound_name(uint32_t k) { return sc.snd[k] >= 0 ? LS[sc.lf[k]].s[sc.snd[k]].name : "-"; }
 static uint32_t sc_blink_ms(uint32_t k) { return SC_BLINK_MS[sc_act_of(sc_step_of(k))]; }
 
+/* ---- the glide: a lane's settings from what they were to what they are wanted, SC_GLIDE_MS end to end (a scene's
+ * load, a switch: a level, a pan, a population never steps) */
+static void sc_glide(uint32_t k)
+{
+    sc.gl_from[k][SC_GL_LEVEL] = sc.a_level[k]; sc.gl_from[k][SC_GL_PAN] = sc.a_pan[k];
+    sc.gl_from[k][SC_GL_TRIM] = sc.a_trim[k]; sc.gl_from[k][SC_GL_COUNT] = sc.a_count[k];
+    sc.gl_from[k][SC_GL_ACT] = sc.a_act[k];
+    sc.gl_t0[k] = fm1_ms; sc.gl_on[k] = 1;
+}
+static int32_t sc_gl(uint32_t k, uint32_t q, int32_t to)   /* what to send now: to, or the glide's way to it */
+{
+    int32_t f = sc.gl_from[k][q];
+    uint32_t t = fm1_ms - sc.gl_t0[k];
+    if (!sc.gl_on[k] || f < 0 || t >= SC_GLIDE_MS) return to;
+    return f + (to - f) * (int32_t)t / (int32_t)SC_GLIDE_MS;   /* (|to - f| < 2^16: 32 bits) */
+}
+
+/* the instance lane k plays has another sound than family f's sound s on engine e (loaded: a switch, a fresh one) */
+static int sc_swaps(uint32_t k, const ls_sound_t *s, const tx_engine_t *e)
+{
+    int p;
+    if (e != sc.a_eng[k]) return 1;
+    if (s->eng || sc.a_preset[k] < 0) return 0;
+    p = sc_preset_index(s->src);
+    return (p >= 0 && p != sc.a_preset[k]) || s->type != sc.a_type[k];
+}
+
 /* ---- what a lane's engine is sent: only what differs from the last time */
 static void sc_sync(uint32_t k)
 {
     int src, gen, held;
     uint32_t i;
+    int32_t w;
     if (sc.mute[k] != sc.a_gate[k] && ln_gate(k, !sc.mute[k]) >= 0) sc.a_gate[k] = sc.mute[k];   /* (the mix's, any engine) */
-    if (sc.eng[k] != sc.a_eng[k]) {             /* another engine: the old one's notes go first */
-        if (sc.a_held[k]) { ln_key(k, SC_HOLD_NOTE, 0, 0); sc.a_held[k] = 0; }
+    if (sc.eng[k] != sc.a_eng[k] || sc.reswap[k]) {   /* another engine (or sound): the old one's notes go first */
+        if (!ln_can_select(k, sc.eng[k])) {     /* the last switch still rings: the old engine plays on till its turn, */
+            ln_hurry();                         /* that ring fades now (never cut); next pass */
+            return;
+        }
+        if (sc.a_held[k]) ln_hurry();           /* the old engine still held: it keeps its key and fades out playing
+                                                 * (TX_RING_FADE, 151 ms: a crossfade); a released one rings out */
+        sc.a_held[k] = 0;                       /* (the new one gets its own key) */
         if (sc.a_gen[k]) { ln_gen_on(k, 0, 0); sc.a_gen[k] = 0; }
-        if (ln_select(k, sc.eng[k], tx_seed()) < 0) return;   /* (the last switch still fading: next pass) */
-        sc.a_eng[k] = sc.eng[k];
-        sc.a_preset[k] = sc.a_type[k] = sc.a_count[k] = sc.a_level[k] = -1;
+        if (ln_select(k, sc.eng[k], tx_seed()) < 0) return;   /* (a full queue: next pass) */
+        sc.a_eng[k] = sc.eng[k]; sc.reswap[k] = 0; sc.nsel[k]++; sc.sel_t[k] = fm1_ms;
+        sc.a_preset[k] = sc.a_type[k] = sc.a_count[k] = sc.a_level[k] = sc.a_act[k] = -1;
+        sc_glide(k);                            /* (the fresh engine's own settings at once; the lane's trim, pan:
+                                                 * the ring under it hears them too, so they glide) */
         for (i = 0; i < 3u; i++) {              /* the classic engine's QUICK parameters */
             sc.q_id[k][i] = (int8_t)(sc.q[k] && i < sc.q[k]->np ? tx_param_find(sc.eng[k], sc.q[k]->p[i].name) : -1);
             sc.q_cur[k][i] = -(1 << 30);
@@ -128,18 +178,18 @@ static void sc_sync(uint32_t k)
     src = sc_is_src(k);
     if (src && sc.preset[k] != sc.a_preset[k]) { ln_param(k, (uint32_t)sc.id_preset, sc.preset[k]); sc.a_preset[k] = sc.preset[k]; }
     if (src && sc.id_type >= 0 && sc.type[k] != sc.a_type[k]) { ln_param(k, (uint32_t)sc.id_type, sc.type[k]); sc.a_type[k] = sc.type[k]; }
-    if (src && sc.id_count >= 0 && LS_COUNT_V[sc.cnt[k]] != sc.a_count[k]) {
-        ln_param(k, (uint32_t)sc.id_count, LS_COUNT_V[sc.cnt[k]]); sc.a_count[k] = LS_COUNT_V[sc.cnt[k]];
+    if (src && sc.id_count >= 0 && (w = sc_gl(k, SC_GL_COUNT, LS_COUNT_V[sc.cnt[k]])) != sc.a_count[k]) {
+        ln_param(k, (uint32_t)sc.id_count, (uint32_t)w); sc.a_count[k] = (int16_t)w;
     }
-    if ((int32_t)sc_vol_of(k) != sc.a_level[k]) { ln_level(k, sc_vol_of(k)); sc.a_level[k] = (int16_t)sc_vol_of(k); }
-    if (sc.pan[k] != sc.a_pan[k]) { ln_pan(k, sc.pan[k]); sc.a_pan[k] = sc.pan[k]; }
+    if ((w = sc_gl(k, SC_GL_LEVEL, (int32_t)sc_vol_of(k))) != sc.a_level[k]) { ln_level(k, (uint32_t)w); sc.a_level[k] = (int16_t)w; }
+    if ((w = sc_gl(k, SC_GL_PAN, sc.pan[k])) != sc.a_pan[k]) { ln_pan(k, (uint32_t)w); sc.a_pan[k] = (int16_t)w; }
     {
-        int32_t t = sc.snd[k] >= 0 ? (int32_t)LS[sc.lf[k]].s[sc.snd[k]].trim : 4096;
+        int32_t t = sc_gl(k, SC_GL_TRIM, sc.snd[k] >= 0 ? (int32_t)LS[sc.lf[k]].s[sc.snd[k]].trim : 4096);
         if (t != sc.a_trim[k] && ln_trim(k, (uint32_t)t) >= 0) sc.a_trim[k] = t;
     }
     gen = sc.run[k] && sc.notes[k];             /* the generator: on while the lane runs (Notes on) */
-    if (gen && (int32_t)sc_act_val(sc.step[k]) != sc.a_act[k]) {
-        ln_gen_param(k, TX_GEN_ACTIVITY, sc_act_val(sc.step[k])); sc.a_act[k] = (int16_t)sc_act_val(sc.step[k]);
+    if (gen && (w = sc_gl(k, SC_GL_ACT, (int32_t)sc_act_val(sc.step[k]))) != sc.a_act[k]) {
+        ln_gen_param(k, TX_GEN_ACTIVITY, (uint32_t)w); sc.a_act[k] = (int16_t)w;
     }
     if ((uint8_t)!src != sc.a_mute[k]) { ln_gen_mute(k, !src); sc.a_mute[k] = (uint8_t)!src; }   /* a classic engine: no notes */
     if (gen != sc.a_gen[k]) { ln_gen_on(k, (uint32_t)gen, tx_seed() | 1u); sc.a_gen[k] = (uint8_t)gen; }
@@ -225,20 +275,25 @@ static void sc_step(uint32_t k, uint32_t w)     /* HOW ACTIVE as a step 1 .. 14 
 static void sc_load(uint32_t k, uint32_t f, uint32_t i)   /* soundLoad: family f's sound i into lane k, stopped */
 {
     const ls_sound_t *s;
+    const tx_engine_t *e;
+    int sw;
     if (f >= LS_N || i >= LS[f].n) return;
     s = &LS[f].s[i];
-    if (sc.run[k]) sc_start(k, 0);
+    e = s->eng ? tx_engine_find(s->src) : sc.src;
+    if (!e) return;
+    sw = sc_swaps(k, s, e);
+    if (sc.run[k]) {
+        if (sw) { sc.run[k] = 0; sc.q_next[k] = 0; }   /* (a switch: the old engine plays on till it rings out) */
+        else sc_start(k, 0);
+    }
     sc.step[k] = 0; sc.cnt[k] = 0;
-    if (s->eng) {
-        const tx_engine_t *e = tx_engine_find(s->src);
-        if (!e) return;
-        sc.eng[k] = e;
-    } else {
+    sc.eng[k] = e;
+    if (!s->eng) {
         int p = sc_preset_index(s->src);
-        sc.eng[k] = sc.src;
         if (p >= 0) sc.preset[k] = (uint8_t)p;
         sc.type[k] = s->type;
     }
+    sc.reswap[k] = (uint8_t)(sw && e == sc.a_eng[k]);   /* (the source playing another sound: a fresh one, swapped) */
     sc.q[k] = sc_is_src(k) ? 0 : sc_quick(sc.eng[k]);
     sc.snd[k] = (int8_t)i; sc.lf[k] = (uint8_t)f;
     sc_sync(k);
@@ -351,12 +406,22 @@ static void sc_poll(void)
     uint32_t k;
     if (sc.fam_pend && fm1_ms - sc.fam_t >= SC_FAM_MS) sc_family_go();
     for (k = 0; k < SC_N; k++) {
-        if (sc.a_eng[k] != sc.eng[k] || sc.a_gate[k] != sc.mute[k]) sc_sync(k);   /* a switch (a mute) that had to wait */
+        if (sc.a_eng[k] != sc.eng[k] || sc.reswap[k] || sc.a_gate[k] != sc.mute[k]) sc_sync(k);   /* a switch (a mute) that had to wait */
         if (sc.q_rel[k] && (int32_t)(fm1_ms - sc.q_rel[k]) >= 0) { ln_key(k, SC_HOLD_NOTE, 0, 0); sc.q_rel[k] = 0; }
         if (sc.run[k] && sc.q_next[k] && sc_oneshot(k) && sc.a_eng[k] == sc.eng[k] && (int32_t)(fm1_ms - sc.q_next[k]) >= 0) {
             ln_key(k, SC_HOLD_NOTE, SC_HOLD_VEL, 1);   /* quickPress */
             sc.q_rel[k] = fm1_ms + SC_PRESS_MS; if (!sc.q_rel[k]) sc.q_rel[k] = 1;
             sc.q_next[k] = fm1_ms + sc_quick_gap(k); if (!sc.q_next[k]) sc.q_next[k] = 1;
+        }
+    }
+    if (fm1_ms - sc.gl_tick >= SC_GLIDE_TICK) {   /* the glides' next step (and the last: the value wanted) */
+        sc.gl_tick = fm1_ms;
+        for (k = 0; k < SC_N; k++) {
+            int end;
+            if (!sc.gl_on[k]) continue;
+            end = fm1_ms - sc.gl_t0[k] >= SC_GLIDE_MS;
+            sc_sync(k);
+            if (end && sc.a_eng[k] == sc.eng[k] && !sc.reswap[k]) sc.gl_on[k] = 0;
         }
     }
     if (fm1_ms - sc.q_t >= SC_QUICK_MS) {

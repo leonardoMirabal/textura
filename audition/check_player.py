@@ -273,7 +273,7 @@ def main():
         jumps = page.evaluate("""() => {
             const a = window.txTest.renderCopy(2);        // the test engine sounding, no new particles: its sample steps
             window.txTest.layerOff(0);
-            const b = window.txTest.renderCopy(8);        // switched off: the fade, joined to the last sample before
+            const b = window.txTest.renderCopy(30);       // switched off: the fade (26 blocks), joined to the last sample before
             const step = x => { let m = 0; for (let i = 2; i < x.length; i += 2) m = Math.max(m, Math.abs(x[i] - x[i - 2])); return m; };
             const peak = x => x.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
             return [step(a), step(a.slice(-2).concat(b)), peak(b.slice(-512)), peak(a.slice(-512)), peak(b.slice(0, 512))];

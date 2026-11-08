@@ -8,14 +8,20 @@
  *               interrupt takes them at its next block
  *   interrupt   ln_block: the queue, then every lane's generator (tx_core_gen: the lane playing on its own, its
  *               activity and notes, as the player's), every lane's engine for one block (some on the second core:
- *               LN_PAR, below), then lane by lane its inserts, its pan into the pair and its fade; the effects, Q23
+ *               LN_PAR, below) over its ring, then lane by lane its inserts, its pan into the pair; the effects, Q23
  *               stereo; then the CPU governor (tx_core_gov.h) when the app gives it the lanes' costs (LN_CLOCK or
  *               LN_COST_EST, below)
  *
- * A switched-out engine fades over 4 blocks (23 ms) in its own arena while the new one starts in the spare, as the
- * player does, so a switch never clicks. One arena a lane and one spare for all of them (the player keeps two a lane):
- * the faded-out engine's arena becomes the spare, so while one lane's switch fades another sounding lane's waits
- * (ln_select: -1, call again; a lane silent of its engine needs no spare). This file knows nothing of the FM-1:
+ * A switched-out engine rings out in its own arena while the new one starts in the spare, as the player does
+ * (tx_core_ring.h: its tail at full level up to 302 ms, then a 151 ms fade; done at once when quiet), so a switch is
+ * never a cut. It renders under the new engine, through the lane's insert, gate, trim and pan, so a switch changes
+ * none of those under it. One arena a lane and one spare for all of them (the player keeps two a lane): the rung-out
+ * engine's arena becomes the spare, so while one lane's switch rings another sounding lane's waits (ln_can_select,
+ * ln_select: -1, call again; a lane silent of its engine needs no spare) and ln_hurry has the ringing ones skip the
+ * rest of their hold: they fade at once (151 ms, never cut), so a scene that changes several lanes morphs them one
+ * by one, ~150 ms apart. A still playing engine handed over (the caller kept its key down) fades the same way: a
+ * crossfade. The rings' cost is the pool's (the governor's extra), so no lane's heroes pay for it. This file knows
+ * nothing of the FM-1:
  * tests/lanes_test.c runs it beside the player's chain and checks they render the same samples. Integers only (as
  * engines/). */
 #include "tx_engine.h"
@@ -23,6 +29,7 @@
 #include "tx_fx.h"
 #include "tx_core_gen.h"
 #include "tx_core_gov.h"
+#include "tx_core_ring.h"
 
 #define LN_N TX_MIX_SLOTS                       /* lanes */
 #define LN_QN 128u                              /* queued events (a power of two) */
@@ -94,14 +101,12 @@ static struct {
     uint8_t spare;                              /* the free arena (taken by a switch, given back by its fade) */
     volatile uint8_t spare_busy;                /* a switch holds the spare (main loop sets it, its fade clears it) */
     const tx_engine_t *next_e[LN_N];            /* prepared by ln_select, taken by LN_EV_SWAP */
-    const tx_engine_t *ret_e[LN_N];             /* the switched-out engine, fading */
-    void *ret_st[LN_N];
-    int32_t ret_g[LN_N], ret_last[LN_N], dc[LN_N];
+    uint32_t ring_us;                           /* (the governor) the rings' cost this block: the pool carries it */
+    volatile uint8_t hurry;                     /* ln_hurry: the rings skip the rest of their hold (ln_block) */
     volatile uint8_t busy[LN_N];                /* a switch is under way (main loop: wait before the next) */
     ln_ev_t q[LN_QN];
     volatile uint32_t qw, qr;
     uint32_t dropped;                           /* events lost to a full queue (a test reads it: must stay 0) */
-    int32_t tmp[TX_BLOCK];
     tx_gen_t gen[LN_N];                         /* the lanes' generators */
     uint8_t gen_on[LN_N], gen_mute[LN_N];       /* mute: no notes (a classic engine: its activity map plays it) */
     int8_t int_id[LN_N];                        /* the lane engine's ACTIVITY (the source's), -1: none */
@@ -133,6 +138,10 @@ static uint8_t ln_arena[LN_N + 1u][TX_STATE_MAX] __attribute__((aligned(64))) LN
 typedef struct {                                /* a lane's engine block, written by the core that renders it */
     int32_t x[TX_BLOCK];
     uint32_t us;                                /* (LN_CLOCK) its render, us */
+    tx_ring_t ring;                             /* the switched-out engine, ringing out (tx_core_ring.h): rendered
+                                                 * with the lane, so on the lane's core and under its insert */
+    uint32_t rus, rhp;                          /* the ring's last block: (LN_CLOCK) us; its heroes sounding */
+    int32_t rpk;                                /* its peak (0: silent or done; the tests) */
 } __attribute__((aligned(64))) ln_out_t;
 static ln_out_t ln_out[LN_N] LN_POOL;
 static struct { uint32_t gv_us[2], busy_us, pipe_us; volatile uint8_t pipe_on; } __attribute__((aligned(64))) ln_c1t LN_POOL;
@@ -267,6 +276,15 @@ static int ln_select(uint32_t k, const tx_engine_t *e, uint32_t seed)
     if (ln_q(LN_EV_SWAP, k, 0, 0, 0)) { ln.busy[k] = 0; if (ln.mix.e[k]) ln.spare_busy = 0; return -1; }
     return 0;
 }
+/* ln_select(k, e) would take the switch now (0: it would answer -1, the last switch still ringing) */
+static int ln_can_select(uint32_t k, const tx_engine_t *e)
+{
+    if (k >= LN_N || ln.busy[k]) return 0;
+    return !e || !ln.mix.e[k] || !ln.spare_busy;
+}
+/* a switch waits: the rings holding an arena skip the rest of their tail's hold and fade now (TX_RING_FADE, 151 ms:
+ * shortened, never cut), so the next lane's switch comes sooner */
+static void ln_hurry(void) { ln.hurry = 1; }
 static const tx_engine_t *ln_engine(uint32_t k) { return k < LN_N ? ln.mix.e[k] : 0; }
 static int ln_key(uint32_t k, uint32_t note, uint32_t vel, uint32_t on) { return ln_q(LN_EV_KEY, k, note, vel, on != 0); }
 static int ln_param(uint32_t k, uint32_t id, uint32_t v) { return ln_q(LN_EV_PARAM, k, id, v, 0); }   /* id: the engine's, or TX_PID_* */
@@ -344,8 +362,7 @@ static void ln_event(const ln_ev_t *v)
     case LN_EV_OFF:
         if (k >= LN_N) break;
         if (ln.mix.e[k]) {                      /* the old engine fades out in its arena */
-            if (ln.ret_g[k]) ln.dc[k] += ln.ret_last[k];   /* one still fading: its last sample decays instead */
-            ln.ret_e[k] = ln.mix.e[k]; ln.ret_st[k] = ln.mix.st[k]; ln.ret_g[k] = 32768;
+            tx_ring_start(&ln_out[k].ring, ln.mix.e[k], ln.mix.st[k]);   /* (one still ringing: its last sample decays) */
             if (v->kind == LN_EV_SWAP) {        /* the lane takes the spare; its old arena is the spare once faded */
                 uint8_t a = ln.ar[k];
                 ln.ar[k] = ln.spare; ln.spare = a;
@@ -365,7 +382,7 @@ static void ln_event(const ln_ev_t *v)
             if (*a == *b) ln.int_id[k] = (int8_t)ln_act_id(e);   /* (the player's: the source only) */
             ln.gov.cur[k] = 0; tx_gov_user(&ln.gov, k, e->particles_def);
         }
-        if (!ln.ret_g[k]) ln.busy[k] = 0;
+        if (!tx_ring_holds(&ln_out[k].ring)) ln.busy[k] = 0;
         break;
     case LN_EV_GEN_ON:
         if (k >= LN_N) break;
@@ -404,21 +421,41 @@ static void ln_event(const ln_ev_t *v)
     }
 }
 
-/* lane k's engine, one block, into ln_out[k], then its insert (FILTER), on either core (c: 1 the second, its twin);
- * it writes nothing else */
-static void ln_render_lane(uint32_t k, uint32_t n, uint32_t c)
+/* lane k's ring (its switched-out engine), one block, into o->x (written whole: zeros when none) */
+static void ln_ring_lane(ln_out_t *o, uint32_t n)
 {
-    int32_t *x = ln_out[k].x;
     uint32_t j;
+    int32_t pk = 0;
 #ifdef LN_CLOCK
     uint32_t t0 = LN_CLOCK();
 #endif
-    for (j = 0; j < n; j++) x[j] = 0;
-    ln.mix.e[k]->render(ln.mix.st[k], x, n);
+    o->rhp = 0;
+    if (!tx_ring_on(&o->ring)) { for (j = 0; j < n; j++) o->x[j] = 0; o->rus = 0; o->rpk = 0; return; }
+    tx_ring_block(&o->ring, o->x, n, &o->rhp);
 #ifdef LN_CLOCK
-    ln_out[k].us = LN_CLOCK_US(LN_CLOCK() - t0);
+    o->rus = LN_CLOCK_US(LN_CLOCK() - t0);
 #endif
-    if (ln.mix.ins) tx_fx_lane_run(&ln.fx, k, x, n, c);
+    for (j = 0; j < n; j++) { int32_t a = o->x[j] < 0 ? -o->x[j] : o->x[j]; if (a > pk) pk = a; }
+    o->rpk = pk;
+}
+/* lane k's engine, one block, into ln_out[k] over its ring (the old engine: the same insert, gate, trim and pan, so a
+ * switch changes none of them under it), then its insert (FILTER), on either core (c: 1 the second, its twin); it
+ * writes nothing else */
+static void ln_render_lane(uint32_t k, uint32_t n, uint32_t c)
+{
+    ln_out_t *o = &ln_out[k];
+#ifdef LN_CLOCK
+    uint32_t t0;
+#endif
+    ln_ring_lane(o, n);
+#ifdef LN_CLOCK
+    t0 = LN_CLOCK();
+#endif
+    ln.mix.e[k]->render(ln.mix.st[k], o->x, n);   /* (render adds) */
+#ifdef LN_CLOCK
+    o->us = LN_CLOCK_US(LN_CLOCK() - t0);
+#endif
+    if (ln.mix.ins) tx_fx_lane_run(&ln.fx, k, o->x, n, c);
 }
 static void ln_gv(uint32_t h, uint32_t *us, uint32_t c)   /* the grain delay's voices, half h, on core c */
 {
@@ -514,7 +551,7 @@ static void ln_render(uint32_t n, int gv)
 /* one block (n <= TX_BLOCK frames): L, R Q23, limited to -1 dBFS */
 static void ln_block(int32_t *L, int32_t *R, uint32_t n)
 {
-    uint32_t k, j;
+    uint32_t k;
 #ifdef LN_BUS_TIMED
     {                                           /* the last block's rest: after its bus, and the interrupt outside */
         uint32_t isr = LN_ISR_US(), bus = LN_CLOCK_US(ln.t_bus - ln.t_blk);
@@ -555,6 +592,11 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
     }
 #endif
     tx_mix_begin(&ln.mix, n);
+    ln.ring_us = 0;
+    if (ln.hurry) {                             /* (ln_hurry: a switch waits for the spare) */
+        for (k = 0; k < LN_N; k++) if (tx_ring_holds(&ln_out[k].ring)) ln_out[k].ring.hold = 0;
+        ln.hurry = 0;
+    }
     for (k = 0; k < LN_N; k++) {                /* the generators, in lane order (their notes reach the modulation) */
 #ifdef LN_CLOCK
         uint32_t t0 = LN_CLOCK();
@@ -587,10 +629,14 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
         ln_render(n, gv);                       /* every lane's engine and inserts, the grains' voices (some on the
                                                  * second core: LN_PAR) */
     }
-    for (k = 0; k < LN_N; k++) {                /* lane by lane: its pan (tx_mix_slot_render's), its fade */
-        if (!ln.mix.e[k] && !ln.ret_g[k] && !ln.dc[k]) continue;
-        ln.mix.slot_peak[k] = 0;                /* (a peak a block: the lane's own, before its old engine's fade) */
-        if (ln.mix.e[k]) tx_mix_add(&ln.mix, k, ln_out[k].x, n);   /* (its inserts: ln_render_lane) */
+    for (k = 0; k < LN_N; k++) {                /* lane by lane: its pan (tx_mix_slot_render's), its ring */
+        ln_out_t *o = &ln_out[k];
+        if (!ln.mix.e[k]) {                     /* an emptied lane: its ring alone, here (no insert) */
+            if (!tx_ring_on(&o->ring)) { o->rpk = 0; continue; }
+            ln_ring_lane(o, n);
+        }
+        ln.mix.slot_peak[k] = 0;                /* (a peak a block: the lane's, its ring's under it) */
+        tx_mix_add(&ln.mix, k, o->x, n);        /* (its inserts: ln_render_lane) */
         ln.lpk[k] = ln.mix.slot_peak[k];
         if (ln.mix.e[k] && ln.mix.e[k]->stats) {
             tx_stats_t st;
@@ -610,37 +656,30 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
         }
 #endif
         ln.gov_lvl[k] = (uint32_t)ln.mix.slot_peak[k];
-        if (ln.ret_g[k] || ln.dc[k]) {          /* the switched-out engine's fade, the decaying step (as the player) */
-            int32_t g = ln.ret_g[k], d = ln.dc[k], last = 0;
-            for (j = 0; j < n; j++) ln.tmp[j] = 0;
-            if (g) ln.ret_e[k]->render(ln.ret_st[k], ln.tmp, n);
-            for (j = 0; j < n; j++) {
-                int32_t gj = g - (int32_t)(j * 8192u / TX_BLOCK);   /* 4 blocks from 1 to 0 */
-                last = (ln.tmp[j] >> 15) * gj + (((ln.tmp[j] & 0x7FFF) * gj) >> 15);   /* = (x * g) >> 15, 32-bit */
-                ln.tmp[j] = last + d;
-                d -= d >> 6;
-                if (d > -64 && d < 64) d = 0;
-            }
-            ln.ret_last[k] = g > 8192 ? last : 0;
-            ln.ret_g[k] = g > 8192 ? g - 8192 : 0;
-            ln.dc[k] = d;
-            tx_mix_add(&ln.mix, k, ln.tmp, n);
-            if (!ln.ret_g[k]) {                 /* the arena is free again (a switch's: the spare) */
-                if (ln.ret_st[k] == ln_arena[ln.spare]) ln.spare_busy = 0;
-                ln.ret_st[k] = 0;
-                ln.busy[k] = 0;
-            }
+#ifdef LN_CLOCK
+        ln.ring_us += o->rus;                   /* (the ring's cost: the pool's, below) */
+#elif defined(LN_COST_EST)
+        if (o->rhp) ln.ring_us += LN_EST_BASE + LN_EST_HERO * o->rhp;
+#endif
+        if (o->ring.st && !tx_ring_holds(&o->ring)) {   /* the ring done: its arena free again (a switch's: the spare) */
+            if (o->ring.st == ln_arena[ln.spare]) ln.spare_busy = 0;
+            o->ring.st = 0;
+            ln.busy[k] = 0;
         }
     }
 #ifdef LN_GOV
     {                                           /* the governor: over the pool, the quietest lane gives a hero */
         uint8_t on[LN_N];
         int pk;
+        uint32_t ex;
         for (k = 0; k < LN_N; k++) on[k] = ln.mix.e[k] != 0;
 #ifdef LN_PAR
         ln.gov.budget = LN_PAR_ON() ? 2u * LN_GOV_POOL_US : LN_GOV_POOL_US;
 #endif
+        ex = ln.gov.extra;
+        ln.gov.extra = ex + ln.ring_us;         /* (a ringing engine: the pool carries it, no lane's heroes pay) */
         pk = tx_gov_block(&ln.gov, ln.gov_cost, ln.gov_lvl, on);
+        ln.gov.extra = ex;
         if (pk >= 0 && ln.mix.e[pk]) ln.mix.e[pk]->param(ln.mix.st[pk], TX_PID_PARTICLES, ln.gov.cur[pk]);
     }
 #endif

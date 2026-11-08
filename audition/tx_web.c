@@ -12,6 +12,7 @@
 #include "tx_core_mix.h"
 #include "tx_core_gen.h"
 #include "tx_core_gov.h"
+#include "tx_core_ring.h"
 #include "tx_fx.h"
 
 static uint8_t arenas[TX_MIX_SLOTS][2][TX_STATE_MAX] __attribute__((aligned(64)));   /* the four layers, two each: a
@@ -23,11 +24,10 @@ static int ed;                                          /* the layer the txw_* p
 static const tx_engine_t *cur;                          /* = mixer.e[ed] */
 static uint8_t *arena = arenas[0][0];                   /* = mixer.st[ed] */
 static int side[TX_MIX_SLOTS];                          /* which of a layer's two arenas holds its engine */
-/* a switched-out engine fades out over 4 blocks (23 ms) in its arena, so a switch is click-free; if it is switched
- * again before that, the fading one's last sample decays to zero instead (dc) */
-static const tx_engine_t *ret_e[TX_MIX_SLOTS];
-static void *ret_st[TX_MIX_SLOTS];
-static int32_t ret_g[TX_MIX_SLOTS], ret_last[TX_MIX_SLOTS], dc[TX_MIX_SLOTS], tmp[TX_BLOCK];
+/* a switched-out engine fades out in its arena (tx_core_ring.h: a 151 ms crossfade, still playing), so a switch is
+ * never a cut; if it is switched again before that, the fading one's last sample decays to zero instead */
+static tx_ring_t ring[TX_MIX_SLOTS];
+static int32_t tmp[TX_BLOCK];
 static int32_t mix[TX_BLOCK], peak, stats[8], outL[TX_BLOCK], outR[TX_BLOCK];
 static float out[TX_BLOCK * 64 * 2];                    /* stereo, interleaved */
 static double slot_ms[TX_MIX_SLOTS];                    /* render time per layer since the last txw_slot_time */
@@ -88,9 +88,10 @@ EMSCRIPTEN_KEEPALIVE int txw_select(int i, unsigned seed)
 {
     ready();
     if (i >= 0 && !eng(i)) return -1;
-    if (mixer.e[ed]) {                                       /* the old engine fades out in its arena */
-        if (ret_g[ed]) dc[ed] += ret_last[ed];               /* one still fading: its last sample decays instead */
-        ret_e[ed] = mixer.e[ed]; ret_st[ed] = mixer.st[ed]; ret_g[ed] = 32768;
+    if (mixer.e[ed]) {                                       /* the old engine rings out in its arena */
+        tx_ring_start(&ring[ed], mixer.e[ed], mixer.st[ed]); /* (one still ringing: its last sample decays) */
+        ring[ed].hold = 0;                                   /* (a layer here is played, its keys held: it fades out
+                                                              * at once, a crossfade, as the firmware's held lane) */
         side[ed] ^= 1;
     }
     if (i < 0) { tx_mix_set(&mixer, (unsigned)ed, 0, 0, 0); cur = 0; return 0; }
@@ -186,7 +187,7 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
         tx_mix_begin(&mixer, TX_BLOCK);
         for (k = 0; k < TX_MIX_SLOTS; k++) {
             double t0;
-            if (!mixer.e[k] && !ret_g[k] && !dc[k]) continue;
+            if (!mixer.e[k] && !tx_ring_on(&ring[k])) continue;
             t0 = emscripten_get_now();
             if (gen_on[k] && mixer.e[k]) {                   /* the lane's generator: its activity and notes */
                 tx_gen_ev_t ev[TX_GEN_EV_MAX];
@@ -196,7 +197,15 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
                 if (ip >= 0 && !strcmp(mixer.e[k]->name, "source")) mixer.e[k]->param(mixer.st[k], (uint8_t)ip, in);
                 for (q = 0; q < ne && !gen_mute[k]; q++) mixer.e[k]->key(mixer.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
             }
-            tx_mix_slot_render(&mixer, k, TX_BLOCK);
+            if (mixer.e[k]) {                                /* the engine over its ring, through the layer's insert */
+                tx_ring_block(&ring[k], mixer.blk, TX_BLOCK, 0);
+                mixer.e[k]->render(mixer.st[k], mixer.blk, TX_BLOCK);
+                if (mixer.ins) mixer.ins(mixer.fx, (unsigned)k, mixer.blk, TX_BLOCK);
+                tx_mix_add(&mixer, (unsigned)k, mixer.blk, TX_BLOCK);
+            } else if (tx_ring_on(&ring[k])) {               /* an emptied layer: its ring alone */
+                tx_ring_block(&ring[k], tmp, TX_BLOCK, 0);
+                tx_mix_add(&mixer, (unsigned)k, tmp, TX_BLOCK);
+            }
             {   /* the governor's cost: this layer's block on the FM-1 (us), less its insert (FILTER: given apart, as
                  * the firmware's lanes.c: no hero buys it back) */
                 double us = (emscripten_get_now() - t0) * 1000.0 * gov_factor / 1000.0;
@@ -206,22 +215,6 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
                 gov_lvl[k] = (uint32_t)mixer.slot_peak[k];
                 gov_init();
                 tx_gov_fixed(&gov, (unsigned)k, mixer.e[k] ? f : 0u);
-            }
-            if (ret_g[k] || dc[k]) {                         /* the switched-out engine's fade, the decaying step */
-                int32_t g = ret_g[k], d = dc[k], last = 0;
-                for (j = 0; j < (int)TX_BLOCK; j++) tmp[j] = 0;
-                if (g) ret_e[k]->render(ret_st[k], tmp, TX_BLOCK);
-                for (j = 0; j < (int)TX_BLOCK; j++) {
-                    int32_t gj = g - (j * 8192) / (int)TX_BLOCK;   /* 4 blocks from 1 to 0 */
-                    last = (int32_t)(((int64_t)tmp[j] * gj) >> 15);
-                    tmp[j] = last + d;
-                    d -= d >> 6;
-                    if (d > -64 && d < 64) d = 0;
-                }
-                ret_last[k] = g > 8192 ? last : 0;
-                ret_g[k] = g > 8192 ? g - 8192 : 0;
-                dc[k] = d;
-                tx_mix_add(&mixer, k, tmp, TX_BLOCK);
             }
             slot_ms[k] += emscripten_get_now() - t0;
         }

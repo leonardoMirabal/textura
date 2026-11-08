@@ -22,6 +22,12 @@
  *   SAVE held 700 ms: undo the last load (again: redo)
  *   MIDI PC   on channel 1: 0 .. 9 F01 .. F10, 16 .. 31 U01 .. U16
  *
+ * A load never cuts: a lane that keeps its sound plays on untouched; a lane that gets another one switches, its old
+ * sound playing on till its turn (one lane at a time, ~150 ms apart), then fading out under the new one (lanes.c);
+ * the lanes' levels, pans, HOW MANY, HOW ACTIVE (scape.c) and their numbers (the cards, the FILTER's FREQ, RESO, LFO,
+ * RATE: scn_put) glide 500 ms; a switched lane's cards are set as soon as its new engine is in. A load asked for while
+ * one runs (PRESETS, a program change) waits for it, the last one asked wins.
+ *
  * A load and a save both run beside the main loop, a slice a pass: a load sets the lanes first, waits for their
  * engines, then sends its records SCN_SLICE at a time while lanes.c's queue has room; a save erases one sector a
  * pass, then writes the bank a chunk a pass. The settings (what is not a scene: the clock and its ports, the BPM, the
@@ -46,6 +52,11 @@
 #define SCN_SLICE 16u                           /* records a load sends a pass */
 #define SCN_SETTLE_MS 120u                      /* a load: the lanes' engines first, this long at least */
 #define SCN_BROWSE_MS 400u
+#define SCN_GLIDE_MS 500u                       /* a load: a lane's numbers (its cards, its FILTER's) glide this long */
+#define SCN_GLIDE_TICK 10u
+#define SCN_CARDS_MS 24u                        /* a switched lane: its cards this long after its switch (its hosted
+                                                 * engine in) */
+#define SCN_GL_N 48u                            /* (glides at once: 4 lanes' cards and FILTER numbers) */
 #define SCN_UNDO_MS 700u
 #define SET_SAVE_MS 2000u
 #define SET_VER 1u
@@ -102,8 +113,12 @@ static uint8_t scn_ap_stage;                    /* 0 idle, 1 the lanes set (wait
 static uint16_t scn_ap_i, scn_ap_d;            /* the next record; the next default (SCN_DEF_N: all sent) */
 static uint32_t scn_ap_t;
 static uint8_t scn_ap_idx = 0xFF;
-static uint8_t scn_ap_drv;
-static uint8_t scn_ap_fx, scn_fx_boot;          /* this load sets the mix's effects (SCENE FX RECALL, the boot) */                      /* an older scene's lane whose DRIVE becomes the mix's (0xFF: none) */
+static uint8_t scn_ap_drv;                      /* an older scene's lane whose DRIVE becomes the mix's (0xFF: none) */
+static uint8_t scn_ap_fx, scn_fx_boot;          /* this load sets the mix's effects (SCENE FX RECALL, the boot) */
+static struct { uint16_t id, t0; int16_t from, to; } scn_gl[SCN_GL_N];   /* the glides (scn_put): t0, ms mod 2^16 */
+static uint8_t scn_gl_n;
+static uint8_t scn_ap_sw, scn_ap_cd;            /* this load's switched lanes (bit k); those whose cards are set */
+static uint32_t scn_gl_tick;
 /* a save in progress */
 static uint8_t scn_sv_on, scn_sv_slot;
 static uint16_t scn_sv_step;                    /* sectors erased, then chunks written */
@@ -239,40 +254,103 @@ static void scn_factory(scn_t *s, uint32_t f)
     }                                           /* (no records: every default comes with the load) */
 }
 
+/* ---- the glides: a load sets a lane's numbers (a card, the FILTER's FREQ, RESO, LFO, RATE) over SCN_GLIDE_MS, from
+ * what they are to the scene's, so a lane that goes on playing never steps; the choices (a TYPE, a SHAPE, a card of
+ * under 16 values) and everything else are set at once */
+static void scn_put(uint32_t id, int32_t v)
+{
+    uint32_t i;
+    int32_t f;
+    if (P_SCOPE(id) >= SC_N || P_IDX(id) < PL_CARD0 || p_fmt(id) == F_ENUM || p_hi(id) < 16 || (f = p_get(id)) == v) {
+        p_set(id, v);
+        return;
+    }
+    for (i = 0; i < scn_gl_n && scn_gl[i].id != id; i++) {}
+    if (i == SCN_GL_N) { p_set(id, v); return; }   /* (no room: at once) */
+    if (i == scn_gl_n) scn_gl_n++;
+    scn_gl[i].id = (uint16_t)id; scn_gl[i].t0 = (uint16_t)fm1_ms; scn_gl[i].from = (int16_t)f; scn_gl[i].to = (int16_t)v;
+}
+static void scn_gl_drop(uint32_t k)             /* lane k's glides dropped (its sound changes: other cards) */
+{
+    uint32_t i = 0;
+    while (i < scn_gl_n) if (P_SCOPE(scn_gl[i].id) == k) scn_gl[i] = scn_gl[--scn_gl_n]; else i++;
+}
+static void scn_gl_poll(void)
+{
+    uint32_t i = 0;
+    if (!scn_gl_n || fm1_ms - scn_gl_tick < SCN_GLIDE_TICK || ln.qw - ln.qr >= LN_QN / 2u) return;
+    scn_gl_tick = fm1_ms;
+    while (i < scn_gl_n) {
+        uint32_t t = (uint16_t)((uint16_t)fm1_ms - scn_gl[i].t0), id = scn_gl[i].id;
+        int32_t v = t >= SCN_GLIDE_MS ? scn_gl[i].to
+                  : scn_gl[i].from + (scn_gl[i].to - scn_gl[i].from) * (int32_t)t / (int32_t)SCN_GLIDE_MS;
+        if (p_valid(id) && p_get(id) != v) p_set(id, v);
+        if (t >= SCN_GLIDE_MS) scn_gl[i] = scn_gl[--scn_gl_n];   /* (there: done) */
+        else i++;
+    }
+}
+
 /* ---- load: the lanes, then (their engines in) the records, a slice a pass */
-static void scn_cards_reset(uint32_t k)         /* the lane's cards back to the sound's own (none set) */
+enum { SCN_LANE_NEW, SCN_LANE_SAME, SCN_LANE_SWAP };
+/* the lane's cards back to the sound's own (none set). SAME (the lane keeps its sound and plays on): the ones the
+ * scene has a record of stay for it (they glide there), the others glide home; SWAP (its engine switches): dropped,
+ * nothing sent (the old engine rings out as it was, the new one starts at its own) */
+static void scn_cards_reset(uint32_t k, const scn_t *s, int how)
 {
     p_cards_t *c = p_cards(k);
     uint32_t i;
     for (i = 0; i < c->n; i++) {
+        uint32_t id = PID(k, PL_CARD0 + i);
         if (c->cv[i] == 0xFF) continue;
+        if (how == SCN_LANE_SAME && scn_rec_of(s, id) >= 0) continue;
+        if (how == SCN_LANE_SAME && !(c->kind[i] & CK_HOST)) { scn_put(id, c->def[i]); continue; }
         c->cv[i] = 0xFF;
+        if (how == SCN_LANE_SWAP) continue;
         if (c->kind[i] & CK_HOST) ln_host(k, c->id[i], 0, 1);   /* (released: the source's curves again) */
         else ln_param(k, c->id[i], c->kind[i] & CK_INV ? c->hi[i] - c->def[i] : c->def[i]);
     }
 }
+/* the scene's lanes. A lane that keeps its sound plays on untouched: its level, pan, HOW MANY and HOW ACTIVE glide
+ * (scape.c sc_glide). A lane that gets another sound switches: its old engine plays on till the spare is free (one
+ * lane at a time), then rings out under the new one (lanes.c); the lanes the scene leaves empty stop (their tails
+ * ring). No landscape start is loaded first: the scene names its landscape, its lanes are its own */
 static void scn_lanes(const scn_t *s)
 {
     uint32_t k, f = s->fam % LS_N;
-    for (k = 0; k < SC_N; k++) scn_cards_reset(k);
-    if (f != sc.fam) sc_family(f);
+    if (f != sc.fam) { sc.fam = (uint8_t)f; sc.fam_want = (uint8_t)f; }
     sc.fam_pend = 0;
-    for (k = 0; k < SC_N; k++) { if (sc.run[k]) sc_start(k, 0); sc.snd[k] = -1; sc.mem_cnt[k] = 0; m_cb_ok[k] = 0; sc.mute[k] = 0; }
     for (k = 0; k < SC_N; k++) {
         uint32_t lf = s->lfam >> (4u * k) & 15u;
+        int how = SCN_LANE_NEW;
         lf = lf && lf <= LS_N ? lf - 1u : f;
-        if (s->snd[k] >= 0) sc_load(k, lf, (uint32_t)s->snd[k]);   /* (one out of its family's range: none) */
-    }
-    for (k = 0; k < SC_N; k++) {
-        if (sc.snd[k] < 0) continue;
+        if (s->snd[k] >= 0 && (uint32_t)s->snd[k] >= LS[lf].n) lf = LS_N;   /* (one out of its family's range: none) */
+        if (lf < LS_N && s->snd[k] >= 0) {
+            const ls_sound_t *d = &LS[lf].s[s->snd[k]];
+            const tx_engine_t *e = d->eng ? tx_engine_find(d->src) : sc.src;
+            if (sc.snd[k] == s->snd[k] && sc.lf[k] == lf) how = SCN_LANE_SAME;
+            else if (e && sc_swaps(k, d, e)) how = SCN_LANE_SWAP;
+        }
+        scn_cards_reset(k, s, how);
+        if (how == SCN_LANE_SWAP) scn_ap_sw |= (uint8_t)(1u << k);
+        sc.mem_cnt[k] = 0; m_cb_ok[k] = 0;
+        sc.mute[k] = (uint8_t)(lf < LS_N && s->snd[k] >= 0 ? s->mute >> k & 1u : 0u);
+        if (how != SCN_LANE_SAME) {
+            scn_gl_drop(k);
+            if (sc.run[k] && how != SCN_LANE_SWAP) sc_start(k, 0);   /* (a switch: sc_load lets it play on) */
+            sc.snd[k] = -1;
+            if (lf >= LS_N || s->snd[k] < 0) { sc_sync(k); continue; }
+            sc_load(k, lf, (uint32_t)s->snd[k]);
+        }
+        sc_glide(k);
         sc.vol[sc.lf[k]][sc.snd[k]] = s->vol[k] > 127u ? 127u : s->vol[k];
         sc.pan[k] = s->pan[k] > 127u ? 127u : s->pan[k];
-        sc.mute[k] = (uint8_t)(s->mute >> k & 1u);
         if (s->run[k] && s->cnt[k]) {
             sc.cnt[k] = (uint8_t)(s->cnt[k] < LS_NCNT ? s->cnt[k] : LS_NCNT - 1u);
             sc.step[k] = (uint8_t)(s->step[k] < 1u ? 1u : s->step[k] > SC_STEPS ? SC_STEPS : s->step[k]);
-            sc_start(k, 1);
-        } else sc_sync(k);
+            if (!sc.run[k]) sc_start(k, 1);
+            else sc_sync(k);
+        } else if (sc.run[k]) sc_start(k, 0);
+        else sc_sync(k);
     }
     if (sc.sel >= SC_N || sc.snd[sc.sel] < 0) sc.sel = 0;
 }
@@ -286,6 +364,7 @@ static void scn_apply(const scn_t *s, uint32_t idx)
         if (P_SCOPE(s->r[i].id) < SC_N && P_IDX(s->r[i].id) == PL_ODRIVE0 + TX_DR_AMOUNT && s->r[i].v > (int32_t)best) {
             best = (uint32_t)s->r[i].v; scn_ap_drv = (uint8_t)P_SCOPE(s->r[i].id);
         }
+    scn_ap_sw = scn_ap_cd = 0;
     scn_lanes(s);
     scn_ap_stage = 1; scn_ap_t = fm1_ms; scn_ap_i = 0; scn_ap_d = 0;
 }
@@ -299,12 +378,31 @@ static int scn_fx_id(uint32_t id)
     if (s != P_GLOBAL) return 0;
     return i < PG_COMP0 + TX_CP_NP || (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP);
 }
+/* a switched lane's cards, as soon as its fresh engine is in: set at once, before it is heard much (the others'
+ * glide, stage 2) */
+static void scn_apply_cards(void)
+{
+    uint32_t k, i;
+    for (k = 0; k < SC_N; k++) {
+        if (!((scn_ap_sw & ~scn_ap_cd) >> k & 1u)) continue;
+        if (sc.a_eng[k] != sc.eng[k] || sc.reswap[k] || fm1_ms - sc.sel_t[k] < SCN_CARDS_MS) continue;
+        if (ln.qw - ln.qr >= LN_QN / 2u) return;
+        (void)p_cards(k);
+        for (i = 0; i < scn_ap->nrec; i++) {
+            uint32_t id = scn_ap->r[i].id;
+            if (P_SCOPE(id) == k && P_IDX(id) >= PL_CARD0 && P_IDX(id) < PL_CARD0 + SCD_MAX && p_valid(id)) p_set(id, scn_ap->r[i].v);
+        }
+        scn_ap_cd |= (uint8_t)(1u << k);
+    }
+}
 static void scn_apply_poll(void)
 {
     uint32_t k, n = 0;
+    if (scn_ap_stage) scn_apply_cards();
     if (scn_ap_stage == 1) {                    /* the lanes' engines switched (and their hosted ones in): the cards */
         if (fm1_ms - scn_ap_t < SCN_SETTLE_MS) return;
-        for (k = 0; k < SC_N; k++) if (sc.a_eng[k] != sc.eng[k]) return;
+        for (k = 0; k < SC_N; k++) if (sc.a_eng[k] != sc.eng[k] || sc.reswap[k]) return;   /* (a lane still waiting
+                                                 * for the spare: the last switch rings out) */
         for (k = 0; k < SC_N; k++) (void)p_cards(k);
         scn_ap_stage = 2;
     }
@@ -313,7 +411,7 @@ static void scn_apply_poll(void)
                                                          * record of (theirs come next: no value set twice) */
         uint32_t id = scn_def_id(scn_ap_d++);
         if (!scn_ap_fx && scn_fx_id(id)) continue;
-        if (scn_rec_of(scn_ap, id) < 0) { p_set(id, scn_def_of(id)); n++; }
+        if (scn_rec_of(scn_ap, id) < 0) { scn_put(id, scn_def_of(id)); n++; }
     }
     while (scn_ap_d >= SCN_DEF_N && scn_ap_i < scn_ap->nrec && n < SCN_SLICE && ln.qw - ln.qr < LN_QN / 2u) {
         const scn_rec_t *r = &scn_ap->r[scn_ap_i++];
@@ -323,7 +421,8 @@ static void scn_apply_poll(void)
         else if (rs < SC_N && ri >= PL_ODRIVE0 && ri < PL_ODRIVE0 + TX_DR_NP) {   /* (a lane's DRIVE, retired) */
             if (rs == scn_ap_drv) p_set(PID(P_GLOBAL, PG_DRIVE0 + ri - PL_ODRIVE0), r->v);
         }
-        else if (p_valid(r->id)) p_set(r->id, r->v);
+        else if (rs < SC_N && ri >= PL_CARD0 && ri < PL_CARD0 + SCD_MAX && (scn_ap_cd >> rs & 1u)) continue;   /* (set) */
+        else if (p_valid(r->id)) scn_put(r->id, r->v);
         n++;
     }
     if (scn_ap_d < SCN_DEF_N) return;
@@ -516,10 +615,22 @@ static int scn_input(uint32_t b, uint32_t rel, int32_t d_presets, int32_t d_k1, 
     }
     return 0;
 }
-static void scn_pc(uint32_t p)                  /* MIDI program change (channel 1) */
+static void scn_poll_cand(void)                 /* the scene PRESETS (a program change) asked for, once no load runs */
 {
-    if (p < SCN_NF) (void)scn_load(p);
-    else if (p >= 16u && p < 16u + SCN_NU) { if (scn_load(SCN_NF + p - 16u)) ui_say("NO SCENE THERE"); }
+    if (scn_cand != 0xFF && fm1_ms - scn_cand_t >= SCN_BROWSE_MS && !scn_busy()) {
+        uint8_t c = scn_cand;
+        scn_cand = 0xFF;
+        if (scn_load(c)) ui_say("NO SCENE THERE");
+    }
+}
+static void scn_pc(uint32_t p)                  /* MIDI program change (channel 1): as PRESETS, at once (a load still
+                                                 * running: when it is done, the last one asked) */
+{
+    if (p < SCN_NF) scn_cand = (uint8_t)p;
+    else if (p >= 16u && p < 16u + SCN_NU) scn_cand = (uint8_t)(SCN_NF + p - 16u);
+    else return;
+    scn_cand_t = fm1_ms - SCN_BROWSE_MS;
+    scn_poll_cand();
 }
 
 /* ---- the settings: one small record, saved SET_SAVE_MS after its last change (the platform's split save) */
@@ -576,11 +687,8 @@ static void scn_init(void)
 static void scn_poll(void)
 {
     scn_apply_poll();
+    scn_gl_poll();
     scn_save_poll();
-    if (scn_cand != 0xFF && fm1_ms - scn_cand_t >= SCN_BROWSE_MS && !scn_busy()) {
-        uint8_t c = scn_cand;
-        scn_cand = 0xFF;
-        if (scn_load(c)) ui_say("NO SCENE THERE");
-    }
+    scn_poll_cand();
     set_poll();
 }

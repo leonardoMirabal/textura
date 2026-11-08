@@ -341,6 +341,11 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (sscanf(key, "pan%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.pan[k]);
     else if (sscanf(key, "mute%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.mute[k]);
     else if (sscanf(key, "fam%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%s", LS[sc.lf[k]].name);   /* the lane's family */
+    else if (sscanf(key, "ring%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%d", tx_ring_holds(&ln_out[k].ring));   /* an old engine rings */
+    else if (sscanf(key, "rings%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%d", ln_out[k].rpk > 0);   /* and sounds */
+    else if (!strcmp(key, "swaps")) { for (i = 0, k = 0; k < SC_N; k++) i += sc.a_eng[k] != sc.eng[k] || sc.reswap[k]; snprintf(v, n, "%u", i); }   /* lanes waiting */
+    else if (sscanf(key, "sel%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.nsel[k]);   /* the lane's switches so far */
+    else if (!strcmp(key, "glides")) { for (i = scn_gl_n, k = 0; k < SC_N; k++) i += sc.gl_on[k]; snprintf(v, n, "%u", i); }   /* settings on their way */
     else if (!strcmp(key, "browser")) snprintf(v, n, "%u", ub.on ? ub.lv : 0u);   /* the sound browser: 0 shut, its level */
     else if (!strcmp(key, "brfam")) snprintf(v, n, "%s", LS[ub.f].name);
     else if (!strcmp(key, "brcur")) snprintf(v, n, "%u", ub.cur);

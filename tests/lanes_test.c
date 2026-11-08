@@ -90,9 +90,8 @@ static tx_mix_t rm;
 static tx_fx_t rfx;
 static uint8_t ra[TX_MIX_SLOTS][2][TX_STATE_MAX] __attribute__((aligned(64)));
 static int rside[TX_MIX_SLOTS];
-static const tx_engine_t *rret_e[TX_MIX_SLOTS];
-static void *rret_st[TX_MIX_SLOTS];
-static int32_t rret_g[TX_MIX_SLOTS], rret_last[TX_MIX_SLOTS], rdc[TX_MIX_SLOTS], rtmp[TX_BLOCK];
+static tx_ring_t rring[TX_MIX_SLOTS];
+static int32_t rtmp[TX_BLOCK];
 static tx_gen_t rgen[TX_MIX_SLOTS];                 /* the lanes' generators (txw_gen_on, txw_gen_param, txw_gen_mute) */
 static int rgen_on[TX_MIX_SLOTS], rgen_mute[TX_MIX_SLOTS];
 
@@ -115,8 +114,7 @@ static void r_gen_on(int k, int on, unsigned seed)
 static void r_select(int k, const tx_engine_t *e, uint32_t seed)
 {
     if (rm.e[k]) {
-        if (rret_g[k]) rdc[k] += rret_last[k];
-        rret_e[k] = rm.e[k]; rret_st[k] = rm.st[k]; rret_g[k] = 32768;
+        tx_ring_start(&rring[k], rm.e[k], rm.st[k]);
         rside[k] ^= 1;
     }
     if (!e) { tx_mix_set(&rm, (unsigned)k, 0, 0, 0); return; }
@@ -126,10 +124,9 @@ static void r_select(int k, const tx_engine_t *e, uint32_t seed)
 static void r_block(int32_t *L, int32_t *R)
 {
     unsigned k;
-    int j;
     tx_mix_begin(&rm, TX_BLOCK);
     for (k = 0; k < TX_MIX_SLOTS; k++) {
-        if (!rm.e[k] && !rret_g[k] && !rdc[k]) continue;
+        if (!rm.e[k] && !tx_ring_on(&rring[k])) continue;
         if (rgen_on[k] && rm.e[k]) {
             tx_gen_ev_t ev[TX_GEN_EV_MAX];
             uint8_t in;
@@ -138,21 +135,13 @@ static void r_block(int32_t *L, int32_t *R)
             if (ip >= 0 && !strcmp(rm.e[k]->name, "source")) rm.e[k]->param(rm.st[k], (uint8_t)ip, in);
             for (q = 0; q < ne && !rgen_mute[k]; q++) rm.e[k]->key(rm.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
         }
-        tx_mix_slot_render(&rm, k, TX_BLOCK);
-        if (rret_g[k] || rdc[k]) {
-            int32_t g = rret_g[k], d = rdc[k], last = 0;
-            for (j = 0; j < (int)TX_BLOCK; j++) rtmp[j] = 0;
-            if (g) rret_e[k]->render(rret_st[k], rtmp, TX_BLOCK);
-            for (j = 0; j < (int)TX_BLOCK; j++) {
-                int32_t gj = g - (j * 8192) / (int)TX_BLOCK;
-                last = (int32_t)(((int64_t)rtmp[j] * gj) >> 15);
-                rtmp[j] = last + d;
-                d -= d >> 6;
-                if (d > -64 && d < 64) d = 0;
-            }
-            rret_last[k] = g > 8192 ? last : 0;
-            rret_g[k] = g > 8192 ? g - 8192 : 0;
-            rdc[k] = d;
+        if (rm.e[k]) {                          /* the engine over its ring, through the slot's insert */
+            tx_ring_block(&rring[k], rm.blk, TX_BLOCK, 0);
+            rm.e[k]->render(rm.st[k], rm.blk, TX_BLOCK);
+            if (rm.ins) rm.ins(rm.fx, k, rm.blk, TX_BLOCK);
+            tx_mix_add(&rm, k, rm.blk, TX_BLOCK);
+        } else {                                /* an emptied slot: its ring alone */
+            tx_ring_block(&rring[k], rtmp, TX_BLOCK, 0);
             tx_mix_add(&rm, k, rtmp, TX_BLOCK);
         }
     }
@@ -211,7 +200,7 @@ int main(void)
 #ifdef LANES_TEST_PIPE
     static int32_t pL[TX_BLOCK], pR[TX_BLOCK];          /* the player's block before (the first: silence) */
 #endif
-    uint32_t b, s = 0, seed = 12345u, fails = 0, j, loud = 0;
+    uint32_t b, s = 0, seed = 12345u, fails = 0, j, loud = 0, spare_w = 0;
     ln_init();
     r_init();
 #ifdef LANES_TEST_PAR
@@ -297,15 +286,19 @@ int main(void)
             }
         }
     }
-    {   /* the one spare arena: two sounding lanes switched at once, the second waits for the first's fade (4 blocks) */
+    {   /* the one spare arena: two sounding lanes switched at once, the second waits for the first's ring (at most
+         * TX_RING_N blocks: less when the old engine falls quiet) */
         const tx_engine_t *e = tx_engine_find("fire");
         uint32_t w;
         if (!ln.mix.e[0] || !ln.mix.e[1]) { printf("FAIL the spare check needs lanes 1 and 2 sounding\n"); fails++; }
         if (ln_select(0, e, 1u)) { printf("FAIL the spare: the first switch refused\n"); fails++; }
         if (ln_select(1, e, 2u) >= 0) { printf("FAIL the spare: a second switch while it is held\n"); fails++; }
-        for (w = 0; w < 8u && ln_select(1, e, 2u) < 0; w++) ln_block(L, R, TX_BLOCK);
-        if (w != 4u) { printf("FAIL the spare: free after %u blocks, not 4\n", w); fails++; }
-        for (w = 0; w < 4u; w++) ln_block(L, R, TX_BLOCK);
+        for (w = 0; w < TX_RING_N + 4u && ln_select(1, e, 2u) < 0; w++) ln_block(L, R, TX_BLOCK);
+        if (w < 1u || w > TX_RING_N) { printf("FAIL the spare: free after %u blocks, not 1 .. %u\n", w, TX_RING_N); fails++; }
+        else printf("     the spare: free after %u blocks (the ring)\n", w);
+        spare_w = w;
+        (void)spare_w;
+        for (w = 0; w < TX_RING_N; w++) ln_block(L, R, TX_BLOCK);
         if (ln.spare_busy || ln.mix.e[0] != e || ln.mix.e[1] != e) { printf("FAIL the spare: not given back\n"); fails++; }
         {   /* every arena in use once: the lanes' and the spare, no two the same */
             uint32_t seen = 1u << ln.spare, k;
@@ -315,8 +308,8 @@ int main(void)
 #ifdef LANES_TEST_PIPE
     par_wait();                                         /* (the last mix end done: the state read below is still) */
     if (!ln.par_blocks) { printf("FAIL the second core rendered nothing\n"); fails++; }
-    if (par_pj != b + 8u || ln.pipe_lost) {             /* (every block of the scene and the spare check's 8) */
-        printf("FAIL the mix end: %u jobs on the second core for %u blocks, %u lost\n", par_pj, b + 8u, ln.pipe_lost); fails++;
+    if (par_pj != b + spare_w + TX_RING_N || ln.pipe_lost) {   /* (every block of the scene and the spare check's) */
+        printf("FAIL the mix end: %u jobs on the second core for %u blocks, %u lost\n", par_pj, b + spare_w + TX_RING_N, ln.pipe_lost); fails++;
     }
     if (par_rj || par_kt || par_dt) { printf("FAIL a job handed on from the second core itself\n"); fails++; }
     printf("     lanes (one block behind): %u blocks with lanes on the second core, %u mix ends there, %u jobs\n",

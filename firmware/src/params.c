@@ -239,7 +239,8 @@ static p_cards_t *p_cards(uint32_t k)
     p_cards_t *c = &pc[k];
     if (c->eng != sc.eng[k] || c->snd != sc.snd[k] || c->fam != sc.lf[k] || (sc.eng[k] == sc.src && c->live != ln_hosted(k))) {
         uint32_t i;
-        if (c->eng == sc.src && sc.eng[k] == sc.src)
+        if (c->eng == sc.src && sc.eng[k] == sc.src && !sc.reswap[k])   /* (a fresh source coming: its own already;
+                                                 * the old one rings out as it was) */
             for (i = 0; i < c->n; i++)
                 if (!(c->kind[i] & CK_HOST) && c->cv[i] != 0xFF) ln_param(k, c->id[i], c->kind[i] & CK_INV ? c->hi[i] - c->def[i] : c->def[i]);
         p_cards_resolve(k);
