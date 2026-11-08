@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura DRIVE TYPEs: the state of Frodhes' four drive TYPEs (drive.c, drv_khlon.c, drv_tsh8.c, drv_ohcd.c,
- * drv_bhlue.c: our own) as instances. Each lane's DRIVE holds one TYPE's state at a time (a union: one TYPE runs on a
- * lane at a time); what every lane may share sits once in the effects (tx_drv_shared_t): the scratch buffers (the
- * lanes on one core run one after the other: tx_drv_scr_t, one a core) and TSH8's two diode tables (12.2 KB: TSH8
- * runs on one lane at a time). The code:
+ * drv_bhlue.c: our own) as instances. Each DRIVE instance holds one TYPE's state at a time (a union: one TYPE runs on
+ * it at a time); what the instances share sits once in the effects (tx_drv_shared_t): the scratch buffer (they run
+ * one after the other: tx_drv_scr_t) and TSH8's two diode tables (12.2 KB: one owner at a time, the mix's pair as
+ * one). The code:
  * tx_fx_drive.c (the framework) and tx_fx_drv_<type>.c (included by it); the tables: tx_drive_tables.h. */
 #ifndef TX_FX_DRV_H
 #define TX_FX_DRV_H
@@ -57,7 +57,9 @@ typedef struct {
     int32_t ts_v0, ts_v1, ts_gp;              /* the build's keys and g at its node */
     int64_t ts_s;                             /* the build's running sum */
     uint8_t ts_cur;                           /* the table that runs */
-    const void *ts_own;                       /* the lane's DRIVE that has TSH8 (0: free) */
+    uint8_t ts_xf;                            /* this block: 1 crossfades into it, 2 built the first (a pair's second
+                                               * does the same) */
+    const void *ts_own;                       /* the DRIVE that has TSH8 (a pair: its first; 0: free) */
 } tx_drv_shared_t;
 
 #endif

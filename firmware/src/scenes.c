@@ -3,10 +3,12 @@
  *
  * A scene is everything a sound place is: the landscape, each lane's sound, HOW MANY, HOW ACTIVE, playing or not, its
  * level and pan, its name, then a list of (parameter id, value) records: the lanes' cards (the ones set), the tempo,
- * and of drive and filter, the grain delay and its SYNC, the reverb, the eight LFOs, the envelopes, the followers and
- * the matrix the values away from their defaults (scn_def_*). A load sets every one of those to its default first,
+ * and of the lanes' filter, the grain delay and its SYNC, the reverb, the compressor, the drive, the eight LFOs, the
+ * envelopes, the followers and the matrix the values away from their defaults (scn_def_*). A load sets every one of those to its default first,
  * then the scene's records over them, so a record of an older firmware loads into a newer one (an id it lacks gets
- * its default; ids never change, params.c). The tempo is set only with SCENE TEMPO on (tempo.c).
+ * its default; ids never change, params.c). The tempo is set only with SCENE TEMPO on (tempo.c). A scene saved with
+ * a DRIVE on each lane (ids 32 .. 35 of a lane, retired) loads that onto the mix's one DRIVE: the lane with the most
+ * AMOUNT gives its AMOUNT, TONE, MIX and TYPE (the first such lane on a tie; none above 0: the DRIVE stays off).
  *
  *   factory   F01 .. F10: each landscape at its start, the effects and the modulation at their defaults
  *   user      U01 .. U16, in a bank of two copies written alternately (Frodhes' presets.c scheme): the older copy
@@ -97,6 +99,7 @@ static uint8_t scn_ap_stage;                    /* 0 idle, 1 the lanes set (wait
 static uint16_t scn_ap_i, scn_ap_d;            /* the next record; the next default (SCN_DEF_N: all sent) */
 static uint32_t scn_ap_t;
 static uint8_t scn_ap_idx = 0xFF;
+static uint8_t scn_ap_drv;                      /* an older scene's lane whose DRIVE becomes the mix's (0xFF: none) */
 /* a save in progress */
 static uint8_t scn_sv_on, scn_sv_slot;
 static uint16_t scn_sv_step;                    /* sectors erased, then chunks written */
@@ -120,11 +123,11 @@ static void scn_name_of(uint32_t idx, char *s)  /* "F03 FIRE", "U05 WATER", "U06
     else p_cat(s, "----", 16);
 }
 
-/* ---- the defaults a load starts from: the lanes' drive and filter, the grain delay and its SYNC, the reverb, the
- * compressor, the LFOs, the envelopes, the followers, the matrix (in that order; SCN_DEF_N of them) */
-#define SCN_DEF_LANE (TX_DR_NP + TX_FL_NP)
+/* ---- the defaults a load starts from: the lanes' filter, the grain delay and its SYNC, the reverb, the compressor,
+ * the drive, the LFOs, the envelopes, the followers, the matrix (in that order; SCN_DEF_N of them) */
+#define SCN_DEF_LANE TX_FL_NP
 #define SCN_DEF_GLOB (SC_N * SCN_DEF_LANE)
-#define SCN_DEF_LFO (SCN_DEF_GLOB + TX_GD_NP + 1u + TX_RV_NP + TX_CP_NP)
+#define SCN_DEF_LFO (SCN_DEF_GLOB + TX_GD_NP + 1u + TX_RV_NP + TX_CP_NP + TX_DR_NP)
 #define SCN_DEF_ENV (SCN_DEF_LFO + TX_LFO_N * TX_LP_N)
 #define SCN_DEF_FOL (SCN_DEF_ENV + TX_ENV_N * TX_EP_N)
 #define SCN_DEF_MAT (SCN_DEF_FOL + TX_FOL_N * TX_FP_N)
@@ -135,12 +138,16 @@ static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id *
     uint32_t k;
     if (i < SCN_DEF_GLOB) {
         k = i / SCN_DEF_LANE; i %= SCN_DEF_LANE;
-        return PID(k, i < TX_DR_NP ? PL_DRIVE0 + i : PL_FILTER0 + i - TX_DR_NP);
+        return PID(k, PL_FILTER0 + i);
     }
     if (i < SCN_DEF_LFO) {
         i -= SCN_DEF_GLOB;
-        return PID(P_GLOBAL, i < TX_GD_NP ? PG_GRAIN0 + i : i == TX_GD_NP ? PG_GSYNC
-                             : i < TX_GD_NP + 1u + TX_RV_NP ? PG_REVERB0 + i - TX_GD_NP - 1u : PG_COMP0 + i - TX_GD_NP - 1u - TX_RV_NP);
+        if (i < TX_GD_NP) return PID(P_GLOBAL, PG_GRAIN0 + i);
+        if (i == TX_GD_NP) return PID(P_GLOBAL, PG_GSYNC);
+        i -= TX_GD_NP + 1u;
+        if (i < TX_RV_NP) return PID(P_GLOBAL, PG_REVERB0 + i);
+        i -= TX_RV_NP;
+        return PID(P_GLOBAL, i < TX_CP_NP ? PG_COMP0 + i : PG_DRIVE0 + i - TX_CP_NP);
     }
     if (i < SCN_DEF_ENV) { i -= SCN_DEF_LFO; return PID(P_LFO, i / TX_LP_N * 16u + i % TX_LP_N); }
     if (i < SCN_DEF_FOL) { i -= SCN_DEF_ENV; return PID(P_ENV, i / TX_EP_N * 16u + i % TX_EP_N); }
@@ -152,7 +159,6 @@ static int32_t scn_def_of(uint32_t id)          /* an id's default (-1: none: th
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
     if (s < SC_N) {
-        if (i >= PL_DRIVE0 && i < PL_DRIVE0 + TX_DR_NP) return tx_fx_drive_params[i - PL_DRIVE0].def;
         if (i >= PL_FILTER0 && i < PL_FILTER0 + TX_FL_NP) return tx_fx_filter_params[i - PL_FILTER0].def;
         return -1;
     }
@@ -161,6 +167,7 @@ static int32_t scn_def_of(uint32_t id)          /* an id's default (-1: none: th
         if (i == PG_GSYNC) return 0;
         if (i >= PG_REVERB0 && i < PG_REVERB0 + TX_RV_NP) return tx_fx_reverb_params[i - PG_REVERB0].def;
         if (i >= PG_COMP0 && i < PG_COMP0 + TX_CP_NP) return tx_comp_params[i - PG_COMP0].def;
+        if (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP) return tx_fx_drive_params[i - PG_DRIVE0].def;
         return -1;
     }
     if (s == P_LFO) return i / 16u < TX_LFO_N && i % 16u < TX_LP_N ? scn_lfo_def[i / 16u][i % 16u] : -1;
@@ -260,7 +267,13 @@ static void scn_lanes(const scn_t *s)
 }
 static void scn_apply(const scn_t *s, uint32_t idx)
 {
+    uint32_t i, best = 0;
     scn_ap = s; scn_ap_idx = (uint8_t)idx;
+    scn_ap_drv = 0xFF;                          /* (a lane DRIVE's records, retired: the most AMOUNT's go to the mix's) */
+    for (i = 0; i < s->nrec; i++)
+        if (P_SCOPE(s->r[i].id) < SC_N && P_IDX(s->r[i].id) == PL_ODRIVE0 + TX_DR_AMOUNT && s->r[i].v > (int32_t)best) {
+            best = (uint32_t)s->r[i].v; scn_ap_drv = (uint8_t)P_SCOPE(s->r[i].id);
+        }
     scn_lanes(s);
     scn_ap_stage = 1; scn_ap_t = fm1_ms; scn_ap_i = 0; scn_ap_d = 0;
 }
@@ -282,7 +295,11 @@ static void scn_apply_poll(void)
     }
     while (scn_ap_d >= SCN_DEF_N && scn_ap_i < scn_ap->nrec && n < SCN_SLICE && ln.qw - ln.qr < LN_QN / 2u) {
         const scn_rec_t *r = &scn_ap->r[scn_ap_i++];
-        if (P_SCOPE(r->id) == P_GLOBAL && P_IDX(r->id) == PG_FINE) { if (tm.scn_tempo) tempo_set10((uint32_t)(r->v + 400)); }
+        uint32_t rs = P_SCOPE(r->id), ri = P_IDX(r->id);
+        if (rs == P_GLOBAL && ri == PG_FINE) { if (tm.scn_tempo) tempo_set10((uint32_t)(r->v + 400)); }
+        else if (rs < SC_N && ri >= PL_ODRIVE0 && ri < PL_ODRIVE0 + TX_DR_NP) {   /* (a lane's DRIVE, retired) */
+            if (rs == scn_ap_drv) p_set(PID(P_GLOBAL, PG_DRIVE0 + ri - PL_ODRIVE0), r->v);
+        }
         else if (p_valid(r->id)) p_set(r->id, r->v);
         n++;
     }

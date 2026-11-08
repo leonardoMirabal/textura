@@ -1,4 +1,4 @@
-# the COMPRESSOR (Frodhes' page, the mix's first effect): FX opens it; Storm's four lanes at HOW ACTIVE 64 with THR
+# the COMPRESSOR (Frodhes' page, the mix's, after its DRIVE): FX twice opens it; Storm's four lanes at HOW ACTIVE 64 with THR
 # at -40 dBFS (CC 115 on channel 5): the gain-reduction meter in the footer moves; SELECT: 2/2 COMP REL; ALGORITHM:
 # COMP off (the reduction gone, the footer's hint), on again; what the chain runs is what the panel says
 1700 turn 1 6
@@ -10,6 +10,7 @@
 2215 midi 0xB3 22 64
 2300 midi 0xB4 115 127
 2400 btn 2
+2420 btn 2
 2450 expect state page COMPRESSOR_1/2
 2450 expect state card0 -40_dB
 4500 expect state compred 1

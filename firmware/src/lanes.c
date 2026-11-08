@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura lanes: the sound behind the panel. Four lanes, each an engine instance (engines/: the same code the bench
- * and the audition player run), each through its own DRIVE and FILTER, panned into a stereo pair, then the GRAIN
- * DELAY, the REVERB and the output limiter (tx_core_mix.h, tx_fx.h): the audition player's chain (audition/tx_web.c).
+ * and the audition player run), each through its own FILTER, panned into a stereo pair, then the DRIVE, the
+ * COMPRESSOR, the GRAIN DELAY, the REVERB and the output limiter (tx_core_mix.h, tx_fx.h): the audition player's chain (audition/tx_web.c).
  *
  *   main loop   ln_select (a lane's engine: prepared in the spare arena, here, never in the audio interrupt),
  *               ln_key, ln_param, ln_level, ln_pan, ln_fx, ln_gen_on, ln_gen_param, ln_gen_mute: queued (ln_q), the
@@ -187,7 +187,7 @@ static void ln_init(void)
     ln.fx.rev.body_run = ln_rev_run; ln.fx.rev.body_wait = ln_rev_wait;
     ln.fx.rev.par.run = ln_krun; ln.fx.rev.par.wait = ln_rev_wait;
 #endif
-    ln.mix.ins = tx_fx_lane; ln.mix.bus = tx_fx_bus_end; ln.mix.busq = tx_fx_bus_quiet; ln.mix.fx = &ln.fx;   /* (the
+    ln.mix.ins = tx_fx_lane; ln.mix.pre = tx_fx_drive_mix; ln.mix.bus = tx_fx_bus_end; ln.mix.busq = tx_fx_bus_quiet; ln.mix.fx = &ln.fx;   /* (the
                                                  * bus's begin and the grains' voices: ln_block, ln_render) */
 #ifdef LN_BUS_TIMED
     ln.mix.bus = ln_bus;
@@ -355,7 +355,7 @@ static void ln_event(const ln_ev_t *v)
         if (k < LN_N && ln.mix.e[k] && ln.int_id[k] >= 0) tx_source_host_param(ln.mix.st[k], v->a, v->c ? 256u : v->b);
         break;
     case LN_EV_FX:
-        if (v->a == LN_FX_DRIVE && k < TX_FX_LANES) tx_fx_drive_param(&ln.fx.drive[k], v->b, v->c);
+        if (v->a == LN_FX_DRIVE) tx_fx_drive_set(&ln.fx, v->b, v->c);
         else if (v->a == LN_FX_FILTER && k < TX_FX_LANES) tx_fx_filter_param(&ln.fx.filter[k], v->b, v->c);
         else if (v->a == LN_FX_REVERB) tx_fx_reverb_param(&ln.fx.rev, v->b, v->c);
         else if (v->a == LN_FX_GRAIN) tx_fx_grain_param(&ln.fx.gd, v->b, v->c);
@@ -365,8 +365,8 @@ static void ln_event(const ln_ev_t *v)
     }
 }
 
-/* lane k's engine, one block, into ln_out[k], then its inserts (DRIVE, FILTER: their prep done, lane order, by
- * ln_render), on either core (c: its DRIVE scratch); it writes nothing else */
+/* lane k's engine, one block, into ln_out[k], then its insert (FILTER), on either core (c: 1 the second, its twin);
+ * it writes nothing else */
 static void ln_render_lane(uint32_t k, uint32_t n, uint32_t c)
 {
     int32_t *x = ln_out[k].x;
@@ -437,7 +437,6 @@ static void ln_render(uint32_t n, int gv)
     uint32_t t0 = LN_CLOCK();
 #endif
     for (k = 0; k < LN_N; k++) if (ln.mix.e[k]) on |= 1u << k;
-    if (ln.mix.ins) for (k = 0; k < LN_N; k++) if (on >> k & 1u) tx_fx_lane_prep(&ln.fx, k);
     ln.par_n = n;
     if (gv) { tx_fx_grain_split(&ln.fx.gd, n); on |= 3u << LN_GV; }   /* (the voices' two halves: either core) */
 #ifdef LN_PAR
@@ -495,9 +494,10 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
 #endif
         mod_block();                            /* the modulation: the LFOs, the matrix, its targets set (mod.c) */
 #ifdef LN_CLOCK
-        tx_gov_extra(&ln.gov, LN_CLOCK_US(LN_CLOCK() - t0));   /* (the pool carries it, no lane does) */
+        tx_gov_extra(&ln.gov, LN_CLOCK_US(LN_CLOCK() - t0) + tx_fx_drive_mix_us(&ln.fx));   /* (the pool carries
+                                                 * it, no lane does; and the mix's DRIVE, as it did on the lanes) */
 #elif defined(LN_COST_EST)
-        tx_gov_extra(&ln.gov, LN_EST_MOD);
+        tx_gov_extra(&ln.gov, LN_EST_MOD + tx_fx_drive_mix_us(&ln.fx));
 #endif
     }
 #endif
@@ -546,7 +546,7 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
         } else ln.lhero[k] = 0xFFFFu;
 #ifdef LN_GOV
         {                                       /* (the fade below is not the lane's: as the player) */
-            uint32_t f = tx_fx_lane_us(&ln.fx, k);   /* its inserts (DRIVE, FILTER): apart, no hero buys them */
+            uint32_t f = tx_fx_lane_us(&ln.fx, k);   /* its insert (FILTER): apart, no hero buys it */
 #ifdef LN_CLOCK
             ln.gov_cost[k] = ln.mix.e[k] ? ln.gus[k] + ln_out[k].us : 0u;   /* (its generator and engine: the inserts
                                                          * are not in it) */

@@ -78,7 +78,7 @@ static int rgen_on[TX_MIX_SLOTS], rgen_mute[TX_MIX_SLOTS];
 static void r_init(void)
 {
     tx_mix_init(&rm);
-    tx_fx_init(&rfx); rm.ins = tx_fx_lane; rm.bus = tx_fx_bus; rm.busq = tx_fx_bus_quiet; rm.fx = &rfx;
+    tx_fx_init(&rfx); rm.ins = tx_fx_lane; rm.pre = tx_fx_drive_mix; rm.bus = tx_fx_bus; rm.busq = tx_fx_bus_quiet; rm.fx = &rfx;
     for (unsigned k = 0; k < TX_MIX_SLOTS; k++) tx_gen_init(&rgen[k], 1u + k);
 }
 static void r_gen_on(int k, int on, unsigned seed)
@@ -148,10 +148,10 @@ static const step_t SCENE[] = {
     {40, 'P', 0, 0, 16, 106, 0},                /* the source's COUNT (id 16): 32 */
     {60, 'F', 2, 0, 0, 2, 0},                   /* REVERB TYPE hall */
     {60, 'F', 2, 0, 1, 60, 0},                  /* its MIX */
-    {80, 'F', 0, 0, 0, 60, 1},                  /* lane 2's DRIVE AMOUNT */
+    {80, 'F', 0, 0, 0, 60, 0},                  /* the mix's DRIVE AMOUNT */
     {90, 'F', 1, 0, 0, 1, 0},                   /* lane 1's FILTER TYPE low-pass */
     {100, 'F', 3, 0, 0, 80, 0},                 /* the GRAIN DELAY's MIX */
-    {110, 'F', 0, 0, 3, 2, 1},                  /* lane 2's DRIVE TYPE TSH8 (it owns TSH8's tables) */
+    {110, 'F', 0, 0, 3, 2, 0},                  /* the DRIVE's TYPE TSH8 (its left side owns the tables) */
     {115, 'F', 3, 0, 3, 15, 0},                 /* the GRAIN DELAY's GRAINS: 16 */
     {120, 'L', 0, 0, 0, 70, 0},                 /* lane 1's LEVEL */
     {130, 'N', 1, 0, 20, 0, 0},                 /* lane 2's pan */
@@ -164,16 +164,16 @@ static const step_t SCENE[] = {
     {231, 'A', 2, 0, TX_GEN_ACTIVITY, 90, 0},
     {231, 'G', 2, 0, 1, 777, 0},
     {231, 'K', 2, 0, 60, 100, 1},
-    {232, 'F', 0, 0, 3, 2, 2},                  /* lane 3's DRIVE TYPE TSH8: refused while lane 2 has it */
-    {232, 'F', 0, 0, 0, 90, 2},
+    {232, 'F', 0, 0, 0, 90, 0},                 /* the DRIVE's AMOUNT up */
     {260, 'F', 2, 0, 0, 7, 0},                  /* REVERB TYPE plate: the same */
     {300, 'S', 1, "fire", 0, 0, 0},
     {300, 'K', 1, 0, 60, 100, 1},
     {301, 'M', 1, 0, 1, 0, 0},                  /* lane 2's generator, muted (a classic engine: no notes) */
     {301, 'G', 1, 0, 1, 4242, 0},
     {305, 'F', 3, 0, 3, 29, 0},                 /* GRAINS 30: over the cap (the model's 19), both halves */
-    {310, 'F', 0, 0, 3, 1, 1},                  /* lane 2's DRIVE TYPE KHLON: TSH8 free, lane 3 takes it (lane order) */
+    {310, 'F', 0, 0, 3, 1, 0},                  /* the DRIVE's TYPE KHLON: TSH8's tables free */
     {330, 'F', 3, 0, 6, 76, 0},                 /* PITCH up: pitched, the cap down to 6 (the second half silent) */
+    {340, 'F', 0, 0, 3, 2, 0},                  /* and TSH8 again: the tables built anew */
     {350, 'G', 2, 0, 0, 0, 0},                  /* lane 3's generator off: its notes released */
     {360, 'G', 2, 0, 1, 99, 0},                 /* and on again: a new walk */
     {380, 'F', 2, 0, 0, 1, 0},                  /* REVERB TYPE room: its body on the second core (two cores) */
@@ -236,9 +236,9 @@ int main(void)
                 ln_gen_mute((uint32_t)t->k, (uint32_t)t->a);
                 rgen_mute[t->k] = t->a != 0;
                 break;
-            case 'F':                           /* group k: 0 drive, 1 filter (lane c), 2 reverb, 3 grain */
+            case 'F':                           /* group k: 0 drive (the mix's), 1 filter (lane c), 2 reverb, 3 grain */
                 ln_fx((uint32_t)t->k, (uint32_t)t->c, (uint32_t)t->a, (uint32_t)t->v);
-                if (t->k == 0) tx_fx_drive_param(&rfx.drive[t->c], (unsigned)t->a, (unsigned)t->v);
+                if (t->k == 0) tx_fx_drive_set(&rfx, (unsigned)t->a, (unsigned)t->v);
                 else if (t->k == 1) tx_fx_filter_param(&rfx.filter[t->c], (unsigned)t->a, (unsigned)t->v);
                 else if (t->k == 2) tx_fx_reverb_param(&rfx.rev, (unsigned)t->a, (unsigned)t->v);
                 else tx_fx_grain_param(&rfx.gd, (unsigned)t->a, (unsigned)t->v);
@@ -283,8 +283,8 @@ int main(void)
     }
     printf("     lanes (two cores): %u blocks with lanes on the second core, %u jobs, reverb TYPEs split 0x%x\n", ln.par_blocks, par_jobs, par_kt);
 #endif
-    if (ln.fx.drv.ts_own != &ln.fx.drive[2] || ln.fx.drive[1].cur != TX_DRT_KHLON || ln.fx.drive[2].cur != TX_DRT_TSH8) {
-        printf("FAIL the DRIVE TYPEs: TSH8 not handed from lane 2 to lane 3\n"); fails++;
+    if (ln.fx.drv.ts_own != &ln.fx.drive[0] || ln.fx.drive[0].cur != TX_DRT_TSH8 || ln.fx.drive[1].cur != TX_DRT_TSH8) {
+        printf("FAIL the DRIVE TYPEs: TSH8 not on both sides of the mix's DRIVE (the left owning it)\n"); fails++;
     }
     if (ln.dropped) { printf("FAIL %u events dropped\n", ln.dropped); fails++; }
     if (!loud) { printf("FAIL the scene was silent\n"); fails++; }

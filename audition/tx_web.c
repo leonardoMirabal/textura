@@ -48,14 +48,15 @@ static int gov_on = 1, gov_ready;
 static uint32_t gov_factor = 0u, gov_cost[TX_MIX_SLOTS], gov_lvl[TX_MIX_SLOTS];
 static void gov_init(void) { if (!gov_ready) { tx_gov_init(&gov, TX_MIX_SLOTS, 3193u); gov_ready = 1; } }
 
-static tx_fx_t fxc;                                     /* the effects: each layer's DRIVE + FILTER, the REVERB */
+static tx_fx_t fxc;                                     /* the effects: each layer's FILTER, the mix's DRIVE, the
+                                                         * GRAIN DELAY, the REVERB */
 static void ready(void)                                 /* the mixer, once, before any call that uses it */
 {
     static int r;
     if (!r) {
         tx_mix_init(&mixer); mixer.ch = &chamber;
         tx_fx_init(&fxc); fxc.two = 1;                  /* (the FM-1's two cores: the grains as set) */
-        mixer.ins = tx_fx_lane; mixer.bus = tx_fx_bus; mixer.busq = tx_fx_bus_quiet; mixer.fx = &fxc;
+        mixer.ins = tx_fx_lane; mixer.pre = tx_fx_drive_mix; mixer.bus = tx_fx_bus; mixer.busq = tx_fx_bus_quiet; mixer.fx = &fxc;
         { unsigned i; for (i = 0; i < TX_CP_NP; i++) tx_comp_param(&mixer.comp, i, tx_comp_params[i].def); }   /* (the
                                                          * app's defaults, as the FM-1's: on) */
         r = 1;
@@ -195,8 +196,8 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
                 for (q = 0; q < ne && !gen_mute[k]; q++) mixer.e[k]->key(mixer.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
             }
             tx_mix_slot_render(&mixer, k, TX_BLOCK);
-            {   /* the governor's cost: this layer's block on the FM-1 (us), less its inserts (DRIVE, FILTER: given
-                 * apart, as the firmware's lanes.c: no hero buys them back) */
+            {   /* the governor's cost: this layer's block on the FM-1 (us), less its insert (FILTER: given apart, as
+                 * the firmware's lanes.c: no hero buys it back) */
                 double us = (emscripten_get_now() - t0) * 1000.0 * gov_factor / 1000.0;
                 uint32_t f = tx_fx_lane_us(&fxc, (unsigned)k);
                 gov_cost[k] = us > 1e6 ? 1000000u : (uint32_t)us;
@@ -227,6 +228,7 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
             uint8_t on[TX_MIX_SLOTS];
             int pk;
             gov_init();
+            tx_gov_extra(&gov, tx_fx_drive_mix_us(&fxc));    /* (the mix's DRIVE: the pool carries it, as lanes.c) */
             for (k = 0; k < TX_MIX_SLOTS; k++) on[k] = mixer.e[k] != 0;
             pk = tx_gov_block(&gov, gov_cost, gov_lvl, on);
             if (pk >= 0 && mixer.e[pk]) mixer.e[pk]->param(mixer.st[pk], TX_PID_PARTICLES, gov.cur[pk]);
@@ -314,9 +316,9 @@ EMSCRIPTEN_KEEPALIVE const char *txw_max_sha(int i)
     return hex;
 }
 
-/* ---- EFFECTS (tx_fx.h): group 0 DRIVE and 1 FILTER (each layer's own, on its signal before the pan), 4 COMPRESSOR
- * (the first effect on the mix: tx_core_comp.h), 3 GRAIN DELAY (on the mix, after it), 2 REVERB (on the mix, last; its
- * TYPE ROOM is the CHAMBER's body + a short hall) */
+/* ---- EFFECTS (tx_fx.h): group 1 FILTER (each layer's own, on its signal before the pan), 0 DRIVE (the first effect
+ * on the mix), 4 COMPRESSOR (on the mix, after it: tx_core_comp.h), 3 GRAIN DELAY (on the mix, after it), 2 REVERB (on
+ * the mix, last; its TYPE ROOM is the CHAMBER's body + a short hall) */
 static const tx_param_t *fx_list(int g, int *n)
 {
     if (g == 0) { *n = TX_DR_NP; return tx_fx_drive_params; }
@@ -331,12 +333,12 @@ EMSCRIPTEN_KEEPALIVE const char *txw_fx_pname(int g, int i) { int n; const tx_pa
 EMSCRIPTEN_KEEPALIVE const char *txw_fx_phelp(int g, int i) { int n; const tx_param_t *p = fx_list(g, &n); return i >= 0 && i < n ? p[i].help : ""; }
 EMSCRIPTEN_KEEPALIVE int txw_fx_pmax(int g, int i) { int n; const tx_param_t *p = fx_list(g, &n); return i >= 0 && i < n ? p[i].max : 0; }
 EMSCRIPTEN_KEEPALIVE int txw_fx_pdef(int g, int i) { int n; const tx_param_t *p = fx_list(g, &n); return i >= 0 && i < n ? p[i].def : 0; }
-/* group g's parameter i to v (k: the layer, for DRIVE / FILTER) */
+/* group g's parameter i to v (k: the layer, for FILTER) */
 EMSCRIPTEN_KEEPALIVE void txw_fx_param(int g, int k, int i, int v)
 {
     ready();
     if (v < 0) v = 0;
-    if (g == 0 && k >= 0 && k < (int)TX_FX_LANES) tx_fx_drive_param(&fxc.drive[k], (unsigned)i, (unsigned)v);
+    if (g == 0) tx_fx_drive_set(&fxc, (unsigned)i, (unsigned)v);
     else if (g == 1 && k >= 0 && k < (int)TX_FX_LANES) tx_fx_filter_param(&fxc.filter[k], (unsigned)i, (unsigned)v);
     else if (g == 2) tx_fx_reverb_param(&fxc.rev, (unsigned)i, (unsigned)v);
     else if (g == 3) tx_fx_grain_param(&fxc.gd, (unsigned)i, (unsigned)v);

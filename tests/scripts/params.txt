@@ -1,5 +1,5 @@
-# the params table: the SOUND pages (per-sound cards: the source's own and the hosted engine's), DRIVE / FILTER (the
-# four lanes' page, then the selected lane's) / GRAIN / REVERB with their ALGORITHM, CC on the lanes' channels and channel 5, NRPN. A few ids by number: they never
+# the params table: the SOUND pages (per-sound cards: the source's own and the hosted engine's), FILTER (the four
+# lanes' page, then the selected lane's) / DRIVE (the mix's) / COMPRESSOR / GRAIN / REVERB with their ALGORITHM, CC on the lanes' channels and channel 5, NRPN. A few ids by number: they never
 # change ("p<hex id>": 0x008 = lane 1's first card, 0x125 = lane 2's FILTER FREQ, 0x40B = GRAIN FREEZE, 0x411 = REVERB
 # MIX)
 1700 btn 13
@@ -51,51 +51,46 @@
 2760 expect state lab2 RHYTHM
 2760 expect state host3.5 64
 2760 expect state card1 64
-# EDIT again: DRIVE 1/2, the four lanes' AMOUNT (K2: lane 2's, which selects lane 2); ALGORITHM: lane 2's type
-2800 btn 6
-2820 expect state page DRIVE_1/2
-2820 expect state lab0 AMOUNT
-2820 expect state lab3 AMOUNT
-2830 turn 3 30
-2850 expect state sel 2
-2850 expect state p120 30
-2860 turn 1 1
-2880 expect state p123 1
-2880 expect state msg L2_DRIVE_KHLON
-2880 expect state p323 0
-2900 shot
-# SELECT: DRIVE 2/2, lane 2's: TYPE AMOUNT TONE MIX; OCT+: lane 3's, OCT-: lane 2's again
-2920 turn 0 1
-2940 expect state page DRIVE_2/2
-2940 expect state lab0 AMOUNT
-2940 expect state lab3 TYPE
-2940 expect state card3 KHLON
-2950 btn 1
-2970 expect state sel 3
-2970 expect state page DRIVE_2/2
-2970 expect state card3 FDRV
-2980 btn 0
-3000 expect state sel 2
-3000 shot
 # EDIT again: FILTER 1/3, the four lanes' FREQ (K3: lane 3's, which selects it); SELECT: 2/3 lane 3's; ALGORITHM:
 # LP12; K2: the cutoff in Hz; SELECT: 3/3 RATE SHAPE
-3100 btn 6
-3120 expect state page FILTER_1/3
-3120 expect state lab0 FREQ
-3130 turn 4 -1
-3150 expect state sel 3
-3160 turn 0 1
-3180 expect state page FILTER_2/3
-3200 turn 1 1
-3220 expect state card0 LP12
-3220 expect state p224 1
-3300 turn 3 -40
+2800 btn 6
+2820 expect state page FILTER_1/3
+2820 expect state lab0 FREQ
+2830 turn 4 -1
+2850 expect state sel 3
+2860 turn 0 1
+2880 expect state page FILTER_2/3
+2900 turn 1 1
+2920 expect state card0 LP12
+2920 expect state p224 1
+3000 turn 3 -40
+3100 shot
+3200 turn 0 1
+3220 expect state page FILTER_3/3
+3220 expect state lab0 RATE
+3220 expect state lab2 -
+# FX: DRIVE (the mix's, one page): AMOUNT TONE MIX TYPE; K1: AMOUNT; ALGORITHM: its TYPE; CC 79 on channel 5: TYPE
+3300 btn 2
+3320 expect state page DRIVE
+3320 expect state lab0 AMOUNT
+3320 expect state lab1 TONE
+3320 expect state lab2 MIX
+3320 expect state lab3 TYPE
+3320 expect state card3 FDRV
+3330 turn 2 30
+3350 expect state p430 30
+3360 turn 1 1
+3380 expect state p433 1
+3380 expect state msg DRIVE_KHLON
+3380 expect state card3 KHLON
 3400 shot
-3500 turn 0 1
-3520 expect state page FILTER_3/3
-3520 expect state lab0 RATE
-3520 expect state lab2 -
-# FX: COMPRESSOR 1/2 (Frodhes' four knobs; on by default); ALGORITHM: COMP off / on; CC 118 on channel 5: RAT
+3420 turn 2 -30
+3440 expect state p430 0
+3450 midi 0xB4 79 127
+3470 expect state p433 4
+3480 midi 0xB4 79 0
+3500 expect state p433 0
+# FX again: COMPRESSOR 1/2 (Frodhes' four knobs; on by default); ALGORITHM: COMP off / on; CC 118 on channel 5: RAT
 3540 btn 2
 3545 expect state page COMPRESSOR_1/2
 3545 expect state lab0 THR
@@ -158,9 +153,9 @@
 5000 midi 0xB0 98 3
 5000 midi 0xB0 6 30
 5020 expect state vol1 30
-# a select by CC: the drive's TYPE on lane 1 (0 .. 4 over 0 .. 127)
+# CC 79 on a lane's channel: no longer the DRIVE's (the mix's: channel 5)
 5100 midi 0xB0 79 127
-5120 expect state p023 4
+5120 expect state p433 0
 5500 expect sound
 5500 expect state dropped 0
 5600 end

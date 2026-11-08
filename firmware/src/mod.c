@@ -8,8 +8,9 @@
  * MOD_SENDS a block in rotation (and one more each block refreshed, so a value the panel sent meanwhile is put back).
  *
  * In the main loop (mod_poll): the routes. Each slot's TARGET is an index into one list (mod_tgt_*): lane 1..4 or ALL
- * LANES (LEVEL, PAN, HOW MANY, HOW ACTIVE, the sound's 8 cards, DRIVE AMOUNT / TONE / MIX, FILTER FREQ / RESO / LFO /
- * RATE), the grain delay's and the reverb's amounts, each LFO's RATE and LEVEL. Never: a TYPE, FREEZE, SYNC, SHIFT, a
+ * LANES (LEVEL, PAN, HOW MANY, HOW ACTIVE, the sound's 8 cards, FILTER FREQ / RESO / LFO / RATE), the grain delay's
+ * and the reverb's amounts, each LFO's RATE and LEVEL, the mix's DRIVE AMOUNT / TONE / MIX (appended; a lane's DRIVE
+ * targets of before, still in the list where they were, are the mix's DRIVE now: mod_tgt_drv). Never: a TYPE, FREEZE, SYNC, SHIFT, a
  * sound's PRESET / TYPE (the cards hold none). The routes are rebuilt into the other of two buffers whenever a slot, a
  * base value or a lane's sound changes and the interrupt takes the new one at its next block; a target that loses
  * its last route gets its base value back. HOW MANY is changed through the lane model (scape.c), at most every 250 ms
@@ -40,7 +41,9 @@ enum { MK_ENG, MK_HOST, MK_PAN, MK_FX, MK_ACT, MK_COUNT, MK_LRATE, MK_LLEVEL };
 #define MT_GRAIN0 (1u + 5u * MT_LANE_N)         /* 96 */
 #define MT_REV0 (MT_GRAIN0 + 11u)               /* 107 */
 #define MT_LFO0 (MT_REV0 + 8u)                  /* 115 */
-#define MT_N (MT_LFO0 + 2u * TX_LFO_N)          /* 131: TARGET 0 (none) .. 130 */
+#define MT_DRV0 (MT_LFO0 + 2u * TX_LFO_N)       /* 131: the mix's DRIVE AMOUNT TONE MIX */
+#define MT_N (MT_DRV0 + 3u)                     /* 134: TARGET 0 (none) .. 133 */
+#define MT_LDRV 12u                             /* a lane's targets 12 .. 14: its DRIVE once, the mix's now */
 static const uint8_t MT_GRAIN[11] = {TX_GD_MIX, TX_GD_TIME, TX_GD_FEEDBACK, TX_GD_GRAINS, TX_GD_SIZE, TX_GD_SPRAY,
                                      TX_GD_PITCH, TX_GD_REVERSE, TX_GD_SPREAD, TX_GD_TONE, TX_GD_GRAIN};
 static const uint8_t MT_REV[8] = {TX_RV_MIX, TX_RV_DECAY, TX_RV_TONE, TX_RV_PREDELAY, TX_RV_SIZE, TX_RV_MOD,
@@ -194,14 +197,25 @@ static void mod_block(void)
 }
 
 /* ---- the targets' list (TARGET 1 .. MT_N - 1) */
-static uint32_t mod_tgt_lanes(uint32_t T) { return T && T < MT_GRAIN0 ? (T - 1u) / MT_LANE_N : 5u; }   /* 0..3, 4 ALL, 5 none */
+static uint32_t mod_tgt_drv(uint32_t T)         /* the mix's DRIVE parameter T is (TX_DR_NP: not one) */
+{
+    if (T >= MT_DRV0 && T < MT_N) return T - MT_DRV0;
+    if (T && T < MT_GRAIN0 && (T - 1u) % MT_LANE_N >= MT_LDRV && (T - 1u) % MT_LANE_N < MT_LDRV + 3u)
+        return (T - 1u) % MT_LANE_N - MT_LDRV;   /* (TX_DR_AMOUNT TONE MIX: 0 1 2) */
+    return TX_DR_NP;
+}
+static uint32_t mod_tgt_lanes(uint32_t T)       /* 0..3, 4 ALL, 5 none (a global) */
+{
+    return T && T < MT_GRAIN0 && mod_tgt_drv(T) == TX_DR_NP ? (T - 1u) / MT_LANE_N : 5u;
+}
 static uint32_t mod_tgt_pid(uint32_t T, uint32_t k)   /* the param id it is on lane k */
 {
     if (!T || T >= MT_N) return NOID_P;
+    if (mod_tgt_drv(T) < TX_DR_NP) return PID(P_GLOBAL, PG_DRIVE0 + mod_tgt_drv(T));
     if (T < MT_GRAIN0) {
         static const uint8_t J[MT_LANE_N] = {PL_LEVEL, PL_PAN, PL_COUNT, PL_ACTIVE, PL_CARD0, PL_CARD0 + 1, PL_CARD0 + 2,
-            PL_CARD0 + 3, PL_CARD0 + 4, PL_CARD0 + 5, PL_CARD0 + 6, PL_CARD0 + 7, PL_DRIVE0 + TX_DR_AMOUNT,
-            PL_DRIVE0 + TX_DR_TONE, PL_DRIVE0 + TX_DR_MIX, PL_FILTER0 + TX_FL_FREQ, PL_FILTER0 + TX_FL_RESO,
+            PL_CARD0 + 3, PL_CARD0 + 4, PL_CARD0 + 5, PL_CARD0 + 6, PL_CARD0 + 7, 0, 0, 0,   /* (12 .. 14: mod_tgt_drv) */
+            PL_FILTER0 + TX_FL_FREQ, PL_FILTER0 + TX_FL_RESO,
             PL_FILTER0 + TX_FL_LFO, PL_FILTER0 + TX_FL_RATE};
         return PID(k, J[(T - 1u) % MT_LANE_N]);
     }
@@ -209,12 +223,13 @@ static uint32_t mod_tgt_pid(uint32_t T, uint32_t k)   /* the param id it is on l
     if (T < MT_LFO0) return PID(P_GLOBAL, PG_REVERB0 + MT_REV[T - MT_REV0]);
     return PID(P_LFO, ((T - MT_LFO0) / 2u) * 16u + ((T - MT_LFO0) & 1u ? TX_LP_LEVEL : TX_LP_RATE));
 }
-/* "L2 SIZE", "ALL LEVEL", "GRAIN MIX", "REV DECAY", "LFO3 RATE" */
+/* "L2 SIZE", "ALL LEVEL", "GRAIN MIX", "REV DECAY", "LFO3 RATE", "DRV AMOUNT" */
 static void mod_tgt_text(uint32_t T, char *s)
 {
     uint32_t sc_ = mod_tgt_lanes(T), k = sc_ < 4u ? sc_ : sc.sel;
     s[0] = 0;
     if (!T || T >= MT_N) { p_strcpy(s, "NONE", 5); return; }
+    if (mod_tgt_drv(T) < TX_DR_NP) { p_strcpy(s, "DRV ", 4); p_cat(s, p_lab(mod_tgt_pid(T, 0)), 23); return; }
     if (sc_ < 4u) { s[0] = 'L'; s[1] = (char)('1' + sc_); s[2] = ' '; s[3] = 0; }
     else if (sc_ == 4u) p_strcpy(s, "ALL ", 4);
     else if (T < MT_REV0) p_strcpy(s, "GRAIN ", 6);
@@ -222,8 +237,7 @@ static void mod_tgt_text(uint32_t T, char *s)
     else { p_strcpy(s, "LFO", 3); { char n[2] = {(char)('1' + (T - MT_LFO0) / 2u), 0}; p_cat(s, n, 23); } p_cat(s, " ", 23); }
     if (T < MT_GRAIN0) {
         uint32_t j = (T - 1u) % MT_LANE_N;
-        if (j >= 12u && j < 15u) p_cat(s, "DRV ", 23);
-        else if (j >= 15u) p_cat(s, "FLT ", 23);
+        if (j >= 15u) p_cat(s, "FLT ", 23);
         if (j >= 4u && j < 12u && !p_valid(mod_tgt_pid(T, k))) { char c[4] = {'C', (char)('1' + j - 4u), 0, 0}; p_cat(s, c, 23); return; }
     }
     p_cat(s, p_lab(mod_tgt_pid(T, k)), 23);
@@ -235,6 +249,7 @@ static uint32_t mod_tgt_of(uint32_t id)
     for (T = 1; T < MT_N; T++) {
         uint32_t l = mod_tgt_lanes(T);
         if (l == 4u || (l < 4u && l != k)) continue;   /* (a lane's target: that lane's, not lane 1's) */
+        if (T < MT_GRAIN0 && mod_tgt_drv(T) < TX_DR_NP) continue;   /* (the old lane DRIVE's: the appended ones) */
         if (mod_tgt_pid(T, k) == id) return T;
     }
     return 0;
@@ -247,6 +262,11 @@ static int mod_concrete(uint32_t T, uint32_t k, mt_t *o)   /* target T on lane k
 {
     uint32_t id = mod_tgt_pid(T, k), i = P_IDX(id);
     o->id = (uint16_t)id; o->lane = (uint8_t)k; o->inv = 0; o->eng = 0; o->grp = 0; o->pid = 0;
+    if (mod_tgt_drv(T) < TX_DR_NP) {            /* the mix's DRIVE */
+        o->kind = MK_FX; o->lane = 0; o->grp = LN_FX_DRIVE; o->pid = (uint8_t)mod_tgt_drv(T);
+        o->hi = (uint8_t)p_hi(id); o->base = (int16_t)pv_glob[i];
+        return 1;
+    }
     if (T >= MT_LFO0) {
         uint32_t n = (T - MT_LFO0) / 2u;
         o->kind = (T - MT_LFO0) & 1u ? MK_LLEVEL : MK_LRATE; o->lane = (uint8_t)n; o->hi = 127;
@@ -283,9 +303,8 @@ static int mod_concrete(uint32_t T, uint32_t k, mt_t *o)   /* target T on lane k
         o->inv = (uint8_t)((c->kind[j] & CK_INV) != 0); o->base = c->cv[j]; o->eng = sc.eng[k];
         return 1;
     }
-    if (i >= PL_DRIVE0 && i < PL_FILTER0 + TX_FL_NP) {
-        o->kind = MK_FX; o->grp = i < PL_FILTER0 ? LN_FX_DRIVE : LN_FX_FILTER;
-        o->pid = (uint8_t)(i < PL_FILTER0 ? i - PL_DRIVE0 : i - PL_FILTER0);
+    if (i >= PL_FILTER0 && i < PL_FILTER0 + TX_FL_NP) {
+        o->kind = MK_FX; o->grp = LN_FX_FILTER; o->pid = (uint8_t)(i - PL_FILTER0);
         o->hi = (uint8_t)p_hi(id); o->base = pv_lane[k][i];
         return 1;
     }

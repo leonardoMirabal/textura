@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Textura player: the engines (WebAssembly, tx_web.c) played from the computer keys, the mouse or a MIDI keyboard,
 // four layers at once (stage S3: each its own engine, parameters, level and pan; keys shared or in zones; the EFFECTS:
-// each layer's drive and filter, the reverb on the mix), with CPU, level and particle meters and a 10 s stereo recorder. The audio-callback shape (ScriptProcessor, a linear
+// each layer's filter; the drive, compressor, grain delay and reverb on the mix), with CPU, level and particle meters and a 10 s stereo recorder. The audio-callback shape (ScriptProcessor, a linear
 // resampler when the browser will not open 44.1 kHz) follows Frodhes' web/app.js.
 "use strict";
 
@@ -96,7 +96,7 @@ async function init() {
   window.txTest.zone = (k, lo, hi) => { layers[k].lo = lo; layers[k].hi = hi; showLayers(); };
   window.txTest.chSha = i => S(M._txw_ch_max_sha(i));
   window.txTest.fx = (g, k, p, v) => { const id = `fx${g}-${p}`, box = g === 4 ? "fx-cp" : g === 3 ? "fx-gd" : g === 2 ? "fx-rv" : g ? "fx-fl" : "fx-dr";
-    if (g < 2 && k !== ed) editLayer(k); const inp = document.querySelector(`#${box} input[data-id="${id}"]`);
+    if (g === 1 && k !== ed) editLayer(k); const inp = document.querySelector(`#${box} input[data-id="${id}"]`);
     if (inp) { inp.value = v; inp.oninput(); } return { running: M._txw_fx_running(), frozen: M._txw_fx_frozen(),
     grains: M._txw_fx_grains(), cap: M._txw_fx_cap() }; };
   window.txTest.ratings = () => JSON.parse(JSON.stringify(ratings));
@@ -420,9 +420,9 @@ function saveLayers() {
   try { localStorage.setItem("textura.layers", JSON.stringify({ mode: keyMode, layers: layers.map(l => ({ eng: l.eng, pan: l.pan, lo: l.lo, hi: l.hi })) })); } catch (e) { }
 }
 
-// ---- EFFECTS (tx_fx.h): the REVERB on the mix (group 2; TYPE ROOM is the old CHAMBER), each layer's DRIVE (0) and FILTER
-// (1) on its own signal. The reverb's values and each layer's are kept in this browser (textura.fx)
-const fxv = { rv: {}, gd: {}, cp: {}, lane: [0, 1, 2, 3].map(() => ({ 0: {}, 1: {} })) };
+// ---- EFFECTS (tx_fx.h): on the mix DRIVE (group 0), COMPRESSOR (4), GRAIN DELAY (3), REVERB (2; TYPE ROOM is the old
+// CHAMBER), each layer's FILTER (1) on its own signal. The values are kept in this browser (textura.fx)
+const fxv = { rv: {}, gd: {}, cp: {}, dr: {}, lane: [0, 1, 2, 3].map(() => ({ 1: {} })) };
 function fxSave() { try { localStorage.setItem("textura.fx", JSON.stringify({ ...fxv, cmp: fxv.cp, cp: undefined })); } catch (e) { } }
 function fxBox(box, g, vals, apply) {
   box.textContent = "";
@@ -432,9 +432,8 @@ function fxBox(box, g, vals, apply) {
            x => { vals[p] = x; apply(p, x); fxSave(); }, false, `fx${g}-${p}`);
   }
 }
-function fxLayer() {                                   // the edited layer's DRIVE and FILTER
-  for (const g of [0, 1]) fxBox($(g ? "fx-fl" : "fx-dr"), g, fxv.lane[ed][g], (p, x) => M._txw_fx_param(g, ed, p, x));
-  $("fx-dr-title").textContent = `DRIVE (layer ${ed + 1})`;
+function fxLayer() {                                   // the edited layer's FILTER
+  fxBox($("fx-fl"), 1, fxv.lane[ed][1], (p, x) => M._txw_fx_param(1, ed, p, x));
   $("fx-fl-title").textContent = `FILTER (layer ${ed + 1})`;
 }
 function buildChamber() {                             // (the old CHAMBER's place: now the effects)
@@ -444,12 +443,19 @@ function buildChamber() {                             // (the old CHAMBER's plac
   if (saved && saved.cmp) Object.assign(fxv.cp, saved.cmp);   // ("cmp": the COMPRESSOR's six; the old one-knob COMP's "cp" dropped)
   else if (saved && saved.lane && saved.lane[0] && saved.lane[0][4]) Object.assign(fxv.cp, saved.lane[0][4]);   // (one
                                                       // version's per-layer COMPRESSOR: layer 1's onto the mix's)
-  if (saved && saved.rv && saved.lane) { Object.assign(fxv.rv, saved.rv); saved.lane.forEach((l, k) => { if (k < 4) fxv.lane[k] = { 0: l[0] || {}, 1: l[1] || {} }; }); }
+  if (saved && saved.dr) Object.assign(fxv.dr, saved.dr);
+  else if (saved && saved.lane) {                     // (the per-layer DRIVE of before: the layer with the most AMOUNT)
+    const d = saved.lane.filter(l => l && l[0] && l[0][0] > 0).sort((a, b) => b[0][0] - a[0][0])[0];
+    if (d) Object.assign(fxv.dr, d[0]);
+  }
+  if (saved && saved.rv && saved.lane) { Object.assign(fxv.rv, saved.rv); saved.lane.forEach((l, k) => { if (k < 4) fxv.lane[k] = { 1: l[1] || {} }; }); }
   try { if (!saved && localStorage.getItem("textura.chamber") === "1") fxv.rv = { 0: 1, 1: 127 }; } catch (e) { }   // CHAMBER on: ROOM
   for (const p in fxv.rv) M._txw_fx_param(2, 0, +p, fxv.rv[p]);
   for (const p in fxv.gd) M._txw_fx_param(3, 0, +p, fxv.gd[p]);
   for (const p in fxv.cp) M._txw_fx_param(4, 0, +p, fxv.cp[p]);
-  fxv.lane.forEach((l, k) => { for (const g of [0, 1]) for (const p in l[g]) M._txw_fx_param(g, k, +p, l[g][p]); });
+  for (const p in fxv.dr) M._txw_fx_param(0, 0, +p, fxv.dr[p]);
+  fxv.lane.forEach((l, k) => { for (const p in l[1]) M._txw_fx_param(1, k, +p, l[1][p]); });
+  fxBox($("fx-dr"), 0, fxv.dr, (p, x) => M._txw_fx_param(0, 0, p, x));
   fxBox($("fx-cp"), 4, fxv.cp, (p, x) => M._txw_fx_param(4, 0, p, x));
   fxBox($("fx-gd"), 3, fxv.gd, (p, x) => M._txw_fx_param(3, 0, p, x));
   fxBox($("fx-rv"), 2, fxv.rv, (p, x) => M._txw_fx_param(2, 0, p, x));

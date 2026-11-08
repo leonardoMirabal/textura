@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura GOV: the CPU governor across lanes (SOURCE-DESIGN 4e), v2. The lanes share one pool (TX_GOV_POOL_*: the
  * planned ~1700 us on the host, on the device what the measured interrupt leaves). Per block the host passes each
- * lane's cost (us on the device: measured, or estimated), its level and whether it sounds; the lane's inserts (DRIVE,
- * FILTER: tx_fx_lane_us) are given apart (tx_gov_fixed): they count against the pool but no hero buys them back.
+ * lane's cost (us on the device: measured, or estimated), its level and whether it sounds; the lane's insert (FILTER:
+ * tx_fx_lane_us) is given apart (tx_gov_fixed), the mix's DRIVE with the effects (tx_gov_extra): they count against the
+ * pool but no hero buys them back.
  *
  *   over the pool (the ~8-block mean): one hero less, every 8 blocks, where it pays most: the lane with the most us
  *     saved per level lost (its us a hero / its level a hero), lifted heroes first (below);
@@ -13,7 +14,7 @@
  *     pool (the hysteresis between the two thresholds: a lift never brings the next cut)
  *   a lane over half the pool on its own (its ~8-block mean and its inserts): a hero less there first, every 8 blocks,
  *     whatever the rest costs; the headroom never lifts a lane past half
- *   tx_gov_extra: the pool's share no lane carries (the modulation), counted in the total
+ *   tx_gov_extra: the pool's share no lane carries (the modulation, the mix's DRIVE), counted in the total
  *   the us a hero saves is learned per lane: a cut's cost before, its cost ~32 blocks after (the lane's own 32-block
  *     mean), the change per hero blended into the estimate (the first reading replaces the guess); until a lane's first cut has been measured, its mean
  *     cost / (heroes + 2) stands for it

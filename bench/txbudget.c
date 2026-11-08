@@ -226,8 +226,8 @@ static const mixdef_t MIXES[] = {
 };
 
 /* ---- the effects (tx_fx.h): one effect on a busy input (noise at -12 dBFS, all the time), its block's cost on the
- * FM-1 (the per-block minimum over runs, then the 75th percentile: the cost is flat, the host is not). kind 0 drive, 1
- * filter, 2 reverb, 3 grain delay */
+ * FM-1 (the per-block minimum over runs, then the 75th percentile: the cost is flat, the host is not). kind 0 drive (one
+ * side of the mix's pair: the mix pays two), 1 filter, 2 reverb, 3 grain delay */
 static int fxc_cmp(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
 static double fx_cost(int kind, unsigned type, unsigned decay)
 {
@@ -257,7 +257,8 @@ static double fx_cost(int kind, unsigned type, unsigned decay)
             if (b == 200u && decay == 127) tx_fx_reverb_param(&fx.rev, TX_RV_DECAY, 127);
             for (j = 0; j < TX_BLOCK; j++) { rng = rng * 1664525u + 1013904223u; L[j] = R[j] = (int32_t)(rng >> 10) - (1 << 21); }
             t0 = tx_now_ns();
-            if (kind >= 2) tx_fx_bus(&fx, L, R, TX_BLOCK); else tx_fx_lane(&fx, 0, L, TX_BLOCK);
+            if (kind >= 2) tx_fx_bus(&fx, L, R, TX_BLOCK);
+            else if (kind) tx_fx_lane(&fx, 0, L, TX_BLOCK); else tx_fx_drive_process(&fx.drive[0], L, TX_BLOCK);
             if (r) t[r - 1][b] = tx_now_ns() - t0;
         }
     }

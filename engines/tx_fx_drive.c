@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Textura DRIVE (a lane's insert): Felucca's track drive (track_dist) as Frodhes runs it, its classic FDRV
+/* Textura DRIVE (the mix's: a pair of instances, L and R, one set of settings): Felucca's track drive (track_dist) as Frodhes runs it, its classic FDRV
  * (fx.c fx_drive_classic: the gain law to ~18x at the top, level-neutral make-up, TONE after it: a shelf at ~1.8 kHz,
  * 0 = the highs gone, 64 = flat, 127 = +6 dB; MIX dry / driven), as one instance. TONE glides over ~23 ms, MIX and
  * on / off over ~46 ms: no zipper, no click. AMOUNT 0 = off (after its glide out): the lane untouched.
@@ -13,8 +13,9 @@
  * the dry / wet blend at Q23 (w ramping every 4 samples: MIX and on / off over ~46 ms, as the classic drive), AMOUNT 0
  * glides out as the classic drive does. A TYPE change while the drive sounds fades the one that runs out (46 ms),
  * then the new one starts from rest and fades in. TSH8's diode tables are shared (tx_drv_shared_t, 12.2 KB once):
- * TSH8 belongs to the first lane that selects it until that lane selects another TYPE; another lane that asks for it
- * meanwhile keeps the TYPE it runs (and takes TSH8 as soon as it is free). */
+ * TSH8 belongs to the first instance that selects it until that one selects another TYPE; another that asks for it
+ * meanwhile keeps the TYPE it runs (and takes TSH8 as soon as it is free). A pair (tx_fx_drive_pair: the mix's L and
+ * R) owns it as one: the first builds and swaps the tables, the second runs on them in the same block. */
 #include "tx_fx.h"
 #define TX_FX_DRIVE_UNIT
 #include "tx_drive_tables.h"
@@ -42,6 +43,7 @@ void tx_fx_drive_init(tx_fx_drive_t *d)
     for (i = 0; i < TX_DR_NP; i++) d->p[i] = tx_fx_drive_params[i].def;
     d->w = 32768;
     d->tg = 4096;
+    d->own = d;
 }
 void tx_fx_drive_param(tx_fx_drive_t *d, unsigned id, unsigned v)
 {
@@ -142,7 +144,7 @@ static int drv_run(tx_fx_drive_t *d, tx_drv_scr_t *w, int32_t *q, unsigned n, in
 {
     switch (d->cur) {
     case TX_DRT_KHLON: drv_khlon_run(&d->u.kh, w, q, q, n, a, t); return 0;
-    case TX_DRT_TSH8: return drv_tsh8_run(&d->u.ts, d->sh, w, q, q, n, a, t);
+    case TX_DRT_TSH8: return drv_tsh8_run(&d->u.ts, d->sh, w, q, q, n, a, t, !d->fol);
     case TX_DRT_OHCD: drv_ohcd_run(&d->u.oh, q, q, n, a, t); return 0;
     case TX_DRT_BHLUE: drv_bhlue_run(&d->u.bh, q, q, n, a, t); return 0;
     default: return 1;
@@ -189,11 +191,11 @@ static int dr_switch(tx_fx_drive_t *d, unsigned t)
 {
     tx_drv_shared_t *sh = d->sh;
     if (t >= TX_DRT_N || !sh) return 1;
-    if (t == TX_DRT_TSH8 && sh->ts_own && sh->ts_own != d) return 1;
+    if (t == TX_DRT_TSH8 && sh->ts_own && sh->ts_own != d->own) return 1;
     if (d->on) return 0;
-    if (d->cur == TX_DRT_TSH8 && sh->ts_own == d) sh->ts_own = 0;
+    if (d->cur == TX_DRT_TSH8 && sh->ts_own == d->own && !d->fol) sh->ts_own = 0;
     d->cur = (uint8_t)t;
-    if (t == TX_DRT_TSH8) sh->ts_own = d;
+    if (t == TX_DRT_TSH8) sh->ts_own = d->own;
     if (t) drv_reset(d, t);
     else { d->ton = 0; d->tg = 4096; }                    /* (the classic shelf at rest, as its own off leaves it) */
     return 1;
@@ -216,12 +218,13 @@ TX_RAM TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x23, un
     tx_fx_drive_run(d, x23, n, 0);
 }
 void tx_fx_drive_share(tx_fx_drive_t *d, tx_drv_shared_t *sh) { d->sh = sh; }
+void tx_fx_drive_pair(tx_fx_drive_t *second, const tx_fx_drive_t *first) { second->own = first; second->fol = 1; }
 void tx_fx_drive_shared_init(tx_drv_shared_t *sh)
 {
     tx_fx_memset(sh, 0, sizeof *sh);
     sh->ts_trow = -1; sh->ts_bpos = -1;
 }
-/* the FM-1 cost of this lane's DRIVE (us a block; 0 off): FDRV TX_FX_US_FDRV; a TYPE its count (Frodhes, compiled)
+/* the FM-1 cost of this DRIVE (us a block; 0 off): FDRV TX_FX_US_FDRV; a TYPE its count (Frodhes, compiled)
  * + the framework, + the blend while it blends; while a TYPE change waits, the dearer of the two */
 uint32_t tx_fx_drive_us(const tx_fx_drive_t *d)
 {
@@ -229,7 +232,7 @@ uint32_t tx_fx_drive_us(const tx_fx_drive_t *d)
     uint32_t us, ut;
     if (!d->on && !d->p[TX_DR_AMOUNT]) return 0;
     us = !c ? TX_FX_US_FDRV : DRV_US_CORE + DRV_US[c] + DRV_US_BLEND;
-    if (t != c && t < TX_DRT_N && d->sh && !(t == TX_DRT_TSH8 && d->sh->ts_own && d->sh->ts_own != d)) {
+    if (t != c && t < TX_DRT_N && d->sh && !(t == TX_DRT_TSH8 && d->sh->ts_own && d->sh->ts_own != d->own)) {
         ut = !t ? TX_FX_US_FDRV : DRV_US_CORE + DRV_US[t] + DRV_US_BLEND;
         if (ut > us) us = ut;
     }

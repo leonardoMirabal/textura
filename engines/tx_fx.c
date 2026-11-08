@@ -348,9 +348,9 @@ void tx_fx_init(tx_fx_t *fx)
 {
     unsigned k;
     tx_fx_drive_shared_init(&fx->drv);
-    for (k = 0; k < TX_FX_LANES; k++) {
-        tx_fx_drive_init(&fx->drive[k]); tx_fx_drive_share(&fx->drive[k], &fx->drv); tx_fx_filter_init(&fx->filter[k]);
-    }
+    for (k = 0; k < 2u; k++) { tx_fx_drive_init(&fx->drive[k]); tx_fx_drive_share(&fx->drive[k], &fx->drv); }
+    tx_fx_drive_pair(&fx->drive[1], &fx->drive[0]);
+    for (k = 0; k < TX_FX_LANES; k++) tx_fx_filter_init(&fx->filter[k]);
     tx_fx_grain_init(&fx->gd);
     tx_fx_reverb_init(&fx->rev);
     fx->reserve_us = TX_FX_RESERVE_US;
@@ -362,30 +362,35 @@ TX_AUDIO_CODE void tx_fx_lane(void *u, unsigned k, int32_t *x, unsigned n)
 {
     tx_fx_t *fx = (tx_fx_t *)u;
     if (k >= TX_FX_LANES) return;
-    TX_FAR(tx_fx_drive_process)(&fx->drive[k], x, n);  /* (both in RAM on the FM-1: TX_RAM) */
-    TX_FAR(tx_fx_filter_process)(&fx->filter[k], x, n);
-}
-TX_AUDIO_CODE void tx_fx_lane_prep(void *u, unsigned k)
-{
-    tx_fx_t *fx = (tx_fx_t *)u;
-    if (k < TX_FX_LANES) tx_fx_drive_prep(&fx->drive[k]);
+    TX_FAR(tx_fx_filter_process)(&fx->filter[k], x, n);   /* (in RAM on the FM-1: TX_RAM) */
 }
 TX_AUDIO_CODE void tx_fx_lane_run(void *u, unsigned k, int32_t *x, unsigned n, unsigned core)
 {
     tx_fx_t *fx = (tx_fx_t *)u;
     if (k >= TX_FX_LANES) return;
-    if (core) {                                        /* core 1: the twins in XIP (TX_C1), its own DRIVE scratch */
-        TX_C1(tx_fx_drive_run)(&fx->drive[k], x, n, &fx->scr1);
-        TX_C1(tx_fx_filter_process)(&fx->filter[k], x, n);
-    } else {
-        TX_FAR(tx_fx_drive_run)(&fx->drive[k], x, n, 0);
-        TX_FAR(tx_fx_filter_process)(&fx->filter[k], x, n);
-    }
+    if (core) TX_C1(tx_fx_filter_process)(&fx->filter[k], x, n);   /* core 1: the twin in XIP (TX_C1) */
+    else TX_FAR(tx_fx_filter_process)(&fx->filter[k], x, n);
 }
 uint32_t tx_fx_lane_us(const tx_fx_t *fx, unsigned k)
 {
-    return k < TX_FX_LANES ? tx_fx_drive_us(&fx->drive[k]) + tx_fx_filter_us(&fx->filter[k]) : 0u;
+    return k < TX_FX_LANES ? tx_fx_filter_us(&fx->filter[k]) : 0u;
 }
+/* the mix's DRIVE: one set of settings on the pair */
+void tx_fx_drive_set(tx_fx_t *fx, unsigned id, unsigned v)
+{
+    tx_fx_drive_param(&fx->drive[0], id, v);
+    tx_fx_drive_param(&fx->drive[1], id, v);
+}
+TX_AUDIO_CODE void tx_fx_drive_mix(void *u, int32_t *L, int32_t *R, unsigned n)
+{
+    tx_fx_t *fx = (tx_fx_t *)u;
+    if (!fx->drive[0].on && !fx->drive[0].p[TX_DR_AMOUNT] && !fx->drive[1].on) return;   /* (off: the mix untouched) */
+    tx_fx_drive_prep(&fx->drive[0]);                    /* (a TYPE change: the pair together, the first first) */
+    tx_fx_drive_prep(&fx->drive[1]);
+    TX_FAR(tx_fx_drive_run)(&fx->drive[0], L, n, 0);     /* (in RAM on the FM-1: TX_RAM) */
+    TX_FAR(tx_fx_drive_run)(&fx->drive[1], R, n, 0);
+}
+uint32_t tx_fx_drive_mix_us(const tx_fx_t *fx) { return tx_fx_drive_us(&fx->drive[0]) + tx_fx_drive_us(&fx->drive[1]); }
 /* the grain delay's dynamic cap: the grains the effects reserve leaves after the reverb's TYPE (FM-1 us a block,
  * CPU-BUDGET.md section 8: the reverb's worst per TYPE, the delay's line + echo, a sounding grain) */
 #define FX_US_GD_BASE 220u         /* the line, the echo, the feedback (make tx-budget section 4, 2026-10-25) */

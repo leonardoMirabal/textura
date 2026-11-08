@@ -249,10 +249,10 @@ def main():
         page.evaluate("window.txTest.fx(3, 0, 0, 0)")
         page.evaluate("window.txTest.fx(2, 0, 8, 0)")
         page.evaluate("window.txTest.fx(2, 0, 2, 64)")
-        page.evaluate("window.txTest.fx(0, 0, 0, 90)")  # layer 1's DRIVE and FILTER on: still sounds
+        page.evaluate("window.txTest.fx(0, 0, 0, 90)")  # the mix's DRIVE and layer 1's FILTER on: still sounds
         page.evaluate("window.txTest.fx(1, 0, 0, 2)")
         lv = page.evaluate("window.txTest.render(16)")
-        check(lv > 0, f"DRIVE + FILTER on layer 1: the output sounds (peak {lv})")
+        check(lv > 0, f"DRIVE (the mix) + FILTER on layer 1: the output sounds (peak {lv})")
         for g, p in ((0, 0), (1, 0), (2, 0), (2, 1)):  # all off again, MIX 0: no tail left (the classic checks below)
             page.evaluate(f"window.txTest.fx({g}, 0, {p}, 0)")
         # a switch with keys held: the new engine takes them over; switching a sounding layer off fades (no click)

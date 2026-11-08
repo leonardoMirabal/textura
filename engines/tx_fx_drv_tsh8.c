@@ -269,15 +269,23 @@ static void ts_first(tx_drv_shared_t *sh, int32_t a)
 }
 
 /* the wet signal of the block, in -> out (out may be in), n even; returns 1 when it only built the first table (the
- * kernel not run, out untouched: the lane stays dry this block) */
+ * kernel not run, out untouched: the lane stays dry this block). lead 0: a pair's second (the same settings, run
+ * after the first in the same block): the tables as the first left them, its crossfade too (ts_xf) */
 static int drv_tsh8_run(tx_drv_ts_t *s, tx_drv_shared_t *sh, tx_drv_scr_t *w, const int32_t *in, int32_t *out,
-                        uint32_t n, int32_t a, int32_t t)
+                        uint32_t n, int32_t a, int32_t t, int lead)
 {
     const int32_t *g0 = 0;
+    if (!lead && sh->ts_xf == 2u) return 1;                /* (the first built its first table: dry, as it is) */
+    if (lead) sh->ts_xf = 0;
     if (s->ra < 0) {                                       /* (after a reset: the knobs) */
-        if (sh->ts_trow != a) { ts_first(sh, a); return 1; }
+        if (sh->ts_trow != a) { if (lead) { ts_first(sh, a); sh->ts_xf = 2; } return 1; }
         s->ra = a; s->rt = t; ts_set(s, a, t);
     } else if (s->ra != a || s->rt != t) { s->ra = ts_step(s->ra, a); s->rt = ts_step(s->rt, t); ts_set(s, s->ra, s->rt); }
+    if (!lead) {
+        if (sh->ts_xf) g0 = sh->ts_tab[sh->ts_cur ^ 1u];
+        ts_kernel_aa(s, sh, w, g0, sh->ts_tab[sh->ts_cur], in, out, n & ~1u);
+        return 0;
+    }
     if (sh->ts_bpos < 0) {                                 /* (a block builds, or swaps, or neither: never both) */
         if (sh->ts_trow != s->ra) {                                                 /* the next table: from here */
             int32_t d = s->ra - sh->ts_trow;
@@ -291,7 +299,7 @@ static int drv_tsh8_run(tx_drv_ts_t *s, tx_drv_shared_t *sh, tx_drv_scr_t *w, co
         sh->ts_bpos = (int32_t)e;
     } else {                                                                        /* built: it runs from here, */
         sh->ts_cur ^= 1u; sh->ts_trow = sh->ts_brow; sh->ts_bpos = -1;              /* crossfaded in */
-        if (n >= TSH8_XF) g0 = sh->ts_tab[sh->ts_cur ^ 1u];
+        if (n >= TSH8_XF) { g0 = sh->ts_tab[sh->ts_cur ^ 1u]; sh->ts_xf = 1; }
     }
     ts_kernel_aa(s, sh, w, g0, sh->ts_tab[sh->ts_cur], in, out, n & ~1u);
     return 0;
