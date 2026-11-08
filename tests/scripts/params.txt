@@ -77,6 +77,7 @@
 3320 expect state lab2 MIX
 3320 expect state lab3 TYPE
 3320 expect state card3 FDRV
+3320 expect state card2 WET
 3330 turn 2 30
 3350 expect state p430 30
 3360 turn 1 1
@@ -110,9 +111,10 @@
 3580 midi 0xB4 118 0
 3585 expect state card1 1.5:1
 3590 shot
-# FX again: GRAIN 1/3; ALGORITHM: FREEZE
+# FX again: GRAIN 1/3 (MIX: DRY..WET, off at DRY); ALGORITHM: FREEZE
 3600 btn 2
 3620 expect state page GRAIN_1/3
+3620 expect state card0 DRY
 3620 expect state lab2 SYNC
 3620 expect state lab3 FEEDBACK
 3700 turn 1 1
@@ -125,9 +127,10 @@
 3950 turn 5 7
 3970 expect state card3 +1_st
 4000 shot
-# FX again: REVERB 1/3; ALGORITHM: the type
+# FX again: REVERB 1/3 (MIX: DRY..WET, 40 = 31 % wet); ALGORITHM: the type
 4100 btn 2
 4120 expect state page REVERB_1/3
+4120 expect state card1 31%
 4200 turn 1 1
 4220 expect state msg REVERB_ROOM
 4300 shot

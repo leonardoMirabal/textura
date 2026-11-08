@@ -12,7 +12,8 @@
  *              its cards, four a page), FILTER 1/3 (K1..K4: FREQ of lanes 1..4) 2/3 3/3 (the selected lane's: TYPE
  *              FREQ RESO LFO, then RATE SHAPE), DRIVE (the mix's, its first effect: AMOUNT TONE MIX TYPE),
  *              COMPRESSOR 1/2 2/2 (the mix's, after the DRIVE, Frodhes': THR RAT ATK MKUP, then COMP REL; the footer
- *              its gain-reduction meter), GRAIN 1/3 .. 3/3, REVERB 1/3 .. 3/3, LFO 1/3 .. 3/3,
+ *              its gain-reduction meter), GRAIN 1/3 .. 3/3, REVERB 1/3 .. 3/3 (in series: the reverb takes what the
+ *              grain delay gives; MIX on DRIVE, GRAIN, REVERB reads DRY..WET), LFO 1/3 .. 3/3,
  *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, TEMPO 1/2 2/2, MIDI, DISPLAY (COLOR: the screen's palette)
  *   ALGORITHM  LANDSCAPE: the landscape (loaded 300 ms after the last detent); SOUND: the lane's sound; FILTER: the
  *              selected lane's type; DRIVE: its TYPE; COMPRESSOR: COMP (up on, down off); GRAIN: FREEZE (up on, down

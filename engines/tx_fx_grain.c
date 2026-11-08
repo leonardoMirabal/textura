@@ -12,7 +12,8 @@
  *   the GRAINS: GRAINS voices (1 .. 30) staggered on one clock (each grain SIZE long, Hann windows: they add up to a
  *     constant), each started at TIME + a random SPRAY, at PITCH (semitone steps, -12 .. +12), reversed by chance
  *     (REVERSE), panned at random within SPREAD; read with linear interpolation (whole samples at rate 1: exact)
- *   out = MIX x (ECHO .. GRAINS by GRAIN), added to the mix; the feedback: that, its make-up, through TONE's low-pass,
+ *   out = the input x cos + (ECHO .. GRAINS by GRAIN) x sin of MIX's place (tx_fx_eqp: 0 the input alone .. 127 the
+ *     delay alone, equal power: level through the middle); the feedback: that, its make-up, through TONE's low-pass,
  *     a soft knee (above half scale only: the quiet repeats stay exact), FEEDBACK's gain and a DC block, into the line
  *   the make-up: the grains lose level on every pass (scattered by SPRAY and PITCH they add up in power, not in
  *     amplitude; SPREAD's places; the blend with the echo), so above FEEDBACK 64 the loop gets back what it lost: the
@@ -39,7 +40,7 @@
                                      * rms ~-20 dBFS at MIX 127) */
 
 const tx_param_t tx_fx_grain_params[TX_GD_NP] = {
-    {"MIX", 127, 0, "the delay's level (added to the sound): off (0) .. full"},
+    {"MIX", 127, 0, "dry .. wet: the sound alone (0, the delay off) .. the delay alone (127), equal power between"},
     {"TIME", TX_GD_TIME_MAX, 70, "the echo's time: 20 ms .. 1.66 s (127) .. 2.50 s (exponential); the grains read around it"},
     {"FEEDBACK", 127, 50, "how long the repeats go on (each one grained again): none .. endless (110) .. running away into a held wall"},
     {"GRAINS", TX_GD_MAXG - 1u, 3, "grain voices on the repeats: 1 .. 30 (fewer when the CPU is short)"},
@@ -404,7 +405,7 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_voices_b(tx_fx_grain_t *d, unsigned n)
 }
 TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n)
 {
-    int32_t mv = d->p[TX_GD_MIX], mixt = mv * 258, gb = d->p[TX_GD_GRAIN] * 258, fbk = TX_FX_GD_FB[d->p[TX_GD_FEEDBACK]];
+    int32_t mv = d->p[TX_GD_MIX], mixt = TX_FX_MIXQ(mv), gb = d->p[TX_GD_GRAIN] * 258, fbk = TX_FX_GD_FB[d->p[TX_GD_FEEDBACK]];
     int32_t pf = d->p[TX_GD_FEEDBACK], cw = pf <= 64 ? 0 : pf >= 96 ? 4096 : (pf - 64) * 128;   /* the make-up's share, Q12 */
     uint32_t ae = 0, ar = 0, af = 0, al = 0;            /* (the block's echo, the grains' reference and the loop, |x| / 4
                                                          * summed; the loop as heard, its peak, for the wall) */
@@ -414,6 +415,7 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
     uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, j, w0;
     int32_t gnt = cap ? (int32_t)(65536u / (cap < 2u ? 2u : cap)) : 0;   /* the grains' level: 2 / sounding (Q15) */
     int32_t *e = d->we, *sl = d->wl, *sr = d->wr;
+    int32_t gs[2], gc[2];                               /* MIX: the wet / dry gains at the block's edges (Q15) */
     int dry;
     if (n > TX_BLOCK) n = TX_BLOCK;
     if (!d->on) return;                                 /* (MIX 0 and faded: begin left it off) */
@@ -442,6 +444,7 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
                                                          * -1.5 dB at -4096, -0.75 at the floor) */
     dry = !gb && !d->gbl;
     w0 = d->w;
+    TX_FAR(tx_fx_mix_glide)(&d->mix, mixt, 16 * (int32_t)n, 1u, gs, gc);   /* (MIX glides: 46 ms end to end; in flash) */
     /* the blend, the feedback into the line (gathered in sl, written after), the output */
     {
     uint32_t wj = w0, fj = d->fill;                     /* (the write index and the fill, sample by sample) */
@@ -481,11 +484,10 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
         sl[j] = x;
         wj = wj + 1u >= TX_GD_N ? 0u : wj + 1u;
         if (fj < TX_GD_N) fj++;
-        if (d->mix != mixt) d->mix += d->mix < mixt ? (mixt - d->mix > 16 ? 16 : mixt - d->mix) : -(d->mix - mixt > 16 ? 16 : d->mix - mixt);
-        L[j] += mq15(wl, d->mix) * 2;
-        R[j] += mq15(wr, d->mix) * 2;
+        e[j] = wl; sr[j] = wr;                          /* (the delay's out, for the blend below) */
     }
     }
+    tx_fx_drywet(L, R, e, sr, n, gc[0], gc[1], gs[0], gs[1], 2);   /* dry x cos + the delay x sin (Q22 -> Q23) */
     gd_wrn(d, sl, n);
     if (dry) d->gct = 4096;                             /* the make-up: the echo's level over the loop's (held while the
                                                          * loop is too quiet to tell), its share by FEEDBACK */

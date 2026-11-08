@@ -1217,7 +1217,7 @@ static uint32_t fx_run_rev(unsigned t, unsigned d, unsigned secs, int zero, int3
 typedef struct { double d2[GS_W], lv[GS_W], click; unsigned nw; } gs_res_t;
 static int32_t *gs_chord;
 static unsigned gs_len;
-#define GS_REV 0x40u                /* pid | GS_REV: a REVERB control (on HALL, MIX 64), else the GRAIN DELAY's */
+#define GS_REV 0x40u                /* pid | GS_REV: a REVERB control (on HALL, MIX 52), else the GRAIN DELAY's */
 static unsigned gs_max(unsigned pid) { return pid & GS_REV ? tx_fx_reverb_params[pid & ~GS_REV].max : tx_fx_grain_params[pid].max; }
 static void gs_set(tx_fx_t *fx, unsigned pid, unsigned v)
 {
@@ -1231,8 +1231,10 @@ static void gs_render(tx_fx_t *fx, unsigned pid, int mix64, char mode, unsigned 
     unsigned s0 = (2000u - 3u) * 441u / 10u, s1 = (2000u + 30u) * 441u / 10u;
     memset(r, 0, sizeof *r);
     tx_fx_init(fx);
-    if (pid & GS_REV) { tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, TX_RVT_HALL); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 64); }
-    else if (mix64) tx_fx_grain_param(&fx->gd, TX_GD_MIX, 64);
+    /* (MIX at the wet / dry the checks were set for when MIX added the wet to the whole dry: the grain delay's old 64,
+     * wet / dry 0.5 = tan of MIX 38's place; the reverb's old 64, 0.38 = tan of MIX 52's place / 2) */
+    if (pid & GS_REV) { tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, TX_RVT_HALL); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 52); }
+    else if (mix64) tx_fx_grain_param(&fx->gd, TX_GD_MIX, 38);
     for (blk = 0; blk * TX_BLOCK < gs_len; blk++) {
         unsigned ms = (unsigned)(blk * 256u * 1000u / 44100u), v = a;
         if (mode == 'w' && ms >= 1000u) { unsigned s = (ms - 1000u) / 20u; v = s >= nsw ? 0 : s <= mx ? s : nsw - s; }
@@ -1328,7 +1330,7 @@ static void check_fx_grain_controls(tx_fx_t *fx)
     }
     snprintf(msg, sizeof msg, "grain delay, GRAIN flipped 0 <-> 127: a click %.2fx the held settings' (10 at most)", wc);
     verdict("fx", "grain-flip", wc <= 10.0, msg, 0);
-    /* the reverb's PREDELAY (HALL, MIX 64): swept, and flipped 0 <-> 127 (no click, zipper or level step; the trans
+    /* the reverb's PREDELAY (HALL, MIX 52): swept, and flipped 0 <-> 127 (no click, zipper or level step; the trans
      * after a move is the tail's interference with the shifted send on held tones: a time, as delay TIME; 1.30 dB
      * with the kernels at the half rate, 1.63 at the full rate with every line modulated, so 2 dB at most, as TIME) */
     gs_sweep(fx, GS_REV | TX_RV_PREDELAY, 0, &zip, &jump);
@@ -1344,7 +1346,87 @@ static void check_fx_grain_controls(tx_fx_t *fx)
     snprintf(msg, sizeof msg, "reverb PREDELAY swept 0 .. 127 .. 0: a level step %.2f dB past the statics' (2 at most), "
              "zipper %.2f; flipped 0 <-> 127: a click %.2fx", jump, zip, wc);
     verdict("fx", "predelay", jump <= 2.0 && zip <= 2.0 && wc <= 10.0, msg, 0);
+    gs_sweep(fx, GS_REV | TX_RV_MIX, 0, &zip, &jump);
+    snprintf(msg, sizeof msg, "reverb (HALL), MIX swept 0 .. 127 .. 0 on a ringing chord: zipper %.2f (2 at most)", zip);
+    verdict("fx", "rv-mix-sweep", zip <= 2.0, msg, 0);
     free(gs_chord);
+}
+/* MIX, dry / wet (tx_fx.h): the law at equal power; the GRAIN DELAY and the REVERB at MIX 0 (the dry alone, exactly),
+ * 64 (the dry -3 dB) and 127 (no dry: nothing out before the first echo, or the pre-delay); both at 127 in series:
+ * the reverb of the echoes alone (nothing out before the first echo) */
+static void check_fx_drywet(tx_fx_t *fx)
+{
+    int32_t L[TX_BLOCK], R[TX_BLOCK], x[TX_BLOCK];
+    double pw = 0, e;
+    uint32_t b, j, rng, m, bad;
+    char msg[200];
+    unsigned t;
+    for (m = 0; m <= 32768u; m += 64u) {                /* cos^2 + sin^2 = 1 (to 0.1 %) */
+        double c = tx_fx_eqp(32768 - (int32_t)m) / 32768.0, s = tx_fx_eqp((int32_t)m) / 32768.0;
+        e = fabs(c * c + s * s - 1.0);
+        if (e > pw) pw = e;
+    }
+    snprintf(msg, sizeof msg, "the dry / wet law: cos^2 + sin^2 off 1 by %.3f %% at most (0.1 %% at most)", 100.0 * pw);
+    verdict("fx", "mix-law", pw <= 0.001, msg, 0);
+    for (t = 0; t < 4u; t++) {                          /* 0 grain, 1 reverb, 2 both; MIX 0 / 64 / 127 each */
+        static const unsigned MV[3] = {0, 64, 127};
+        unsigned q;
+        if (t == 3u) break;
+        for (q = 0; q < 3u; q++) {
+            double din = 0, dout = 0;
+            uint32_t early = 0, ne = 0, nd = 0;
+            tx_fx_init(fx);
+            if (t != 1u) { tx_fx_grain_param(&fx->gd, TX_GD_MIX, MV[q]); tx_fx_grain_param(&fx->gd, TX_GD_TIME, 100); }
+            if (t != 0u) { tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, TX_RVT_HALL); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, MV[q]);
+                           tx_fx_reverb_param(&fx->rev, TX_RV_PREDELAY, 127); }
+            for (b = 0; b < 40u; b++) {                 /* (40 blocks of silence: MIX settled) then 20 of the burst */
+                for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = 0;
+                tx_fx_bus(fx, L, R, TX_BLOCK);
+            }
+            rng = 3u; bad = 0;
+            for (b = 0; b < 12u; b++) {                 /* 12 blocks, 70 ms: before the pre-delay (80 ms) and the echo */
+                for (j = 0; j < TX_BLOCK; j++) x[j] = L[j] = R[j] = fx_in(b * TX_BLOCK + j, &rng);
+                tx_fx_bus(fx, L, R, TX_BLOCK);
+                for (j = 0; j < TX_BLOCK; j++) {
+                    din += (double)x[j] * x[j]; dout += (double)L[j] * L[j];
+                    bad += L[j] != R[j];
+                    nd += L[j] != x[j];
+                    if (L[j]) early++;
+                    ne++;
+                }
+            }
+            if (q == 0u) {
+                snprintf(msg, sizeof msg, "%s at MIX 0: %u of %u samples not the dry", t == 0u ? "grain delay" : t == 1u ? "reverb" : "both",
+                         nd, ne);
+                verdict("fx", "mix-0", !nd && !bad, msg, 0);
+            } else if (q == 1u) {
+                double g = 10.0 * log10(dout / din), want = t == 2u ? -6.12 : -3.06;   /* (cos of 64's place: -3.06 dB) */
+                snprintf(msg, sizeof msg, "%s at MIX 64: the dry %+.2f dB (%+.2f)", t == 0u ? "grain delay" : t == 1u ? "reverb" : "both",
+                         g, want);
+                verdict("fx", "mix-64", fabs(g - want) < 0.05, msg, 0);
+            } else {
+                snprintf(msg, sizeof msg, "%s at MIX 127: %u nonzero samples before the first echo / pre-delay (the wet alone)",
+                         t == 0u ? "grain delay" : t == 1u ? "reverb" : "grain delay -> reverb", early);
+                verdict("fx", "mix-127", !early, msg, 0);
+            }
+        }
+    }
+    {   /* in series at 127: the reverb takes the echoes, so its tail comes after the first echo (TIME 100: ~0.6 s) */
+        uint32_t first = 0, fr = 0;
+        tx_fx_init(fx);
+        tx_fx_grain_param(&fx->gd, TX_GD_MIX, 127); tx_fx_grain_param(&fx->gd, TX_GD_TIME, 100); tx_fx_grain_param(&fx->gd, TX_GD_GRAIN, 0);
+        tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, TX_RVT_HALL); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 127);
+        rng = 3u;
+        for (b = 0; b < 400u && !first; b++) {
+            for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = b >= 40u && b < 44u ? fx_in((b - 40u) * TX_BLOCK + j, &rng) : 0;
+            tx_fx_bus(fx, L, R, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK && !first; j++) if (L[j] | R[j]) first = (b - 40u) * TX_BLOCK + j + 1u;
+        }
+        fr = TX_FX_GD_TIME[100];
+        snprintf(msg, sizeof msg, "grain delay -> reverb, both MIX 127, a 23 ms burst: the first sound out at %.1f ms, the "
+                 "echo's time %.1f ms (the reverb of the echoes alone)", (first - 1u) / 44.1, fr / 44.1);
+        verdict("fx", "series", first && first - 1u >= fr - 64u, msg, 0);
+    }
 }
 static void check_fx(FILE *update)
 {
@@ -1505,8 +1587,8 @@ static void check_fx(FILE *update)
         verdict("fx", "hot input", 1, "a 16 x square into every DRIVE TYPE (AMOUNT 127) and reverb TYPE: no overflow",
                 0);
     }
-    /* SWELL: 3 s played (the burst again and again), then silence: the wet part (out - in) after the playing against
-     * during it, SWELL against INFINITE (DECAY 100): the tail held down while played, swelling in after */
+    /* SWELL: 3 s played (the burst again and again), then silence: the wet part (MIX 127: the out) after the playing
+     * against during it, SWELL against INFINITE (DECAY 100): the tail held down while played, swelling in after */
     {
         double ratio[2];
         for (t = 0; t < 2; t++) {
@@ -1514,12 +1596,12 @@ static void check_fx(FILE *update)
             double dur = 0, aft = 0, acc = 0;
             uint32_t rngs = 7u;
             tx_fx_reverb_init(r);
-            tx_fx_reverb_param(r, TX_RV_TYPE, t ? TX_RVT_SWELL : TX_RVT_INF); tx_fx_reverb_param(r, TX_RV_MIX, 90);
+            tx_fx_reverb_param(r, TX_RV_TYPE, t ? TX_RVT_SWELL : TX_RVT_INF); tx_fx_reverb_param(r, TX_RV_MIX, 127);
             tx_fx_reverb_param(r, TX_RV_DECAY, 100);
             for (b = 0; b < 1034u; b++) {                       /* 6 s: 3 played, 3 after; 0.25 s windows (43 blocks) */
                 for (j = 0; j < TX_BLOCK; j++) x[j] = L[j] = R[j] = b < 517u ? fx_in((b * TX_BLOCK + j) % 22050u, &rngs) : 0;
                 tx_fx_reverb_process(r, L, R, TX_BLOCK);
-                for (j = 0; j < TX_BLOCK; j++) acc += (double)(L[j] - x[j]) * (L[j] - x[j]);
+                for (j = 0; j < TX_BLOCK; j++) acc += (double)L[j] * L[j];
                 if ((b + 1u) % 43u == 0) {
                     double v = sqrt(acc / (43.0 * TX_BLOCK));
                     if (b >= 344u && b < 516u) dur = v > dur ? v : dur;   /* 2 .. 3 s: played */
@@ -1659,6 +1741,7 @@ static void check_fx(FILE *update)
         snprintf(msg, sizeof msg, "grain delay, 16 pitched grains asked with INFINITE on: at most %u sounding (cap %u)", maxact, fx->gd.cap);
         verdict("fx", "cap", maxact <= fx->gd.cap && fx->gd.cap < 16u && maxact > 0, msg, 0);
         check_fx_grain_controls(fx);
+        check_fx_drywet(fx);
     }
     /* the DRIVE TYPEs: zeros in, zeros out; AMOUNT 0 glides out to the lane untouched; a TYPE change while it
      * sounds fades through (no step); TSH8 on the mix's stereo pair */

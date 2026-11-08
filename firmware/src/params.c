@@ -69,7 +69,7 @@ enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP0 = 26, PG_BPM = 32
 
 /* how a value reads */
 enum { F_NUM, F_ENUM, F_ONOFF, F_SOUND, F_COUNT, F_ACTIVE, F_PAN, F_HZ_FL, F_HZ_LFO, F_MS_GD, F_MS_GS, F_MS_PD, F_SEMI,
-       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_THR, F_R10, F_GAIN };
+       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_THR, F_R10, F_GAIN, F_MIX };
 static const char *const N_DRIVE[] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
 static const char *const N_FILTER[] = {"OFF", "LP12", "LP18", "HP12", "HP18", "BP", "NOTCH"};
 static const char *const N_SHAPE[] = {"SINE", "TRI", "SAW UP", "SAW DN", "SQUARE", "RANDOM"};
@@ -343,6 +343,7 @@ static uint32_t p_fmt(uint32_t id)
         if (i == PG_COMP0 + TX_CP_RATIO) return F_ENUM;
         if (i == PG_COMP0 + TX_CP_MKUP) return F_GAIN;
         if (i == PG_DRIVE0 + TX_DR_TYPE) return F_ENUM;
+        if (i == PG_GRAIN0 + TX_GD_MIX || i == PG_REVERB0 + TX_RV_MIX || i == PG_DRIVE0 + TX_DR_MIX) return F_MIX;
     }
     return F_NUM;
 }
@@ -483,6 +484,10 @@ static const char *p_text(uint32_t id, char *t)
         else { char d[2] = {(char)('0' + g10 % 10), 0}; p_fmt_int(t + 1, g10 / 10); p_cat(t, ".", 15); p_cat(t, d, 15); }
         return "dB";
     }
+    case F_MIX:                                 /* dry / wet: "DRY" (0), "WET" (127), between the wet's share */
+        if (!v) { p_strcpy(t, "DRY", 3); return 0; }
+        if (v >= 127) { p_strcpy(t, "WET", 3); return 0; }
+        p_fmt_int(t, (v * 100 + 63) / 127); p_cat(t, "%", 15); return 0;
     }
     p_fmt_int(t, v);
     return 0;

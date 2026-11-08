@@ -5,8 +5,9 @@
  *     the lane's: the governor's pool). Off (FILTER TYPE OFF) = the lane untouched.
  *   on the stereo mix: the DRIVE first (tx_fx_drive_mix: one DRIVE, a pair of instances for L and R with the same
  *   settings; tx_mix_t.pre, before the mix's compressor; AMOUNT 0 = the mix untouched), then (tx_core_mix.c) the
- *   compressor and the CHAMBER, then, before the limiter, the GRAIN DELAY (a delay whose repeats are grained), then
- *   the REVERB (a mono send of the mid, a stereo return):
+ *   compressor and the CHAMBER, then, before the limiter, in series, the GRAIN DELAY (a delay whose repeats are
+ *   grained) and the REVERB (a mono send of the mid, a stereo return), each with a dry / wet MIX (below): the reverb
+ *   takes what the delay gives (GRAIN MIX 127 + REVERB MIX 127: the grains' reverb alone):
  *     TYPE  OFF | ROOM (the CHAMBER's body modes + a short hall tail) | HALL | INFINITE | DARK | DRIFT | SWELL | PLATE
  *     (one TYPE runs at a time; their states share one memory union).
  *
@@ -22,6 +23,29 @@
 #include "tx_fx_kern.h"
 #include "tx_fx_drv.h"
 #include "tx_fx_gd_len.h"
+
+/* ---- MIX, dry / wet (the DRIVE, the GRAIN DELAY, the REVERB): 0 the dry alone .. 127 the wet alone. The GRAIN DELAY
+ * and the REVERB crossfade at equal power (dry x cos, wet x sin of MIX's place): their wet parts are delayed (echoes,
+ * a tail), so they add to the dry in power, and the sum holds its level through the middle (-3 dB each at 64): no
+ * dip, no bump. The DRIVE's wet is the dry signal shaped, in phase with it: a straight crossfade (tx_fx_drive.c).
+ * tx_fx_eqp(m) = sin(m pi / 2), m and the gain Q15 (0 .. 32768; 129 points, straight between them). */
+extern const uint16_t tx_fx_eqp_tab[129];
+TX_INLINE int32_t tx_fx_eqp(int32_t m)
+{
+    int32_t i, a;
+    if (m <= 0) return 0;
+    if (m >= 32768) return 32768;
+    i = m >> 8; a = tx_fx_eqp_tab[i];
+    return a + (((tx_fx_eqp_tab[i + 1] - a) * (m & 255)) >> 8);
+}
+#define TX_FX_MIXQ(v) ((v) >= 127 ? 32768 : (int32_t)(v) * 258)   /* MIX 0 .. 127 -> its place, Q15 */
+/* MIX's gains along a block (in flash: TX_FAR from the RAM code): its place *x glides toward t, by step at most a
+ * point; at each of the np + 1 points (the first: where it starts) the sin into gs, the cos into gc (0: not wanted) */
+void tx_fx_mix_glide(int32_t *x, int32_t t, int32_t step, unsigned np, int32_t *gs, int32_t *gc);
+/* the blend, n samples in place: L, R = dry x d + wet (wl, wr; 0: none) x w x k, the gains (Q15) straight from d0, w0
+ * to d1, w1 (in RAM on the FM-1) */
+TX_AUDIO_CODE void tx_fx_drywet(int32_t *L, int32_t *R, const int32_t *wl, const int32_t *wr, unsigned n, int32_t d0,
+                                int32_t d1, int32_t w0, int32_t w1, int32_t k);
 
 /* ---- FILTER (per lane): a TPT state-variable stage, stable at any setting (Frodhes' FILTER) */
 enum { TX_FL_TYPE, TX_FL_FREQ, TX_FL_RESO, TX_FL_LFO, TX_FL_RATE, TX_FL_SHAPE, TX_FL_NP };
@@ -100,7 +124,7 @@ typedef struct {
     uint8_t act;                                 /* grains sounding in the last block (on average) */
     uint8_t on;                                  /* running (MIX up, or its fade out) */
     uint32_t fill;                               /* samples written since it came on (older reads are 0) */
-    int32_t mix;                                 /* MIX, gliding (Q15) */
+    int32_t mix;                                 /* MIX's place, gliding (Q15: 0 dry .. 32768 wet) */
     int32_t gbl;                                 /* GRAIN, gliding (Q15) */
     int32_t gc, gct, gcr;                        /* the loop's make-up (Q12: 4096 = none), its target, the measured one */
     int32_t sae, saf;                            /* the echo's and the loop's level (|x| / 4 summed a block, smoothed) */
@@ -159,6 +183,9 @@ typedef struct {
     uint32_t rng;                                /* DRIFT: its walks' random numbers (never reseeded) */
     int32_t swe, swr;                            /* SWELL: the send's level (its envelope), the return's root gain (Q15) */
     int32_t pz;                                  /* PLATE's AUTO size: MIX latched while it rings (-1: take MIX now) */
+    int32_t xd, xw;                              /* MIX's place for the dry (TYPE OFF: 0, the dry whole) and for the
+                                                  * wet, gliding (Q15) */
+    int32_t gw[TX_BLOCK / CTL + 1u];             /* the wet's gain at each control block's edge, this block (Q15) */
     int32_t pd[TX_PD_LEN];
     /* ROOM on two cores (bit-exact): the block's sends first (sv; each control block's
      * SIZE and TONE glide in svo / svd), then the body (the CHAMBER, tx_fx_reverb_body: its wet part into rw) on the
