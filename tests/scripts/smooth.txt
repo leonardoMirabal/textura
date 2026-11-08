@@ -3,8 +3,10 @@
 # rings (302 ms, then the fade). The source's PRESET / TYPE change swaps instances too (no re-make in place). One spare
 # arena: a scene that changes several lanes morphs them one by one (each waits for the last one's ring, which fades
 # at once: never cut), and a lane whose sound stays plays on untouched; levels, pans, HOW MANY, HOW ACTIVE and the
-# lanes' numbers glide 500 ms. "expect drop": the level never falls by more than so much from one 2.9 ms window to
-# the next (a cut does: the old firmware fell 30 dB here, and to silence at the scene change)
+# lanes' numbers glide 500 ms. "expect cut": while a change is under way the level never falls (from one 2.9 ms
+# window to the next) more than 9 dB further than the sounds fall by themselves before and after it, so a sound's own
+# pulses (crickets, birds) don't count (a build without the ring cuts by 14-34 dB at the switches); the scene change
+# to F062 has no gap (the rms checks: the old firmware fell to silence there)
 # lane 1 alone, dense (E4: 32 of it, G5: busy)
 1700 keys 0x800
 1750 keys 0
@@ -19,24 +21,14 @@
 4030 expect state lane0 source
 4030 expect state ring0 1
 4030 expect state swaps 0
-4050 expect drop < 20 50
 4080 expect rms > -35
-4100 expect drop < 20 50
 4100 expect state rings0 1
-4150 expect drop < 20 50
-4200 expect drop < 20 50
 4200 expect rms > -30
-4250 expect drop < 20 50
-4300 expect drop < 20 50
 4300 expect rms > -30
-4350 expect drop < 20 50
-4400 expect drop < 20 50
-4450 expect drop < 20 50
-4500 expect drop < 20 50
 4500 expect state ring0 0
-4550 expect drop < 20 50
 # lanes 2, 3, 4 dense too (OCT+, E4, G5)
 4600 btn 1
+4600 expect cut < 9 4000 4550
 4650 keys 0x800
 4700 keys 0
 4750 keys 0x4000000
@@ -58,34 +50,13 @@
 6620 expect state swaps 3
 6620 expect state ring0 1
 6620 expect state loading 1
-6650 expect drop < 12 50
-6700 expect drop < 12 50
 6700 expect rms > -30
 6700 expect state rings0 1
-6750 expect drop < 12 50
-6800 expect drop < 12 50
-6850 expect drop < 12 50
-6900 expect drop < 12 50
 6900 expect rms > -30
-6950 expect drop < 12 50
-7000 expect drop < 12 50
 7000 expect state loading 1
 7000 expect rms > -30
-7050 expect drop < 12 50
-7100 expect drop < 12 50
-7150 expect drop < 12 50
-7200 expect drop < 12 50
-7250 expect drop < 12 50
-7300 expect drop < 12 50
 7300 expect state swaps 0
 7300 expect state loading 0
-7350 expect drop < 12 50
-7400 expect drop < 12 50
-7450 expect drop < 12 50
-7500 expect drop < 12 50
-7550 expect drop < 12 50
-7600 expect drop < 12 50
-7650 expect drop < 12 50
 8300 expect state landscape Insects
 8300 expect state lane3 source
 8300 expect preset
@@ -159,65 +130,30 @@
 16400 expect state sel3 5
 16500 expect rms > -20
 16500 midi 0xC0 101 0
-16550 expect drop < 10 50
-16600 expect drop < 10 50
 16600 expect rms > -25
-16650 expect drop < 10 50
-16700 expect drop < 10 50
 16700 expect rms > -25
-16750 expect drop < 10 50
-16800 expect drop < 10 50
 16800 expect rms > -25
-16850 expect drop < 10 50
-16900 expect drop < 10 50
 16900 expect rms > -25
-16950 expect drop < 10 50
-17000 expect drop < 10 50
 17000 expect rms > -25
-17050 expect drop < 10 50
-17100 expect drop < 10 50
 17100 expect rms > -25
-17150 expect drop < 10 50
-17200 expect drop < 10 50
 17200 expect rms > -25
 17200 expect state swaps 0
 17200 expect state loading 0
-17250 expect drop < 10 50
-17300 expect drop < 10 50
 17300 expect rms > -25
-17350 expect drop < 10 50
-17400 expect drop < 10 50
 17400 expect rms > -25
-17450 expect drop < 10 50
-17500 expect drop < 10 50
 17500 expect rms > -25
-17550 expect drop < 10 50
-17600 expect drop < 10 50
 17600 expect rms > -25
 17600 expect state glides 0
 17600 expect state sel0 7
 17600 expect state sel1 6
 17600 expect state sel2 6
 17600 expect state sel3 6
-17650 expect drop < 10 50
+18650 expect cut < 9 16450 17250
 # lane 1 at 80 (CC 7), U02 again: the same sounds, so no lane switches; lane 1's level glides back to 100
 18700 midi 0xB0 7 80
 18800 expect state vol0 80
 18900 midi 0xC0 101 0
 18950 expect state glides 4
-18950 expect drop < 10 50
-19000 expect drop < 10 50
-19050 expect drop < 10 50
-19100 expect drop < 10 50
-19150 expect drop < 10 50
-19200 expect drop < 10 50
-19250 expect drop < 10 50
-19300 expect drop < 10 50
-19350 expect drop < 10 50
-19400 expect drop < 10 50
-19450 expect drop < 10 50
-19500 expect drop < 10 50
-19550 expect drop < 10 50
 19700 expect state sel0 7
 19700 expect state sel1 6
 19700 expect state sel2 6
@@ -227,235 +163,97 @@
 # the browser's quickest hops on lane 4: a preview every 450 ms (400 ms after each detent), each a switch: smooth
 20000 btn 11
 20010 turn 1 -1
-20100 expect drop < 12 50
 20100 expect rms > -25
-20150 expect drop < 12 50
-20200 expect drop < 12 50
 20200 expect rms > -25
-20250 expect drop < 12 50
-20300 expect drop < 12 50
 20300 expect rms > -25
-20350 expect drop < 12 50
-20400 expect drop < 12 50
 20400 expect rms > -25
-20450 expect drop < 12 50
 20460 turn 1 1
-20500 expect drop < 12 50
 20500 expect rms > -25
-20550 expect drop < 12 50
-20600 expect drop < 12 50
 20600 expect rms > -25
-20650 expect drop < 12 50
-20700 expect drop < 12 50
 20700 expect rms > -25
-20750 expect drop < 12 50
-20800 expect drop < 12 50
 20800 expect rms > -25
-20850 expect drop < 12 50
-20900 expect drop < 12 50
 20900 expect rms > -25
 20910 turn 1 -1
-20950 expect drop < 12 50
-21000 expect drop < 12 50
 21000 expect rms > -25
-21050 expect drop < 12 50
-21100 expect drop < 12 50
 21100 expect rms > -25
-21150 expect drop < 12 50
-21200 expect drop < 12 50
 21200 expect rms > -25
-21250 expect drop < 12 50
-21300 expect drop < 12 50
 21300 expect rms > -25
-21350 expect drop < 12 50
 21360 turn 1 1
-21400 expect drop < 12 50
 21400 expect rms > -25
-21450 expect drop < 12 50
-21500 expect drop < 12 50
 21500 expect rms > -25
-21550 expect drop < 12 50
-21600 expect drop < 12 50
 21600 expect rms > -25
-21650 expect drop < 12 50
-21700 expect drop < 12 50
 21700 expect rms > -25
-21750 expect drop < 12 50
-21800 expect drop < 12 50
 21800 expect rms > -25
 21810 turn 1 -1
-21850 expect drop < 12 50
-21900 expect drop < 12 50
 21900 expect rms > -25
-21950 expect drop < 12 50
-22000 expect drop < 12 50
 22000 expect rms > -25
-22050 expect drop < 12 50
-22100 expect drop < 12 50
 22100 expect rms > -25
-22150 expect drop < 12 50
-22200 expect drop < 12 50
 22200 expect rms > -25
-22250 expect drop < 12 50
 22260 turn 1 1
-22300 expect drop < 12 50
 22300 expect rms > -25
-22350 expect drop < 12 50
-22400 expect drop < 12 50
 22400 expect rms > -25
-22450 expect drop < 12 50
-22500 expect drop < 12 50
 22500 expect rms > -25
-22550 expect drop < 12 50
-22600 expect drop < 12 50
 22600 expect rms > -25
-22650 expect drop < 12 50
-22700 expect drop < 12 50
 22700 expect rms > -25
-22750 expect drop < 12 50
-22800 expect drop < 12 50
 22800 expect rms > -25
-22850 expect drop < 12 50
-22900 expect drop < 12 50
 22900 expect rms > -25
-22950 expect drop < 12 50
-23000 expect drop < 12 50
 23000 expect rms > -25
-23050 expect drop < 12 50
-23100 expect drop < 12 50
 23100 expect rms > -25
-23150 expect drop < 12 50
-23200 expect drop < 12 50
+23190 expect cut < 9 20000 23000
 23200 expect rms > -25
 23200 expect state swaps 0
 23200 expect state sel3 12
 23200 btn 8
 # program changes every 400 ms, U01 / U02: each waits for the load before it (the last one asked wins), smooth
 23600 midi 0xC0 100 0
-23700 expect drop < 12 50
 23700 expect rms > -25
-23750 expect drop < 12 50
-23800 expect drop < 12 50
 23800 expect rms > -25
-23850 expect drop < 12 50
-23900 expect drop < 12 50
 23900 expect rms > -25
-23950 expect drop < 12 50
 24000 midi 0xC0 101 0
-24000 expect drop < 12 50
 24000 expect rms > -25
-24050 expect drop < 12 50
-24100 expect drop < 12 50
 24100 expect rms > -25
-24150 expect drop < 12 50
-24200 expect drop < 12 50
 24200 expect rms > -25
-24250 expect drop < 12 50
-24300 expect drop < 12 50
 24300 expect rms > -25
-24350 expect drop < 12 50
 24400 midi 0xC0 100 0
-24400 expect drop < 12 50
 24400 expect rms > -25
-24450 expect drop < 12 50
-24500 expect drop < 12 50
 24500 expect rms > -25
-24550 expect drop < 12 50
-24600 expect drop < 12 50
 24600 expect rms > -25
-24650 expect drop < 12 50
-24700 expect drop < 12 50
 24700 expect rms > -25
-24750 expect drop < 12 50
 24800 midi 0xC0 101 0
-24800 expect drop < 12 50
 24800 expect rms > -25
-24850 expect drop < 12 50
-24900 expect drop < 12 50
 24900 expect rms > -25
-24950 expect drop < 12 50
-25000 expect drop < 12 50
 25000 expect rms > -25
-25050 expect drop < 12 50
-25100 expect drop < 12 50
 25100 expect rms > -25
-25150 expect drop < 12 50
 25200 midi 0xC0 100 0
-25200 expect drop < 12 50
 25200 expect rms > -25
-25250 expect drop < 12 50
-25300 expect drop < 12 50
 25300 expect rms > -25
-25350 expect drop < 12 50
-25400 expect drop < 12 50
 25400 expect rms > -25
-25450 expect drop < 12 50
-25500 expect drop < 12 50
 25500 expect rms > -25
-25550 expect drop < 12 50
 25600 midi 0xC0 101 0
-25600 expect drop < 12 50
 25600 expect rms > -25
-25650 expect drop < 12 50
-25700 expect drop < 12 50
 25700 expect rms > -25
-25750 expect drop < 12 50
-25800 expect drop < 12 50
 25800 expect rms > -25
-25850 expect drop < 12 50
-25900 expect drop < 12 50
 25900 expect rms > -25
-25950 expect drop < 12 50
-26000 expect drop < 12 50
 26000 expect rms > -25
-26050 expect drop < 12 50
-26100 expect drop < 12 50
 26100 expect rms > -25
-26150 expect drop < 12 50
-26200 expect drop < 12 50
 26200 expect rms > -25
-26250 expect drop < 12 50
-26300 expect drop < 12 50
 26300 expect rms > -25
-26350 expect drop < 12 50
-26400 expect drop < 12 50
 26400 expect rms > -25
-26450 expect drop < 12 50
-26500 expect drop < 12 50
 26500 expect rms > -25
-26550 expect drop < 12 50
-26600 expect drop < 12 50
 26600 expect rms > -25
-26650 expect drop < 12 50
-26700 expect drop < 12 50
 26700 expect rms > -25
-26750 expect drop < 12 50
-26800 expect drop < 12 50
 26800 expect rms > -25
-26850 expect drop < 12 50
-26900 expect drop < 12 50
 26900 expect rms > -25
-26950 expect drop < 12 50
-27000 expect drop < 12 50
 27000 expect rms > -25
-27050 expect drop < 12 50
-27100 expect drop < 12 50
 27100 expect rms > -25
-27150 expect drop < 12 50
-27200 expect drop < 12 50
 27200 expect rms > -25
-27250 expect drop < 12 50
-27300 expect drop < 12 50
 27300 expect rms > -25
-27350 expect drop < 12 50
-27400 expect drop < 12 50
 27400 expect rms > -25
-27450 expect drop < 12 50
-27500 expect drop < 12 50
 27500 expect rms > -25
 28000 expect state loading 0
 28000 expect state scene U02_WIND
 28000 expect preset
 28000 expect sound
 28000 expect state dropped 0
+28000 expect cut < 9 23500 27300
 28100 end

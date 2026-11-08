@@ -1,6 +1,6 @@
 # scenes: SAVE opens the save mode (PRESETS / K1 the user scene, SAVE again saves it, HOME cancels), the bank written a
 # slice a pass; MIDI PC on channel 1 loads (0 .. 99 the factory presets F001 .. F100, 100 .. 115 the user's U01 .. U16);
-# SAVE held 700 ms undoes the last load (again: redo); PRESETS browses (loads 400 ms after the last detent). "expect
+# SAVE held 700 ms undoes the last load (again: redo); PRESETS opens the presets browser. "expect
 # preset": what plays is the scene loaded last (its lanes and every record); in the save mode K2 picks a letter of
 # the name, K3 sets it; SCENE TEMPO (GLO, SELECT) on: a scene's tempo comes with it
 1700 btn 13
@@ -68,11 +68,19 @@
 # an empty user scene: nothing happens
 6300 midi 0xC0 104 0
 6320 expect state msg NO_SCENE_THERE
-# PRESETS: back one (F100), then on past the empty ones to U03
-6400 turn 6 -1
-6420 expect state msg F100_ICE_&_GLASS
-6500 turn 6 1
-6520 expect state msg U03_WATER
+# PRESETS: the presets browser, on the scene loaded (USER: the scenes saved, U03 the only one); HOME: the categories;
+# HOME again: closed, U03 kept (presetbrowser.txt has the rest)
+6400 turn 6 1
+6420 expect state brpr 1
+6420 expect state browser 2
+6420 expect state brfam USER
+6420 expect state brcur 0
+6500 btn 8
+6520 expect state browser 1
+6520 expect state brcur 10
+6600 btn 8
+6620 expect state browser 0
+6620 expect state msg PRESET_KEPT
 7400 expect state scene U03_WATER
 7400 expect preset
 7500 shot

@@ -16,8 +16,10 @@
 #include <stdint.h>
 #include "tx_engine.h"
 
+#ifndef TX_RING_HOLD                    /* (a test build may shorten them: tests/scripts/smooth.txt's proof) */
 #define TX_RING_HOLD 52u                /* blocks at full level: 302 ms at 256 frames, 44.1 kHz */
 #define TX_RING_FADE 26u                /* blocks fading to 0: 151 ms */
+#endif
 #define TX_RING_N (TX_RING_HOLD + TX_RING_FADE)   /* the longest a ring holds its arena, blocks */
 
 typedef struct {

@@ -1,0 +1,85 @@
+# the presets browser: PRESETS opens it on the scene loaded (level 2: its category's presets) and moves the cursor;
+# PRESETS / ALGORITHM / K1 move, SELECT the category, EDIT opens a category / picks, HOME back / cancel. The cursor's
+# preset loads 400 ms after the last detent (its lanes switch smoothly); HOME at the categories puts back what played
+# before the browser, EDIT keeps the one picked (SAVE held then undoes to what played before the browser)
+1700 midi 0xC0 0 0
+2600 expect state scene F001_DRIZZLE
+2600 expect state loading 0
+# PRESETS 2: RAIN, F003 under the cursor; nothing loads while the detents come, then it does
+2700 turn 6 2
+2720 expect state brpr 1
+2720 expect state browser 2
+2720 expect state brfam RAIN
+2720 expect state brcur 2
+2720 expect state page LANDSCAPE
+2750 shot
+3000 expect state scene F001_DRIZZLE
+3000 expect state loading 0
+3200 expect state loading 1
+4400 expect state scene F003_GARDEN_RAIN
+4400 expect preset
+# SELECT: STORM, its first (F011 FAR THUNDER), previewed
+4500 turn 0 1
+4520 expect state brfam STORM
+4520 expect state brcur 0
+6000 expect state scene F011_FAR_THUNDER
+# HOME: the categories (the cursor on STORM); HOME: cancelled, F001 back
+6100 btn 8
+6120 expect state browser 1
+6120 expect state brcur 1
+6130 shot
+6200 btn 8
+6220 expect state browser 0
+6220 expect state brpr 0
+6220 expect state msg PRESET_KEPT
+7600 expect state scene F001_DRIZZLE
+7600 expect state loading 0
+7600 expect preset
+7600 expect sound
+# five quick detents (100 ms apart): only the last one loads (F006 STEADY RAIN), EDIT picks it
+7700 turn 6 1
+7800 turn 6 1
+7900 turn 6 1
+8000 turn 6 1
+8100 turn 6 1
+8150 expect state brcur 5
+8400 expect state loading 0
+9500 expect state scene F006_STEADY_RAIN
+9600 btn 6
+9620 expect state browser 0
+9620 expect state scene F006_STEADY_RAIN
+# EDIT before the preview: loaded at once (F007 ROOF RAIN); SAVE held: back to F006, what played before the browser
+9700 turn 6 1
+9750 btn 6
+9770 expect state browser 0
+9770 expect state loading 1
+11000 expect state scene F007_ROOF_RAIN
+11100 press 9
+11900 release 9
+11920 expect state msg UNDO
+13000 expect state scene F006_STEADY_RAIN
+13000 expect preset
+# SEQ while it is open: the sound browser instead; PRESETS there: the presets browser again; another button: closed,
+# what plays kept (a preview not loaded yet: dropped)
+13100 turn 6 -1
+13120 expect state brpr 1
+13200 btn 11
+13220 expect state brpr 0
+13220 expect state browser 2
+13300 turn 6 1
+13320 expect state brpr 1
+13320 expect state brcur 6
+13400 btn 2
+13420 expect state browser 0
+13420 expect state brpr 0
+13900 expect state scene F006_STEADY_RAIN
+# OCT closes it too (the sound browser's OCT: another lane; here a button like any other)
+14000 turn 6 1
+14020 expect state brpr 1
+14100 btn 0
+14120 expect state browser 0
+14120 expect state brpr 0
+14600 expect state scene F006_STEADY_RAIN
+14600 expect state loading 0
+14600 expect state dropped 0
+14700 end

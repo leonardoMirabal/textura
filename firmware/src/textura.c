@@ -348,7 +348,9 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (sscanf(key, "sel%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.nsel[k]);   /* the lane's switches so far */
     else if (!strcmp(key, "glides")) { for (i = scn_gl_n, k = 0; k < SC_N; k++) i += sc.gl_on[k]; snprintf(v, n, "%u", i); }   /* settings on their way */
     else if (!strcmp(key, "browser")) snprintf(v, n, "%u", ub.on ? ub.lv : 0u);   /* the sound browser: 0 shut, its level */
-    else if (!strcmp(key, "brfam")) snprintf(v, n, "%s", LS[ub.f].name);
+    else if (!strcmp(key, "brfam")) snprintf(v, n, "%s", !ub.pr ? LS[ub.f].name : ub.f < PR_NCAT ? pr_cat_name(ub.f) : "USER");   /* (the presets
+                                                 * browser: the category) */
+    else if (!strcmp(key, "brpr")) snprintf(v, n, "%u", ub.on && ub.pr);   /* the browser open is the presets one */
     else if (!strcmp(key, "brcur")) snprintf(v, n, "%u", ub.cur);
     else if (sscanf(key, "gate%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%d", (int)ln.mix.gc[k]);   /* the mix's gate now, Q15 */
     else if (sscanf(key, "alive%u%c", &k, &c) == 1 && k < SC_N) {   /* the lane's engine made events since this was read last */

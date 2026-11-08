@@ -330,6 +330,9 @@ static void eng_host_report(void);              /* engine.c: the engines' host c
  *   T expect drop OP DB [MS]  fails unless the largest fall of the level (both sides) from one 128-frame window
  *                        (2.9 ms) to the next in the last MS ms (50) is OP (< or >) DB: a cut, however noisy the
  *                        sound (a window under -60 dBFS counts as -60: a fade's last steps into silence are no cut)
+ *   T expect cut OP DB A B   fails unless the largest such fall from A to B ms is OP (< or >) DB above the largest the
+ *                        sounds make on their own: in the 500 ms before A, and from B to T (the sounds after a change:
+ *                        crickets, birds fall far by themselves); so it sees a cut, not a sound's own pulses
  *   T expect preset      fails unless every parameter equals what the preset the header shows sets (frodhes.c), a
  *                        factory or a user preset
  *   T expect sound       fails unless what the engines and effects run with is what the panel says (frodhes.c)
@@ -352,7 +355,7 @@ static void eng_host_report(void);              /* engine.c: the engines' host c
  * With FRODHES_FLASH=FILE the flash is kept in FILE across runs (host_flash_load / host_flash_save). */
 enum { EV_KEYS, EV_BTN, EV_PRESS, EV_RELEASE, EV_TURN, EV_MIDI, EV_SHOT, EV_EXP_LED, EV_EXP_RMS, EV_EXP_PRESET,
        EV_EXP_SOUND, EV_EXP_STATE, EV_DUMP, EV_USBREC, EV_USBLINK, EV_VKEY, EV_TRS,
-       EV_VEL, EV_XKEY, EV_PAD, EV_FADER, EV_WHEEL, EV_PEDAL, EV_STALL, EV_RLOAD, EV_WEB, EV_GOVPOOL, EV_EXP_JUMP, EV_EXP_DROP };
+       EV_VEL, EV_XKEY, EV_PAD, EV_FADER, EV_WHEEL, EV_PEDAL, EV_STALL, EV_RLOAD, EV_WEB, EV_GOVPOOL, EV_EXP_JUMP, EV_EXP_DROP, EV_EXP_CUT };
 static void ui_click_learn_set(int on);          /* (Textura's ui.c: "T web V") */
 static void host_gov_pool(uint32_t us);         /* (Textura's textura.c: "T govpool US") */
 static int host_preset_check(char *msg, unsigned n);   /* frodhes.c: 0 if the panel is the shown preset */
@@ -440,6 +443,9 @@ static void read_script(const char *path)
             }
             else if (!strcmp(sub, "led")) { e.kind = EV_EXP_LED; sscanf(line, "%*u %*s %*s %d %d", &e.a, &e.b); }
             else if (!strcmp(sub, "rms") && sscanf(line, "%*u %*s %*s %3s %lf", op, &db) == 2) { e.kind = EV_EXP_RMS; e.op = op[0]; e.a = (int32_t)(db * 100.0); }
+            else if (!strcmp(sub, "cut") && sscanf(line, "%*u %*s %*s %3s %lf %d %u", op, &db, &e.b, &e.keys) == 4) {
+                e.kind = EV_EXP_CUT; e.op = op[0]; e.a = (int32_t)(db * 100.0);
+            }
             else if (!strcmp(sub, "drop") && sscanf(line, "%*u %*s %*s %3s %lf", op, &db) == 2) {
                 e.kind = EV_EXP_DROP; e.op = op[0]; e.a = (int32_t)(db * 100.0); e.b = 50;
                 (void)sscanf(line, "%*u %*s %*s %*s %*f %d", &e.b);
@@ -464,6 +470,24 @@ static void read_script(const char *path)
 static const char *host_out = "build/host/frodhes";
 static int16_t *wav;
 static uint32_t wav_n;
+/* the largest fall of the level (both sides) from one 128-frame window to the next, frames a .. b of the sound, dB
+ * (a window under -60 dBFS counts as -60: a fade's last steps into silence are no cut): "expect drop", "expect cut" */
+static double host_fall(uint32_t a, uint32_t b)
+{
+    const uint32_t w = 128u;
+    uint32_t i, j;
+    double prev = -1000.0, m = 0.0;
+    if (b > wav_n) b = wav_n;
+    for (i = a; i + w <= b; i += w) {
+        double acc = 0, db;
+        for (j = i; j < i + w; j++) acc += (double)wav[2u * j] * wav[2u * j] + (double)wav[2u * j + 1u] * wav[2u * j + 1u];
+        db = 10.0 * log10(acc / (2.0 * w) / (32767.0 * 32767.0) + 1e-20);
+        if (db < -60.0) db = -60.0;
+        if (prev > -900.0 && prev - db > m) m = prev - db;
+        prev = db;
+    }
+    return m;
+}
 
 static void write_ppm_as(const char *name)
 {
@@ -619,17 +643,21 @@ static void host_ms(void)
                 printf("%6u ms  ok   expect rms %c %.1f dB (%.1f)\n", fm1_ms, e->op, e->a / 100.0, db);
             break;
         }
+        case EV_EXP_CUT: {
+            uint32_t a = FS / 1000u * (uint32_t)(e->b > 0 ? e->b : 0), b = FS / 1000u * e->keys;
+            double c = host_fall(a, b), r0 = host_fall(a > FS / 2u ? a - FS / 2u : 0u, a), r1 = host_fall(b, wav_n), m;
+            m = c - (r0 > r1 ? r0 : r1);
+            if ((e->op == '<' && !(m < e->a / 100.0)) || (e->op == '>' && !(m > e->a / 100.0))) {
+                printf("%6u ms  FAIL expect cut %c %.1f dB %d .. %u ms (is %.1f: %.1f, the sounds' own %.1f / %.1f)\n", fm1_ms, e->op, e->a / 100.0, e->b, e->keys, m, c, r0, r1);
+                host_fails++;
+            } else
+                printf("%6u ms  ok   expect cut %c %.1f dB %d .. %u ms (%.1f: %.1f, the sounds' own %.1f / %.1f)\n", fm1_ms, e->op, e->a / 100.0, e->b, e->keys, m, c, r0, r1);
+            break;
+        }
         case EV_EXP_DROP: {
             const uint32_t w = 128u;
-            uint32_t n = FS / 1000u * (uint32_t)(e->b > 0 ? e->b : 50), i0 = wav_n > n + w ? wav_n - n - w : 0u, i, j;
-            double prev = -1000.0, m = 0.0;
-            for (i = i0; i + w <= wav_n; i += w) {
-                double acc = 0, db;
-                for (j = i; j < i + w; j++) acc += (double)wav[2u * j] * wav[2u * j] + (double)wav[2u * j + 1u] * wav[2u * j + 1u];
-                db = 10.0 * log10(acc / (2.0 * w) / (32767.0 * 32767.0) + 1e-20);
-                if (prev > -900.0 && (prev > -60.0 || db > -60.0) && prev - (db < -60.0 ? -60.0 : db) > m) m = prev - (db < -60.0 ? -60.0 : db);
-                prev = db;
-            }
+            uint32_t n = FS / 1000u * (uint32_t)(e->b > 0 ? e->b : 50);
+            double m = host_fall(wav_n > n + w ? wav_n - n - w : 0u, wav_n);
             if ((e->op == '<' && !(m < e->a / 100.0)) || (e->op == '>' && !(m > e->a / 100.0))) {
                 printf("%6u ms  FAIL expect drop %c %.1f dB in %d ms (is %.1f)\n", fm1_ms, e->op, e->a / 100.0, e->b, m);
                 host_fails++;
