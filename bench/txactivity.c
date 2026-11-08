@@ -68,21 +68,24 @@ static const snd_t SND[] = {
     {"waterfall", "water", 80}, {"waves on sand", "water", 96}, {"waves on shingle", "water", 112}, {"lake lapping", "water", 120},
     {"stones", "stone cloud", 0}, {"rockfall", "stone cloud", 32}, {"ringing rocks", "stone cloud", 100}, {"gravel", "gravel", 0},
     {"marbles", "gravel", 96}, {"sand", "sand", 0}, {"singing dune", "sand", 96}, {"minerals", "minerals", 0},
-    {"stone friction", "minerals", 96}, {"icicles", "ice", 8}, {"ice in a glass", "ice", 24}, {"frost tinkling", "ice", 40},
+    {"stone friction", "minerals", 96}, {"stone clinks", "#stonecloud", 0}, {"icicles", "ice", 8}, {"ice in a glass", "ice", 24}, {"frost tinkling", "ice", 40},
     {"snow underfoot", "ice", 56}, {"lake ice", "ice", 72}, {"frozen lake booming", "ice", 104},
     {"thin ice underfoot", "ice", 120}, {"glass pane", "glass", 0}, {"bottles", "glass", 64},
     {"shards settling", "glass", 110}, {"campfire", "fire", 0}, {"bonfire", "fire", 12}, {"fireplace", "fire", 20}, {"embers", "fire", 28},
     {"kindling", "fire", 36}, {"pine fire", "fire", 44}, {"leaves, paper", "fire", 52}, {"torch", "fire", 60}, {"flame", "fire", 96},
     {"sparks", "#sparks", 0}, {"spruce", "wood", 9}, {"pine", "wood", 27}, {"maple", "wood", 46}, {"oak", "wood", 64},
     {"green branch", "wood", 82}, {"tree trunk", "wood", 100}, {"twigs underfoot", "wood", 118},
+    {"rain stick", "#rainstick", 0}, {"crumpled paper", "#crumple", 0},
     {"wind", "wind", 0}, {"breeze in grass", "wind", 9}, {"wind in pines", "wind", 16}, {"leafy trees", "wind", 22},
     {"open moor", "wind", 28}, {"sea wind", "wind", 35}, {"ridge gale", "wind", 41}, {"gusty autumn", "wind", 48},
-    {"winter storm", "wind", 54}, {"desert wind", "wind", 61}, {"storm", "#storm", 0}, {"thunder", "#thunder", 0},
+    {"winter storm", "wind", 54}, {"desert wind", "wind", 61}, {"wind chimes", "#chimes", 0}, {"storm", "#storm", 0},
+    {"thunder", "#thunder", 0}, {"thunder sheet", "#plate", 0}, {"spring echo", "#spring", 0},
     {"hail on a roof", "rain on water", 103}, {"hail on a car", "rain on water", 110},
     {"hail in leaves", "rain on water", 117}, {"sleet on a window", "rain on water", 124},
     {"field cricket", "crickets", 10}, {"tree cricket", "crickets", 53}, {"mole cricket", "crickets", 74}, {"cicada", "cicadas", 0},
     {"small cicada", "cicadas", 20}, {"cicada chorus", "cicadas", 64}, {"katydid", "katydids", 16},
-    {"grasshopper", "katydids", 80}, {"honeybee", "bees", 10}, {"bumblebee", "bees", 53}, {"songbird", "songbird", 0},
+    {"grasshopper", "katydids", 80}, {"honeybee", "bees", 10}, {"bumblebee", "bees", 53},
+    {"cicada up close", "#cicadas", 0}, {"songbird", "songbird", 0},
     {"blackbird", "blackbird", 0}, {"song thrush", "song thrush", 0}, {"nightingale", "nightingale", 0},
     {"robin", "robin", 0}, {"wren", "wren", 0}, {"hermit thrush", "hermit thrush", 0}, {"skylark", "skylark", 0},
     {"wood thrush", "wood thrush", 0}, {"reed warbler", "reed warbler", 0}, {"chirper", "chirper", 0},
@@ -92,15 +95,40 @@ static const snd_t SND[] = {
 };
 #define NSND (sizeof SND / sizeof SND[0])
 
-/* ---- the QUICK mapping (audition/app.js QUICK) for the classic engines in the landscapes */
-typedef struct { const char *eng; unsigned np; struct { const char *name; double lo, hi; } p[3]; double every[2]; } quick_t;
+/* ---- the QUICK mapping (audition/app.js QUICK) for the classic engines in the landscapes: the parameters from C4 to C6;
+ * every: the gaps between presses at C4 and C6 (s); turn: held, turned over again at those gaps; press: a press (a call)
+ * of that many seconds (0.5 .. 1.5 x; 0: 150 ms); chord: the keys held over 60 at velocity 1 (none: key 60); lin: the
+ * sound's measured curve (the place at 0, 8 .. 120, 127; all 0: none) */
+typedef struct {
+    const char *eng; unsigned np; struct { const char *name; double lo, hi; } p[3]; double every[2];
+    int turn; double press; int nch; int chord[5]; double lin[17];
+} quick_t;
 static const quick_t QUICK[] = {
-    {"stream", 2, {{"FLOW", 10, 127}, {"ROAR", 0, 90}}, {0, 0}},
-    {"surf", 2, {{"HEIGHT", 10, 127}, {"CHOP", 30, 90}}, {0, 0}},
-    {"thunder", 2, {{"DIST", 110, 25}, {"ENERGY", 40, 100}}, {40, 8}},
-    {"sparks", 2, {{"RATE", 4, 105}, {"BURST", 20, 80}}, {0, 0}},
-    {"storm", 1, {{"INTENSITY", 0, 127}}, {0, 0}},
+    {"stream", 2, {{"FLOW", 10, 127}, {"ROAR", 0, 90}}, {0, 0}, 0, 0, 0, {0}, {0}},
+    {"surf", 2, {{"HEIGHT", 10, 127}, {"CHOP", 30, 90}}, {0, 0}, 0, 0, 0, {0}, {0}},
+    {"thunder", 2, {{"DIST", 110, 25}, {"ENERGY", 40, 100}}, {40, 8}, 0, 0, 0, {0}, {0}},
+    {"sparks", 2, {{"RATE", 4, 105}, {"BURST", 20, 80}}, {0, 0}, 0, 0, 0, {0}, {0}},
+    {"storm", 1, {{"INTENSITY", 0, 127}}, {0, 0}, 0, 0, 0, {0}, {0}},
+    {"rainstick", 1, {{"SEEDS", 10, 127}}, {8, 1.5}, 1, 0, 0, {0},
+     {0, 13, 18, 24, 47, 54, 59, 64, 68, 72, 76, 81, 86, 98, 106, 111, 127}},
+    {"spring", 0, {{0, 0, 0}}, {20, 0.25}, 0, 0, 0, {0}, {0, 20, 26, 30, 36, 41, 45, 48, 51, 54, 57, 60, 63, 70, 81, 92, 112}},
+    {"chimes", 2, {{"WIND", 10, 127}, {"GUST", 30, 90}}, {0, 0}, 0, 0, 5, {12, 14, 16, 19, 21},
+     {0, 2, 4, 6, 9, 11, 13, 15, 18, 21, 25, 31, 38, 46, 56, 73, 104}},
+    {"plate", 1, {{"CRASH", 40, 127}}, {20, 0.35}, 0, 0, 0, {0}, {0, 20, 24, 28, 31, 37, 42, 45, 48, 51, 53, 56, 62, 72, 84, 96, 120}},
+    {"cicadas", 1, {{"CHORUS", 0, 127}}, {15, 0.6}, 0, 4, 0, {0}, {0, 29, 34, 37, 41, 43, 45, 47, 50, 52, 55, 57, 61, 64, 72, 80, 88}},
+    {"crumple", 1, {{"RATE", 10, 120}}, {0, 0}, 0, 0, 0, {0}, {0, 12, 19, 28, 37, 44, 54, 61, 68, 76, 86, 92, 99, 107, 116, 122, 127}},
+    {"stonecloud", 1, {{"DENSITY", 14, 127}}, {0, 0}, 0, 0, 0, {0}, {0, 26, 32, 37, 43, 49, 55, 59, 63, 67, 70, 76, 83, 90, 99, 111, 127}},
 };
+static double quick_place(const quick_t *q, double x)    /* x 0 .. 1 through the sound's curve (the player's linTab) */
+{
+    double u = x * 127;
+    int i;
+    if (q->lin[16] == 0) return x;
+    if (u <= 0) return q->lin[0] / 127;
+    if (u >= 127) return q->lin[16] / 127;
+    i = (int)(u / 8); if (i > 15) i = 15;
+    return (q->lin[i] + (q->lin[i + 1] - q->lin[i]) * (u - 8 * i) / (i < 15 ? 8 : 7)) / 127;
+}
 
 static double factor;                                     /* FM-1 us per host us (0: no calibration) */
 static unsigned count_knob = 53;                         /* the run's COUNT knob (count_of: individuals -> knob) */
@@ -258,7 +286,8 @@ static int run(const snd_t *s, unsigned act, uint32_t seed, unsigned secs, res_t
         if (particles) e->param(arena, TX_PID_PARTICLES, (uint8_t)pp);
         tx_gov_user(&gov, 0, pp);
     }
-    if (!q || !q->every[0]) e->key(arena, 60, 100, 1);    /* the lane held (srcHold) */
+    if (q && q->nch) for (k = 0; k < (unsigned)q->nch; k++) e->key(arena, (uint8_t)(60 + q->chord[k]), 1, 1);   /* (a chord) */
+    else if (!q || !q->every[0] || q->turn) e->key(arena, 60, 100, 1);    /* the lane held (srcHold) */
     kw_init(&ks[0], &kh[0]); kw_init(&ks[1], &kh[1]);
     for (b = 0; b < nb; b++) {
         tx_gen_ev_t ev[TX_GEN_EV_MAX];
@@ -269,10 +298,11 @@ static int run(const snd_t *s, unsigned act, uint32_t seed, unsigned secs, res_t
         t += (double)TX_BLOCK / TX_FS;
         if (q) {                                          /* the player's quick lane: its 50 ms tick, its presses */
             double step = (gen.a >> 8) * 14.0 / 127.0;    /* (quickTick: the generator's activity, read each tick) */
+            double x = quick_place(q, step / 14.0);
             if (t >= tick) {
                 tick += 0.05;
                 for (k = 0; k < q->np; k++) {
-                    double tg = q->p[k].lo + (q->p[k].hi - q->p[k].lo) * step / 14.0;
+                    double tg = q->p[k].lo + (q->p[k].hi - q->p[k].lo) * x;
                     double now = curset[k] ? cur[k] : tg, nx = fabs(tg - now) < 0.5 ? tg : now + (tg - now) * 0.15;
                     if ((!curset[k] || lround(nx) != lround(now)) && pid[k] >= 0) e->param(arena, (uint8_t)pid[k], (uint8_t)lround(nx));
                     cur[k] = nx; curset[k] = 1;
@@ -281,10 +311,12 @@ static int run(const snd_t *s, unsigned act, uint32_t seed, unsigned secs, res_t
             if (q->every[0]) {
                 if (nextp < 0 || t >= nextp) {            /* (the lane's first strike after a gap of its own, as
                                                      * the player's quickNext: never at the start) */
-                    double mean = q->every[0] * pow(q->every[1] / q->every[0], step / 14.0), u;
+                    double mean = 1 / (1 / q->every[0] + (1 / q->every[1] - 1 / q->every[0]) * pow(x, 2.5)), u;   /* (the
+                                                     * player's quickNext: the press rate even between C4's and C6's) */
                     rng = rng * 1664525u + 1013904223u;
                     u = ((rng >> 8) + 0.5) / 16777216.0;
-                    if (nextp >= 0) { e->key(arena, 60, 100, 1); relp = t + 0.15; }
+                    if (nextp >= 0 && q->turn) { e->key(arena, 60, 0, 0); e->key(arena, 60, 100, 1); }   /* turned over */
+                    else if (nextp >= 0) { e->key(arena, 60, 100, 1); relp = t + (q->press > 0 ? q->press * (0.5 + u) : 0.15); }
                     nextp = t + fmax(0.15, -log(1 - u) * mean);
                 }
                 if (relp >= 0 && t >= relp) { e->key(arena, 60, 0, 0); relp = -1; }

@@ -11,7 +11,8 @@
  * SC_GLIDE_MS). A sound is a SOURCE preset + TYPE, or a classic engine: those have no population, so HOW MANY and
  * HOW ACTIVE together move a few of their own parameters (the QUICK maps, through the sound's own measured curve where
  * it has one), the one-shot ones (thunder, glass ...) are pressed again and again at random (exponential) gaps, and a
- * turned one (the rain stick) is held and turned over again at such gaps.
+ * turned one (the rain stick) is held and turned over again at such gaps; a caller (the cicada up close) is pressed for
+ * a call of its own length, and the wind chimes hold a chord (their tubes).
  *
  * Main loop only (sc_poll every pass): integers, no division in 64 bits. */
 #include "landscapes.h"
@@ -112,8 +113,16 @@ static const ls_quick_t *sc_quick(const tx_engine_t *e)
     return 0;
 }
 static int sc_is_src(uint32_t k) { return sc.eng[k] && sc.eng[k] == sc.src; }
-static int sc_oneshot(uint32_t k) { return !sc_is_src(k) && sc.q[k] && sc.q[k]->every_ms && !sc.q[k]->turn; }
-static int sc_turned(uint32_t k) { return !sc_is_src(k) && sc.q[k] && sc.q[k]->turn; }   /* held, turned over at gaps */
+static int sc_oneshot(uint32_t k) { return !sc_is_src(k) && sc.q[k] && sc.q[k]->every_ms && sc.q[k]->hold != 1u; }
+static int sc_turned(uint32_t k) { return !sc_is_src(k) && sc.q[k] && sc.q[k]->hold == 1u; }   /* held, turned over at gaps */
+static void sc_keys(uint32_t k, int on)         /* the key a held engine holds (60), or its chord (each at velocity 1:
+                                                 * the wind chimes' tubes hung, not struck) */
+{
+    const ls_quick_t *q = sc_is_src(k) ? 0 : sc.q[k];
+    uint32_t i;
+    if (q && q->chord) for (i = 0; i < LS_CHORD_N; i++) ln_key(k, SC_HOLD_NOTE + LS_CHORD[q->chord - 1u][i], on ? 1u : 0u, (uint32_t)on);
+    else ln_key(k, SC_HOLD_NOTE, on ? SC_HOLD_VEL : 0u, (uint32_t)on);
+}
 static uint32_t sc_cnt_of(uint32_t k) { return sc.run[k] ? sc.cnt[k] : 0u; }
 static uint32_t sc_step_of(uint32_t k) { return sc.run[k] ? sc.step[k] : 0u; }
 static uint32_t sc_vol_of(uint32_t k)
@@ -200,7 +209,7 @@ static void sc_sync(uint32_t k)
         if (id >= 0) ln_param(k, (uint32_t)id, sc_act_val(sc.step[k]));
     }
     held = sc.run[k] && !sc_oneshot(k);         /* the source, a held classic engine: key 60 down while it runs */
-    if (held != sc.a_held[k]) { ln_key(k, SC_HOLD_NOTE, held ? SC_HOLD_VEL : 0u, (uint32_t)held); sc.a_held[k] = (uint8_t)held; }
+    if (held != sc.a_held[k]) { sc_keys(k, held); sc.a_held[k] = (uint8_t)held; }
 }
 
 /* ---- a classic engine's activity: its QUICK parameters glide toward the place HOW MANY and HOW ACTIVE give */
@@ -416,7 +425,9 @@ static void sc_poll(void)
         if (sc.q_rel[k] && (int32_t)(fm1_ms - sc.q_rel[k]) >= 0) { ln_key(k, SC_HOLD_NOTE, 0, 0); sc.q_rel[k] = 0; }
         if (sc.run[k] && sc.q_next[k] && sc_oneshot(k) && sc.a_eng[k] == sc.eng[k] && (int32_t)(fm1_ms - sc.q_next[k]) >= 0) {
             ln_key(k, SC_HOLD_NOTE, SC_HOLD_VEL, 1);   /* quickPress */
-            sc.q_rel[k] = fm1_ms + SC_PRESS_MS; if (!sc.q_rel[k]) sc.q_rel[k] = 1;
+            sc.q_rel[k] = fm1_ms + (sc.q[k]->hold < 2u ? SC_PRESS_MS   /* (a call: hold x 100 ms, 0.5 .. 1.5 x) */
+                                    : sc.q[k]->hold * 50u + tx_rand(&sc.rng) % (sc.q[k]->hold * 100u));
+            if (!sc.q_rel[k]) sc.q_rel[k] = 1;
             sc.q_next[k] = fm1_ms + sc_quick_gap(k); if (!sc.q_next[k]) sc.q_next[k] = 1;
         }
         if (sc.run[k] && sc.q_next[k] && sc_turned(k) && sc.a_held[k] && sc.a_eng[k] == sc.eng[k] && (int32_t)(fm1_ms - sc.q_next[k]) >= 0) {

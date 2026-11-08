@@ -508,7 +508,7 @@ const FAMILIES = [
   ["Storm", [["rain on water", "rain on water", 0], ["rain on a roof", "rain on water", 50], ["#storm"], ["#thunder"], ["ridge gale", "wind", 41],
     ["winter storm", "wind", 54], ["hail on a roof", "rain on water", 103], ["hail on a car", "rain on water", 110],
     ["hail in leaves", "rain on water", 117], ["sleet on a window", "rain on water", 124], ["thunder sheet", "#plate"],
-    ["thunder spring", "#spring"]]],
+    ["spring echo", "#spring"]]],
   ["Insects", [["field cricket", "crickets", 10], ["tree cricket", "crickets", 53], ["mole cricket", "crickets", 74],
     ["cicada", "cicadas", 0], ["small cicada", "cicadas", 20], ["cicada chorus", "cicadas", 64], ["katydid", "katydids", 16],
     ["grasshopper", "katydids", 80], ["honeybee", "bees", 10], ["bumblebee", "bees", 53],
@@ -533,10 +533,10 @@ const LEVEL_DB = {
   "Wood": {"spruce": 5, "pine": 0, "maple": -6, "oak": 4, "green branch": 3, "tree trunk": -1, "twigs underfoot": -6,
     "rain stick": 0, "crumpled paper": -1},
   "Wind": {"wind": 0, "breeze in grass": -2, "wind in pines": -8, "leafy trees": 2, "open moor": -8, "sea wind": -4,
-    "ridge gale": -12, "gusty autumn": -8, "winter storm": -16, "desert wind": -5, "wind chimes": -4},
+    "ridge gale": -12, "gusty autumn": -8, "winter storm": -16, "desert wind": -5, "wind chimes": 2},
   "Storm": {"rain on water": 0, "rain on a roof": 9, "storm": 4, "thunder": 0, "ridge gale": -14, "winter storm": -9,
     "hail on a roof": 4, "hail on a car": 2, "hail in leaves": 7, "sleet on a window": 7, "thunder sheet": -5,
-    "thunder spring": -1},
+    "spring echo": -1},
   "Insects": {"field cricket": 5, "tree cricket": 10, "mole cricket": 0, "cicada": 8, "small cicada": 10,
     "cicada chorus": 8, "katydid": 16, "grasshopper": 20, "honeybee": -7, "bumblebee": -5, "cicada up close": 0},
   "Songbirds": {"songbird": 17, "blackbird": 17, "song thrush": 15, "nightingale": 12, "robin": 17, "wren": 13,
@@ -611,7 +611,9 @@ function srcSet(k, name, v) {                         // a source parameter of l
 function srcHold(k, on) {                             // the source running without a held key (Run, a lane)
   if (srcHeld[k] === on) return;
   srcHeld[k] = on;
-  M._txw_key_slot(k, 60, on ? 100 : 0, on ? 1 : 0);
+  const q = layers[k].eng !== srcEng ? QUICK[engName(k)] : null;
+  if (q && q.chord) for (const d of q.chord) M._txw_key_slot(k, 60 + d, on ? 1 : 0, on ? 1 : 0);   // (a chord: hung at
+  else M._txw_key_slot(k, 60, on ? 100 : 0, on ? 1 : 0);                                           // velocity 1)
 }
 function srcLayer(k, preset) {                        // put the source on layer k (if it is not there yet)
   if (layers[k].eng !== srcEng) { const e = ed; editLayer(k); selectEngine(srcEng); srcHeld[k] = false; editLayer(e); }
@@ -677,7 +679,9 @@ window.txTest.hostSet = (name, v) => {               // through the slider, as a
 // over ~1 s. "every": seconds between presses at C4 and at C6 (the press rate r4 + (r6 - r4) x^2.5 between them, exponential
 // gaps): the one-shot engines. The stone cloud's DENSITY and the sparks' RATE are perceptually even in their rates (14 =
 // 0.44 hits/s as 10 was on the old log scale; sparks 4 .. 105 = 0.2 .. 313 /s as 10 .. 120 were). "turn": held, and
-// turned over again at those gaps (key up and down at once: the rain stick, whose seeds run out). "lin": the sound's own
+// turned over again at those gaps (key up and down at once: the rain stick, whose seeds run out). "press": a press
+// (a call) of that many seconds (0.5 .. 1.5 x) instead of 150 ms. "chord": the keys held (semitones over 60, each at
+// velocity 1: the wind chimes' tubes hung, the wind strikes them at random) instead of key 60. "lin": the sound's own
 // measured curve (tx_core_lin.h tx_lin_tab): the place on that path (0 .. 127) at the keys' 0, 8 .. 120, 127, so each
 // step sounds the same more (its loudness and sounding share measured along the path, fitted as tools/gen_lin.py does).
 const QUICK = {
@@ -698,8 +702,8 @@ const QUICK = {
   lakeice: { p: [["RATE", 0, 110]] },
   spring: { p: [], every: [20, 0.25],
     lin: [0, 20, 26, 30, 36, 41, 45, 48, 51, 54, 57, 60, 63, 70, 81, 92, 112] },
-  chimes: { p: [["WIND", 10, 127], ["GUST", 30, 90]],
-    lin: [0, 7, 11, 15, 18, 21, 24, 26, 29, 32, 35, 39, 45, 55, 64, 77, 104] },
+  chimes: { p: [["WIND", 10, 127], ["GUST", 30, 90]], chord: [12, 14, 16, 19, 21],
+    lin: [0, 2, 4, 6, 9, 11, 13, 15, 18, 21, 25, 31, 38, 46, 56, 73, 104] },
   rainsurf: { p: [["RATE", 10, 127], ["AREA", 30, 100]] },
   rockfall: { p: [["VOLUME", 30, 110]], every: [120, 6] },
   plate: { p: [["CRASH", 40, 127]], every: [20, 0.35],
@@ -709,8 +713,8 @@ const QUICK = {
   surf: { p: [["HEIGHT", 10, 127], ["CHOP", 30, 90]] },
   storm: { p: [["INTENSITY", 0, 127]] },
   crickets: { p: [["COUNT", 1, 32], ["ACTIVITY", 0, 127]] },
-  cicadas: { p: [["CHORUS", 0, 127]],
-    lin: [0, 5, 11, 17, 24, 31, 38, 46, 54, 62, 70, 78, 86, 95, 104, 112, 120] },
+  cicadas: { p: [["CHORUS", 0, 127]], every: [15, 0.6], press: 4,
+    lin: [0, 29, 34, 37, 41, 43, 45, 47, 50, 52, 55, 57, 61, 64, 72, 80, 88] },
   katydids: { p: [["COUNT", 1, 16], ["ACTIVITY", 0, 127]] },
   crumple: { p: [["RATE", 10, 120]],
     lin: [0, 12, 19, 28, 37, 44, 54, 61, 68, 76, 86, 92, 99, 107, 116, 122, 127] },
@@ -769,7 +773,10 @@ function quickPress(k) {                              // a one-shot engine's nex
   const q = QUICK[engName(k)];
   if (!q || !q.every || !laneRun[k]) return;
   if (q.turn) { M._txw_key_slot(k, 60, 0, 0); M._txw_key_slot(k, 60, 100, 1); }   // (held: turned over again)
-  else { M._txw_key_slot(k, 60, 100, 1); setTimeout(() => M._txw_key_slot(k, 60, 0, 0), 150); }
+  else {                                              // a press: 150 ms, or a call of its own length (0.5 .. 1.5 x)
+    M._txw_key_slot(k, 60, 100, 1);
+    setTimeout(() => M._txw_key_slot(k, 60, 0, 0), q.press ? q.press * 1000 * (0.5 + Math.random()) : 150);
+  }
   quickNext(k);
 }
 function quickNext(k, first) {                        // the next press after a random (exponential) gap at the step's rate

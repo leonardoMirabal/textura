@@ -1,6 +1,6 @@
 # the classic engines in the sound browser (audition/app.js FAMILIES [name, "#engine"]): stone clinks (stonecloud) in
 # Stones & sand, rain stick (rainstick) and crumpled paper (crumple) in Wood, wind chimes (chimes) in Wind, thunder
-# sheet (plate) and thunder spring (spring) in Storm, cicada up close (cicadas) in Insects. Each is picked on lane 1
+# sheet (plate) and spring echo (spring) in Storm, cicada up close (cicadas) in Insects. Each is picked on lane 1
 # and plays (its engine makes events); a classic engine's cards are its own parameters less those its activity map
 # moves (the rain stick: SEEDS on the keys). The rain stick is held and turned over again at random gaps (its seeds
 # run out in seconds when it is only held: it went silent): still alive after 30 s
@@ -92,7 +92,7 @@
 47800 turn 1 11
 47850 btn 6
 47900 expect state browser 0
-47900 expect state snd0 thunder_spring
+47900 expect state snd0 spring_echo
 48500 expect state lane0 spring
 48500 expect state run0 1
 51500 expect state alive0 1

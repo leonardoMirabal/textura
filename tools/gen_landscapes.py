@@ -9,7 +9,7 @@ never drift: the player is the development view, the firmware plays the same sou
 Read from app.js: FAMILIES (each landscape's sounds: a SOURCE preset and TYPE, or "#engine" a classic engine, or
 [name, "#engine"] a classic engine under a name of its own),
 QUICK (a classic engine's activity map: its parameters from C4 to C6, a one-shot engine's gap between presses, a turned
-engine's gap between turns, a measured curve),
+engine's gap between turns, a caller's call length, a chord held, a measured curve),
 COUNT_V, COUNT_N, NCNT, NACT (the HOW MANY and HOW ACTIVE keys)."""
 import ast
 import math
@@ -92,11 +92,19 @@ def generate():
     out.append(f"static const uint8_t LS_COUNT_V[LS_NCNT] = {{{', '.join(str(v) for v in count_v)}}};")
     out.append(f"static const uint8_t LS_COUNT_N[LS_NCNT] = {{{', '.join(str(v) for v in count_n)}}};   /* the count shown */")
     lins = [q["lin"] for q in qk.values() if q.get("lin")]
+    chords = [q["chord"] for q in qk.values() if q.get("chord")]
+    assert all(len(c) == 5 for c in chords), "a chord is 5 keys"
     out += ["/* a classic engine's activity map: each parameter from its value at C4 (lo) to C6 (hi), linear in the step;",
             " * a one-shot engine's presses: the mean gap at C4 (ms) and log2(gap at C6 / gap at C4) in Q16 (0 ms: held);",
-            " * turn 1: held, and turned over again at those gaps; lin: 1 + its measured curve in LS_LIN (0: none) */",
+            " * hold: 0 a 150 ms press, 1 held and turned over again at those gaps, 2 .. 255 a press (a call) of hold x 100 ms;",
+            " * lin: 1 + its measured curve in LS_LIN (0: none); chord: 1 + the keys it holds in LS_CHORD (0: key 60) */",
             "typedef struct { const char *name; int16_t lo, hi; } ls_qp_t;",
-            "typedef struct { const char *eng; uint8_t np, lin, turn; ls_qp_t p[3]; uint32_t every_ms; int32_t every_oct_q16; } ls_quick_t;",
+            "typedef struct { const char *eng; uint8_t np, lin, hold, chord; ls_qp_t p[3]; uint32_t every_ms; int32_t every_oct_q16; } ls_quick_t;",
+            "#define LS_CHORD_N 5u",
+            f"#define LS_NCHORD {max(1, len(chords))}u",
+            "static const uint8_t LS_CHORD[LS_NCHORD][LS_CHORD_N] = {   /* semitones over key 60 */",
+            *["    {" + ", ".join(str(int(v)) for v in c) + "}," for c in (chords or [[0] * 5])],
+            "};",
             f"#define LS_NLIN {max(1, len(lins))}u",
             "static const uint8_t LS_LIN[LS_NLIN][17] = {   /* the place (0 .. 127) at the keys' 0, 8 .. 120, 127 (tx_lin_tab) */"]
     for t in lins or [[0] * 17]:
@@ -108,7 +116,10 @@ def generate():
         ev = q.get("every")
         ems, oct_ = (round(ev[0] * 1000), round(math.log2(ev[1] / ev[0]) * 65536)) if ev else (0, 0)
         li = 1 + lins.index(q["lin"]) if q.get("lin") else 0
-        out.append(f"    {{{c_str(eng)}, {len(ps)}, {li}, {int(q.get('turn', 0))}, {{{pt}}}, {ems}u, {oct_}}},")
+        ch = 1 + chords.index(q["chord"]) if q.get("chord") else 0
+        hold = 1 if q.get("turn") else round(q["press"] * 10) if q.get("press") else 0
+        assert hold == 0 or 1 <= hold <= 255 and (hold == 1) == bool(q.get("turn")), eng
+        out.append(f"    {{{c_str(eng)}, {len(ps)}, {li}, {hold}, {ch}, {{{pt}}}, {ems}u, {oct_}}},")
     out += ["};", "", "#endif", ""]
     return "\n".join(out)
 
