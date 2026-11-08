@@ -64,7 +64,9 @@ def load(path=None):
         named = tx_ports.pick(names, self.port) if self.port else []
         if self.port and only_port:
             return named
-        return named + [n for n in tx_ports.pick(names, None, also) if n not in named]
+        mine = self.port and "frodhes" not in self.port.lower()   # (a second FM-1 on Frodhes is never ours: the
+        return named + [n for n in tx_ports.pick(names, None, also)  # loader's port may differ, Frodhes' never)
+                        if n not in named and not (mine and "frodhes" in n.lower())]
 
     m.Updater.candidates = candidates
     return m
