@@ -57,6 +57,9 @@ typedef struct {
                                     * core 0 rendered all */
     uint32_t c0_worst, c1_worst, c0_sum, c1_sum;   /* LANES FM_PAR: each core's busy ticks in the render phase (the
                                     * lanes with their inserts, the grain voices): the worst, the sum (ticks / 16) */
+    uint32_t b1_worst, b1_sum, mix_worst, mix_sum;   /* LANES: core 1's busy ticks in the whole block (every job it
+                                    * ran: the lanes, the reverb's halves, the mix's halves; 0 on one core), core 0's
+                                    * ticks in the serial mix phase (the pans, the mix, the bus's end): worst, sum */
 } fm_stats_t;
 
 /* the clock hooks: the caller's (device: fm1_ticks and the timer's nested time; host: ns x 24 / 1000) */

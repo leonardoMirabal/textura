@@ -23,12 +23,15 @@ struct fm_run_s {
                                     * and its time (ticks), written by the core that renders it (its own lines) */
     uint8_t pmask;                                           /* LANES FM_PAR: core 1's items this block (the lanes,
                                                               * FM_GV, FM_GV + 1: the grain delay's voices' halves) */
-    struct { uint32_t t[2], busy; } __attribute__((aligned(64))) gv1;   /* core 1's own line: its voices', its job's
-                                                              * ticks */
+    struct { uint32_t t[2], busy, acc; } __attribute__((aligned(64))) gv1;   /* core 1's own line: its voices', its
+                                                              * lanes job's ticks; acc: all its jobs' ticks so far (the
+                                                              * lanes, the reverb's body and kernel halves, the mix's
+                                                              * halves), core 0 takes each block's share */
     uint32_t gvt[2];                                         /* the voices' halves' last times, ticks */
     uint8_t c1_lost;                                         /* C1: core 1's copy lost (held mid-job): core 0's only */
 };
 
+typedef char fm_scr1_fits[sizeof(tx_drv_scr_t) <= TX_MIX_SCR_BYTES ? 1 : -1];
 uint32_t fm_run_bytes(void) { return (uint32_t)sizeof(fm_run_t); }
 typedef char fm_run_fits[sizeof(fm_run_t) <= FM_RUN_MAX ? 1 : -1];   /* (FM_RUN_MAX: the pool's share) */
 const fm_stats_t *fm_stats(const fm_run_t *r) { return &r->s; }
@@ -113,9 +116,16 @@ static void lanes_job(uint32_t a)                            /* core 1's: its it
     for (k = 0; k < 2u; k++) if (r->pmask >> (FM_GV + k) & 1u) r->gv1.t[k] = gv_run(r, k, 1u);
     for (k = 0; k < r->c->eng; k++) if (r->pmask >> k & 1u) lane_render(r, k, 1u);
     r->gv1.busy = lane_now() - t0;
+    r->gv1.acc += r->gv1.busy;
 }
 /* the reverb's ROOM on two cores (FM_PAR, as firmware/src/lanes.c): its body (the CHAMBER) on core 1, the tail here */
-static void rev_job(uint32_t a) { (void)a; TX_C1(tx_fx_reverb_body)(&lane_run->fx.rev); }   /* (core 1: the twin) */
+static void rev_job(uint32_t a)                              /* (core 1: the twin) */
+{
+    uint32_t t0 = lane_now();
+    (void)a;
+    TX_C1(tx_fx_reverb_body)(&lane_run->fx.rev);
+    lane_run->gv1.acc += lane_now() - t0;
+}
 static int rev_run(void) { fm_run_t *r = lane_run; return r->par && !r->c1_lost && r->par->run(rev_job, r->blk); }
 static int rev_wait(void)
 {
@@ -127,7 +137,13 @@ static int rev_wait(void)
 /* the reverb kernels' halves on core 1 (tx_fx_reverb_t.par, as firmware/src/lanes.c): one job, its function and argument */
 static void (*rev_kfn)(void *);
 static void *rev_karg;
-static void rev_kjob(uint32_t a) { (void)a; rev_kfn(rev_karg); }
+static void rev_kjob(uint32_t a)
+{
+    uint32_t t0 = lane_now();
+    (void)a;
+    rev_kfn(rev_karg);
+    lane_run->gv1.acc += lane_now() - t0;
+}
 static int rev_krun(void (*fn)(void *), void *a)
 {
     fm_run_t *r = lane_run;
@@ -245,7 +261,8 @@ static void start(fm_run_t *r)
         r->mix.bus = tx_fx_bus_end;                         /* (its begin and the grain voices: fm_step) */
         if (c->type & FM_PAR) {
             r->fx.rev.body_run = rev_run; r->fx.rev.body_wait = rev_wait;
-            r->fx.rev.par.run = rev_krun; r->fx.rev.par.wait = rev_wait;
+            r->fx.rev.par.run = rev_krun; r->fx.rev.par.wait = rev_wait;   /* (and the mix's DRIVE: R there) */
+            r->fx.scr1 = (tx_drv_scr_t *)TX_MIX_SCR(&r->mix);   /* (its TYPEs' scratch there: the mix's, free then) */
         }
         for (k = 0; k < c->eng; k++) { scene_init(r, k, &r->tab[c->lane[k]]); tx_mix_pan(&r->mix, k, 20u + 30u * k); }
     }
@@ -266,6 +283,7 @@ void fm_begin(fm_run_t *r, const fm_cfg_t *tab, const fm_ev_t *ev, unsigned cfg,
     for (k = 0; k < 4u; k++) r->s.lane_worst[k] = r->s.lane_w8[k] = 0;
     r->s.c1_jobs = r->s.c1_mis = r->s.c1_first = r->s.c1_solo = 0;
     r->s.c0_worst = r->s.c1_worst = r->s.c0_sum = r->s.c1_sum = 0;
+    r->s.b1_worst = r->s.b1_sum = r->s.mix_worst = r->s.mix_sum = 0;
     r->s.sum_sh = r->nblk > 65535u ? 8u : 4u;
     r->s.hash = 2166136261u;
     start(r);
@@ -342,7 +360,7 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
                                                               * (FM_PAR: some on core 1), then lane by lane the pan,
                                                               * the mix (its drive first), the bus's end: the same
                                                               * samples either way */
-        uint32_t m1 = 0, on = (1u << c->eng) - 1u, t0, c0;
+        uint32_t m1 = 0, on = (1u << c->eng) - 1u, t0, c0, a1 = r->gv1.acc, tm, nm;
         tx_mix_begin(&r->mix, TX_BLOCK);
         lane_now = ck->now; lane_run = r;
         for (k = 0; k < c->eng; k++) scene_events(r, k, &r->tab[c->lane[k]], r->blk);
@@ -380,6 +398,7 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
                 r->s.c0_sum += c0 >> r->s.sum_sh; r->s.c1_sum += c1 >> r->s.sum_sh;
             }
         }
+        tm = ck->now(); nm = ck->nested();
         for (k = 0; k < c->eng; k++) {
             uint32_t ld = r->lb[k].t;
             if (measuring) {
@@ -389,6 +408,14 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
             tx_mix_add(&r->mix, k, r->lb[k].x, TX_BLOCK);         /* (its inserts: lane_render) */
         }
         tx_mix_end(&r->mix, L, R, TX_BLOCK);
+        if (measuring) {                                     /* the serial mix phase (core 0, its halves' wait in it),
+                                                              * core 1's busy ticks this block (all its jobs) */
+            uint32_t b1 = r->gv1.acc - a1;
+            tm = (ck->now() - tm) - (ck->nested() - nm);
+            if (tm > r->s.mix_worst) r->s.mix_worst = tm;
+            if (b1 > r->s.b1_worst) r->s.b1_worst = b1;
+            r->s.mix_sum += tm >> r->s.sum_sh; r->s.b1_sum += b1 >> r->s.sum_sh;
+        }
     }
     raw = ck->now() - t0;
     d = raw - (ck->nested() - n0);

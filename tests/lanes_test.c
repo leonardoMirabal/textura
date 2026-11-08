@@ -38,9 +38,15 @@ static void *par_main(void *u)
 }
 static void ln_kjob(uint32_t a);
 static uint32_t par_rvt(void);
+static uint32_t par_drv(void);
+static void ln_rev_job(uint32_t a);
+static uint32_t par_dt, par_rj;
 static int par_run(void (*fn)(uint32_t), uint32_t a)
 {
-    if (fn == ln_kjob) par_kt |= 1u << par_rvt();        /* a reverb kernel's half: the TYPEs it ran for */
+    if (fn == ln_rev_job) par_rj++;                       /* the reverb's ROOM body */
+    uint32_t dt = fn == ln_kjob ? par_drv() : 0u;         /* the mix's DRIVE's R: the TYPEs it ran for */
+    if (dt) par_dt |= dt;
+    else if (fn == ln_kjob) par_kt |= 1u << par_rvt();   /* a reverb kernel's half: the TYPEs it ran for */
     pthread_mutex_lock(&par_mx);
     par_fn = fn; par_arg = a; par_seq++; par_jobs++;
     pthread_cond_broadcast(&par_cv);
@@ -62,6 +68,7 @@ static int par_wait(void)
 #include "../firmware/src/lanes.c"
 #ifdef LANES_TEST_PAR
 static uint32_t par_rvt(void) { return ln.fx.rev.cur; }
+static uint32_t par_drv(void) { return ln_karg == (void *)&ln.fx ? 1u << ln.fx.drive[1].cur : 0u; }
 #endif
 
 /* ---- the reference: the player's chain, inline (txw_select, txw_key_slot, txw_param, txw_fx_param, txw_render) */
@@ -166,6 +173,9 @@ static const step_t SCENE[] = {
     {231, 'K', 2, 0, 60, 100, 1},
     {232, 'F', 0, 0, 0, 90, 0},                 /* the DRIVE's AMOUNT up */
     {260, 'F', 2, 0, 0, 7, 0},                  /* REVERB TYPE plate: the same */
+    {270, 'F', 0, 0, 3, 3, 0},                  /* the DRIVE's TYPE OHCD (two cores: R on the second, its scratch
+                                                 * the mix's), then BHLUE */
+    {290, 'F', 0, 0, 3, 4, 0},
     {300, 'S', 1, "fire", 0, 0, 0},
     {300, 'K', 1, 0, 60, 100, 1},
     {301, 'M', 1, 0, 1, 0, 0},                  /* lane 2's generator, muted (a classic engine: no notes) */
@@ -277,11 +287,15 @@ int main(void)
     }
 #ifdef LANES_TEST_PAR
     if (!ln.par_blocks) { printf("FAIL the second core rendered nothing\n"); fails++; }
-    if (par_jobs <= ln.par_blocks) { printf("FAIL the reverb's ROOM body never ran on the second core\n"); fails++; }
+    if (!par_rj) { printf("FAIL the reverb's ROOM body never ran on the second core\n"); fails++; }
     if ((par_kt & (1u << TX_RVT_HALL | 1u << TX_RVT_INF | 1u << TX_RVT_PLATE)) != (1u << TX_RVT_HALL | 1u << TX_RVT_INF | 1u << TX_RVT_PLATE)) {
         printf("FAIL the reverb kernels' halves: not on the second core for every TYPE (0x%x)\n", par_kt); fails++;
     }
-    printf("     lanes (two cores): %u blocks with lanes on the second core, %u jobs, reverb TYPEs split 0x%x\n", ln.par_blocks, par_jobs, par_kt);
+    if (par_dt != (1u << TX_DRT_FDRV | 1u << TX_DRT_KHLON | 1u << TX_DRT_OHCD | 1u << TX_DRT_BHLUE)) {
+        printf("FAIL the mix's DRIVE: R not on the second core for every TYPE but TSH8 (0x%x)\n", par_dt); fails++;
+    }
+    printf("     lanes (two cores): %u blocks with lanes on the second core, %u jobs, reverb TYPEs split 0x%x, DRIVE TYPEs 0x%x\n",
+           ln.par_blocks, par_jobs, par_kt, par_dt);
 #endif
     if (ln.fx.drv.ts_own != &ln.fx.drive[0] || ln.fx.drive[0].cur != TX_DRT_TSH8 || ln.fx.drive[1].cur != TX_DRT_TSH8) {
         printf("FAIL the DRIVE TYPEs: TSH8 not on both sides of the mix's DRIVE (the left owning it)\n"); fails++;

@@ -17,6 +17,13 @@
 #include "tx_core_comp.h"
 
 #define TX_MIX_SLOTS 4u
+#ifndef TX_LINE                    /* (as tx_fx_drv.h's: a buffer one core writes while the other works, its own lines) */
+#ifdef __PI32V2__
+#define TX_LINE __attribute__((aligned(64)))
+#else
+#define TX_LINE
+#endif
+#endif
 
 typedef struct {
     const tx_engine_t *e[TX_MIX_SLOTS];  /* 0 = an empty slot */
@@ -36,8 +43,13 @@ typedef struct {
     tx_comp_t comp;                      /* the bus compressor, after the pair's DRIVE (COMP off: bypassed) */
     tx_limit_t lim;
     int32_t raw_peak;                    /* the pair's peak before the limiter, this block */
-    int32_t L[TX_BLOCK], R[TX_BLOCK], blk[TX_BLOCK], mid[TX_BLOCK], ilv[2 * TX_BLOCK];
+    int32_t L[TX_BLOCK];
+    int32_t R[TX_BLOCK] TX_LINE;         /* (its own lines: the pair's DRIVE may run R on the other core) */
+    int32_t blk[TX_BLOCK], mid[TX_BLOCK], ilv[2 * TX_BLOCK];   /* (free while pre runs: TX_MIX_SCR) */
 } tx_mix_t;
+/* blk, mid, ilv in a row: 4 KB that pre may use as the other core's scratch (they start on a line after R's) */
+#define TX_MIX_SCR(m) ((void *)(m)->blk)
+#define TX_MIX_SCR_BYTES (4u * TX_BLOCK * sizeof(int32_t))
 
 void tx_mix_init(tx_mix_t *m);
 /* put an engine in slot k (initialised here with seed), or empty it (e = 0) */

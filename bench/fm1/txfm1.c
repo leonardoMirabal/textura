@@ -32,7 +32,9 @@
  *                the first of them (+ 1), 26 / 27 the blocks core 0 rendered both (low / high 14 bits each); LANES rows
  *                on two cores (FM_PAR): the same items, the blocks core 1 rendered lanes in, the jobs lost, the block of
  *                the loss (+ 1), the blocks core 0 rendered all; and 30 / 31 core 0's / core 1's worst busy time in the
- *                render phase, 32 / 33 their means (us x 2)
+ *                render phase, 32 / 33 their means (us x 2); every LANES row: 34 / 35 core 1's busy time in the whole
+ *                block (all its jobs: the lanes, the reverb's and the mix's halves; 0 on one core), worst / mean, 36 / 37
+ *                core 0's time in the serial mix phase (the pans, the mix, the bus's end), worst / mean (us x 2)
  * Integers only. */
 #include <stdint.h>
 #define APP_NAME "TXFM1"
@@ -171,6 +173,10 @@ static void fm_midi(void)
                 fm_item(30, us2(s->c0_worst)); fm_item(31, us2(s->c1_worst));
                 fm_item(32, s->n ? us2((s->c0_sum / s->n) << s->sum_sh) : 0u);
                 fm_item(33, s->n ? us2((s->c1_sum / s->n) << s->sum_sh) : 0u);
+            }
+            if (FM_CFG[fm_cfg].kind == FM_K_LANES) {   /* core 1's whole block, core 0's serial mix phase */
+                fm_item(34, us2(s->b1_worst)); fm_item(35, s->n ? us2((s->b1_sum / s->n) << s->sum_sh) : 0u);
+                fm_item(36, us2(s->mix_worst)); fm_item(37, s->n ? us2((s->mix_sum / s->n) << s->sum_sh) : 0u);
             }
             fm_item(99, d2);
         } else if (d1 == 26u && d2 == 0x55u) {   /* a soft reset (as the crash path's: core 1 held first) */

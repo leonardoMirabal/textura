@@ -176,6 +176,7 @@ static void *ln_karg;
 static void ln_kjob(uint32_t a) { (void)a; ln_kfn(ln_karg); }
 static int ln_krun(void (*fn)(void *), void *a) { ln_kfn = fn; ln_karg = a; return LN_PAR_ON() && LN_PAR_RUN(ln_kjob, 0u); }
 #endif
+typedef char ln_scr1_fits[sizeof(tx_drv_scr_t) <= TX_MIX_SCR_BYTES ? 1 : -1];
 static void ln_init(void)
 {
     uint8_t *b = (uint8_t *)&ln;
@@ -185,7 +186,8 @@ static void ln_init(void)
     tx_fx_init(&ln.fx);
 #ifdef LN_PAR
     ln.fx.rev.body_run = ln_rev_run; ln.fx.rev.body_wait = ln_rev_wait;
-    ln.fx.rev.par.run = ln_krun; ln.fx.rev.par.wait = ln_rev_wait;
+    ln.fx.rev.par.run = ln_krun; ln.fx.rev.par.wait = ln_rev_wait;   /* (and the mix's DRIVE: R there) */
+    ln.fx.scr1 = (tx_drv_scr_t *)TX_MIX_SCR(&ln.mix);   /* (the DRIVE TYPEs' scratch there: the mix's, free then) */
 #endif
     ln.mix.ins = tx_fx_lane; ln.mix.pre = tx_fx_drive_mix; ln.mix.bus = tx_fx_bus_end; ln.mix.busq = tx_fx_bus_quiet; ln.mix.fx = &ln.fx;   /* (the
                                                  * bus's begin and the grains' voices: ln_block, ln_render) */

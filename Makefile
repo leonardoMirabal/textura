@@ -45,7 +45,8 @@
 #                      (tests/ports_check.py: "Textura" first, never a "Frodhes" port beside it)
 #   make fw-c1map      the two cores' code per landscape (tests/c1prof.c, tools/c1map.py): what core 1 runs in its
 #                      jobs and core 0 meanwhile, calls and host time a block, each function's place in the FM-1
-#                      image (RAM / XIP; make fm1-app first) -> build/fw/c1map.txt
+#                      image (RAM / XIP; make fm1-app first) -> build/fw/c1map.txt; the eleventh run: a landscape
+#                      with the mix's DRIVE on (FDRV, then OHCD: its R on core 1)
 #   make fw-web        the firmware in a web browser -> build/web/ (web/build.sh, Emscripten from .local/emsdk;
 #                      REL=X.Y.Z stamps a version); make fw-web-serve serves it at http://localhost:8001
 #   make fw-web-check  the web panel in headless Chromium at desktop and phone width (tests/web_check.py)
@@ -167,10 +168,12 @@ $(FW)/textura-c1prof: $(FW_DEPS) $(ENG_SRC) $(ENG_HDR) tests/c1prof.c tests/c1pr
 	  $(ENG_SRC) -x c tests/c1prof.c -lm
 
 fw-c1map: $(FW)/textura-c1prof
-	@$(HEAVY) sh -c 'for n in 0 1 2 3 4 5 6 7 8 9; do printf "1500 midi 0xC0 $$n 0\n21500 end\n" > $(FW)/c1map$$n.txt; \
+	@$(HEAVY) sh -c 'for n in 0 1 2 3 4 5 6 7 8 9; do printf "1500 midi 0xC0 $$n 0\n21500 end\n" > $(FW)/c1map$$n.txt; done; \
+	  printf "1500 midi 0xC0 1 0\n4000 midi 0xB4 76 90\n11500 midi 0xB4 79 95\n21500 end\n" > $(FW)/c1map10.txt; \
+	  for n in 0 1 2 3 4 5 6 7 8 9 10; do \
 	  C1PROF_OUT=$(FW)/c1prof$$n.txt $(FW)/textura-c1prof $(FW)/c1map$$n $(FW)/c1map$$n.txt > /dev/null || exit 1; \
 	  rm -f $(FW)/c1map$$n.wav $(FW)/c1map$$n-*.ppm; done' && \
-	python3 -I tools/c1map.py $(FW)/textura-c1prof $(FM1)/textura-app.elf $(foreach n,0 1 2 3 4 5 6 7 8 9,$(FW)/c1prof$(n).txt) \
+	python3 -I tools/c1map.py $(FW)/textura-c1prof $(FM1)/textura-app.elf $(foreach n,0 1 2 3 4 5 6 7 8 9 10,$(FW)/c1prof$(n).txt) \
 	  > $(FW)/c1map.txt && echo "fw-c1map: $(FW)/c1map.txt"
 
 fw-web:

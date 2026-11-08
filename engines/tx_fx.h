@@ -87,6 +87,7 @@ TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x, unsigned n)
  * scratch (w; 0: the shared one): the same samples */
 TX_AUDIO_CODE void tx_fx_drive_prep(tx_fx_drive_t *d);
 TX_AUDIO_CODE void tx_fx_drive_run(tx_fx_drive_t *d, int32_t *x, unsigned n, tx_drv_scr_t *w);
+TX_TWIN(tx_fx_drive_run);         /* (the mix's pair on two cores: R's on core 1, tx_fx_drive_mix) */
 void tx_fx_drive_shared_init(tx_drv_shared_t *sh);
 void tx_fx_drive_share(tx_fx_drive_t *d, tx_drv_shared_t *sh);
 void tx_fx_drive_pair(tx_fx_drive_t *second, const tx_fx_drive_t *first);   /* one DRIVE on a stereo pair: second
@@ -222,6 +223,10 @@ int tx_fx_reverb_frozen(const tx_fx_reverb_t *r);   /* holding its tail (SUSTAIN
 typedef struct {
     tx_fx_drive_t drive[2];        /* the mix's DRIVE: L, R (one set of settings: tx_fx_drive_set) */
     tx_drv_shared_t drv;           /* the DRIVE TYPEs' scratch and TSH8's tables */
+    tx_drv_scr_t *scr1;            /* the other core's DRIVE scratch (the caller's, free while the DRIVE runs; 0: the
+                                    * pair's TYPEs stay on one core, the classic drive needs none) */
+    int32_t *dr_x;                 /* (tx_fx_drive_mix: the side the other core drives this block) */
+    unsigned dr_n;
     tx_fx_filter_t filter[TX_FX_LANES];
     tx_fx_grain_t gd;
     tx_fx_reverb_t rev;
@@ -237,7 +242,8 @@ TX_AUDIO_CODE void tx_fx_lane(void *fx, unsigned k, int32_t *x, unsigned n);    
 /* or on the core (0, 1) that renders the lane (the lanes on two cores): the same samples */
 TX_AUDIO_CODE void tx_fx_lane_run(void *fx, unsigned k, int32_t *x, unsigned n, unsigned core);
 void tx_fx_drive_set(tx_fx_t *fx, unsigned id, unsigned v);   /* the mix's DRIVE: TX_DR_* on both sides */
-TX_AUDIO_CODE void tx_fx_drive_mix(void *fx, int32_t *L, int32_t *R, unsigned n);    /* tx_mix_t.pre: L, R in place */
+TX_AUDIO_CODE void tx_fx_drive_mix(void *fx, int32_t *L, int32_t *R, unsigned n);    /* tx_mix_t.pre: L, R in place
+                                                 * (with rev.par set: R on the other core, L here; the same samples) */
 uint32_t tx_fx_drive_mix_us(const tx_fx_t *fx);   /* the mix's DRIVE now, FM-1 us a block (0: off) */
 TX_AUDIO_CODE void tx_fx_bus(void *fx, int32_t *L, int32_t *R, unsigned n);           /* tx_mix_t.bus */
 /* or split (the grains ahead, on another core, while the lanes render): begin (the cap, then 1: the grain voices may

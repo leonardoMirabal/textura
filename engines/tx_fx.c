@@ -405,6 +405,7 @@ void tx_fx_init(tx_fx_t *fx)
     tx_fx_drive_shared_init(&fx->drv);
     for (k = 0; k < 2u; k++) { tx_fx_drive_init(&fx->drive[k]); tx_fx_drive_share(&fx->drive[k], &fx->drv); }
     tx_fx_drive_pair(&fx->drive[1], &fx->drive[0]);
+    fx->scr1 = 0; fx->dr_x = 0; fx->dr_n = 0;
     for (k = 0; k < TX_FX_LANES; k++) tx_fx_filter_init(&fx->filter[k]);
     tx_fx_grain_init(&fx->gd);
     tx_fx_reverb_init(&fx->rev);
@@ -436,12 +437,27 @@ void tx_fx_drive_set(tx_fx_t *fx, unsigned id, unsigned v)
     tx_fx_drive_param(&fx->drive[0], id, v);
     tx_fx_drive_param(&fx->drive[1], id, v);
 }
+/* the pair's R on the other core (the reverb's hooks, rev.par): its twin in XIP there, the RAM copy here (a lost job) */
+static void drv_job1(void *a) { tx_fx_t *fx = (tx_fx_t *)a; TX_C1(tx_fx_drive_run)(&fx->drive[1], fx->dr_x, fx->dr_n, fx->scr1); }
+static void drv_job0(void *a) { tx_fx_t *fx = (tx_fx_t *)a; TX_FAR(tx_fx_drive_run)(&fx->drive[1], fx->dr_x, fx->dr_n, fx->scr1); }
 TX_AUDIO_CODE void tx_fx_drive_mix(void *u, int32_t *L, int32_t *R, unsigned n)
 {
     tx_fx_t *fx = (tx_fx_t *)u;
+    unsigned t;
+    int taken;
     if (!fx->drive[0].on && !fx->drive[0].p[TX_DR_AMOUNT] && !fx->drive[1].on) return;   /* (off: the mix untouched) */
     tx_fx_drive_prep(&fx->drive[0]);                    /* (a TYPE change: the pair together, the first first) */
     tx_fx_drive_prep(&fx->drive[1]);
+    t = fx->drive[0].cur;                               /* two cores: each side writes only its own state, samples and
+                                                         * scratch; TSH8 stays on one (R runs on the tables L builds) */
+    if (t == fx->drive[1].cur && (t == TX_DRT_FDRV || (t != TX_DRT_TSH8 && fx->scr1))) {
+        fx->dr_x = R; fx->dr_n = n;
+        taken = rv_fork(&fx->rev.par, drv_job1, fx);
+        TX_FAR(tx_fx_drive_run)(&fx->drive[0], L, n, 0);
+        if (taken) rv_join(&fx->rev.par, drv_job0, fx, taken);
+        else TX_FAR(tx_fx_drive_run)(&fx->drive[1], R, n, 0);   /* (one core: as below, the shared scratch) */
+        return;
+    }
     TX_FAR(tx_fx_drive_run)(&fx->drive[0], L, n, 0);     /* (in RAM on the FM-1: TX_RAM) */
     TX_FAR(tx_fx_drive_run)(&fx->drive[1], R, n, 0);
 }

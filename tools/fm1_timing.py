@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FM1 = ROOT / "build" / "fm1"
 ALSO = r"fm-1|txfm1|felucca|dinghy"                  # after "Textura" (tx_ports: "Frodhes" only by --port)
 TPB_MS = 256 * 1000 / 44100
+TPB_US = TPB_MS * 1000                          # (5805 us: the block, each core's busy share against it)
 PAR = []                                         # (labels(): the LANES rows on two cores)
 
 
@@ -39,7 +40,8 @@ def labels():
     nblk = [int(m.group(2)) for m in re.finditer(r"^  \{(\d+),\d+,\d+,\d+,\d+,\d+,(\d+),", txt, re.M)]
     lab = re.findall(r'^  "(.*)",$', txt, re.M)
     global PAR
-    PAR = [(int(m.group(1)) & 32) != 0 for m in re.finditer(r"^  \{\d+,\d+,(\d+),", txt, re.M)]   # LANES FM_PAR
+    PAR = [(int(m.group(1)) & 32) != 0                                                            # LANES FM_PAR
+           for m in re.finditer(r"^  \{\d+,\d+,(\d+),\d+,\d+,\d+,\d+,", txt, re.M)]   # (the cfg rows only, not FM_EV's)
     return lab, kinds, nblk
 
 
@@ -154,8 +156,10 @@ def main():
         done = {int(r["idx"]) for r in csv.DictReader(open(out))}
     fields = ["idx", "label", "run", "worst_us", "w8_us", "mean_us", "raw_worst_us", "raw_w8_us", "hash",
               "lane_worst_us", "lane_w8_us", "isr_max_us", "sstack_b", "ustack_b", "host_w8_us", "factor_w8",
-              "hash_match", "c1"]
+              "hash_match", "c1", "c0_busy_pct", "c1_busy_pct", "mix_us"]
     new = not (a.resume and out.exists())
+    if not new and next(csv.reader(open(out)), []) != fields:
+        raise SystemExit(f"fm1_timing: {out} has other columns (an older run): --resume needs a fresh run")
     f = open(out, "w" if new else "a", newline="")
     w = csv.DictWriter(f, fields)
     if new:
@@ -244,7 +248,12 @@ def main():
                    "isr_max_us": isr, "sstack_b": s.get(94), "ustack_b": s.get(95),
                    "host_w8_us": h["w8_us"] if h else "",
                    "factor_w8": f"{it[2] / 2 / float(h['w8_us']):.1f}" if h and float(h["w8_us"]) > 0 else "",
-                   "hash_match": (h["hash"] == f"{hsh:08x}") if h else "", "c1": ""}
+                   "hash_match": (h["hash"] == f"{hsh:08x}") if h else "", "c1": "",
+                   "c0_busy_pct": "", "c1_busy_pct": "", "mix_us": ""}
+            if kinds[i] == 2:           # LANES: each core's busy share of the block (worst / mean), the serial mix
+                row["c0_busy_pct"] = f"{100 * it[1] / 2 / TPB_US:.1f}/{100 * it[3] / 2 / TPB_US:.1f}"
+                row["c1_busy_pct"] = f"{100 * it.get(34, 0) / 2 / TPB_US:.1f}/{100 * it.get(35, 0) / 2 / TPB_US:.1f}"
+                row["mix_us"] = f"{it.get(36, 0) / 2}/{it.get(37, 0) / 2}"
             if kinds[i] == 3:           # FM_K_C1: core 1 against core 0, each block
                 v = [it.get(20 + 2 * k, 0) | it.get(21 + 2 * k, 0) << 14 for k in range(4)]
                 row["c1"] = f"jobs {v[0]} differ {v[1]} first {v[2]} solo {v[3]}; {c1_state(s)}"
@@ -258,6 +267,9 @@ def main():
             print(f"  {i:3d} {lab[i][:44]:44s} r{r} worst {row['worst_us']:7.1f} w8 {row['w8_us']:7.1f} "
                   f"mean {row['mean_us']:7.1f} x{row['factor_w8']:>5s} hash {'ok' if row['hash_match'] is True else row['hash_match']}"
                   f" isr {isr} stack {row['sstack_b']}")
+            if row["c0_busy_pct"]:
+                print(f"      busy % worst/mean: core 0 {row['c0_busy_pct']} core 1 {row['c1_busy_pct']}; "
+                      f"mix phase {row['mix_us']} us")
             if row["c1"]:
                 print(f"      {row['c1']}")
                 if s.get(79):

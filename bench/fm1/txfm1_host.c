@@ -84,9 +84,9 @@ int main(int argc, char **argv)
         pthread_detach(th);
     }
     tx_bench_prepare();
-    printf("idx,label,worst_us,w8_us,mean_us,lane_worst_us,lane_w8_us,hash,stable\n");
+    printf("idx,label,worst_us,w8_us,mean_us,lane_worst_us,lane_w8_us,hash,stable,c1_mean_us,mix_mean_us\n");
     for (i = 0; i < FM_NCFG; i++) {
-        double w = 1e30, w8 = 1e30, m = 1e30;
+        double w = 1e30, w8 = 1e30, m = 1e30, m1 = 1e30, mm = 1e30;
         double lw[4] = {1e30, 1e30, 1e30, 1e30}, l8[4] = {1e30, 1e30, 1e30, 1e30};
         uint32_t hash = 0;
         int stable = 1;
@@ -106,6 +106,8 @@ int main(int argc, char **argv)
             if (s->worst / 24.0 < w) w = s->worst / 24.0;
             if (s->w8 / 24.0 < w8) w8 = s->w8 / 24.0;
             if (s->sum * (double)(1u << s->sum_sh) / 24.0 / s->n < m) m = s->sum * (double)(1u << s->sum_sh) / 24.0 / s->n;
+            if (s->b1_sum * (double)(1u << s->sum_sh) / 24.0 / s->n < m1) m1 = s->b1_sum * (double)(1u << s->sum_sh) / 24.0 / s->n;
+            if (s->mix_sum * (double)(1u << s->sum_sh) / 24.0 / s->n < mm) mm = s->mix_sum * (double)(1u << s->sum_sh) / 24.0 / s->n;
             for (k = 0; k < nl; k++) {
                 if (s->lane_worst[k] / 24.0 < lw[k]) lw[k] = s->lane_worst[k] / 24.0;
                 if (s->lane_w8[k] / 24.0 < l8[k]) l8[k] = s->lane_w8[k] / 24.0;
@@ -117,7 +119,8 @@ int main(int argc, char **argv)
             snprintf(lane[0] + n0, sizeof lane[0] - n0, "%s%.1f", k ? " " : "", lw[k]);
             snprintf(lane[1] + n1, sizeof lane[1] - n1, "%s%.1f", k ? " " : "", l8[k]);
         }
-        printf("%u,\"%s\",%.2f,%.2f,%.2f,%s,%s,%08x,%d\n", i, FM_LABEL[i], w, w8, m, lane[0], lane[1], hash, stable);
+        if (!nl) m1 = mm = 0;                                /* (LANES rows only: core 1's block, the mix phase) */
+        printf("%u,\"%s\",%.2f,%.2f,%.2f,%s,%s,%08x,%d,%.2f,%.2f\n", i, FM_LABEL[i], w, w8, m, lane[0], lane[1], hash, stable, m1, mm);
         fflush(stdout);
     }
     free(run);
