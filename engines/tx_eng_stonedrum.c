@@ -44,13 +44,13 @@
 enum { P_MATERIAL, P_SHAPE, P_MALLET, P_DAMP, P_POS, P_TUNE, P_VARY, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"MATERIAL", 127, 72, "granite Q180 | marble 300 | sandstone 100 | slate 185 | limestone 150 | ringing rock 2000 | flint 160 | obsidian 175 | quartz 4000"},
-    {"SHAPE", 127, 127, "bar (1 : 2.76 : 5.40 : 8.93) | slab (pyeon-gyoung 1 : 1.5 : 2.3 : 3) | boulder (dense, inharmonic)"},
-    {"MALLET", 127, 0, "stone hammer (an impulse) .. wood .. rubber .. felt (contact 0.1 .. 3 ms: darker)"},
-    {"DAMP", 127, 0, "a hand on the stone: extra damping 0.7 .. 60 /s (log)"},
-    {"POS", 127, 40, "strike position: the end / edge .. the centre (which modes sound)"},
-    {"TUNE", 127, 75, "the lowest mode at C4: 100 Hz .. 2 kHz (log); keys a semitone each"},
-    {"VARY", 127, 100, "each strike: the same stone per key (0: a lithophone) .. a new stone every time (shape, +-3 % tuning, Q +-30 %, strike point, hardness)"},
+    {"MATERIAL", 127, 72, TX_TEXT("granite Q180 | marble 300 | sandstone 100 | slate 185 | limestone 150 | ringing rock 2000 | flint 160 | obsidian 175 | quartz 4000")},
+    {"SHAPE", 127, 127, TX_TEXT("bar (1 : 2.76 : 5.40 : 8.93) | slab (pyeon-gyoung 1 : 1.5 : 2.3 : 3) | boulder (dense, inharmonic)")},
+    {"MALLET", 127, 0, TX_TEXT("stone hammer (an impulse) .. wood .. rubber .. felt (contact 0.1 .. 3 ms: darker)")},
+    {"DAMP", 127, 0, TX_TEXT("a hand on the stone: extra damping 0.7 .. 60 /s (log)")},
+    {"POS", 127, 40, TX_TEXT("strike position: the end / edge .. the centre (which modes sound)")},
+    {"TUNE", 127, 75, TX_TEXT("the lowest mode at C4: 100 Hz .. 2 kHz (log); keys a semitone each")},
+    {"VARY", 127, 100, TX_TEXT("each strike: the same stone per key (0: a lithophone) .. a new stone every time (shape, +-3 % tuning, Q +-30 %, strike point, hardness)")},
 };
 
 #define NV 12u
@@ -368,16 +368,16 @@ static void drum_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: twelve quartz boulders ringing (every mode alive), struck again and again, hard */
 static const char SCENE_MAX[] =
-    "0 particles 12\n0 param MATERIAL 127\n0 param SHAPE 127\n0 param TUNE 127\n"
+    TX_TEXT("0 particles 12\n0 param MATERIAL 127\n0 param SHAPE 127\n0 param TUNE 127\n"
     "0 on 53 127\n0 on 55 127\n0 on 57 127\n0 on 59 127\n0 on 60 127\n0 on 62 127\n0 on 64 127\n0 on 65 127\n"
     "0 on 67 127\n0 on 69 127\n0 on 71 127\n0 on 72 127\n"
     "100 off 53\n100 off 55\n100 off 57\n100 off 59\n100 off 60\n100 off 62\n100 off 64\n100 off 65\n"
     "100 off 67\n100 off 69\n100 off 71\n100 off 72\n"
     "500 on 53 127\n500 on 57 127\n500 on 60 127\n500 on 64 127\n500 on 67 127\n500 on 71 127\n"
     "600 off 53\n600 off 57\n600 off 60\n600 off 64\n600 off 67\n600 off 71\n"
-    "3000 end\n";
+    "3000 end\n");
 
 const tx_engine_t tx_eng_stonedrum = {
-    "stonedrum", "#10 Stone drum / lithophone", NP, PARAMS, NV, 6, sizeof(drum_t), SCENE_MAX,
+    "stonedrum", TX_TEXT("#10 Stone drum / lithophone"), NP, PARAMS, NV, 6, sizeof(drum_t), SCENE_MAX,
     drum_init, drum_key, drum_param, drum_render, drum_stats,
 };

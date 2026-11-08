@@ -36,12 +36,12 @@
 enum { P_RATE, P_MATERIAL, P_THICK, P_BURST, P_CLUSTER, P_SIZE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"RATE", 127, 50, "crush speed: 3 .. 1000 clicks/s per hand (log)"},
-    {"MATERIAL", 127, 64, "foil | mylar (alpha 1, bright) | paper (alpha 1.45, ~2 kHz) | dry leaves (a bright rustle) | snow (dense, dull)"},
-    {"THICK", 127, 64, "sheet thickness x 0.25 .. 4: the largest clicks ~ h^2, their rate ~ 1 / h^2"},
-    {"BURST", 127, 50, "squeeze burstiness: steady .. bursts (random walks of 30 ms / 0.3 s / 3 s)"},
-    {"CLUSTER", 127, 40, "aftershocks per click: 0 .. 4 (clicks bunch within ~10 ms)"},
-    {"SIZE", 127, 64, "sheet size: resonances x 2 .. x 0.5 (keys: a semitone each)"},
+    {"RATE", 127, 50, TX_TEXT("crush speed: 3 .. 1000 clicks/s per hand (log)")},
+    {"MATERIAL", 127, 64, TX_TEXT("foil | mylar (alpha 1, bright) | paper (alpha 1.45, ~2 kHz) | dry leaves (a bright rustle) | snow (dense, dull)")},
+    {"THICK", 127, 64, TX_TEXT("sheet thickness x 0.25 .. 4: the largest clicks ~ h^2, their rate ~ 1 / h^2")},
+    {"BURST", 127, 50, TX_TEXT("squeeze burstiness: steady .. bursts (random walks of 30 ms / 0.3 s / 3 s)")},
+    {"CLUSTER", 127, 40, TX_TEXT("aftershocks per click: 0 .. 4 (clicks bunch within ~10 ms)")},
+    {"SIZE", 127, 64, TX_TEXT("sheet size: resonances x 2 .. x 0.5 (keys: a semitone each)")},
 };
 
 #define NS 8u                      /* sheets (one per key) */
@@ -383,12 +383,12 @@ static void crumple_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: eight hands crushing thin foil as fast as possible, bursty, clustered */
 static const char SCENE_MAX[] =
-    "0 particles 16\n0 param MATERIAL 0\n0 param RATE 127\n0 param THICK 0\n0 param BURST 127\n0 param CLUSTER 127\n"
+    TX_TEXT("0 particles 16\n0 param MATERIAL 0\n0 param RATE 127\n0 param THICK 0\n0 param BURST 127\n0 param CLUSTER 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "5000 end\n";
+    "5000 end\n");
 
 const tx_engine_t tx_eng_crumple = {
-    "crumple", "#17 Crumpling", NP, PARAMS, NH, 8, sizeof(crumple_t), SCENE_MAX,
+    "crumple", TX_TEXT("#17 Crumpling"), NP, PARAMS, NH, 8, sizeof(crumple_t), SCENE_MAX,
     crumple_init, crumple_key, crumple_param, crumple_render, crumple_stats,
 };

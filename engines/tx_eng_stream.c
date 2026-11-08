@@ -47,12 +47,12 @@
 enum { P_FLOW, P_SIZE, P_SPREAD, P_NEAR, P_EDDY, P_ROAR, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"FLOW", 127, 70, "bubbles per second per plunge: 30 .. 30 000 (log): a trickle .. a rushing riffle"},
-    {"SIZE", 127, 30, "bubble size at C4: radius 0.6 .. 8 mm (log): pitch centre 5.5 kHz .. 400 Hz (keys: a semitone)"},
-    {"SPREAD", 127, 64, "size law gamma: 0.5 (many big bubbles: gulping) .. 2.3 (mostly small: fizzing)"},
-    {"NEAR", 127, 64, "how near the surface they burst: deep (quiet, steady) .. near (loud, rising plinks: babble)"},
-    {"EDDY", 127, 30, "eddies: a steady flow .. surging and gurgling (the rate wanders, ~0.5 and ~4 Hz: +-0.16 oct at 30 .. +-2.8 oct at 127)"},
-    {"ROAR", 127, 0, "the bubble cloud's low roar (100-600 Hz): off (water only) .. a big rushing stream"},
+    {"FLOW", 127, 70, TX_TEXT("bubbles per second per plunge: 30 .. 30 000 (log): a trickle .. a rushing riffle")},
+    {"SIZE", 127, 30, TX_TEXT("bubble size at C4: radius 0.6 .. 8 mm (log): pitch centre 5.5 kHz .. 400 Hz (keys: a semitone)")},
+    {"SPREAD", 127, 64, TX_TEXT("size law gamma: 0.5 (many big bubbles: gulping) .. 2.3 (mostly small: fizzing)")},
+    {"NEAR", 127, 64, TX_TEXT("how near the surface they burst: deep (quiet, steady) .. near (loud, rising plinks: babble)")},
+    {"EDDY", 127, 30, TX_TEXT("eddies: a steady flow .. surging and gurgling (the rate wanders, ~0.5 and ~4 Hz: +-0.16 oct at 30 .. +-2.8 oct at 127)")},
+    {"ROAR", 127, 0, TX_TEXT("the bubble cloud's low roar (100-600 Hz): off (water only) .. a big rushing stream")},
 };
 
 #define NH TX_POOL_MAX
@@ -326,13 +326,13 @@ static void stream_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: four plunges at the full rate, near the surface, every hero busy, stones tipped in */
 static const char SCENE_MAX[] =
-    "0 particles 32\n0 param FLOW 127\n0 param NEAR 127\n0 param EDDY 127\n0 param SIZE 0\n"
+    TX_TEXT("0 particles 32\n0 param FLOW 127\n0 param NEAR 127\n0 param EDDY 127\n0 param SIZE 0\n"
     "0 on 53 127\n0 on 60 127\n0 on 67 127\n0 on 79 127\n1000 on 53 127\n1500 param SIZE 127\n2000 param SPREAD 0\n"
     "3000 off 53\n3000 off 60\n3000 off 67\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_stream = {
-    "stream", "#4 Stream / brook", NP, PARAMS, NH, 14, sizeof(stream_t), SCENE_MAX,   /* (14 heroes: the bed now sounds
+    "stream", TX_TEXT("#4 Stream / brook"), NP, PARAMS, NH, 14, sizeof(stream_t), SCENE_MAX,   /* (14 heroes: the bed now sounds
                                                              * every block, ~90 us at the top; 16 went over half the pool) */
     stream_init, stream_key, stream_param, stream_render, stream_stats,
 };

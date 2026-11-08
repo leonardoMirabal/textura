@@ -39,11 +39,11 @@
 enum { P_SIZE, P_THICK, P_MALLET, P_CRASH, P_DAMP, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"SIZE", 127, 94, "plate area: 0.05 .. 2 m^2 (log; 2.4 : 1): bigger = lower, denser modes (thunder sheet 0.6)"},
-    {"THICK", 127, 20, "thickness: 0.3 .. 3 mm steel (log): thin = low, dense, loud; thick = sparse, bell-like"},
-    {"MALLET", 127, 64, "mallet: soft (contact 6 ms, dark) .. hard (0.3 ms, bright)"},
-    {"CRASH", 127, 90, "wave turbulence: off (a linear plate) .. strong (hits cascade up into a roaring crash)"},
-    {"DAMP", 127, 10, "hand on the sheet: free (+0.5 / s) .. held (+30 / s): how long it rings"},
+    {"SIZE", 127, 94, TX_TEXT("plate area: 0.05 .. 2 m^2 (log; 2.4 : 1): bigger = lower, denser modes (thunder sheet 0.6)")},
+    {"THICK", 127, 20, TX_TEXT("thickness: 0.3 .. 3 mm steel (log): thin = low, dense, loud; thick = sparse, bell-like")},
+    {"MALLET", 127, 64, TX_TEXT("mallet: soft (contact 6 ms, dark) .. hard (0.3 ms, bright)")},
+    {"CRASH", 127, 90, TX_TEXT("wave turbulence: off (a linear plate) .. strong (hits cascade up into a roaring crash)")},
+    {"DAMP", 127, 10, TX_TEXT("hand on the sheet: free (+0.5 / s) .. held (+30 / s): how long it rings")},
 };
 
 #define NB TX_PLATE_BANDS
@@ -351,12 +351,12 @@ static void plate_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: every exact mode, a thin plate struck hard and rolled with eight keys, strong crash, free */
 static const char SCENE_MAX[] =
-    "0 particles 24\n0 param SIZE 60\n0 param THICK 0\n0 param MALLET 127\n0 param CRASH 127\n0 param DAMP 0\n"
+    TX_TEXT("0 particles 24\n0 param SIZE 60\n0 param THICK 0\n0 param MALLET 127\n0 param CRASH 127\n0 param DAMP 0\n"
     "0 on 53 127\n0 on 56 127\n0 on 59 127\n0 on 62 127\n0 on 65 127\n0 on 68 127\n0 on 71 127\n0 on 74 127\n"
     "3000 off 53\n3000 off 56\n3000 off 59\n3000 off 62\n3000 off 65\n3000 off 68\n3000 off 71\n3000 off 74\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_plate = {
-    "plate", "#23b Thunder sheet / plate", NP, PARAMS, TX_PLATE_MODES, 10, sizeof(plate_t), SCENE_MAX,
+    "plate", TX_TEXT("#23b Thunder sheet / plate"), NP, PARAMS, TX_PLATE_MODES, 10, sizeof(plate_t), SCENE_MAX,
     plate_init, plate_key, plate_param, plate_render, plate_stats,
 };

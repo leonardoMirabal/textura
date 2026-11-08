@@ -58,10 +58,10 @@
 enum { P_WIND, P_GUST, P_MATERIAL, P_CLAPPER, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"WIND", 127, 50, "wind: calm .. strong: strikes ~0.3 .. 20 / s across the tubes, harder"},
-    {"GUST", 127, 50, "gustiness: steady .. gusty (bursts of strikes)"},
-    {"MATERIAL", 127, 0, "aluminium (Q ~1500, long ring) | glass (Q ~600) | bamboo (Q ~100, M25)"},
-    {"CLAPPER", 127, 64, "clapper: soft (felt / wood: dark) .. hard (metal: bright, all modes)"},
+    {"WIND", 127, 50, TX_TEXT("wind: calm .. strong: strikes ~0.3 .. 20 / s across the tubes, harder")},
+    {"GUST", 127, 50, TX_TEXT("gustiness: steady .. gusty (bursts of strikes)")},
+    {"MATERIAL", 127, 0, TX_TEXT("aluminium (Q ~1500, long ring) | glass (Q ~600) | bamboo (Q ~100, M25)")},
+    {"CLAPPER", 127, 64, TX_TEXT("clapper: soft (felt / wood: dark) .. hard (metal: bright, all modes)")},
 };
 
 #define NT 8u
@@ -376,12 +376,12 @@ static void chimes_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: eight tubes (every mode under fs/6), strong gusty wind, a long-ringing material */
 static const char SCENE_MAX[] =
-    "0 particles 8\n0 param WIND 127\n0 param GUST 127\n0 param MATERIAL 0\n0 param CLAPPER 127\n"
+    TX_TEXT("0 particles 8\n0 param WIND 127\n0 param GUST 127\n0 param MATERIAL 0\n0 param CLAPPER 127\n"
     "0 on 53 127\n0 on 55 127\n0 on 57 127\n0 on 60 127\n0 on 62 127\n0 on 64 127\n0 on 67 127\n0 on 69 127\n"
     "3000 off 53\n3000 off 55\n3000 off 57\n3000 off 60\n3000 off 62\n3000 off 64\n3000 off 67\n3000 off 69\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_chimes = {
-    "chimes", "#24 Wind chimes", NP, PARAMS, NT, 6, sizeof(chimes_t), SCENE_MAX,
+    "chimes", TX_TEXT("#24 Wind chimes"), NP, PARAMS, NT, 6, sizeof(chimes_t), SCENE_MAX,
     chimes_init, chimes_key, chimes_param, chimes_render, chimes_stats,
 };

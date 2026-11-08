@@ -40,11 +40,11 @@
 enum { P_SPECIES, P_SWARM, P_SPREAD, P_SPEED, P_DIST, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"SPECIES", 127, 0, "honeybee 230 Hz | blowfly 180 | bumblebee 140 | hoverfly 150 | carpenter bee 118 | hornet 107"},
-    {"SWARM", 127, 0, "companions per key: 0 .. 7 (a swarm)"},
-    {"SPREAD", 127, 64, "wingbeat spread across the swarm: CV 0 .. 10 % (5 % typical)"},
-    {"SPEED", 127, 64, "flight speed: 0.2 .. 5 m/s (log): wander, Doppler +-0.06 .. 1.5 %"},
-    {"DIST", 127, 50, "hovering distance: 0.1 .. 5 m (log): level ~ 1 / r (velocity: closer / farther)"},
+    {"SPECIES", 127, 0, TX_TEXT("honeybee 230 Hz | blowfly 180 | bumblebee 140 | hoverfly 150 | carpenter bee 118 | hornet 107")},
+    {"SWARM", 127, 0, TX_TEXT("companions per key: 0 .. 7 (a swarm)")},
+    {"SPREAD", 127, 64, TX_TEXT("wingbeat spread across the swarm: CV 0 .. 10 % (5 % typical)")},
+    {"SPEED", 127, 64, TX_TEXT("flight speed: 0.2 .. 5 m/s (log): wander, Doppler +-0.06 .. 1.5 %")},
+    {"DIST", 127, 50, TX_TEXT("hovering distance: 0.1 .. 5 m (log): level ~ 1 / r (velocity: closer / farther)")},
 };
 
 #define NV 16u
@@ -388,12 +388,12 @@ static void bees_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: every slot flying (8 keys x swarms), hornets close and fast */
 static const char SCENE_MAX[] =
-    "0 particles 16\n0 param SPECIES 127\n0 param SWARM 127\n0 param SPEED 127\n0 param DIST 0\n0 param SPREAD 127\n"
+    TX_TEXT("0 particles 16\n0 param SPECIES 127\n0 param SWARM 127\n0 param SPEED 127\n0 param DIST 0\n0 param SPREAD 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "5000 end\n";
+    "5000 end\n");
 
 const tx_engine_t tx_eng_bees = {
-    "bees", "#30 Bees / flies", NP, PARAMS, NV, 8, sizeof(bees_t), SCENE_MAX,
+    "bees", TX_TEXT("#30 Bees / flies"), NP, PARAMS, NV, 8, sizeof(bees_t), SCENE_MAX,
     bees_init, bees_key, bees_param, bees_render, bees_stats,
 };

@@ -17,19 +17,19 @@
 enum { P_WIND, P_GUST, P_FOLIAGE, P_BUFFET, P_WHOOSH, P_EDGE, P_SCALE, P_KIND, P_DRIFT, P_SKITTER, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"WIND", 127, 64, "mean wind speed: 0 calm (silence) .. 28 m/s (^1.5: 0.5 m/s at 9, 10 at 64: a breath now and then .. a storm)"},
-    {"GUST", 127, 64, "gustiness: turbulence 5 .. 40 %, gusts and lulls 0.04 .. 0.34 /s (more in light air)"},
-    {"FOLIAGE", 127, 64, "what it blows through: open ground and grass .. leafy trees (rustle)"},
-    {"BUFFET", 127, 48, "exposure: sheltered .. in the open (low pressure bursts at the listener)"},
-    {"WHOOSH", 127, 64, "gusts passing by: none .. often (a band sweeping down as it passes)"},
-    {"EDGE", 127, 16, "edge tones: none .. now and then (faint, short, in strong gusts only)"},
-    {"SCALE", 127, 64, "the obstacles' size: big trees (lower) .. fine grass (higher), +-1 octave"},
-    {"KIND", 127, 0, "the place, 13 steps each: wind | a breeze in tall grass | pines | leafy trees | an open plain or moor | "
-                     "a sea wind on the coast | a gale on a ridge | a gusty autumn day | a winter storm | a desert wind"},
-    {"DRIFT", 127, 64, "what the wind lifts, where it does (a winter storm's snow, a desert's sand): none .. +-3 octaves of the place's own "
-                      "(a fine hiss rising with the gusts over its threshold speed)"},
-    {"SKITTER", 127, 64, "dry leaves tumbling over the ground, where there are (a gusty autumn day): none, then x 1/4 .. "
-                        "x 4 the place's own (runs of clicks over 4 m/s, louder as it blows harder)"},
+    {"WIND", 127, 64, TX_TEXT("mean wind speed: 0 calm (silence) .. 28 m/s (^1.5: 0.5 m/s at 9, 10 at 64: a breath now and then .. a storm)")},
+    {"GUST", 127, 64, TX_TEXT("gustiness: turbulence 5 .. 40 %, gusts and lulls 0.04 .. 0.34 /s (more in light air)")},
+    {"FOLIAGE", 127, 64, TX_TEXT("what it blows through: open ground and grass .. leafy trees (rustle)")},
+    {"BUFFET", 127, 48, TX_TEXT("exposure: sheltered .. in the open (low pressure bursts at the listener)")},
+    {"WHOOSH", 127, 64, TX_TEXT("gusts passing by: none .. often (a band sweeping down as it passes)")},
+    {"EDGE", 127, 16, TX_TEXT("edge tones: none .. now and then (faint, short, in strong gusts only)")},
+    {"SCALE", 127, 64, TX_TEXT("the obstacles' size: big trees (lower) .. fine grass (higher), +-1 octave")},
+    {"KIND", 127, 0, TX_TEXT("the place, 13 steps each: wind | a breeze in tall grass | pines | leafy trees | an open plain or moor | "
+                     "a sea wind on the coast | a gale on a ridge | a gusty autumn day | a winter storm | a desert wind")},
+    {"DRIFT", 127, 64, TX_TEXT("what the wind lifts, where it does (a winter storm's snow, a desert's sand): none .. +-3 octaves of the place's own "
+                      "(a fine hiss rising with the gusts over its threshold speed)")},
+    {"SKITTER", 127, 64, TX_TEXT("dry leaves tumbling over the ground, where there are (a gusty autumn day): none, then x 1/4 .. "
+                        "x 4 the place's own (runs of clicks over 4 m/s, louder as it blows harder)")},
 };
 
 /* the kinds (a place each: what the wind blows through and how it moves there; ours, set against the references):
@@ -176,11 +176,11 @@ static void wind_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: a storm, gusty, leafy, exposed, every whoosh and the edge tones */
 static const char SCENE_MAX[] =
-    "0 particles 4\n0 param WIND 127\n0 param GUST 127\n0 param FOLIAGE 127\n0 param BUFFET 127\n0 param WHOOSH 127\n"
+    TX_TEXT("0 particles 4\n0 param WIND 127\n0 param GUST 127\n0 param FOLIAGE 127\n0 param BUFFET 127\n0 param WHOOSH 127\n"
     "0 param EDGE 127\n0 on 60 127\n500 on 64 127\n1000 on 67 127\n1500 on 72 127\n"
-    "3000 off 60\n3000 off 64\n3000 off 67\n3000 off 72\n4000 end\n";
+    "3000 off 60\n3000 off 64\n3000 off 67\n3000 off 72\n4000 end\n");
 
 const tx_engine_t tx_eng_wind = {
-    "wind", "Wind", NP, PARAMS, TX_WIND_NW, 3, sizeof(wind_t), SCENE_MAX,
+    "wind", TX_TEXT("Wind"), NP, PARAMS, TX_WIND_NW, 3, sizeof(wind_t), SCENE_MAX,
     wind_init, wind_key, wind_param, wind_render, wind_stats,
 };

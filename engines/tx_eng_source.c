@@ -73,22 +73,22 @@ enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER, V_BIRD };
 
 static const tx_param_t PARAMS[NP] = {
     {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees | 11 ice | 12 wood | 13 minerals | 14 glass | 15 songbird | 16 chirper | 17 crow | 18 gull | 19 blackbird | 20 song thrush | 21 nightingale | 22 robin | 23 wren | 24 hermit thrush | 25 skylark | 26 wood thrush | 27 reed warbler | 28 curlew | 29 oystercatcher | 30 cuckoo | 31 woodpecker | 32 wood pigeon | 33 nightjar | 34 bittern"},
-    {"ACTIVITY", 127, 96, "how active each individual is (COUNT says how many), perceptually even: each step sounds the same amount more of the sound's activity (events/s, its singing, its flow), on the sound's own measured curve up to its audible top (tx_src_lin.h), on the preset's own scale and through its transition: a rain patch 0.2 .. 1500 drops/s (a stray drop .. a downpour on it), a stone 0.05 .. 60 knocks/s, a drip point one per 40 s .. 8 /s, a cicada rare short calls .. singing on, a bird singing now and then .. often; hosted engines: their own path (wind a calm .. 28 m/s, fire embers .. a blaze, ...)"},
-    {"EXTRA", 127, 64, "the sound's own extra parameter (its card names it; 64 = the sound's own value)"},
-    {"SPACING", 127, 64, "the timing: clumped bursts .. Poisson (64 up: the preset's own, never an even beat)"},
-    {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
-    {"SPREAD", 127, 64, "how mixed the sizes are: alike .. the preset's (64) .. twice as mixed"},
-    {"TONE", 127, 64, "the body: 64 = the preset's; the stones' Q x/ 4 (mineral), the cicadas' tymbal Q; rain: the bubbles' depth"},
-    {"HARD", 127, 64, "the strike: 64 = the preset's; stones: softer ground above; cicadas: buzzier above; rain: the clicks' level"},
-    {"PROXIMITY", 127, 64, "far .. close: 64 = the preset's own distance (3 m; 16 steps = twice as near: +6 dB, sharper, all the highs, down to 0.5 m; far: 1 / r, the air takes the highs, up to 3 km)"},
-    {"DEPTH", 127, 40, "the population's spread in distance: all at DIST .. x/ 8 (near and far at once)"},
-    {"LIFE", 127, 50, "organic modulation depth (walks, swells and lulls; never a sine): still .. alive"},
-    {"TIME", 127, 64, "LIFE's time scale: 1 s .. 5 min (log)"},
-    {"LOCK", 1, 0, "MIDI clock lock (a hook: stored, no effect until the clock sync is built)"},
-    {"DIV", 9, 4, "beat division when locked: 1/1 1/2 1/4 1/8 1/16 1/32 1/4T 1/8T 1/16T, 9 = a probability per bar (a hook)"},
-    {"GRID", 127, 0, "grid pull: the probability an event lands on the clock's grid (a hook)"},
-    {"TYPE", 127, 0, "the kind within the family: 0 = the preset's own; above, the hosted engine's own kinds over the range (wind: grass .. pines .. leafy trees .. a moor .. the coast .. a ridge .. autumn .. a winter storm .. a desert; crickets, katydids, bees: species; rain: surfaces 1 .. 99, hail and sleet 101 .. 127; water: drops 0, cave drips 16, eaves 32, a brook 48, a spring 64, a waterfall 80, waves on sand 96, on shingle 112, a lake lapping on a shore 120 .. on a hull 127; ice: icicles 8, cubes in a glass 24, frost 40, snow 56, lake ice 72, sea ice 88, a far lake booming 104, thin ice 120; glass: a pane 0, bottles 64, shards 110; wood: spruce .. green branch; minerals: granite .. quartz; sand: hand .. tube)"},
-    {"COUNT", 127, 53, "how many individuals at once, each its own distance, size and character: 0 none (silence; tails ring), then perceptually even (1 + 63 x^2.5, each step sounds the same more): 1, 20, 39, 53, 77, 96, 127 = 1, 2, 4, 8, 19, 32, 64 (rain: patches of rain, stones: rolling stones or pouring points, water: dripping points, cicadas, birds; hosted engines: their keys or presses)"},
+    {"ACTIVITY", 127, 96, TX_TEXT("how active each individual is (COUNT says how many), perceptually even: each step sounds the same amount more of the sound's activity (events/s, its singing, its flow), on the sound's own measured curve up to its audible top (tx_src_lin.h), on the preset's own scale and through its transition: a rain patch 0.2 .. 1500 drops/s (a stray drop .. a downpour on it), a stone 0.05 .. 60 knocks/s, a drip point one per 40 s .. 8 /s, a cicada rare short calls .. singing on, a bird singing now and then .. often; hosted engines: their own path (wind a calm .. 28 m/s, fire embers .. a blaze, ...)")},
+    {"EXTRA", 127, 64, TX_TEXT("the sound's own extra parameter (its card names it; 64 = the sound's own value)")},
+    {"SPACING", 127, 64, TX_TEXT("the timing: clumped bursts .. Poisson (64 up: the preset's own, never an even beat)")},
+    {"SIZE", 127, 64, TX_TEXT("the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)")},
+    {"SPREAD", 127, 64, TX_TEXT("how mixed the sizes are: alike .. the preset's (64) .. twice as mixed")},
+    {"TONE", 127, 64, TX_TEXT("the body: 64 = the preset's; the stones' Q x/ 4 (mineral), the cicadas' tymbal Q; rain: the bubbles' depth")},
+    {"HARD", 127, 64, TX_TEXT("the strike: 64 = the preset's; stones: softer ground above; cicadas: buzzier above; rain: the clicks' level")},
+    {"PROXIMITY", 127, 64, TX_TEXT("far .. close: 64 = the preset's own distance (3 m; 16 steps = twice as near: +6 dB, sharper, all the highs, down to 0.5 m; far: 1 / r, the air takes the highs, up to 3 km)")},
+    {"DEPTH", 127, 40, TX_TEXT("the population's spread in distance: all at DIST .. x/ 8 (near and far at once)")},
+    {"LIFE", 127, 50, TX_TEXT("organic modulation depth (walks, swells and lulls; never a sine): still .. alive")},
+    {"TIME", 127, 64, TX_TEXT("LIFE's time scale: 1 s .. 5 min (log)")},
+    {"LOCK", 1, 0, TX_TEXT("MIDI clock lock (a hook: stored, no effect until the clock sync is built)")},
+    {"DIV", 9, 4, TX_TEXT("beat division when locked: 1/1 1/2 1/4 1/8 1/16 1/32 1/4T 1/8T 1/16T, 9 = a probability per bar (a hook)")},
+    {"GRID", 127, 0, TX_TEXT("grid pull: the probability an event lands on the clock's grid (a hook)")},
+    {"TYPE", 127, 0, TX_TEXT("the kind within the family: 0 = the preset's own; above, the hosted engine's own kinds over the range (wind: grass .. pines .. leafy trees .. a moor .. the coast .. a ridge .. autumn .. a winter storm .. a desert; crickets, katydids, bees: species; rain: surfaces 1 .. 99, hail and sleet 101 .. 127; water: drops 0, cave drips 16, eaves 32, a brook 48, a spring 64, a waterfall 80, waves on sand 96, on shingle 112, a lake lapping on a shore 120 .. on a hull 127; ice: icicles 8, cubes in a glass 24, frost 40, snow 56, lake ice 72, sea ice 88, a far lake booming 104, thin ice 120; glass: a pane 0, bottles 64, shards 110; wood: spruce .. green branch; minerals: granite .. quartz; sand: hand .. tube)")},
+    {"COUNT", 127, 53, TX_TEXT("how many individuals at once, each its own distance, size and character: 0 none (silence; tails ring), then perceptually even (1 + 63 x^2.5, each step sounds the same more): 1, 20, 39, 53, 77, 96, 127 = 1, 2, 4, 8, 19, 32, 64 (rain: patches of rain, stones: rolling stones or pouring points, water: dripping points, cicadas, birds; hosted engines: their keys or presses)")},
 };
 
 #define NV 16u                      /* heroes */
@@ -2388,13 +2388,13 @@ static void src_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: each preset at full intensity near, the morph in the middle, every hero busy */
 static const char SCENE_MAX[] =
-    "0 particles 16\n0 param ACTIVITY 127\n0 param PROXIMITY 127\n0 param PRESET 2\n0 on 60 127\n"
+    TX_TEXT("0 particles 16\n0 param ACTIVITY 127\n0 param PROXIMITY 127\n0 param PRESET 2\n0 on 60 127\n"
     "1000 param PRESET 1\n2000 param PRESET 0\n3000 param PRESET 2\n4000 param PRESET 3\n"
     "5000 param PRESET 4\n6000 param PRESET 5\n7000 param PRESET 6\n8000 param PRESET 7\n"
     "9000 param PRESET 8\n10000 param PRESET 3\n11000 param PRESET 9\n12000 param PRESET 10\n"
     "13000 param PRESET 11\n14000 param PRESET 12\n15000 param PRESET 13\n16000 param PRESET 14\n"
     "17000 param PRESET 15\n18000 param PRESET 16\n19000 param PRESET 17\n20000 param PRESET 18\n21000 param PRESET 19\n"
-    "22000 off 60\n23000 end\n";
+    "22000 off 60\n23000 end\n");
 
 /* the hosted engines that do not fit (txtest: a host left out would play as a particle preset or fall silent, not an
  * error): every HOST row in the whole arena, the water's stream after the drops' heroes; the first one's name in *bad */
@@ -2453,6 +2453,6 @@ void tx_source_host_param(void *st, unsigned id, unsigned val)   /* an override 
 }
 
 const tx_engine_t tx_eng_source = {
-    "source", "Landscape", NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,
+    "source", TX_TEXT("Landscape"), NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,
     src_init, src_key, src_param, src_render, src_stats,
 };

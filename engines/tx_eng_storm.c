@@ -46,15 +46,15 @@ void tx_rainsurf_lite(void *st, unsigned on);
 enum { P_INTENS, P_SURFACE, P_AGE, P_DIST, P_PASSING, P_RAIN, P_WIND, P_FLASH, P_INSIDE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"INTENSITY", 127, 52, "storm intensity, each step sounds the same more (its own measured curve): rain 0.5 .. 60 mm/h, wind 3 .. 20 m/s, flashes 1 .. 12 / min (nearer); 52: as the old 64, ~6 mm/h, 6 m/s, 3 / min"},
-    {"SURFACE", 127, 70, "where the rain falls: water (#2) | leaves, tent, wood, glass, metal roof (#3)"},
-    {"AGE", 127, 30, "storm age: young convective cell (big drops, loud) .. stratiform rain after it (fine drops)"},
-    {"DIST", 127, 60, "distance of the thunder cell: 0.5 .. 15 km (log)"},
-    {"PASSING", 127, 0, "0: a steady storm | a squall passing over from the press: 1 .. 10 min (log; INTENSITY its peak)"},
-    {"RAIN", 127, 64, "the rain over INTENSITY's (and a squall's): x 0.1 .. 10 of its rate (64: as the storm's)"},
-    {"WIND", 127, 64, "the wind over INTENSITY's (and a squall's): x 0.5 .. 2 of its speed, 28 m/s at most (level ~ u^3)"},
-    {"FLASHES", 127, 64, "lightning over INTENSITY's (and a squall's): none (0), x 0.25 .. 4 of its rate (a press still strikes)"},
-    {"INSIDE", 127, 0, "outside .. heard from indoors: walls and windows (16 kHz .. 300 Hz, down to -12 dB)"},
+    {"INTENSITY", 127, 52, TX_TEXT("storm intensity, each step sounds the same more (its own measured curve): rain 0.5 .. 60 mm/h, wind 3 .. 20 m/s, flashes 1 .. 12 / min (nearer); 52: as the old 64, ~6 mm/h, 6 m/s, 3 / min")},
+    {"SURFACE", 127, 70, TX_TEXT("where the rain falls: water (#2) | leaves, tent, wood, glass, metal roof (#3)")},
+    {"AGE", 127, 30, TX_TEXT("storm age: young convective cell (big drops, loud) .. stratiform rain after it (fine drops)")},
+    {"DIST", 127, 60, TX_TEXT("distance of the thunder cell: 0.5 .. 15 km (log)")},
+    {"PASSING", 127, 0, TX_TEXT("0: a steady storm | a squall passing over from the press: 1 .. 10 min (log; INTENSITY its peak)")},
+    {"RAIN", 127, 64, TX_TEXT("the rain over INTENSITY's (and a squall's): x 0.1 .. 10 of its rate (64: as the storm's)")},
+    {"WIND", 127, 64, TX_TEXT("the wind over INTENSITY's (and a squall's): x 0.5 .. 2 of its speed, 28 m/s at most (level ~ u^3)")},
+    {"FLASHES", 127, 64, TX_TEXT("lightning over INTENSITY's (and a squall's): none (0), x 0.25 .. 4 of its rate (a press still strikes)")},
+    {"INSIDE", 127, 0, TX_TEXT("outside .. heard from indoors: walls and windows (16 kHz .. 300 Hz, down to -12 dB)")},
 };
 
 #define ARENA 5920u                /* bytes for the rain engine's state (rain on water 4708, on surfaces 5920 with hail):
@@ -405,10 +405,10 @@ static void storm_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: the fiercest storm on a metal roof, a near flash pressed while one rumbles, the rain dense */
 static const char SCENE_MAX[] =
-    "0 param INTENSITY 127\n0 param SURFACE 127\n0 param AGE 0\n0 param DIST 0\n"
+    TX_TEXT("0 param INTENSITY 127\n0 param SURFACE 127\n0 param AGE 0\n0 param DIST 0\n"
     "0 on 60 127\n500 on 64 127\n1200 on 67 127\n2000 param SURFACE 0\n2500 on 72 127\n"
     "3500 off 60\n3500 off 64\n3500 off 67\n3500 off 72\n"
-    "6000 end\n";
+    "6000 end\n");
 
 /* the hosted rain engines that do not fit the arena (txtest: a rain left out would be silent, not an error); the
  * first one's name in *bad */
@@ -421,6 +421,6 @@ unsigned tx_storm_misfits(const char **bad)
 }
 
 const tx_engine_t tx_eng_storm = {
-    "storm", "#26 Storm (scene)", NP, PARAMS, 1, 1, sizeof(storm_t), SCENE_MAX,
+    "storm", TX_TEXT("#26 Storm (scene)"), NP, PARAMS, 1, 1, sizeof(storm_t), SCENE_MAX,
     storm_init, storm_key, storm_param, storm_render, storm_stats,
 };

@@ -43,13 +43,13 @@
 enum { P_DENSITY, P_SIZE, P_SPREAD, P_MINERAL, P_HARD, P_CLUMP, P_ROOM, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"DENSITY", 127, 52, "hits per second per key: 0.3 .. 36, perceptually even (0.3 + 36 x^2.5; 52: 4.2 /s)"},
-    {"SIZE", 127, 64, "piece length at C4: 3 .. 60 cm (log): f1 ~ 0.13 c / L (a 15 cm granite flake ~3.7 kHz)"},
-    {"SPREAD", 127, 40, "mixed sizes: all alike .. +-3 octaves (sd)"},
-    {"MINERAL", 127, 30, "granite (Q 180) | marble 300 | slate 185 | flint 160 | obsidian 175 | quartz 2000"},
-    {"HARD", 127, 0, "stone on stone (bright clinks) .. on wood .. on soft ground (dull knocks)"},
-    {"CLUMP", 127, 16, "timing: random (Poisson) .. in runs and quiet spells"},
-    {"ROOM", 127, 50, "the space: dry .. a long tail (T60 0.2 .. 2.5 s)"},
+    {"DENSITY", 127, 52, TX_TEXT("hits per second per key: 0.3 .. 36, perceptually even (0.3 + 36 x^2.5; 52: 4.2 /s)")},
+    {"SIZE", 127, 64, TX_TEXT("piece length at C4: 3 .. 60 cm (log): f1 ~ 0.13 c / L (a 15 cm granite flake ~3.7 kHz)")},
+    {"SPREAD", 127, 40, TX_TEXT("mixed sizes: all alike .. +-3 octaves (sd)")},
+    {"MINERAL", 127, 30, TX_TEXT("granite (Q 180) | marble 300 | slate 185 | flint 160 | obsidian 175 | quartz 2000")},
+    {"HARD", 127, 0, TX_TEXT("stone on stone (bright clinks) .. on wood .. on soft ground (dull knocks)")},
+    {"CLUMP", 127, 16, TX_TEXT("timing: random (Poisson) .. in runs and quiet spells")},
+    {"ROOM", 127, 50, TX_TEXT("the space: dry .. a long tail (T60 0.2 .. 2.5 s)")},
 };
 
 #define NV 16u
@@ -310,12 +310,12 @@ static void sc_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: eight keys at the densest, big quartz pieces ringing long, a long room */
 static const char SCENE_MAX[] =
-    "0 particles 16\n0 param DENSITY 127\n0 param MINERAL 127\n0 param SIZE 127\n0 param ROOM 127\n"
+    TX_TEXT("0 particles 16\n0 param DENSITY 127\n0 param MINERAL 127\n0 param SIZE 127\n0 param ROOM 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_stonecloud = {
-    "stonecloud", "Stone cloud", NP, PARAMS, NV, 10, sizeof(cloud_t), SCENE_MAX,
+    "stonecloud", TX_TEXT("Stone cloud"), NP, PARAMS, NV, 10, sizeof(cloud_t), SCENE_MAX,
     sc_init, sc_key, sc_param, sc_render, sc_stats,
 };

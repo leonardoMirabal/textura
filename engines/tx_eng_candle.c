@@ -50,12 +50,12 @@
 enum { P_SIZE, P_FLOW, P_SLOPE, P_SPACING, P_DRAUGHT, P_SPUTTER, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"SIZE", 127, 33, "flame size D at C4: 5 mm .. 1 m (log) -> flicker 0.52 sqrt(g/D) = 23 .. 1.6 Hz (keys: lower = bigger)"},
-    {"FLOW", 127, 15, "gas flow / burn rate: roar level -30 .. 0 dB and peak 120 .. 700 Hz"},
-    {"SLOPE", 127, 89, "roar fall-off above the peak: alpha 2.1 (bright) .. 3.4 (dark), -6.3 .. -10 dB/oct"},
-    {"SPACING", 127, 30, "distance between flames: touching = flicker in phase, apart = counter-phase, far = independent"},
-    {"DRAUGHT", 127, 10, "air movement: still (steady flame) .. windy (deep, irregular flicker and gusts)"},
-    {"SPUTTER", 127, 100, "wick crackle per flame: off .. 20 /s (log); each a cluster of 1-3 sharp clicks"},
+    {"SIZE", 127, 33, TX_TEXT("flame size D at C4: 5 mm .. 1 m (log) -> flicker 0.52 sqrt(g/D) = 23 .. 1.6 Hz (keys: lower = bigger)")},
+    {"FLOW", 127, 15, TX_TEXT("gas flow / burn rate: roar level -30 .. 0 dB and peak 120 .. 700 Hz")},
+    {"SLOPE", 127, 89, TX_TEXT("roar fall-off above the peak: alpha 2.1 (bright) .. 3.4 (dark), -6.3 .. -10 dB/oct")},
+    {"SPACING", 127, 30, TX_TEXT("distance between flames: touching = flicker in phase, apart = counter-phase, far = independent")},
+    {"DRAUGHT", 127, 10, TX_TEXT("air movement: still (steady flame) .. windy (deep, irregular flicker and gusts)")},
+    {"SPUTTER", 127, 100, TX_TEXT("wick crackle per flame: off .. 20 /s (log); each a cluster of 1-3 sharp clicks")},
 };
 
 #define NFL 8u                     /* flames: one per cloud emitter */
@@ -330,14 +330,14 @@ static void candle_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: 8 flames, full flow, every coupling and draught path, the densest sputter */
 static const char SCENE_MAX[] =
-    "0 particles 8\n0 param FLOW 127\n0 param SLOPE 0\n0 param SPACING 60\n0 param DRAUGHT 127\n0 param SPUTTER 127\n"
+    TX_TEXT("0 particles 8\n0 param FLOW 127\n0 param SLOPE 0\n0 param SPACING 60\n0 param DRAUGHT 127\n0 param SPUTTER 127\n"
     "0 param SIZE 0\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "1000 param SPACING 10\n1500 on 53 127\n1500 on 60 127\n2000 param SPACING 120\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_candle = {
-    "candle", "#9 Candle / gas flame", NP, PARAMS, NFL, NFL, sizeof(candle_t), SCENE_MAX,
+    "candle", TX_TEXT("#9 Candle / gas flame"), NP, PARAMS, NFL, NFL, sizeof(candle_t), SCENE_MAX,
     candle_init, candle_key, candle_param, candle_render, candle_stats,
 };

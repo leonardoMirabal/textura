@@ -61,14 +61,14 @@
 enum { P_RATE, P_SURFACE, P_DROPS, P_AREA, P_INSIDE, P_HAIL, P_BOUNCE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"RATE", 127, 70, "rain rate R: 0.1 .. 100 mm/h (log): drizzle .. downpour"},
-    {"SURFACE", 127, 64, "leaves | tent | wood (deck, shingles) | glass (window) | metal roof, continuous between"},
-    {"DROPS", 127, 64, "drop sizes: drizzle (small drops) .. convective (big drops: louder, darker); above 64 also drips off eaves and leaves (4-5.5 mm)"},
-    {"AREA", 127, 50, "area heard: 0.1 .. 20 m^2 (log): a few drops near you .. a whole roof (the near few stand out)"},
-    {"INSIDE", 127, 0, "outside .. inside under the roof (low-passed)"},
-    {"HAIL", 127, 0, "rain (0) .. ice, 32 steps each: hail on a metal roof | hail on a car | hail in leaves | sleet on a window "
-                     "(SURFACE then unused; RATE: stones per m^2, DROPS: their sizes)"},
-    {"BOUNCE", 127, 64, "ice: soft ground .. bouncing stones (restitution x 0.5 .. 1.5, landing again 1 .. 3 times)"},
+    {"RATE", 127, 70, TX_TEXT("rain rate R: 0.1 .. 100 mm/h (log): drizzle .. downpour")},
+    {"SURFACE", 127, 64, TX_TEXT("leaves | tent | wood (deck, shingles) | glass (window) | metal roof, continuous between")},
+    {"DROPS", 127, 64, TX_TEXT("drop sizes: drizzle (small drops) .. convective (big drops: louder, darker); above 64 also drips off eaves and leaves (4-5.5 mm)")},
+    {"AREA", 127, 50, TX_TEXT("area heard: 0.1 .. 20 m^2 (log): a few drops near you .. a whole roof (the near few stand out)")},
+    {"INSIDE", 127, 0, TX_TEXT("outside .. inside under the roof (low-passed)")},
+    {"HAIL", 127, 0, TX_TEXT("rain (0) .. ice, 32 steps each: hail on a metal roof | hail on a car | hail in leaves | sleet on a window "
+                     "(SURFACE then unused; RATE: stones per m^2, DROPS: their sizes)")},
+    {"BOUNCE", 127, 64, TX_TEXT("ice: soft ground .. bouncing stones (restitution x 0.5 .. 1.5, landing again 1 .. 3 times)")},
 };
 
 #define NC 4u
@@ -774,12 +774,12 @@ static void rain_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: a downpour of big drops on a metal roof (bands + panel modes), the near pulses at the limit */
 static const char SCENE_MAX[] =
-    "0 particles 32\n0 param RATE 127\n0 param DROPS 127\n0 param AREA 127\n0 param SURFACE 127\n0 param INSIDE 64\n"
+    TX_TEXT("0 particles 32\n0 param RATE 127\n0 param DROPS 127\n0 param AREA 127\n0 param SURFACE 127\n0 param INSIDE 64\n"
     "0 on 53 127\n0 on 60 127\n0 on 67 127\n0 on 79 127\n1000 on 53 127\n2000 param AREA 40\n"
     "3000 off 53\n3000 off 60\n3000 off 67\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_rainsurf = {
-    "rainsurf", "#3 Rain on surfaces", NP, PARAMS, 32, 16, sizeof(rain_t), SCENE_MAX,
+    "rainsurf", TX_TEXT("#3 Rain on surfaces"), NP, PARAMS, 32, 16, sizeof(rain_t), SCENE_MAX,
     rain_init, rain_key, rain_param, rain_render, rain_stats,
 };

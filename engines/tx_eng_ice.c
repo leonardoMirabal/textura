@@ -41,13 +41,13 @@
 enum { P_ACTION, P_TEMP, P_AMOUNT, P_SIZE, P_FIZZ, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"ACTION", 127, 0, "icicles falling and shattering | ice cubes in a glass | ice crystals tinkling (frost falling from "
-                        "twigs) | snow crunching underfoot (32 each)"},
-    {"TEMP", 127, 64, "ice temperature -40 .. 0 C: ringing (Q ~500) .. wet and dull (Q ~50), more fizz"},
-    {"AMOUNT", 127, 64, "icicles: chunks per break 3 .. 24 | cubes: shaking 1 .. 15 clinks/s | crystals: 1 .. 15 /s | "
-                        "snow: steps 0.5 .. 2.5 /s while held"},
-    {"SIZE", 127, 64, "icicle length 10 .. 80 cm | glass: lowest mode 300 .. 1200 Hz (keys a semitone)"},
-    {"FIZZ", 127, 20, "melt fizz: off .. strong (bubbles at 1-3 kHz)"},
+    {"ACTION", 127, 0, TX_TEXT("icicles falling and shattering | ice cubes in a glass | ice crystals tinkling (frost falling from "
+                        "twigs) | snow crunching underfoot (32 each)")},
+    {"TEMP", 127, 64, TX_TEXT("ice temperature -40 .. 0 C: ringing (Q ~500) .. wet and dull (Q ~50), more fizz")},
+    {"AMOUNT", 127, 64, TX_TEXT("icicles: chunks per break 3 .. 24 | cubes: shaking 1 .. 15 clinks/s | crystals: 1 .. 15 /s | "
+                        "snow: steps 0.5 .. 2.5 /s while held")},
+    {"SIZE", 127, 64, TX_TEXT("icicle length 10 .. 80 cm | glass: lowest mode 300 .. 1200 Hz (keys a semitone)")},
+    {"FIZZ", 127, 20, TX_TEXT("melt fizz: off .. strong (bubbles at 1-3 kHz)")},
 };
 
 #define NV 8u                      /* ringing bodies (icicles or glasses) */
@@ -535,12 +535,12 @@ static void ice_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: eight glasses shaken hard with cubes, cold (long rings), loud fizz */
 static const char SCENE_MAX[] =
-    "0 particles 8\n0 param ACTION 48\n0 param TEMP 20\n0 param AMOUNT 127\n0 param FIZZ 127\n"
+    TX_TEXT("0 particles 8\n0 param ACTION 48\n0 param TEMP 20\n0 param AMOUNT 127\n0 param FIZZ 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4500 end\n";
+    "4500 end\n");
 
 const tx_engine_t tx_eng_ice = {
-    "ice", "#32 Ice crashing", NP, PARAMS, NV, 6, sizeof(ice_t), SCENE_MAX,
+    "ice", TX_TEXT("#32 Ice crashing"), NP, PARAMS, NV, 6, sizeof(ice_t), SCENE_MAX,
     ice_init, ice_key, ice_param, ice_render, ice_stats,
 };

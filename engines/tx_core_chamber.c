@@ -4,10 +4,10 @@
 #include "tx_core_chamber.h"
 
 const tx_param_t tx_chamber_params[TX_CH_NP] = {
-    {"SIZE", 127, 76, "room size L: 0.2 .. 3 m (log): body modes c/2L = 860 .. 57 Hz, tail density and length"},
-    {"ABSORB", 127, 50, "wall absorption a: 0.02 (stone cave) .. 0.6 (soft) (log): T60 = 0.0268 L / a, duller"},
-    {"BODY", 127, 40, "the enclosure's resonance (its lowest modes): none .. strong"},
-    {"TAIL", 127, 50, "the diffuse tail (reverberation): none .. wet"},
+    {"SIZE", 127, 76, TX_TEXT("room size L: 0.2 .. 3 m (log): body modes c/2L = 860 .. 57 Hz, tail density and length")},
+    {"ABSORB", 127, 50, TX_TEXT("wall absorption a: 0.02 (stone cave) .. 0.6 (soft) (log): T60 = 0.0268 L / a, duller")},
+    {"BODY", 127, 40, TX_TEXT("the enclosure's resonance (its lowest modes): none .. strong")},
+    {"TAIL", 127, 50, TX_TEXT("the diffuse tail (reverberation): none .. wet")},
 };
 
 /* line lengths for L = 1 m (primes, ~2.9 .. 4.5 ms: the mean free path 4V/S = 0.67 L sets the scale) */

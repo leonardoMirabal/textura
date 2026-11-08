@@ -40,12 +40,12 @@
 enum { P_THICK, P_DIST, P_RATE, P_ICE, P_COLD, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"THICK", 127, 64, "ice thickness h: 2 .. 30 cm (log): faster sweeps, singing tone (f h) / h = 1550 .. 100 Hz"},
-    {"DIST", 127, 64, "distance of the crack at C4: 5 .. 500 m (log): longer sweeps, later air wave, quieter"},
-    {"RATE", 127, 40, "cracks per second while a key is held: 0.1 .. 10 (log)"},
-    {"ICE", 127, 0, "fresh lake ice (f h 31 Hz m) | sea ice (48 Hz m) | a frozen lake booming far off | thin ice "
-                     "cracking underfoot (a puddle, a pond's edge) (32 each)"},
-    {"COLD", 127, 80, "temperature: near 0 C (wet, Q ~60, dull) .. -20 C (Q ~500, ringing)"},
+    {"THICK", 127, 64, TX_TEXT("ice thickness h: 2 .. 30 cm (log): faster sweeps, singing tone (f h) / h = 1550 .. 100 Hz")},
+    {"DIST", 127, 64, TX_TEXT("distance of the crack at C4: 5 .. 500 m (log): longer sweeps, later air wave, quieter")},
+    {"RATE", 127, 40, TX_TEXT("cracks per second while a key is held: 0.1 .. 10 (log)")},
+    {"ICE", 127, 0, TX_TEXT("fresh lake ice (f h 31 Hz m) | sea ice (48 Hz m) | a frozen lake booming far off | thin ice "
+                     "cracking underfoot (a puddle, a pond's edge) (32 each)")},
+    {"COLD", 127, 80, TX_TEXT("temperature: near 0 C (wet, Q ~60, dull) .. -20 C (Q ~500, ringing)")},
 };
 
 #define NV 8u
@@ -319,12 +319,12 @@ static void ice_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: every chirp slot busy (fast cracking on every key), thin ice far away (long sweeps), cold */
 static const char SCENE_MAX[] =
-    "0 particles 8\n0 param RATE 127\n0 param THICK 0\n0 param DIST 127\n0 param COLD 127\n"
+    TX_TEXT("0 particles 8\n0 param RATE 127\n0 param THICK 0\n0 param DIST 127\n0 param COLD 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "6000 end\n";
+    "6000 end\n");
 
 const tx_engine_t tx_eng_lakeice = {
-    "lakeice", "#18 Lake ice", NP, PARAMS, NV, 6, sizeof(ice_t), SCENE_MAX,
+    "lakeice", TX_TEXT("#18 Lake ice"), NP, PARAMS, NV, 6, sizeof(ice_t), SCENE_MAX,
     ice_init, ice_key, ice_param, ice_render, ice_stats,
 };

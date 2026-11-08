@@ -4,17 +4,17 @@
 #include "tx_core_math.h"
 
 const tx_param_t tx_lfo_params[TX_LP_N] = {
-    {"SHAPE", TX_LS_N - 1, TX_LS_SMOOTH, "sine | triangle | saw up | saw down | square | pulse | S&H | smooth (random, "
-                                         "eased) | drift (a random walk) | gusts (random swells) | chaos | steps"},
-    {"RATE", 127, 64, "free: 0.0005 Hz (33 min) .. 20 Hz, exponential"},
-    {"SYNC", TX_LFO_NSYNC - 1, 0, "FREE, or a division of the beat: 1/32T .. 64 BAR"},
-    {"MODE", TX_LM_N - 1, TX_LM_FREE, "free-running | a key restarts it | lane 1..4's start or notes | one-shot"},
-    {"PHASE", 127, 0, "the start phase: 0 .. 360 degrees"},
-    {"WIDTH", 127, 64, "the shape's skew: pulse duty, triangle symmetry, SMOOTH's easing, GUSTS' rise, STEPS' chance"},
-    {"JITTER", 127, 38, "free: each cycle's length varies at random by up to +-50 % (38 = 15 %)"},
-    {"FADE", 127, 0, "after a restart the depth rises over 0 .. 10 s"},
-    {"RESTART", 1, 0, "off | on START (the transport's)"},
-    {"LEVEL", 127, 127, "the LFO's depth, scaling all its routes"},
+    {"SHAPE", TX_LS_N - 1, TX_LS_SMOOTH, TX_TEXT("sine | triangle | saw up | saw down | square | pulse | S&H | smooth (random, "
+                                         "eased) | drift (a random walk) | gusts (random swells) | chaos | steps")},
+    {"RATE", 127, 64, TX_TEXT("free: 0.0005 Hz (33 min) .. 20 Hz, exponential")},
+    {"SYNC", TX_LFO_NSYNC - 1, 0, TX_TEXT("FREE, or a division of the beat: 1/32T .. 64 BAR")},
+    {"MODE", TX_LM_N - 1, TX_LM_FREE, TX_TEXT("free-running | a key restarts it | lane 1..4's start or notes | one-shot")},
+    {"PHASE", 127, 0, TX_TEXT("the start phase: 0 .. 360 degrees")},
+    {"WIDTH", 127, 64, TX_TEXT("the shape's skew: pulse duty, triangle symmetry, SMOOTH's easing, GUSTS' rise, STEPS' chance")},
+    {"JITTER", 127, 38, TX_TEXT("free: each cycle's length varies at random by up to +-50 % (38 = 15 %)")},
+    {"FADE", 127, 0, TX_TEXT("after a restart the depth rises over 0 .. 10 s")},
+    {"RESTART", 1, 0, TX_TEXT("off | on START (the transport's)")},
+    {"LEVEL", 127, 127, TX_TEXT("the LFO's depth, scaling all its routes")},
 };
 /* 1/32T 1/32 1/16T 1/16 1/16D 1/8T 1/8 1/8D 1/4T 1/4 1/4D 1/2T 1/2 1/2D 1/1T 1 BAR 1D 2 4 8 16 32 64 BAR */
 const uint16_t TX_LFO_SYNC_UNITS[TX_LFO_NSYNC] = {0, 8, 12, 16, 24, 36, 32, 48, 72, 64, 96, 144, 128, 192, 288, 256, 384,
@@ -201,15 +201,15 @@ TX_AUDIO_CODE void tx_mod_sum(const tx_mod_rt_t *r, unsigned n, const tx_lfo_t *
 
 /* ---- ENV */
 const tx_param_t tx_env_params[TX_EP_N] = {
-    {"TRIGGER", TX_ET_N - 1, TX_ET_KEY, "key (any lane's note) | lane 1..4's notes | lane 1..4's events | random | "
-                                        "LFO 1..8 rising through 0 | the transport's START"},
-    {"ATTACK", 127, 40, "1 ms .. 60 s, exponential"},
-    {"DECAY", 127, 70, "1 ms .. 60 s, exponential"},
-    {"RELEASE", 127, 80, "1 ms .. 60 s, exponential"},
-    {"SUSTAIN", 127, 64, "the level held while the notes are held (key and lane triggers)"},
-    {"CURVE", 127, 64, "linear .. eased (a fast start, as an exponential)"},
-    {"VARY", 127, 32, "each trigger: its times +-50 % and its peak down to half at most, at random"},
-    {"LOOP", 1, 0, "off | on: it starts again on its own after a random rest"},
+    {"TRIGGER", TX_ET_N - 1, TX_ET_KEY, TX_TEXT("key (any lane's note) | lane 1..4's notes | lane 1..4's events | random | "
+                                        "LFO 1..8 rising through 0 | the transport's START")},
+    {"ATTACK", 127, 40, TX_TEXT("1 ms .. 60 s, exponential")},
+    {"DECAY", 127, 70, TX_TEXT("1 ms .. 60 s, exponential")},
+    {"RELEASE", 127, 80, TX_TEXT("1 ms .. 60 s, exponential")},
+    {"SUSTAIN", 127, 64, TX_TEXT("the level held while the notes are held (key and lane triggers)")},
+    {"CURVE", 127, 64, TX_TEXT("linear .. eased (a fast start, as an exponential)")},
+    {"VARY", 127, 32, TX_TEXT("each trigger: its times +-50 % and its peak down to half at most, at random")},
+    {"LOOP", 1, 0, TX_TEXT("off | on: it starts again on its own after a random rest")},
 };
 static uint32_t ernd(uint32_t *r) { uint32_t x = *r; x ^= x << 13; x ^= x >> 17; x ^= x << 5; return *r = x; }
 uint32_t tx_env_ms(unsigned v) { return tx_exp2((int32_t)(v > 127u ? 127u : v) * 8191); }   /* 60000^(v / 127) */
@@ -290,11 +290,11 @@ TX_AUDIO_CODE void tx_env_block(tx_env_t *e, unsigned trig, unsigned gate)
 
 /* ---- FOLLOW */
 const tx_param_t tx_fol_params[TX_FP_N] = {
-    {"INPUT", TX_FI_N - 1, TX_FI_LEVEL1, "lane 1..4's level | lane 1..4's event rate | the mix's level | the grain "
-                                         "delay's grains sounding"},
-    {"ATTACK", 127, 30, "the rise: 5 ms .. 10 s, exponential"},
-    {"RELEASE", 127, 70, "the fall: 5 ms .. 10 s, exponential"},
-    {"GAIN", 127, 64, "x0 .. x2 (64: x1)"},
+    {"INPUT", TX_FI_N - 1, TX_FI_LEVEL1, TX_TEXT("lane 1..4's level | lane 1..4's event rate | the mix's level | the grain "
+                                         "delay's grains sounding")},
+    {"ATTACK", 127, 30, TX_TEXT("the rise: 5 ms .. 10 s, exponential")},
+    {"RELEASE", 127, 70, TX_TEXT("the fall: 5 ms .. 10 s, exponential")},
+    {"GAIN", 127, 64, TX_TEXT("x0 .. x2 (64: x1)")},
 };
 uint32_t tx_fol_ms(unsigned v) { return (5u * tx_exp2((int32_t)(v > 127u ? 127u : v) * 5660 + (8 << 16))) >> 8; }
 void tx_fol_init(tx_fol_t *f)

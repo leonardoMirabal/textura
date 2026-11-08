@@ -42,14 +42,14 @@
 enum { P_SIZE, P_SCATTER, P_RATE, P_CLUMP, P_DEPTH, P_HEIGHT, P_CAVE, P_DRIBBLE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"SIZE", 127, 55, "bubble radius at C4: 0.25 .. 6 mm (pitch 13 kHz .. 550 Hz; keys: a semitone smaller each)"},
-    {"SCATTER", 127, 16, "drop-to-drop bubble size spread: 0 .. +-1 octave"},
-    {"RATE", 127, 72, "drops per second while a key is held: 0.1 .. 20 (log)"},
-    {"CLUMP", 127, 40, "drip timing: 0 = random (cave, Poisson) .. 127 = in runs of quick drops and quiet spells"},
-    {"DEPTH", 127, 40, "how deep bubbles pinch off: 0 = at the surface (all rise, plink) .. 127 = deep (no glide, softer)"},
-    {"HEIGHT", 127, 48, "fall height: 1 cm .. 3 m (log) -> impact speed 0.4 .. 8.6 m/s: louder, harder click, faster bubble"},
-    {"CAVE", 127, 0, "the space around: 0 = dry (open air) .. a cave's diffuse tail, T60 0.4 .. 4 s (log)"},
-    {"DRIBBLE", 127, 0, "run-off after rain: while a key is held, small drops along the whole edge, each its own: none .. 4 .. 1500 /s (log)"},
+    {"SIZE", 127, 55, TX_TEXT("bubble radius at C4: 0.25 .. 6 mm (pitch 13 kHz .. 550 Hz; keys: a semitone smaller each)")},
+    {"SCATTER", 127, 16, TX_TEXT("drop-to-drop bubble size spread: 0 .. +-1 octave")},
+    {"RATE", 127, 72, TX_TEXT("drops per second while a key is held: 0.1 .. 20 (log)")},
+    {"CLUMP", 127, 40, TX_TEXT("drip timing: 0 = random (cave, Poisson) .. 127 = in runs of quick drops and quiet spells")},
+    {"DEPTH", 127, 40, TX_TEXT("how deep bubbles pinch off: 0 = at the surface (all rise, plink) .. 127 = deep (no glide, softer)")},
+    {"HEIGHT", 127, 48, TX_TEXT("fall height: 1 cm .. 3 m (log) -> impact speed 0.4 .. 8.6 m/s: louder, harder click, faster bubble")},
+    {"CAVE", 127, 0, TX_TEXT("the space around: 0 = dry (open air) .. a cave's diffuse tail, T60 0.4 .. 4 s (log)")},
+    {"DRIBBLE", 127, 0, TX_TEXT("run-off after rain: while a key is held, small drops along the whole edge, each its own: none .. 4 .. 1500 /s (log)")},
 };
 
 #define U_REF_Q8 330               /* 1.29 m/s (a 4 mm drop from 86 mm), m/s Q8: the reference level */
@@ -427,16 +427,16 @@ static void drip_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: every hero, every key slot at the fastest rate, the biggest (longest) bubbles, the hardest drops */
 static const char SCENE_MAX[] =
-    "0 particles 32\n0 param RATE 127\n0 param SIZE 127\n0 param HEIGHT 127\n0 param SCATTER 127\n"
+    TX_TEXT("0 particles 32\n0 param RATE 127\n0 param SIZE 127\n0 param HEIGHT 127\n0 param SCATTER 127\n"
     "0 param DEPTH 0\n0 param CLUMP 127\n0 param CAVE 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "500 on 53 127\n500 on 60 127\n500 on 67 127\n500 on 74 127\n"
     "1000 on 57 127\n1000 on 64 127\n1000 on 71 127\n1000 on 79 127\n"
     "2000 param SIZE 0\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_drip = {
-    "drip", "#1 Drip (bubbles in a pool)", NP, PARAMS, TX_POOL_MAX, 12, sizeof(drip_t), SCENE_MAX,
+    "drip", TX_TEXT("#1 Drip (bubbles in a pool)"), NP, PARAMS, TX_POOL_MAX, 12, sizeof(drip_t), SCENE_MAX,
     drip_init, drip_key, drip_param, drip_render, drip_stats,
 };

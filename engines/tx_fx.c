@@ -10,16 +10,16 @@
 #include "tx_fx.h"
 
 const tx_param_t tx_fx_reverb_params[TX_RV_NP] = {
-    {"TYPE", TX_RVT_N - 1, 0, "the space: 0 off (the tail rings out) | 1 room (the CHAMBER: body modes + a short tail) | 2 hall | 3 infinite (DECAY 120..126 sustain, 127 freeze) | 4 dark (the infinite tank, darker and still: a deep frozen bed) | 5 drift (the infinite tank, slowly bending in pitch at random) | 6 swell (the infinite tank, held down while you play, swelling in after) | 7 plate (a bright, dense plate)"},
-    {"MIX", 127, 40, "dry .. wet: the sound alone (0) .. the reverb alone (127), equal power between"},
-    {"DECAY", 127, 64, "hall: x0.5 .. x2 the time; infinite / dark / drift / swell: T60 4 .. 60 s, 120..126 sustain, 127 freeze; plate: T60 0.8 .. 6 s; room: the walls (127 = hard, long)"},
-    {"TONE", 127, 64, "the tail's top: 0 dark .. 64 as designed .. 127 bright; room: the body's resonance"},
-    {"PREDELAY", 127, 0, "before the reverb: 0 .. 80 ms"},
-    {"SIZE", 127, 0, "0 = auto (HALL, PLATE: from MIX; INFINITE: fixed); 1..127 the size (room: 0.2 .. 3 m)"},
-    {"MOD", 127, 64, "the tail's slow wander (hall, infinite, plate; drift: its random bend): none .. 2x"},
-    {"LOWCUT", 127, 0, "a high-pass on the send: off (0), 20 .. 800 Hz"},
-    {"SHIMMER", 127, 0, "the tail shifted up and fed back into the reverb: none .. a rising, ringing halo"},
-    {"SHIFT", 3, 0, "the shimmer's interval: 0 an octave up | 1 a fifth up | 2 an octave and a fifth up | 3 an octave down"},
+    {"TYPE", TX_RVT_N - 1, 0, TX_TEXT("the space: 0 off (the tail rings out) | 1 room (the CHAMBER: body modes + a short tail) | 2 hall | 3 infinite (DECAY 120..126 sustain, 127 freeze) | 4 dark (the infinite tank, darker and still: a deep frozen bed) | 5 drift (the infinite tank, slowly bending in pitch at random) | 6 swell (the infinite tank, held down while you play, swelling in after) | 7 plate (a bright, dense plate)")},
+    {"MIX", 127, 40, TX_TEXT("dry .. wet: the sound alone (0) .. the reverb alone (127), equal power between")},
+    {"DECAY", 127, 64, TX_TEXT("hall: x0.5 .. x2 the time; infinite / dark / drift / swell: T60 4 .. 60 s, 120..126 sustain, 127 freeze; plate: T60 0.8 .. 6 s; room: the walls (127 = hard, long)")},
+    {"TONE", 127, 64, TX_TEXT("the tail's top: 0 dark .. 64 as designed .. 127 bright; room: the body's resonance")},
+    {"PREDELAY", 127, 0, TX_TEXT("before the reverb: 0 .. 80 ms")},
+    {"SIZE", 127, 0, TX_TEXT("0 = auto (HALL, PLATE: from MIX; INFINITE: fixed); 1..127 the size (room: 0.2 .. 3 m)")},
+    {"MOD", 127, 64, TX_TEXT("the tail's slow wander (hall, infinite, plate; drift: its random bend): none .. 2x")},
+    {"LOWCUT", 127, 0, TX_TEXT("a high-pass on the send: off (0), 20 .. 800 Hz")},
+    {"SHIMMER", 127, 0, TX_TEXT("the tail shifted up and fed back into the reverb: none .. a rising, ringing halo")},
+    {"SHIFT", 3, 0, TX_TEXT("the shimmer's interval: 0 an octave up | 1 a fifth up | 2 an octave and a fifth up | 3 an octave down")},
 };
 
 /* the equal-power law (tx_fx.h): round(32768 sin(pi i / 256)), i 0 .. 128 */

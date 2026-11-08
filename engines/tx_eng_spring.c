@@ -29,10 +29,10 @@
 enum { P_LENGTH, P_RADIUS, P_DECAY, P_CHIRP, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"LENGTH", 127, 100, "echo period T_D at C4: 20 .. 80 ms (log) (wire length, turns; keys: a semitone each)"},
-    {"RADIUS", 127, 64, "transition frequency F_C: 1.5 .. 5 kHz (log) (thick wire on a narrow helix = higher, brighter)"},
-    {"DECAY", 127, 112, "loop gain per echo: 0.5 .. 0.96 (short splash .. long rattle)"},
-    {"CHIRP", 127, 84, "dispersion: 10 .. 40 allpass sections at fs/4 (a click .. a long descending chirp per echo)"},
+    {"LENGTH", 127, 100, TX_TEXT("echo period T_D at C4: 20 .. 80 ms (log) (wire length, turns; keys: a semitone each)")},
+    {"RADIUS", 127, 64, TX_TEXT("transition frequency F_C: 1.5 .. 5 kHz (log) (thick wire on a narrow helix = higher, brighter)")},
+    {"DECAY", 127, 112, TX_TEXT("loop gain per echo: 0.5 .. 0.96 (short splash .. long rattle)")},
+    {"CHIRP", 127, 84, TX_TEXT("dispersion: 10 .. 40 allpass sections at fs/4 (a click .. a long descending chirp per echo)")},
 };
 
 #define NV 3u
@@ -199,12 +199,12 @@ static void spring_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: three springs with the most sections, long and ringing, kicked again */
 static const char SCENE_MAX[] =
-    "0 particles 3\n0 param CHIRP 127\n0 param DECAY 127\n0 param RADIUS 0\n0 param LENGTH 127\n"
+    TX_TEXT("0 particles 3\n0 param CHIRP 127\n0 param DECAY 127\n0 param RADIUS 0\n0 param LENGTH 127\n"
     "0 on 53 127\n0 on 60 127\n0 on 67 127\n200 off 53\n200 off 60\n200 off 67\n"
     "500 on 79 127\n700 off 79\n1000 on 53 127\n1200 off 53\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_spring = {
-    "spring", "#23a Spring", NP, PARAMS, NV, NV, sizeof(spring_t), SCENE_MAX,
+    "spring", TX_TEXT("#23a Spring"), NP, PARAMS, NV, NV, sizeof(spring_t), SCENE_MAX,
     spring_init, spring_key, spring_param, spring_render, spring_stats,
 };

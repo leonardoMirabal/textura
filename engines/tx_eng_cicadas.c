@@ -38,13 +38,13 @@
 enum { P_RATE, P_CARRIER, P_Q, P_COHERE, P_CHORUS, P_DIST, P_PHRASE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"RATE", 127, 20, "clicks per tymbal: 100 .. 250 Hz (log; the two tymbals together twice that: 230 Hz Cyclochila)"},
-    {"CARRIER", 127, 98, "tymbal / air-sac resonance at C4: 0.8 .. 7 kHz (log; 4.3 kHz Cyclochila); keys a quarter tone each"},
-    {"Q", 127, 45, "tymbal Q: 4 .. 30 (log; 9.3 measured): buzzy .. ringing"},
-    {"COHERE", 127, 100, "rib coherence: buzzy (ribs and clicks jitter) .. a clean tone"},
-    {"CHORUS", 127, 0, "companions per key: 0 .. 7 cicadas farther out"},
-    {"DIST", 127, 40, "distance: 0.3 .. 30 m (log): level 1 / r"},
-    {"PHRASE", 127, 70, "pulse groups of the song: steady .. 20 /s (recordings: 7-13 /s)"},
+    {"RATE", 127, 20, TX_TEXT("clicks per tymbal: 100 .. 250 Hz (log; the two tymbals together twice that: 230 Hz Cyclochila)")},
+    {"CARRIER", 127, 98, TX_TEXT("tymbal / air-sac resonance at C4: 0.8 .. 7 kHz (log; 4.3 kHz Cyclochila); keys a quarter tone each")},
+    {"Q", 127, 45, TX_TEXT("tymbal Q: 4 .. 30 (log; 9.3 measured): buzzy .. ringing")},
+    {"COHERE", 127, 100, TX_TEXT("rib coherence: buzzy (ribs and clicks jitter) .. a clean tone")},
+    {"CHORUS", 127, 0, TX_TEXT("companions per key: 0 .. 7 cicadas farther out")},
+    {"DIST", 127, 40, TX_TEXT("distance: 0.3 .. 30 m (log): level 1 / r")},
+    {"PHRASE", 127, 70, TX_TEXT("pulse groups of the song: steady .. 20 /s (recordings: 7-13 /s)")},
 };
 
 #define NV 16u
@@ -303,12 +303,12 @@ static void cicadas_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: 16 cicadas, the fastest clicks, a low carrier (long rib trains), buzzy, close */
 static const char SCENE_MAX[] =
-    "0 particles 16\n0 param RATE 127\n0 param CARRIER 0\n0 param COHERE 0\n0 param CHORUS 127\n0 param DIST 0\n"
+    TX_TEXT("0 particles 16\n0 param RATE 127\n0 param CARRIER 0\n0 param COHERE 0\n0 param CHORUS 127\n0 param DIST 0\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_cicadas = {
-    "cicadas", "#28 Cicadas", NP, PARAMS, NV, 8, sizeof(cicadas_t), SCENE_MAX,
+    "cicadas", TX_TEXT("#28 Cicadas"), NP, PARAMS, NV, 8, sizeof(cicadas_t), SCENE_MAX,
     cicadas_init, cicadas_key, cicadas_param, cicadas_render, cicadas_stats,
 };

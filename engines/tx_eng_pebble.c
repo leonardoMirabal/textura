@@ -45,12 +45,12 @@
 enum { P_SIZE, P_SPEED, P_ROUGH, P_ROUND, P_SURFACE, P_DRAG, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"SIZE", 127, 48, "ball radius at C4: 2 .. 100 mm (log; a marble 8 mm, a ball 50): longer, softer, sparser impacts as it grows"},
-    {"SPEED", 127, 64, "push speed at velocity 100: 5 cm/s .. 2 m/s (log)"},
-    {"ROUGH", 127, 50, "surface roughness depth h: 1 .. 100 um (log): bridging spacing 2 sqrt(2 r h), louder"},
-    {"ROUND", 127, 12, "out-of-roundness: a sphere .. a lumpy pebble (swells once per turn, v / 2 pi r)"},
-    {"SURFACE", 127, 38, "surface: wood floor (200 Hz, Q 15) | wood table (620 Hz, Q 12) | stone slab (150) | glass (400) | metal tray (1000)"},
-    {"DRAG", 127, 62, "rolling resistance mu_r: 0.005 (marble on glass) .. 0.2 (lumpy pebble on wood) (log): coasting"},
+    {"SIZE", 127, 48, TX_TEXT("ball radius at C4: 2 .. 100 mm (log; a marble 8 mm, a ball 50): longer, softer, sparser impacts as it grows")},
+    {"SPEED", 127, 64, TX_TEXT("push speed at velocity 100: 5 cm/s .. 2 m/s (log)")},
+    {"ROUGH", 127, 50, TX_TEXT("surface roughness depth h: 1 .. 100 um (log): bridging spacing 2 sqrt(2 r h), louder")},
+    {"ROUND", 127, 12, TX_TEXT("out-of-roundness: a sphere .. a lumpy pebble (swells once per turn, v / 2 pi r)")},
+    {"SURFACE", 127, 38, TX_TEXT("surface: wood floor (200 Hz, Q 15) | wood table (620 Hz, Q 12) | stone slab (150) | glass (400) | metal tray (1000)")},
+    {"DRAG", 127, 62, TX_TEXT("rolling resistance mu_r: 0.005 (marble on glass) .. 0.2 (lumpy pebble on wood) (log): coasting")},
 };
 
 #define NV 8u
@@ -369,13 +369,13 @@ static void pebble_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: 8 pebbles rolling fast on a rough metal tray, held, re-pushed */
 static const char SCENE_MAX[] =
-    "0 particles 8\n0 param SPEED 127\n0 param ROUGH 127\n0 param ROUND 127\n0 param SURFACE 127\n0 param SIZE 0\n"
+    TX_TEXT("0 particles 8\n0 param SPEED 127\n0 param ROUGH 127\n0 param ROUND 127\n0 param SURFACE 127\n0 param SIZE 0\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "1500 on 53 127\n1500 on 60 127\n2000 param SIZE 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_pebble = {
-    "pebble", "#12 Rolling pebble", NP, PARAMS, NV, 6, sizeof(pebble_t), SCENE_MAX,
+    "pebble", TX_TEXT("#12 Rolling pebble"), NP, PARAMS, NV, 6, sizeof(pebble_t), SCENE_MAX,
     pebble_init, pebble_key, pebble_param, pebble_render, pebble_stats,
 };

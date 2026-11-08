@@ -48,12 +48,12 @@ enum { P_ENERGY, P_SIZE, P_RING, P_BOUNCE, P_HEIGHT, P_KIND, NP };
 enum { K_PANE, K_BOTTLES, K_SHARDS };
 
 static const tx_param_t PARAMS[NP] = {
-    {"ENERGY", 127, 100, "the blow: a crack .. a smash (8 .. 48 shards, louder)"},
-    {"SIZE", 127, 84, "largest shards at C4: 3 .. 20 cm (log): f1 = 1.03 h c / L^2 (8 cm ~3 kHz)"},
-    {"RING", 127, 30, "glass Q: 200 (on a soft floor) .. 6000 (crystal, hung free) (log)"},
-    {"BOUNCE", 127, 50, "restitution on the floor: 0.1 (carpet) .. 0.6 (stone tiles)"},
-    {"HEIGHT", 127, 64, "the pane's height above the floor: 0.2 .. 2 m (log): first impacts after 0.2 .. 0.64 s"},
-    {"KIND", 127, 0, "a pane smashing | bottles clinking | shards shifting and settling (43 each)"},
+    {"ENERGY", 127, 100, TX_TEXT("the blow: a crack .. a smash (8 .. 48 shards, louder)")},
+    {"SIZE", 127, 84, TX_TEXT("largest shards at C4: 3 .. 20 cm (log): f1 = 1.03 h c / L^2 (8 cm ~3 kHz)")},
+    {"RING", 127, 30, TX_TEXT("glass Q: 200 (on a soft floor) .. 6000 (crystal, hung free) (log)")},
+    {"BOUNCE", 127, 50, TX_TEXT("restitution on the floor: 0.1 (carpet) .. 0.6 (stone tiles)")},
+    {"HEIGHT", 127, 64, TX_TEXT("the pane's height above the floor: 0.2 .. 2 m (log): first impacts after 0.2 .. 0.64 s")},
+    {"KIND", 127, 0, TX_TEXT("a pane smashing | bottles clinking | shards shifting and settling (43 each)")},
 };
 
 #define NF 48u                     /* shards */
@@ -488,11 +488,11 @@ static void glass_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: crystal (long rings) smashed again and again, big shards, high and bouncy */
 static const char SCENE_MAX[] =
-    "0 particles 16\n0 param ENERGY 127\n0 param RING 127\n0 param SIZE 127\n0 param BOUNCE 127\n0 param HEIGHT 127\n"
+    TX_TEXT("0 particles 16\n0 param ENERGY 127\n0 param RING 127\n0 param SIZE 127\n0 param BOUNCE 127\n0 param HEIGHT 127\n"
     "0 on 53 127\n100 off 53\n300 on 60 127\n400 off 60\n600 on 67 127\n700 off 67\n900 on 79 127\n1000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_glass = {
-    "glass", "#19 Glass / crystal shards", NP, PARAMS, NRING, 12, sizeof(glass_t), SCENE_MAX,
+    "glass", TX_TEXT("#19 Glass / crystal shards"), NP, PARAMS, NRING, 12, sizeof(glass_t), SCENE_MAX,
     glass_init, glass_key, glass_param, glass_render, glass_stats,
 };

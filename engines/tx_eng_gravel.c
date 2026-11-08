@@ -44,12 +44,12 @@
 enum { P_SIZE, P_AMOUNT, P_SHAKE, P_RATE, P_SPREAD, P_GROUND, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"SIZE", 127, 72, "stone diameter at C4: 1 .. 40 mm (log) -> click resonance ~20 .. 4.3 kHz (Cook: 15 mm 6.5 kHz)"},
-    {"AMOUNT", 127, 64, "number of stones N: 2 .. 2048 (log): collisions 43 N per second during a shake"},
-    {"SHAKE", 127, 30, "how long a shake / step lasts (energy T60): 20 ms (crunch) .. 2 s (long rattle)"},
-    {"RATE", 127, 59, "shakes / steps per second while a key is held: 0.5 .. 10 (log)"},
-    {"SPREAD", 127, 35, "grain shape spread: resonance re-tuned per collision by +-0 .. 40 % (STK 11-18 %)"},
-    {"GROUND", 127, 0, "what they rattle in: open ground .. a box / wooden floor (low modes 230 / 610 Hz)"},
+    {"SIZE", 127, 72, TX_TEXT("stone diameter at C4: 1 .. 40 mm (log) -> click resonance ~20 .. 4.3 kHz (Cook: 15 mm 6.5 kHz)")},
+    {"AMOUNT", 127, 64, TX_TEXT("number of stones N: 2 .. 2048 (log): collisions 43 N per second during a shake")},
+    {"SHAKE", 127, 30, TX_TEXT("how long a shake / step lasts (energy T60): 20 ms (crunch) .. 2 s (long rattle)")},
+    {"RATE", 127, 59, TX_TEXT("shakes / steps per second while a key is held: 0.5 .. 10 (log)")},
+    {"SPREAD", 127, 35, TX_TEXT("grain shape spread: resonance re-tuned per collision by +-0 .. 40 % (STK 11-18 %)")},
+    {"GROUND", 127, 0, TX_TEXT("what they rattle in: open ground .. a box / wooden floor (low modes 230 / 610 Hz)")},
 };
 
 #define NV 8u
@@ -292,14 +292,14 @@ static void gravel_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: 8 voices, a collision every sample, long shakes re-fired, re-tuning, the box modes */
 static const char SCENE_MAX[] =
-    "0 particles 8\n0 param AMOUNT 127\n0 param SHAKE 127\n0 param RATE 127\n0 param SPREAD 127\n0 param GROUND 127\n"
+    TX_TEXT("0 particles 8\n0 param AMOUNT 127\n0 param SHAKE 127\n0 param RATE 127\n0 param SPREAD 127\n0 param GROUND 127\n"
     "0 param SIZE 0\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "1500 on 53 127\n1500 on 60 127\n2000 param SIZE 127\n2000 on 64 127\n2000 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_gravel = {
-    "gravel", "#13 Small stones / gravel", NP, PARAMS, NV, 6, sizeof(gravel_t), SCENE_MAX,
+    "gravel", TX_TEXT("#13 Small stones / gravel"), NP, PARAMS, NV, 6, sizeof(gravel_t), SCENE_MAX,
     gravel_init, gravel_key, gravel_param, gravel_render, gravel_stats,
 };

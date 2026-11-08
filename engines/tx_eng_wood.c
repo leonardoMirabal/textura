@@ -42,15 +42,15 @@
 enum { P_LOAD, P_WOOD, P_MOIST, P_CREAK, P_PITCH, P_SIZE, P_WEIGHT, P_LITTER, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"LOAD", 127, 40, "time to the snap while held: 0.3 .. 8 s (log); 127 = never (creaks and crackles only)"},
-    {"WOOD", 127, 27, "spruce (bright, Q 160) | pine (Q 120) | maple (Q 110) | oak (dark, Q 80) | green branch (Q 40) | "
-                      "tree trunk (creaking in the wind, no snap) | twigs underfoot (a step snaps a few) (18 each)"},
-    {"MOIST", 127, 20, "dry .. wet: duller, fewer cracks, more damping"},
-    {"CREAK", 127, 25, "stick-slip creak: off .. strong"},
-    {"PITCH", 127, 70, "creak slip rate: 30 .. 800 Hz (log): ratchety .. singing (W7)"},
-    {"SIZE", 127, 64, "piece length at C4: 10 .. 100 cm (log): f1 ~ 0.06 c / L"},
-    {"WEIGHT", 127, 80, "twigs underfoot: the step's weight, light .. heavy: 1 .. 4 twigs a step"},
-    {"LITTER", 127, 0, "twigs underfoot: the litter's depth, bare .. deep: it takes the highs and holds the twigs"},
+    {"LOAD", 127, 40, TX_TEXT("time to the snap while held: 0.3 .. 8 s (log); 127 = never (creaks and crackles only)")},
+    {"WOOD", 127, 27, TX_TEXT("spruce (bright, Q 160) | pine (Q 120) | maple (Q 110) | oak (dark, Q 80) | green branch (Q 40) | "
+                      "tree trunk (creaking in the wind, no snap) | twigs underfoot (a step snaps a few) (18 each)")},
+    {"MOIST", 127, 20, TX_TEXT("dry .. wet: duller, fewer cracks, more damping")},
+    {"CREAK", 127, 25, TX_TEXT("stick-slip creak: off .. strong")},
+    {"PITCH", 127, 70, TX_TEXT("creak slip rate: 30 .. 800 Hz (log): ratchety .. singing (W7)")},
+    {"SIZE", 127, 64, TX_TEXT("piece length at C4: 10 .. 100 cm (log): f1 ~ 0.06 c / L")},
+    {"WEIGHT", 127, 80, TX_TEXT("twigs underfoot: the step's weight, light .. heavy: 1 .. 4 twigs a step")},
+    {"LITTER", 127, 0, TX_TEXT("twigs underfoot: the litter's depth, bare .. deep: it takes the highs and holds the twigs")},
 };
 
 #define NP_ 3u                     /* pieces (one per key; 3 at most: 4 snapping at once with creaks reached ~1140 us on the FM-1) */
@@ -530,12 +530,12 @@ static void wood_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: three pieces bent hard (a fourth key: dropped) to a quick snap, strong creaks at the highest slip rate */
 static const char SCENE_MAX[] =
-    "0 particles 3\n0 param LOAD 0\n0 param CREAK 127\n0 param PITCH 127\n0 param SIZE 127\n"
+    TX_TEXT("0 particles 3\n0 param LOAD 0\n0 param CREAK 127\n0 param PITCH 127\n0 param SIZE 127\n"
     "0 on 53 127\n0 on 60 127\n0 on 67 127\n0 on 74 127\n"
     "2500 off 53\n2500 off 60\n2500 off 67\n2500 off 74\n"
-    "4500 end\n";
+    "4500 end\n");
 
 const tx_engine_t tx_eng_wood = {
-    "wood", "#31 Wood cracks / creak", NP, PARAMS, NP_, 3, sizeof(wood_t), SCENE_MAX,
+    "wood", TX_TEXT("#31 Wood cracks / creak"), NP, PARAMS, NP_, 3, sizeof(wood_t), SCENE_MAX,
     wood_init, wood_key, wood_param, wood_render, wood_stats,
 };

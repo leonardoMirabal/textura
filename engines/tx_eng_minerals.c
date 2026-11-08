@@ -51,12 +51,12 @@
 enum { P_MINERAL, P_ACTION, P_SIZE, P_HOLD, P_HUMID, P_VARY, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"MINERAL", 127, 127, "granite | marble | sandstone | slate | limestone | basalt | flint | obsidian | quartz"},
-    {"ACTION", 127, 64, "strike (a tool) | clink (two stones knocked together) | rub (held: stick-slip)"},
-    {"SIZE", 127, 84, "specimen size at C4: 25 .. 2 cm (log): f1 = 0.025 c / L (~1.3 kHz for 8 cm granite)"},
-    {"HOLD", 127, 36, "the hand: hung on a string (free ring) .. fingertips .. a firm grip (damping 1 .. 80 /s)"},
-    {"HUMID", 127, 0, "dry .. wet (Q lower, the porous most)"},
-    {"VARY", 127, 100, "each knock: the same specimen per key (0) .. a new specimen every time (shape, +-3 % tuning, Q +-30 %, hardness)"},
+    {"MINERAL", 127, 127, TX_TEXT("granite | marble | sandstone | slate | limestone | basalt | flint | obsidian | quartz")},
+    {"ACTION", 127, 64, TX_TEXT("strike (a tool) | clink (two stones knocked together) | rub (held: stick-slip)")},
+    {"SIZE", 127, 84, TX_TEXT("specimen size at C4: 25 .. 2 cm (log): f1 = 0.025 c / L (~1.3 kHz for 8 cm granite)")},
+    {"HOLD", 127, 36, TX_TEXT("the hand: hung on a string (free ring) .. fingertips .. a firm grip (damping 1 .. 80 /s)")},
+    {"HUMID", 127, 0, TX_TEXT("dry .. wet (Q lower, the porous most)")},
+    {"VARY", 127, 100, TX_TEXT("each knock: the same specimen per key (0) .. a new specimen every time (shape, +-3 % tuning, Q +-30 %, hardness)")},
 };
 
 #define NV 8u
@@ -337,12 +337,12 @@ static void min_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: eight quartz pairs rubbed hard, hung free (long rings), every mode alive */
 static const char SCENE_MAX[] =
-    "0 particles 8\n0 param MINERAL 127\n0 param ACTION 127\n0 param HOLD 0\n0 param SIZE 127\n"
+    TX_TEXT("0 particles 8\n0 param MINERAL 127\n0 param ACTION 127\n0 param HOLD 0\n0 param SIZE 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_minerals = {
-    "minerals", "#33 Mineral sounds", NP, PARAMS, NV, 4, sizeof(min_t), SCENE_MAX,
+    "minerals", TX_TEXT("#33 Mineral sounds"), NP, PARAMS, NV, 4, sizeof(min_t), SCENE_MAX,
     min_init, min_key, min_param, min_render, min_stats,
 };

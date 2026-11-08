@@ -41,11 +41,11 @@
 enum { P_GRAIN, P_FLOW, P_SORTING, P_STEADY, P_DETUNE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"GRAIN", 127, 40, "grain diameter at C4: 100 .. 400 um (log): f = 0.4 sqrt(g/d) = 125 .. 63 Hz (keys: a semitone each)"},
-    {"FLOW", 127, 100, "avalanche speed: 0.05 .. 1 m/s (log): no song below ~0.23 m/s, louder and locked above"},
-    {"SORTING", 127, 20, "grain sorting: well sorted (one size: a tone) .. mixed (+-20 %: noise, no song)"},
-    {"STEADY", 127, 100, "avalanche: intermittent (coherence ~20 ms) .. steady slide (~100 ms)"},
-    {"DETUNE", 127, 10, "two patches singing apart: 0 .. 6 % (near threshold: a beating doublet)"},
+    {"GRAIN", 127, 40, TX_TEXT("grain diameter at C4: 100 .. 400 um (log): f = 0.4 sqrt(g/d) = 125 .. 63 Hz (keys: a semitone each)")},
+    {"FLOW", 127, 100, TX_TEXT("avalanche speed: 0.05 .. 1 m/s (log): no song below ~0.23 m/s, louder and locked above")},
+    {"SORTING", 127, 20, TX_TEXT("grain sorting: well sorted (one size: a tone) .. mixed (+-20 %: noise, no song)")},
+    {"STEADY", 127, 100, TX_TEXT("avalanche: intermittent (coherence ~20 ms) .. steady slide (~100 ms)")},
+    {"DETUNE", 127, 10, TX_TEXT("two patches singing apart: 0 .. 6 % (near threshold: a beating doublet)")},
 };
 
 #define NA 4u
@@ -249,12 +249,12 @@ static void song_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: four avalanches, fast flow, coupling on, detuned patches */
 static const char SCENE_MAX[] =
-    "0 particles 4\n0 param FLOW 127\n0 param DETUNE 127\n0 param STEADY 0\n0 param GRAIN 0\n"
+    TX_TEXT("0 particles 4\n0 param FLOW 127\n0 param DETUNE 127\n0 param STEADY 0\n0 param GRAIN 0\n"
     "0 on 53 127\n0 on 60 127\n0 on 67 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 60\n3000 off 67\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_sandsong = {
-    "sandsong", "#15 Singing / booming sand", NP, PARAMS, NA, 3, sizeof(song_t), SCENE_MAX,
+    "sandsong", TX_TEXT("#15 Singing / booming sand"), NP, PARAMS, NA, 3, sizeof(song_t), SCENE_MAX,
     song_init, song_key, song_param, song_render, song_stats,
 };

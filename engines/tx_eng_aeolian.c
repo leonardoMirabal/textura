@@ -44,11 +44,11 @@
 enum { P_WIND, P_GUST, P_WIRE, P_LOCK, P_ANGLE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"WIND", 127, 88, "wind speed u: 1 .. 20 m/s (log): f_l = St u / d, level ~ u^3 (tone) and u^4 (wake)"},
-    {"GUST", 127, 40, "gustiness: steady .. gusty (u wanders +-40 %, ~0.3 Hz)"},
-    {"WIRE", 127, 52, "wire / string diameter d: 0.2 .. 10 mm (log): thinner = higher f_l"},
-    {"LOCK", 127, 90, "string lock-in: bare wire (no lock) .. harp string (locks to its partials: narrow, loud)"},
-    {"ANGLE", 127, 127, "listener angle from the wind: 0 (downwind: drag 2 f) .. 90 deg (side: lift f)"},
+    {"WIND", 127, 88, TX_TEXT("wind speed u: 1 .. 20 m/s (log): f_l = St u / d, level ~ u^3 (tone) and u^4 (wake)")},
+    {"GUST", 127, 40, TX_TEXT("gustiness: steady .. gusty (u wanders +-40 %, ~0.3 Hz)")},
+    {"WIRE", 127, 52, TX_TEXT("wire / string diameter d: 0.2 .. 10 mm (log): thinner = higher f_l")},
+    {"LOCK", 127, 90, TX_TEXT("string lock-in: bare wire (no lock) .. harp string (locks to its partials: narrow, loud)")},
+    {"ANGLE", 127, 127, TX_TEXT("listener angle from the wind: 0 (downwind: drag 2 f) .. 90 deg (side: lift f)")},
 };
 
 #define NS 8u
@@ -288,13 +288,13 @@ static void aeol_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: 8 strings, strong gusty wind on thin wires, locked */
 static const char SCENE_MAX[] =
-    "0 particles 8\n0 param WIND 127\n0 param GUST 127\n0 param WIRE 0\n0 param LOCK 127\n0 param ANGLE 64\n"
+    TX_TEXT("0 particles 8\n0 param WIND 127\n0 param GUST 127\n0 param WIRE 0\n0 param LOCK 127\n0 param ANGLE 64\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "1500 param WIRE 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_aeolian = {
-    "aeolian", "#22 Wind / Aeolian harp", NP, PARAMS, NS, 4, sizeof(aeol_t), SCENE_MAX,
+    "aeolian", TX_TEXT("#22 Wind / Aeolian harp"), NP, PARAMS, NS, 4, sizeof(aeol_t), SCENE_MAX,
     aeol_init, aeol_key, aeol_param, aeol_render, aeol_stats,
 };

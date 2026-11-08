@@ -44,12 +44,12 @@
 enum { P_GRAIN, P_ORIFICE, P_SURFACE, P_SIZE, P_HEIGHT, P_PULSE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"GRAIN", 127, 40, "grain diameter d: 0.1 .. 1 mm (log): fine hiss .. coarse crackle (same loudness)"},
-    {"ORIFICE", 127, 50, "orifice / neck D0: 1 .. 20 mm (log): Beverloo flow (D0 - 2.9 d)^2.5, jams below 2.9 d"},
-    {"SURFACE", 127, 0, "landing on: hand | sand pile | metal tray | glass bulb | tube (quarter-wave)"},
-    {"SIZE", 127, 64, "container size at C4: tray / bulb x 0.5 .. 2, tube length 0.1 .. 1 m (keys: a semitone each)"},
-    {"HEIGHT", 127, 50, "fall height: 1 cm .. 1 m (log): impact speed sqrt(2 g h): louder, longer to stop"},
-    {"PULSE", 127, 0, "intermittent flow: steady .. pulsing (~4 Hz, narrow tubes)"},
+    {"GRAIN", 127, 40, TX_TEXT("grain diameter d: 0.1 .. 1 mm (log): fine hiss .. coarse crackle (same loudness)")},
+    {"ORIFICE", 127, 50, TX_TEXT("orifice / neck D0: 1 .. 20 mm (log): Beverloo flow (D0 - 2.9 d)^2.5, jams below 2.9 d")},
+    {"SURFACE", 127, 0, TX_TEXT("landing on: hand | sand pile | metal tray | glass bulb | tube (quarter-wave)")},
+    {"SIZE", 127, 64, TX_TEXT("container size at C4: tray / bulb x 0.5 .. 2, tube length 0.1 .. 1 m (keys: a semitone each)")},
+    {"HEIGHT", 127, 50, TX_TEXT("fall height: 1 cm .. 1 m (log): impact speed sqrt(2 g h): louder, longer to stop")},
+    {"PULSE", 127, 0, TX_TEXT("intermittent flow: steady .. pulsing (~4 Hz, narrow tubes)")},
 };
 
 #define NV 4u
@@ -421,13 +421,13 @@ static void sand_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: four pours onto a metal tray (6 modes each), dense flow, then into tubes */
 static const char SCENE_MAX[] =
-    "0 particles 4\n0 param SURFACE 70\n0 param ORIFICE 127\n0 param GRAIN 0\n0 param HEIGHT 127\n0 param PULSE 127\n"
+    TX_TEXT("0 particles 4\n0 param SURFACE 70\n0 param ORIFICE 127\n0 param GRAIN 0\n0 param HEIGHT 127\n0 param PULSE 127\n"
     "0 on 53 127\n0 on 60 127\n0 on 67 127\n0 on 79 127\n"
     "1500 param SURFACE 127\n2500 param SURFACE 90\n"
     "3000 off 53\n3000 off 60\n3000 off 67\n3000 off 79\n"
-    "5000 end\n";
+    "5000 end\n");
 
 const tx_engine_t tx_eng_sand = {
-    "sand", "#14 Sand", NP, PARAMS, NV, 3, sizeof(sand_t), SCENE_MAX,
+    "sand", TX_TEXT("#14 Sand"), NP, PARAMS, NV, 3, sizeof(sand_t), SCENE_MAX,
     sand_init, sand_key, sand_param, sand_render, sand_stats,
 };

@@ -4,14 +4,14 @@
 #include "tx_core_lin.h"
 
 const tx_param_t tx_gen_params[TX_GEN_NP] = {
-    {"ACTIVITY", 127, 64, "the lane's activity (the fader): how much happens; EVOLVE wanders around it (+-20, narrowing to none at 0 and 127)"},
-    {"ROOT", 127, 60, "the lowest note of the lane (MIDI; 60 = C4): its pitch sets the source's size, as a key"},
-    {"SPAN", 36, 12, "the lane's range above ROOT: 0 .. 36 semitones (chromatic)"},
-    {"WANDER", 127, 64, "how the pitch moves: anywhere in the span .. a walk of 1-3 semitones (64) .. close to a drifting centre"},
-    {"RANDOMNESS", 127, 64, "the timing: steady .. random (64, Poisson) .. bursty and clumped (flurries and silences)"},
-    {"EVOLVE", 127, 64, "the horizon of the slow change: 10 s .. 2 h (log; 64 ~ 4 min): a 1/f wander up to it"},
-    {"RECALL", 127, 50, "memory: how often the lane returns to a stretch it has played, and replays its motifs (0 .. 1)"},
-    {"MUTATE", 127, 40, "how much a return varies: an exact return .. a loose one (notes moved, the walk kept)"},
+    {"ACTIVITY", 127, 64, TX_TEXT("the lane's activity (the fader): how much happens; EVOLVE wanders around it (+-20, narrowing to none at 0 and 127)")},
+    {"ROOT", 127, 60, TX_TEXT("the lowest note of the lane (MIDI; 60 = C4): its pitch sets the source's size, as a key")},
+    {"SPAN", 36, 12, TX_TEXT("the lane's range above ROOT: 0 .. 36 semitones (chromatic)")},
+    {"WANDER", 127, 64, TX_TEXT("how the pitch moves: anywhere in the span .. a walk of 1-3 semitones (64) .. close to a drifting centre")},
+    {"RANDOMNESS", 127, 64, TX_TEXT("the timing: steady .. random (64, Poisson) .. bursty and clumped (flurries and silences)")},
+    {"EVOLVE", 127, 64, TX_TEXT("the horizon of the slow change: 10 s .. 2 h (log; 64 ~ 4 min): a 1/f wander up to it")},
+    {"RECALL", 127, 50, TX_TEXT("memory: how often the lane returns to a stretch it has played, and replays its motifs (0 .. 1)")},
+    {"MUTATE", 127, 40, TX_TEXT("how much a return varies: an exact return .. a loose one (notes moved, the walk kept)")},
 };
 
 /* 1 / sqrt(k) for k = 1 .. 14, Q15 */

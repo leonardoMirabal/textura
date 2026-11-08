@@ -30,10 +30,10 @@
 #define DR_MU 4096
 
 const tx_param_t tx_fx_drive_params[TX_DR_NP] = {
-    {"AMOUNT", 127, 0, "the drive: off (0) .. ~18x into a soft clip (level-neutral: it adds tone, not volume)"},
-    {"TONE", 127, 64, "after the drive: 0 the highs gone .. 64 flat .. 127 +6 dB above ~1.8 kHz"},
-    {"MIX", 127, 127, "dry .. wet: the sound alone (0) .. the drive alone (127)"},
-    {"TYPE", TX_DRT_N - 1, 0, "0 FDRV (the classic drive) | 1 KHLON (a clean-blend overdrive: AMOUNT its gain, TONE its treble) | 2 TSH8 (a mid-hump overdrive; one lane at a time) | 3 OHCD (a MOSFET overdrive) | 4 BHLUE (a two-stage soft overdrive); TONE: 64 the circuit's middle"},
+    {"AMOUNT", 127, 0, TX_TEXT("the drive: off (0) .. ~18x into a soft clip (level-neutral: it adds tone, not volume)")},
+    {"TONE", 127, 64, TX_TEXT("after the drive: 0 the highs gone .. 64 flat .. 127 +6 dB above ~1.8 kHz")},
+    {"MIX", 127, 127, TX_TEXT("dry .. wet: the sound alone (0) .. the drive alone (127)")},
+    {"TYPE", TX_DRT_N - 1, 0, TX_TEXT("0 FDRV (the classic drive) | 1 KHLON (a clean-blend overdrive: AMOUNT its gain, TONE its treble) | 2 TSH8 (a mid-hump overdrive; one lane at a time) | 3 OHCD (a MOSFET overdrive) | 4 BHLUE (a two-stage soft overdrive); TONE: 64 the circuit's middle")},
 };
 
 void tx_fx_drive_init(tx_fx_drive_t *d)

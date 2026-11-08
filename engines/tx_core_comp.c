@@ -9,12 +9,12 @@
 #define K_SR 32                    /*                                                    release 1.5 s */
 
 const tx_param_t tx_comp_params[TX_CP_NP] = {
-    {"COMP", 1, 1, "the bus compressor, the first effect on the mix: off / on"},
-    {"THR", 127, 64, "threshold 0 .. -40 dBFS (64: -20 dBFS)"},
-    {"ATK", 127, 108, "attack 0.1 .. 50 ms (108: 20 ms)"},
-    {"REL", 127, 59, "release 20 ms .. 1.5 s (59: 150 ms; a dense sound holds its gain longer: no pumping)"},
-    {"RAT", 7, 0, "ratio 1.5:1 2:1 3:1 4:1 6:1 8:1 10:1 20:1"},
-    {"MKUP", 127, 14, "make-up 0 .. +24 dB (14: +2.6 dB)"},
+    {"COMP", 1, 1, TX_TEXT("the bus compressor, the first effect on the mix: off / on")},
+    {"THR", 127, 64, TX_TEXT("threshold 0 .. -40 dBFS (64: -20 dBFS)")},
+    {"ATK", 127, 108, TX_TEXT("attack 0.1 .. 50 ms (108: 20 ms)")},
+    {"REL", 127, 59, TX_TEXT("release 20 ms .. 1.5 s (59: 150 ms; a dense sound holds its gain longer: no pumping)")},
+    {"RAT", 7, 0, TX_TEXT("ratio 1.5:1 2:1 3:1 4:1 6:1 8:1 10:1 20:1")},
+    {"MKUP", 127, 14, TX_TEXT("make-up 0 .. +24 dB (14: +2.6 dB)")},
 };
 
 /* the gain computer: the reduction (power log2 Q12, >= 0) at level lp, over a soft knee */

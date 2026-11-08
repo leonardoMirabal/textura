@@ -15,14 +15,14 @@
 enum { P_RATE, P_BURST, P_DECAY, P_SPREAD, P_SIZES, P_CLICK, P_AIR, P_AFTER, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"RATE", 127, 64, "events per second while a key is held: 0.5 .. 2000 (log)"},
-    {"BURST", 127, 16, "particles fired by a key press: 0 .. 31"},
-    {"DECAY", 127, 64, "particle ring time T60: 20 ms .. 4 s (log)"},
-    {"SPREAD", 127, 32, "random pitch spread around the key: 0 .. +-24 semitones"},
-    {"SIZES", 127, 64, "power-law size exponent: alpha 3.0 (mostly small) .. 1.1 (many big)"},
-    {"CLICK", 127, 0, "a contact click at each particle's start (PULSE core)"},
-    {"AIR", 127, 0, "a noise band at the key's pitch while keys are held (NOISE core)"},
-    {"AFTER", 127, 0, "Omori aftershocks after each key press: 0 .. 15 on average"},
+    {"RATE", 127, 64, TX_TEXT("events per second while a key is held: 0.5 .. 2000 (log)")},
+    {"BURST", 127, 16, TX_TEXT("particles fired by a key press: 0 .. 31")},
+    {"DECAY", 127, 64, TX_TEXT("particle ring time T60: 20 ms .. 4 s (log)")},
+    {"SPREAD", 127, 32, TX_TEXT("random pitch spread around the key: 0 .. +-24 semitones")},
+    {"SIZES", 127, 64, TX_TEXT("power-law size exponent: alpha 3.0 (mostly small) .. 1.1 (many big)")},
+    {"CLICK", 127, 0, TX_TEXT("a contact click at each particle's start (PULSE core)")},
+    {"AIR", 127, 0, TX_TEXT("a noise band at the key's pitch while keys are held (NOISE core)")},
+    {"AFTER", 127, 0, TX_TEXT("Omori aftershocks after each key press: 0 .. 15 on average")},
 };
 
 #define ENV_FLOOR (1u << 16)       /* a hero below this (Q30) ends: its output is under 2 LSB of Q23 */
@@ -224,7 +224,7 @@ static void test_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: every hero, every key slot, the densest stream, bursts and aftershocks re-fired, clicks and air */
 static const char SCENE_MAX[] =
-    "0 particles 32\n0 param RATE 127\n0 param BURST 127\n0 param DECAY 127\n0 param AFTER 127\n"
+    TX_TEXT("0 particles 32\n0 param RATE 127\n0 param BURST 127\n0 param DECAY 127\n0 param AFTER 127\n"
     "0 param CLICK 127\n0 param AIR 127\n0 param SIZES 127\n0 param SPREAD 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "500 on 53 127\n500 on 60 127\n500 on 67 127\n500 on 74 127\n"
@@ -232,9 +232,9 @@ static const char SCENE_MAX[] =
     "1500 on 53 127\n1500 on 60 127\n1500 on 67 127\n1500 on 74 127\n"
     "2000 on 57 127\n2000 on 64 127\n2000 on 71 127\n2000 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_test = {
-    "test", "Test tone (sine particles)", NP, PARAMS, TX_POOL_MAX, 16, sizeof(test_t), SCENE_MAX,
+    "test", TX_TEXT("Test tone (sine particles)"), NP, PARAMS, TX_POOL_MAX, 16, sizeof(test_t), SCENE_MAX,
     test_init, test_key, test_param, test_render, test_stats,
 };

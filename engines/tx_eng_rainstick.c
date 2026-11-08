@@ -37,12 +37,12 @@
 enum { P_SEEDS, P_TIME, P_GRAIN, P_LENGTH, P_BODY, P_PULSE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"SEEDS", 127, 64, "seeds inside: 50 .. 5000 (log): density of the patter"},
-    {"TIME", 127, 61, "fall time of a full stick (tilt, pin density): 2 .. 20 s (log)"},
-    {"GRAIN", 127, 50, "seed kind: small hard seeds / grit (9 kHz, dry) .. big beans (2 kHz, ringing)"},
-    {"LENGTH", 127, 56, "tube length at C4: 0.3 .. 2 m (log) -> air modes c/2L = 570 .. 86 Hz (keys: shorter going up)"},
-    {"BODY", 127, 60, "tube resonance: none .. strong (mode Q 6 .. 25)"},
-    {"PULSE", 127, 20, "intermittent flow: steady .. pulsing (~4 Hz)"},
+    {"SEEDS", 127, 64, TX_TEXT("seeds inside: 50 .. 5000 (log): density of the patter")},
+    {"TIME", 127, 61, TX_TEXT("fall time of a full stick (tilt, pin density): 2 .. 20 s (log)")},
+    {"GRAIN", 127, 50, TX_TEXT("seed kind: small hard seeds / grit (9 kHz, dry) .. big beans (2 kHz, ringing)")},
+    {"LENGTH", 127, 56, TX_TEXT("tube length at C4: 0.3 .. 2 m (log) -> air modes c/2L = 570 .. 86 Hz (keys: shorter going up)")},
+    {"BODY", 127, 60, TX_TEXT("tube resonance: none .. strong (mode Q 6 .. 25)")},
+    {"PULSE", 127, 20, TX_TEXT("intermittent flow: steady .. pulsing (~4 Hz)")},
 };
 
 #define NV 6u
@@ -275,13 +275,13 @@ static void stick_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: 6 sticks, the densest flow (a collision every sample), strong tubes, pulsing, turned again */
 static const char SCENE_MAX[] =
-    "0 particles 6\n0 param SEEDS 127\n0 param TIME 0\n0 param BODY 127\n0 param PULSE 127\n0 param GRAIN 127\n"
+    TX_TEXT("0 particles 6\n0 param SEEDS 127\n0 param TIME 0\n0 param BODY 127\n0 param PULSE 127\n0 param GRAIN 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "1500 on 53 127\n1500 on 60 127\n1500 on 67 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_rainstick = {
-    "rainstick", "#16 Rain stick", NP, PARAMS, NV, 4, sizeof(stick_t), SCENE_MAX,
+    "rainstick", TX_TEXT("#16 Rain stick"), NP, PARAMS, NV, 4, sizeof(stick_t), SCENE_MAX,
     stick_init, stick_key, stick_param, stick_render, stick_stats,
 };

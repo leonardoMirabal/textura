@@ -49,12 +49,12 @@
 enum { P_GAP, P_RATE, P_BURST, P_DIST, P_CORONA, P_BODY, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"GAP", 127, 57, "spark gap at C4: 0.3 .. 20 mm (log): N-wave 1.3 .. 38 us, tick (bright) .. crack (fuller, louder)"},
-    {"RATE", 127, 16, "discharges per second while a key is held: 0.1 .. 508, perceptually even (0.1 + 508 x^2.5; 16: 3 /s)"},
-    {"BURST", 127, 40, "crackle bursts: Omori aftershocks per discharge, 0 .. 12 on average (p 1.68, c 30 ms)"},
-    {"DIST", 127, 30, "distance to the spark: 0.1 .. 10 m (log): level ~1/r, the N-wave lengthens (duller)"},
-    {"CORONA", 127, 0, "corona fizz while keys are held: off .. loud (bipolar us pulses, ~10 kHz)"},
-    {"BODY", 127, 30, "what the spark jumps to: free air (dry tick) .. a small metal object (ringing modes)"},
+    {"GAP", 127, 57, TX_TEXT("spark gap at C4: 0.3 .. 20 mm (log): N-wave 1.3 .. 38 us, tick (bright) .. crack (fuller, louder)")},
+    {"RATE", 127, 16, TX_TEXT("discharges per second while a key is held: 0.1 .. 508, perceptually even (0.1 + 508 x^2.5; 16: 3 /s)")},
+    {"BURST", 127, 40, TX_TEXT("crackle bursts: Omori aftershocks per discharge, 0 .. 12 on average (p 1.68, c 30 ms)")},
+    {"DIST", 127, 30, TX_TEXT("distance to the spark: 0.1 .. 10 m (log): level ~1/r, the N-wave lengthens (duller)")},
+    {"CORONA", 127, 0, TX_TEXT("corona fizz while keys are held: off .. loud (bipolar us pulses, ~10 kHz)")},
+    {"BODY", 127, 30, TX_TEXT("what the spark jumps to: free air (dry tick) .. a small metal object (ringing modes)")},
 };
 
 #define NB 4u                      /* body modes */
@@ -302,15 +302,15 @@ static void sparks_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: every key slot at 500 /s with aftershocks, the body ringing, the corona on */
 static const char SCENE_MAX[] =
-    "0 particles 32\n0 param RATE 127\n0 param BURST 127\n0 param BODY 127\n0 param CORONA 127\n0 param GAP 127\n"
+    TX_TEXT("0 particles 32\n0 param RATE 127\n0 param BURST 127\n0 param BODY 127\n0 param CORONA 127\n0 param GAP 127\n"
     "0 param DIST 0\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "500 on 53 127\n500 on 60 127\n500 on 67 127\n500 on 74 127\n"
     "1000 on 57 127\n1000 on 64 127\n1000 on 71 127\n1000 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_sparks = {
-    "sparks", "#20 Static / sparks", NP, PARAMS, SPARK_MAX, 16, sizeof(sparks_t), SCENE_MAX,
+    "sparks", TX_TEXT("#20 Static / sparks"), NP, PARAMS, SPARK_MAX, 16, sizeof(sparks_t), SCENE_MAX,
     sparks_init, sparks_key, sparks_param, sparks_render, sparks_stats,
 };

@@ -85,6 +85,13 @@ typedef struct {
     uint8_t def;                   /* default */
     const char *help;              /* one line for the player: what it shapes, and its range in physical units */
 } tx_param_t;
+/* a parameter's help line: the player's and the bench's text. The FM-1 app (TX_APP, tools/fm1_bench.py --app) reads
+ * none of them (only the source's PRESET line, which is left plain), so it keeps none in its flash */
+#ifdef TX_APP
+#define TX_TEXT(s) ""
+#else
+#define TX_TEXT(s) s
+#endif
 
 typedef struct {                   /* a snapshot after the last render (for tests, the bench and the player) */
     uint16_t particles;            /* hero particles sounding now */

@@ -50,17 +50,17 @@
 enum { P_PERIOD, P_HEIGHT, P_CHOP, P_BACKWASH, P_DIST, P_FLOOR, P_STRIKE, P_COUNT, P_SHORE, P_WATER, P_FACE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"PERIOD", 127, 70, "wave period: 6 .. 15 s (+-20 % wave to wave; a lake: 0.6 .. 3.3 s on average, at random, then up to 12 s: a calm)"},
-    {"HEIGHT", 127, 64, "breaker height 0.3 .. 3 m (log): louder (-5 .. +5 dB), longer, lower whoomph (80 .. 30 Hz), more rumble"},
-    {"CHOP", 127, 64, "wave-to-wave variety: regular .. +-10 dB (L37) and +-40 % timing (a lake: its sizes and groups; its timing is always at random)"},
-    {"BACKWASH", 127, 64, "the backwash after each wave: none .. -8 dB under the break (64) .. as loud (water draining back through sand or shingle)"},
-    {"DIST", 127, 64, "distance: on the shore .. 300 m away (high-cut, quieter)"},
-    {"FLOOR", 127, 64, "the far surf along the shore under the waves while the sea is on: none .. -12 dB (64) .. -6 dB"},
-    {"STRIKE", 1, 1, "a press: 1 = a breaker now; 0 = presses only hold the sea, which starts partway into a wave period"},
-    {"COUNT", 8, 1, "wave trains along the shore, each its own timing and size (farther ones smaller): 1 .. 8, more breakers"},
-    {"SHORE", 127, 0, "the beach: sand (the backwash a soft hiss) .. shingle (the stones dragged back rattle and clatter)"},
-    {"WATER", 1, 0, "0 = the sea's breakers; 1 = a lake: short wind waves lapping, in groups (no breakers, no backwash)"},
-    {"FACE", 127, 0, "a lake's waves meet: a sloping shore (soft washes, plops) .. a hull or a jetty (dark short slaps, gurgles)"},
+    {"PERIOD", 127, 70, TX_TEXT("wave period: 6 .. 15 s (+-20 % wave to wave; a lake: 0.6 .. 3.3 s on average, at random, then up to 12 s: a calm)")},
+    {"HEIGHT", 127, 64, TX_TEXT("breaker height 0.3 .. 3 m (log): louder (-5 .. +5 dB), longer, lower whoomph (80 .. 30 Hz), more rumble")},
+    {"CHOP", 127, 64, TX_TEXT("wave-to-wave variety: regular .. +-10 dB (L37) and +-40 % timing (a lake: its sizes and groups; its timing is always at random)")},
+    {"BACKWASH", 127, 64, TX_TEXT("the backwash after each wave: none .. -8 dB under the break (64) .. as loud (water draining back through sand or shingle)")},
+    {"DIST", 127, 64, TX_TEXT("distance: on the shore .. 300 m away (high-cut, quieter)")},
+    {"FLOOR", 127, 64, TX_TEXT("the far surf along the shore under the waves while the sea is on: none .. -12 dB (64) .. -6 dB")},
+    {"STRIKE", 1, 1, TX_TEXT("a press: 1 = a breaker now; 0 = presses only hold the sea, which starts partway into a wave period")},
+    {"COUNT", 8, 1, TX_TEXT("wave trains along the shore, each its own timing and size (farther ones smaller): 1 .. 8, more breakers")},
+    {"SHORE", 127, 0, TX_TEXT("the beach: sand (the backwash a soft hiss) .. shingle (the stones dragged back rattle and clatter)")},
+    {"WATER", 1, 0, TX_TEXT("0 = the sea's breakers; 1 = a lake: short wind waves lapping, in groups (no breakers, no backwash)")},
+    {"FACE", 127, 0, TX_TEXT("a lake's waves meet: a sloping shore (soft washes, plops) .. a hull or a jetty (dark short slaps, gurgles)")},
 };
 
 #define NBRK 3u                    /* breakers sounding at once (one wave train) */
@@ -614,12 +614,12 @@ static void surf_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: three big breakers overlapping, strong backwash, every hero busy, near */
 static const char SCENE_MAX[] =
-    "0 particles 16\n0 param HEIGHT 127\n0 param BACKWASH 127\n0 param CHOP 127\n0 param DIST 0\n0 param PERIOD 0\n"
+    TX_TEXT("0 particles 16\n0 param HEIGHT 127\n0 param BACKWASH 127\n0 param CHOP 127\n0 param DIST 0\n0 param PERIOD 0\n"
     "0 on 53 127\n300 on 60 127\n600 on 67 127\n1500 on 72 127\n2500 on 79 127\n"
     "4000 off 53\n4000 off 60\n4000 off 67\n4000 off 72\n4000 off 79\n"
-    "5000 end\n";
+    "5000 end\n");
 
 const tx_engine_t tx_eng_surf = {
-    "surf", "#5 Surf / breaking waves", NP, PARAMS, NH, 8, sizeof(surf_t), SCENE_MAX,
+    "surf", TX_TEXT("#5 Surf / breaking waves"), NP, PARAMS, NH, 8, sizeof(surf_t), SCENE_MAX,
     surf_init, surf_key, surf_param, surf_render, surf_stats,
 };

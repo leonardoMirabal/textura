@@ -49,16 +49,16 @@
 enum { P_SPECIES, P_JITTER, P_PEGS, P_TEMP, P_COUNT, P_SYNC, P_DIST, P_ACT, P_FIELD, P_SIZE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"SPECIES", 127, 0, "true katydid rasp 4.5 kHz | katydid Panacanthus 5 kHz (tonal) | grasshopper C. biguttulus 6.6 kHz | C. brunneus 9.7 kHz"},
-    {"JITTER", 127, 12, "strike timing SD: 0 .. 100 % of an interval: a pure tone .. a broadband rasp"},
-    {"PEGS", 127, 50, "grasshoppers: peg impacts within a pulse 1.5 .. 6 kHz (log; N30 >= 1.5 kHz)"},
-    {"TEMP", 127, 76, "temperature 10 .. 35 C: call and syllable rhythm (Q10 2); the spectrum stays"},
-    {"COUNT", 64, 0, "singers in the grass while a key is held: 0 = one per key held .. 64 (the first at the key, the others farther out on an area law, each its own distance, carrier and period; past PARTICLES heroes the rest are FIELD's)"},
-    {"SYNC", 127, 64, "reset by neighbours s: 0 free .. 0.5 alternate .. 1 synchrony"},
-    {"DIST", 127, 40, "distance at velocity 100: 0.3 .. 30 m (log): level 1 / r"},
-    {"ACTIVITY", 127, 100, "how much each one sings: a call or two now and then (bouts ~3 s, pauses ~15 s) .. busy (runs of ~5 calls, pauses ~4 s: never a steady beat); never faster: the rhythm is its own"},
-    {"FIELD", 127, 0, "the far callers behind: none .. 6 (FIELD^2 / 576 of them, 24 = one, 59 = six; above, louder: more stand for each)"},
-    {"SIZE", 127, 64, "body size: the carrier / the wing's peaks -0.5 .. +0.5 oct (bigger: lower); the rhythm stays"},
+    {"SPECIES", 127, 0, TX_TEXT("true katydid rasp 4.5 kHz | katydid Panacanthus 5 kHz (tonal) | grasshopper C. biguttulus 6.6 kHz | C. brunneus 9.7 kHz")},
+    {"JITTER", 127, 12, TX_TEXT("strike timing SD: 0 .. 100 % of an interval: a pure tone .. a broadband rasp")},
+    {"PEGS", 127, 50, TX_TEXT("grasshoppers: peg impacts within a pulse 1.5 .. 6 kHz (log; N30 >= 1.5 kHz)")},
+    {"TEMP", 127, 76, TX_TEXT("temperature 10 .. 35 C: call and syllable rhythm (Q10 2); the spectrum stays")},
+    {"COUNT", 64, 0, TX_TEXT("singers in the grass while a key is held: 0 = one per key held .. 64 (the first at the key, the others farther out on an area law, each its own distance, carrier and period; past PARTICLES heroes the rest are FIELD's)")},
+    {"SYNC", 127, 64, TX_TEXT("reset by neighbours s: 0 free .. 0.5 alternate .. 1 synchrony")},
+    {"DIST", 127, 40, TX_TEXT("distance at velocity 100: 0.3 .. 30 m (log): level 1 / r")},
+    {"ACTIVITY", 127, 100, TX_TEXT("how much each one sings: a call or two now and then (bouts ~3 s, pauses ~15 s) .. busy (runs of ~5 calls, pauses ~4 s: never a steady beat); never faster: the rhythm is its own")},
+    {"FIELD", 127, 0, TX_TEXT("the far callers behind: none .. 6 (FIELD^2 / 576 of them, 24 = one, 59 = six; above, louder: more stand for each)")},
+    {"SIZE", 127, 64, TX_TEXT("body size: the carrier / the wing's peaks -0.5 .. +0.5 oct (bigger: lower); the rhythm stays")},
 };
 
 #define NV 16u
@@ -706,13 +706,13 @@ static void katy_stats(const void *st, tx_stats_t *o)
 /* the worst case: 16 katydids calling in synchrony (every resonator rings at once), jittered, close, hot, the far
  * callers all singing */
 static const char SCENE_MAX[] =
-    "0 particles 16\n0 param SPECIES 40\n0 param PEGS 127\n0 param JITTER 127\n0 param COUNT 16\n0 param ACTIVITY 127\n0 param SYNC 127\n"
+    TX_TEXT("0 particles 16\n0 param SPECIES 40\n0 param PEGS 127\n0 param JITTER 127\n0 param COUNT 16\n0 param ACTIVITY 127\n0 param SYNC 127\n"
     "0 param DIST 0\n0 param TEMP 127\n0 param FIELD 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_katydids = {
-    "katydids", "#29 Katydids / grasshoppers", NP, PARAMS, NV, 8, sizeof(katy_t), SCENE_MAX,
+    "katydids", TX_TEXT("#29 Katydids / grasshoppers"), NP, PARAMS, NV, 8, sizeof(katy_t), SCENE_MAX,
     katy_init, katy_key, katy_param, katy_render, katy_stats,
 };

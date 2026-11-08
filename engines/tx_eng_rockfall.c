@@ -40,11 +40,11 @@
 enum { P_VOLUME, P_HEIGHT, P_FRAG, P_GROUND, P_DIST, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"VOLUME", 127, 64, "rock volume: 0.01 .. 10 m^3 (log): bigger main block, more fragments, louder (m v)"},
-    {"HEIGHT", 127, 50, "fall height: 5 .. 100 m (log): silence sqrt(2 h / g) 1 .. 4.5 s, impact speed sqrt(2 g h)"},
-    {"FRAG", 127, 64, "fragmentation: a few big blocks (beta 1.4, 4 s) .. many small (beta 2.3, 13 s of tumbling talus)"},
-    {"GROUND", 127, 80, "ground: soft (marl: dull, quiet) .. hard rock (bright, loud): radiated share 1e-6 .. 1e-3"},
-    {"DIST", 127, 40, "distance: 30 m .. 3 km (log): 1 / r, darker (air); far: the low-passed fall smeared into a rumble"},
+    {"VOLUME", 127, 64, TX_TEXT("rock volume: 0.01 .. 10 m^3 (log): bigger main block, more fragments, louder (m v)")},
+    {"HEIGHT", 127, 50, TX_TEXT("fall height: 5 .. 100 m (log): silence sqrt(2 h / g) 1 .. 4.5 s, impact speed sqrt(2 g h)")},
+    {"FRAG", 127, 64, TX_TEXT("fragmentation: a few big blocks (beta 1.4, 4 s) .. many small (beta 2.3, 13 s of tumbling talus)")},
+    {"GROUND", 127, 80, TX_TEXT("ground: soft (marl: dull, quiet) .. hard rock (bright, loud): radiated share 1e-6 .. 1e-3")},
+    {"DIST", 127, 40, TX_TEXT("distance: 30 m .. 3 km (log): 1 / r, darker (air); far: the low-passed fall smeared into a rumble")},
 };
 
 #define NF 3u
@@ -357,11 +357,11 @@ static void rock_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: three falls overlapping (impacts, fragments, talus), big and close on hard rock */
 static const char SCENE_MAX[] =
-    "0 particles 3\n0 param VOLUME 127\n0 param FRAG 127\n0 param GROUND 127\n0 param DIST 0\n0 param HEIGHT 0\n"
+    TX_TEXT("0 particles 3\n0 param VOLUME 127\n0 param FRAG 127\n0 param GROUND 127\n0 param DIST 0\n0 param HEIGHT 0\n"
     "0 on 53 127\n100 off 53\n1500 on 60 127\n1600 off 60\n3000 on 67 127\n3100 off 67\n"
-    "12000 end\n";
+    "12000 end\n");
 
 const tx_engine_t tx_eng_rockfall = {
-    "rockfall", "#34 Rockfall / scree", NP, PARAMS, NF, 2, sizeof(rock_t), SCENE_MAX,
+    "rockfall", TX_TEXT("#34 Rockfall / scree"), NP, PARAMS, NF, 2, sizeof(rock_t), SCENE_MAX,
     rock_init, rock_key, rock_param, rock_render, rock_stats,
 };

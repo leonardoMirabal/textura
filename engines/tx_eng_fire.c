@@ -45,13 +45,13 @@
 enum { P_SIZE, P_MOIST, P_WOOD, P_DRAUGHT, P_BURSTY, P_ROAR, P_KIND, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"SIZE", 127, 50, "fire diameter D: 0.1 .. 3 m (log): flicker 0.52 sqrt(g/D) 5.2 .. 0.9 Hz, roar peak 400 .. 120 Hz"},
-    {"MOIST", 127, 72, "moisture / resin: crackles 1 .. 30 /s per log (log; campfire recordings: 8-15 onsets/s in all)"},
-    {"WOOD", 127, 40, "green / needles (3.2 + 7.2 kHz, notch at 6) .. dry (brighter, 4.5 + 9.5 kHz)"},
-    {"DRAUGHT", 127, 30, "wind on the fire: steady .. deep flicker and gusts"},
-    {"BURSTY", 127, 24, "aftershocks per crackle: 0 .. 8 (Omori p 1.68, c 70 ms)"},
-    {"ROAR", 127, 80, "roar level: off .. loud"},
-    {"KIND", 127, 0, "campfire | bonfire | fireplace | embers | kindling | pine | leaves, paper | torch (16 each)"},
+    {"SIZE", 127, 50, TX_TEXT("fire diameter D: 0.1 .. 3 m (log): flicker 0.52 sqrt(g/D) 5.2 .. 0.9 Hz, roar peak 400 .. 120 Hz")},
+    {"MOIST", 127, 72, TX_TEXT("moisture / resin: crackles 1 .. 30 /s per log (log; campfire recordings: 8-15 onsets/s in all)")},
+    {"WOOD", 127, 40, TX_TEXT("green / needles (3.2 + 7.2 kHz, notch at 6) .. dry (brighter, 4.5 + 9.5 kHz)")},
+    {"DRAUGHT", 127, 30, TX_TEXT("wind on the fire: steady .. deep flicker and gusts")},
+    {"BURSTY", 127, 24, TX_TEXT("aftershocks per crackle: 0 .. 8 (Omori p 1.68, c 70 ms)")},
+    {"ROAR", 127, 80, TX_TEXT("roar level: off .. loud")},
+    {"KIND", 127, 0, TX_TEXT("campfire | bonfire | fireplace | embers | kindling | pine | leaves, paper | torch (16 each)")},
 };
 
 /* the kinds (KIND): each a fire of its own, the knobs above moving it as they move the campfire. Ours, set against
@@ -513,13 +513,13 @@ static void fire_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: eight logs, wet and bursty (aftershock storms), every pop ringing, full roar, windy */
 static const char SCENE_MAX[] =
-    "0 particles 12\n0 param MOIST 127\n0 param BURSTY 127\n0 param ROAR 127\n0 param DRAUGHT 127\n0 param SIZE 127\n"
+    TX_TEXT("0 particles 12\n0 param MOIST 127\n0 param BURSTY 127\n0 param ROAR 127\n0 param DRAUGHT 127\n0 param SIZE 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "500 on 53 127\n500 on 60 127\n500 on 67 127\n500 on 74 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "6000 end\n";
+    "6000 end\n");
 
 const tx_engine_t tx_eng_fire = {
-    "fire", "#8 Wood fire", NP, PARAMS, NH, 8, sizeof(fire_t), SCENE_MAX,
+    "fire", TX_TEXT("#8 Wood fire"), NP, PARAMS, NH, 8, sizeof(fire_t), SCENE_MAX,
     fire_init, fire_key, fire_param, fire_render, fire_stats,
 };

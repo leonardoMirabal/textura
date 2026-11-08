@@ -28,12 +28,12 @@
 enum { P_DIST, P_ENERGY, P_TORT, P_HEIGHT, P_GROUND, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"DIST", 127, 50, "distance to the flash at C4: 0.2 .. 20 km (log): level 1/r then 1/r^2, duller (air), longer N-waves"},
-    {"ENERGY", 127, 64, "channel energy per length E_l: 1e4 .. 1e6 J/m (log): N-wave peak f_m 680 .. 68 Hz (Few), louder"},
-    {"TORT", 127, 64, "tortuosity: deflection spread x 0.25 .. 4 of the natural spread (27 deg): smooth roll .. cracking claps"},
-    {"HEIGHT", 127, 100, "channel start height: 0.5 .. 5 km (log): how long it rumbles (up to ~15 s)"},
-    {"GROUND", 127, 0, "the terrain: an open plain (0: no echo) .. a valley, mountains: the roll heard again off its sides, "
-                       "0.4 .. 2.5 s later, -14 .. -6 dB (one echo; two above 64)"},
+    {"DIST", 127, 50, TX_TEXT("distance to the flash at C4: 0.2 .. 20 km (log): level 1/r then 1/r^2, duller (air), longer N-waves")},
+    {"ENERGY", 127, 64, TX_TEXT("channel energy per length E_l: 1e4 .. 1e6 J/m (log): N-wave peak f_m 680 .. 68 Hz (Few), louder")},
+    {"TORT", 127, 64, TX_TEXT("tortuosity: deflection spread x 0.25 .. 4 of the natural spread (27 deg): smooth roll .. cracking claps")},
+    {"HEIGHT", 127, 100, TX_TEXT("channel start height: 0.5 .. 5 km (log): how long it rumbles (up to ~15 s)")},
+    {"GROUND", 127, 0, TX_TEXT("the terrain: an open plain (0: no echo) .. a valley, mountains: the roll heard again off its sides, "
+                       "0.4 .. 2.5 s later, -14 .. -6 dB (one echo; two above 64)")},
 };
 
 #define NF 2u
@@ -211,12 +211,12 @@ static void thunder_stats(const void *st, tx_stats_t *o)
 /* the worst case: two flashes started in the same block (both channels grow at once), close and energetic, held (all
  * strokes), then two more on top (stealing) */
 static const char SCENE_MAX[] =
-    "0 particles 2\n0 param DIST 0\n0 param ENERGY 127\n0 param TORT 127\n0 param HEIGHT 127\n"
+    TX_TEXT("0 particles 2\n0 param DIST 0\n0 param ENERGY 127\n0 param TORT 127\n0 param HEIGHT 127\n"
     "0 on 79 127\n0 on 53 127\n2000 on 67 127\n2000 on 60 127\n"
     "3000 off 53\n3000 off 60\n3000 off 67\n3000 off 79\n"
-    "6000 end\n";
+    "6000 end\n");
 
 const tx_engine_t tx_eng_thunder = {
-    "thunder", "#25 Thunder", NP, PARAMS, NF, NF, sizeof(thunder_t), SCENE_MAX,
+    "thunder", TX_TEXT("#25 Thunder"), NP, PARAMS, NF, NF, sizeof(thunder_t), SCENE_MAX,
     thunder_init, thunder_key, thunder_param, thunder_render, thunder_stats,
 };

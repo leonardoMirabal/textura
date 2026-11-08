@@ -46,14 +46,14 @@
 enum { P_TEMP, P_SPECIES, P_COUNT, P_SYNC, P_DIST, P_FIELD, P_ACT, P_SIZE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"TEMP", 127, 76, "air temperature 10 .. 35 C: chirp rate 40 .. 220 /min (Dolbear), pulses as fast"},
-    {"SPECIES", 127, 0, "field cricket 4.8 kHz | Eugryllodes 3.2 kHz | tree cricket 2.9 kHz | mole cricket 3.5 kHz trill | ground cricket 7.4 kHz fast trill | low cricket 2 kHz"},
-    {"COUNT", 32, 3, "crickets in the field while a key is held: 0 = one per key held .. 32 (the first at the key, the others farther out on an area law, each its own distance, carrier and period)"},
-    {"SYNC", 127, 64, "reset by neighbours s: 0 free .. 0.5 alternate .. 1 synchrony"},
-    {"DIST", 127, 50, "distance at velocity 100: 0.3 .. 30 m (log): level 1 / r; delays between callers"},
-    {"FIELD", 127, 0, "the distant chorus behind (a band at the carrier): off .. loud"},
-    {"ACTIVITY", 127, 100, "how much each one sings: a few chirps now and then (bouts ~1.5 s, pauses ~15 s) .. busy (runs of ~6 chirps, pauses ~1 s: never a steady beat); never faster: the rhythm is its own"},
-    {"SIZE", 127, 64, "body size: the carrier -0.5 .. +0.5 oct (bigger: lower); the rhythm stays"},
+    {"TEMP", 127, 76, TX_TEXT("air temperature 10 .. 35 C: chirp rate 40 .. 220 /min (Dolbear), pulses as fast")},
+    {"SPECIES", 127, 0, TX_TEXT("field cricket 4.8 kHz | Eugryllodes 3.2 kHz | tree cricket 2.9 kHz | mole cricket 3.5 kHz trill | ground cricket 7.4 kHz fast trill | low cricket 2 kHz")},
+    {"COUNT", 32, 3, TX_TEXT("crickets in the field while a key is held: 0 = one per key held .. 32 (the first at the key, the others farther out on an area law, each its own distance, carrier and period)")},
+    {"SYNC", 127, 64, TX_TEXT("reset by neighbours s: 0 free .. 0.5 alternate .. 1 synchrony")},
+    {"DIST", 127, 50, TX_TEXT("distance at velocity 100: 0.3 .. 30 m (log): level 1 / r; delays between callers")},
+    {"FIELD", 127, 0, TX_TEXT("the distant chorus behind (a band at the carrier): off .. loud")},
+    {"ACTIVITY", 127, 100, TX_TEXT("how much each one sings: a few chirps now and then (bouts ~1.5 s, pauses ~15 s) .. busy (runs of ~6 chirps, pauses ~1 s: never a steady beat); never faster: the rhythm is its own")},
+    {"SIZE", 127, 64, TX_TEXT("body size: the carrier -0.5 .. +0.5 oct (bigger: lower); the rhythm stays")},
 };
 
 #define NV 32u
@@ -476,13 +476,13 @@ static void crickets_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: 32 mole crickets trilling (the densest pulses) in synchrony, close, hot, the field loud */
 static const char SCENE_MAX[] =
-    "0 particles 32\n0 param SPECIES 70\n0 param COUNT 32\n0 param ACTIVITY 127\n0 param SYNC 127\n0 param TEMP 127\n0 param DIST 0\n"
+    TX_TEXT("0 particles 32\n0 param SPECIES 70\n0 param COUNT 32\n0 param ACTIVITY 127\n0 param SYNC 127\n0 param TEMP 127\n0 param DIST 0\n"
     "0 param FIELD 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_crickets = {
-    "crickets", "#27 Crickets", NP, PARAMS, NV, 16, sizeof(crickets_t), SCENE_MAX,
+    "crickets", TX_TEXT("#27 Crickets"), NP, PARAMS, NV, 16, sizeof(crickets_t), SCENE_MAX,
     crickets_init, crickets_key, crickets_param, crickets_render, crickets_stats,
 };

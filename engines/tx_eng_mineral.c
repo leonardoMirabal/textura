@@ -47,12 +47,12 @@
 enum { P_STONE, P_SIZE, P_PRESSURE, P_SPEED, P_ROUGH, P_STICK, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"STONE", 127, 64, "mineral (Q): flint 55, sandstone 65, slate 150, granite 150, limestone 150, obsidian 175, marble 300, quartz 1000"},
-    {"SIZE", 127, 64, "stone pitch at C4: first bar mode 150 Hz .. 2 kHz (log) (keys: a semitone each)"},
-    {"PRESSURE", 127, 64, "normal force: 0.5 .. 50 N (log): louder (~sqrt of the frictional power), more stick-slip"},
-    {"SPEED", 127, 64, "sliding speed: 1 cm/s .. 1 m/s (log): brighter (contact cutoff v / 0.1 mm), denser, louder"},
-    {"ROUGH", 127, 40, "surface: smooth rub (dense) .. scratch (sparse, ~1 mm) .. grind (correlated, heavy, ~0.3 mm)"},
-    {"STICK", 127, 0, "stick-slip (static - dynamic friction): off .. strong groan ~80 Hz / honk ~450 Hz"},
+    {"STONE", 127, 64, TX_TEXT("mineral (Q): flint 55, sandstone 65, slate 150, granite 150, limestone 150, obsidian 175, marble 300, quartz 1000")},
+    {"SIZE", 127, 64, TX_TEXT("stone pitch at C4: first bar mode 150 Hz .. 2 kHz (log) (keys: a semitone each)")},
+    {"PRESSURE", 127, 64, TX_TEXT("normal force: 0.5 .. 50 N (log): louder (~sqrt of the frictional power), more stick-slip")},
+    {"SPEED", 127, 64, TX_TEXT("sliding speed: 1 cm/s .. 1 m/s (log): brighter (contact cutoff v / 0.1 mm), denser, louder")},
+    {"ROUGH", 127, 40, TX_TEXT("surface: smooth rub (dense) .. scratch (sparse, ~1 mm) .. grind (correlated, heavy, ~0.3 mm)")},
+    {"STICK", 127, 0, TX_TEXT("stick-slip (static - dynamic friction): off .. strong groan ~80 Hz / honk ~450 Hz")},
 };
 
 #define NV 6u
@@ -366,14 +366,14 @@ static void mineral_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: 6 stones, grinding fast and hard with stick-slip, every mode in band, quartz (longest ring) */
 static const char SCENE_MAX[] =
-    "0 particles 6\n0 param STONE 127\n0 param SIZE 0\n0 param PRESSURE 127\n0 param SPEED 127\n0 param ROUGH 127\n"
+    TX_TEXT("0 particles 6\n0 param STONE 127\n0 param SIZE 0\n0 param PRESSURE 127\n0 param SPEED 127\n0 param ROUGH 127\n"
     "0 param STICK 127\n"
     "0 on 53 127\n0 on 57 127\n0 on 60 127\n0 on 64 127\n0 on 67 127\n0 on 71 127\n0 on 74 127\n0 on 79 127\n"
     "1000 param ROUGH 64\n1500 param SPEED 30\n2000 param ROUGH 0\n"
     "3000 off 53\n3000 off 57\n3000 off 60\n3000 off 64\n3000 off 67\n3000 off 71\n3000 off 74\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_mineral = {
-    "mineral", "#11 Mineral friction (scrape)", NP, PARAMS, NV, 3, sizeof(mineral_t), SCENE_MAX,
+    "mineral", TX_TEXT("#11 Mineral friction (scrape)"), NP, PARAMS, NV, 3, sizeof(mineral_t), SCENE_MAX,
     mineral_init, mineral_key, mineral_param, mineral_render, mineral_stats,
 };

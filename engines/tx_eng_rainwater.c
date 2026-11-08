@@ -35,11 +35,11 @@
 enum { P_RATE, P_STORM, P_AREA, P_WIND, P_DIST, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"RATE", 127, 70, "rain rate R: 0.1 .. 100 mm/h (log): drizzle .. downpour"},
-    {"STORM", 127, 64, "storm type: stratiform (small drops: the 15 kHz shimmer) .. convective (big drops: plinks)"},
-    {"AREA", 127, 100, "listening area: 0.1 .. 20 m^2 (log): a few drops near you .. a whole pond"},
-    {"WIND", 127, 0, "wind: calm .. windy (oblique drops lose the type I shimmer; gusts)"},
-    {"DIST", 127, 20, "distance: close (all the highs) .. across the lake (high-cut 2.5 kHz, quieter)"},
+    {"RATE", 127, 70, TX_TEXT("rain rate R: 0.1 .. 100 mm/h (log): drizzle .. downpour")},
+    {"STORM", 127, 64, TX_TEXT("storm type: stratiform (small drops: the 15 kHz shimmer) .. convective (big drops: plinks)")},
+    {"AREA", 127, 100, TX_TEXT("listening area: 0.1 .. 20 m^2 (log): a few drops near you .. a whole pond")},
+    {"WIND", 127, 0, TX_TEXT("wind: calm .. windy (oblique drops lose the type I shimmer; gusts)")},
+    {"DIST", 127, 20, TX_TEXT("distance: close (all the highs) .. across the lake (high-cut 2.5 kHz, quieter)")},
 };
 
 #define NC 4u
@@ -331,12 +331,12 @@ static void rw_stats(const void *st, tx_stats_t *o)
 
 /* the worst case: a convective downpour over a big pond, every hero busy, big drops pressed */
 static const char SCENE_MAX[] =
-    "0 particles 32\n0 param RATE 127\n0 param STORM 127\n0 param AREA 127\n0 param DIST 0\n"
+    TX_TEXT("0 particles 32\n0 param RATE 127\n0 param STORM 127\n0 param AREA 127\n0 param DIST 0\n"
     "0 on 53 127\n0 on 60 127\n0 on 67 127\n0 on 79 127\n1000 on 53 127\n1500 param STORM 0\n2000 param AREA 40\n"
     "3000 off 53\n3000 off 60\n3000 off 67\n3000 off 79\n"
-    "4000 end\n";
+    "4000 end\n");
 
 const tx_engine_t tx_eng_rainwater = {
-    "rainwater", "#2 Rain on water", NP, PARAMS, NH, 16, sizeof(rw_t), SCENE_MAX,
+    "rainwater", TX_TEXT("#2 Rain on water"), NP, PARAMS, NH, 16, sizeof(rw_t), SCENE_MAX,
     rw_init, rw_key, rw_param, rw_render, rw_stats,
 };
