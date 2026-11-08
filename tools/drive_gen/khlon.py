@@ -165,9 +165,17 @@ def tables():
             f"#define KH_GN {GN}\n#define KH_AA_A {aa_a(J)}u\n")
     cs = gfs(c)
     G.check("KH_GFS", cs)
+    import sys
+    sys.path.insert(0, HERE)
+    import aa                                # (tools/drive_gen/: the shared tables)
+    assert rcp() == aa.rcp(), "KH_RCP is no longer DRV_AA_RCP: emit its own table again"
     gct = G.arr("KH_GFS", "int32_t", cs, 8).replace("static const int32_t KH_GFS", "static const int32_t "
                                                    "__attribute__((aligned(8))) KH_GFS")
     gct += "#define KH_GF (KH_GFS + 2 * (KH_GN - 1))   /* the node at 0 V: e >= 0 reads from here, as before */\n"
     return [head, rows2d("KH_G", g), G.arr("KH_AMAP", "uint8_t", amap(A_ROWS, 127, 1)),
             G.arr("KH_GS", "int32_t", gs(J)), rows2d("KH_T", t), G.arr("KH_LT", "int32_t", lt(J)), gct,
-            G.arr("KH_RCP", "uint16_t", rcp())]
+            KH_RCP_SHARED]
+
+
+# KH_RCP is the shared DRV_AA_RCP (aa.py: the same reciprocals, emitted ahead of the TYPEs): one copy in flash
+KH_RCP_SHARED = "#define KH_RCP DRV_AA_RCP   /* the same table (aa.py rcp(), RB 11): one copy in flash */\n"
