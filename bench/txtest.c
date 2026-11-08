@@ -1354,6 +1354,51 @@ static void check_fx_grain_controls(tx_fx_t *fx)
 /* MIX, dry / wet (tx_fx.h): the law at equal power; the GRAIN DELAY and the REVERB at MIX 0 (the dry alone, exactly),
  * 64 (the dry -3 dB) and 127 (no dry: nothing out before the first echo, or the pre-delay); both at 127 in series:
  * the reverb of the echoes alone (nothing out before the first echo) */
+/* the HALL's HQ tank: its rings fill the memory the union gives them; an impulse's tail at MIX 127 decays at the time
+ * asked (mid T60 from the energy 0.2 .. 0.7 s, within 0.6 .. 1.25 x the asked; the high end's below the mid's) and ends
+ * in exact silence (the reverb stops running) */
+static void check_fx_hq(tx_fx_t *fx)
+{
+    static const unsigned SZ[3] = {1, 40, 127};
+    int32_t L[TX_BLOCK], R[TX_BLOCK];
+    char msg[200];
+    unsigned q;
+    snprintf(msg, sizeof msg, "the HQ tank's rings: %u words of the %u it has", (unsigned)tx_hq_words(), (unsigned)HQ_HALL_WORDS);
+    verdict("fx", "hq-rings", tx_hq_words() == HQ_HALL_WORDS, msg, 0);
+    for (q = 0; q < 3u; q++) {                         /* 2 s of noise (the tail full), then its decay: -5 .. -25 dB */
+        double ss = 0, t5 = 0, t25 = 0, t60, want;
+        uint32_t b, j, rng = 1u, sil = 0, stop = 344u;
+        int32_t s;
+        tx_fx_init(fx);
+        tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, TX_RVT_HALL); tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 127);
+        tx_fx_reverb_param(&fx->rev, TX_RV_SIZE, SZ[q]);
+        s = 40 + (int32_t)SZ[q] * 70 / 127;
+        want = 12.8 * pow(2.0, (s - 140) / 30.0);
+        for (b = 0; b < stop + 1720u && !sil; b++) {    /* (10 s of tail at most) */
+            double e = 0;
+            int32_t any = 0;
+            for (j = 0; j < TX_BLOCK; j++) {
+                rng = rng * 1664525u + 1013904223u;
+                L[j] = R[j] = b < stop ? ((int32_t)(rng >> 9) - (1 << 22)) >> 1 : 0;
+            }
+            tx_fx_reverb_process(&fx->rev, L, R, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) { double v = (double)L[j] + R[j]; e += v * v; any |= L[j] | R[j]; }
+            if (b >= stop - 43u && b < stop) ss += e / 43.0;
+            if (b >= stop) {
+                double d = 10.0 * log10(e / ss + 1e-30), t = (b - stop) * TX_BLOCK / 44100.0;
+                if (!t5 && d <= -5.0) t5 = t;
+                if (!t25 && d <= -25.0) t25 = t;
+                if (!any) sil = b - stop;
+            }
+        }
+        t60 = 3.0 * (t25 - t5);
+        snprintf(msg, sizeof msg, "HALL SIZE %u: T60 %.2f s for %.2f asked (0.6 .. 1.0 x), exact silence after %.2f s (%.2f at most)",
+                 SZ[q], t60, want, sil * TX_BLOCK / 44100.0, 1.5 * want + 0.5);
+        verdict("fx", "hq-decay", t60 >= 0.6 * want && t60 <= want && sil && sil * TX_BLOCK / 44100.0 <= 1.5 * want + 0.5, msg, 0);
+    }
+    tx_fx_init(fx);
+}
+
 static void check_fx_drywet(tx_fx_t *fx)
 {
     int32_t L[TX_BLOCK], R[TX_BLOCK], x[TX_BLOCK];
@@ -1742,6 +1787,7 @@ static void check_fx(FILE *update)
         verdict("fx", "cap", maxact <= fx->gd.cap && fx->gd.cap < 16u && maxact > 0, msg, 0);
         check_fx_grain_controls(fx);
         check_fx_drywet(fx);
+        check_fx_hq(fx);
     }
     /* the DRIVE TYPEs: zeros in, zeros out; AMOUNT 0 glides out to the lane untouched; a TYPE change while it
      * sounds fades through (no step); TSH8 on the mix's stereo pair */

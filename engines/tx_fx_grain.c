@@ -7,7 +7,7 @@
  *   in (the mix's mid) + the feedback -> the line (mono, TX_GD_N samples (tx_fx_gd_len.h: 2.551 s) of block float,
  *   12-bit mantissas and a 4-bit shift per 16 samples: 113 KB, its noise follows the signal: ~-109 dBFS at -40 dBFS,
  *   far below at -70)
- *   the ECHO: one tap at TIME (20 ms .. 1.66 s at 127, on to 2.50 s; a new TIME crossfades from the old tap in 23 ms: the
+ *   the ECHO: one tap at TIME (20 ms .. 1.66 s at 127, on to 2.00 s; a new TIME crossfades from the old tap in 23 ms: the
  *     echo moves without a level step)
  *   the GRAINS: GRAINS voices (1 .. 30) staggered on one clock (each grain SIZE long, Hann windows: they add up to a
  *     constant), each started at TIME + a random SPRAY, at PITCH (semitone steps, -12 .. +12), reversed by chance
@@ -41,7 +41,7 @@
 
 const tx_param_t tx_fx_grain_params[TX_GD_NP] = {
     {"MIX", 127, 0, "dry .. wet: the sound alone (0, the delay off) .. the delay alone (127), equal power between"},
-    {"TIME", TX_GD_TIME_MAX, 70, "the echo's time: 20 ms .. 1.66 s (127) .. 2.50 s (exponential); the grains read around it"},
+    {"TIME", TX_GD_TIME_MAX, 70, "the echo's time: 20 ms .. 1.66 s (127) .. 2.00 s (exponential); the grains read around it"},
     {"FEEDBACK", 127, 50, "how long the repeats go on (each one grained again): none .. endless (110) .. running away into a held wall"},
     {"GRAINS", TX_GD_MAXG - 1u, 3, "grain voices on the repeats: 1 .. 30 (fewer when the CPU is short)"},
     {"SIZE", 127, 64, "each grain's length: 20 .. 500 ms"},

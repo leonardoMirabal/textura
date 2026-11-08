@@ -118,6 +118,41 @@ void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t *add, int32_t 
 void tx_hall_job(void *a);          /* (the other core's half: lines 4..7; core 1 runs its twin) */
 TX_TWIN(tx_hall_job);
 
+/* HQ (tx_fx_hq.c: the HALL): 16 lines, each its own ring in the caller's memory */
+#define HQ_NL 16u
+#define HQ_NAP 4u
+#define HQ_APSUM (211u + 157u + 563u + 409u)
+#define HQ_NT 12u                   /* the early reflections: taps a side */
+#define HQ_ERN 4096u                /* their ring (a power of 2, past the last tap) */
+#define HQ_MODMAX 2u                /* (a ring's spare past its line: the modulated reads are only ever nearer) */
+typedef struct {
+    int16_t *mem;                                /* the rings (the caller's: tx_hq_words at its scale) */
+    uint32_t off[HQ_NL], rl[HQ_NL], w[HQ_NL];    /* each ring's start, length, write index */
+    uint16_t len[HQ_NL];                         /* each line's delay */
+    int32_t g[HQ_NL], a[HQ_NL];                  /* each line's gain below the shelf and above it (Q15) */
+    int32_t sz, damp;                            /* what the gains were made for (-1: none yet) */
+    int32_t jmd;                                 /* (the block's depth: the other half's argument) */
+    int32_t hp, he;
+    int32_t bx[HL_NC];
+    uint16_t apd[HQ_NAP];
+    int16_t apb[HQ_APSUM];
+    uint32_t ew;
+    int16_t er[HQ_ERN];
+    struct {                                     /* lines 0..7, 8..15: their one-poles, remainders, phases, ends */
+        int32_t lp[HQ_NL / 2u], ge[HQ_NL / 2u];
+        uint32_t ph[HQ_NL / 2u];
+        int32_t y[HL_NC][HQ_NL / 2u];
+        int32_t el[HL_NC], er[HL_NC];            /* (half[1]: the early reflections, L and R) */
+    } TX_LINE half[2];
+} tx_hq_t;
+void tx_hq_start(tx_hq_t *h, int16_t *mem, uint32_t words);
+uint32_t tx_hq_words(void);       /* the rings' words (HQ_HALL_WORDS) */
+/* (hv: the tx_hq_t, as tx_hall_run's type; sz the size step, clamped to 0 .. 140) */
+void tx_hq_run(tx_hall_t *hv, const int32_t *send, const int32_t *add, int32_t sz, int32_t damp, int32_t md, int32_t *mid,
+               int32_t *side, const tx_rv_par_t *par);
+void tx_hq_job(void *a);            /* (the other core's half: lines 8..15) */
+#define HQ_HALL_WORDS 46378u        /* the rings: the lines' 46 314 + 16 x 4 (txtest checks) */
+
 /* INFINITE (tx_fx_inf.c: Frodhes' infinite tank, the LITE build; DARK as its variant) */
 #define RI_NL 8u
 #define RI_CPT 4u

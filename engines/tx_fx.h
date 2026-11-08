@@ -199,7 +199,8 @@ typedef struct {
      * member): rm the send at full rate, gathered over the block (the other core's body works on it in place), rw the
      * body's wet part (written by the other core), sv / svo / svd the sends (two cores); each on its own cache lines */
     union {
-        tx_hall_t h; tx_inf_t i; tx_plate_t p;
+        struct { tx_hq_t q; int16_t mem[HQ_HALL_WORDS]; } hq;   /* HALL: the HQ tank at its full scale */
+        tx_inf_t i; tx_plate_t p;
         struct {
             tx_chamber_t c; tx_hall_t h TX_LINE;
             int32_t rm[TX_BLOCK] TX_LINE, rw[TX_BLOCK] TX_LINE, sv[TX_BLOCK] TX_LINE;

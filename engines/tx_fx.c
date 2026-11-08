@@ -113,7 +113,7 @@ static void rev_begin(tx_fx_reverb_t *r, uint32_t t)
     tx_fx_memset(r->m, 0, sizeof r->m); tx_fx_memset(r->s, 0, sizeof r->s); r->hp = r->he = 0;
     tx_fx_memset(r->sh, 0, sizeof r->sh); tx_fx_memset(r->shb, 0, sizeof r->shb); r->shlp = 0;
     r->cur = (uint8_t)kern(t);
-    if (r->cur == TX_RVT_HALL) tx_hall_start(&r->u.h);
+    if (r->cur == TX_RVT_HALL) tx_hq_start(&r->u.hq.q, r->u.hq.mem, HQ_HALL_WORDS);
     else if (r->cur == TX_RVT_INF) tx_inf_start(&r->u.i);
     else if (r->cur == TX_RVT_PLATE) tx_plate_start(&r->u.p), r->pz = -1;
     else if (r->cur == TX_RVT_ROOM) { tx_chamber_init(&r->u.rm.c); tx_chamber_param(&r->u.rm.c, TX_CH_TAIL, 0); tx_hall_start(&r->u.rm.h); }
@@ -330,10 +330,13 @@ TX_RAM TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, in
         }
     tail:
         {   /* the kernels (and ROOM's tail: a short hall) */
-            if (cur == TX_RVT_HALL) tx_hall_run(&r->u.h, in, shon ? r->sh : 0, size + r->off, r->damp, md, om, os, &r->par);
-            else if (cur == TX_RVT_ROOM)                        /* the room's tail: a hall of size 2 .. 32 (T60 ~0.3 .. 1 s); */
-                tx_hall_run(&r->u.rm.h, in, shon ? r->sh : 0, 2 + (zv ? zv : 64) * 30 / 127 + r->off / 2, r->damp, md, om, os,
-                            two == 1 ? 0 : &r->par);            /* (one core here while the body holds the other) */
+            if (cur == TX_RVT_HALL || cur == TX_RVT_ROOM) {     /* HALL: the HQ tank (in flash; its T60 law there); */
+                int hq = cur == TX_RVT_HALL;                    /* ROOM's tail: a hall of size 2 .. 32 (T60 ~0.3 .. 1 s); */
+                (hq ? TX_FAR(tx_hq_run) : tx_hall_run)(hq ? (tx_hall_t *)(void *)&r->u.hq.q : &r->u.rm.h, in, shon ? r->sh : 0,
+                    hq ? size + r->off : 2 + (zv ? zv : 64) * 30 / 127 + r->off / 2, r->damp, md, om, os,
+                    two == 1 ? 0 : &r->par);                    /* (one call: RAM text. ROOM on one core here while the
+                                                                 * body holds the other) */
+            }
             else if (cur == TX_RVT_INF) {
                 tx_rev_ctl_t c;
                 c.decay = r->dk; c.damp = r->damp; c.size = zv ? zv : TX_RV_INF_AUTO; c.mod = r->p[TX_RV_MOD]; c.dark = dark;

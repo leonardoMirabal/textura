@@ -254,8 +254,8 @@ TX_AUDIO_DATA const int16_t TX_FX_HANN[1025] = {
     0
 };
 
-/* the grain delay's TIME in samples: 20 ms .. 1.66 s at 127 .. 2.50 s at 139 (exponential; the line's top) */
-TX_AUDIO_DATA const uint32_t TX_FX_GD_TIME[140] = {
+/* the grain delay's TIME in samples: 20 ms .. 1.66 s at 127 .. 2.00 s at 133 (exponential; the line's top) */
+TX_AUDIO_DATA const uint32_t TX_FX_GD_TIME[134] = {
     882u, 913u, 946u, 979u, 1014u, 1050u, 1087u, 1125u,
     1165u, 1207u, 1249u, 1294u, 1339u, 1387u, 1436u, 1487u,
     1539u, 1594u, 1651u, 1709u, 1770u, 1832u, 1897u, 1964u,
@@ -272,8 +272,7 @@ TX_AUDIO_DATA const uint32_t TX_FX_GD_TIME[140] = {
     32952u, 34119u, 35328u, 36580u, 37875u, 39217u, 40607u, 42045u,
     43535u, 45077u, 46674u, 48327u, 50039u, 51812u, 53648u, 55548u,
     57516u, 59554u, 61664u, 63848u, 66110u, 68452u, 70877u, 73388u,
-    75988u, 78680u, 81467u, 84353u, 87342u, 90436u, 93640u, 96957u,
-    100392u, 103949u, 107631u, 110252u
+    75988u, 78680u, 81467u, 84353u, 87342u, 88204u
 };
 
 /* the grains' clock, Q32 phase a sample: a grain 20 .. 500 ms long (exponential) */
