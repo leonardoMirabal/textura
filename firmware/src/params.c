@@ -14,6 +14,8 @@
  *           26 .. 31  COMPRESSOR: COMP THR ATK REL RAT MKUP (tx_comp_params order; Frodhes' COMPRESSOR's)
  *           32 .. 37  TEMPO: BPM (40 .. 240) FINE (BPM in tenths) STATUS (read only) TRANSPORT TAP (over 63: a tap)
  *                     SCENE TEMPO (a scene's load sets its tempo: on / off, in the settings)
+ *           38        SCENE FX (KEEP: a scene's load leaves the DRIVE, COMPRESSOR, GRAIN and REVERB as they are, their
+ *                     tails ringing on; RECALL: it sets them; in the settings, KEEP by default)
  *           40 .. 43  MIDI: CLOCK (INT MASTER FOLLOW AUTO) CLK IN USB, CLK IN TRS, CLK OUT (OFF / USB: MASTER sends)
  *           44        DISPLAY: COLOR (the screen's palette: COLOR_NAME; in the settings)
  *           48 .. 51  DRIVE: AMOUNT TONE MIX TYPE (tx_fx_drive_params order): the mix's, its first effect (before the
@@ -63,7 +65,7 @@ static void p_cat(char *d, const char *s, uint32_t max) { uint32_t n = 0; while 
 #define NOID_P 0xFFFFu
 enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_ODRIVE0 = 32, PL_FILTER0 = 36, PL_NUM = 42 };
 enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP0 = 26, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN, PG_TAP,
-       PG_SCNTEMPO, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR, PG_DRIVE0 = 48, PG_N_ = 52 };   /* (PL_ODRIVE0:
+       PG_SCNTEMPO, PG_SCNFX, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR, PG_DRIVE0 = 48, PG_N_ = 52 };   /* (PL_ODRIVE0:
                                                  * the retired lane DRIVE's ids; pv_glob: the effects' values, 0 .. 51) */
 #define P_CH_GLOBAL 4u                          /* MIDI channel 5 (0-based 4) */
 
@@ -76,6 +78,7 @@ static const char *const N_SHAPE[] = {"SINE", "TRI", "SAW UP", "SAW DN", "SQUARE
 static const char *const N_REVERB[] = {"OFF", "ROOM", "HALL", "INFINITE", "DARK", "DRIFT", "SWELL", "PLATE"};
 static const char *const N_SHIFT[] = {"+OCT", "+5TH", "+OCT+5", "-OCT"};
 static const char *const N_CLOCK[] = {"INT", "MASTER", "FOLLOW", "AUTO"};
+static const char *const N_SCNFX[] = {"KEEP", "RECALL"};   /* SCENE FX: a load keeps the mix's effects, or recalls them */
 static const char *const N_CLKOUT[] = {"OFF", "USB"};   /* (TRS: the FM-1's jack is an input only) */
 static const char *const N_RATIO[] = {"1.5:1", "2:1", "3:1", "4:1", "6:1", "8:1", "10:1", "20:1"};   /* (Frodhes') */
 
@@ -144,6 +147,8 @@ static void tempo_status(char *t);
 enum { TG_GSYNC, TG_HALF, TG_CLOCK, TG_INUSB, TG_INTRS, TG_OUT, TG_SCNTEMPO };
 static void tempo_out(uint32_t on);
 static void tempo_scene_flag(uint32_t on);
+static uint8_t scn_fx_recall;                   /* SCENE FX: 0 KEEP (a load leaves the DRIVE, COMPRESSOR, GRAIN and
+                                                 * REVERB as they are, their tails ringing), 1 RECALL (scenes.c) */
 static uint32_t tm_get(uint32_t what);
 /* the globals that are not an effect's: the tempo's and the clock's (tempo.c holds their values) */
 typedef struct { uint8_t idx; const char *lab; uint16_t hi; uint8_t fmt; } p_gx_t;
@@ -151,7 +156,7 @@ static const p_gx_t PGX[] = {
     {PG_GSYNC, "SYNC", 14, F_DIV}, {PG_BPM, "BPM", 200, F_BPM}, {PG_FINE, "FINE", 2000, F_BPM10},
     {PG_STATUS, "STATUS", 0, F_STATUS}, {PG_RUN, "TRANSPORT", 1, F_RUN}, {PG_TAP, "TAP", 127, F_NUM},
     {PG_CLOCK, "CLOCK", 3, F_ENUM}, {PG_INUSB, "CLK IN USB", 1, F_ONOFF}, {PG_INTRS, "CLK IN TRS", 1, F_ONOFF},
-    {PG_OUT, "CLK OUT", 1, F_ENUM}, {PG_SCNTEMPO, "SCENE TEMPO", 1, F_ONOFF}, {PG_COLOR, "COLOR", COLOR_N - 1u, F_ENUM},
+    {PG_OUT, "CLK OUT", 1, F_ENUM}, {PG_SCNTEMPO, "SCENE TEMPO", 1, F_ONOFF}, {PG_SCNFX, "SCENE FX", 1, F_ENUM}, {PG_COLOR, "COLOR", COLOR_N - 1u, F_ENUM},
 };
 static const p_gx_t *p_gx(uint32_t id)
 {
@@ -353,7 +358,7 @@ static const char *const *p_names(uint32_t id)
     if (P_SCOPE(id) < P_LANES) return i == PL_FILTER0 + TX_FL_TYPE ? N_FILTER : N_SHAPE;
     if (i == PG_COMP0 + TX_CP_RATIO) return N_RATIO;
     if (i == PG_DRIVE0 + TX_DR_TYPE) return N_DRIVE;
-    return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : i == PG_CLOCK ? N_CLOCK : i == PG_OUT ? N_CLKOUT : i == PG_COLOR ? COLOR_NAME : N_SHIFT;
+    return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : i == PG_CLOCK ? N_CLOCK : i == PG_OUT ? N_CLKOUT : i == PG_SCNFX ? N_SCNFX : i == PG_COLOR ? COLOR_NAME : N_SHIFT;
 }
 static int32_t p_get(uint32_t id)
 {
@@ -370,6 +375,7 @@ static int32_t p_get(uint32_t id)
         case PG_INTRS: return (int32_t)tm_get(TG_INTRS);
         case PG_OUT: return (int32_t)tm_get(TG_OUT);
         case PG_SCNTEMPO: return (int32_t)tm_get(TG_SCNTEMPO);
+        case PG_SCNFX: return scn_fx_recall;
         case PG_COLOR: return p_color;
         }
         return i < PG_N_ ? pv_glob[i] : 0;
@@ -404,6 +410,7 @@ static void p_set(uint32_t id, int32_t v)
         case PG_INTRS: tempo_port(2, v); break;
         case PG_OUT: tempo_out((uint32_t)v); break;
         case PG_SCNTEMPO: tempo_scene_flag((uint32_t)v); break;
+        case PG_SCNFX: scn_fx_recall = (uint8_t)(v != 0); break;
         case PG_COLOR: color_apply((uint32_t)v); break;
         }
         return;

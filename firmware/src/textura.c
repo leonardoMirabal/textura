@@ -273,6 +273,7 @@ static int host_preset_check(char *msg, unsigned n)   /* 0 if what plays is the 
                                                  * recorded is its default; the tempo: with SCENE TEMPO on) */
         int32_t v;
         if (P_SCOPE(s->r[i].id) == P_GLOBAL && P_IDX(s->r[i].id) == PG_FINE && !tm.scn_tempo) continue;
+        if (!scn_ap_fx && scn_fx_id(s->r[i].id)) continue;   /* (SCENE FX KEEP: the effects as they were) */
         for (j = 0; j < now.nrec && now.r[j].id != s->r[i].id; j++) {}
         v = j < now.nrec ? now.r[j].v : scn_def_of(s->r[i].id);
         if (v != s->r[i].v) { snprintf(msg, n, "id 0x%03X: %d, not %d", s->r[i].id, v, s->r[i].v); return 1; }
@@ -280,6 +281,7 @@ static int host_preset_check(char *msg, unsigned n)   /* 0 if what plays is the 
     for (j = 0; j < now.nrec; j++) {            /* and nothing set that the scene has not (a card, a value off its
                                                  * default) */
         if (P_SCOPE(now.r[j].id) == P_GLOBAL && P_IDX(now.r[j].id) == PG_FINE) continue;
+        if (!scn_ap_fx && scn_fx_id(now.r[j].id)) continue;
         for (i = 0; i < s->nrec && s->r[i].id != now.r[j].id; i++) {}
         if (i == s->nrec) { snprintf(msg, n, "0x%03X set (%d), not in the scene", now.r[j].id, now.r[j].v); return 1; }
     }

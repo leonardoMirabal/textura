@@ -6,7 +6,9 @@
  * and of the lanes' filter, the grain delay and its SYNC, the reverb, the compressor, the drive, the eight LFOs, the
  * envelopes, the followers and the matrix the values away from their defaults (scn_def_*). A load sets every one of those to its default first,
  * then the scene's records over them, so a record of an older firmware loads into a newer one (an id it lacks gets
- * its default; ids never change, params.c). The tempo is set only with SCENE TEMPO on (tempo.c). A scene saved with
+ * its default; ids never change, params.c). The tempo is set only with SCENE TEMPO on (tempo.c), and the mix's
+ * effects (DRIVE, COMPRESSOR, GRAIN, REVERB) only with SCENE FX at RECALL (and by the boot's load): at KEEP, the
+ * default, a load leaves them as they are and their tails ring on (a save always keeps them). A scene saved with
  * a DRIVE on each lane (ids 32 .. 35 of a lane, retired) loads that onto the mix's one DRIVE: the lane with the most
  * AMOUNT gives its AMOUNT, TONE, MIX and TYPE (the first such lane on a tie; none above 0: the DRIVE stays off).
  *
@@ -100,7 +102,8 @@ static uint8_t scn_ap_stage;                    /* 0 idle, 1 the lanes set (wait
 static uint16_t scn_ap_i, scn_ap_d;            /* the next record; the next default (SCN_DEF_N: all sent) */
 static uint32_t scn_ap_t;
 static uint8_t scn_ap_idx = 0xFF;
-static uint8_t scn_ap_drv;                      /* an older scene's lane whose DRIVE becomes the mix's (0xFF: none) */
+static uint8_t scn_ap_drv;
+static uint8_t scn_ap_fx, scn_fx_boot;          /* this load sets the mix's effects (SCENE FX RECALL, the boot) */                      /* an older scene's lane whose DRIVE becomes the mix's (0xFF: none) */
 /* a save in progress */
 static uint8_t scn_sv_on, scn_sv_slot;
 static uint16_t scn_sv_step;                    /* sectors erased, then chunks written */
@@ -277,6 +280,7 @@ static void scn_apply(const scn_t *s, uint32_t idx)
 {
     uint32_t i, best = 0;
     scn_ap = s; scn_ap_idx = (uint8_t)idx;
+    scn_ap_fx = (uint8_t)(scn_fx_recall || scn_fx_boot);
     scn_ap_drv = 0xFF;                          /* (a lane DRIVE's records, retired: the most AMOUNT's go to the mix's) */
     for (i = 0; i < s->nrec; i++)
         if (P_SCOPE(s->r[i].id) < SC_N && P_IDX(s->r[i].id) == PL_ODRIVE0 + TX_DR_AMOUNT && s->r[i].v > (int32_t)best) {
@@ -286,6 +290,15 @@ static void scn_apply(const scn_t *s, uint32_t idx)
     scn_ap_stage = 1; scn_ap_t = fm1_ms; scn_ap_i = 0; scn_ap_d = 0;
 }
 static int scn_busy(void) { return scn_ap_stage != 0; }
+/* the mix's effects: the DRIVE, the COMPRESSOR, the GRAIN delay (and its SYNC), the REVERB, and a retired lane DRIVE's
+ * records. SCENE FX KEEP: a load leaves them as they are (their tails ring on); RECALL, or the boot's load: set */
+static int scn_fx_id(uint32_t id)
+{
+    uint32_t s = P_SCOPE(id), i = P_IDX(id);
+    if (s < SC_N) return i >= PL_ODRIVE0 && i < PL_ODRIVE0 + TX_DR_NP;
+    if (s != P_GLOBAL) return 0;
+    return i < PG_COMP0 + TX_CP_NP || (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP);
+}
 static void scn_apply_poll(void)
 {
     uint32_t k, n = 0;
@@ -299,11 +312,13 @@ static void scn_apply_poll(void)
     while (scn_ap_d < SCN_DEF_N && n < SCN_SLICE && ln.qw - ln.qr < LN_QN / 2u) {   /* the defaults the scene has no
                                                          * record of (theirs come next: no value set twice) */
         uint32_t id = scn_def_id(scn_ap_d++);
+        if (!scn_ap_fx && scn_fx_id(id)) continue;
         if (scn_rec_of(scn_ap, id) < 0) { p_set(id, scn_def_of(id)); n++; }
     }
     while (scn_ap_d >= SCN_DEF_N && scn_ap_i < scn_ap->nrec && n < SCN_SLICE && ln.qw - ln.qr < LN_QN / 2u) {
         const scn_rec_t *r = &scn_ap->r[scn_ap_i++];
         uint32_t rs = P_SCOPE(r->id), ri = P_IDX(r->id);
+        if (!scn_ap_fx && scn_fx_id(r->id)) continue;
         if (rs == P_GLOBAL && ri == PG_FINE) { if (tm.scn_tempo) tempo_set10((uint32_t)(r->v + 400)); }
         else if (rs < SC_N && ri >= PL_ODRIVE0 && ri < PL_ODRIVE0 + TX_DR_NP) {   /* (a lane's DRIVE, retired) */
             if (rs == scn_ap_drv) p_set(PID(P_GLOBAL, PG_DRIVE0 + ri - PL_ODRIVE0), r->v);
@@ -508,9 +523,9 @@ static void scn_pc(uint32_t p)                  /* MIDI program change (channel 
 }
 
 /* ---- the settings: one small record, saved SET_SAVE_MS after its last change (the platform's split save) */
-typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, scn_tempo, out_off; uint16_t bpm10, rsv2; } tx_set_t;
-                                                /* (scn_tempo, out_off, palette: once spare bytes, 0 = as before: off,
-                                                 * USB, RED) */
+typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, scn_tempo, out_off; uint16_t bpm10; uint8_t scn_fx, rsv2; } tx_set_t;
+                                                /* (scn_tempo, out_off, palette, scn_fx: once spare bytes, 0 = as before:
+                                                 * off, USB, RED, KEEP) */
 static tx_set_t set_saved, set_now;
 static uint8_t set_dirty, set_saving;
 static uint32_t set_t;
@@ -519,7 +534,7 @@ static void set_take(tx_set_t *s)
     memset(s, 0, sizeof *s);
     s->ver = SET_VER; s->scene = (uint8_t)(scn_cur == 0xFF ? 0u : scn_cur + 1u);
     s->clock = (uint8_t)tm.clock; s->in_usb = tm.in_usb; s->in_trs = tm.in_trs; s->bpm10 = (uint16_t)tempo_bpm10();
-    s->scn_tempo = tm.scn_tempo; s->out_off = (uint8_t)!tm.out_usb; s->palette = p_color;
+    s->scn_tempo = tm.scn_tempo; s->out_off = (uint8_t)!tm.out_usb; s->palette = p_color; s->scn_fx = scn_fx_recall;
 }
 static void set_poll(void)
 {
@@ -548,10 +563,12 @@ static void scn_init(void)
     scn_bank_load();
     if (!settings_load(&s, sizeof s) && s.ver == SET_VER) {
         tempo_mode(s.clock); tempo_port(1, s.in_usb); tempo_port(2, s.in_trs);
-        tempo_scene_flag(s.scn_tempo); tempo_out(!s.out_off); color_apply(s.palette);
+        tempo_scene_flag(s.scn_tempo); tempo_out(!s.out_off); color_apply(s.palette); scn_fx_recall = (uint8_t)(s.scn_fx != 0);
         if (s.bpm10 >= 400u && s.bpm10 <= 2400u) tempo_set10(s.bpm10);
         set_saved = s;
+        scn_fx_boot = 1;                        /* (the boot's load: its effects too, nothing plays to keep) */
         if (s.scene && s.scene <= SCN_N) (void)scn_load(s.scene - 1u);
+        scn_fx_boot = 0;
         scn_undo_ok = 0;                        /* (nothing played before it) */
         set_saved.scene = s.scene;
     } else set_take(&set_saved);
