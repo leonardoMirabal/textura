@@ -133,6 +133,7 @@ static uint32_t tx_palette_index(const char *name)
 #include "params.c"
 #include "tempo.c"
 #include "mod.c"
+#include "presets.c"
 #include "scenes.c"
 #include "ui.c"
 
@@ -370,6 +371,18 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "gsync")) snprintf(v, n, "%u", tm.gsync_smp);          /* the grain delay's echo, samples */
     else if (!strcmp(key, "scene")) { char t[20]; if (scn_cur == 0xFF) snprintf(v, n, "-"); else { scn_name_of(scn_cur, t); snprintf(v, n, "%s", t); } }
     else if (!strcmp(key, "loading")) snprintf(v, n, "%u", scn_busy());
+#ifndef DINGHY_WEB                                      /* (the web has no tests/host.c sound) */
+    else if (!strcmp(key, "clips") || !strcmp(key, "heard")) {   /* samples at full scale so far; something over -60 dBFS
+                                                         * in the last 3 s (tests/host.c's sound; presets.txt) */
+        uint32_t i, i0 = !strcmp(key, "clips") ? 0u : wav_n > 3u * FS ? wav_n - 3u * FS : 0u, cl = 0, pk = 0;
+        for (i = 2u * i0; i < 2u * wav_n; i++) {
+            uint32_t x = (uint32_t)(wav[i] < 0 ? -(int32_t)wav[i] : wav[i]);
+            if (x >= 32767u) cl++;
+            if (x > pk) pk = x;
+        }
+        snprintf(v, n, "%u", !strcmp(key, "clips") ? cl : pk > 33u);   /* (33: -60 dBFS) */
+    }
+#endif
     else if (!strcmp(key, "saving")) snprintf(v, n, "%u", scn_sv_on);
     else if (!strcmp(key, "savemode")) snprintf(v, n, "%u", scn_save_mode ? scn_save_slot + 1u : 0u);
     else if (sscanf(key, "used%u%c", &k, &c) == 1 && k >= 1u && k <= SCN_NU) snprintf(v, n, "%u", scn_meta[k - 1u].used);

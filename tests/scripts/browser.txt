@@ -94,7 +94,7 @@
 4640 expect state snd3 wind
 4640 expect state fam3 Wind
 4640 expect state run3 0
-# a scene keeps the lanes' families: saved to U01, F01 loaded, U01 again
+# a scene keeps the lanes' families: saved to U01, F001 loaded, U01 again
 4700 btn 9
 4800 btn 9
 5400 expect state saving 0
@@ -102,7 +102,7 @@
 6100 expect state loading 0
 6100 expect state snd0 rain_on_water
 6100 expect state fam0 Water
-6200 midi 0xC0 16 0
+6200 midi 0xC0 100 0
 6800 expect state loading 0
 6800 expect state snd0 bonfire
 6800 expect state fam0 Fire

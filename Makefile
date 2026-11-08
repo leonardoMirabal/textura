@@ -42,7 +42,8 @@
 #                      (tests/host.c): build/fw/textura-host OUT [SCRIPT [FPS]] -> OUT.wav, OUT-<ms>.ppm
 #   make fw-test       the firmware's checks: tests/lanes_test.c (the lanes = the player's chain, sample for sample)
 #                      and every host script in tests/scripts/ (its expects), and that firmware/src/landscapes.h is
-#                      still what audition/app.js gives (FAMILIES, QUICK); the FM-1's USB name and port choice
+#                      still what audition/app.js gives (FAMILIES, QUICK), presets.h what firmware/presets.txt
+#                      gives; the FM-1's USB name and port choice
 #                      (tests/ports_check.py: "Textura" first, never a "Frodhes" port beside it)
 #   make fw-c1map      the two cores' code per landscape (tests/c1prof.c, tools/c1map.py): what core 1 runs in its
 #                      jobs and core 0 meanwhile, calls and host time a block, each function's place in the FM-1
@@ -52,6 +53,8 @@
 #                      REL=X.Y.Z stamps a version); make fw-web-serve serves it at http://localhost:8001
 #   make fw-web-check  the web panel in headless Chromium at desktop and phone width (tests/web_check.py)
 #   make fw-landscapes write firmware/src/landscapes.h again from audition/app.js (after a change to FAMILIES / QUICK)
+#   make fw-presets    write firmware/src/presets.h and tests/scripts/presets.txt again from firmware/presets.txt
+#                      (the factory presets; tools/pr_level.py measures their lanes and sets the levels there)
 #   make fw-fonts      regenerate the fonts with Frodhes' generators at FW_FONT_REV, read from its git (Frodhes'
 #                      checkout is never changed), every glyph (no font diet): firmware/gen/felucca_font.h (Terminus
 #                      8x16, gfx.c), aa_font.h and aa_font_v24.h (Inter Tight, anti-aliased, aatext.c; Pillow from
@@ -76,7 +79,7 @@ HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
 PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-timing fw-c1map
-.PHONY: $(PHONY_FM1) fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-fonts tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
+.PHONY: $(PHONY_FM1) fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -156,6 +159,7 @@ $(FW)/lanes_test_pipe: tests/lanes_test.c firmware/src/lanes.c $(ENG_SRC) $(ENG_
 
 fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textura-host
 	@python3 -I tools/gen_landscapes.py --check || exit 1; \
+	python3 -I tools/gen_presets.py --check || exit 1; \
 	$(FW)/lanes_test || exit 1; \
 	$(FW)/lanes_test_par || exit 1; \
 	$(FW)/lanes_test_pipe || exit 1; \
@@ -196,6 +200,9 @@ fw-web-check: fw-web
 
 fw-landscapes:
 	python3 -I tools/gen_landscapes.py
+
+fw-presets:
+	python3 -I tools/gen_presets.py
 
 fw-fonts:
 	@rm -rf $(FW)/fonts && mkdir -p $(FW)/fonts

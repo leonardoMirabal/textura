@@ -19,10 +19,10 @@
 2100 btn 9
 2200 btn 9
 2800 expect state saving 0
-# KEEP: F03 loads, the effects stay (the reverb still a hall at MIX 100), what plays is F03's
+# KEEP: F003 loads, the effects stay (the reverb still a hall at MIX 100), what plays is F003's
 2900 midi 0xC0 2 0
 3500 expect state loading 0
-3500 expect state landscape Ice_&_glass
+3500 expect state scene F003_GARDEN_RAIN
 3500 expect state p410 2
 3500 expect state p411 100
 3500 expect state p433 4
@@ -37,17 +37,18 @@
 3740 turn 1 -5
 3750 midi 0xB4 91 0
 3760 expect state p410 0
-3800 midi 0xC0 16 0
+3800 midi 0xC0 100 0
 4400 expect state loading 0
 4400 expect state p410 0
 4400 expect state p411 0
-# RECALL (GLO, SELECT: TEMPO 2/2, K2): U01 again brings its hall back, MIX 100; F01 sets the defaults
+# RECALL (GLO, SELECT: TEMPO 2/2, K2): U01 again brings its hall back, MIX 100; F001 sets its own (a touch of
+# hall: MIX 16), the DRIVE at its defaults
 4500 btn 7
 4520 turn 0 1
 4540 expect state page TEMPO_2/2
 4560 turn 3 1
 4580 expect state p426 1
-4600 midi 0xC0 16 0
+4600 midi 0xC0 100 0
 5200 expect state loading 0
 5200 expect state p410 2
 5200 expect state p411 100
@@ -56,6 +57,8 @@
 5300 midi 0xC0 0 0
 5900 expect state loading 0
 5900 expect state p433 0
+5900 expect state p410 2
+5900 expect state p411 16
 5900 expect preset
 5900 expect sound
 # back to KEEP

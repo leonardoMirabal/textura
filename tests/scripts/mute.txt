@@ -55,7 +55,7 @@
 7450 expect state alive0 1
 10000 expect rms < -70
 10000 expect state alive0 1
-# a scene keeps the mutes: saved to U01, F01 loaded (none muted), U01 again
+# a scene keeps the mutes: saved to U01, F001 loaded (none muted), U01 again
 10100 btn 9
 10200 btn 9
 10800 expect state saving 0
@@ -63,7 +63,7 @@
 11500 expect state loading 0
 11500 expect state mute0 0
 11500 expect state mute1 0
-11600 midi 0xC0 16 0
+11600 midi 0xC0 100 0
 12200 expect state loading 0
 12200 expect state mute0 1
 12200 expect state mute2 1

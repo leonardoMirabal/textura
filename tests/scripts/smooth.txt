@@ -52,9 +52,9 @@
 5250 keys 0x4000000
 5300 keys 0
 6500 expect rms > -30
-# F03 (PC 2): every lane gets another sound: lane 1 switches at once, the other three wait their turn while their old
+# F062 JUNE NIGHT (PC 61): every lane gets another sound: lane 1 switches at once, the other three wait their turn while their old
 # sounds play on (the output used to fall to silence here); the scene's records wait for the last lane
-6600 midi 0xC0 2 0
+6600 midi 0xC0 61 0
 6620 expect state swaps 3
 6620 expect state ring0 1
 6620 expect state loading 1
@@ -86,13 +86,18 @@
 7550 expect drop < 12 50
 7600 expect drop < 12 50
 7650 expect drop < 12 50
-8300 expect state landscape Ice_&_glass
+8300 expect state landscape Insects
 8300 expect state lane3 source
 8300 expect preset
 8300 expect sound
 8300 expect state dropped 0
-# F06 (PC 5), the four lanes dense: U01; each lane on the wind sound four on (another PRESET): U02
-8400 midi 0xC0 5 0
+# the Wind landscape (ALGORITHM on LANDSCAPE: its start; the pans back to the middle), the four lanes dense: U01; each lane on the wind sound four on (another PRESET): U02
+8400 turn 1 -2
+8800 midi 0xB0 10 64
+8800 midi 0xB1 10 64
+8800 midi 0xB2 10 64
+8800 midi 0xB3 10 64
+9400 expect state landscape Wind
 9500 btn 0
 9520 btn 0
 9540 btn 0
@@ -147,13 +152,13 @@
 13560 btn 9
 14200 expect state scene U02_WIND
 # U01, then U02: four sounding lanes switch, each once, one after the other; no cut, no gap
-14300 midi 0xC0 16 0
+14300 midi 0xC0 100 0
 16400 expect state sel0 6
 16400 expect state sel1 5
 16400 expect state sel2 5
 16400 expect state sel3 5
 16500 expect rms > -20
-16500 midi 0xC0 17 0
+16500 midi 0xC0 101 0
 16550 expect drop < 10 50
 16600 expect drop < 10 50
 16600 expect rms > -25
@@ -198,7 +203,7 @@
 # lane 1 at 80 (CC 7), U02 again: the same sounds, so no lane switches; lane 1's level glides back to 100
 18700 midi 0xB0 7 80
 18800 expect state vol0 80
-18900 midi 0xC0 17 0
+18900 midi 0xC0 101 0
 18950 expect state glides 4
 18950 expect drop < 10 50
 19000 expect drop < 10 50
@@ -326,7 +331,7 @@
 23200 expect state sel3 12
 23200 btn 8
 # program changes every 400 ms, U01 / U02: each waits for the load before it (the last one asked wins), smooth
-23600 midi 0xC0 16 0
+23600 midi 0xC0 100 0
 23700 expect drop < 12 50
 23700 expect rms > -25
 23750 expect drop < 12 50
@@ -336,7 +341,7 @@
 23900 expect drop < 12 50
 23900 expect rms > -25
 23950 expect drop < 12 50
-24000 midi 0xC0 17 0
+24000 midi 0xC0 101 0
 24000 expect drop < 12 50
 24000 expect rms > -25
 24050 expect drop < 12 50
@@ -349,7 +354,7 @@
 24300 expect drop < 12 50
 24300 expect rms > -25
 24350 expect drop < 12 50
-24400 midi 0xC0 16 0
+24400 midi 0xC0 100 0
 24400 expect drop < 12 50
 24400 expect rms > -25
 24450 expect drop < 12 50
@@ -362,7 +367,7 @@
 24700 expect drop < 12 50
 24700 expect rms > -25
 24750 expect drop < 12 50
-24800 midi 0xC0 17 0
+24800 midi 0xC0 101 0
 24800 expect drop < 12 50
 24800 expect rms > -25
 24850 expect drop < 12 50
@@ -375,7 +380,7 @@
 25100 expect drop < 12 50
 25100 expect rms > -25
 25150 expect drop < 12 50
-25200 midi 0xC0 16 0
+25200 midi 0xC0 100 0
 25200 expect drop < 12 50
 25200 expect rms > -25
 25250 expect drop < 12 50
@@ -388,7 +393,7 @@
 25500 expect drop < 12 50
 25500 expect rms > -25
 25550 expect drop < 12 50
-25600 midi 0xC0 17 0
+25600 midi 0xC0 101 0
 25600 expect drop < 12 50
 25600 expect rms > -25
 25650 expect drop < 12 50
