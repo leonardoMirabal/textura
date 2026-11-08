@@ -234,7 +234,7 @@ int main(void)
                 break;
             case 'L':
                 ln_level((uint32_t)t->k, (uint32_t)t->v);
-                rm.e[t->k]->param(rm.st[t->k], TX_PID_LEVEL, (uint8_t)t->v);
+                tx_mix_level(&rm, (unsigned)t->k, (unsigned)t->v);   /* (the slot's output: txw_param -2) */
                 break;
             case 'N':
                 ln_pan((uint32_t)t->k, (uint32_t)t->a);

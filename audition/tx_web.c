@@ -166,7 +166,9 @@ EMSCRIPTEN_KEEPALIVE void txw_host_param(int id, int v)
 EMSCRIPTEN_KEEPALIVE void txw_param(int id, int v)
 {
     if (!cur) return;
-    cur->param(arena, (uint8_t)(id == -1 ? TX_PID_PARTICLES : id == -2 ? TX_PID_LEVEL : id), (uint8_t)v);
+    if (id == -2) { tx_mix_level(&mixer, (unsigned)ed, (unsigned)(v < 0 ? 0 : v)); return; }   /* (the layer's output,
+                                                              * as the firmware's lanes: at once, any engine) */
+    cur->param(arena, (uint8_t)(id == -1 ? TX_PID_PARTICLES : id), (uint8_t)v);
     if (id == -1) { gov_init(); gov.cur[ed] = 0; tx_gov_user(&gov, (unsigned)ed, (unsigned)v); }
 }
 

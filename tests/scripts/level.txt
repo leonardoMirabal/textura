@@ -1,0 +1,47 @@
+# a lane's LEVEL (CC 7, MIXER VOLUME) is its output's gain (tx_mix_level), ramped over one block: it acts at once on
+# every engine, never waiting for the engine's voices to renew (a water or bird engine's used to: BROOK at LEVEL 0
+# sounded on ~16 s)
+1700 btn 13
+1800 expect state run0 1
+# lanes 2 and 3 at LEVEL 0 (CC 7 on channels 2, 3), the reverb's MIX 0 (CC 91 on channel 5: no tail to wait for)
+1800 midi 0xB1 7 0
+1800 midi 0xB2 7 0
+1800 midi 0xB4 91 0
+# lane 1: BROOK (SEQ, ALGORITHM 5, EDIT), dense (E4: 32 of it, G5: busy)
+1900 btn 11
+1910 turn 1 5
+1920 btn 6
+1930 expect state snd0 brook
+2000 keys 0x800
+2050 keys 0
+2100 keys 0x4000000
+2150 keys 0
+3500 expect rms > -40
+# LEVEL 0: silent within 10 ms (the last 50 ms all but silent 60 ms after); back at 100: sounding at once
+3500 midi 0xB0 7 0
+3560 expect rms < -90
+4000 expect rms < -90
+4000 midi 0xB0 7 100
+4060 expect rms > -40
+# lane 1: a blackbird (SEQ, HOME: the families, ALGORITHM 8: Songbirds, EDIT, ALGORITHM 1, EDIT), dense
+4200 btn 11
+4210 btn 8
+4220 turn 1 8
+4230 btn 6
+4240 turn 1 1
+4250 btn 6
+4260 expect state snd0 blackbird
+4300 keys 0x800
+4350 keys 0
+4400 keys 0x4000000
+4450 keys 0
+6000 expect rms > -40
+6000 midi 0xB0 7 0
+6060 expect rms < -90
+7000 expect rms < -90
+7700 midi 0xB0 7 100
+7800 expect rms > -40
+# MIXER VOLUME 64: the lane's LEVEL as set (64^2 / 100^2 of unity: -7.8 dB)
+7900 midi 0xB0 7 64
+7960 expect state vol0 64
+8000 end

@@ -7,7 +7,9 @@ void tx_mix_init(tx_mix_t *m)
 {
     unsigned k;
     tx_zero(m, sizeof *m);
-    for (k = 0; k < TX_MIX_SLOTS; k++) { tx_mix_pan(m, k, 64); m->tg[k] = 4096; m->gc[k] = m->gt[k] = 32768; }
+    for (k = 0; k < TX_MIX_SLOTS; k++) {
+        tx_mix_pan(m, k, 64); m->tg[k] = 4096; m->gc[k] = m->gt[k] = 32768; m->lc[k] = m->lv[k] = 32768;
+    }
     tx_comp_init(&m->comp);
     tx_limit_init(&m->lim);
     m->lim.ch = 2;                                           /* (interleaved: tx_mix_end) */
@@ -35,6 +37,11 @@ void tx_mix_trim(tx_mix_t *m, unsigned k, unsigned q12)
     if (k < TX_MIX_SLOTS) m->tg[k] = (int32_t)(q12 > 65535u ? 65535u : q12);
 }
 
+void tx_mix_level(tx_mix_t *m, unsigned k, unsigned v)
+{
+    if (k < TX_MIX_SLOTS) m->lv[k] = tx_level_q15(v > 127u ? 127u : v);
+}
+
 void tx_mix_gate(tx_mix_t *m, unsigned k, int open)
 {
     if (k < TX_MIX_SLOTS) m->gt[k] = open ? 32768 : 0;
@@ -46,19 +53,25 @@ TX_AUDIO_CODE void tx_mix_begin(tx_mix_t *m, unsigned n)
     for (j = 0; j < n; j++) m->L[j] = m->R[j] = 0;
 }
 
-/* tx_mix_add with the slot's gate shut or ramping (a muted lane): the peak is taken before the gate (the governor
- * still sees the engine's level), the gate steps 32768 / TX_MIX_GATE_N a sample toward its target, and a shut gate
- * adds nothing */
+/* tx_mix_add with the slot's gate shut or ramping (a muted lane), or its level not unity or ramping: the level (from
+ * lc to lv over the block) after the trim; the peak is taken after them, before the gate (the governor still sees the
+ * lane's level), the gate steps 32768 / TX_MIX_GATE_N a sample toward its target, and a shut gate adds nothing */
 static TX_AUDIO_CODE void tx_mix_add_gated(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n)
 {
     const int32_t st = (int32_t)(32768u / TX_MIX_GATE_N);
     unsigned j;
     int32_t gl = m->gl[k], gr = m->gr[k], pk = m->slot_peak[k], tg = m->tg[k], g = m->gc[k], gt = m->gt[k];
+    int32_t lc = m->lc[k], lv = m->lv[k], ld = n ? (lv - lc) / (int32_t)n : 0;   /* (|lv - lc| < 2^16) */
     for (j = 0; j < n; j++) {
-        int32_t v = x[j], a, hi;
+        int32_t v = x[j], a, hi, l;
         uint32_t lo;
         v = v > (1 << 26) ? (1 << 26) : v < -(1 << 26) ? -(1 << 26) : v;   /* (|v| <= 8 full scale: 32-bit products) */
         if (tg != 4096) v = (v >> 12) * tg + (int32_t)((((uint32_t)v & 4095u) * (uint32_t)tg) >> 12);
+        l = j + 1u == n ? lv : lc + ld * (int32_t)(j + 1u);   /* (the block's last sample: lv exactly) */
+        if (l != 32768) {                                    /* (|v| <= 8 x 1.62 full scale after: 32-bit products) */
+            v = v > (1 << 26) ? (1 << 26) : v < -(1 << 26) ? -(1 << 26) : v;
+            v = (v >> 15) * l + (int32_t)((((uint32_t)v & 32767u) * (uint32_t)l) >> 15);
+        }
         a = v < 0 ? -v : v;
         if (a > pk) pk = a;
         if (g != gt) g += g < gt ? st : -st;
@@ -70,6 +83,7 @@ static TX_AUDIO_CODE void tx_mix_add_gated(tx_mix_t *m, unsigned k, const int32_
         m->R[j] += hi * gr + (int32_t)((lo * (uint32_t)gr) >> 14);
     }
     m->slot_peak[k] = pk; m->gc[k] = g;
+    if (n) m->lc[k] = lv;
 }
 
 TX_AUDIO_CODE void tx_mix_add(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n)
@@ -79,7 +93,8 @@ TX_AUDIO_CODE void tx_mix_add(tx_mix_t *m, unsigned k, const int32_t *x, unsigne
     if (k >= TX_MIX_SLOTS) return;
     gl = m->gl[k]; gr = m->gr[k]; pk = m->slot_peak[k]; tg = m->tg[k];
     gc = m->gc[k]; gt = m->gt[k];
-    if (gc != 32768 || gt != 32768) {                        /* the gate shut or moving: the slot's own loop */
+    if (gc != 32768 || gt != 32768 || m->lc[k] != 32768 || m->lv[k] != 32768) {   /* the gate shut or moving, the
+                                                              * level not unity: the slot's own loop */
         tx_mix_add_gated(m, k, x, n);
         return;
     }

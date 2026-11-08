@@ -33,6 +33,8 @@ typedef struct {
     int32_t tg[TX_MIX_SLOTS];            /* the slot's trim before its pan, Q12 (4096 = 1.0: none; up to +24 dB) */
     int32_t gc[TX_MIX_SLOTS], gt[TX_MIX_SLOTS];   /* the slot's gate (a lane's mute), Q15: now and where it ramps to
                                                    * (32768 open, 0 shut), TX_MIX_GATE_N samples end to end */
+    int32_t lc[TX_MIX_SLOTS], lv[TX_MIX_SLOTS];   /* the slot's level (a lane's LEVEL, tx_level_q15: 32768 = 100),
+                                                   * now and wanted: the next block ramps to it, sample by sample */
     int32_t slot_peak[TX_MIX_SLOTS];     /* each slot's peak since the caller last cleared it */
     tx_chamber_t *ch;                    /* optional (the caller's, ~22 KB), used while ch_on */
     int ch_on;
@@ -62,6 +64,9 @@ void tx_mix_init(tx_mix_t *m);
 void tx_mix_set(tx_mix_t *m, unsigned k, const tx_engine_t *e, void *st, uint32_t seed);
 void tx_mix_pan(tx_mix_t *m, unsigned k, unsigned pan);   /* 0 left .. 64 centre .. 127 right */
 void tx_mix_trim(tx_mix_t *m, unsigned k, unsigned q12);  /* the slot's level trim, Q12 (a landscape sound's own level) */
+/* the slot's level, 0..127 (100: unity; tx_level_q15's square law): on its output, whatever the engine (no voice
+ * waits to renew), ramped over the next block so it never clicks */
+void tx_mix_level(tx_mix_t *m, unsigned k, unsigned v);
 /* the slot's gate: shut (a muted lane: the engine runs on, its output ramps to silence, the slot's peak is still the
  * engine's) or open again; either way a TX_MIX_GATE_N ramp */
 void tx_mix_gate(tx_mix_t *m, unsigned k, int open);

@@ -288,7 +288,7 @@ static void ln_hurry(void) { ln.hurry = 1; }
 static const tx_engine_t *ln_engine(uint32_t k) { return k < LN_N ? ln.mix.e[k] : 0; }
 static int ln_key(uint32_t k, uint32_t note, uint32_t vel, uint32_t on) { return ln_q(LN_EV_KEY, k, note, vel, on != 0); }
 static int ln_param(uint32_t k, uint32_t id, uint32_t v) { return ln_q(LN_EV_PARAM, k, id, v, 0); }   /* id: the engine's, or TX_PID_* */
-static int ln_level(uint32_t k, uint32_t v) { return ln_param(k, TX_PID_LEVEL, v); }
+static int ln_level(uint32_t k, uint32_t v) { return ln_param(k, TX_PID_LEVEL, v); }   /* the lane's output (tx_mix_level) */
 static int ln_pan(uint32_t k, uint32_t v) { return ln_q(LN_EV_PAN, k, v, 0, 0); }
 static int ln_trim(uint32_t k, uint32_t q12) { return ln_q(LN_EV_TRIM, k, q12 & 255u, q12 >> 8, 0); }   /* the sound's level */
 static int ln_gate(uint32_t k, uint32_t open) { return ln_q(LN_EV_GATE, k, open != 0, 0, 0); }   /* a mute: the output only */
@@ -346,6 +346,9 @@ static void ln_event(const ln_ev_t *v)
 #endif
         break;
     case LN_EV_PARAM:
+        if (k < LN_N && v->a == TX_PID_LEVEL) { tx_mix_level(&ln.mix, k, v->b); break; }   /* (the lane's LEVEL: its
+                                                 * output, at once on any engine and its ring; the engine stays at
+                                                 * unity, its own voices' levels as they are) */
         if (k < LN_N && ln.mix.e[k]) ln.mix.e[k]->param(ln.mix.st[k], v->a, v->b);
         if (k < LN_N && v->a == TX_PID_PARTICLES) { ln.gov.cur[k] = 0; tx_gov_user(&ln.gov, k, v->b); }
         break;

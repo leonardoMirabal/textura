@@ -166,9 +166,9 @@ static void sc_sync(uint32_t k)
         if (sc.a_gen[k]) { ln_gen_on(k, 0, 0); sc.a_gen[k] = 0; }
         if (ln_select(k, sc.eng[k], tx_seed()) < 0) return;   /* (a full queue: next pass) */
         sc.a_eng[k] = sc.eng[k]; sc.reswap[k] = 0; sc.nsel[k]++; sc.sel_t[k] = fm1_ms;
-        sc.a_preset[k] = sc.a_type[k] = sc.a_count[k] = sc.a_level[k] = sc.a_act[k] = -1;
-        sc_glide(k);                            /* (the fresh engine's own settings at once; the lane's trim, pan:
-                                                 * the ring under it hears them too, so they glide) */
+        sc.a_preset[k] = sc.a_type[k] = sc.a_count[k] = sc.a_act[k] = -1;
+        sc_glide(k);                            /* (the fresh engine's own settings at once; the lane's level, trim,
+                                                 * pan: its output's, the ring under it hears them too, so they glide) */
         for (i = 0; i < 3u; i++) {              /* the classic engine's QUICK parameters */
             sc.q_id[k][i] = (int8_t)(sc.q[k] && i < sc.q[k]->np ? tx_param_find(sc.eng[k], sc.q[k]->p[i].name) : -1);
             sc.q_cur[k][i] = -(1 << 30);
