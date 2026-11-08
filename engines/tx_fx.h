@@ -4,7 +4,8 @@
  *   per lane, a mono insert on the lane's own signal before it is panned (the lanes are mono): FILTER (its cost is
  *     the lane's: the governor's pool). Off (FILTER TYPE OFF) = the lane untouched.
  *   on the stereo mix: the DRIVE first (tx_fx_drive_mix: one DRIVE, a pair of instances for L and R with the same
- *   settings; tx_mix_t.pre, before the mix's compressor; AMOUNT 0 = the mix untouched), then (tx_core_mix.c) the
+ *   settings; tx_mix_t.pre, before the mix's compressor; AMOUNT 0 = the mix untouched), the FILTER after it (a band:
+ *   LOW CUT, HIGH CUT; both at their ends = the mix untouched), then (tx_core_mix.c) the
  *   compressor and the CHAMBER, then, before the limiter, in series, the GRAIN DELAY (a delay whose repeats are
  *   grained) and the REVERB (a mono send of the mid, a stereo return), each with a dry / wet MIX (below): the reverb
  *   takes what the delay gives (GRAIN MIX 127 + REVERB MIX 127: the grains' reverb alone):
@@ -92,6 +93,24 @@ void tx_fx_drive_share(tx_fx_drive_t *d, tx_drv_shared_t *sh);
 void tx_fx_drive_pair(tx_fx_drive_t *second, const tx_fx_drive_t *first);   /* one DRIVE on a stereo pair: second
                                                  * takes TSH8 with first (both run with the same settings, first first) */
 uint32_t tx_fx_drive_us(const tx_fx_drive_t *d);  /* its FM-1 cost now, us a block (0: off) */
+
+/* ---- FILTER (the mix's, right after the DRIVE; tx_fx_mfilter.c): a high-pass then a low-pass on the pair, LOW CUT and
+ * HIGH CUT the edges of a band; both at their ends (the defaults) = the mix untouched */
+enum { TX_MF_LOW, TX_MF_HIGH, TX_MF_RESO, TX_MF_SLOPE, TX_MF_NP };   /* (append only) */
+extern const tx_param_t tx_fx_mfilter_params[TX_MF_NP];
+#define TX_FX_US_MF_STAGE 140u     /* an edge's stage on the pair, FM-1 us a block (make tx-budget section 4) */
+typedef struct {
+    uint8_t p[TX_MF_NP];
+    int32_t pos[2];                /* the edges' places, gliding (0 .. 65535: 30 Hz .. 16 kHz): LOW CUT, HIGH CUT */
+    int32_t w[2];                  /* each edge's share (Q15: 0 off .. 32768 on; 46 ms fades) */
+    int32_t w2;                    /* the 24 dB stages' share */
+    int32_t s[2][2][2];            /* the stages' integrators: [edge][side][s1, s2] */
+    int32_t s2[2][2][2];           /* the 24 dB stages' */
+} tx_fx_mfilter_t;
+void tx_fx_mfilter_init(tx_fx_mfilter_t *f);
+void tx_fx_mfilter_param(tx_fx_mfilter_t *f, unsigned id, unsigned v);
+void tx_fx_mfilter_process(tx_fx_mfilter_t *f, int32_t *L, int32_t *R, unsigned n);   /* Q23, in place (in XIP) */
+uint32_t tx_fx_mfilter_us(const tx_fx_mfilter_t *f);   /* its FM-1 cost now, us a block (0: off) */
 
 /* ---- GRAIN DELAY (on the mix, before the reverb; tx_fx_grain.c): a delay whose repeats are grained */
 enum { TX_GD_MIX, TX_GD_TIME, TX_GD_FEEDBACK, TX_GD_GRAINS, TX_GD_SIZE, TX_GD_SPRAY, TX_GD_PITCH, TX_GD_REVERSE,
@@ -227,6 +246,7 @@ typedef struct {
                                     * pair's TYPEs stay on one core, the classic drive needs none) */
     int32_t *dr_x;                 /* (tx_fx_drive_mix: the side the other core drives this block) */
     unsigned dr_n;
+    tx_fx_mfilter_t mf;            /* the mix's FILTER, after the DRIVE (tx_fx_drive_set: TX_FX_MF_ID + TX_MF_*) */
     tx_fx_filter_t filter[TX_FX_LANES];
     tx_fx_grain_t gd;
     tx_fx_reverb_t rev;
@@ -241,10 +261,13 @@ void tx_fx_init(tx_fx_t *fx);
 TX_AUDIO_CODE void tx_fx_lane(void *fx, unsigned k, int32_t *x, unsigned n);          /* tx_mix_t.ins */
 /* or on the core (0, 1) that renders the lane (the lanes on two cores): the same samples */
 TX_AUDIO_CODE void tx_fx_lane_run(void *fx, unsigned k, int32_t *x, unsigned n, unsigned core);
-void tx_fx_drive_set(tx_fx_t *fx, unsigned id, unsigned v);   /* the mix's DRIVE: TX_DR_* on both sides */
-TX_AUDIO_CODE void tx_fx_drive_mix(void *fx, int32_t *L, int32_t *R, unsigned n);    /* tx_mix_t.pre: L, R in place
-                                                 * (with rev.par set: R on the other core, L here; the same samples) */
-uint32_t tx_fx_drive_mix_us(const tx_fx_t *fx);   /* the mix's DRIVE now, FM-1 us a block (0: off) */
+/* the mix's first stage, DRIVE then FILTER: TX_DR_* the DRIVE on both sides, TX_FX_MF_ID + TX_MF_* the FILTER */
+#define TX_FX_MF_ID 16u
+void tx_fx_drive_set(tx_fx_t *fx, unsigned id, unsigned v);
+TX_AUDIO_CODE void tx_fx_drive_mix(void *fx, int32_t *L, int32_t *R, unsigned n);    /* tx_mix_t.pre: L, R in place, the
+                                                 * DRIVE then the FILTER (with rev.par set: the DRIVE's R on the other
+                                                 * core, L here; the same samples) */
+uint32_t tx_fx_drive_mix_us(const tx_fx_t *fx);   /* the mix's DRIVE and FILTER now, FM-1 us a block (0: off) */
 TX_AUDIO_CODE void tx_fx_bus(void *fx, int32_t *L, int32_t *R, unsigned n);           /* tx_mix_t.bus */
 /* or split (the grains ahead, on another core, while the lanes render): begin (the cap, then 1: the grain voices may
  * run now: tx_fx_grain_voices(&fx->gd, n)), then the lanes and the mix, then end (as tx_mix_t.bus): the same samples */

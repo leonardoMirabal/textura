@@ -1,0 +1,101 @@
+# the mix's FILTER (FX twice: DRIVE, then FILTER): a band, LOW CUT (a high-pass) and HIGH CUT (a low-pass), OFF at their
+# ends (the defaults: the chain untouched, mfon 0); RESONANCE; SLOPE 12 / 24 dB (also ALGORITHM); CC 75 74 71 70 on
+# channel 5; crossed edges still sound (a narrow band); LFO 1 > FLT HIGH CUT on the matrix; back at the ends the filter
+# stops (mfon 0); a scene stores it; SCENE FX KEEP leaves it, RECALL sets it
+1700 btn 13
+1800 expect state run0 1
+1900 btn 2
+1920 btn 2
+1940 expect state page FILTER
+1940 expect state lab0 LOW_CUT
+1940 expect state lab1 HIGH_CUT
+1940 expect state lab2 RESONANCE
+1940 expect state lab3 SLOPE
+1940 expect state card0 OFF
+1940 expect state card1 OFF
+1940 expect state card3 12_dB
+1940 expect state mfon 0
+1940 expect sound
+# K1: LOW CUT 40 (~216 Hz); K2: HIGH CUT 77 (~1.3 kHz): both edges run
+2000 turn 2 40
+2020 expect state p434 40
+2020 expect state card0 216_Hz
+2100 turn 3 -50
+2120 expect state p435 77
+2120 expect state card1 1.3_kHz
+2200 expect state mfon 3
+2200 expect sound
+2200 expect rms > -70
+2250 shot
+# ALGORITHM: SLOPE 24 dB; CC 71: RESONANCE; CC 70: SLOPE back to 12 dB
+2300 turn 1 1
+2320 expect state p437 1
+2320 expect state msg FILTER_24_dB
+2320 expect state card3 24_dB
+2400 midi 0xB4 71 64
+2420 expect state p436 64
+2500 midi 0xB4 70 0
+2520 expect state p437 0
+# crossed (CC 75: LOW CUT 127, CC 74: HIGH CUT 0): a narrow band at the middle, it still sounds
+2600 midi 0xB4 75 127
+2610 midi 0xB4 74 0
+2620 expect state p434 127
+2620 expect state p435 0
+3200 expect rms > -80
+3200 expect sound
+# the matrix (ARP): LFO 1 > FLT HIGH CUT (the last TARGET), depth +30 %; the chain is held by the route; the route gone:
+# HIGH CUT back to its base
+3300 midi 0xB4 75 30
+3310 midi 0xB4 74 90
+3400 btn 10
+3420 turn 2 1
+3440 turn 3 200
+3460 expect state card1 FLT_HIGH_CUT
+3480 turn 4 30
+3600 expect state routes 1
+3600 expect sound
+3700 turn 3 -1
+3720 expect state card1 FLT_LOW_CUT
+3740 turn 3 -200
+3800 expect state routes 0
+3800 expect state p435 90
+3800 expect sound
+# saved to U01 with LOW CUT 30, HIGH CUT 90
+3900 btn 9
+4000 btn 9
+4600 expect state saving 0
+# both edges at their ends: after the fade the filter stops, the chain untouched
+4700 midi 0xB4 75 0
+4710 midi 0xB4 74 127
+5000 expect state mfon 0
+5000 expect sound
+# KEEP (the default): U01 loads, the filter stays off
+5100 midi 0xC0 100 0
+5700 expect state loading 0
+5700 expect state p434 0
+5700 expect state p435 127
+5700 expect preset
+# RECALL (GLO, SELECT: TEMPO 2/2, K2): U01 brings its band back; F001 the defaults (off)
+5800 btn 7
+5820 turn 0 1
+5840 expect state page TEMPO_2/2
+5860 turn 3 1
+5880 expect state p426 1
+5900 midi 0xC0 100 0
+6500 expect state loading 0
+6500 expect state p434 30
+6500 expect state p435 90
+6500 expect preset
+6600 expect state mfon 3
+6700 midi 0xC0 0 0
+7300 expect state loading 0
+7300 expect state p434 0
+7300 expect state p435 127
+7300 expect preset
+7600 expect state mfon 0
+7600 expect sound
+# back to KEEP
+7700 turn 3 -1
+7720 expect state p426 0
+7800 expect state dropped 0
+7900 end

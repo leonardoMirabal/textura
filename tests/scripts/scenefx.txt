@@ -7,6 +7,7 @@
 1910 btn 2
 1920 btn 2
 1930 btn 2
+1935 btn 2
 1940 expect state page REVERB_1/3
 1950 turn 1 2
 1970 midi 0xB4 91 100
@@ -34,6 +35,7 @@
 3710 btn 2
 3720 btn 2
 3730 btn 2
+3735 btn 2
 3740 turn 1 -5
 3750 midi 0xB4 91 0
 3760 expect state p410 0

@@ -20,6 +20,8 @@
  *           44        DISPLAY: COLOR (the screen's palette: COLOR_NAME; in the settings)
  *           48 .. 51  DRIVE: AMOUNT TONE MIX TYPE (tx_fx_drive_params order): the mix's, its first effect (before the
  *                     COMPRESSOR)
+ *           52 .. 55  FILTER: LOW CUT HIGH CUT RESONANCE SLOPE (tx_fx_mfilter_params order): the mix's, right after the
+ *                     DRIVE (a band: a high-pass, then a low-pass; both at their ends: off)
  *   5       LFO n (0..7): n x 16 + SHAPE RATE SYNC MODE PHASE WIDTH JITTER FADE RESTART LEVEL (tx_lfo_params order),
  *           10 NOW 11 ROUTES (read only)
  *   6       ENV n (0..1): n x 16 + TRIGGER ATTACK DECAY RELEASE SUSTAIN CURVE VARY LOOP (tx_env_params order);
@@ -65,13 +67,13 @@ static void p_cat(char *d, const char *s, uint32_t max) { uint32_t n = 0; while 
 #define NOID_P 0xFFFFu
 enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_ODRIVE0 = 32, PL_FILTER0 = 36, PL_NUM = 42 };
 enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP0 = 26, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN, PG_TAP,
-       PG_SCNTEMPO, PG_SCNFX, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR, PG_DRIVE0 = 48, PG_N_ = 52 };   /* (PL_ODRIVE0:
-                                                 * the retired lane DRIVE's ids; pv_glob: the effects' values, 0 .. 51) */
+       PG_SCNTEMPO, PG_SCNFX, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR, PG_DRIVE0 = 48, PG_MF0 = 52, PG_N_ = 56 };   /* (PL_ODRIVE0:
+                                                 * the retired lane DRIVE's ids; pv_glob: the effects' values, 0 .. 55) */
 #define P_CH_GLOBAL 4u                          /* MIDI channel 5 (0-based 4) */
 
 /* how a value reads */
 enum { F_NUM, F_ENUM, F_ONOFF, F_SOUND, F_COUNT, F_ACTIVE, F_PAN, F_HZ_FL, F_HZ_LFO, F_MS_GD, F_MS_GS, F_MS_PD, F_SEMI,
-       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_THR, F_R10, F_GAIN, F_MIX };
+       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_THR, F_R10, F_GAIN, F_MIX, F_HZ_LO, F_HZ_HI };
 static const char *const N_DRIVE[] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
 static const char *const N_FILTER[] = {"OFF", "LP12", "LP18", "HP12", "HP18", "BP", "NOTCH"};
 static const char *const N_SHAPE[] = {"SINE", "TRI", "SAW UP", "SAW DN", "SQUARE", "RANDOM"};
@@ -80,6 +82,7 @@ static const char *const N_SHIFT[] = {"+OCT", "+5TH", "+OCT+5", "-OCT"};
 static const char *const N_CLOCK[] = {"INT", "MASTER", "FOLLOW", "AUTO"};
 static const char *const N_SCNFX[] = {"KEEP", "RECALL"};   /* SCENE FX: a load keeps the mix's effects, or recalls them */
 static const char *const N_CLKOUT[] = {"OFF", "USB"};   /* (TRS: the FM-1's jack is an input only) */
+static const char *const N_SLOPE[] = {"12 dB", "24 dB"};   /* the mix's FILTER: its edges' steepness */
 static const char *const N_RATIO[] = {"1.5:1", "2:1", "3:1", "4:1", "6:1", "8:1", "10:1", "20:1"};   /* (Frodhes') */
 
 /* ---- COLOR (DISPLAY K1): the screen's palette, Frodhes' (its ui.c, COLOR_ACC) with RED first: step 0 RED and 1 AMBER
@@ -283,6 +286,7 @@ static const tx_param_t *p_fx_desc(uint32_t id)   /* an effect's descriptor (0: 
         if (i >= PG_REVERB0 && i < PG_REVERB0 + TX_RV_NP) return &tx_fx_reverb_params[i - PG_REVERB0];
         if (i >= PG_COMP0 && i < PG_COMP0 + TX_CP_NP) return &tx_comp_params[i - PG_COMP0];
         if (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP) return &tx_fx_drive_params[i - PG_DRIVE0];
+        if (i >= PG_MF0 && i < PG_MF0 + TX_MF_NP) return &tx_fx_mfilter_params[i - PG_MF0];
     }
     return 0;
 }
@@ -349,6 +353,9 @@ static uint32_t p_fmt(uint32_t id)
         if (i == PG_COMP0 + TX_CP_RATIO) return F_ENUM;
         if (i == PG_COMP0 + TX_CP_MKUP) return F_GAIN;
         if (i == PG_DRIVE0 + TX_DR_TYPE) return F_ENUM;
+        if (i == PG_MF0 + TX_MF_LOW) return F_HZ_LO;
+        if (i == PG_MF0 + TX_MF_HIGH) return F_HZ_HI;
+        if (i == PG_MF0 + TX_MF_SLOPE) return F_ENUM;
         if (i == PG_GRAIN0 + TX_GD_MIX || i == PG_REVERB0 + TX_RV_MIX || i == PG_DRIVE0 + TX_DR_MIX) return F_MIX;
     }
     return F_NUM;
@@ -359,6 +366,7 @@ static const char *const *p_names(uint32_t id)
     if (P_SCOPE(id) < P_LANES) return i == PL_FILTER0 + TX_FL_TYPE ? N_FILTER : N_SHAPE;
     if (i == PG_COMP0 + TX_CP_RATIO) return N_RATIO;
     if (i == PG_DRIVE0 + TX_DR_TYPE) return N_DRIVE;
+    if (i == PG_MF0 + TX_MF_SLOPE) return N_SLOPE;
     return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : i == PG_CLOCK ? N_CLOCK : i == PG_OUT ? N_CLKOUT : i == PG_SCNFX ? N_SCNFX : i == PG_COLOR ? COLOR_NAME : N_SHIFT;
 }
 static int32_t p_get(uint32_t id)
@@ -419,7 +427,9 @@ static void p_set(uint32_t id, int32_t v)
     if (s == P_GLOBAL) {
         pv_glob[i] = (uint8_t)v;
         if (mod_holds(id)) return;              /* (modulated: the base only) */
-        if (i >= PG_DRIVE0) ln_fx(LN_FX_DRIVE, 0, i - PG_DRIVE0, (uint32_t)v);
+        if (i >= PG_MF0) ln_fx(LN_FX_DRIVE, 0, TX_FX_MF_ID + i - PG_MF0, (uint32_t)v);   /* (the mix's first stage:
+                                                 * the DRIVE, then the FILTER) */
+        else if (i >= PG_DRIVE0) ln_fx(LN_FX_DRIVE, 0, i - PG_DRIVE0, (uint32_t)v);
         else if (i >= PG_COMP0) ln_fx(LN_FX_COMP, 0, i - PG_COMP0, (uint32_t)v);
         else if (i < PG_REVERB0) ln_fx(LN_FX_GRAIN, 0, i - PG_GRAIN0, (uint32_t)v);
         else ln_fx(LN_FX_REVERB, 0, i - PG_REVERB0, (uint32_t)v);
@@ -453,6 +463,9 @@ static const char *p_text(uint32_t id, char *t)
     case F_PAN:
         if (v == 64) { p_strcpy(t, "C", 2); return 0; }
         t[0] = v < 64 ? 'L' : 'R'; p_fmt_int(t + 1, v < 64 ? 64 - v : v - 64); return 0;
+    case F_HZ_LO: if (!v) { p_strcpy(t, "OFF", 4); return 0; } goto hz;   /* (the mix's FILTER: off at its ends) */
+    case F_HZ_HI: if (v >= 127) { p_strcpy(t, "OFF", 4); return 0; } goto hz;
+    hz:
     case F_HZ_FL: {                             /* 30 Hz .. 16 kHz, log */
         uint32_t hz = (30u * tx_exp2((int32_t)(16 << 16) + v * 593700 / 127)) >> 16;
         if (hz >= 1000u) { p_fmt_int(t, (int32_t)(hz / 1000u)); p_cat(t, ".", 15); { char d[2] = {(char)('0' + hz / 100u % 10u), 0}; p_cat(t, d, 15); } return "kHz"; }
@@ -520,6 +533,7 @@ static void p_init(void)
     for (i = 0; i < TX_GD_NP; i++) pv_glob[PG_GRAIN0 + i] = tx_fx_grain_params[i].def;
     for (i = 0; i < TX_RV_NP; i++) pv_glob[PG_REVERB0 + i] = tx_fx_reverb_params[i].def;
     for (i = 0; i < TX_DR_NP; i++) pv_glob[PG_DRIVE0 + i] = tx_fx_drive_params[i].def;   /* (the effects' own: no send) */
+    for (i = 0; i < TX_MF_NP; i++) pv_glob[PG_MF0 + i] = tx_fx_mfilter_params[i].def;
     for (i = 0; i < TX_CP_NP; i++) {            /* (the mix starts with it off: the defaults sent here) */
         pv_glob[PG_COMP0 + i] = tx_comp_params[i].def;
         ln_fx(LN_FX_COMP, 0, i, pv_glob[PG_COMP0 + i]);
@@ -547,6 +561,7 @@ static const p_cc_t P_CC_GLOBAL[] = {
     {95, PG_COMP0 + TX_CP_ON}, {115, PG_COMP0 + TX_CP_THR}, {116, PG_COMP0 + TX_CP_ATK}, {117, PG_COMP0 + TX_CP_REL},
     {118, PG_COMP0 + TX_CP_RATIO}, {119, PG_COMP0 + TX_CP_MKUP},
     {76, PG_DRIVE0 + TX_DR_AMOUNT}, {77, PG_DRIVE0 + TX_DR_TONE}, {78, PG_DRIVE0 + TX_DR_MIX}, {79, PG_DRIVE0 + TX_DR_TYPE},
+    {75, PG_MF0 + TX_MF_LOW}, {74, PG_MF0 + TX_MF_HIGH}, {71, PG_MF0 + TX_MF_RESO}, {70, PG_MF0 + TX_MF_SLOPE},
     {3, PG_BPM}, {9, PG_TAP}, {80, PG_RUN},
 };
 /* a 7-bit value onto a parameter's range (0 .. hi): 127 always reaches hi */

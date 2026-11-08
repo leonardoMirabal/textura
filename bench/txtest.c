@@ -1473,6 +1473,80 @@ static void check_fx_drywet(tx_fx_t *fx)
         verdict("fx", "series", first && first - 1u >= fr - 64u, msg, 0);
     }
 }
+/* the mix's FILTER (tx_fx_mfilter.c): a band from LOW CUT and HIGH CUT; off at the ends (bit-exact), stable, no click */
+static double mf_gain(unsigned lo, unsigned hi, unsigned reso, unsigned slope, uint32_t hz)   /* a sine's level, dB */
+{
+    tx_fx_mfilter_t f;
+    int32_t L[TX_BLOCK], R[TX_BLOCK], pk = 0;
+    uint32_t b, j, ph = 0, inc = (uint32_t)((double)hz * 4294967296.0 / 44100.0);
+    tx_fx_mfilter_init(&f);
+    tx_fx_mfilter_param(&f, TX_MF_LOW, lo); tx_fx_mfilter_param(&f, TX_MF_HIGH, hi);
+    tx_fx_mfilter_param(&f, TX_MF_RESO, reso); tx_fx_mfilter_param(&f, TX_MF_SLOPE, slope);
+    for (b = 0; b < 120u; b++) {
+        for (j = 0; j < TX_BLOCK; j++, ph += inc) L[j] = R[j] = tx_sin_q15(ph) * 128;   /* 0.5 of full scale */
+        tx_fx_mfilter_process(&f, L, R, TX_BLOCK);
+        if (b >= 60u) for (j = 0; j < TX_BLOCK; j++) { int32_t a = L[j] < 0 ? -L[j] : L[j]; if (a > pk) pk = a; if (R[j] != L[j]) return 999; }
+    }
+    return 20 * log10((pk + 1) / 4194304.0);
+}
+static void check_mfilter(void)
+{
+    tx_fx_mfilter_t f;
+    char msg[240];
+    int32_t L[TX_BLOCK], R[TX_BLOCK], x[TX_BLOCK], pk = 0, step = 0, istep = 0, prev = 0;
+    uint32_t b, j, rng = 99u, bad = 0, nz = 0;
+    double pass = mf_gain(30, 100, 0, 0, 1000), lo12 = mf_gain(30, 100, 0, 0, 60), hi12 = mf_gain(30, 100, 0, 0, 14000);
+    double lo24 = mf_gain(30, 100, 0, 1, 60), hi24 = mf_gain(30, 100, 0, 1, 14000), x12 = mf_gain(127, 0, 0, 0, 0), xm;
+    {   /* crossed: the peak at the middle of the knobs (63.5: ~700 Hz) */
+        double best = -999; uint32_t hz;
+        for (hz = 300; hz <= 1600; hz += 50) { double g = mf_gain(127, 0, 0, 0, hz); if (g > best) best = g; }
+        xm = best; (void)x12;
+    }
+    snprintf(msg, sizeof msg, "LOW CUT 30 (~140 Hz) HIGH CUT 100 (~4 kHz): 1 kHz %.1f dB; 60 Hz %.1f / %.1f dB, 14 kHz %.1f / "
+             "%.1f dB (12 / 24 dB); crossed (127 / 0): its peak %.1f dB", pass, lo12, lo24, hi12, hi24, xm);
+    verdict("fx", "mfilter band", pass > -1.0 && pass < 0.5 && lo12 < -9 && lo24 < lo12 - 8 && hi12 < -12 && hi24 < hi12 - 8
+            && xm < -4 && xm > -9, msg, 0);
+    /* on, then back to the ends: after the fade, every sample the input again; a click check on the way */
+    tx_fx_mfilter_init(&f);
+    for (b = 0; b < 400u; b++) {
+        if (b == 20u) { tx_fx_mfilter_param(&f, TX_MF_LOW, 40); tx_fx_mfilter_param(&f, TX_MF_HIGH, 70); }
+        if (b == 120u) tx_fx_mfilter_param(&f, TX_MF_SLOPE, 1);
+        if (b == 200u) { tx_fx_mfilter_param(&f, TX_MF_LOW, 0); tx_fx_mfilter_param(&f, TX_MF_HIGH, 127); }
+        for (j = 0; j < TX_BLOCK; j++) {
+            x[j] = L[j] = tx_sin_q15((b * TX_BLOCK + j) * 9739155u) * 128; R[j] = -L[j];   /* 100 Hz */
+            if (b || j) { int32_t d = x[j] - prev; d = d < 0 ? -d : d; if (d > istep) istep = d; }
+            prev = x[j];
+        }
+        tx_fx_mfilter_process(&f, L, R, TX_BLOCK);
+        for (j = 1; j < TX_BLOCK; j++) { int32_t d = L[j] - L[j - 1]; d = d < 0 ? -d : d; if (d > step) step = d; }
+        if (b >= 260u) for (j = 0; j < TX_BLOCK; j++) bad += L[j] != x[j] || R[j] != -x[j];
+    }
+    snprintf(msg, sizeof msg, "on, 24 dB, then back to the ends: %u samples changed after the fade; the largest step %.2f x "
+             "the input's", bad, (double)step / istep);
+    verdict("fx", "mfilter bypass", !bad && step < istep * 2, msg, 0);
+    /* stability: loud noise, RESONANCE 127, 24 dB, the cutoffs jumping every block (crossing too); then zeros */
+    tx_fx_mfilter_init(&f);
+    tx_fx_mfilter_param(&f, TX_MF_RESO, 127); tx_fx_mfilter_param(&f, TX_MF_SLOPE, 1);
+    for (b = 0; b < 2000u; b++) {
+        rng = rng * 1664525u + 1013904223u;
+        tx_fx_mfilter_param(&f, TX_MF_LOW, (rng >> 8) & 127u); tx_fx_mfilter_param(&f, TX_MF_HIGH, (rng >> 16) & 127u);
+        for (j = 0; j < TX_BLOCK; j++) {
+            rng = rng * 1664525u + 1013904223u;
+            L[j] = b < 1200u ? (int32_t)(rng >> 4) - (1 << 27) : 0;   /* +-16 full scale, then silence */
+            R[j] = b < 1200u ? -(int32_t)(rng >> 5) : 0;
+        }
+        tx_fx_mfilter_process(&f, L, R, TX_BLOCK);
+        for (j = 0; j < TX_BLOCK; j++) {
+            int32_t a = L[j] < 0 ? -L[j] : L[j], c = R[j] < 0 ? -R[j] : R[j];
+            if (a > pk) pk = a;
+            if (c > pk) pk = c;
+            if (b >= 1800u) nz += L[j] != 0 || R[j] != 0;
+        }
+    }
+    snprintf(msg, sizeof msg, "+-16 FS noise, RESONANCE 127, 24 dB, the cutoffs jumping each block: peak %.1f FS; silence "
+             "after: %u nonzero samples in its last 200 blocks", pk / 8388608.0, nz);
+    verdict("fx", "mfilter stable", pk < (1 << 30) && !nz, msg, 0);
+}
 static void check_fx(FILE *update)
 {
     static const char *const TN[TX_RVT_N] = {"off", "room", "hall", "infinite", "dark", "drift", "swell", "plate"};
@@ -1915,6 +1989,7 @@ int main(int argc, char **argv)
     check_chamber(update);
     check_layers(update);
     check_fx(update);
+    check_mfilter();
     check_noise_core();
     check_comp();
     check_truepeak();

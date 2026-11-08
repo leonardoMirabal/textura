@@ -411,6 +411,7 @@ void tx_fx_init(tx_fx_t *fx)
     for (k = 0; k < 2u; k++) { tx_fx_drive_init(&fx->drive[k]); tx_fx_drive_share(&fx->drive[k], &fx->drv); }
     tx_fx_drive_pair(&fx->drive[1], &fx->drive[0]);
     fx->scr1 = 0; fx->dr_x = 0; fx->dr_n = 0;
+    tx_fx_mfilter_init(&fx->mf);
     for (k = 0; k < TX_FX_LANES; k++) tx_fx_filter_init(&fx->filter[k]);
     tx_fx_grain_init(&fx->gd);
     tx_fx_reverb_init(&fx->rev);
@@ -439,13 +440,14 @@ uint32_t tx_fx_lane_us(const tx_fx_t *fx, unsigned k)
 /* the mix's DRIVE: one set of settings on the pair */
 void tx_fx_drive_set(tx_fx_t *fx, unsigned id, unsigned v)
 {
+    if (id >= TX_FX_MF_ID) { tx_fx_mfilter_param(&fx->mf, id - TX_FX_MF_ID, v); return; }   /* (the FILTER after it) */
     tx_fx_drive_param(&fx->drive[0], id, v);
     tx_fx_drive_param(&fx->drive[1], id, v);
 }
 /* the pair's R on the other core (the reverb's hooks, rev.par), or here (a lost job): in XIP either way */
 static void drv_job1(void *a) { tx_fx_t *fx = (tx_fx_t *)a; TX_FAR(tx_fx_drive_run)(&fx->drive[1], fx->dr_x, fx->dr_n, fx->scr1); }
 static void drv_job0(void *a) { tx_fx_t *fx = (tx_fx_t *)a; TX_FAR(tx_fx_drive_run)(&fx->drive[1], fx->dr_x, fx->dr_n, fx->scr1); }
-static void drive_mix(tx_fx_t *fx, int32_t *L, int32_t *R, unsigned n, unsigned c)
+static void drive_pair(tx_fx_t *fx, int32_t *L, int32_t *R, unsigned n, unsigned c)
 {
     unsigned t;
     int taken;
@@ -470,9 +472,17 @@ static void drive_mix(tx_fx_t *fx, int32_t *L, int32_t *R, unsigned n, unsigned 
     TX_FAR(tx_fx_drive_run)(&fx->drive[0], L, n, 0);     /* (in XIP: the bus runs on core 1, lanes.c LN_PIPE) */
     TX_FAR(tx_fx_drive_run)(&fx->drive[1], R, n, 0);
 }
+static void drive_mix(tx_fx_t *fx, int32_t *L, int32_t *R, unsigned n, unsigned c)
+{
+    drive_pair(fx, L, R, n, c);
+    TX_FAR(tx_fx_mfilter_process)(&fx->mf, L, R, n);   /* the FILTER after the DRIVE (off: returns at once; in XIP) */
+}
 TX_AUDIO_CODE void tx_fx_drive_mix(void *u, int32_t *L, int32_t *R, unsigned n) { drive_mix((tx_fx_t *)u, L, R, n, 0u); }
 TX_AUDIO_CODE void tx_fx_drive_mix_c1(void *u, int32_t *L, int32_t *R, unsigned n) { drive_mix((tx_fx_t *)u, L, R, n, 1u); }
-uint32_t tx_fx_drive_mix_us(const tx_fx_t *fx) { return tx_fx_drive_us(&fx->drive[0]) + tx_fx_drive_us(&fx->drive[1]); }
+uint32_t tx_fx_drive_mix_us(const tx_fx_t *fx)
+{
+    return tx_fx_drive_us(&fx->drive[0]) + tx_fx_drive_us(&fx->drive[1]) + tx_fx_mfilter_us(&fx->mf);
+}
 /* the grain delay's dynamic cap: the grains the effects reserve leaves after the reverb's TYPE (FM-1 us a block,
  * CPU-BUDGET.md section 8: the reverb's worst per TYPE, the delay's line + echo, a sounding grain) */
 #define FX_US_GD_BASE 220u         /* the line, the echo, the feedback (make tx-budget section 4, 2026-10-25) */

@@ -3,11 +3,11 @@
  *
  * A scene is everything a sound place is: the landscape, each lane's sound, HOW MANY, HOW ACTIVE, playing or not, its
  * level, pan and mute, its name, then a list of (parameter id, value) records: the lanes' cards (the ones set), the tempo,
- * and of the lanes' filter, the grain delay and its SYNC, the reverb, the compressor, the drive, the eight LFOs, the
+ * and of the lanes' filter, the grain delay and its SYNC, the reverb, the compressor, the drive, the mix's filter, the eight LFOs, the
  * envelopes, the followers and the matrix the values away from their defaults (scn_def_*). A load sets every one of those to its default first,
  * then the scene's records over them, so a record of an older firmware loads into a newer one (an id it lacks gets
  * its default; ids never change, params.c). The tempo is set only with SCENE TEMPO on (tempo.c), and the mix's
- * effects (DRIVE, COMPRESSOR, GRAIN, REVERB) only with SCENE FX at RECALL (and by the boot's load): at KEEP, the
+ * effects (DRIVE, FILTER, COMPRESSOR, GRAIN, REVERB) only with SCENE FX at RECALL (and by the boot's load): at KEEP, the
  * default, a load leaves them as they are and their tails ring on (a save always keeps them). A scene saved with
  * a DRIVE on each lane (ids 32 .. 35 of a lane, retired) loads that onto the mix's one DRIVE: the lane with the most
  * AMOUNT gives its AMOUNT, TONE, MIX and TYPE (the first such lane on a tie; none above 0: the DRIVE stays off).
@@ -158,10 +158,10 @@ static void scn_name_of(uint32_t idx, char *s)  /* "F003 GARDEN RAIN", "U05 WATE
 }
 
 /* ---- the defaults a load starts from: the lanes' filter, the grain delay and its SYNC, the reverb, the compressor,
- * the drive, the LFOs, the envelopes, the followers, the matrix (in that order; SCN_DEF_N of them) */
+ * the drive, the mix's filter, the LFOs, the envelopes, the followers, the matrix (in that order; SCN_DEF_N of them) */
 #define SCN_DEF_LANE TX_FL_NP
 #define SCN_DEF_GLOB (SC_N * SCN_DEF_LANE)
-#define SCN_DEF_LFO (SCN_DEF_GLOB + TX_GD_NP + 1u + TX_RV_NP + TX_CP_NP + TX_DR_NP)
+#define SCN_DEF_LFO (SCN_DEF_GLOB + TX_GD_NP + 1u + TX_RV_NP + TX_CP_NP + TX_DR_NP + TX_MF_NP)
 #define SCN_DEF_ENV (SCN_DEF_LFO + TX_LFO_N * TX_LP_N)
 #define SCN_DEF_FOL (SCN_DEF_ENV + TX_ENV_N * TX_EP_N)
 #define SCN_DEF_MAT (SCN_DEF_FOL + TX_FOL_N * TX_FP_N)
@@ -181,6 +181,7 @@ static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id *
         i -= TX_GD_NP + 1u;
         if (i < TX_RV_NP) return PID(P_GLOBAL, PG_REVERB0 + i);
         i -= TX_RV_NP;
+        if (i >= TX_CP_NP + TX_DR_NP) return PID(P_GLOBAL, PG_MF0 + i - TX_CP_NP - TX_DR_NP);
         return PID(P_GLOBAL, i < TX_CP_NP ? PG_COMP0 + i : PG_DRIVE0 + i - TX_CP_NP);
     }
     if (i < SCN_DEF_ENV) { i -= SCN_DEF_LFO; return PID(P_LFO, i / TX_LP_N * 16u + i % TX_LP_N); }
@@ -202,6 +203,7 @@ static int32_t scn_def_of(uint32_t id)          /* an id's default (-1: none: th
         if (i >= PG_REVERB0 && i < PG_REVERB0 + TX_RV_NP) return tx_fx_reverb_params[i - PG_REVERB0].def;
         if (i >= PG_COMP0 && i < PG_COMP0 + TX_CP_NP) return tx_comp_params[i - PG_COMP0].def;
         if (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP) return tx_fx_drive_params[i - PG_DRIVE0].def;
+        if (i >= PG_MF0 && i < PG_MF0 + TX_MF_NP) return tx_fx_mfilter_params[i - PG_MF0].def;
         return -1;
     }
     if (s == P_LFO) return i / 16u < TX_LFO_N && i % 16u < TX_LP_N ? scn_lfo_def[i / 16u][i % 16u] : -1;
@@ -394,14 +396,14 @@ static void scn_apply(const scn_t *s, uint32_t idx)
     scn_ap_stage = 1; scn_ap_t = fm1_ms; scn_ap_i = 0; scn_ap_d = 0;
 }
 static int scn_busy(void) { return scn_ap_stage != 0; }
-/* the mix's effects: the DRIVE, the COMPRESSOR, the GRAIN delay (and its SYNC), the REVERB, and a retired lane DRIVE's
+/* the mix's effects: the DRIVE, its FILTER, the COMPRESSOR, the GRAIN delay (and its SYNC), the REVERB, and a retired lane DRIVE's
  * records. SCENE FX KEEP: a load leaves them as they are (their tails ring on); RECALL, or the boot's load: set */
 static int scn_fx_id(uint32_t id)
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
     if (s < SC_N) return i >= PL_ODRIVE0 && i < PL_ODRIVE0 + TX_DR_NP;
     if (s != P_GLOBAL) return 0;
-    return i < PG_COMP0 + TX_CP_NP || (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP);
+    return i < PG_COMP0 + TX_CP_NP || (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP) || (i >= PG_MF0 && i < PG_MF0 + TX_MF_NP);
 }
 /* a switched lane's cards, as soon as its fresh engine is in: set at once, before it is heard much (the others'
  * glide, stage 2) */

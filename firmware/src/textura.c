@@ -303,6 +303,8 @@ static int host_sound_check(char *msg, unsigned n)   /* 0 if every lane runs the
     for (k = 0; k < TX_DR_NP; k++)                  /* the mix's DRIVE: both sides */
         if ((ln.fx.drive[0].p[k] != pv_glob[PG_DRIVE0 + k] || ln.fx.drive[1].p[k] != pv_glob[PG_DRIVE0 + k])
             && !mod_holds(PID(P_GLOBAL, PG_DRIVE0 + k))) { snprintf(msg, n, "drive %u: %u %u, not %u", k, ln.fx.drive[0].p[k], ln.fx.drive[1].p[k], pv_glob[PG_DRIVE0 + k]); return 1; }
+    for (k = 0; k < TX_MF_NP; k++)                  /* the mix's FILTER */
+        if (ln.fx.mf.p[k] != pv_glob[PG_MF0 + k] && !mod_holds(PID(P_GLOBAL, PG_MF0 + k))) { snprintf(msg, n, "filter %u: %u, not %u", k, ln.fx.mf.p[k], pv_glob[PG_MF0 + k]); return 1; }
     for (k = 0; k < TX_GD_NP; k++)
         if (ln.fx.gd.p[k] != pv_glob[PG_GRAIN0 + k] && !mod_holds(PID(P_GLOBAL, PG_GRAIN0 + k))) { snprintf(msg, n, "grain %u: %u, not %u", k, ln.fx.gd.p[k], pv_glob[PG_GRAIN0 + k]); return 1; }
     if (ln.fx.gd.sync != tm.gsync_smp) { snprintf(msg, n, "grain sync %u, not %u", ln.fx.gd.sync, tm.gsync_smp); return 1; }
@@ -392,6 +394,8 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "routes")) snprintf(v, n, "%u", mbuf[mcur].nr);
     else if (sscanf(key, "lfo%u%c", &k, &c) == 1 && k < TX_LFO_N) snprintf(v, n, "%d", (int)mod_lfo[k].out);
     else if (sscanf(key, "live%x%c", &k, &c) == 1) { int32_t x; snprintf(v, n, "%d", mod_live(k, &x) ? (int)x : -1); }
+    else if (!strcmp(key, "mfon")) snprintf(v, n, "%d", (ln.fx.mf.w[0] != 0) + 2 * (ln.fx.mf.w[1] != 0));   /* the mix's
+                                                 * FILTER: its edges running (1 LOW CUT, 2 HIGH CUT; 0: untouched) */
     else if (!strcmp(key, "gdsync")) snprintf(v, n, "%u", ln.fx.gd.sync);         /* as the chain has it */
     else if (!strcmp(key, "compred")) snprintf(v, n, "%d", tx_comp_gr_db10(&ln.mix.comp) >= 10);   /* the COMPRESSOR
                                                          * reducing 1 dB or more now (its meter's reading) */

@@ -10,13 +10,14 @@
  *
  *   SELECT     the pages, in order (the first to the last, no wrap): LANDSCAPE, MIXER VOLUME, MIXER PAN (the lanes' levels, pans), SOUND 1..n (the selected lane's sound:
  *              its cards, four a page), FILTER 1/3 (K1..K4: FREQ of lanes 1..4) 2/3 3/3 (the selected lane's: TYPE
- *              FREQ RESO LFO, then RATE SHAPE), DRIVE (the mix's, its first effect: AMOUNT TONE MIX TYPE),
+ *              FREQ RESO LFO, then RATE SHAPE; titled LANE FILTER), DRIVE (the mix's, its first effect: AMOUNT TONE
+ *              MIX TYPE), FILTER (the mix's, right after the DRIVE: LOW CUT HIGH CUT RESONANCE SLOPE, a band),
  *              COMPRESSOR 1/2 2/2 (the mix's, after the DRIVE, Frodhes': THR RAT ATK MKUP, then COMP REL; the footer
  *              its gain-reduction meter), GRAIN 1/3 .. 3/3, REVERB 1/3 .. 3/3 (in series: the reverb takes what the
  *              grain delay gives; MIX on DRIVE, GRAIN, REVERB reads DRY..WET), LFO 1/3 .. 3/3,
  *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, TEMPO 1/2 2/2, MIDI, DISPLAY (COLOR: the screen's palette)
  *   ALGORITHM  LANDSCAPE: the landscape (loaded 300 ms after the last detent); SOUND: opens the sound browser; FILTER: the
- *              selected lane's type; DRIVE: its TYPE; COMPRESSOR: COMP (up on, down off); GRAIN: FREEZE (up on, down
+ *              selected lane's type; DRIVE: its TYPE; FILTER: its SLOPE; COMPRESSOR: COMP (up on, down off); GRAIN: FREEZE (up on, down
  *              off); REVERB: its type; LFO: which (1..8); ENV:
  *              which (ENV 1, ENV 2, FOLLOW 1, FOLLOW 2); MATRIX: which slot (1..16)
  *   K1..K4     LANDSCAPE: the volumes of lanes 1..4 (a lane's sound: its SOUND page; HOW MANY, HOW ACTIVE: the white
@@ -24,7 +25,7 @@
  *              keys follow it); else the cards
  *   HOME       LANDSCAPE, remembering the page it came from; on LANDSCAPE: back to that page (none remembered,
  *              or it was left another way: LANDSCAPE stays)
- *   EDIT       SOUND (again: FILTER)               FX  DRIVE (again: COMPRESSOR, GRAIN, REVERB)
+ *   EDIT       SOUND (again: LANE FILTER)          FX  DRIVE (again: FILTER, COMPRESSOR, GRAIN, REVERB)
  *   GLO        TEMPO (again: MIDI, DISPLAY)        LFO  the LFO pages; held + a card turned: mod learn (the
  *              selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP  MATRIX
  *   ENV        the ENV / FOLLOW pages; held + a card turned: mod learn from the selected ENV or FOLLOW
@@ -60,23 +61,24 @@
 #define TX_BTN_TAP BTN_PLAY                     /* TAP TEMPO is the PLAY button, as in Frodhes (the user, 2026-10-25) */
 
 /* the pages: a group (SELECT walks through each group's sub-pages, then the next group) */
-enum { G_LAND, G_MIX, G_SOUND, G_FILTER, G_DRIVE, G_COMP, G_GRAIN, G_REVERB, G_LFO, G_ENV, G_MATRIX, G_TEMPO, G_MIDI,
+enum { G_LAND, G_MIX, G_SOUND, G_FILTER, G_DRIVE, G_MFILT, G_COMP, G_GRAIN, G_REVERB, G_LFO, G_ENV, G_MATRIX, G_TEMPO, G_MIDI,
        G_DISPLAY, G_N };
-static const char *const G_TITLE[G_N] = {"LANDSCAPE", "MIXER", "SOUND", "FILTER", "DRIVE", "COMPRESSOR", "GRAIN", "REVERB",
+static const char *const G_TITLE[G_N] = {"LANDSCAPE", "MIXER", "SOUND", "LANE FILTER", "DRIVE", "FILTER", "COMPRESSOR", "GRAIN", "REVERB",
                                          "LFO", "ENV", "MATRIX", "TEMPO", "MIDI", "DISPLAY"};
-static const uint8_t G_NSUB[G_N] = {1, 2, 0, 3, 1, 2, 3, 3, 3, 2, 1, 2, 1, 1};   /* (SOUND: as many as its cards need; ENV:
+static const uint8_t G_NSUB[G_N] = {1, 2, 0, 3, 1, 1, 2, 3, 3, 3, 2, 1, 2, 1, 1};   /* (SOUND: as many as its cards need; ENV:
                                                          * a FOLLOW has one) */
 #define LA P_LANE_ANY
 #define NOID 0xFFFFu
 /* the effects' pages: a parameter per knob, the selected lane's (LA) or a global; FILTER: its first page the four
  * lanes' (FX_IDS 22: UI_OVERVIEW), then the selected lane's from G_FX0 */
-static const uint8_t G_FX0[G_N] = {0, 0, 0, 1, 0, 20, 3, 6, 9, 15, 12, 13, 18, 19};   /* (ENV: 15, 16; FOLLOW: 17) */
+static const uint8_t G_FX0[G_N] = {0, 0, 0, 1, 0, 23, 20, 3, 6, 9, 15, 12, 13, 18, 19};   /* (ENV: 15, 16; FOLLOW: 17) */
 #define LFO_ANY(p) PID(P_LFO, 0xF0u | (p))        /* the selected LFO's (ui_lfo) */
 #define ENV_ANY(p) PID(P_ENV, 0xF0u | (p))        /* the selected ENV's or FOLLOW's (ui_env) */
 #define MAT_ANY(q) PID(P_MAT, 0xF0u | (q))        /* the selected slot's (ui_slot) */
 #define CMP(p) PID(P_GLOBAL, PG_COMP0 + (p))
 #define DRV(p) PID(P_GLOBAL, PG_DRIVE0 + (p))
-static const uint16_t FX_IDS[23][4] = {
+#define MFL(p) PID(P_GLOBAL, PG_MF0 + (p))
+static const uint16_t FX_IDS[24][4] = {
     {DRV(TX_DR_AMOUNT), DRV(TX_DR_TONE), DRV(TX_DR_MIX), DRV(TX_DR_TYPE)},   /* DRIVE: the mix's */
     {PID(LA, PL_FILTER0 + TX_FL_TYPE), PID(LA, PL_FILTER0 + TX_FL_FREQ), PID(LA, PL_FILTER0 + TX_FL_RESO), PID(LA, PL_FILTER0 + TX_FL_LFO)},
     {PID(LA, PL_FILTER0 + TX_FL_RATE), PID(LA, PL_FILTER0 + TX_FL_SHAPE), NOID, NOID},
@@ -100,9 +102,11 @@ static const uint16_t FX_IDS[23][4] = {
     {CMP(TX_CP_THR), CMP(TX_CP_RATIO), CMP(TX_CP_ATK), CMP(TX_CP_MKUP)},   /* COMPRESSOR: Frodhes' four knobs */
     {CMP(TX_CP_ON), CMP(TX_CP_REL), NOID, NOID},
     {PID(0, PL_FILTER0 + TX_FL_FREQ), PID(1, PL_FILTER0 + TX_FL_FREQ), PID(2, PL_FILTER0 + TX_FL_FREQ), PID(3, PL_FILTER0 + TX_FL_FREQ)},
+    {MFL(TX_MF_LOW), MFL(TX_MF_HIGH), MFL(TX_MF_RESO), MFL(TX_MF_SLOPE)},   /* FILTER: the mix's, after the DRIVE */
 };
 /* what ALGORITHM turns on an effect's page */
 #define ALG_DRIVE DRV(TX_DR_TYPE)
+#define ALG_MFILT MFL(TX_MF_SLOPE)
 #define ALG_FILTER PID(LA, PL_FILTER0 + TX_FL_TYPE)
 #define ALG_FREEZE PID(P_GLOBAL, PG_GRAIN0 + TX_GD_FREEZE)
 #define ALG_REVERB PID(P_GLOBAL, PG_REVERB0 + TX_RV_TYPE)
@@ -658,7 +662,7 @@ static void draw_meter(void);
 static void draw_footer(void)
 {
     static const char *const HINT[G_N] = {"", "", "ALGORITHM: THE SOUND", "ALGORITHM: THE FILTER'S TYPE",
-                                          "ALGORITHM: THE DRIVE'S TYPE", "ALGORITHM: COMP ON / OFF", "ALGORITHM: FREEZE",
+                                          "ALGORITHM: THE DRIVE'S TYPE", "ALGORITHM: SLOPE 12 / 24 DB", "ALGORITHM: COMP ON / OFF", "ALGORITHM: FREEZE",
                                           "ALGORITHM: THE REVERB'S TYPE",
                                           "ALGORITHM: WHICH LFO", "ALGORITHM: ENV 1 2, FOLLOW 1 2", "ALGORITHM: WHICH SLOT",
                                           "PLAY: TAP, HOLD: START / STOP", "CLOCK OUT: IN MASTER", "THE SCREEN'S COLOUR, KEPT"};
@@ -1166,6 +1170,7 @@ static void ui_algorithm(int32_t d)
         return;
     }
     if (ui_g == G_DRIVE) id = ALG_DRIVE;
+    else if (ui_g == G_MFILT) id = ALG_MFILT;
     else if (ui_g == G_FILTER) id = ui_id_lane(ALG_FILTER);
     else if (ui_g == G_COMP) id = ALG_COMP;
     else if (ui_g == G_GRAIN) id = ALG_FREEZE;
@@ -1253,8 +1258,9 @@ static void ui_input(uint32_t b, uint32_t rel)
         } else if (ui_back_g != 0xFF) ui_goto(ui_back_g, ui_back_sub);
     }
     if (b >> BTN_EDIT & 1u) ui_goto(ui_g == G_SOUND ? G_FILTER : G_SOUND, 0);   /* (the lanes' pages: SOUND, FILTER) */
-    if (b >> BTN_FX & 1u) ui_goto(ui_g == G_DRIVE ? G_COMP : ui_g == G_COMP ? G_GRAIN : ui_g == G_GRAIN ? G_REVERB : G_DRIVE, 0);
-                                                /* (the mix's: DRIVE, COMPRESSOR, GRAIN, REVERB) */
+    if (b >> BTN_FX & 1u) ui_goto(ui_g == G_DRIVE ? G_MFILT : ui_g == G_MFILT ? G_COMP : ui_g == G_COMP ? G_GRAIN
+                                  : ui_g == G_GRAIN ? G_REVERB : G_DRIVE, 0);   /* (the mix's, in its order: DRIVE,
+                                                 * FILTER, COMPRESSOR, GRAIN, REVERB) */
     if (b >> BTN_GLO & 1u) ui_goto(ui_g == G_TEMPO ? G_MIDI : ui_g == G_MIDI ? G_DISPLAY : G_TEMPO, 0);
     if (b & ~(1u << BTN_LFO | 1u << BTN_ENV)) ui_latch_t = 0;   /* (another button: learn unlatched) */
     if (b >> BTN_ARP & 1u) ui_goto(G_MATRIX, 0);

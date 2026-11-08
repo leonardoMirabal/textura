@@ -227,7 +227,8 @@ static const mixdef_t MIXES[] = {
 
 /* ---- the effects (tx_fx.h): one effect on a busy input (noise at -12 dBFS, all the time), its block's cost on the
  * FM-1 (the per-block minimum over runs, then the 75th percentile: the cost is flat, the host is not). kind 0 drive (one
- * side of the mix's pair: the mix pays two), 1 filter, 2 reverb, 3 grain delay */
+ * side of the mix's pair: the mix pays two), 1 filter, 2 reverb, 3 grain delay, 4 the mix's FILTER (type 0: one edge,
+ * 12 dB; 1: both edges, 24 dB, RESONANCE 64; on the pair) */
 static int fxc_cmp(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
 static double fx_cost(int kind, unsigned type, unsigned decay)
 {
@@ -248,6 +249,9 @@ static double fx_cost(int kind, unsigned type, unsigned decay)
                          tx_fx_reverb_param(&fx.rev, TX_RV_DECAY, decay < 127 ? decay : 100);
                          tx_fx_reverb_param(&fx.rev, TX_RV_PREDELAY, 40); tx_fx_reverb_param(&fx.rev, TX_RV_LOWCUT, 30);
                          if (decay == 1) tx_fx_reverb_param(&fx.rev, TX_RV_DECAY, 64), tx_fx_reverb_param(&fx.rev, TX_RV_SHIMMER, 127); }
+        if (kind == 4) { tx_fx_mfilter_param(&fx.mf, TX_MF_HIGH, 70);
+                         if (type) { tx_fx_mfilter_param(&fx.mf, TX_MF_LOW, 30); tx_fx_mfilter_param(&fx.mf, TX_MF_SLOPE, 1);
+                                     tx_fx_mfilter_param(&fx.mf, TX_MF_RESO, 64); } }
         if (kind == 3) { fx.reserve_us = 100000u;                       /* (no cap: the cost of every grain asked) */
                          tx_fx_grain_param(&fx.gd, TX_GD_MIX, 100); tx_fx_grain_param(&fx.gd, TX_GD_GRAINS, type - 1u);
                          tx_fx_grain_param(&fx.gd, TX_GD_PITCH, decay ? 71 : 64); tx_fx_grain_param(&fx.gd, TX_GD_FEEDBACK, 70);
@@ -257,7 +261,8 @@ static double fx_cost(int kind, unsigned type, unsigned decay)
             if (b == 200u && decay == 127) tx_fx_reverb_param(&fx.rev, TX_RV_DECAY, 127);
             for (j = 0; j < TX_BLOCK; j++) { rng = rng * 1664525u + 1013904223u; L[j] = R[j] = (int32_t)(rng >> 10) - (1 << 21); }
             t0 = tx_now_ns();
-            if (kind >= 2) tx_fx_bus(&fx, L, R, TX_BLOCK);
+            if (kind == 4) tx_fx_mfilter_process(&fx.mf, L, R, TX_BLOCK);
+            else if (kind >= 2) tx_fx_bus(&fx, L, R, TX_BLOCK);
             else if (kind) tx_fx_lane(&fx, 0, L, TX_BLOCK); else tx_fx_drive_process(&fx.drive[0], L, TX_BLOCK);
             if (r) t[r - 1][b] = tx_now_ns() - t0;
         }
@@ -475,6 +480,13 @@ int main(int argc, char **argv)
             }
         }
         printf("   FILTER (a lane, LP18, RESO 90, LFO 90)                  %5.0f us  (%4.1f %%)  per lane, from the lanes' pool\n", fl, 100 * fl / BLOCK_US);
+        {
+            double m1 = fx_cost(4, 0, 0), m2 = fx_cost(4, 1, 0);
+            tx_fx_mfilter_t mf;
+            tx_fx_mfilter_init(&mf); mf.p[TX_MF_LOW] = 30; mf.p[TX_MF_HIGH] = 70; mf.p[TX_MF_SLOPE] = 1;
+            printf("   FILTER (the mix's, after the DRIVE; the pair): one edge 12 dB / both 24 dB  %5.0f / %5.0f us  (%4.1f %%)  "
+                   "counted: %u / %u us\n", m1, m2, 100 * m2 / BLOCK_US, TX_FX_US_MF_STAGE, (unsigned)tx_fx_mfilter_us(&mf));
+        }
         for (t = TX_RVT_ROOM; t < TX_RVT_N; t++) {
             rv[t] = fx_cost(2, t, 64);
             if (rv[t] > worst) worst = rv[t];
