@@ -876,6 +876,25 @@ static void ui_learn(uint32_t k, int32_t d)
     }
     ui_hot(k);
 }
+/* knob acceleration (as Frodhes'): a fast turn moves an amount more per detent, so 0 .. 127 takes about one turn; a
+ * slow turn keeps single steps. The time per detent since that knob's last one: under 40 ms x2, 20 ms x4, 10 ms x8; a
+ * turn's first detents (after 150 ms at rest) are single steps, however many arrive at once. Only amounts of 32 steps
+ * or more; choices, toggles and short ranges keep one step a detent */
+static uint32_t ui_acc_t[4];
+#if defined(DINGHY_HOST) && !defined(DINGHY_WEB)
+static int ui_accel_on_ = -1;                   /* the host's scripts turn exact detents: off unless TX_KNOB_ACCEL
+                                                 * is set */
+#define ui_accel_on (ui_accel_on_ >= 0 ? ui_accel_on_ : (ui_accel_on_ = getenv("TX_KNOB_ACCEL") != NULL))
+#else
+#define ui_accel_on 1
+#endif
+static int32_t ui_accel(uint32_t k, int32_t hi, int32_t d)
+{
+    uint32_t a = (uint32_t)(d < 0 ? -d : d), gap = fm1_ms - ui_acc_t[k], dt = gap / a;
+    ui_acc_t[k] = fm1_ms;
+    if (!ui_accel_on || gap > 150u || hi < 32) return d;
+    return d * (dt < 10u ? 8 : dt < 20u ? 4 : dt < 40u ? 2 : 1);
+}
 static void ui_knob(uint32_t k, int32_t d)
 {
     if (ui_lfo_down) { ui_learn(k, d); return; }
@@ -883,14 +902,19 @@ static void ui_knob(uint32_t k, int32_t d)
                                                 /* (latched: this turn's detents, until 800 ms after the last) */
     ui_hot(k);
     if (ui_g == G_MIX) {
+        d = ui_accel(k, 127, d);
         if (ui_sub == 0u) sc_volume(k, (uint32_t)clampi((int32_t)sc_vol_of(k) + d, 0, 127));
         else sc_pan(k, (uint32_t)clampi((int32_t)sc.pan[k] + d, 0, 127));
         return;
     }
     if (UI_OVERVIEW() && sc.sel != k) sc_select(k);   /* (a lane's card turned: that lane is the selected one) */
-    if (ui_g != G_LAND) { uint32_t id = ui_row_id(k); if (id != NOID) ui_turn(id, d); return; }
+    if (ui_g != G_LAND) {
+        uint32_t id = ui_row_id(k);
+        if (id != NOID) ui_turn(id, ui_accel(k, p_kind(id) == PK_AMOUNT ? p_hi(id) : 0, d));
+        return;
+    }
     if (sc.snd[k] < 0) return;                  /* LANDSCAPE: lane k's volume (an empty lane: none) */
-    sc_volume(k, (uint32_t)clampi((int32_t)sc_vol_of(k) + d, 0, 127));
+    sc_volume(k, (uint32_t)clampi((int32_t)sc_vol_of(k) + ui_accel(k, 127, d), 0, 127));
     {
         char t[24], n[8];
         p_strcpy(t, "LANE ", 23); p_fmt_int(n, (int32_t)k + 1); p_cat(t, n, 23); p_cat(t, " VOLUME ", 23);
