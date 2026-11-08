@@ -191,7 +191,7 @@ static void p_cards_resolve(uint32_t k)
     p_cards_t *c = &pc[k];
     const tx_engine_t *e = sc.eng[k];
     uint32_t i;
-    c->n = 0; c->eng = e; c->hosted = 0; c->snd = sc.snd[k]; c->fam = sc.fam; c->live = ln_hosted(k);
+    c->n = 0; c->eng = e; c->hosted = 0; c->snd = sc.snd[k]; c->fam = sc.lf[k]; c->live = ln_hosted(k);
     for (i = 0; i < SCD_MAX; i++) c->cv[i] = 0xFF;
     if (!e) return;
     if (e != sc.src) {                          /* a classic engine: its own parameters, less its activity map's */
@@ -232,7 +232,7 @@ static void p_cards_resolve(uint32_t k)
 static p_cards_t *p_cards(uint32_t k)
 {
     p_cards_t *c = &pc[k];
-    if (c->eng != sc.eng[k] || c->snd != sc.snd[k] || c->fam != sc.fam || (sc.eng[k] == sc.src && c->live != ln_hosted(k))) {
+    if (c->eng != sc.eng[k] || c->snd != sc.snd[k] || c->fam != sc.lf[k] || (sc.eng[k] == sc.src && c->live != ln_hosted(k))) {
         uint32_t i;
         if (c->eng == sc.src && sc.eng[k] == sc.src)
             for (i = 0; i < c->n; i++)
@@ -309,7 +309,7 @@ static int32_t p_hi(uint32_t id)
     if (p_gx(id)) return p_gx(id)->hi;
     if (P_MODS(s)) return mod_valid(id) ? mod_hi(id) : 0;
     if (s >= P_LANES) return 0;
-    if (i == PL_SOUND) return LS[sc.fam].n - 1;
+    if (i == PL_SOUND) return LS[sc.lf[s]].n - 1;
     if (i == PL_COUNT) return LS_NCNT - 1;
     if (i == PL_ACTIVE) return LS_NACT;
     if (i == PL_LEVEL || i == PL_PAN) return 127;

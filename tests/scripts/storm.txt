@@ -45,12 +45,15 @@
 8550 expect state lab1 DROPS
 8550 expect state lab2 INSIDE
 8550 expect state lab3 AREA
-# lane 2's next sounds (K1 on LANDSCAPE): the gales' cards as in the Wind landscape (the ridge GUST, EXPOSED (= BUFFET),
+# lane 2's next sounds (picked in the sound browser): the gales' cards as in the Wind landscape (the ridge GUST, EXPOSED (= BUFFET),
 # SCALE, WHOOSH / FOLIAGE, EDGE, DIST; winter GUST, EXPOSED, DRIFT, SCALE); hail's STONES (= DROPS), AREA, INSIDE,
 # BOUNCE / DIST
 8600 btn 8
 8610 btn 6
 8650 turn 1 1
+8651 turn 1 -20
+8652 turn 1 4
+8653 btn 6
 8700 expect state snd1 ridge_gale
 8800 expect state page SOUND_1/2
 8800 expect state lab0 GUST
@@ -64,13 +67,19 @@
 8900 expect state lab3 -
 8950 btn 8
 8960 btn 6
-9000 turn 1 2
+9000 turn 1 1
+9001 turn 1 -20
+9002 turn 1 5
+9003 btn 6
 9050 expect state snd1 winter_storm
 9150 expect state lab1 EXPOSED
 9150 expect state lab2 DRIFT
 9200 btn 8
 9210 btn 6
-9250 turn 1 3
+9250 turn 1 1
+9251 turn 1 -20
+9252 turn 1 6
+9253 btn 6
 9300 expect state snd1 hail_on_a_roof
 9400 expect state page SOUND_1/2
 9400 expect state lab0 STONES

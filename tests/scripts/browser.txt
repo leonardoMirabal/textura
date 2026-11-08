@@ -1,0 +1,116 @@
+# the sound browser: SEQ (from any page) or the first ALGORITHM detent on SOUND opens it for the selected lane: level
+# 1 the families, level 2 a family's sounds. ALGORITHM / K1 move the cursor, SELECT (level 2) the family, EDIT opens /
+# picks, HOME back / cancel (the sound it opened with back). The cursor's sound plays on the lane 400 ms after the last
+# detent while the lane plays; a sound on another lane is allowed; a scene keeps the lanes' families
+1700 btn 13
+1800 expect state run0 1
+1800 expect state snd0 rain_on_water
+# SEQ on LANDSCAPE: level 2, the lane's family (Water), the cursor on its sound
+2000 btn 11
+2020 expect state browser 2
+2020 expect state brfam Water
+2020 expect state brcur 0
+2020 expect state page LANDSCAPE
+2050 shot
+# ALGORITHM 2 on: water drops, previewed after 400 ms (still running)
+2100 turn 1 2
+2200 expect state snd0 rain_on_water
+2600 expect state snd0 water_drops
+2600 expect state run0 1
+# HOME: the families; HOME again: cancelled, rain on water back
+2700 btn 8
+2720 expect state browser 1
+2720 expect state brcur 0
+2730 shot
+2800 btn 8
+2820 expect state browser 0
+2900 expect state snd0 rain_on_water
+2900 expect state page LANDSCAPE
+# EDIT: SOUND; the first ALGORITHM detent opens the browser (it does not move); HOME: families; ALGORITHM 3: Fire;
+# EDIT: its sounds; ALGORITHM 1: bonfire; EDIT: picked (another family on lane 1), still running, the SOUND page kept
+3000 btn 6
+3020 expect state page SOUND_1/2
+3050 turn 1 1
+3070 expect state browser 2
+3070 expect state brcur 0
+3100 btn 8
+3120 turn 1 3
+3140 expect state brcur 3
+3160 btn 6
+3180 expect state browser 2
+3180 expect state brfam Fire
+3200 turn 1 1
+3220 btn 6
+3240 expect state browser 0
+3240 expect state snd0 bonfire
+3240 expect state fam0 Fire
+3240 expect state run0 1
+3240 expect state page SOUND_1/2
+3300 expect state lane0 source
+# lane 2 (OCT+) from SOUND, SEQ: K1 moves; SELECT jumps families (Stones & sand); OCT- follows lane 1 (Fire, bonfire);
+# EDIT picks bonfire again (no change); then lane 2 gets bonfire too (a double), from the Fire list
+3400 btn 1
+3420 expect state sel 2
+3440 btn 11
+3460 expect state brfam Water
+3480 turn 2 1
+3500 expect state brcur 2
+3520 turn 0 1
+3540 expect state brfam Stones_&_sand
+3560 btn 0
+3580 expect state sel 1
+3580 expect state brfam Fire
+3580 expect state brcur 1
+3600 btn 1
+3620 expect state brfam Water
+3640 turn 0 3
+3660 expect state brfam Fire
+3680 turn 1 1
+3700 btn 6
+3720 expect state snd1 bonfire
+3720 expect state fam1 Fire
+3720 expect state snd0 bonfire
+3760 shot
+# a black key while open: the browser follows (lane 3); another button (FX) closes it, what plays kept
+3800 btn 11
+3820 keys 0x2000
+3830 keys 0
+3850 expect state sel 3
+3850 expect state browser 2
+3850 expect state brfam Water
+3900 btn 2
+3920 expect state browser 0
+3920 expect state page DRIVE
+# a stopped lane: no preview; EDIT loads it stopped (lane 4: cave drips -> Wind, wind)
+4000 btn 8
+4020 btn 1
+4040 expect state sel 4
+4060 btn 11
+4080 btn 8
+4100 turn 1 5
+4120 btn 6
+4600 expect state snd3 cave_drips
+4620 btn 6
+4640 expect state snd3 wind
+4640 expect state fam3 Wind
+4640 expect state run3 0
+# a scene keeps the lanes' families: saved to U01, F01 loaded, U01 again
+4700 btn 9
+4800 btn 9
+5400 expect state saving 0
+5500 midi 0xC0 0 0
+6100 expect state loading 0
+6100 expect state snd0 rain_on_water
+6100 expect state fam0 Water
+6200 midi 0xC0 16 0
+6800 expect state loading 0
+6800 expect state snd0 bonfire
+6800 expect state fam0 Fire
+6800 expect state snd1 bonfire
+6800 expect state snd3 wind
+6800 expect state fam3 Wind
+6800 expect state lane0 source
+6900 expect state landscape Water
+6900 expect sound
+6900 expect state dropped 0
+7000 end

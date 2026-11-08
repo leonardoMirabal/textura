@@ -44,6 +44,9 @@
 3200 btn 8
 3210 btn 6
 3250 turn 1 1
+3251 turn 1 -20
+3252 turn 1 4
+3253 btn 6
 3300 expect state snd1 lake_ice
 3400 expect state lab0 THICK
 3400 expect state lab1 COLD
@@ -52,6 +55,9 @@
 3500 btn 8
 3510 btn 6
 3550 turn 1 1
+3551 turn 1 -20
+3552 turn 1 5
+3553 btn 6
 3600 expect state snd1 frozen_lake_booming
 3700 expect state lab0 THICK
 3700 expect state lab1 COLD
@@ -60,6 +66,9 @@
 3800 btn 8
 3810 btn 6
 3850 turn 1 1
+3851 turn 1 -20
+3852 turn 1 6
+3853 btn 6
 3900 expect state snd1 thin_ice_underfoot
 4000 expect state lab0 THICK
 4000 expect state lab1 DIST
@@ -68,6 +77,9 @@
 4100 btn 8
 4110 btn 6
 4150 turn 1 1
+4151 turn 1 -20
+4152 turn 1 7
+4153 btn 6
 4200 expect state snd1 glass_pane
 4300 expect state lab0 SIZE
 4300 expect state lab1 RING
@@ -82,6 +94,9 @@
 4550 btn 8
 4560 btn 6
 4600 turn 1 1
+4601 turn 1 -20
+4602 turn 1 8
+4603 btn 6
 4650 expect state snd1 bottles
 4750 expect state lab0 SIZE
 4750 expect state lab1 RING
@@ -90,6 +105,9 @@
 4850 btn 8
 4860 btn 6
 4900 turn 1 1
+4901 turn 1 -20
+4902 turn 1 9
+4903 btn 6
 4950 expect state snd1 shards_settling
 5050 expect state lab0 SIZE
 5050 expect state lab1 RING

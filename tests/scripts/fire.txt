@@ -59,6 +59,9 @@
 3400 btn 8
 3410 btn 6
 3450 turn 1 1
+3451 turn 1 -20
+3452 turn 1 4
+3453 btn 6
 3500 expect state snd1 kindling
 3600 expect state lab0 MOIST
 3600 expect state lab1 SIZE
@@ -67,6 +70,9 @@
 3650 btn 8
 3660 btn 6
 3700 turn 1 1
+3701 turn 1 -20
+3702 turn 1 5
+3703 btn 6
 3750 expect state snd1 pine_fire
 3850 expect state lab0 SIZE
 3850 expect state lab1 MOIST
@@ -75,6 +81,9 @@
 3900 btn 8
 3910 btn 6
 3950 turn 1 1
+3951 turn 1 -20
+3952 turn 1 6
+3953 btn 6
 4000 expect state snd1 leaves,_paper
 4100 expect state lab0 MOIST
 4100 expect state lab1 SIZE
@@ -83,6 +92,9 @@
 4150 btn 8
 4160 btn 6
 4200 turn 1 1
+4201 turn 1 -20
+4202 turn 1 7
+4203 btn 6
 4250 expect state snd1 torch
 4350 expect state lab0 ROAR
 4350 expect state lab1 DRAUGHT
@@ -97,6 +109,9 @@
 4550 btn 8
 4560 btn 6
 4600 turn 1 1
+4601 turn 1 -20
+4602 turn 1 8
+4603 btn 6
 4650 expect state snd1 flame
 4750 expect state lab0 FLOW
 4750 expect state lab1 DRAUGHT

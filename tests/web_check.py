@@ -56,6 +56,7 @@ COUNT_ENC = """() => { let real = Module._web_enc; window.__det = 0; window.__ma
       return real(id, d); }; } }); }"""
 LIT = "() => { const fb = new Uint16Array(Module.HEAPU8.buffer, Module._web_fb(), 240 * 240); let n = 0; for (const v of fb) if (v) n++; return n; }"
 PAGE = "() => { const p = Module.HEAPU8, a = Module._web_page(); let s = ''; for (let i = a; p[i]; i++) s += String.fromCharCode(p[i]); return s; }"
+STATE = "k => Module.ccall('web_state', 'string', ['string'], [k])"
 SCENE = "() => { const p = Module.HEAPU8, a = Module._web_scene(); let s = ''; for (let i = a; p[i]; i++) s += String.fromCharCode(p[i]); return s; }"
 LED = "id => new Uint8Array(Module.HEAPU8.buffer, Module._web_leds(), 64)[id]"
 
@@ -185,6 +186,28 @@ def main():
         home.click(delay=60)
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "LANDSCAPE", "HOME: back to LANDSCAPE")
+        # SEQ (SOUNDS): the sound browser for the selected lane (4); HOME, ALGORITHM 3 (Fire), EDIT, ALGORITHM 1, EDIT:
+        # bonfire on lane 4; SEQ again, HOME twice: cancelled, nothing changed
+        seq = pg.locator('button.b[data-name="SEQ"]')
+        check(seq.locator("small").inner_text() == "SOUNDS", "SEQ's caption: SOUNDS")
+        seq.click(delay=60)
+        pg.wait_for_timeout(200)
+        check(pg.evaluate(STATE, "browser") == "2" and pg.evaluate(STATE, "brfam") == pg.evaluate(STATE, "fam3"),
+              "SEQ: the sound browser, at lane 4's family")
+        pg.screenshot(path=os.path.join(OUT, "browser.png"))
+        home.click(delay=60); pg.wait_for_timeout(100)
+        pg.evaluate("Module._web_enc(1, 3)"); pg.wait_for_timeout(100)
+        edit.click(delay=60); pg.wait_for_timeout(100)
+        pg.evaluate("Module._web_enc(1, 1)"); pg.wait_for_timeout(100)
+        edit.click(delay=60); pg.wait_for_timeout(200)
+        check(pg.evaluate(STATE, "browser") == "0" and pg.evaluate(STATE, "fam3") == "Fire" and pg.evaluate(STATE, "snd3") == "bonfire",
+              f"the browser: Fire's bonfire picked for lane 4 ({pg.evaluate(STATE, 'fam3')}, {pg.evaluate(STATE, 'snd3')})")
+        seq.click(delay=60); pg.wait_for_timeout(100)
+        pg.evaluate("Module._web_enc(1, 2)"); pg.wait_for_timeout(100)
+        home.click(delay=60); pg.wait_for_timeout(100)
+        home.click(delay=60); pg.wait_for_timeout(600)
+        check(pg.evaluate(STATE, "browser") == "0" and pg.evaluate(STATE, "snd3") == "bonfire" and pg.evaluate(PAGE) == "LANDSCAPE",
+              "the browser: HOME, HOME cancels (the sound kept, LANDSCAPE)")
         # the knobs (SELECT, encoder 0): one detent per distance of the hand
         pg.evaluate(COUNT_ENC)
         check(pg.evaluate(WHEEL, [[-4, 0, 8]] * 30) == 2, "a gentle trackpad swipe (120 px): 2 detents")

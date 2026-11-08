@@ -5,8 +5,8 @@
  *                the black keys      by their groups (3, 2, 3, 2, 1): group n selects lane n, shown on LANDSCAPE (ui.c
  *                                    ui_lane_focus); held NT_HOLD_MS (as PLAY's hold) it also mutes the lane, or
  *                                    unmutes it (scape.c sc_mute: the lane plays on, only its output is gated, so it
- *                                    comes back at once); F#5 (the fifth) nothing. The sounds are picked on the pages
- *                                    (K1), not by a key;
+ *                                    comes back at once); F#5 (the fifth) nothing. The sounds are picked in the sound
+ *                                    browser (SEQ, ui.c), not by a key;
  *                F3 .. E4 (7 white)  HOW MANY of the selected lane: off, 1, 2, 4, 10, 19, 32 (each sounds the same more);
  *                F4 .. G5 (9 white)  HOW ACTIVE: rare .. busy (steps 1 .. 14, G5 the 14th).
  *              No key changes the landscape (ALGORITHM does, on its page).

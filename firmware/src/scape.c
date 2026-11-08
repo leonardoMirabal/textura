@@ -32,7 +32,8 @@ static struct {
     const tx_engine_t *src;                     /* the SOURCE engine */
     int8_t id_preset, id_type, id_count;        /* its parameters */
     /* each lane, as wanted */
-    int8_t snd[SC_N];                           /* the landscape's sound (-1: none) */
+    int8_t snd[SC_N];                           /* the sound, in its family (-1: none) */
+    uint8_t lf[SC_N];                           /* the lane's family: the landscape's, or another (the sound browser) */
     const tx_engine_t *eng[SC_N];
     uint8_t preset[SC_N], type[SC_N];           /* (the source) */
     uint8_t cnt[SC_N], step[SC_N], run[SC_N], notes[SC_N], pan[SC_N];
@@ -101,9 +102,9 @@ static uint32_t sc_cnt_of(uint32_t k) { return sc.run[k] ? sc.cnt[k] : 0u; }
 static uint32_t sc_step_of(uint32_t k) { return sc.run[k] ? sc.step[k] : 0u; }
 static uint32_t sc_vol_of(uint32_t k)
 {
-    return sc.snd[k] >= 0 ? sc.vol[sc.fam][sc.snd[k]] : 100u;
+    return sc.snd[k] >= 0 ? sc.vol[sc.lf[k]][sc.snd[k]] : 100u;
 }
-static const char *sc_sound_name(uint32_t k) { return sc.snd[k] >= 0 ? LS[sc.fam].s[sc.snd[k]].name : "-"; }
+static const char *sc_sound_name(uint32_t k) { return sc.snd[k] >= 0 ? LS[sc.lf[k]].s[sc.snd[k]].name : "-"; }
 static uint32_t sc_blink_ms(uint32_t k) { return SC_BLINK_MS[sc_act_of(sc_step_of(k))]; }
 
 /* ---- what a lane's engine is sent: only what differs from the last time */
@@ -133,7 +134,7 @@ static void sc_sync(uint32_t k)
     if ((int32_t)sc_vol_of(k) != sc.a_level[k]) { ln_level(k, sc_vol_of(k)); sc.a_level[k] = (int16_t)sc_vol_of(k); }
     if (sc.pan[k] != sc.a_pan[k]) { ln_pan(k, sc.pan[k]); sc.a_pan[k] = sc.pan[k]; }
     {
-        int32_t t = sc.snd[k] >= 0 ? (int32_t)LS[sc.fam].s[sc.snd[k]].trim : 4096;
+        int32_t t = sc.snd[k] >= 0 ? (int32_t)LS[sc.lf[k]].s[sc.snd[k]].trim : 4096;
         if (t != sc.a_trim[k] && ln_trim(k, (uint32_t)t) >= 0) sc.a_trim[k] = t;
     }
     gen = sc.run[k] && sc.notes[k];             /* the generator: on while the lane runs (Notes on) */
@@ -221,9 +222,11 @@ static void sc_step(uint32_t k, uint32_t w)     /* HOW ACTIVE as a step 1 .. 14 
     if (!sc.run[k]) sc_start(k, 1);
     else sc_sync(k);
 }
-static void sc_load(uint32_t k, uint32_t i)     /* soundLoad: the landscape's sound i into lane k, stopped */
+static void sc_load(uint32_t k, uint32_t f, uint32_t i)   /* soundLoad: family f's sound i into lane k, stopped */
 {
-    const ls_sound_t *s = &LS[sc.fam].s[i];
+    const ls_sound_t *s;
+    if (f >= LS_N || i >= LS[f].n) return;
+    s = &LS[f].s[i];
     if (sc.run[k]) sc_start(k, 0);
     sc.step[k] = 0; sc.cnt[k] = 0;
     if (s->eng) {
@@ -237,7 +240,7 @@ static void sc_load(uint32_t k, uint32_t i)     /* soundLoad: the landscape's so
         sc.type[k] = s->type;
     }
     sc.q[k] = sc_is_src(k) ? 0 : sc_quick(sc.eng[k]);
-    sc.snd[k] = (int8_t)i;
+    sc.snd[k] = (int8_t)i; sc.lf[k] = (uint8_t)f;
     sc_sync(k);
 }
 /* PLAY mode: the keys play the lane's engine, so a lane at HOW MANY off gets one (its COUNT) without starting */
@@ -246,42 +249,34 @@ static void sc_play_ready(uint32_t k)
     if (k < SC_N && !sc.cnt[k]) { sc.cnt[k] = 1; sc_sync(k); }
 }
 static void sc_select(uint32_t k) { if (k < SC_N) sc.sel = (uint8_t)k; }
-/* K1 on LANDSCAPE: the selected lane's sound, d sounds on (the ones on the other lanes skipped); playing, it goes on
- * playing with the same HOW MANY and HOW ACTIVE */
-static void sc_sound_turn(int32_t d)
-{
-    uint32_t k = sc.sel, n = LS[sc.fam].n, j, tries;
-    int32_t i = sc.snd[k];
-    uint8_t run = sc.run[k], c = sc.cnt[k], s = sc.step[k];
-    if (!d || !n) return;
-    for (tries = 0; tries < n; tries++) {
-        int used = 0;
-        i += d > 0 ? 1 : -1;
-        if (i < 0) i = (int32_t)n - 1;
-        if (i >= (int32_t)n) i = 0;
-        for (j = 0; j < SC_N; j++) if (j != k && sc.snd[j] == i) used = 1;
-        if (!used) break;
-    }
-    if (i == sc.snd[k]) return;
-    sc_load(k, (uint32_t)i);
-    if (run) { sc_count(k, c); sc_step(k, s); }
-}
-/* the lane's sound set to the landscape's sound i (a CC, the SOUND card): playing, it goes on playing as it was; a sound
+/* the lane's sound set to its family's sound i (a CC, the SOUND card): playing, it goes on playing as it was; a sound
  * already on another lane stays there (no change) */
 static void sc_sound_to(uint32_t k, uint32_t i)
 {
-    uint32_t j;
+    uint32_t j, f;
     uint8_t run, c, st;
-    if (k >= SC_N || i >= LS[sc.fam].n || sc.snd[k] == (int)i) return;
-    for (j = 0; j < SC_N; j++) if (sc.snd[j] == (int)i) return;
+    if (k >= SC_N) return;
+    f = sc.lf[k];
+    if (i >= LS[f].n || sc.snd[k] == (int)i) return;
+    for (j = 0; j < SC_N; j++) if (sc.snd[j] == (int)i && sc.lf[j] == f) return;
     run = sc.run[k]; c = sc.cnt[k]; st = sc.step[k];
-    sc_load(k, i);
+    sc_load(k, f, i);
+    if (run) { sc_count(k, c); sc_step(k, st); }
+}
+/* the sound browser's pick (and its preview): family f's sound i on lane k, a sound on another lane too (each lane its
+ * own instance); playing, it goes on playing as it was */
+static void sc_sound_set(uint32_t k, uint32_t f, uint32_t i)
+{
+    uint8_t run, c, st;
+    if (k >= SC_N || f >= LS_N || i >= LS[f].n || (sc.snd[k] == (int)i && sc.lf[k] == f)) return;
+    run = sc.run[k]; c = sc.cnt[k]; st = sc.step[k];
+    sc_load(k, f, i);
     if (run) { sc_count(k, c); sc_step(k, st); }
 }
 static void sc_volume(uint32_t k, uint32_t v)
 {
     if (k >= SC_N || sc.snd[k] < 0) return;
-    sc.vol[sc.fam][sc.snd[k]] = (uint8_t)(v > 127u ? 127u : v);
+    sc.vol[sc.lf[k]][sc.snd[k]] = (uint8_t)(v > 127u ? 127u : v);
     sc_sync(k);
 }
 /* a black key held: the lane muted / unmuted. Only its output: it goes on playing, so it comes back at once (a short
@@ -294,7 +289,8 @@ static void sc_family(uint32_t f)               /* setFamily: every lane stopped
     sc.fam = (uint8_t)(f % LS_N);
     sc.fam_want = sc.fam; sc.fam_pend = 0;
     for (k = 0; k < SC_N; k++) { if (sc.run[k]) sc_start(k, 0); sc.snd[k] = -1; sc.mem_cnt[k] = 0; sc_mute(k, 0); }
-    for (k = 0; k < SC_N && k < LS[sc.fam].n; k++) sc_load(k, k);
+    for (k = 0; k < SC_N; k++) sc.lf[k] = sc.fam;
+    for (k = 0; k < SC_N && k < LS[sc.fam].n; k++) sc_load(k, sc.fam, k);
     sc.sel = 0;
 }
 static void sc_start_landscape(void)            /* the first three sounds at once, low: 2 / 1 / 1 of them, rare */

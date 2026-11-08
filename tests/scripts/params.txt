@@ -46,8 +46,11 @@
 2520 expect state card1 120
 2540 expect state host3.5 120
 2600 shot
-# ALGORITHM: the lane's next sound (eaves dripping): its own cards, the override gone
+# the sound browser (ALGORITHM): the lane's next sound (eaves dripping) picked: its own cards, the override gone
 2700 turn 1 1
+2701 turn 1 -20
+2702 turn 1 4
+2703 btn 6
 2720 expect state snd3 eaves_dripping
 2760 expect state lab2 RHYTHM
 2760 expect state host3.5 63

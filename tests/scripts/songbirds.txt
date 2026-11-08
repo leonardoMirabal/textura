@@ -63,6 +63,9 @@
 3700 btn 8
 3710 btn 6
 3750 turn 1 1
+3751 turn 1 -20
+3752 turn 1 4
+3753 btn 6
 3800 expect state snd1 robin
 3900 expect state lab0 SIZE
 3900 expect state lab1 DEPTH
@@ -77,6 +80,9 @@
 4150 btn 8
 4160 btn 6
 4200 turn 1 1
+4201 turn 1 -20
+4202 turn 1 5
+4203 btn 6
 4250 expect state snd1 wren
 4350 expect state lab0 SIZE
 4350 expect state lab1 DEPTH
@@ -91,6 +97,9 @@
 4600 btn 8
 4610 btn 6
 4650 turn 1 1
+4651 turn 1 -20
+4652 turn 1 6
+4653 btn 6
 4700 expect state snd1 hermit_thrush
 4800 expect state lab0 SIZE
 4800 expect state lab1 DEPTH
@@ -105,6 +114,9 @@
 5050 btn 8
 5060 btn 6
 5100 turn 1 1
+5101 turn 1 -20
+5102 turn 1 7
+5103 btn 6
 5150 expect state snd1 skylark
 5250 expect state lab0 SIZE
 5250 expect state lab1 DEPTH
@@ -119,6 +131,9 @@
 5500 btn 8
 5510 btn 6
 5550 turn 1 1
+5551 turn 1 -20
+5552 turn 1 8
+5553 btn 6
 5600 expect state snd1 wood_thrush
 5700 expect state lab0 SIZE
 5700 expect state lab1 DEPTH
@@ -133,6 +148,9 @@
 5950 btn 8
 5960 btn 6
 6000 turn 1 1
+6001 turn 1 -20
+6002 turn 1 9
+6003 btn 6
 6050 expect state snd1 reed_warbler
 6150 expect state lab0 SIZE
 6150 expect state lab1 DEPTH

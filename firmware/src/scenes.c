@@ -54,7 +54,8 @@ typedef struct {
     char name[12];
     int8_t snd[SC_N];
     uint8_t cnt[SC_N], step[SC_N], run[SC_N], vol[SC_N], pan[SC_N];
-    uint16_t nrec, rsv2;
+    uint16_t nrec, lfam;                        /* (lfam: lane k's family + 1 at bits 4k .. 4k+3; 0: the scene's
+                                                 * landscape, as every scene before the sound browser) */
     scn_rec_t r[SCN_REC_MAX];
 } scn_t;
 typedef struct { uint32_t magic, seq, len, crc; } scn_hdr_t;
@@ -213,6 +214,7 @@ static void scn_capture(scn_t *s)
         s->step[k] = sc.step[k]; s->run[k] = sc.run[k];
         s->vol[k] = (uint8_t)sc_vol_of(k); s->pan[k] = sc.pan[k];
         if (sc.mute[k]) s->mute |= (uint8_t)(1u << k);
+        if (sc.snd[k] >= 0) s->lfam |= (uint16_t)((sc.lf[k] + 1u) << (4u * k));
         for (i = 0; i < c->n; i++) if (c->cv[i] != 0xFF) scn_add(s, PID(k, PL_CARD0 + i), c->cv[i]);   /* (the ones set) */
     }
     scn_add(s, PID(P_GLOBAL, PG_FINE), (int32_t)tempo_bpm10() - 400);
@@ -253,10 +255,14 @@ static void scn_lanes(const scn_t *s)
     if (f != sc.fam) sc_family(f);
     sc.fam_pend = 0;
     for (k = 0; k < SC_N; k++) { if (sc.run[k]) sc_start(k, 0); sc.snd[k] = -1; sc.mem_cnt[k] = 0; m_cb_ok[k] = 0; sc.mute[k] = 0; }
-    for (k = 0; k < SC_N; k++) if (s->snd[k] >= 0 && (uint32_t)s->snd[k] < LS[f].n) sc_load(k, (uint32_t)s->snd[k]);
+    for (k = 0; k < SC_N; k++) {
+        uint32_t lf = s->lfam >> (4u * k) & 15u;
+        lf = lf && lf <= LS_N ? lf - 1u : f;
+        if (s->snd[k] >= 0) sc_load(k, lf, (uint32_t)s->snd[k]);   /* (one out of its family's range: none) */
+    }
     for (k = 0; k < SC_N; k++) {
         if (sc.snd[k] < 0) continue;
-        sc.vol[f][sc.snd[k]] = s->vol[k] > 127u ? 127u : s->vol[k];
+        sc.vol[sc.lf[k]][sc.snd[k]] = s->vol[k] > 127u ? 127u : s->vol[k];
         sc.pan[k] = s->pan[k] > 127u ? 127u : s->pan[k];
         sc.mute[k] = (uint8_t)(s->mute >> k & 1u);
         if (s->run[k] && s->cnt[k]) {

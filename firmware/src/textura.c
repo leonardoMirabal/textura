@@ -338,6 +338,10 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (sscanf(key, "vol%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc_vol_of(k));
     else if (sscanf(key, "pan%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.pan[k]);
     else if (sscanf(key, "mute%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.mute[k]);
+    else if (sscanf(key, "fam%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%s", LS[sc.lf[k]].name);   /* the lane's family */
+    else if (!strcmp(key, "browser")) snprintf(v, n, "%u", ub.on ? ub.lv : 0u);   /* the sound browser: 0 shut, its level */
+    else if (!strcmp(key, "brfam")) snprintf(v, n, "%s", LS[ub.f].name);
+    else if (!strcmp(key, "brcur")) snprintf(v, n, "%u", ub.cur);
     else if (sscanf(key, "gate%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%d", (int)ln.mix.gc[k]);   /* the mix's gate now, Q15 */
     else if (sscanf(key, "alive%u%c", &k, &c) == 1 && k < SC_N) {   /* the lane's engine made events since this was read last */
         static uint32_t was[SC_N];
@@ -382,6 +386,14 @@ static int host_state(const char *key, char *v, unsigned n)
     else return 1;
     return 0;
 }
+#ifdef DINGHY_WEB
+EMSCRIPTEN_KEEPALIVE const char *web_state(const char *key)   /* host_state for the web panel's checks (tests/web_check.py) */
+{
+    static char v[64];
+    if (host_state(key, v, sizeof v)) v[0] = 0;
+    return v;
+}
+#endif
 #ifndef DINGHY_WEB
 static void host_gov_pool(uint32_t us) { ln.gov.budget = us ? us : LN_GOV_POOL_US; }   /* "T govpool US" (0: the
                                                          * device's): a smaller pool, to watch the governor act */

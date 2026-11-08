@@ -34,6 +34,9 @@
 2850 btn 8
 2860 btn 6
 2900 turn 1 1
+2901 turn 1 -20
+2902 turn 1 4
+2903 btn 6
 2950 expect state snd1 open_moor
 3050 expect state lab0 GUST
 3050 expect state lab1 EXPOSED
@@ -42,6 +45,9 @@
 3100 btn 8
 3110 btn 6
 3150 turn 1 1
+3151 turn 1 -20
+3152 turn 1 5
+3153 btn 6
 3200 expect state snd1 sea_wind
 3300 expect state lab0 GUST
 3300 expect state lab1 EXPOSED
@@ -50,6 +56,9 @@
 3350 btn 8
 3360 btn 6
 3400 turn 1 1
+3401 turn 1 -20
+3402 turn 1 6
+3403 btn 6
 3450 expect state snd1 ridge_gale
 3550 expect state lab0 GUST
 3550 expect state lab1 EXPOSED
@@ -58,6 +67,9 @@
 3600 btn 8
 3610 btn 6
 3650 turn 1 1
+3651 turn 1 -20
+3652 turn 1 7
+3653 btn 6
 3700 expect state snd1 gusty_autumn
 3800 expect state lab0 GUST
 3800 expect state lab1 FOLIAGE
@@ -66,6 +78,9 @@
 3850 btn 8
 3860 btn 6
 3900 turn 1 1
+3901 turn 1 -20
+3902 turn 1 8
+3903 btn 6
 3950 expect state snd1 winter_storm
 4050 expect state lab0 GUST
 4050 expect state lab1 EXPOSED
@@ -74,6 +89,9 @@
 4100 btn 8
 4110 btn 6
 4150 turn 1 1
+4151 turn 1 -20
+4152 turn 1 9
+4153 btn 6
 4200 expect state snd1 desert_wind
 4300 expect state lab0 DRIFT
 4300 expect state lab1 GUST

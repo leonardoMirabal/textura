@@ -3,8 +3,8 @@
 # landscape; ALGORITHM = landscape; OCT = lane; K1..K4 = the volumes of lanes 1..4; key LEDs (14 + key)
 1700 btn 13
 1800 expect state run0 1
-# C#5 (key 20): lane 4 (cave drips, stopped), LANDSCAPE stays; EDIT: its SOUND page; ALGORITHM: its next sound not on
-# another lane (eaves dripping), selected and stopped; HOME back
+# C#5 (key 20): lane 4 (cave drips, stopped), LANDSCAPE stays; EDIT: its SOUND page; ALGORITHM: the sound browser, at
+# cave drips; ALGORITHM, EDIT: the next sound (eaves dripping) picked, stopped; HOME back
 2000 keys 0x100000
 2050 keys 0
 2052 expect state sel 4
@@ -13,6 +13,10 @@
 2060 expect state page SOUND_1/2
 2060 expect state snd3 cave_drips
 2070 turn 1 1
+2072 expect state browser 2
+2074 turn 1 1
+2076 btn 6
+2078 expect state browser 0
 2090 btn 8
 2100 expect state page LANDSCAPE
 2100 expect state snd3 eaves_dripping
@@ -73,8 +77,11 @@
 4182 expect state sel 3
 4185 btn 6
 4187 expect state page SOUND_1/2
-# ALGORITHM on SOUND: the next sound not on another lane; HOME back
+# ALGORITHM on SOUND: the sound browser; cave drips picked (it is on no other lane now); HOME back
 4200 turn 1 1
+4201 turn 1 -20
+4202 turn 1 3
+4203 btn 6
 4220 expect state snd2 cave_drips
 4300 expect state run2 1
 4350 btn 8

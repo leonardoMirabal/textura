@@ -24,8 +24,8 @@ emcc -O2 -DDINGHY_HOST -DDINGHY_WEB -DHOST_SAVE_MS=1u -DAPP_VER="\"$VER\"" -Ifir
   -Wno-unused-function -Wno-unused-variable \
   firmware/src/textura.c engines/*.c -o $OUT/textura.js \
   -sASYNCIFY -sASYNCIFY_IMPORTS='["emscripten_sleep"]' -sALLOW_MEMORY_GROWTH=0 -sINITIAL_MEMORY=33554432 \
-  -sEXPORTED_FUNCTIONS='["_main","_web_audio","_web_btn","_web_keys","_web_enc","_web_midi","_web_master","_web_fb","_web_leds","_web_store","_web_store_take_dirty","_web_flw_buf","_web_flw_len","_web_flw_take_dirty","_web_page","_web_scene"]' \
-  -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAPF32"]' -sENVIRONMENT=web
+  -sEXPORTED_FUNCTIONS='["_main","_web_audio","_web_btn","_web_keys","_web_enc","_web_midi","_web_master","_web_fb","_web_leds","_web_store","_web_store_take_dirty","_web_flw_buf","_web_flw_len","_web_flw_take_dirty","_web_page","_web_scene","_web_state"]' \
+  -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAPF32","ccall"]' -sENVIRONMENT=web
 cp web/index.html web/app.js $OUT/
 printf 'window.TEXTURA_VERSION = "%s";\n' "$VER" > $OUT/version.js
 echo "$OUT: $(ls $OUT | tr '\n' ' ')"
