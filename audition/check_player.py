@@ -360,6 +360,18 @@ def main():
             time.sleep(1.0)
             pk = page.evaluate("window.txTest.render(64)")
             check(pk > 0, f"lane mode: two lanes sound (peak {pk})")
+            page.click('#kb .key[data-n="54"]', delay=800)   # F#3 held: lane 1 selected and muted (it plays on: a steady glow)
+            st = page.evaluate("window.txTest.src()")
+            pk = page.evaluate("window.txTest.render(64)")
+            check(st["mute"] == [True, False, False, False] and st["lane"] == 0 and st["run"][0] and 54 in st["glow"]
+                  and 54 not in dict(st["blink"]) and 61 in dict(st["blink"]) and pk > 0,
+                  f"lane mode: a black key held mutes its lane, which plays on (mute {st['mute']}, glow {st['glow']}, peak {pk})")
+            page.click('#kb .key[data-n="56"]', delay=800)   # G#3 (lane 1 too) held: unmuted
+            st = page.evaluate("window.txTest.src()")
+            check(not any(st["mute"]) and 54 in dict(st["blink"]), f"lane mode: held again, unmuted (mute {st['mute']})")
+            key(61)                                          # C#4: lane 2 selected again (a tap: no mute)
+            st = page.evaluate("window.txTest.src()")
+            check(st["lane"] == 1 and not any(st["mute"]), "lane mode: a black key tapped selects only")
             gv = page.evaluate("window.txTest.gov(60)")      # the CPU governor: a tiny budget makes it take heroes
             time.sleep(1.5)
             gv = page.evaluate("window.txTest.gov(0)")

@@ -80,6 +80,7 @@
   @media (max-width: 700px) { #lanes-box .lane { grid-template-columns: minmax(0, 1fr); } }
   #lanes-box .lane.sel { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
   #lanes-box .lane.run { color: var(--accent); font-weight: 600; }
+  #lanes-box .lane.muted { opacity: 0.5; }           /* a black key held: the lane muted (it plays on) */
   .key span { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 10px; color: #777; }
   .key .lt { position: absolute; left: 0; right: 0; text-align: center; font-style: normal; font-weight: 700; font-size: 13px; }
   .key.w .lt { bottom: 20px; color: #444; } .key.b .lt { bottom: 6px; color: #ddd; }
@@ -190,7 +191,8 @@
     </div>
     <div class="hint">Lane mode: the keyboard shows the FM-1's F3 … G5. A <b>landscape</b> is one family of sounds (water, stones, birds …),
       picked in the Sounds row (a sound's button tapped again turns it off). The <b>black keys</b> select the lanes by their groups:
-      F#3 … A#3 lane 1, C#4 D#4 lane 2, F#4 … A#4 lane 3, C#5 D#5 lane 4 (F#5 nothing). No key changes the landscape.
+      F#3 … A#3 lane 1, C#4 D#4 lane 2, F#4 … A#4 lane 3, C#5 D#5 lane 4 (F#5 nothing); held 0.6 s, a black key also mutes
+      its lane, or unmutes it (it plays on, so it comes back at once). No key changes the landscape.
       The <b>white keys</b> are two faders for the selected lane: F3 … E4 is <b>how many</b> (F3 off: silence; then 1,
       2, 4, 10, 19, 32 individuals), F4 … G5 <b>how active</b> each one is (F4 rare, G5 busy). Each key sounds the same amount
       more, from one sparse particle to a cloud; a move glides in over ~1 s.

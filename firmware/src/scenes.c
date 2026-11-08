@@ -2,7 +2,7 @@
 /* Scenes and the settings.
  *
  * A scene is everything a sound place is: the landscape, each lane's sound, HOW MANY, HOW ACTIVE, playing or not, its
- * level and pan, its name, then a list of (parameter id, value) records: the lanes' cards (the ones set), the tempo,
+ * level, pan and mute, its name, then a list of (parameter id, value) records: the lanes' cards (the ones set), the tempo,
  * and of the lanes' filter, the grain delay and its SYNC, the reverb, the compressor, the drive, the eight LFOs, the
  * envelopes, the followers and the matrix the values away from their defaults (scn_def_*). A load sets every one of those to its default first,
  * then the scene's records over them, so a record of an older firmware loads into a newer one (an id it lacks gets
@@ -50,7 +50,7 @@
 
 typedef struct { uint16_t id; int16_t v; } scn_rec_t;
 typedef struct {
-    uint8_t ver, used, fam, rsv;
+    uint8_t ver, used, fam, mute;               /* (mute: lane k muted at bit k; a scene from before it: 0, none) */
     char name[12];
     int8_t snd[SC_N];
     uint8_t cnt[SC_N], step[SC_N], run[SC_N], vol[SC_N], pan[SC_N];
@@ -212,6 +212,7 @@ static void scn_capture(scn_t *s)
         s->cnt[k] = m_cb_ok[k] && sc.run[k] && m_cbase[k] ? m_cbase[k] : sc.cnt[k];   /* (HOW MANY modulated: its base) */
         s->step[k] = sc.step[k]; s->run[k] = sc.run[k];
         s->vol[k] = (uint8_t)sc_vol_of(k); s->pan[k] = sc.pan[k];
+        if (sc.mute[k]) s->mute |= (uint8_t)(1u << k);
         for (i = 0; i < c->n; i++) if (c->cv[i] != 0xFF) scn_add(s, PID(k, PL_CARD0 + i), c->cv[i]);   /* (the ones set) */
     }
     scn_add(s, PID(P_GLOBAL, PG_FINE), (int32_t)tempo_bpm10() - 400);
@@ -251,12 +252,13 @@ static void scn_lanes(const scn_t *s)
     for (k = 0; k < SC_N; k++) scn_cards_reset(k);
     if (f != sc.fam) sc_family(f);
     sc.fam_pend = 0;
-    for (k = 0; k < SC_N; k++) { if (sc.run[k]) sc_start(k, 0); sc.snd[k] = -1; sc.mem_cnt[k] = 0; m_cb_ok[k] = 0; }
+    for (k = 0; k < SC_N; k++) { if (sc.run[k]) sc_start(k, 0); sc.snd[k] = -1; sc.mem_cnt[k] = 0; m_cb_ok[k] = 0; sc.mute[k] = 0; }
     for (k = 0; k < SC_N; k++) if (s->snd[k] >= 0 && (uint32_t)s->snd[k] < LS[f].n) sc_load(k, (uint32_t)s->snd[k]);
     for (k = 0; k < SC_N; k++) {
         if (sc.snd[k] < 0) continue;
         sc.vol[f][sc.snd[k]] = s->vol[k] > 127u ? 127u : s->vol[k];
         sc.pan[k] = s->pan[k] > 127u ? 127u : s->pan[k];
+        sc.mute[k] = (uint8_t)(s->mute >> k & 1u);
         if (s->run[k] && s->cnt[k]) {
             sc.cnt[k] = (uint8_t)(s->cnt[k] < LS_NCNT ? s->cnt[k] : LS_NCNT - 1u);
             sc.step[k] = (uint8_t)(s->step[k] < 1u ? 1u : s->step[k] > SC_STEPS ? SC_STEPS : s->step[k]);

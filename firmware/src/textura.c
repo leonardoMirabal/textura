@@ -334,6 +334,14 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (sscanf(key, "run%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.run[k]);
     else if (sscanf(key, "vol%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc_vol_of(k));
     else if (sscanf(key, "pan%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.pan[k]);
+    else if (sscanf(key, "mute%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.mute[k]);
+    else if (sscanf(key, "gate%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%d", (int)ln.mix.gc[k]);   /* the mix's gate now, Q15 */
+    else if (sscanf(key, "alive%u%c", &k, &c) == 1 && k < SC_N) {   /* the lane's engine made events since this was read last */
+        static uint32_t was[SC_N];
+        tx_stats_t st = {0};
+        if (ln.mix.e[k]) ln.mix.e[k]->stats(ln.mix.st[k], &st);
+        snprintf(v, n, "%d", st.total != was[k]); was[k] = st.total;
+    }
     else if (sscanf(key, "gen%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", ln.gen_on[k]);
     else if (!strcmp(key, "bpm10")) snprintf(v, n, "%u", tempo_bpm10());          /* the tempo shown (tempo.c) */
     else if (!strcmp(key, "beatsmp")) snprintf(v, n, "%u", beat_smp);

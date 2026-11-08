@@ -102,6 +102,7 @@ EMSCRIPTEN_KEEPALIVE int txw_select(int i, unsigned seed)
 }
 EMSCRIPTEN_KEEPALIVE void txw_pan(int k, int v) { ready(); tx_mix_pan(&mixer, (unsigned)k, (unsigned)(v < 0 ? 0 : v)); }
 EMSCRIPTEN_KEEPALIVE void txw_trim(int k, int q12) { ready(); tx_mix_trim(&mixer, (unsigned)k, (unsigned)(q12 < 0 ? 0 : q12)); }
+EMSCRIPTEN_KEEPALIVE void txw_gate(int k, int open) { ready(); tx_mix_gate(&mixer, (unsigned)k, open); }   /* a lane's mute */
 EMSCRIPTEN_KEEPALIVE void txw_key_slot(int k, int note, int vel, int on)
 {
     if (k < 0 || k >= (int)TX_MIX_SLOTS || !mixer.e[k] || note < 0 || note > 127) return;

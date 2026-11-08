@@ -31,7 +31,8 @@
  *   SEL        key mode: LANDSCAPE / PLAY      OCT- OCT+  LANDSCAPE mode: the previous / next lane (a lane's page,
  *              SOUND or FILTER, any of their pages, stays, for the new lane; any other goes to LANDSCAPE); PLAY mode: the octave
  *   black keys LANDSCAPE mode, by their groups: lanes 1..4, shown on LANDSCAPE (it stays, any other page goes to it;
- *              EDIT then opens the lane's SOUND)
+ *              EDIT then opens the lane's SOUND); held 600 ms (notes.c NT_HOLD_MS): that lane muted / unmuted too (it
+ *              plays on, only its output gated: back at once, a short ramp; its card dimmed, MUTED; a scene keeps it)
  *   REC        LANDSCAPE mode: all lanes stop (remembered) / start again
  *   SAVE       the save mode (scenes.c: PRESETS / K1 the user scene, SAVE again saves, HOME cancels); held 700 ms:
  *              undo the last scene load            PRESETS  browse the scenes (loads 400 ms after the last detent)
@@ -358,7 +359,7 @@ static void draw_title(void)
 #define ST_DOT_X 214
 #define ST_DOT_Y 6
 #define ST_DOT 8
-static int ui_blink_on(uint32_t k) { uint32_t p = sc_blink_ms(k); return sc.run[k] && fm1_ms % p < p / 2u; }
+static int ui_blink_on(uint32_t k) { uint32_t p = sc_blink_ms(k); return sc.run[k] && !sc.mute[k] && fm1_ms % p < p / 2u; }   /* (muted: still) */
 static void ui_blink_dot(uint32_t k, int on, int canvas)
 {
     uint16_t c = on ? mt.edge : sc.run[k] ? mt.fill : CD_SEGOFF;
@@ -383,7 +384,7 @@ static int ui_home_big(void)
 static void draw_strip(uint32_t k)
 {
     char nm[32], t[8], kk[3] = {'K', (char)('1' + k), 0};
-    int sel = k == sc.sel, run = sc.run[k];
+    int sel = k == sc.sel, run = sc.run[k], mut = sc.mute[k], lit = run && !mut;   /* (muted: drawn as stopped, MUTED) */
     uint32_t i, c = sc_cnt_of(k), a = ui_lane_act(k), v = sc_vol_of(k);
     const int32_t base = (int32_t)RW_H - 4;     /* the name's and the level's baseline, under the status line */
     int32_t x, vw, fw;
@@ -396,28 +397,29 @@ static void draw_strip(uint32_t k)
         return;
     }
     fw = (int32_t)RW_W * (int32_t)v / 127;      /* the level: the card's fill (dimmer while the lane is off) */
-    if (fw > 0) cv_rect(0, 0, fw, RW_H, run ? mt.fill : cd_shade(mt.fill, 45));
+    if (fw > 0) cv_rect(0, 0, fw, RW_H, lit ? mt.fill : cd_shade(mt.fill, 45));
     p_fmt_int(t, (int32_t)v);
     vw = aa_text_w(&AF_S, t);
     big = ui_home_big();
     p_upper(nm, sc_sound_name(k), 30);
     if (!big) ui_fit(nm, ST_DOT_X - 6 - aa_text_w(&AF_S, "127") - 4);
-    if (fw > 2 && run) {                        /* the bright edge, clear of the name and the level */
+    if (fw > 2 && lit) {                        /* the bright edge, clear of the name and the level */
         int16_t bx[8] = {6, (int16_t)(6 + aa_text_w(big ? &AF_L : &AF_S, nm)), (int16_t)(base - (big ? AF_L_CAP_H : AF_S_CAP_H)),
                          (int16_t)(base - 1), (int16_t)(ST_DOT_X - 6 - vw), (int16_t)(ST_DOT_X - 7),
                          (int16_t)(S_TOP(9) + AF_S_CAP_Y), (int16_t)(S_TOP(9) + AF_S_CAP_Y + AF_S_CAP_H - 1)};
         cd_edge(fw - 2, bx, 2);
     }
     x = aa_text_ov(6, S_TOP(9), &AF_S, kk, sel ? UI_ACC : (fw > 40 ? RGB(170, 170, 176) : mt.tag)) + 8;
-    if (!run) aa_text_ov(x, S_TOP(9), &AF_S, "OFF", fw > x + 30 ? RGB(206, 206, 210) : FC_LAB);
+    if (mut) aa_text_ov(x, S_TOP(9), &AF_S, run ? "MUTED" : "MUTED, OFF", UI_ACC);
+    else if (!run) aa_text_ov(x, S_TOP(9), &AF_S, "OFF", fw > x + 30 ? RGB(206, 206, 210) : FC_LAB);
     else {                                      /* HOW MANY (6) and HOW ACTIVE (9), on the status line */
         for (i = 0; i < LS_NCNT - 1u; i++) cv_rect(x + 7 * (int32_t)i, 5, 5, 6, i < c ? mt.edge : CD_SEGOFF);
         x += 7 * (int32_t)(LS_NCNT - 1u) + 8;
         for (i = 0; i < LS_NACT; i++) cv_rect(x + 7 * (int32_t)i, 5, 5, 6, i < a ? FC_VAL : CD_SEGOFF);
     }
     ui_blink_dot(k, ui_blink_on(k), 1);
-    aa_text_ovr(ST_DOT_X - 6, S_TOP(9), &AF_S, t, run ? FC_VAL : FC_LAB);   /* the level, by the dot */
-    aa_text_ov(6, base - (big ? AF_L.asc : AF_S.asc), big ? &AF_L : &AF_S, nm, run ? FC_VAL : FC_LAB);
+    aa_text_ovr(ST_DOT_X - 6, S_TOP(9), &AF_S, t, lit ? FC_VAL : FC_LAB);   /* the level, by the dot */
+    aa_text_ov(6, base - (big ? AF_L.asc : AF_S.asc), big ? &AF_L : &AF_S, nm, lit ? FC_VAL : FC_LAB);
     if (sel) {
         cv_rect(0, 0, RW_W, 1, mt.frame); cv_rect(0, RW_H - 1, RW_W, 1, mt.frame);
         cv_rect(0, 0, 1, RW_H, mt.frame); cv_rect(RW_W - 1, 0, 1, RW_H, mt.frame);
@@ -580,6 +582,7 @@ static void draw_footer(void)
         char t[32];
         p_strcpy(t, nt.mode == NT_PLAY ? "PLAY: KEYS INTO LANE " : "LANE ", 24);
         { char n[2] = {(char)('1' + sc.sel), 0}; p_cat(t, n, 31); }
+        if (sc.mute[sc.sel]) p_cat(t, " (MUTED)", 31);
         ft_c(7, t, FC_LAB);
         ft_c(22, "SOUND   MANY   ACTIVE   VOLUME", FC_DIM);
     } else if (ui_g == G_MIX) ft_c(19, ui_sub == 0u ? "K1-K4: THE LANES' LEVELS" : "K1-K4: THE LANES' PANS", FC_DIM);
@@ -686,7 +689,7 @@ static uint32_t ui_sig_of(uint32_t e)
     else if (e == E_TITLE) h = sig_mix(h, ui_nsub(ui_g));
     else if (e == E_FOOTER) {
         h = sig_mix(h, ui_msg_t && fm1_ms - ui_msg_t < MSG_MS ? ui_msg_t : 0u);
-        h = sig_mix(h, nt.mode); h = sig_mix(h, sc.sel);
+        h = sig_mix(h, nt.mode); h = sig_mix(h, sc.sel); h = sig_mix(h, sc.mute[sc.sel]);
         h = sig_mix(h, scn_save_mode ? scn_save_slot + 1u : 0u);
         if (ui_g == G_COMP) h = sig_mix(h, meter_poll());
         if (scn_save_mode) { uint32_t i; h = sig_mix(h, scn_nm_pos); for (i = 0; i < 11u; i++) h = sig_mix(h, (uint8_t)scn_nm[i]); }
@@ -695,7 +698,7 @@ static uint32_t ui_sig_of(uint32_t e)
         h = sig_mix(h, ui_hot_card == k && ui_hot_t && fm1_ms - ui_hot_t < HOT_MS);
         if (ui_g <= G_MIX) {
             h = sig_mix(h, sc.fam); h = sig_mix(h, (uint32_t)sc.snd[k]); h = sig_mix(h, sc.run[k]);
-            h = sig_mix(h, sc_vol_of(k)); h = sig_mix(h, sc.pan[k]);
+            h = sig_mix(h, sc_vol_of(k)); h = sig_mix(h, sc.pan[k]); h = sig_mix(h, sc.mute[k]);
             if (ui_g == G_MIX) { int32_t lv; h = sig_mix(h, mod_live(PID(k, ui_sub ? PL_PAN : PL_LEVEL), &lv) ? (uint32_t)lv / 4u + 1u : 0u); }
             if (ui_g == G_LAND) { h = sig_mix(h, sc_cnt_of(k)); h = sig_mix(h, ui_lane_act(k)); h = sig_mix(h, k == sc.sel); }
         } else {
@@ -811,6 +814,16 @@ static void ui_lane_focus(uint32_t k)           /* a black key: lane k, shown on
     sc_select(k);
     ui_goto(G_LAND, 0);
     ui_say_n("LANE", sc.sel + 1);
+}
+static void ui_lane_mute(uint32_t k)            /* a black key held: lane k muted / unmuted ("LANE 2 MUTED") */
+{
+    char t[24];
+    if (k >= SC_N) return;
+    if (sc.snd[k] < 0) { ui_say("NO SOUND ON THIS LANE"); return; }
+    sc_mute(k, !sc.mute[k]);
+    p_strcpy(t, "LANE ", 23); { char n[2] = {(char)('1' + k), 0}; p_cat(t, n, 23); }
+    p_cat(t, sc.mute[k] ? " MUTED" : " ON", 23);
+    ui_say(t);
 }
 static void ui_lane_step(int32_t d)             /* OCT: the previous / next lane; a lane's page stays with it, any other
                                                  * goes to LANDSCAPE */

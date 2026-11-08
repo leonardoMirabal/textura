@@ -66,7 +66,7 @@
 #endif
 
 enum { LN_EV_KEY, LN_EV_PARAM, LN_EV_PAN, LN_EV_SWAP, LN_EV_OFF, LN_EV_FX, LN_EV_GEN_ON, LN_EV_GEN_PARAM,
-       LN_EV_GEN_MUTE, LN_EV_HOST, LN_EV_GSYNC, LN_EV_TRIM };
+       LN_EV_GEN_MUTE, LN_EV_HOST, LN_EV_GSYNC, LN_EV_TRIM, LN_EV_GATE };
 
 /* the source's hosted engine (tx_eng_source.c): its own parameters, set over the source's curves until the sound
  * (PRESET or TYPE) changes */
@@ -240,6 +240,7 @@ static int ln_param(uint32_t k, uint32_t id, uint32_t v) { return ln_q(LN_EV_PAR
 static int ln_level(uint32_t k, uint32_t v) { return ln_param(k, TX_PID_LEVEL, v); }
 static int ln_pan(uint32_t k, uint32_t v) { return ln_q(LN_EV_PAN, k, v, 0, 0); }
 static int ln_trim(uint32_t k, uint32_t q12) { return ln_q(LN_EV_TRIM, k, q12 & 255u, q12 >> 8, 0); }   /* the sound's level */
+static int ln_gate(uint32_t k, uint32_t open) { return ln_q(LN_EV_GATE, k, open != 0, 0, 0); }   /* a mute: the output only */
 static int ln_fx(uint32_t g, uint32_t k, uint32_t id, uint32_t v) { return ln_q(LN_EV_FX, k, g, id, v); }
 /* the lane's generator on (a new walk from seed) or off (its notes released) */
 static int ln_gen_on(uint32_t k, uint32_t on, uint32_t seed)
@@ -302,6 +303,9 @@ static void ln_event(const ln_ev_t *v)
         break;
     case LN_EV_TRIM:
         if (k < LN_N) tx_mix_trim(&ln.mix, k, (uint32_t)v->a | (uint32_t)v->b << 8);
+        break;
+    case LN_EV_GATE:
+        if (k < LN_N) tx_mix_gate(&ln.mix, k, v->a);
         break;
     case LN_EV_SWAP:
     case LN_EV_OFF:

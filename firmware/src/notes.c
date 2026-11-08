@@ -2,22 +2,26 @@
 /* The keys and their LEDs. The FM-1 has 27 keys, F3 .. G5 (key k = MIDI 53 + k). Two modes, SEL switches:
  *
  *   LANDSCAPE  as the audition player's lane mode:
- *                the black keys      by their groups (3, 2, 3, 2, 1): group n selects lane n and brings its page (as
- *                                    OCT: a lane's page stays, any other goes to its SOUND 1); F#5 (the fifth) nothing.
- *                                    The sounds are picked on the pages (K1), not by a key;
+ *                the black keys      by their groups (3, 2, 3, 2, 1): group n selects lane n, shown on LANDSCAPE (ui.c
+ *                                    ui_lane_focus); held NT_HOLD_MS (as PLAY's hold) it also mutes the lane, or
+ *                                    unmutes it (scape.c sc_mute: the lane plays on, only its output is gated, so it
+ *                                    comes back at once); F#5 (the fifth) nothing. The sounds are picked on the pages
+ *                                    (K1), not by a key;
  *                F3 .. E4 (7 white)  HOW MANY of the selected lane: off, 1, 2, 4, 10, 19, 32 (each sounds the same more);
  *                F4 .. G5 (9 white)  HOW ACTIVE: rare .. busy (steps 1 .. 14, G5 the 14th).
  *              No key changes the landscape (ALGORITHM does, on its page).
- *              LEDs: a lane's black keys blink while it plays (1.6 s rare .. 0.12 s busy) and glow when it is selected
- *              but stopped; the white keys show the selected lane's two bars.
+ *              LEDs: a lane's black keys blink while it plays (1.6 s rare .. 0.12 s busy), glow steadily while it
+ *              plays muted, and glow when it is selected but stopped; the white keys show the selected lane's two bars.
  *   PLAY       the keys play the selected lane, pitched (OCT- / OCT+ the octave); the LEDs show the held keys.
  *
  * Main loop only. */
 
 #define NT_VEL 100u                             /* the keys' velocity (keyvel.c later) */
 #define NT_SPAN TX_NKEYS                        /* F3 .. G5 */
+#define NT_HOLD_MS 600u                         /* a black key held this long: its lane muted / unmuted (ui.c TAP_HOLD_MS's) */
 static const uint8_t NT_GROUP[11] = {0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 0xFF};   /* the n-th black key's lane (F#5: none) */
 static void ui_lane_focus(uint32_t k);          /* (ui.c) */
+static void ui_lane_mute(uint32_t k);
 
 enum { NT_LANDSCAPE, NT_PLAY };
 static struct {
@@ -26,7 +30,9 @@ static struct {
     uint32_t down;                              /* the keys as last seen */
     uint8_t note[TX_NKEYS], lane[TX_NKEYS];     /* PLAY: what each held key sounds */
     uint32_t playing;                           /* PLAY: keys with a note on */
-} nt;
+    uint8_t hold_k;                             /* LANDSCAPE: the black key held, for its mute (NT_SPAN: none) */
+    uint32_t hold_t;
+} nt = {.hold_k = NT_SPAN};
 
 static int nt_black(uint32_t k) { uint32_t n = (TX_KEY_F3 + k) % 12u; return n == 1u || n == 3u || n == 6u || n == 8u || n == 10u; }
 /* key k (< NT_SPAN) as the n-th black or the n-th white key */
@@ -62,7 +68,10 @@ static void nt_landscape_key(uint32_t k)
     uint32_t n;
     if (k >= NT_SPAN) return;
     n = nt_index(k);
-    if (nt_black(k)) { if (n < sizeof NT_GROUP && NT_GROUP[n] < SC_N) ui_lane_focus(NT_GROUP[n]); return; }
+    if (nt_black(k)) {
+        if (n < sizeof NT_GROUP && NT_GROUP[n] < SC_N) { ui_lane_focus(NT_GROUP[n]); nt.hold_k = (uint8_t)k; nt.hold_t = fm1_ms; }
+        return;
+    }
     if (sc.snd[sc.sel] < 0) return;
     if (n < LS_NCNT) sc_count(sc.sel, n);
     else if (n - LS_NCNT < LS_NACT) sc_step(sc.sel, sc_act_step(n - LS_NCNT));
@@ -71,6 +80,7 @@ static void nt_poll(void)
 {
     uint32_t now = fm1_in.notes & ((1u << TX_NKEYS) - 1u), on = now & ~nt.down, off = nt.down & ~now, k;
     nt.down = now;
+    if (nt.hold_k < NT_SPAN && off >> nt.hold_k & 1u) nt.hold_k = NT_SPAN;   /* (let go before the hold: a select only) */
     for (k = 0; k < TX_NKEYS; k++) {
         if (off >> k & 1u && nt.playing >> k & 1u) { ln_key(nt.lane[k], nt.note[k], 0, 0); nt.playing &= ~(1u << k); }
         if (!(on >> k & 1u)) continue;
@@ -84,6 +94,11 @@ static void nt_poll(void)
             nt.playing |= 1u << k;
         }
     }
+    if (nt.hold_k < NT_SPAN && (nt.mode != NT_LANDSCAPE || !(nt.down >> nt.hold_k & 1u))) nt.hold_k = NT_SPAN;
+    if (nt.hold_k < NT_SPAN && fm1_ms - nt.hold_t >= NT_HOLD_MS) {   /* held: the lane muted / unmuted, once a press */
+        ui_lane_mute(NT_GROUP[nt_index(nt.hold_k)]);
+        nt.hold_k = NT_SPAN;
+    }
 }
 
 /* ---- the LEDs: the keys (lit, and the dim glow layer) and the buttons; set only when they change */
@@ -96,7 +111,8 @@ static void nt_leds(uint32_t btn)
         for (k = 0; k < sizeof NT_GROUP; k++) {   /* the lanes: their black keys */
             uint32_t l = NT_GROUP[k], key = nt_key_of(1, k), p;
             if (l >= SC_N || key >= NT_SPAN) continue;
-            if (sc.run[l]) {
+            if (sc.run[l] && sc.mute[l]) glow |= 1u << key;   /* (muted: a steady glow) */
+            else if (sc.run[l]) {
                 p = sc_blink_ms(l);
                 if (fm1_ms % p < p / 2u) lit |= 1u << key;
                 else glow |= 1u << key;

@@ -1,0 +1,83 @@
+# lane mute: in the LANDSCAPE key mode a black key selects its lane on the press; held 600 ms it also mutes the lane
+# (again: unmutes it). The lane plays on (its engine's events go on: "alive"), only its output is gated (the mix's
+# gate, Q15, ramps to 0 in 512 samples and back); a short press selects only; a scene keeps the mutes, a new landscape
+# clears them
+1700 btn 13
+1800 expect state run0 1
+1800 expect state mute0 0
+1800 expect state gate0 32768
+# F#3 (key 1) tapped: lane 1 selected, not muted; then dense (E4: 32 of them, G5: busy), so it always sounds
+2000 keys 0x2
+2100 keys 0
+2150 expect state sel 1
+2150 expect state mute0 0
+2200 keys 0x800
+2250 keys 0
+2300 keys 0x4000000
+2350 keys 0
+# held: muted at 600 ms (not before), the message, the gate shut, the engine still playing
+2400 keys 0x2
+2900 expect state mute0 0
+3050 expect state mute0 1
+3050 expect state msg LANE_1_MUTED
+3100 expect state gate0 0
+3100 expect state alive0 1
+3150 keys 0
+3200 shot
+3700 expect state alive0 1
+3700 expect state run0 1
+# its keys glow, they no longer blink (never lit)
+3300 expect led 15 0
+3500 expect led 15 0
+3800 expect led 15 0
+# a short press again: selects only, still muted
+3900 keys 0x2
+3950 keys 0
+4000 expect state mute0 1
+# G#3 (key 3, lane 1 too) held: unmuted, the gate open again at once (two blocks)
+4100 keys 0x8
+4750 expect state mute0 0
+4750 expect state msg LANE_1_ON
+4800 expect state gate0 32768
+4800 keys 0
+5000 expect rms > -50
+# all three playing lanes muted (F#3, C#4, F#4): the output falls silent while they play on
+5100 keys 0x2
+5800 keys 0
+5900 keys 0x400
+6600 keys 0
+6700 keys 0x2000
+7400 keys 0
+7450 expect state mute0 1
+7450 expect state mute1 1
+7450 expect state mute2 1
+7450 expect state run1 1
+7450 expect state alive0 1
+10000 expect rms < -70
+10000 expect state alive0 1
+# a scene keeps the mutes: saved to U01, F01 loaded (none muted), U01 again
+10100 btn 9
+10200 btn 9
+10800 expect state saving 0
+10900 midi 0xC0 0 0
+11500 expect state loading 0
+11500 expect state mute0 0
+11500 expect state mute1 0
+11600 midi 0xC0 16 0
+12200 expect state loading 0
+12200 expect state mute0 1
+12200 expect state mute2 1
+12200 expect state mute3 0
+12200 expect state gate1 0
+12300 shot
+# unmuted, the sound back
+12300 keys 0x2
+13000 keys 0
+13100 expect state mute0 0
+13500 expect rms > -50
+# a new landscape: the mutes cleared
+13600 turn 1 1
+14100 expect state mute2 0
+14100 expect state mute1 0
+14150 expect state dropped 0
+14200 end

@@ -17,6 +17,7 @@
 #include "tx_core_comp.h"
 
 #define TX_MIX_SLOTS 4u
+#define TX_MIX_GATE_N 512u                 /* the gate's ramp: 11.6 ms at 44.1 kHz, no click */
 #ifndef TX_LINE                    /* (as tx_fx_drv.h's: a buffer one core writes while the other works, its own lines) */
 #ifdef __PI32V2__
 #define TX_LINE __attribute__((aligned(64)))
@@ -30,6 +31,8 @@ typedef struct {
     void *st[TX_MIX_SLOTS];              /* each slot's state (TX_STATE_MAX bytes, the caller's) */
     int32_t gl[TX_MIX_SLOTS], gr[TX_MIX_SLOTS];   /* pan gains, Q14 (16384 = 1.0) */
     int32_t tg[TX_MIX_SLOTS];            /* the slot's trim before its pan, Q12 (4096 = 1.0: none; up to +24 dB) */
+    int32_t gc[TX_MIX_SLOTS], gt[TX_MIX_SLOTS];   /* the slot's gate (a lane's mute), Q15: now and where it ramps to
+                                                   * (32768 open, 0 shut), TX_MIX_GATE_N samples end to end */
     int32_t slot_peak[TX_MIX_SLOTS];     /* each slot's peak since the caller last cleared it */
     tx_chamber_t *ch;                    /* optional (the caller's, ~22 KB), used while ch_on */
     int ch_on;
@@ -56,6 +59,9 @@ void tx_mix_init(tx_mix_t *m);
 void tx_mix_set(tx_mix_t *m, unsigned k, const tx_engine_t *e, void *st, uint32_t seed);
 void tx_mix_pan(tx_mix_t *m, unsigned k, unsigned pan);   /* 0 left .. 64 centre .. 127 right */
 void tx_mix_trim(tx_mix_t *m, unsigned k, unsigned q12);  /* the slot's level trim, Q12 (a landscape sound's own level) */
+/* the slot's gate: shut (a muted lane: the engine runs on, its output ramps to silence, the slot's peak is still the
+ * engine's) or open again; either way a TX_MIX_GATE_N ramp */
+void tx_mix_gate(tx_mix_t *m, unsigned k, int open);
 TX_AUDIO_CODE void tx_mix_begin(tx_mix_t *m, unsigned n);
 TX_AUDIO_CODE void tx_mix_slot_render(tx_mix_t *m, unsigned k, unsigned n);
 /* or: the caller rendered slot k's block itself (a scene script, say): pan it and add it */

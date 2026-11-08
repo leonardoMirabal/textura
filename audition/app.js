@@ -108,7 +108,8 @@ async function init() {
                                quick: quick.map(q => ({ step: q.step, cur: { ...q.cur } })), eng: [0, 1, 2, 3].map(engName), snd: [...laneSnd],
                                sel: [...document.querySelectorAll("#kb .key.lane-sel")].map(k => +k.dataset.n),
                                glow: [...document.querySelectorAll("#kb .key.lane-glow")].map(k => +k.dataset.n),
-                               blink: [...document.querySelectorAll("#kb .key.lane-blink")].map(k => [+k.dataset.n, k.style.getPropertyValue("--blink")]) });
+                               blink: [...document.querySelectorAll("#kb .key.lane-blink")].map(k => [+k.dataset.n, k.style.getPropertyValue("--blink")]),
+                               mute: [...laneMute] });
   window.txTest.setLaneMode = setLaneMode;
   window.txTest.landscape = startLandscape;
   window.txTest.sound = laneSound;
@@ -571,6 +572,13 @@ const BLACK_LANE = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, -1];   // the n-th black key's
 for (let n = LANE_LO; n <= LANE_HI; n++) ([1, 3, 6, 8, 10].includes(n % 12) ? BLACKS : WHITES).push(n);
 let srcEng = -1, srcIds = null, laneMode = false, lane = 0;
 const laneRun = [false, false, false, false], srcHeld = [false, false, false, false];
+const laneMute = [false, false, false, false];       // a black key held 600 ms: the lane muted (it plays on, its output gated)
+const MUTE_HOLD_MS = 600;                             // (the firmware's NT_HOLD_MS)
+let muteHold = 0;
+function laneMuteSet(k, on) {                         // the mix's gate: a short ramp, the lane keeps running (as the firmware)
+  laneMute[k] = on;
+  if (M) M._txw_gate(k, on ? 0 : 1);
+}
 function srcFindIds(k) {                              // the source's parameter ids by name (read through layer k)
   if (srcIds) return;
   M._txw_slot(k);
@@ -820,7 +828,7 @@ function soundKey(i) {                                // the family's sound i: s
 }
 function setFamily(f) {                               // a landscape: one family; every lane stopped, its first sounds loaded
   fam = f;
-  for (let k = 0; k < 4; k++) { if (laneRun[k] || srcHeld[k]) laneStart(k, false); laneSnd[k] = -1; }
+  for (let k = 0; k < 4; k++) { if (laneRun[k] || srcHeld[k]) laneStart(k, false); laneSnd[k] = -1; laneMuteSet(k, false); }
   for (let k = 0; k < 4 && k < FAMILIES[fam][1].length; k++) soundLoad(k, k);
   famBar();
   laneSelect(0);
@@ -856,7 +864,14 @@ function famBar() {                                   // the landscape's familie
 }
 function laneKey(n) {                                // a black key: its group's lane selected; a white key: F3 .. E4 how
   const b = BLACKS.indexOf(n), w = WHITES.indexOf(n);   // many (F3 off), F4 .. G5 how active
-  if (b >= 0) { if (BLACK_LANE[b] >= 0) laneSelect(BLACK_LANE[b]); return; }
+  if (b >= 0) {                                      // (held MUTE_HOLD_MS: the lane muted / unmuted, noteOff cancels)
+    const k = BLACK_LANE[b];
+    if (k < 0) return;
+    laneSelect(k);
+    clearTimeout(muteHold);
+    muteHold = setTimeout(() => { muteHold = 0; if (layers[k].eng >= 0) { laneMuteSet(k, !laneMute[k]); showLanes(); } }, MUTE_HOLD_MS);
+    return;
+  }
   if (w < 0) return;
   if (w < NCNT) laneCount(lane, w); else if (w - NCNT < NACT) laneStep(lane, actStep(w - NCNT));
 }
@@ -902,13 +917,13 @@ function showLanes() {                                // the LEDs: the bar on th
   for (let i = 0; i < 4; i++) {
     for (const kb of BLACKS.filter((_, b) => BLACK_LANE[b] === i).map(n => document.querySelector(`#kb .key[data-n="${n}"]`))) {
       if (!kb) continue;
-      kb.classList.toggle("lane-sel", i === lane); kb.classList.toggle("lane-glow", laneRun[i] && i !== lane);
-      kb.classList.toggle("lane-blink", laneRun[i]);   // a playing sound's key blinks: 1.6 s (rare) .. 0.12 s (busy)
+      kb.classList.toggle("lane-sel", i === lane); kb.classList.toggle("lane-glow", laneRun[i] && (i !== lane || laneMute[i]));
+      kb.classList.toggle("lane-blink", laneRun[i] && !laneMute[i]);   // (muted: a steady glow)   // a playing sound's key blinks: 1.6 s (rare) .. 0.12 s (busy)
       if (laneRun[i]) kb.style.setProperty("--blink", `${(1 / (1 / 1.6 + (1 / 0.12 - 1 / 1.6) * Math.pow(actOf(laneStepOf(i)) / (NACT - 1), 2.5))).toFixed(2)}s`);   // (its rate
       // on the keys' curve)
     }
     const d = document.createElement("div");
-    d.className = "lane" + (i === lane ? " sel" : "") + (laneRun[i] ? " run" : "");
+    d.className = "lane" + (i === lane ? " sel" : "") + (laneRun[i] ? " run" : "") + (laneMute[i] ? " muted" : "");
     d.dataset.k = i;
     d.innerHTML = `<span class="lab"></span><span class="bars"><span class="small">how many</span>` +
       `<span class="abar cbar" title="how many: click or drag (F3 off, then 1, 2, 4, 10, 19, 32)"></span>` +
@@ -949,7 +964,7 @@ function setLaneMode(on) {
   keyLabels();
   $("lanes").checked = on;
   if (on) setFamily(fam);
-  else for (let i = 0; i < 4; i++) { if (laneRun[i] || srcHeld[i]) laneStart(i, false); M._txw_gen_on(i, 0, 1); }
+  else for (let i = 0; i < 4; i++) { if (laneRun[i] || srcHeld[i]) laneStart(i, false); M._txw_gen_on(i, 0, 1); laneMuteSet(i, false); }
   showSource();
 }
 function genPanel() {                                // the selected lane's generator: Notes on / off, its knobs, a live readout
@@ -978,7 +993,7 @@ function laneLabel(i) {                              // a lane's row: preset, ac
   const pre = layers[i].eng < 0 ? "–" : laneSnd[i] >= 0 ? soundName(laneSnd[i]) : layers[i].eng === srcEng && srcIds ? SRC_PRESETS[srcGet(i, "PRESET")]
     : engName(i) + (QUICK[engName(i)] ? "" : " (no activity map)");
   const gc = M._txw_gov_cur(i), gu = M._txw_gov_user(i);
-  return `${pre} · ${laneRun[i] ? `${COUNT_N[laneCnt[i]]} × activity ${actOf(laneStepOf(i)) + 1}/${NACT}` : "off"}` +
+  return `${laneMute[i] ? "MUTED · " : ""}${pre} · ${laneRun[i] ? `${COUNT_N[laneCnt[i]]} × activity ${actOf(laneStepOf(i)) + 1}/${NACT}` : "off"}` +
     (laneRun[i] && gc < gu ? ` · CPU: ${gc}/${gu} voices` : "");
 }
 function genReadout() {
@@ -1069,6 +1084,7 @@ function noteOn(n, vel) {                            // to every layer on (share
   lightKey(n, true);
 }
 function noteOff(n) {
+  if (laneMode && BLACKS.includes(n) && muteHold) { clearTimeout(muteHold); muteHold = 0; }   // (let go: a select only)
   if (laneMode && !down.has(n)) return;
   const h = down.get(n);
   if (!h) return;

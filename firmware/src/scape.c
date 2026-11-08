@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* The landscape model: which landscape plays, which of its sounds sits on each of the four lanes, and each lane's
- * HOW MANY (the source's COUNT) and HOW ACTIVE (the lane generator's ACTIVITY), its volume and its pan. It is the
+ * HOW MANY (the source's COUNT) and HOW ACTIVE (the lane generator's ACTIVITY), its volume, its pan and its mute. It is the
  * audition player's lane mode (audition/app.js: soundLoad, soundKey, laneCount, laneStep, laneStart, quickTick,
  * setFamily, startLandscape) in C, on the tables tools/gen_landscapes.py writes from app.js (landscapes.h).
  *
@@ -36,12 +36,13 @@ static struct {
     const tx_engine_t *eng[SC_N];
     uint8_t preset[SC_N], type[SC_N];           /* (the source) */
     uint8_t cnt[SC_N], step[SC_N], run[SC_N], notes[SC_N], pan[SC_N];
+    uint8_t mute[SC_N];                         /* muted: the lane plays on, its output gated (lanes.c ln_gate) */
     const ls_quick_t *q[SC_N];                  /* a classic engine's map (0: none) */
     /* and as last sent */
     const tx_engine_t *a_eng[SC_N];
     int16_t a_preset[SC_N], a_type[SC_N], a_count[SC_N], a_act[SC_N], a_level[SC_N], a_pan[SC_N];
     int32_t a_trim[SC_N];                       /* (the sound's own level, Q12: landscapes.h) */
-    uint8_t a_gen[SC_N], a_mute[SC_N], a_held[SC_N];
+    uint8_t a_gen[SC_N], a_mute[SC_N], a_held[SC_N], a_gate[SC_N];   /* (a_gate: muted as last sent) */
     /* the classic engines' glide and presses */
     int8_t q_id[SC_N][3];
     int32_t q_cur[SC_N][3];                     /* Q8 (-1 << 30: not yet sent) */
@@ -110,6 +111,7 @@ static void sc_sync(uint32_t k)
 {
     int src, gen, held;
     uint32_t i;
+    if (sc.mute[k] != sc.a_gate[k] && ln_gate(k, !sc.mute[k]) >= 0) sc.a_gate[k] = sc.mute[k];   /* (the mix's, any engine) */
     if (sc.eng[k] != sc.a_eng[k]) {             /* another engine: the old one's notes go first */
         if (sc.a_held[k]) { ln_key(k, SC_HOLD_NOTE, 0, 0); sc.a_held[k] = 0; }
         if (sc.a_gen[k]) { ln_gen_on(k, 0, 0); sc.a_gen[k] = 0; }
@@ -282,13 +284,16 @@ static void sc_volume(uint32_t k, uint32_t v)
     sc.vol[sc.fam][sc.snd[k]] = (uint8_t)(v > 127u ? 127u : v);
     sc_sync(k);
 }
+/* a black key held: the lane muted / unmuted. Only its output: it goes on playing, so it comes back at once (a short
+ * ramp, tx_mix_gate); a scene keeps it, a new landscape clears it */
+static void sc_mute(uint32_t k, int on) { if (k < SC_N) { sc.mute[k] = (uint8_t)(on != 0); sc_sync(k); } }
 static void sc_pan(uint32_t k, uint32_t v) { if (k < SC_N) { sc.pan[k] = (uint8_t)(v > 127u ? 127u : v); sc_sync(k); } }
 static void sc_family(uint32_t f)               /* setFamily: every lane stopped, the landscape's first sounds loaded */
 {
     uint32_t k;
     sc.fam = (uint8_t)(f % LS_N);
     sc.fam_want = sc.fam; sc.fam_pend = 0;
-    for (k = 0; k < SC_N; k++) { if (sc.run[k]) sc_start(k, 0); sc.snd[k] = -1; sc.mem_cnt[k] = 0; }
+    for (k = 0; k < SC_N; k++) { if (sc.run[k]) sc_start(k, 0); sc.snd[k] = -1; sc.mem_cnt[k] = 0; sc_mute(k, 0); }
     for (k = 0; k < SC_N && k < LS[sc.fam].n; k++) sc_load(k, k);
     sc.sel = 0;
 }
@@ -350,7 +355,7 @@ static void sc_poll(void)
     uint32_t k;
     if (sc.fam_pend && fm1_ms - sc.fam_t >= SC_FAM_MS) sc_family_go();
     for (k = 0; k < SC_N; k++) {
-        if (sc.a_eng[k] != sc.eng[k]) sc_sync(k);   /* a switch that had to wait */
+        if (sc.a_eng[k] != sc.eng[k] || sc.a_gate[k] != sc.mute[k]) sc_sync(k);   /* a switch (a mute) that had to wait */
         if (sc.q_rel[k] && (int32_t)(fm1_ms - sc.q_rel[k]) >= 0) { ln_key(k, SC_HOLD_NOTE, 0, 0); sc.q_rel[k] = 0; }
         if (sc.run[k] && sc.q_next[k] && sc_oneshot(k) && sc.a_eng[k] == sc.eng[k] && (int32_t)(fm1_ms - sc.q_next[k]) >= 0) {
             ln_key(k, SC_HOLD_NOTE, SC_HOLD_VEL, 1);   /* quickPress */

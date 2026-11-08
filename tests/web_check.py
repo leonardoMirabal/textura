@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """The Textura web panel (web/, build/web/) in headless Chromium (Playwright): the page loads without JS errors, the
 firmware runs (the splash, then the LANDSCAPE page on the screen), ?selftest starts the landscape and it sounds, the
-on-screen keys reach the firmware and its key LEDs come back (a black key selects its group's lane, LANDSCAPE stays; a white key
-starts it), the
-knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
+on-screen keys reach the firmware and its key LEDs come back (a black key selects its group's lane, LANDSCAPE stays,
+held it mutes the lane; a white key starts it), the knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
 tests/py/test_web_knobs.py), HOME turns to MIXER, EDIT to SOUND / FILTER, FX to DRIVE / COMPRESSOR / GRAIN / REVERB, GLO to TEMPO / MIDI, LFO to
 LFO, ARP to MATRIX (the captions follow), SAVE saves a scene that a reload brings back, and the page fits a phone (390 px, no sideways scroll). Screenshots at desktop and phone width.
 
@@ -93,6 +92,23 @@ def main():
         check(pg.locator('#kb > .key[data-k="9"]').get_attribute("class").find("lit") >= 0, "the page lights the key")
         check(pg.evaluate(LED, 13) == 1, "REC's light: something plays")
         check(pg.evaluate(PAGE) == "LANDSCAPE", "the black key kept the LANDSCAPE page")
+        # the black key held 0.8 s: lane 4 muted (it plays on: its keys glow, steady, never lit); held again: unmuted
+        kb20 = pg.locator('#kb > .key[data-k="20"]')
+        kb20.click(delay=800)
+        pg.wait_for_timeout(100)
+        seen = set()
+        for _ in range(8):
+            seen.add(pg.evaluate(LED, 14 + 20))
+            pg.wait_for_timeout(120)
+        check(seen == {2}, f"a black key held: its lane muted, its keys glow steadily (LEDs {sorted(seen)})")
+        check(pg.evaluate(LED, 13) == 1, "muted, the lane still plays (REC's light)")
+        kb20.click(delay=800)
+        pg.wait_for_timeout(100)
+        seen = set()
+        for _ in range(12):
+            seen.add(pg.evaluate(LED, 14 + 20))
+            pg.wait_for_timeout(120)
+        check(1 in seen, f"held again: unmuted, its keys blink again (LEDs {sorted(seen)})")
         pg.screenshot(path=os.path.join(OUT, "desktop.png"))
         home, edit = pg.locator('button.b[data-name="HOME"]'), pg.locator('button.b[data-name="EDIT"]')
         edit.click(delay=60)                             # EDIT: the lane's SOUND page
