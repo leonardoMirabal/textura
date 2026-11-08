@@ -296,7 +296,7 @@ def main():
     if not a.eng_opt:
         a.eng_opt = "-Os" if a.app else "-O2"
     eflags = (f"{a.eng_opt} -ffunction-sections -fno-builtin -Wall -Wno-unused-function -Iengines -Ibench"
-              + (" -DTX_NO_TWINS" if a.no_twins else ""))
+              + (" -DTX_NO_TWINS" if a.no_twins else "") + (" -DTX_APP" if a.app else ""))
     if not a.app:
         lines.append(f"{cc} {eflags} -c bench/txfm1_core.c -o o/txfm1_core.o")
     for i in range(0, len(eng), 8):           # (8 at a time: the emulated compiler is slow)
