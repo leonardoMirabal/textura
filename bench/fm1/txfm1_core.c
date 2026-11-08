@@ -23,12 +23,17 @@ struct fm_run_s {
                                     * and its time (ticks), written by the core that renders it (its own lines) */
     uint8_t pmask;                                           /* LANES FM_PAR: core 1's items this block (the lanes,
                                                               * FM_GV, FM_GV + 1: the grain delay's voices' halves) */
-    struct { uint32_t t[2], busy, acc; } __attribute__((aligned(64))) gv1;   /* core 1's own line: its voices', its
-                                                              * lanes job's ticks; acc: all its jobs' ticks so far (the
-                                                              * lanes, the reverb's body and kernel halves, the mix's
-                                                              * halves), core 0 takes each block's share */
+    struct { uint32_t t[2], busy, acc; volatile uint8_t pipe_on; } __attribute__((aligned(64))) gv1;   /* core 1's own
+                                                              * line: its voices', its lanes job's ticks; acc: all its
+                                                              * jobs' ticks so far (the lanes, the reverb's body and
+                                                              * kernel halves, the mix's halves, FM_PIPE the mix end),
+                                                              * core 0 takes each block's share; pipe_on: the mix end
+                                                              * running there (nothing handed on from there) */
     uint32_t gvt[2];                                         /* the voices' halves' last times, ticks */
     uint8_t c1_lost;                                         /* C1: core 1's copy lost (held mid-job): core 0's only */
+    uint8_t pipe;                                            /* FM_PIPE: the last block's mix end: 0 none, 1 done
+                                                              * here, 2 on core 1 */
+    uint32_t pacc;                                           /* FM_PIPE: gv1.acc as the last block ended */
 };
 
 typedef char fm_scr1_fits[sizeof(tx_drv_scr_t) <= TX_MIX_SCR_BYTES ? 1 : -1];
@@ -123,10 +128,10 @@ static void rev_job(uint32_t a)                              /* (core 1: the twi
 {
     uint32_t t0 = lane_now();
     (void)a;
-    TX_C1(tx_fx_reverb_body)(&lane_run->fx.rev);
+    TX_FAR(tx_fx_reverb_body)(&lane_run->fx.rev);   /* (in XIP: either core) */
     lane_run->gv1.acc += lane_now() - t0;
 }
-static int rev_run(void) { fm_run_t *r = lane_run; return r->par && !r->c1_lost && r->par->run(rev_job, r->blk); }
+static int rev_run(void) { fm_run_t *r = lane_run; return !r->gv1.pipe_on && r->par && !r->c1_lost && r->par->run(rev_job, r->blk); }
 static int rev_wait(void)
 {
     fm_run_t *r = lane_run;
@@ -148,7 +153,23 @@ static int rev_krun(void (*fn)(void *), void *a)
 {
     fm_run_t *r = lane_run;
     rev_kfn = fn; rev_karg = a;
-    return r->par && !r->c1_lost && r->par->run(rev_kjob, r->blk);
+    return !r->gv1.pipe_on && r->par && !r->c1_lost && r->par->run(rev_kjob, r->blk);
+}
+/* FM_PIPE: the last block's mix end on core 1 (its twins), between the interrupts (as firmware/src/lanes.c LN_PIPE) */
+static void pipe_job(uint32_t a)
+{
+    fm_run_t *r = lane_run;
+    uint32_t t0 = lane_now();
+    (void)a;
+    r->gv1.pipe_on = 1;
+    tx_mix_run(&r->mix, TX_BLOCK, 1u);
+    r->gv1.pipe_on = 0;
+    r->gv1.acc += lane_now() - t0;
+}
+static void pipe_drain(fm_run_t *r)                          /* (a run's end, its warm-up's: nothing left on core 1) */
+{
+    if (r->pipe == 2u && r->par->wait()) { r->c1_lost = 1; r->gv1.pipe_on = 0; }
+    r->pipe = 0;
 }
 /* core 1's items among on: the split whose larger half took least in the last block (the last split on a tie) */
 static uint32_t lanes_split(const fm_run_t *r, uint32_t on)
@@ -254,11 +275,12 @@ static void start(fm_run_t *r)
         lanes_fx(&r->fx, c->type);
         if (c->type & (FM_G15 | FM_G30)) r->fx.reserve_us = 100000u;   /* (the grains' cap never under those asked) */
         if (c->type & FM_G30) tx_fx_grain_param(&r->fx.gd, TX_GD_GRAINS, TX_GD_MAXG - 1u);   /* (30, pitched) */
-        r->c1_lost = 0; r->pmask = 0; r->gvt[0] = r->gvt[1] = 0;
+        r->c1_lost = 0; r->pmask = 0; r->gvt[0] = r->gvt[1] = 0; r->pipe = 0;
         for (k = 0; k < 4u; k++) r->lb[k].t = 0;
         tx_mix_init(&r->mix);
         r->mix.ins = tx_fx_lane; r->mix.pre = tx_fx_drive_mix; r->mix.busq = tx_fx_bus_quiet; r->mix.fx = &r->fx;
         r->mix.bus = tx_fx_bus_end;                         /* (its begin and the grain voices: fm_step) */
+        r->mix.pre1 = tx_fx_drive_mix_c1; r->mix.bus1 = tx_fx_bus_end_c1;   /* (FM_PIPE: the mix end on core 1) */
         if (c->type & FM_PAR) {
             r->fx.rev.body_run = rev_run; r->fx.rev.body_wait = rev_wait;
             r->fx.rev.par.run = rev_krun; r->fx.rev.par.wait = rev_wait;   /* (and the mix's DRIVE: R there) */
@@ -360,9 +382,21 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
                                                               * (FM_PAR: some on core 1), then lane by lane the pan,
                                                               * the mix (its drive first), the bus's end: the same
                                                               * samples either way */
-        uint32_t m1 = 0, on = (1u << c->eng) - 1u, t0, c0, a1 = r->gv1.acc, tm, nm;
-        tx_mix_begin(&r->mix, TX_BLOCK);
+        uint32_t m1 = 0, on = (1u << c->eng) - 1u, t0, c0, a1, tm, nm;
+        int pipe = (c->type & FM_PIPE) && (c->type & FM_PAR);
         lane_now = ck->now; lane_run = r;
+        if (pipe) {                                          /* the last block's mix end: done (or here), then out */
+            if (r->pipe == 2u && r->par->wait()) {           /* (held mid-job: here again, the run on one core) */
+                if (measuring) { r->s.c1_mis++; if (!r->s.c1_first) r->s.c1_first = r->s.n + 1u; }
+                r->c1_lost = 1; r->gv1.pipe_on = 0;
+                tx_mix_run(&r->mix, TX_BLOCK, 0u);
+            }
+            if (r->pipe) tx_mix_out(&r->mix, L, R, TX_BLOCK);
+            else for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = 0;
+            r->pipe = 0;
+            a1 = r->pacc;                                    /* (core 1's busy: the last mix end and this block's jobs) */
+        } else a1 = r->gv1.acc;
+        tx_mix_begin(&r->mix, TX_BLOCK);
         for (k = 0; k < c->eng; k++) scene_events(r, k, &r->tab[c->lane[k]], r->blk);
         if (tx_fx_bus_begin(&r->fx, TX_BLOCK)) {            /* (the grain voices may run now: in two halves) */
             tx_fx_grain_split(&r->fx.gd, TX_BLOCK); on |= 3u << FM_GV;
@@ -407,7 +441,7 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
             }
             tx_mix_add(&r->mix, k, r->lb[k].x, TX_BLOCK);         /* (its inserts: lane_render) */
         }
-        tx_mix_end(&r->mix, L, R, TX_BLOCK);
+        if (!pipe) tx_mix_end(&r->mix, L, R, TX_BLOCK);
         if (measuring) {                                     /* the serial mix phase (core 0, its halves' wait in it),
                                                               * core 1's busy ticks this block (all its jobs) */
             uint32_t b1 = r->gv1.acc - a1;
@@ -416,13 +450,18 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
             if (b1 > r->s.b1_worst) r->s.b1_worst = b1;
             r->s.mix_sum += tm >> r->s.sum_sh; r->s.b1_sum += b1 >> r->s.sum_sh;
         }
+        if (pipe) {                                          /* the mix end: core 1's, as this block ends */
+            r->pacc = r->gv1.acc;
+            if (r->par && !r->c1_lost && r->par->run(pipe_job, r->blk)) r->pipe = 2u;
+            else { tx_mix_run(&r->mix, TX_BLOCK, 0u); r->pipe = 1u; }
+        }
     }
     raw = ck->now() - t0;
     d = raw - (ck->nested() - n0);
     if (d > raw) d = raw;
     r->blk++;
     if (!measuring) {
-        if (--r->warm == 0u) start(r);                         /* the warm-up's over: the measured run from the top */
+        if (--r->warm == 0u) { pipe_drain(r); start(r); }    /* the warm-up's over: the measured run from the top */
         return 1;
     }
     if (d > r->s.worst) r->s.worst = d;
@@ -430,7 +469,8 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
     ring8(r->s.ring, r->s.n, d, &r->s.w8);
     ring8(r->s.rraw, r->s.n, raw, &r->s.raw_w8);
     r->s.sum += d >> r->s.sum_sh;                            /* (ticks / 16: 32 bits hold a 300 s row; / 256 a 2 h one) */
-    {
+    if (!(c->kind == FM_K_LANES && (c->type & FM_PIPE) && (c->type & FM_PAR) && !r->s.n)) {   /* (FM_PIPE: its first
+                                                              * block is the silence before: not hashed) */
         uint32_t h = r->s.hash;
         for (j = 0; j < TX_BLOCK; j++) {
             uint32_t v = (uint32_t)L[j];
@@ -440,5 +480,7 @@ int fm_step(fm_run_t *r, const fm_clock_t *ck, int32_t *L, int32_t *R)
         r->s.hash = h;
     }
     r->s.n++;
-    return r->s.n < r->nblk;
+    if (r->s.n < r->nblk + (c->kind == FM_K_LANES && (c->type & FM_PIPE) && (c->type & FM_PAR))) return 1;
+    pipe_drain(r);                                           /* (the run's last mix end: done before the next run) */
+    return 0;
 }

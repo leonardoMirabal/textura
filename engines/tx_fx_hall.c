@@ -19,7 +19,7 @@ static const uint16_t HL_AP[HL_NAP] = {131 * RV_X, 307 * RV_X};
 static const int16_t HL_APG[HL_NAP] = {11469, 10240};
 
 /* the input (shared by every kernel): HL_IN, the DC blocker (its corner as at the half rate: 2^-6 a sample) */
-TX_RAM TX_AUDIO_CODE void tx_rev_down(const int32_t *in, int32_t *php, int32_t *phe, int32_t *out)
+TX_AUDIO_CODE void tx_rev_down(const int32_t *in, int32_t *php, int32_t *phe, int32_t *out)
 {
     int32_t hp = *php, he = *phe;
     uint32_t i;
@@ -85,7 +85,7 @@ void tx_hall_start(tx_hall_t *h)                           /* the lines cleared 
 
 /* the ends of lines 4 hf .. 4 hf + 3, a control block, into half[hf] (its own state and buffers: the two halves may
  * run on two cores; every read is at least 866 samples old, older than the block) */
-TX_RAM static void hall_half(tx_hall_t *h, uint32_t hf)
+static void hall_half(tx_hall_t *h, uint32_t hf)
 {
     uint32_t j, s, m, d, w = h->jw;
     int32_t kd = h->jkd, md = h->jmd;
@@ -105,10 +105,10 @@ TX_RAM static void hall_half(tx_hall_t *h, uint32_t hf)
                                         &h->half[hf].le[j], kd));
     }
 }
-TX_RAM void tx_hall_job(void *a) { hall_half((tx_hall_t *)a, 1u); }   /* (the other core's: lines 4..7) */
+void tx_hall_job(void *a) { hall_half((tx_hall_t *)a, 1u); }   /* (the other core's: lines 4..7) */
 
 /* one control block (CTL frames of the send in, HL_NC samples out): mid, side */
-TX_RAM TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t *add, int32_t size, int32_t damp, int32_t md,
+TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t *add, int32_t size, int32_t damp, int32_t md,
                                int32_t *ol, int32_t *or, const tx_rv_par_t *par)
 {
     int16_t *a = h->ap, *o;
@@ -118,7 +118,7 @@ TX_RAM TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const i
     if (h->sz != size + 1) TX_FAR(hall_gains)(h, size);   /* (a SIZE change: in XIP) */
     h->ph += HL_LFO;
     h->jw = w; h->jkd = rv_weight(HL_KD(damp)); h->jmd = md;
-    taken = rv_fork(par, TX_C1(tx_hall_job), h);           /* the line ends: 4..7 there (or here, after), 0..3 here */
+    taken = rv_fork(par, tx_hall_job, h);           /* the line ends: 4..7 there (or here, after), 0..3 here */
     tx_rev_down(send, &h->hp, &h->he, h->bx);
     if (add) for (i = 0; i < HL_NC; i++) h->bx[i] += add[i];   /* (Textura: the shimmer, into the lines' input) */
     for (k = 0; k < HL_NAP; k++) {

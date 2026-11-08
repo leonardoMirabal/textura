@@ -50,7 +50,7 @@ TX_INLINE int32_t mq15s(int32_t a, int32_t q) { return (a >> 15) * q + (((a & 32
 #define SW_T 1024                   /* the level where the tail is held 12 dB down: -30 dBFS */
 #define SW_DN 1200                  /* r's fall a control block (Q15): ~25 ms from 1 to 0 */
 #define SW_UP 20                    /* r's rise a control block: 1.2 s from 0 to 1 */
-TX_RAM static void swell(tx_fx_reverb_t *r, int32_t pk, int32_t *om, int32_t *os)
+static void swell(tx_fx_reverb_t *r, int32_t pk, int32_t *om, int32_t *os)
 {
     int32_t t, r0 = r->swr, g0, g1, i;
     r->swe = pk > r->swe ? pk : r->swe - (r->swe >> 6) - (r->swe > 0);
@@ -71,7 +71,7 @@ TX_RAM static void swell(tx_fx_reverb_t *r, int32_t pk, int32_t *om, int32_t *os
  * SHIFT, with no gaps and no clicks; linear interpolation. A guard lowers the feed when a block's peak is high, so a
  * SUSTAIN or a long hall cannot run away; it recovers slowly. ~20 us a block on the FM-1. */
 static const uint32_t SH_INC[4] = {2097152u, 1045025u, 4187203u, 4293918720u};   /* (ratio - 1) x 2^32 / 2048 */
-TX_RAM static void shimmer(tx_fx_reverb_t *r, const int32_t *mid)
+static void shimmer(tx_fx_reverb_t *r, const int32_t *mid)
 {
     int32_t amt = r->p[TX_RV_SHIMMER], g = (int32_t)(((amt * 258) >> 3) * (int64_t)r->shg >> 15), pk = 0;
     uint32_t i, inc = SH_INC[r->p[TX_RV_SHIFT] & 3u], ph = r->shph, w = r->shw;
@@ -197,7 +197,7 @@ TX_INLINE int32_t rv_gw(const tx_fx_reverb_t *r, uint32_t j)   /* the wet's gain
 }
 /* the dry / wet blend (tx_fx.h): L, R = dry x d + wet (wl, wr; 0: none) x w x k, the gains (Q15) straight from d0, w0
  * to d1, w1 across the n samples (exact at the end; 32768 and no wet: untouched) */
-TX_RAM void tx_fx_drywet(int32_t *L, int32_t *R, const int32_t *wl, const int32_t *wr, unsigned n, int32_t d0,
+void tx_fx_drywet(int32_t *L, int32_t *R, const int32_t *wl, const int32_t *wr, unsigned n, int32_t d0,
                          int32_t d1, int32_t w0, int32_t w1, int32_t k)
 {
     int32_t da = d0 * 256, wa = w0 * 256, ds, ws;
@@ -222,7 +222,7 @@ static void rv_body(const tx_fx_reverb_t *r, int32_t *L, int32_t *R, const int32
         L[r->r0 + j] += v; R[r->r0 + j] += v;
     }
 }
-TX_RAM static void room_flush(tx_fx_reverb_t *r, int32_t *L, int32_t *R)
+static void room_flush(tx_fx_reverb_t *r, int32_t *L, int32_t *R)
 {
     int32_t keep[TX_BLOCK], *x = r->u.rm.rm + r->r0;
     uint32_t j, n = r->rn;
@@ -238,7 +238,7 @@ TX_RAM static void room_flush(tx_fx_reverb_t *r, int32_t *L, int32_t *R)
 }
 
 /* ROOM on two cores: the body over the gathered run (as room_flush, no fade), its wet part into rw */
-TX_RAM TX_AUDIO_CODE void tx_fx_reverb_body(tx_fx_reverb_t *r)
+TX_AUDIO_CODE void tx_fx_reverb_body(tx_fx_reverb_t *r)
 {
     int32_t *x = r->u.rm.rm + r->r0;
     uint32_t j, n = r->rn;
@@ -247,7 +247,7 @@ TX_RAM TX_AUDIO_CODE void tx_fx_reverb_body(tx_fx_reverb_t *r)
     for (j = 0; j < n; j++) r->u.rm.rw[j] = x[j] - r->u.rm.rw[j];
 }
 
-TX_RAM TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *R, unsigned n)
+TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *R, unsigned n)
 {
     int32_t v = r->p[TX_RV_MIX], tgt = r->p[TX_RV_TYPE], zv = r->p[TX_RV_SIZE];
     int32_t send = tgt && v ? 32766 : 0, size = 40 + (zv ? zv : v) * 70 / 127;   /* (the send: the mid whole; MIX is
@@ -330,9 +330,15 @@ TX_RAM TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, in
         }
     tail:
         {   /* the kernels (and ROOM's tail: a short hall) */
+            if (cur == TX_RVT_HALL || cur == TX_RVT_INF || cur == TX_RVT_PLATE) {   /* the tanks' input: the DC blocker,
+                                                                 * the shimmer's feed (here, in the twin on core 1) */
+                tx_rev_down(in, &r->hp, &r->he, r->x);
+                if (shon) for (i = 0; i < HL_NC; i++) r->x[i] += r->sh[i];
+            }
             if (cur == TX_RVT_HALL || cur == TX_RVT_ROOM) {     /* HALL: the HQ tank (in flash; its T60 law there); */
                 int hq = cur == TX_RVT_HALL;                    /* ROOM's tail: a hall of size 2 .. 32 (T60 ~0.3 .. 1 s); */
-                (hq ? TX_FAR(tx_hq_run) : tx_hall_run)(hq ? (tx_hall_t *)(void *)&r->u.hq.q : &r->u.rm.h, in, shon ? r->sh : 0,
+                (hq ? TX_FAR(tx_hq_run) : tx_hall_run)(hq ? (tx_hall_t *)(void *)&r->u.hq.q : &r->u.rm.h, hq ? r->x : in,
+                    !hq && shon ? r->sh : 0,
                     hq ? size + r->off : 2 + (zv ? zv : 64) * 30 / 127 + r->off / 2, r->damp, md, om, os,
                     two == 1 ? 0 : &r->par);                    /* (one call: RAM text. ROOM on one core here while the
                                                                  * body holds the other) */
@@ -342,8 +348,6 @@ TX_RAM TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, in
                 c.decay = r->dk; c.damp = r->damp; c.size = zv ? zv : TX_RV_INF_AUTO; c.mod = r->p[TX_RV_MOD]; c.dark = dark;
                 c.drift = tgt == TX_RVT_DRIFT ? &r->rng : 0; c.par = &r->par;
                 c.freeze = kern((uint32_t)tgt) != TX_RVT_INF || r->dk < 120 ? 0 : r->dk < 127 ? 1 : 2;
-                tx_rev_down(in, &r->hp, &r->he, r->x);
-                if (shon) for (i = 0; i < HL_NC; i++) r->x[i] += r->sh[i];
                 TX_FAR(tx_inf_run)(&r->u.i, r->x, om, os, &c);
                 if (tgt == TX_RVT_SWELL || r->swr != 32768) swell(r, tgt == TX_RVT_SWELL ? spk : 0, om, os);
             } else if (cur == TX_RVT_PLATE) {
@@ -351,8 +355,6 @@ TX_RAM TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, in
                 if (r->pz < 0 || !TX_FAR(tx_plate_active)(&r->u.p)) r->pz = v;   /* (AUTO: MIX's size, taken from silence) */
                 c.decay = r->dk; c.damp = r->damp; c.size = zv ? zv : r->pz; c.mod = r->p[TX_RV_MOD];
                 c.freeze = 0; c.dark = 0; c.drift = 0; c.par = &r->par;
-                tx_rev_down(in, &r->hp, &r->he, r->x);
-                if (shon) for (i = 0; i < HL_NC; i++) r->x[i] += r->sh[i];
                 TX_FAR(tx_plate_run)(&r->u.p, r->x, om, os, &c);
             }
             if (cur && (r->p[TX_RV_SHIMMER] || shon)) {         /* the shimmer for the next control block */
@@ -440,17 +442,21 @@ void tx_fx_drive_set(tx_fx_t *fx, unsigned id, unsigned v)
     tx_fx_drive_param(&fx->drive[0], id, v);
     tx_fx_drive_param(&fx->drive[1], id, v);
 }
-/* the pair's R on the other core (the reverb's hooks, rev.par): its twin in XIP there, the RAM copy here (a lost job) */
-static void drv_job1(void *a) { tx_fx_t *fx = (tx_fx_t *)a; TX_C1(tx_fx_drive_run)(&fx->drive[1], fx->dr_x, fx->dr_n, fx->scr1); }
+/* the pair's R on the other core (the reverb's hooks, rev.par), or here (a lost job): in XIP either way */
+static void drv_job1(void *a) { tx_fx_t *fx = (tx_fx_t *)a; TX_FAR(tx_fx_drive_run)(&fx->drive[1], fx->dr_x, fx->dr_n, fx->scr1); }
 static void drv_job0(void *a) { tx_fx_t *fx = (tx_fx_t *)a; TX_FAR(tx_fx_drive_run)(&fx->drive[1], fx->dr_x, fx->dr_n, fx->scr1); }
-TX_AUDIO_CODE void tx_fx_drive_mix(void *u, int32_t *L, int32_t *R, unsigned n)
+static void drive_mix(tx_fx_t *fx, int32_t *L, int32_t *R, unsigned n, unsigned c)
 {
-    tx_fx_t *fx = (tx_fx_t *)u;
     unsigned t;
     int taken;
     if (!fx->drive[0].on && !fx->drive[0].p[TX_DR_AMOUNT] && !fx->drive[1].on) return;   /* (off: the mix untouched) */
     tx_fx_drive_prep(&fx->drive[0]);                    /* (a TYPE change: the pair together, the first first) */
     tx_fx_drive_prep(&fx->drive[1]);
+    if (c) {                                            /* core 1 (the bus one block behind): both, its twins */
+        TX_FAR(tx_fx_drive_run)(&fx->drive[0], L, n, 0);
+        TX_FAR(tx_fx_drive_run)(&fx->drive[1], R, n, 0);
+        return;
+    }
     t = fx->drive[0].cur;                               /* two cores: each side writes only its own state, samples and
                                                          * scratch; TSH8 stays on one (R runs on the tables L builds) */
     if (t == fx->drive[1].cur && (t == TX_DRT_FDRV || (t != TX_DRT_TSH8 && fx->scr1))) {
@@ -461,9 +467,11 @@ TX_AUDIO_CODE void tx_fx_drive_mix(void *u, int32_t *L, int32_t *R, unsigned n)
         else TX_FAR(tx_fx_drive_run)(&fx->drive[1], R, n, 0);   /* (one core: as below, the shared scratch) */
         return;
     }
-    TX_FAR(tx_fx_drive_run)(&fx->drive[0], L, n, 0);     /* (in RAM on the FM-1: TX_RAM) */
+    TX_FAR(tx_fx_drive_run)(&fx->drive[0], L, n, 0);     /* (in XIP: the bus runs on core 1, lanes.c LN_PIPE) */
     TX_FAR(tx_fx_drive_run)(&fx->drive[1], R, n, 0);
 }
+TX_AUDIO_CODE void tx_fx_drive_mix(void *u, int32_t *L, int32_t *R, unsigned n) { drive_mix((tx_fx_t *)u, L, R, n, 0u); }
+TX_AUDIO_CODE void tx_fx_drive_mix_c1(void *u, int32_t *L, int32_t *R, unsigned n) { drive_mix((tx_fx_t *)u, L, R, n, 1u); }
 uint32_t tx_fx_drive_mix_us(const tx_fx_t *fx) { return tx_fx_drive_us(&fx->drive[0]) + tx_fx_drive_us(&fx->drive[1]); }
 /* the grain delay's dynamic cap: the grains the effects reserve leaves after the reverb's TYPE (FM-1 us a block,
  * CPU-BUDGET.md section 8: the reverb's worst per TYPE, the delay's line + echo, a sounding grain) */
@@ -516,7 +524,14 @@ TX_AUDIO_CODE void tx_fx_bus_end(void *u, int32_t *L, int32_t *R, unsigned n)
 {
     tx_fx_t *fx = (tx_fx_t *)u;
     TX_FAR(tx_fx_grain_end)(&fx->gd, L, R, n);         /* (in RAM on the FM-1: TX_RAM) */
-    TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);   /* (in RAM on the FM-1: TX_RAM; the plate's and INFINITE's runs in XIP) */
+    TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);   /* (in XIP, its whole chain: the bus runs on core 1) */
+}
+TX_AUDIO_CODE void tx_fx_bus_end_c1(void *u, int32_t *L, int32_t *R, unsigned n)   /* (core 1: the twin; the reverb's
+                                                         * hooks hand nothing on from there: the caller's) */
+{
+    tx_fx_t *fx = (tx_fx_t *)u;
+    TX_C1(tx_fx_grain_end)(&fx->gd, L, R, n);
+    TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);   /* (in XIP: its whole chain) */
 }
 TX_AUDIO_CODE void tx_fx_bus(void *u, int32_t *L, int32_t *R, unsigned n)
 {

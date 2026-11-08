@@ -2,7 +2,8 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The flash map: which ranges the RAM flash driver (fm1_flash.h) may erase / program, per board
  * (BOARD_SMK37, fm1_cc.h). Macros and compile-time checks only, so host tests can include it. */
-#pragma once
+#ifndef FM1_FLASH_MAP_H
+#define FM1_FLASH_MAP_H
 #include <stdint.h>
 #include "fm1_cc.h"
 
@@ -94,3 +95,19 @@ _Static_assert(FL_DATA_HI <= FL_OTA_LO && FL_APP_HI <= FL_DATA_LO, "SMK: windows
 #endif
 #define FL_GUARD(off, n) FL_RANGE_OK(off, n)
 #endif /* BOARD_SMK37 */
+
+#endif /* FM1_FLASH_MAP_H */
+
+/* The app's second core (Textura: FL_C1_QUIET, firmware/src/core1.h) out of the flash before every stretch the SFC is
+ * off. Its jobs run in XIP, some between the interrupts (the bus one block behind: lanes.c LN_PIPE), so each read,
+ * erase or program the main loop does (the interrupts off first: FL_CLI) waits for it to be idle (core1.h c1_quiet:
+ * the interrupts back on while it waits): it then waits in RAM and gets no new job (core 0 hands them in the interrupt
+ * only). Without, its code fetches could meet the SFC off (the likely cause of the first LN_PIPE app's two resets at
+ * boot, the boot guard's recovery: FM-1, 2026-11-08). Outside the include guard: fm1_flash.h defines its FL_CLI, then
+ * includes this file again (store.h has included it first), and the hook takes its place then */
+#if defined(FL_C1_QUIET) && defined(FL_STI) && !defined(FL_C1_QUIET_ON)
+#define FL_C1_QUIET_ON
+static void FL_C1_QUIET(void);
+#undef FL_CLI
+#define FL_CLI() do { __asm__ volatile("cli" ::: "memory"); FL_C1_QUIET(); } while (0)
+#endif

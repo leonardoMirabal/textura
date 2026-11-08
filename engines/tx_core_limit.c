@@ -13,8 +13,8 @@ void tx_limit_init(tx_limit_t *l) { tx_zero(l, sizeof *l); l->env = 65536u; l->m
  * window oldest first. With every input within +-PCLAMP a pair's half sum is too (HP); else each pair clamps (HC) */
 #define HP(i, h) ((((q[7 - (i)] >> 1) + (q[8 + (i)] >> 1)) >> 9) * (h))
 #define HC(i, h) ((PC((q[7 - (i)] >> 1) + (q[8 + (i)] >> 1)) >> 9) * (h))
-#define PC(p) ((p) > PCLAMP ? PCLAMP : (p) < -PCLAMP ? -PCLAMP : (p))    /* (a macro: in RAM with its caller) */
-TX_RAM static uint32_t half(const int32_t *q, unsigned big)
+#define PC(p) ((p) > PCLAMP ? PCLAMP : (p) < -PCLAMP ? -PCLAMP : (p))    /* (a macro: inline in its caller) */
+static uint32_t half(const int32_t *q, unsigned big)
 {
     int32_t acc = big ? HC(0, 1296) + HC(1, -406) + HC(2, 215) + HC(3, -126)
                         + HC(4, 74) + HC(5, -41) + HC(6, 20) + HC(7, -8)
@@ -36,7 +36,7 @@ static const uint32_t THR[16] = {
 /* the estimate's gate for samples entering now: an estimate counts only over thr, and thr can only fall by the
  * release, at most 3 steps while a sample stays in the window (16 frames + the next sample's mb: 34 samples). So
  * below 3/8 of thr 3 steps on (and below 0.43 T) the estimate cannot reach thr: it is skipped, the output the same */
-TX_RAM static uint32_t gate_of(uint32_t env)
+static uint32_t gate_of(uint32_t env)
 {
     unsigned i;
     uint32_t t;
@@ -46,7 +46,7 @@ TX_RAM static uint32_t gate_of(uint32_t env)
     return t > G_Q23 ? t : G_Q23;
 }
 
-TX_RAM TX_AUDIO_CODE void tx_limit_process(tx_limit_t *l, int32_t *x, unsigned n)
+TX_AUDIO_CODE void tx_limit_process(tx_limit_t *l, int32_t *x, unsigned n)
 {
     uint32_t env = l->env, mn = l->min_env, thr = THR_OF(env), g = gate_of(env);
     uint32_t mb0 = l->mb[0], mb1 = l->mb[1];

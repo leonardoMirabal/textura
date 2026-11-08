@@ -42,6 +42,9 @@ typedef struct {
     void (*pre)(void *fx, int32_t *L, int32_t *R, unsigned n);
     void (*bus)(void *fx, int32_t *L, int32_t *R, unsigned n);
     int (*busq)(void *fx);
+    void (*pre1)(void *fx, int32_t *L, int32_t *R, unsigned n);   /* pre and bus as core 1 runs them (tx_mix_run's c:
+                                                                   * the XIP twins, no job handed on; 0 = none) */
+    void (*bus1)(void *fx, int32_t *L, int32_t *R, unsigned n);
     void *fx;
     tx_comp_t comp;                      /* the bus compressor, after the pair's DRIVE (COMP off: bypassed) */
     tx_limit_t lim;
@@ -67,6 +70,11 @@ TX_AUDIO_CODE void tx_mix_slot_render(tx_mix_t *m, unsigned k, unsigned n);
 /* or: the caller rendered slot k's block itself (a scene script, say): pan it and add it */
 TX_AUDIO_CODE void tx_mix_add(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n);
 TX_AUDIO_CODE void tx_mix_end(tx_mix_t *m, int32_t *L, int32_t *R, unsigned n);
+/* tx_mix_end in two: run (the DRIVE, the compressor, the chamber, the bus, the limiter: its result kept in ilv) on
+ * core c (1: core 1's twins in XIP and pre1 / bus1, as one block behind: firmware/src/lanes.c LN_PIPE), then out (the
+ * pair from ilv, any time before the next run) */
+TX_AUDIO_CODE void tx_mix_run(tx_mix_t *m, unsigned n, unsigned c);
+TX_AUDIO_CODE void tx_mix_out(const tx_mix_t *m, int32_t *L, int32_t *R, unsigned n);
 /* all slots quiet (and the chamber idle) */
 int tx_mix_quiet(const tx_mix_t *m);
 

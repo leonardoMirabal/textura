@@ -148,8 +148,8 @@ void tx_hq_run(tx_hall_t *hv, const int32_t *send, const int32_t *add, int32_t s
         h->sz = sz;
     }
     h->jmd = md > 12 ? 12 : md;
-    TX_FAR(tx_rev_down)(send, &h->hp, &h->he, h->bx);   /* (in RAM on the FM-1) */
-    if (add) for (i = 0; i < HL_NC; i++) h->bx[i] += add[i];
+    for (i = 0; i < HL_NC; i++) h->bx[i] = send[i] + (add ? add[i] : 0);   /* (the caller's DC blocker before: no RAM
+                                                     * code called from here, either core) */
     for (i = 0; i < HL_NC; i++) h->er[(h->ew + i) & (HQ_ERN - 1u)] = (int16_t)hl_c16(h->bx[i]);
     taken = rv_fork(par, tx_hq_job, h);             /* lines 8..15 and the early reflections there (or here, after; all
                                                      * in flash: core 1 runs the same code from XIP) */

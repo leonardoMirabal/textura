@@ -338,6 +338,31 @@ static int c1_wait_us(uint32_t us)
 
 static int c1_wait(void) { return c1_wait_us(4000u); }   /* (the bench's: 4 ms) */
 
+/* (FL_C1_QUIET, hal/fm1_flash_map.h; the main loop, the interrupts just off) core 1 out of the flash before the SFC goes
+ * off: its job done (it then waits in RAM and core 0 hands no new one until the interrupts are back on), or held. A job
+ * still running is waited for with the interrupts on (the audio not held up), then off again and looked at once more
+ * (the interrupt may have handed the next one). Returns with the interrupts off, as FL_CLI. A job that never ends:
+ * held (C1_LATE), the lanes go on with one core */
+static void c1_quiet(void)
+{
+    for (;;) {
+        uint32_t t0;
+        if (c1_state != C1_ON) return;
+        C1_SYNC();
+        if (c1_mb.done == c1_s) {
+            C1_SYNC();
+            if (c1_mb.done == c1_s) return;      /* (twice: a word read wrong once is not believed) */
+        }
+        __asm__ volatile("csync\n\tsti" ::: "memory");
+        t0 = fm1_ticks();
+        while (c1_mb.done != c1_s && fm1_ticks() - t0 < 4000u * C1_TPU) C1_SYNC();
+        __asm__ volatile("cli" ::: "memory");
+        if (c1_state == C1_ON && c1_mb.done != c1_s && fm1_ticks() - t0 >= 4000u * C1_TPU) {
+            c1_late++; c1_stop(C1_LATE); return;
+        }
+    }
+}
+
 /* a fault on core 1 (APP_FAULT, from fm1_fault: the hal's handler runs on the core that faulted and has filled
  * fm1_crash): no reset from here (core 1 would hold itself mid-report, or reset the FM-1 under core 0); it stops here,
  * core 0's wait runs out and holds it (C1_LATE), and the bench or the app goes on with one core. A fault of core 0 returns */

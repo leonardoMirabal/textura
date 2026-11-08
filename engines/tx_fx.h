@@ -87,7 +87,6 @@ TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x, unsigned n)
  * scratch (w; 0: the shared one): the same samples */
 TX_AUDIO_CODE void tx_fx_drive_prep(tx_fx_drive_t *d);
 TX_AUDIO_CODE void tx_fx_drive_run(tx_fx_drive_t *d, int32_t *x, unsigned n, tx_drv_scr_t *w);
-TX_TWIN(tx_fx_drive_run);         /* (the mix's pair on two cores: R's on core 1, tx_fx_drive_mix) */
 void tx_fx_drive_shared_init(tx_drv_shared_t *sh);
 void tx_fx_drive_share(tx_fx_drive_t *d, tx_drv_shared_t *sh);
 void tx_fx_drive_pair(tx_fx_drive_t *second, const tx_fx_drive_t *first);   /* one DRIVE on a stereo pair: second
@@ -156,6 +155,7 @@ TX_AUDIO_CODE void tx_fx_grain_voices_b(tx_fx_grain_t *d, unsigned n);
 TX_TWIN(tx_fx_grain_voices_a);
 TX_TWIN(tx_fx_grain_voices_b);
 TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n);
+TX_TWIN(tx_fx_grain_end);         /* (the bus one block behind on core 1: tx_fx_bus_end_c1) */
 int tx_fx_grain_quiet(const tx_fx_grain_t *d);
 
 /* ---- REVERB (on the mix) */
@@ -212,7 +212,6 @@ void tx_fx_reverb_init(tx_fx_reverb_t *r);
 void tx_fx_reverb_param(tx_fx_reverb_t *r, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *R, unsigned n);   /* Q23, adds */
 TX_AUDIO_CODE void tx_fx_reverb_body(tx_fx_reverb_t *r);   /* ROOM's body on the other core (body_run's job) */
-TX_TWIN(tx_fx_reverb_body);
 int tx_fx_reverb_quiet(const tx_fx_reverb_t *r);
 void tx_fx_reverb_relatch(tx_fx_reverb_t *r);   /* a whole sound loaded (a scene): PLATE's AUTO size from MIX at once */
 int tx_fx_reverb_frozen(const tx_fx_reverb_t *r);   /* holding its tail (SUSTAIN / FREEZE): never quiet */
@@ -251,6 +250,9 @@ TX_AUDIO_CODE void tx_fx_bus(void *fx, int32_t *L, int32_t *R, unsigned n);     
  * run now: tx_fx_grain_voices(&fx->gd, n)), then the lanes and the mix, then end (as tx_mix_t.bus): the same samples */
 TX_AUDIO_CODE int tx_fx_bus_begin(void *fx, unsigned n);
 TX_AUDIO_CODE void tx_fx_bus_end(void *fx, int32_t *L, int32_t *R, unsigned n);
+TX_AUDIO_CODE void tx_fx_bus_end_c1(void *fx, int32_t *L, int32_t *R, unsigned n);   /* (tx_mix_t.bus1: as core 1
+                                   * runs the bus one block behind; the reverb's hooks then hand nothing on) */
+TX_AUDIO_CODE void tx_fx_drive_mix_c1(void *fx, int32_t *L, int32_t *R, unsigned n);   /* (tx_mix_t.pre1: the same) */
 TX_AUDIO_CODE uint32_t tx_fx_gd_dev_us(const tx_fx_t *fx, uint32_t cap);   /* the grain delay at cap grains, FM-1 us */
 TX_AUDIO_CODE void tx_fx_gd_cap(tx_fx_t *fx);     /* the grain delay's cap for this block (tx_fx_bus calls it; an app
                                                    * that times the grains and the reverb apart calls it, then each) */

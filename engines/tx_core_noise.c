@@ -233,8 +233,8 @@ TX_AUDIO_CODE void tx_svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, c
 }
 /* svf_bank_add_g for 4 modes, each mode's state in its own variables (no arrays, no mode loop): the same steps in
  * the same order, sample for sample (the CHAMBER's body) */
-TX_RAM static void svf_bank4(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8, const int32_t *g_q11,
-                             const int32_t *in, int32_t *out, unsigned n)
+static void svf_bank4(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8, const int32_t *g_q11,
+                      const int32_t *in, int32_t *out, unsigned n)
 {
     int32_t silent = 0;
     unsigned j, k;
@@ -263,13 +263,12 @@ TX_RAM static void svf_bank4(tx_svf_t *r, const int32_t *f, int32_t q, const int
         SVF_OUT(k, 0); SVF_OUT(k + 1u, 1);
     }
 }
-/* the same code in RAM on the FM-1, for the CHAMBER's body (ROOM's run path is all TX_RAM): the engines keep theirs;
- * 4 modes (the CHAMBER's) unrolled */
-TX_RAM void tx_svf_bank_add_g_ram(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
-                                  const int32_t *g_q11, unsigned nr, const int32_t *in, int32_t *out, unsigned n)
+/* the CHAMBER's body: 4 modes unrolled (in XIP on the FM-1, as the CHAMBER: the bus runs on core 1, lanes.c LN_PIPE) */
+void tx_svf_bank_add_g_ch(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
+                          const int32_t *g_q11, unsigned nr, const int32_t *in, int32_t *out, unsigned n)
 {
     if (nr == 4u) svf_bank4(r, f, q, gin_q8, g_q11, in, out, n);
-    else TX_FAR(tx_svf_bank_add_g)(r, f, q, gin_q8, g_q11, nr, in, out, n);   /* (not the CHAMBER's: the flash one) */
+    else tx_svf_bank_add_g(r, f, q, gin_q8, g_q11, nr, in, out, n);
 }
 
 TX_AUDIO_CODE void tx_svf_bank_add(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *g_q11, unsigned nr,

@@ -78,7 +78,7 @@ static inline __attribute__((always_inline)) void dr_settled(tx_fx_drive_t *d, i
 }
 
 /* the classic drive (TYPE 0); amt: AMOUNT, or 0 while it fades out for a TYPE change */
-TX_RAM static void dr_classic(tx_fx_drive_t *d, int32_t *x23, unsigned n, int32_t amt)
+static void dr_classic(tx_fx_drive_t *d, int32_t *x23, unsigned n, int32_t amt)
 {
     int32_t a = amt ? amt : d->la, tv = d->p[TX_DR_TONE], mv = d->p[TX_DR_MIX], g, k, mk, b0;
     int32_t wt = !amt ? 0 : mv >= 127 ? 32768 : mv * 258;      /* the wet share it goes to (AMOUNT 0: 0) */
@@ -207,12 +207,12 @@ TX_AUDIO_CODE void tx_fx_drive_prep(tx_fx_drive_t *d)
     d->sw = 1;
     if (d->p[TX_DR_TYPE] != d->cur) d->sw = (uint8_t)TX_FAR(dr_switch)(d, d->p[TX_DR_TYPE]);
 }
-TX_RAM TX_AUDIO_CODE void tx_fx_drive_run(tx_fx_drive_t *d, int32_t *x23, unsigned n, tx_drv_scr_t *w)
-{   /* (in RAM on the FM-1 with the classic drive; a TYPE change and the TYPEs run from flash: TX_FAR) */
+TX_AUDIO_CODE void tx_fx_drive_run(tx_fx_drive_t *d, int32_t *x23, unsigned n, tx_drv_scr_t *w)
+{   /* (in XIP, as the TYPEs: the mix's DRIVE runs with the bus on core 1, lanes.c LN_PIPE) */
     if (!d->cur) dr_classic(d, x23, n, d->sw ? d->p[TX_DR_AMOUNT] : 0);
     else TX_FAR(dr_types)(d, w ? w : &d->sh->scr, x23, n, d->sw);
 }
-TX_RAM TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x23, unsigned n)
+TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x23, unsigned n)
 {
     TX_FAR(tx_fx_drive_prep)(d);                          /* (in flash) */
     tx_fx_drive_run(d, x23, n, 0);

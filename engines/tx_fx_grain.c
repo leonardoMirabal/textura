@@ -487,7 +487,7 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
         e[j] = wl; sr[j] = wr;                          /* (the delay's out, for the blend below) */
     }
     }
-    tx_fx_drywet(L, R, e, sr, n, gc[0], gc[1], gs[0], gs[1], 2);   /* dry x cos + the delay x sin (Q22 -> Q23) */
+    TX_FAR(tx_fx_drywet)(L, R, e, sr, n, gc[0], gc[1], gs[0], gs[1], 2);   /* dry x cos + the delay x sin (Q22 -> Q23) */
     gd_wrn(d, sl, n);
     if (dry) d->gct = 4096;                             /* the make-up: the echo's level over the loop's (held while the
                                                          * loop is too quiet to tell), its share by FEEDBACK */

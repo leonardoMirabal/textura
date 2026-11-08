@@ -42,6 +42,9 @@
 #if defined(LN_CLOCK) || defined(LN_COST_EST)
 #define LN_GOV
 #endif
+#if defined(LN_PIPE) && !defined(LN_PAR)
+#error "LN_PIPE needs LN_PAR (the second core's hooks)"
+#endif
 #define LN_EST_BASE 100u                        /* the stand-in: a lane's block, us, and each hero sounding more */
 #define LN_EST_HERO 20u                         /* (make tx-budget: 120..250 us typical, 5..60 a hero) */
 #define LN_EST_MOD 8u                           /* the modulation's stand-in, us (make tx-budget section 5: 4..30) */
@@ -57,7 +60,14 @@
  * renders which lane, and the same as with one core (tests/lanes_test.c checks it with a thread as the second core).
  * Which lanes go there: the split of the sounding lanes whose larger half costs least (the lanes' last costs: the
  * governor's), ln.par_force a fixed one (the tests). While the second core runs, the governor's pool is twice
- * LN_GOV_POOL_US (a lane alone still at most half of it: one core's pool). */
+ * LN_GOV_POOL_US (a lane alone still at most half of it: one core's pool).
+ * LN_PIPE (with LN_PAR): the bus one block behind. A block's mix end (the DRIVE, the COMPRESSOR, the GRAIN DELAY's end,
+ * the REVERB, the limiter: tx_mix_run) is handed to the second core as ln_block returns, and runs there between the
+ * interrupts (its XIP twins, nothing handed on from there); the next ln_block waits for it first, gives its result
+ * out, then goes on as before. The work is done in the same order as without, only the output is one block later
+ * (5.8 ms): the same samples (tests/lanes_test.c LANES_TEST_PIPE). The interrupt is left with the lanes. Second core
+ * off, or the job refused: the mix end runs here at the block's end (the same delay); lost mid-job: here again, once
+ * (a click at most). */
 
 /* LN_POOL: where the lanes' big state goes. On the FM-1 (textura.c) the platform's .pool (zeroed at start), as it is
  * far over the 96 KiB of .data + .bss; on the host (Mach-O has no such section) and in the tests, plain statics */
@@ -115,6 +125,9 @@ static struct {
     uint32_t isr_pk;                            /* (LN_BUS_TIMED) the whole interrupt, held (two cores: the grains' cap) */
     uint32_t c0_us, c1_us, c0_max, c1_max;      /* (LN_CLOCK) the render phase's busy time per core, last and the
                                                  * most since the debug reply */
+    uint8_t pipe;                               /* (LN_PIPE) the last block's mix end: 0 none, 1 done here, 2 on the
+                                                 * second core */
+    uint32_t pipe_n, pipe_lost;                 /* its frames; the jobs lost (run here again) */
 } ln LN_POOL;
 static uint8_t ln_arena[LN_N + 1u][TX_STATE_MAX] __attribute__((aligned(64))) LN_POOL;
 typedef struct {                                /* a lane's engine block, written by the core that renders it */
@@ -122,8 +135,9 @@ typedef struct {                                /* a lane's engine block, writte
     uint32_t us;                                /* (LN_CLOCK) its render, us */
 } __attribute__((aligned(64))) ln_out_t;
 static ln_out_t ln_out[LN_N] LN_POOL;
-static struct { uint32_t gv_us[2], busy_us; } __attribute__((aligned(64))) ln_c1t LN_POOL;   /* (the second core's own
-                                                 * line: its job's grain voices and busy time, us) */
+static struct { uint32_t gv_us[2], busy_us, pipe_us; volatile uint8_t pipe_on; } __attribute__((aligned(64))) ln_c1t LN_POOL;
+                                                /* (the second core's own line: its job's grain voices and busy time;
+                                                 * LN_PIPE: the mix end's us, and on while it runs it there) */
 #define LN_GV 4u                                /* the split's items past the lanes: the grain delay's voices, the echo
                                                  * and the first half (LN_GV), the second half (LN_GV + 1) */
 
@@ -167,14 +181,30 @@ static void ln_bus(void *u, int32_t *L, int32_t *R, unsigned n)
 
 #ifdef LN_PAR
 /* the reverb's ROOM on two cores (tx_fx_reverb_t.body_run): its body (the CHAMBER) on the second core, the tail here */
-static void ln_rev_job(uint32_t a) { (void)a; TX_C1(tx_fx_reverb_body)(&ln.fx.rev); }   /* (core 1: the twin) */
-static int ln_rev_run(void) { return LN_PAR_ON() && LN_PAR_RUN(ln_rev_job, 0u); }
+static void ln_rev_job(uint32_t a) { (void)a; TX_FAR(tx_fx_reverb_body)(&ln.fx.rev); }   /* (in XIP: either core) */
+static int ln_rev_run(void) { return !ln_c1t.pipe_on && LN_PAR_ON() && LN_PAR_RUN(ln_rev_job, 0u); }   /* (on the
+                                                 * second core itself, LN_PIPE: nothing handed on) */
 static int ln_rev_wait(void) { int l = LN_PAR_WAIT(); if (l) ln.par_lost++; return l; }
 /* the reverb kernels' halves on the second core (tx_fx_reverb_t.par): one job, its function and argument here */
 static void (*ln_kfn)(void *);
 static void *ln_karg;
 static void ln_kjob(uint32_t a) { (void)a; ln_kfn(ln_karg); }
-static int ln_krun(void (*fn)(void *), void *a) { ln_kfn = fn; ln_karg = a; return LN_PAR_ON() && LN_PAR_RUN(ln_kjob, 0u); }
+static int ln_krun(void (*fn)(void *), void *a) { ln_kfn = fn; ln_karg = a; return !ln_c1t.pipe_on && LN_PAR_ON() && LN_PAR_RUN(ln_kjob, 0u); }
+#ifdef LN_PIPE
+static void ln_pipe_job(uint32_t a)             /* the second core's: the last block's mix end (its twins) */
+{
+#ifdef LN_CLOCK
+    uint32_t t0 = LN_CLOCK();
+#endif
+    (void)a;
+    ln_c1t.pipe_on = 1;
+    tx_mix_run(&ln.mix, ln.pipe_n, 1u);
+    ln_c1t.pipe_on = 0;
+#ifdef LN_CLOCK
+    ln_c1t.pipe_us = LN_CLOCK_US(LN_CLOCK() - t0);
+#endif
+}
+#endif
 #endif
 typedef char ln_scr1_fits[sizeof(tx_drv_scr_t) <= TX_MIX_SCR_BYTES ? 1 : -1];
 static void ln_init(void)
@@ -188,6 +218,9 @@ static void ln_init(void)
     ln.fx.rev.body_run = ln_rev_run; ln.fx.rev.body_wait = ln_rev_wait;
     ln.fx.rev.par.run = ln_krun; ln.fx.rev.par.wait = ln_rev_wait;   /* (and the mix's DRIVE: R there) */
     ln.fx.scr1 = (tx_drv_scr_t *)TX_MIX_SCR(&ln.mix);   /* (the DRIVE TYPEs' scratch there: the mix's, free then) */
+#endif
+#ifdef LN_PIPE
+    ln.mix.pre1 = tx_fx_drive_mix_c1; ln.mix.bus1 = tx_fx_bus_end_c1;   /* (the mix end on the second core) */
 #endif
     ln.mix.ins = tx_fx_lane; ln.mix.pre = tx_fx_drive_mix; ln.mix.bus = tx_fx_bus_end; ln.mix.busq = tx_fx_bus_quiet; ln.mix.fx = &ln.fx;   /* (the
                                                  * bus's begin and the grains' voices: ln_block, ln_render) */
@@ -492,6 +525,20 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
         ln.t_bus = ln.t_blk;                    /* (a block with no bus call: its whole time counts as the rest) */
     }
 #endif
+#ifdef LN_PIPE
+    {                                           /* the last block's mix end: done (or here), then out */
+        uint32_t m = n < ln.pipe_n ? n : ln.pipe_n;
+        if (ln.pipe == 2u && LN_PAR_WAIT()) {   /* refused, or lost mid-job: here (again) */
+            ln_c1t.pipe_on = 0;
+            ln.pipe_lost++;
+            tx_mix_run(&ln.mix, ln.pipe_n, 0u);
+        }
+        if (!ln.pipe) m = 0;
+        tx_mix_out(&ln.mix, L, R, m);
+        for (k = m; k < n; k++) L[k] = R[k] = 0;
+        ln.pipe = 0;
+    }
+#endif
     while (ln.qr != ln.qw) { ln_event(&ln.q[ln.qr % LN_QN]); ln.qr++; }
 #ifdef LN_MOD
     {
@@ -597,7 +644,13 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
         if (pk >= 0 && ln.mix.e[pk]) ln.mix.e[pk]->param(ln.mix.st[pk], TX_PID_PARTICLES, ln.gov.cur[pk]);
     }
 #endif
+#ifdef LN_PIPE
+    ln.pipe_n = n;                              /* the mix end: the second core's, between the interrupts */
+    if (LN_PAR_ON() && LN_PAR_RUN(ln_pipe_job, 0u)) ln.pipe = 2u;
+    else { tx_mix_run(&ln.mix, n, 0u); ln.pipe = 1u; }
+#else
     tx_mix_end(&ln.mix, L, R, n);
+#endif
 #ifdef LN_BUS_TIMED
     ln.blk_us = LN_CLOCK_US(LN_CLOCK() - ln.t_blk);
 #endif

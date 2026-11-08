@@ -37,6 +37,8 @@ static void tx_stk_paint(void);
                      c1_hsb2((fm1_boot.p3_rst & 1u) && !(fm1_boot.p3_rst & 4u)), (void)c1_start())
 #define APP_RESET_PREP() c1_hold()
 #define APP_FAULT(c) c1_fault(c)
+static void c1_quiet(void);
+#define FL_C1_QUIET c1_quiet                     /* (the flash windows wait for core 1 idle: hal/fm1_flash_map.h) */
 /* a fault of core 0 or a freeze: back playing by itself, soon. The crash screen shows half a second (the record outlives
  * the reset: tx_dbg items 60..), the watchdog resets a main loop stopped for 1 s; the boot loads the last scene */
 #define APP_CRASH_MS 500u
@@ -70,6 +72,7 @@ static uint32_t tx_stk_used(const uint32_t *lo, const uint32_t *top)
 #define LN_PAR_ON() (c1_state == C1_ON)
 #define LN_PAR_RUN(fn, a) c1_run(fn, a)
 #define LN_PAR_WAIT() c1_wait_us(3000u)
+#define LN_PIPE                                 /* the bus one block behind, on core 1 between the interrupts (lanes.c) */
 #endif
 #define LN_MOD                                  /* lanes.c calls the modulation (mod.c) at each block and note */
 static void mod_block(void);

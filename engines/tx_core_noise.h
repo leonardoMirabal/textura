@@ -56,8 +56,8 @@ TX_AUDIO_CODE void tx_svf_bank_add(tx_svf_t *r, const int32_t *f, int32_t q, con
                                    const int32_t *in, int32_t *out, unsigned n);
 TX_AUDIO_CODE void tx_svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
                                      const int32_t *g_q11, unsigned nr, const int32_t *in, int32_t *out, unsigned n);
-void tx_svf_bank_add_g_ram(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
-                           const int32_t *g_q11, unsigned nr, const int32_t *in, int32_t *out, unsigned n);   /* (TX_RAM) */
+void tx_svf_bank_add_g_ch(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
+                          const int32_t *g_q11, unsigned nr, const int32_t *in, int32_t *out, unsigned n);   /* (the CHAMBER's) */
 TX_INLINE int tx_svf_bank_quiet(const tx_svf_t *r, unsigned nr)
 {
     unsigned i;
