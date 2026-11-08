@@ -70,6 +70,7 @@ static uint32_t tx_stk_used(const uint32_t *lo, const uint32_t *top)
 #define LN_PAR_ON() (c1_state == C1_ON)
 #define LN_PAR_RUN(fn, a) c1_run(fn, a)
 #define LN_PAR_WAIT() c1_wait_us(3000u)
+#define LN_PIPE                                 /* the bus one block behind, on core 1 between the interrupts (lanes.c) */
 #endif
 #define LN_MOD                                  /* lanes.c calls the modulation (mod.c) at each block and note */
 static void mod_block(void);

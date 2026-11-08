@@ -33,7 +33,8 @@ TX_RAM TX_AUDIO_CODE void tx_rev_down(const int32_t *in, int32_t *php, int32_t *
     *php = hp, *phe = he;
 }
 
-static void hall_gains(tx_hall_t *h, int32_t s)
+/* (TX_SHARE: core 1's twin of tx_hall_run calls this copy) */
+TX_SHARE void hall_gains(tx_hall_t *h, int32_t s)
 {
     uint32_t q = exp2_neg((uint32_t)s * 65536u / 30u), k, g;
     for (k = 0; k < HL_NL; k++) {
