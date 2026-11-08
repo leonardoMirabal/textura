@@ -26,6 +26,7 @@
 #include "tx_core_modal.h"
 #include "tx_core_contact.h"
 #include "tx_core_chorus.h"
+#include "tx_core_lin.h"
 
 #define OUT_TRIM 9939               /* output gain, Q12 (+4.9 dB): integrated (a key held 10 s): -30.9 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
@@ -42,7 +43,7 @@
 enum { P_DENSITY, P_SIZE, P_SPREAD, P_MINERAL, P_HARD, P_CLUMP, P_ROOM, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"DENSITY", 127, 70, "hits per second per key: 0.3 .. 40 (log)"},
+    {"DENSITY", 127, 52, "hits per second per key: 0.3 .. 36, perceptually even (0.3 + 36 x^2.5; 52: 4.2 /s)"},
     {"SIZE", 127, 64, "piece length at C4: 3 .. 60 cm (log): f1 ~ 0.13 c / L (a 15 cm granite flake ~3.7 kHz)"},
     {"SPREAD", 127, 40, "mixed sizes: all alike .. +-3 octaves (sd)"},
     {"MINERAL", 127, 30, "granite (Q 180) | marble 300 | slate 185 | flint 160 | obsidian 175 | quartz 2000"},
@@ -110,7 +111,8 @@ static void set_param(cloud_t *s, unsigned id, unsigned v)
     if (v > PARAMS[id].max) v = PARAMS[id].max;
     s->p[id] = (uint8_t)v;
     switch (id) {
-    case P_DENSITY: tx_cloud_rate(&s->cloud, tx_knob_exp(v, 77u, 452312)); break;   /* 0.3 .. 40 /s (7.06 oct), Q8 */
+    case P_DENSITY: tx_cloud_rate(&s->cloud, 77u + ((9130u * tx_lin_frac((int32_t)v << 8)) >> 16)); break;   /* 0.3 .. 36 /s,
+                                                             * perceptually even (tx_core_lin.h; the ends as on the old log scale), Q8 */
     case P_SIZE: s->size_l2 = -332212 + (int32_t)(v * 2224u); break;    /* log2(0.03 m) + v log2(20) / 127, Q16 */
     case P_SPREAD: s->spread = (int32_t)v * 774; break;                 /* SD / 2 in octaves, Q16: 0 .. 1.5 */
     case P_MINERAL: { unsigned r = (v * NMIN) >> 7; s->q_x16 = MIN_Q[r] * 16u; s->c = MIN_C[r]; break; }

@@ -29,7 +29,12 @@
  * Loudness: each preset's trim puts ACTIVITY 64 at -26 LUFS (a key held 10 s at 3 m); a fader law (amplitude ~
  * amount^-1/4 around the middle, events only: ours) keeps the ends playable: rain -37 .. -20, stones -21 .. -15
  * (sparse knocks are loud ones), cicadas -29 .. -22 LUFS.
- * ACTIVITY is the one rate knob (the old rate-only trim merged in); EXTRA is the sound's own extra card knob; SPACING moves the timing between
+ * ACTIVITY is the one rate knob (the old rate-only trim merged in), perceptually even: each sound has its own curve,
+ * measured (its loudness and its sounding share, tools/lin_sounds.txt, tools/gen_lin.py), so each step sounds the same
+ * more, from its value at 0 to its audible top (rain: ~2500 drops/s; past it nothing more is heard); a sound not
+ * measured runs its activity (events/s, its singing, its flow) lo + (hi - lo) x^2.5 between its old ends;
+ * the paths below (written at ACTIVITY 0 / 64 / 127) are walked at the place the line asks for (lin_row, tx_core_lin.h,
+ * tools/gen_lin.py). COUNT runs 1 + 63 x^2.5 individuals (measured per sound too: its own curves were no evener). EXTRA is the sound's own extra card knob; SPACING moves the timing between
  * clumped (bursts), the preset's own (Poisson rain) and even. LIFE and TIME: organic modulation (tx_core_life.h: OU
  * walks, 1/f, swells and lulls) of ACTIVITY (full depth), SIZE and DIST (a quarter). DIST and DEPTH: where (tx_core_
  * place.h): every particle carries 1 / r and the air's loss at its own frequency; beds take the air as a one-pole.
@@ -48,6 +53,8 @@
 #include "tx_core_bird.h"
 #include "tx_core_cluster.h"
 #include "tx_core_grains.h"
+#include "tx_core_lin.h"
+#include "tx_src_lin.h"
 
 #define OUT_TRIM 4096               /* output gain, Q12 (the presets' own levels are in PRE[].trim) */
 
@@ -66,7 +73,7 @@ enum { V_NONE, V_BUBBLE, V_STONE, V_CALLER, V_BIRD };
 
 static const tx_param_t PARAMS[NP] = {
     {"PRESET", NPRE - 1, 0, "the source: 0 rain on water | 1 stone cloud | 2 cicadas | 3 water | 4 wind | 5 fire | 6 crickets | 7 sand | 8 gravel | 9 katydids | 10 bees | 11 ice | 12 wood | 13 minerals | 14 glass | 15 songbird | 16 chirper | 17 crow | 18 gull | 19 blackbird | 20 song thrush | 21 nightingale | 22 robin | 23 wren | 24 hermit thrush | 25 skylark | 26 wood thrush | 27 reed warbler | 28 curlew | 29 oystercatcher | 30 cuckoo | 31 woodpecker | 32 wood pigeon | 33 nightjar | 34 bittern"},
-    {"ACTIVITY", 127, 64, "how active each individual is (COUNT says how many), on the preset's own scale and through its transition: a rain patch 0.2 .. 1500 drops/s (a stray drop .. a downpour on it), a stone 0.05 .. 60 knocks/s, a drip point one per 40 s .. 8 /s, a cicada rare short calls .. singing on, a bird singing now and then .. often; hosted engines: their own path (wind a calm .. 28 m/s, fire embers .. a blaze, ...)"},
+    {"ACTIVITY", 127, 96, "how active each individual is (COUNT says how many), perceptually even: each step sounds the same amount more of the sound's activity (events/s, its singing, its flow), on the sound's own measured curve up to its audible top (tx_src_lin.h), on the preset's own scale and through its transition: a rain patch 0.2 .. 1500 drops/s (a stray drop .. a downpour on it), a stone 0.05 .. 60 knocks/s, a drip point one per 40 s .. 8 /s, a cicada rare short calls .. singing on, a bird singing now and then .. often; hosted engines: their own path (wind a calm .. 28 m/s, fire embers .. a blaze, ...)"},
     {"EXTRA", 127, 64, "the sound's own extra parameter (its card names it; 64 = the sound's own value)"},
     {"SPACING", 127, 64, "the timing: clumped bursts .. Poisson (64 up: the preset's own, never an even beat)"},
     {"SIZE", 127, 64, "the size: 64 = the preset's, +-2 octaves (bigger drops, stones, lower cicadas)"},
@@ -81,7 +88,7 @@ static const tx_param_t PARAMS[NP] = {
     {"DIV", 9, 4, "beat division when locked: 1/1 1/2 1/4 1/8 1/16 1/32 1/4T 1/8T 1/16T, 9 = a probability per bar (a hook)"},
     {"GRID", 127, 0, "grid pull: the probability an event lands on the clock's grid (a hook)"},
     {"TYPE", 127, 0, "the kind within the family: 0 = the preset's own; above, the hosted engine's own kinds over the range (wind: grass .. pines .. leafy trees .. a moor .. the coast .. a ridge .. autumn .. a winter storm .. a desert; crickets, katydids, bees: species; rain: surfaces 1 .. 99, hail and sleet 101 .. 127; water: drops 0, cave drips 16, eaves 32, a brook 48, a spring 64, a waterfall 80, waves on sand 96, on shingle 112, a lake lapping on a shore 120 .. on a hull 127; ice: icicles 8, cubes in a glass 24, frost 40, snow 56, lake ice 72, sea ice 88, a far lake booming 104, thin ice 120; glass: a pane 0, bottles 64, shards 110; wood: spruce .. green branch; minerals: granite .. quartz; sand: hand .. tube)"},
-    {"COUNT", 127, 64, "how many individuals at once, each its own distance, size and character: 0 none (silence; tails ring), 1 + 21 steps per doubling: 1, 22, 43, 64, 85, 106, 127 = 1, 2, 4, 8, 16, 32, 64 (rain: patches of rain, stones: rolling stones or pouring points, water: dripping points, cicadas, birds; hosted engines: their keys or presses)"},
+    {"COUNT", 127, 53, "how many individuals at once, each its own distance, size and character: 0 none (silence; tails ring), then perceptually even (1 + 63 x^2.5, each step sounds the same more): 1, 20, 39, 53, 77, 96, 127 = 1, 2, 4, 8, 19, 32, 64 (rain: patches of rain, stones: rolling stones or pouring points, water: dripping points, cicadas, birds; hosted engines: their keys or presses)"},
 };
 
 #define NV 16u                      /* heroes */
@@ -436,7 +443,9 @@ typedef struct {
     int32_t run;                    /* the source on (Q15 ramp) */
     uint32_t now;                   /* sample clock */
     int32_t i_eff;                  /* ACTIVITY with LIFE, Q8 knob units */
-    int32_t i_glide;                /* ACTIVITY gliding to the fader, Q8 */
+    int32_t i_glide;                /* ACTIVITY gliding to the fader, Q8, on the sound's own path (lin_at) */
+    int32_t u_glide;                /* the fader gliding, Q8 knob units (each step sounds the same more) */
+    const uint8_t *lsnd;            /* the sound's own measured curve (tx_src_lin.h), or 0: the path's (lin_row) */
     int32_t trim_c;                 /* the callers' level now (pre_trim), Q12 */
     tx_life_t la, ls, ld;           /* LIFE: intensity, size, distance */
     tx_life_t lw;                   /* the wind's gusts (rain on water: HARD) */
@@ -511,11 +520,19 @@ static int32_t pw4(const int32_t *at, const int32_t *y, int32_t x)
     return y[k] + (((y[k + 1] - y[k]) * (((x - at[k]) << 8) / (at[k + 1] - at[k]))) >> 8);
 }
 
-/* COUNT: the individuals, Q8 (0: none; 1, 22, 43 .. 127 = 1, 2, 4 .. 64) and whole (at least 1 when any) */
+/* COUNT: the individuals, Q8 (0: none; perceptually even, 1 + 63 x^2.5 over 1 .. 127 (tx_core_lin.h): 1, 20, 39, 53,
+ * 58, 77, 96, 127 = 1, 1.6, 4.1, 8, 9.7, 19, 32, 64) and whole (at least 1 when any) */
 static uint32_t count_q8(const src_t *s)
 {
     unsigned v = s->p[P_COUNT];
-    return v ? tx_exp2((int32_t)(((v - 1u) << 16) / 21u) + (8 << 16)) : 0u;
+    return v ? 256u + ((16128u * (tx_lin_pow(((uint32_t)(v - 1u) << 16) / 126u) >> 4)) >> 12) : 0u;
+}
+/* COUNT as it was on its old doubling scale (1 + 21 log2 n), for what still counts in doublings (the keys a hosted
+ * engine holds) */
+static int32_t count_kl(const src_t *s)
+{
+    uint32_t q = count_q8(s);
+    return q ? 1 + ((21 * (tx_place_log2(q) - (8 << 16)) + 32768) >> 16) : 0;
 }
 static unsigned count_n(const src_t *s)
 {
@@ -1515,6 +1532,8 @@ static uint32_t host_rate(src_t *s)
     return (uint32_t)(2560u << 8) / tx_exp2(l + (8 << 16)) ;   /* 10 / mean, Q8 (mean in 0.1 s, Q8) */
 }
 
+#define HOST_FIRST 128u               /* an event engine's first press: at least 0.5 /s (Q8; a random gap, mean <= 2 s) */
+
 /* heroes at most while an event engine's presses come fast (the dear top corner only: the defaults never reach it) */
 static const struct { const char *eng; uint16_t r_q8; uint8_t max; } HOT[] = {
     {"ice", 512, 3},                /* (icicles over 2 presses /s: at ACTIVITY or COUNT 127 with SPACING 0, 6 heroes
@@ -1546,8 +1565,9 @@ static void host_clock(src_t *s)
         unsigned cut = host_hot(s->hd, rq), base = host_heroes(s->hd, s->part_v ? s->part_v : s->hst->particles_def);
         if (cut && base > cut && s->hhot != cut) { s->hhot = (uint8_t)cut; s->hst->param(s->host, TX_PID_PARTICLES, (uint8_t)cut); }
         else if (!cut && s->hhot) { s->hhot = 0; s->hst->param(s->host, TX_PID_PARTICLES, (uint8_t)base); }
-        tx_clu_block(&s->clu, &s->rng, &s->cf, rq);
-    }
+        tx_clu_block(&s->clu, &s->rng, &s->cf, s->clu.next_q8 == 0xFFFFFFFFu && rq && rq < HOST_FIRST ? HOST_FIRST : rq);
+    }                                                        /* (the first press: its gap drawn at 0.5 /s at least, so the
+                                                             * rarest setting is heard within seconds, then sparse) */
     while ((off = tx_clu_next(&s->clu, &s->rng, &s->cf, TX_BLOCK, &ce)) >= 0) if (!got) { got = 1; lv = ce.lv; }
     tx_clu_end(&s->clu, TX_BLOCK);
     if (got && s->hon) {                                     /* (presses: each an individual's event, COUNT / 8 x) */
@@ -1618,7 +1638,7 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
         v = curve_at(&s->hd->c[i], i ? s->i_eff : act_idx(s));
         if (!i && s->hd->k64) {                              /* COUNT past the keys: each doubling more on the first */
             int32_t kb = s->hd->k127 >= 8 ? 63 : s->hd->k127 >= 4 ? 42 : s->hd->k127 >= 2 ? 21 : 0;   /* curve (the */
-            int32_t over = (int32_t)s->p[P_COUNT] - 1 - kb;                                         /* keys' 21 log2) */
+            int32_t over = count_kl(s) - 1 - kb;                                         /* keys' 21 log2) */
             if (s->hd->e64 || !s->hd->k127) over -= 63;      /* (no keys: the curves are its 8: fewer, less) */
             if (s->hd->k0 & 8u) { if (over > 0) v -= over * s->hd->k64 / 21; }   /* (k0 & 8: the curve falls as they
                                                              * are more, never rises: wood's LOAD, at 127 a bed of creaks) */
@@ -1692,6 +1712,19 @@ static void host_gate(src_t *s)
     s->hgt = (uint16_t)gate_draw(s, s->hgate ? GATE_ON : (GATE_ON * (4096u - p)) / p);
 }
 
+/* the sound's own curve: the measured sound of this preset nearest the TYPE, within the TYPE's range for the kind now
+ * (a TYPE between two measured sounds morphs between them: the nearer one's curve) */
+static unsigned lin_snd(unsigned pre, unsigned t, unsigned lo, unsigned span)
+{
+    unsigned i, best = SRC_LIN_NSND, bd = 256u;
+    for (i = 0; i < SRC_LIN_NSND; i++) {
+        unsigned tk = SRC_LIN_SND_KEY[i][1], dd = tk > t ? tk - t : t - tk;
+        if (SRC_LIN_SND_KEY[i][0] != pre || tk < lo || tk > lo + span) continue;
+        if (dd < bd) { bd = dd; best = i; }
+    }
+    return best;                                             /* (SRC_LIN_NSND: none measured) */
+}
+
 static void host_switch(src_t *s, unsigned pre)
 {
     const fam_t *fm;
@@ -1701,6 +1734,10 @@ static void host_switch(src_t *s, unsigned pre)
     const void *want = hd ? (const void *)hd : (const void *)&PRE[pre];   /* (each particle preset its own memory: grains, callers, birds) */
     unsigned i;
     s->tlo = (uint8_t)tlo; s->tspan = (uint8_t)(tspan ? tspan : 1u);
+    {
+        unsigned li = lin_snd(pre, s->p[P_TYPE], tlo, tspan);   /* (each TYPE its own curve, even on one engine) */
+        s->lsnd = li < SRC_LIN_NSND ? SRC_LIN_SND[li] : 0;
+    }
     if (want == s->hcur) return;
     s->hcur = want;
     s->hclu = fm ? &fm->clu : &CLU[pre]; s->hreg = (int8_t)(fm ? 0 : PRE[pre].reg);
@@ -1780,20 +1817,39 @@ static void host_switch(src_t *s, unsigned pre)
     }
 }
 
+/* ACTIVITY's path for the sound now (tx_src_lin.h, tools/gen_lin.py): the knob perceptually even in its activity */
+static const int32_t *lin_row(const src_t *s)
+{
+    unsigned pre = s->p[P_PRESET];
+    if (s->hd) return SRC_LIN_HOST[s->hd - HOST];
+    if (PRE[pre].kind == 4) return SRC_LIN_PRE[SRC_LIN_BIRDS];
+    if (PRE[pre].kind == 1) return SRC_LIN_PRE[SRC_LIN_CICADAS];
+    return SRC_LIN_PRE[pre == PR_RAIN ? SRC_LIN_RAIN : pre == PR_STONES ? SRC_LIN_STONES : SRC_LIN_WATER];
+}
+typedef char lin_rows_ok[SRC_LIN_NHOST == sizeof HOST / sizeof HOST[0] ? 1 : -1];
+
 /* LIFE, once per block: the intensity's glide and walk, the size and distance walks */
 static void life_block(src_t *s)
 {
     int32_t tau = 482152 + (int32_t)s->p[P_TIME] * 4258;       /* log2 blocks: 1 s (172) .. 300 s (51680) */
     int32_t depth = (int32_t)s->p[P_LIFE];
     int32_t a = tx_life_step(&s->la, tau), sz = tx_life_step(&s->ls, tau), dd = tx_life_step(&s->ld, tau + 65536);
-    if (s->start) { s->start = 0; s->i_glide = (int32_t)s->p[P_INTENS] << 8; }   /* (starting: where the fader is) */
-    s->i_glide += ((int32_t)s->p[P_INTENS] * 256 - s->i_glide) >> 6;   /* a fader move glides in (~1 s to 95 %) */
+    if (s->start) { s->start = 0; s->u_glide = (int32_t)s->p[P_INTENS] << 8; }   /* (starting: where the fader is) */
+    s->u_glide += ((int32_t)s->p[P_INTENS] * 256 - s->u_glide) >> 6;   /* a fader move glides in (~1 s to 95 %: the mean
+                                                             * rate thickens or thins, as weather does, never a step) */
     {   /* LIFE: +-40 at 127, narrowing to none at the fader's ends (ACTIVITY 0 stays the least active: the walk */
-        int32_t w = ((a * depth) >> 7) * 5 >> 4, edge = s->i_glide < (127 << 8) - s->i_glide ? s->i_glide   /* no */
-                                                                                          : (127 << 8) - s->i_glide;
+        int32_t w = ((a * depth) >> 7) * 5 >> 4, edge = s->u_glide < (127 << 8) - s->u_glide ? s->u_glide   /* no */
+                                                                                          : (127 << 8) - s->u_glide;
+        const int32_t *l = lin_row(s);
         if (edge < (32 << 8)) w = (int32_t)(((int64_t)w * (edge < 0 ? 0 : edge)) >> 13);   /* longer lifts it) */
         if (s->hd && (s->hd->k0 & 32u)) w /= 4;              /* (an engine with its own weather: a quarter) */
-        s->i_eff = clampi(s->i_glide + w, 0, 127 << 8);
+        if (s->lsnd) {                                       /* (the sound's own measured curve) */
+            s->i_glide = tx_lin_tab(s->lsnd, s->u_glide);
+            s->i_eff = tx_lin_tab(s->lsnd, clampi(s->u_glide + w, 0, 127 << 8));
+        } else {
+            s->i_glide = tx_lin_knob(l, s->u_glide);         /* (the knob even, the walk on it: the density wanders */
+            s->i_eff = tx_lin_knob(l, clampi(s->u_glide + w, 0, 127 << 8));   /* around a mean on the line) */
+        }
     }
     s->life_s = (sz * depth) >> 8;                           /* +-0.25 octave at LIFE 127 */
     s->life_d = (dd * depth) >> 6;                           /* +-1 octave of distance */
@@ -1948,7 +2004,7 @@ static void src_init(void *st, uint32_t seed)
     s->quiet = 1;
     s->x32 = seed * 2654435761u + 77u;
     if (!s->x32) s->x32 = 1;
-    s->i_eff = s->i_glide = 64 << 8;
+    s->i_eff = s->i_glide = s->u_glide = 64 << 8;
     tx_life_init(&s->la, seed * 3u + 1u);
     tx_life_init(&s->ls, seed * 5u + 2u);
     tx_life_init(&s->ld, seed * 7u + 3u);

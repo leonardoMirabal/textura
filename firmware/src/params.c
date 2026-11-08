@@ -440,7 +440,7 @@ static const char *p_text(uint32_t id, char *t)
     case F_ENUM: p_strcpy(t, p_names(id)[v], 10); return 0;
     case F_ONOFF: p_strcpy(t, v ? "ON" : "OFF", 4); return 0;
     case F_SOUND: p_upper(t, sc_sound_name(P_SCOPE(id)), 22); return 0;
-    case F_COUNT: if (!v) p_strcpy(t, "OFF", 4); else p_fmt_int(t, 1 << (v - 1)); return 0;
+    case F_COUNT: if (!v) p_strcpy(t, "OFF", 4); else p_fmt_int(t, LS_COUNT_N[v < LS_NCNT ? v : LS_NCNT - 1]); return 0;   /* (the count the key gives) */
     case F_ACTIVE: if (!v) p_strcpy(t, "OFF", 4); else { p_fmt_int(t, v); p_cat(t, "/8", 15); } return 0;
     case F_PAN:
         if (v == 64) { p_strcpy(t, "C", 2); return 0; }

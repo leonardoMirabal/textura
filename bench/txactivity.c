@@ -8,7 +8,7 @@
  *
  * Per sound, COUNT and ACTIVITY (the player's two faders; by default COUNT 1, 8, 64 individuals against ACTIVITY 0 = the
  * rarest step, 9, 64, 127), SEEDS runs of SECS s after a 5 s start, each a new engine and generator seed. COUNT is given in
- * individuals and set as the source's COUNT knob (1 + 21 log2 n: 1, 8, 64 = knob 1, 64, 127; 0 = none); a classic
+ * individuals and set as the source's COUNT knob (1 + 126 ((n - 1) / 63)^0.4: 1, 8, 64 = knob 1, 53, 127; 0 = none); a classic
  * engine has no COUNT (its column reads "-" and its runs ignore it):
  *   ev/s     the engine's own event count (tx_stats_t.total) per second
  *   bout/s   sound starting after 200 ms or more of gap (as gaps: 20 dB under the mean), per second: a bout of many grains (a
@@ -98,12 +98,12 @@ static const quick_t QUICK[] = {
     {"stream", 2, {{"FLOW", 10, 127}, {"ROAR", 0, 90}}, {0, 0}},
     {"surf", 2, {{"HEIGHT", 10, 127}, {"CHOP", 30, 90}}, {0, 0}},
     {"thunder", 2, {{"DIST", 110, 25}, {"ENERGY", 40, 100}}, {40, 8}},
-    {"sparks", 2, {{"RATE", 10, 120}, {"BURST", 20, 80}}, {0, 0}},
+    {"sparks", 2, {{"RATE", 4, 105}, {"BURST", 20, 80}}, {0, 0}},
     {"storm", 1, {{"INTENSITY", 0, 127}}, {0, 0}},
 };
 
 static double factor;                                     /* FM-1 us per host us (0: no calibration) */
-static unsigned count_knob = 64;                         /* the run's COUNT knob (count_of: individuals -> knob) */
+static unsigned count_knob = 53;                         /* the run's COUNT knob (count_of: individuals -> knob) */
 static unsigned particles;                                /* -p: the lane's PARTICLES (0: the engine's default) */
 static FILE *wavf;                                        /* -w DIR: each run's first seed written as a wav (mono L) */
 static uint32_t wavn;
@@ -394,11 +394,12 @@ static int run(const snd_t *s, unsigned act, uint32_t seed, unsigned secs, res_t
     return 0;
 }
 
-/* COUNT in individuals -> the knob: 0 none, n -> 1 + 21 log2 n (the source's count_q8 = 2^((v-1)/21)), at most 127 */
+/* COUNT in individuals -> the knob: 0 none, n -> 1 + 126 ((n - 1) / 63)^0.4 (the source's count_q8 = 1 + 63 x^2.5), at
+ * most 127 */
 static unsigned count_of(unsigned n)
 {
-    double v = n ? 1 + 21 * log2((double)n) : 0;
-    return v > 127 ? 127u : (unsigned)lround(v);
+    double v = n ? 1 + 126 * pow((n > 64 ? 63 : n - 1) / 63.0, 0.4) : 0;
+    return (unsigned)lround(v);
 }
 
 int main(int argc, char **argv)

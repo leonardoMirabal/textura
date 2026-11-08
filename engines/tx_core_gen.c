@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura GEN: a lane's generator (tx_core_gen.h). */
 #include "tx_core_gen.h"
+#include "tx_core_lin.h"
 
 const tx_param_t tx_gen_params[TX_GEN_NP] = {
     {"ACTIVITY", 127, 64, "the lane's activity (the fader): how much happens; EVOLVE wanders around it (+-20, narrowing to none at 0 and 127)"},
@@ -183,9 +184,13 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
         int32_t rand_ = clamp32((int32_t)g->p[TX_GEN_RANDOM] + ((g->wr * 16) >> 15), 0, 127);
         uint32_t j16 = rand_ >= 64 ? 65536u : (uint32_t)rand_ * 1024u;
         uint32_t n16 = rand_ > 64 ? (uint32_t)(rand_ - 64) * 832u : 0u;   /* branching 0 .. 0.8 */
-        uint32_t lam = tx_exp2(-283234 + ((g->a * 4460) >> 8) + (8 << 16));   /* notes/s Q8: 0.05 .. 20 */
+        uint32_t lam = 13u + ((5107u * tx_lin_frac(g->a)) >> 16);   /* notes/s Q8: 0.05 .. 20, perceptually even (each
+                                                             * step of the activity sounds the same more: tx_core_lin.h) */
         uint32_t lam0 = (uint32_t)(((uint64_t)lam * (65536u - n16)) >> 16) + (uint32_t)g->exc;
-        uint32_t inc = (lam0 * n * 380u) >> 16, prev = g->acc, gap = (TX_FS << 8) / (lam ? lam : 1u);
+        uint32_t inc = ((lam0 > 6400u ? 6400u : lam0) * n * 380u) >> 16, prev = g->acc, gap = (TX_FS << 8) / (lam ? lam : 1u);
+                                                             /* (the excited rate held at 25 /s, 1.25 x the top: on the
+                                                             * even curve the top is reached often, and a burst over it
+                                                             * would rattle, 40+ notes in a second) */
         g->acc += inc;
         g->exc -= (int32_t)(((uint32_t)g->exc * 950u) >> 16) + (g->exc > 0);   /* tau 0.4 s */
         if (g->exc < 0) g->exc = 0;

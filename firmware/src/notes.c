@@ -5,7 +5,7 @@
  *                the black keys      by their groups (3, 2, 3, 2, 1): group n selects lane n and brings its page (as
  *                                    OCT: a lane's page stays, any other goes to its SOUND 1); F#5 (the fifth) nothing.
  *                                    The sounds are picked on the pages (K1), not by a key;
- *                F3 .. E4 (7 white)  HOW MANY of the selected lane: off, 1, 2, 4, 8, 16, 32;
+ *                F3 .. E4 (7 white)  HOW MANY of the selected lane: off, 1, 2, 4, 10, 19, 32 (each sounds the same more);
  *                F4 .. G5 (9 white)  HOW ACTIVE: rare .. busy (steps 1 .. 14, G5 the 14th).
  *              No key changes the landscape (ALGORITHM does, on its page).
  *              LEDs: a lane's black keys blink while it plays (1.6 s rare .. 0.12 s busy) and glow when it is selected

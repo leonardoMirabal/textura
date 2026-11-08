@@ -25,6 +25,16 @@
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
 #include "tx_core_thunder.h"
+#include "tx_core_lin.h"
+
+#include "tx_lin_storm.h"
+
+/* INTENSITY through the storm's own measured curve (tools/gen_lin.py: its loudness and sounding share, so each step
+ * sounds the same more): the place on the old scale (rain, wind and flashes all read it), whole knob units */
+static unsigned st_place(unsigned u)
+{
+    return (unsigned)((tx_lin_tab(TX_LIN_STORM, (int32_t)u << 8) + 128) >> 8);
+}
 
 #define OUT_TRIM 3072               /* output gain, Q12 (-0.5 dB with the spectrogram fixes, session 5; -0.6 dB; -1.4 dB with the thunder's rolling tail, session 5): integrated (a key held 10 s): -25.4 LUFS at LEVEL 100 -> target -26 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter) */
@@ -36,7 +46,7 @@ void tx_rainsurf_lite(void *st, unsigned on);
 enum { P_INTENS, P_SURFACE, P_AGE, P_DIST, P_PASSING, P_RAIN, P_WIND, P_FLASH, P_INSIDE, NP };
 
 static const tx_param_t PARAMS[NP] = {
-    {"INTENSITY", 127, 64, "storm intensity: rain 0.5 .. 60 mm/h, wind 3 .. 20 m/s, flashes 1 .. 12 / min (nearer)"},
+    {"INTENSITY", 127, 52, "storm intensity, each step sounds the same more (its own measured curve): rain 0.5 .. 60 mm/h, wind 3 .. 20 m/s, flashes 1 .. 12 / min (nearer); 52: as the old 64, ~6 mm/h, 6 m/s, 3 / min"},
     {"SURFACE", 127, 70, "where the rain falls: water (#2) | leaves, tent, wood, glass, metal roof (#3)"},
     {"AGE", 127, 30, "storm age: young convective cell (big drops, loud) .. stratiform rain after it (fine drops)"},
     {"DIST", 127, 60, "distance of the thunder cell: 0.5 .. 15 km (log)"},
@@ -114,7 +124,8 @@ static uint8_t rain_wind(const storm_t *s, int32_t v)
 static void rain_setup(storm_t *s)
 {
     const tx_engine_t *e = s->p[P_SURFACE] < 22u ? &tx_eng_rainwater : &tx_eng_rainsurf;
-    uint8_t rate = (uint8_t)(30u + s->p[P_INTENS] * 87u / 127u);   /* 0.5 .. 60 mm/h on the rain's 0.1 .. 100 scale */
+    uint8_t rate = (uint8_t)(30u + st_place(s->p[P_INTENS]) * 87u / 127u);   /* 0.5 .. 60 mm/h on the rain's
+                                                             * 0.1 .. 100 scale (perceptually even in mm/h over INTENSITY) */
     uint8_t mix = (uint8_t)(110u - s->p[P_AGE] * 90u / 127u);      /* convective 110 .. stratiform 20 */
     if (e != s->rain) {
         if (e->state_bytes > ARENA) { s->rain = 0; return; }
@@ -126,7 +137,7 @@ static void rain_setup(storm_t *s)
     }
     s->rid = (int8_t)tx_param_find(e, "RATE"); s->rate0 = rate; s->rsent = 0xFF;
     rain_set(s, "RATE", rain_rate(s, rate));
-    if (e == &tx_eng_rainwater) { rain_set(s, "STORM", mix); rain_set(s, "WIND", rain_wind(s, (int32_t)(s->p[P_INTENS] / 2u))); }
+    if (e == &tx_eng_rainwater) { rain_set(s, "STORM", mix); rain_set(s, "WIND", rain_wind(s, (int32_t)(st_place(s->p[P_INTENS]) / 2u))); }
     else {
         rain_set(s, "DROPS", mix);
         rain_set(s, "SURFACE", (uint8_t)((s->p[P_SURFACE] - 22u) * 127u / 105u));
@@ -178,7 +189,8 @@ static void sq_block(storm_t *s, unsigned n, unsigned held)
     x = (int32_t)(s->sq_t / ((s->sq_len >> 15) + 1u));      /* Q15 of the length */
     sq_shares(s, x, &w, &r);
     s->sq_w = w; s->sq_r = r;
-    iw = (s->p[P_INTENS] * w) >> 15; ir = (s->p[P_INTENS] * r) >> 15;
+    iw = (int32_t)st_place((unsigned)((s->p[P_INTENS] * w) >> 15));
+    ir = (int32_t)st_place((unsigned)((s->p[P_INTENS] * r) >> 15));
     s->u_l2 = 103872 + iw * 1412;
     s->rate0 = (uint8_t)(30 + ((ir * 87 * 258) >> 15));     /* (as rain_setup: x 87 / 127) */
     if (s->rain && !s->sq_tick--) {
@@ -198,7 +210,8 @@ static void set_param(storm_t *s, unsigned id, unsigned v)
     if (id >= NP) return;
     if (v > PARAMS[id].max) v = PARAMS[id].max;
     s->p[id] = (uint8_t)v;
-    if (id == P_INTENS) s->u_l2 = 103872 + (int32_t)(v * 1412u);   /* log2(3 m/s) .. log2(20 m/s) (was x 1610: 26 m/s at the top) */
+    if (id == P_INTENS) s->u_l2 = 103872 + (int32_t)(st_place(v) * 1412u);   /* log2(3 m/s) .. log2(20 m/s), even
+                                                             * in m/s over INTENSITY (was x 1610: 26 m/s at the top) */
     if (id == P_PASSING) { if (v) sq_start(s); s->sq_r = s->sq_w = 32767; }   /* (turned now: a squall from now) */
     if (id == P_RAIN) s->roff = (int8_t)(((int32_t)v - 64) * 42 / 64);   /* +-1 decade */
     if (id == P_WIND) s->uw = ((int32_t)v - 64) * 1024;     /* +-1 octave */
@@ -296,8 +309,8 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
     if (!held && s->on < 64) s->on = 0;
     if (s->fl.active) s->fl_age += n;
     if (held && s->p[P_FLASH]) {                             /* lightning: Poisson, 0.5 .. 8 / min */
-        uint32_t per_min_q8 = tx_knob_exp(s->p[P_PASSING] ? (uint32_t)((s->p[P_INTENS] * s->sq_r) >> 15) : s->p[P_INTENS],
-                                          256u, 234960);    /* 1 .. 12 / min, Q8 (a squall: with its rain) */
+        uint32_t per_min_q8 = tx_knob_exp(st_place(s->p[P_PASSING] ? (uint32_t)((s->p[P_INTENS] * s->sq_r) >> 15) : s->p[P_INTENS]),
+                                          256u, 234960);    /* 1 .. 12 / min, Q8, even over INTENSITY (a squall: with its rain) */
         if (s->p[P_FLASH] != 64u)                            /* FLASHES: x 2^(+-2) over it */
             per_min_q8 = (per_min_q8 * tx_exp2(((int32_t)s->p[P_FLASH] - 64) * 2048 + (12 << 16))) >> 12;
         if (!per_min_q8) per_min_q8 = 1;

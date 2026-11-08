@@ -30,6 +30,7 @@
 #include "tx_core_vary.h"
 #include "tx_core_cloud.h"
 #include "tx_core_noise.h"
+#include "tx_core_lin.h"
 
 #define OUT_TRIM 6100               /* output gain, Q12 (-1.7 dB with the session-5 fixes: the chord's limiter under ~8 dB; +11.7 dB): max momentary (one velocity-100 press): -54.2 LUFS at LEVEL 100 -> target -20 LUFS
                                     * (LOUDNESS.md; raw peaks kept <= +2 dBFS for the output limiter;
@@ -49,7 +50,7 @@ enum { P_GAP, P_RATE, P_BURST, P_DIST, P_CORONA, P_BODY, NP };
 
 static const tx_param_t PARAMS[NP] = {
     {"GAP", 127, 57, "spark gap at C4: 0.3 .. 20 mm (log): N-wave 1.3 .. 38 us, tick (bright) .. crack (fuller, louder)"},
-    {"RATE", 127, 50, "discharges per second while a key is held: 0.1 .. 500 (log)"},
+    {"RATE", 127, 16, "discharges per second while a key is held: 0.1 .. 508, perceptually even (0.1 + 508 x^2.5; 16: 3 /s)"},
     {"BURST", 127, 40, "crackle bursts: Omori aftershocks per discharge, 0 .. 12 on average (p 1.68, c 30 ms)"},
     {"DIST", 127, 30, "distance to the spark: 0.1 .. 10 m (log): level ~1/r, the N-wave lengthens (duller)"},
     {"CORONA", 127, 0, "corona fizz while keys are held: off .. loud (bipolar us pulses, ~10 kHz)"},
@@ -101,7 +102,8 @@ static void set_param(sparks_t *s, unsigned id, unsigned v)
     s->p[id] = (uint8_t)v;
     switch (id) {
     case P_GAP: s->gap_l2 = -113835 + (int32_t)(v * 3127u); break;   /* log2(0.3) + v log2(66.7) / 127 */
-    case P_RATE: tx_cloud_rate(&s->cloud, tx_knob_exp(v, 26u, 805306)); break;   /* 0.1 * 2^(12.29 v / 127) /s */
+    case P_RATE: tx_cloud_rate(&s->cloud, 26u + ((129999u * (tx_lin_frac((int32_t)v << 8) >> 4)) >> 12)); break;   /* 0.1 ..
+                                                             * 508 /s, perceptually even, Q8 (the ends as on the old log scale) */
     case P_BURST: tx_cloud_omori(&s->cloud, (v * 12u + 63u) / 127u, 6881, 30, 8192); s->cloud.after_stream = 1; break;
     case P_DIST: {
         int32_t rl2 = (int32_t)(v * 3428u);                  /* log2(r / r0), Q16: 0 .. 6.64 (0.1 .. 10 m) */

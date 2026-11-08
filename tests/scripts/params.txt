@@ -33,7 +33,8 @@
 2370 expect state lab1 HEIGHT
 2370 expect state lab2 POOL
 2370 expect state lab3 SCATTER
-# lane 4, cave drips: the drip's own (hosted) parameters, over the source's curves
+# lane 4, cave drips: the drip's own (hosted) parameters, over the source's curves (HEIGHT 100: its curve at the lane's
+# activity, on the sound's own measured ACTIVITY curve; eaves 63)
 2400 btn 1
 2420 expect state sel 4
 2420 expect state lab0 SIZE
@@ -49,8 +50,8 @@
 2700 turn 1 1
 2720 expect state snd3 eaves_dripping
 2760 expect state lab2 RHYTHM
-2760 expect state host3.5 64
-2760 expect state card1 64
+2760 expect state host3.5 63
+2760 expect state card1 63
 # EDIT again: FILTER 1/3, the four lanes' FREQ (K3: lane 3's, which selects it); SELECT: 2/3 lane 3's; ALGORITHM:
 # LP12; K2: the cutoff in Hz; SELECT: 3/3 RATE SHAPE
 2800 btn 6

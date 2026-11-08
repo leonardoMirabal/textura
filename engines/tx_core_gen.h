@@ -8,7 +8,7 @@
  *               constants 1 s x 2^k up to EVOLVE (10 s .. 2 h), equal power per octave; walk k is stepped every 2^k
  *               blocks with the same per-step constant (172), so a 2 h walk keeps its precision and the cost is flat.
  *               The pitch centre wanders on a second bank (+-SPAN / 4); the randomness on a third walk (+-16).
- *   notes       a rate 0.05 .. 20 /s (log) from the activity; RANDOMNESS 0 .. 64: steady .. Poisson (the next note
+ *   notes       a rate 0.05 .. 20 /s (perceptually even, tx_core_lin.h) from the activity; RANDOMNESS 0 .. 64: steady .. Poisson (the next note
  *               when the integrated rate reaches a threshold (1 - j) + j Exp(1)); above 64 a self-exciting
  *               (Hawkes) part: each note raises the rate for ~0.4 s, branching up to 0.8, the base rate lowered so the
  *               mean stays: flurries and silences. Pitch (chromatic, ROOT .. ROOT + SPAN): WANDER 0 = anywhere in the

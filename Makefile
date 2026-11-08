@@ -34,6 +34,7 @@
 #   make tx-gen        the lane generator's long run: 30 min (MIN=...) of the water lane at EVOLVE 2 h, fast, with its
 #                      checks (no stuck state, no runaway) -> build/gen/longrun.csv and a plot build/gen/longrun.png
 #   make tx-tables     regenerate engines/tx_tables.[ch]
+#   make tx-lin-tables regenerate engines/tx_src_lin.h (the SOURCE's ACTIVITY made linear per sound: tools/gen_lin.py)
 #   make tx-fx-tables  regenerate engines/tx_fx_tables.[ch] (the effects' tables)
 #   make tx-drive-tables   regenerate engines/tx_drive_tables.h (the DRIVE TYPEs' tables, from tools/drive_gen/: numpy)
 #   make tx-size       code size of each engines/ object (host arm64 -Os, a rough proxy for the device)
@@ -75,7 +76,7 @@ HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
 PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-timing fw-c1map
-.PHONY: $(PHONY_FM1) fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-fonts tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-fx-tables tx-size tx-libcalls tx-clean
+.PHONY: $(PHONY_FM1) fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-fonts tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -100,6 +101,9 @@ tx-gen: $(B)/txgen
 $(B)/gen_tables: bench/gen_tables.c
 	@mkdir -p $(B)
 	$(CC) -O2 -Wall -o $@ $< -lm
+
+tx-lin-tables:
+	python3 -I tools/gen_lin.py
 
 tx-tables: $(B)/gen_tables
 	$(B)/gen_tables engines/tx_tables.h engines/tx_tables.c

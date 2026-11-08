@@ -152,7 +152,7 @@ static const step_t SCENE[] = {
     {0, 'K', 0, 0, 60, 100, 1},
     {20, 'S', 1, "surf", 0, 0, 0},              /* lane 2: a classic engine */
     {20, 'K', 1, 0, 64, 90, 1},
-    {40, 'P', 0, 0, 16, 106, 0},                /* the source's COUNT (id 16): 32 */
+    {40, 'P', 0, 0, 16, 96, 0},                 /* the source's COUNT (id 16): 32 */
     {60, 'F', 2, 0, 0, 2, 0},                   /* REVERB TYPE hall */
     {60, 'F', 2, 0, 1, 60, 0},                  /* its MIX */
     {80, 'F', 0, 0, 0, 60, 0},                  /* the mix's DRIVE AMOUNT */

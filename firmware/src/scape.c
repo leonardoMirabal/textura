@@ -12,6 +12,7 @@
  *
  * Main loop only (sc_poll every pass): integers, no division in 64 bits. */
 #include "landscapes.h"
+#include "tx_core_lin.h"
 
 #define SC_N LN_N                               /* lanes */
 #define SC_STEPS 14                             /* HOW ACTIVE as a step 1 .. 14 (0: off), as the player's */
@@ -21,7 +22,8 @@
 #define SC_PRESS_MS 150u                        /* a one-shot engine's press, and its shortest gap */
 #define SC_FAM_MS 300u                          /* ALGORITHM: the landscape changes this long after the last detent */
 
-static const uint16_t SC_BLINK_MS[LS_NACT] = {1600, 1157, 837, 606, 438, 317, 229, 166, 120};   /* 1.6 s x (0.12 / 1.6)^(a / 8) */
+static const uint16_t SC_BLINK_MS[LS_NACT] = {1600, 1498, 1155, 776, 503, 333, 228, 163, 120};   /* the blink's rate on the
+                                                 * keys' curve: 1 / (1 / 1.6 s + (1 / 0.12 s - 1 / 1.6 s) (a / 8)^2.5) */
 
 static struct {
     uint8_t fam, sel;                           /* the landscape; the selected lane */
@@ -54,9 +56,14 @@ static struct {
 /* ---- the player's scales */
 static uint32_t sc_act_step(uint32_t w) { return 1u + (w * 26u + LS_NACT - 1u) / (2u * (LS_NACT - 1u)); }   /* HOW ACTIVE key
                                                  * 0 .. 8 -> step 1 .. 14, even (1 3 4 6 8 9 11 12 14) */
-static uint32_t sc_act_val(uint32_t s) { return s ? ((s - 1u) * 254u + 13u) / 26u : 0u; }   /* step -> ACTIVITY 0 .. 127 */
 static uint32_t sc_act_of(uint32_t s) { return s ? ((s - 1u) * 2u * (LS_NACT - 1u) + 13u) / 26u : 0u; }   /* step -> HOW
                                                  * ACTIVE 0 .. 8 */
+static uint32_t sc_act_val(uint32_t s)         /* step -> ACTIVITY 0 .. 127: the key's, equal steps (0, 16, 32 .. 127; the
+                                                 * source and the generator are perceptually even in it: each key sounds
+                                                 * the same more, tx_core_lin.h) */
+{
+    return s ? (sc_act_of(s) * 254u + LS_NACT - 1u) / (2u * (LS_NACT - 1u)) : 0u;
+}
 
 static int sc_eq(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
 /* the source's preset by name, read from its PRESET help line ("the source: 0 rain on water | 1 stone cloud | ...") */
@@ -166,13 +173,16 @@ static void sc_quick_tick(uint32_t k, int jump)
         sc.q_cur[k][i] = nx;
     }
 }
-/* a one-shot engine's next press: an exponential gap around the mean at the place (C4's gap .. C6's, log) */
+/* a one-shot engine's next press: an exponential gap around the mean at the place (C4's gap .. C6's; the press rate
+ * ra + (rb - ra) x^2.5 between them: each step sounds the same more, tx_core_lin.h) */
 static uint32_t sc_quick_gap(uint32_t k)
 {
     const ls_quick_t *q = sc.q[k];
-    uint32_t x = sc_quick_pos(k), mean, nl;
-    int32_t e = (q->every_oct_q16 >> 4) * (int32_t)(x >> 4) >> 8;
-    mean = (q->every_ms * (tx_exp2(e + (16 << 16)) >> 4)) >> 12;   /* ms */
+    uint32_t x = sc_quick_pos(k), mean, nl, b, ra, rb, r;
+    b = (q->every_ms * (tx_exp2(q->every_oct_q16 + (16 << 16)) >> 4)) >> 12;   /* C6's gap, ms */
+    ra = 10000000u / (q->every_ms ? q->every_ms : 1u); rb = 10000000u / (b ? b : 1u);   /* presses per 10^4 s */
+    r = ra + (uint32_t)(((int32_t)(rb - ra) * (int32_t)(tx_lin_pow(x) >> 4)) >> 12);
+    mean = 10000000u / (r ? r : 1u);                         /* ms */
     nl = (tx_neglog2_q12(tx_rand(&sc.rng)) * 2839u) >> 12;           /* -ln u, Q12 */
     mean = ((mean >> 4) * nl) >> 8;
     return mean < SC_PRESS_MS ? SC_PRESS_MS : mean > 600000u ? 600000u : mean;
@@ -184,7 +194,11 @@ static void sc_start(uint32_t k, int on)        /* laneStart: the lane plays on 
     sc.run[k] = (uint8_t)(on != 0);
     sc.q_next[k] = 0;
     if (on && !sc_is_src(k)) sc_quick_tick(k, 1);   /* (a classic engine: its settings first, no glide) */
-    if (on && sc_oneshot(k)) sc.q_next[k] = fm1_ms + sc_quick_gap(k) + 1u;   /* (its first strike after a gap) */
+    if (on && sc_oneshot(k)) {                  /* (its first strike after a gap: within ~2.5 s, so the rarest step */
+        uint32_t g = sc_quick_gap(k);           /* is never silent) */
+        if (g > SC_PRESS_MS + 2500u) g = SC_PRESS_MS + tx_rand(&sc.rng) % 2500u;
+        sc.q_next[k] = fm1_ms + g + 1u;
+    }
     sc_sync(k);
 }
 static void sc_step(uint32_t k, uint32_t w);

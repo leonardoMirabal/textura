@@ -546,9 +546,10 @@ function trimQ12(f, i) {                             // the sound's trim, Q12 (4
 }
 let fam = 0;
 const laneSnd = [-1, -1, -1, -1];                    // each lane's sound in the family (-1: none)
-// the two faders: the 7 white keys F3 .. E4 HOW MANY (off, 1, 2, 4, 8, 16, 32: the source's COUNT knob), the 9 F4 .. G5
+// the two faders: the 7 white keys F3 .. E4 HOW MANY (off, 1, 2, 4, 10, 19, 32: each key sounds the same more; the
+// source's COUNT knob, n = 1 + 63 x^2.5: COUNT_N the count shown), the 9 F4 .. G5
 // HOW ACTIVE each one is (rare .. busy: the generator's ACTIVITY, 0 .. 127, kept as a step on the 0 .. 14 scale)
-const COUNT_V = [0, 1, 22, 43, 64, 85, 106], NCNT = 7, NACT = 9;
+const COUNT_V = [0, 1, 20, 39, 58, 77, 96], COUNT_N = [0, 1, 2, 4, 10, 19, 32], NCNT = 7, NACT = 9;
 const laneCnt = [0, 0, 0, 0];
 const sndVol = {};                                   // each sound's volume (the lane's LEVEL, 100 = unity), by landscape and sound
 function volKey(k) { return `${fam}:${laneSnd[k]}`; }
@@ -560,8 +561,10 @@ function laneVol(k, v) {                             // a lane's volume: kept wi
   return x;
 }
 function actStep(a) { return 1 + Math.round(a * 13 / (NACT - 1)); }        // HOW ACTIVE 0 .. 8 -> step 1 .. 14
-function actVal(step) { return step <= 0 ? 0 : Math.round((step - 1) * 127 / 13); }   // step 1 .. 14 -> ACTIVITY 0 .. 127
 function actOf(step) { return Math.max(0, Math.round((step - 1) * (NACT - 1) / 13)); }
+// step 1 .. 14 -> ACTIVITY 0 .. 127: the key's, in equal steps (0, 16, 32 .. 127; the source and the generator are
+// perceptually even in it: lo + (hi - lo) x^2.5, so each key sounds the same more)
+function actVal(step) { return step <= 0 ? 0 : Math.floor((actOf(step) * 254 + NACT - 1) / (2 * (NACT - 1))); }
 const BLACKS = [], WHITES = [];
 const LANE_LO = 53, LANE_HI = 79;                  // lane mode: F3 .. G5 (16 white keys: the faders; 11 black: the lanes)
 const BLACK_LANE = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, -1];   // the n-th black key's lane: its group (3, 2, 3, 2; F#5 none)
@@ -660,12 +663,14 @@ window.txTest.hostSet = (name, v) => {               // through the slider, as a
 // QUICK LANES: any of the old engines in a lane. The player keeps it sounding on its own (a held note, or presses
 // re-triggered at the step's rate for the one-shot engines) and the 15 steps move the engine's own density / rate /
 // amount parameters: each [name, value at C4, value at C6], linear in the knob (the knobs are log in their units), gliding
-// over ~1 s. "every": seconds between presses at C4 and at C6 (log, exponential gaps): the one-shot engines.
+// over ~1 s. "every": seconds between presses at C4 and at C6 (the press rate r4 + (r6 - r4) x^2.5 between them, exponential
+// gaps): the one-shot engines. The stone cloud's DENSITY and the sparks' RATE are perceptually even in their rates (14 =
+// 0.44 hits/s as 10 was on the old log scale; sparks 4 .. 105 = 0.2 .. 313 /s as 10 .. 120 were).
 const QUICK = {
   test: { p: [["RATE", 10, 120]] },
   drip: { p: [["RATE", 20, 127]] },
   candle: { p: [["SPUTTER", 40, 127], ["FLOW", 5, 60]] },
-  sparks: { p: [["RATE", 10, 120], ["BURST", 20, 80]] },
+  sparks: { p: [["RATE", 4, 105], ["BURST", 20, 80]] },
   gravel: { p: [["AMOUNT", 20, 120], ["RATE", 30, 110]] },
   rainstick: { p: [["SEEDS", 10, 127]] },
   mineral: { p: [["SPEED", 20, 110], ["PRESSURE", 30, 100]] },
@@ -691,7 +696,7 @@ const QUICK = {
   crumple: { p: [["RATE", 10, 120]] },
   fire: { p: [["MOIST", 20, 120], ["SIZE", 20, 100], ["ROAR", 30, 120]] },
   stonedrum: { p: [], every: [12, 0.12] },
-  stonecloud: { p: [["DENSITY", 10, 127]] },
+  stonecloud: { p: [["DENSITY", 14, 127]] },
   minerals: { p: [], every: [10, 0.15] },
   glass: { p: [["ENERGY", 60, 127]], every: [40, 2] },
   wood: { p: [["LOAD", 110, 15], ["CREAK", 15, 70]], every: [30, 2] },
@@ -739,11 +744,14 @@ function quickPress(k) {                              // a one-shot engine's nex
   setTimeout(() => M._txw_key_slot(k, 60, 0, 0), 150);
   quickNext(k);
 }
-function quickNext(k) {                               // the next press after a random (exponential) gap at the step's rate
+function quickNext(k, first) {                        // the next press after a random (exponential) gap at the step's rate
   const q = QUICK[engName(k)];
   if (!q || !q.every) return;
-  const [a, b] = q.every, mean = a * Math.pow(b / a, quickPos(k));
-  quick[k].timer = setTimeout(() => quickPress(k), Math.max(150, -Math.log(1 - Math.random()) * mean * 1000));
+  const [a, b] = q.every, x = quickPos(k), mean = 1 / (1 / a + (1 / b - 1 / a) * Math.pow(x, 2.5));   // (the press rate
+  // perceptually even between C4's and C6's)
+  let g = Math.max(150, -Math.log(1 - Math.random()) * mean * 1000);
+  if (first && g > 2650) g = 150 + Math.random() * 2500;   // (the first strike within ~2.5 s: the rarest step is never silent)
+  quick[k].timer = setTimeout(() => quickPress(k), g);
 }
 // THE LANE GENERATOR (tx_core_gen, in tx_web.c): when a lane's Notes are on, it sets the source's ACTIVITY along a
 // wandering, remembering trajectory around the fader and presses pitched notes; for an old engine the quick mapping
@@ -770,7 +778,7 @@ function laneStart(k, on) {                           // a lane plays on its own
   genRun(k);
   const q = QUICK[engName(k)];
   if (on && layers[k].eng !== srcEng) { quick[k].cur = {}; quickTick(); }   // a classic engine: its settings first, no glide
-  if (q && q.every && layers[k].eng !== srcEng) { srcHold(k, false); if (on) quickNext(k); }   // (its first strike after a gap)
+  if (q && q.every && layers[k].eng !== srcEng) { srcHold(k, false); if (on) quickNext(k, true); }   // (its first strike after a gap)
   else srcHold(k, on);
 }
 function laneSelect(i) {
@@ -896,13 +904,14 @@ function showLanes() {                                // the LEDs: the bar on th
       if (!kb) continue;
       kb.classList.toggle("lane-sel", i === lane); kb.classList.toggle("lane-glow", laneRun[i] && i !== lane);
       kb.classList.toggle("lane-blink", laneRun[i]);   // a playing sound's key blinks: 1.6 s (rare) .. 0.12 s (busy)
-      if (laneRun[i]) kb.style.setProperty("--blink", `${(1.6 * Math.pow(0.12 / 1.6, actOf(laneStepOf(i)) / (NACT - 1))).toFixed(2)}s`);
+      if (laneRun[i]) kb.style.setProperty("--blink", `${(1 / (1 / 1.6 + (1 / 0.12 - 1 / 1.6) * Math.pow(actOf(laneStepOf(i)) / (NACT - 1), 2.5))).toFixed(2)}s`);   // (its rate
+      // on the keys' curve)
     }
     const d = document.createElement("div");
     d.className = "lane" + (i === lane ? " sel" : "") + (laneRun[i] ? " run" : "");
     d.dataset.k = i;
     d.innerHTML = `<span class="lab"></span><span class="bars"><span class="small">how many</span>` +
-      `<span class="abar cbar" title="how many: click or drag (F3 off, then 1, 2, 4, 8, 16, 32)"></span>` +
+      `<span class="abar cbar" title="how many: click or drag (F3 off, then 1, 2, 4, 10, 19, 32)"></span>` +
       `<span class="small">how active</span><span class="abar" title="how active each one is: click or drag (F4 rare .. G5 busy)"><i class="mk"></i></span>` +
       `<span class="small">volume</span><input type="range" class="vol" min="0" max="127" aria-label="volume"></span>`;
     const [cbar, bar] = d.querySelectorAll(".abar");
@@ -969,7 +978,7 @@ function laneLabel(i) {                              // a lane's row: preset, ac
   const pre = layers[i].eng < 0 ? "–" : laneSnd[i] >= 0 ? soundName(laneSnd[i]) : layers[i].eng === srcEng && srcIds ? SRC_PRESETS[srcGet(i, "PRESET")]
     : engName(i) + (QUICK[engName(i)] ? "" : " (no activity map)");
   const gc = M._txw_gov_cur(i), gu = M._txw_gov_user(i);
-  return `${pre} · ${laneRun[i] ? `${1 << (laneCnt[i] - 1)} × activity ${actOf(laneStepOf(i)) + 1}/${NACT}` : "off"}` +
+  return `${pre} · ${laneRun[i] ? `${COUNT_N[laneCnt[i]]} × activity ${actOf(laneStepOf(i)) + 1}/${NACT}` : "off"}` +
     (laneRun[i] && gc < gu ? ` · CPU: ${gc}/${gu} voices` : "");
 }
 function genReadout() {
