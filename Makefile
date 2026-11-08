@@ -15,9 +15,10 @@
 #   make tx-activity   each landscape sound as a player lane (the generator on) at ACTIVITY 0 / 9 / 64 / 118 / 127:
 #                      events/s, LUFS-S, gaps, a cloud at the top or not (ARGS="-s SECS -n SEEDS -f NAME")
 #   make tx-audit      every landscape sound at the defaults and ACTIVITY 0 / 127, 6 seeds: no hidden steady rhythm
-#                      (envelope lines the seeds agree on) and no two events alike (near-identical event pairs);
-#                      fails on a finding outside its short allowlist of species' own rhythms (ARGS="-f NAME -d";
-#                      ARGS="-x -e": the corners EXTRA 0 / 127, COUNT 1 / 127 and the classic engines too, 8 seeds)
+#                      (envelope lines the seeds agree on), no two events alike (near-identical event pairs), never
+#                      silent (half the seeds without a sound) nor hot (a peak over +24 dBFS); fails on a finding
+#                      outside its short allowlist of species' own rhythms (ARGS="-f NAME -d"; ARGS="-x -e": the
+#                      corners EXTRA 0 / 127, COUNT 1 / 127, the classic engines and their ACTIVITY 0 / 127, 8 seeds)
 #   make tx-grain      a granular-delay prototype's cost on the FM-1 and its buffer formats' noise (costing only)
 #   make fm1-host      txfm1's table (bench/fm1: every SOURCE preset at the defaults / ACTIVITY 0 / 127 and its worst knob,
 #                      the hosted kinds, the effects, four-lane cases) timed on this host -> build/fm1/host.csv
@@ -309,9 +310,9 @@ tx-activity: $(B)/txactivity build/calib/frodhes
 	@[ -f build/calib/run/w1.txt ] || $(MAKE) -s tx-calib
 	@$(HEAVY) $(B)/txactivity $(ARGS) | tee $(B)/activity.txt
 
-# the beat and event audits on our own renders (bench/txaudit.c; ARGS="-f name -d": one sound, each seed's lines);
-# every core for ~40 s, so it waits for the HEAVY lock (no timing job runs beside it)
-$(B)/txaudit: bench/txaudit.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
+# the beat, event and level audits on our own renders (bench/txaudit.c; ARGS="-f name -d": one sound, each seed's
+# lines); every core for ~40 s, so it waits for the HEAVY lock (no timing job runs beside it)
+$(B)/txaudit: bench/txaudit.c firmware/src/landscapes.h $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
 	$(CC) $(CSTD) -O2 -o $@ bench/txaudit.c $(HOST_SRC) $(ENG_SRC) -lm -lpthread
 

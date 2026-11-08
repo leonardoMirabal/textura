@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* txaudit: two audits of every landscape sound, on our own renders only (the source held at key 60, velocity 100,
- * PARTICLES 6, the way a lane plays it), at the defaults and at ACTIVITY 0 and 127 (the classic engines: the defaults),
- * SEEDS runs of SECS s each (seeds 1 .. SEEDS):
+/* txaudit: three audits of every landscape sound, on our own renders only (the source held at key 60, velocity 100,
+ * PARTICLES 6, the way a lane plays it with Notes off), at the defaults and at ACTIVITY 0 and 127 (the classic engines:
+ * the defaults), SEEDS runs of SECS s each (seeds 1 .. SEEDS):
  *
  *   beat    no hidden steady rhythm. Per band (<300, 0.3-2k, 2-8k, >8k Hz) the 10 ms rms envelope (after 3 s: the start
  *           is not a beat), its modulation spectrum 0.2 .. 20 Hz, each line's prominence over its local floor (the median
@@ -18,6 +18,14 @@
  *           correlate over 0.95 or the events fall into fewer than 0.4 shapes per event (shapes: events joined at
  *           0.95), given 40 events or more. Natural sources stay at 0 .. 5.6 % of pairs over 0.95 (a bird's call at the
  *           top), 0.47 shapes per event at the fewest (a cricket's chirps).
+ *   level   never silent, never hot. SILENT when half the seeds or more never reach AUDIBLE_DB (a 10 ms rms) in the
+ *           whole run: most times the sound is switched on, 30 s of nothing (the user's rule); the lowest corners are
+ *           the test. HOT when a seed's peak passes HOT_DB: a source may pass full scale (the mix's 8 bits of headroom,
+ *           the output limiter), but past +24 dBFS the limiter's estimate clamps, and four lanes that loud near the
+ *           headroom.
+ *
+ * Classic engines: their defaults; under -x also ACTIVITY 0 / 127 through the player's activity map (LS_QUICK,
+ * generated from app.js QUICK: its parameters at C4 / C6, a one-shot pressed after the map's gaps).
  *
  * A short allowlist (ALLOW) keeps a species' own rhythm or call (birds, insects, a singing dune), each with its
  * reason; OPEN lists a known finding whose fix is to come (reported, not failed); everything else that is flagged
@@ -25,8 +33,8 @@
  *
  *   txaudit [-s SECS] [-n SEEDS] [-j THREADS] [-f SUBSTRING] [-v] [-d] [-x] [-e]   (defaults 33 s, 6 seeds, every
  *            core, every sound; -v: every row, not only the flagged and allowed ones; -d: each seed's lines and events
- *            too; -x: the corners EXTRA 0 / 127 and COUNT 1 / 127 too; -e: the classic engines no landscape plays;
- *            with -x or -e, 8 seeds unless -n says) */
+ *            too; -x: the corners EXTRA 0 / 127 and COUNT 1 / 127 too, the classic engines' ACTIVITY 0 / 127; -e: the
+ *            classic engines no landscape plays; with -x or -e, 8 seeds unless -n says) */
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -34,6 +42,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "tx_host.h"
+#include "../firmware/src/landscapes.h"   /* LS_QUICK: a classic engine's activity map (app.js QUICK) */
 
 #define FS 44100.0
 #define NBAND 4
@@ -53,6 +62,9 @@
 #define SEG 2646                    /* 60 ms */
 #define PRE 44                      /* 1 ms before the onset */
 #define LAG 132                     /* +-3 ms */
+#define AUDIBLE_DB -60.0            /* a 10 ms rms this loud counts as heard (dBFS) */
+#define HOT_DB 24.0                 /* a peak over this (dBFS) is HOT: the output limiter's estimate clamps there, and
+                                     * four lanes that loud reach the mix's 8 bits of headroom */
 #define NF 4096                     /* the correlation's FFT (>= SEG + LAG: no wrap) */
 
 /* ---- the landscape sounds: name, source PRESET (or a classic engine's name), TYPE */
@@ -128,9 +140,18 @@ static const allow_t ALLOW[] = {
 };
 #define NALLOW (sizeof ALLOW / sizeof ALLOW[0])
 
-/* ---- open findings: known, a fix to come; reported as "open", not failed, so the audit guards everything else */
-static const allow_t OPEN[1] = {{0, 0, 0}};            /* none open now: entries as ALLOW's, NOPEN their count */
-#define NOPEN 0u
+/* ---- open findings: known, a fix to come; reported as "open", not failed, so the audit guards everything else
+ * (test 4 = silent, 8 = hot). The silences are the hosted event engines' press clock with Notes off (key 60 held, the
+ * fader the source's ACTIVITY: scape.c), where nothing presses but the clock: its mean gap at the corner is longer than
+ * the run. With Notes on (the generator's notes, txactivity) each sounds. The fix is the ACTIVITY / COUNT -> rate map
+ * (host_t e0 .. e127, count_q8 in tx_eng_source.c), left to the knob-mapping pass. */
+static const allow_t OPEN[] = {
+    {"rockfall", 4, "COUNT 1, Notes off: a press every ~80 s (10 s x 8 / COUNT); the rate map's pass"},
+    {"glass pane", 4, "ACT 0, Notes off: a press every ~40 s (e0); the rate map's pass"},
+    {"bottles", 4, "ACT 0, Notes off: a press every ~40 s (e0); the rate map's pass"},
+    {"shards settling", 4, "ACT 0, Notes off: a press every ~40 s (e0); the rate map's pass"},
+};
+#define NOPEN (sizeof OPEN / sizeof OPEN[0])
 
 static unsigned secs = 33, nseeds = 6, verbose, detail, engines;
 static const char *filter;
@@ -187,13 +208,24 @@ typedef struct {
     double bp[NBAND], bf[NBAND], blev[NBAND];             /* the strongest line: prominence dB, Hz; the band's level dB */
     double lp[NBAND][NLINE], lf[NBAND][NLINE];            /* the band's strongest lines over LINE_DB (0: none) */
     unsigned nev, nshape, npair, nalike;                  /* events, shapes, pairs, pairs over ALIKE_X */
+    double peak, first;                                   /* level: |x| max (1 = full scale), s to the first audible
+                                                           * 10 ms (-1: never) */
+    unsigned nclip;                                       /* samples at or over full scale (the limiter's work) */
 } res_t;
+
+static const ls_quick_t *quick_of(const char *eng)
+{
+    unsigned i;
+    for (i = 0; eng && i < LS_NQUICK; i++) if (!strcmp(LS_QUICK[i].eng, eng)) return &LS_QUICK[i];
+    return 0;
+}
 
 static double *render(const snd_t *s, const cor_t *cor, uint32_t seed, unsigned *n_out)
 {
     const tx_engine_t *e = tx_engine_find(s->pre >= 0 ? "source" : s->eng);
+    const ls_quick_t *q = s->pre < 0 && cor->param ? quick_of(s->eng) : 0;   /* a classic engine's ACTIVITY corner */
     uint32_t pr = seed * 2654435761u + 12345u;
-    double next = -1;
+    double next = -1, gap = PRESS_S;
     void *st;
     unsigned nb = (unsigned)(secs * FS) / TX_BLOCK, b, j;
     int32_t mix[TX_BLOCK];
@@ -207,6 +239,17 @@ static double *render(const snd_t *s, const cor_t *cor, uint32_t seed, unsigned 
         e->param(st, (uint8_t)tx_param_find(e, "TYPE"), (uint8_t)s->type);
         if (cor->param) e->param(st, (uint8_t)tx_param_find(e, cor->param), (uint8_t)cor->val);
     }
+    if (q) {                                                 /* its activity map at C4 (ACT 0) or C6 (ACT 127) */
+        unsigned k;
+        for (k = 0; k < q->np; k++) {
+            int id = tx_param_find(e, q->p[k].name);
+            if (id >= 0) e->param(st, (uint8_t)id, (uint8_t)(cor->val ? q->p[k].hi : q->p[k].lo));
+        }
+        if (q->every_ms) {                                   /* a one-shot: pressed after the map's gaps */
+            gap = q->every_ms / 1000.0 * (cor->val ? pow(2.0, q->every_oct_q16 / 65536.0) : 1.0);
+            next = 0;
+        }
+    }
     e->param(st, TX_PID_PARTICLES, 6);
     e->key(st, 60, 100, 1);
     if (s->pre == -2) next = 0;
@@ -215,7 +258,7 @@ static double *render(const snd_t *s, const cor_t *cor, uint32_t seed, unsigned 
             double u;
             pr = pr * 1664525u + 1013904223u; u = ((pr >> 8) + 0.5) / 16777216.0;
             if (next > 0) { e->key(st, 60, 0, 0); e->key(st, 60, (uint8_t)(70u + (pr >> 26)), 1); }
-            next += -log(u) * PRESS_S;
+            next += -log(u) * gap;
         }
         memset(mix, 0, sizeof mix);
         e->render(st, mix, TX_BLOCK);
@@ -382,6 +425,22 @@ static void alike(const double *x, unsigned n, res_t *r)
     free(on); free(L); free(P); free(Ls); free(tmp);
 }
 
+static void level(const double *x, unsigned n, res_t *r)
+{
+    unsigned i, k, h = 441u;
+    r->peak = 0; r->first = -1; r->nclip = 0;
+    for (i = 0; i < n; i++) {
+        double a = fabs(x[i]);
+        if (a > r->peak) r->peak = a;
+        if (a >= 1.0) r->nclip++;
+    }
+    for (i = 0; i + h <= n && r->first < 0; i += h) {
+        double e = 0;
+        for (k = 0; k < h; k++) e += x[i + k] * x[i + k];
+        if (10 * log10(e / h + 1e-30) >= AUDIBLE_DB) r->first = i / FS;
+    }
+}
+
 /* ---- the jobs */
 typedef struct { unsigned s, c, sd; } job_t;
 static job_t *jobs;
@@ -398,7 +457,7 @@ static void *worker(void *arg)
         if (j >= njobs) return 0;
         x = render(&all[jobs[j].s], &COR[jobs[j].c], 1u + jobs[j].sd, &n);
         if (!x) continue;
-        beat(x, n, &res[j]); alike(x, n, &res[j]); res[j].ok = 1;
+        beat(x, n, &res[j]); alike(x, n, &res[j]); level(x, n, &res[j]); res[j].ok = 1;
         free(x);
     }
 }
@@ -448,7 +507,9 @@ int main(int argc, char **argv)
     for (s = 0; s < nall; s++) {
         if (filter && !strstr(all[s].name, filter)) continue;
         for (c = 0; c < ncor; c++) {
-            if (all[s].pre < 0 && c) continue;               /* a classic engine: no ACTIVITY, EXTRA, COUNT */
+            if (all[s].pre < 0 && c && !(ncor > 3u && c <= 2u && quick_of(all[s].eng))) continue;   /* a classic
+                                                             * engine: ACTIVITY 0 / 127 under -x through its activity
+                                                             * map (LS_QUICK), no EXTRA or COUNT */
             for (sd = 0; sd < nseeds; sd++) { jobs[njobs].s = s; jobs[njobs].c = c; jobs[njobs].sd = sd; njobs++; }
         }
     }
@@ -457,13 +518,16 @@ int main(int argc, char **argv)
     for (i = 0; i < nth; i++) pthread_create(&th[i], 0, worker, 0);
     for (i = 0; i < nth; i++) pthread_join(th[i], 0);
     printf("txaudit: %u renders (%u s, %u seeds); BEAT: lines of >= 2/3 of the seeds within %.0f %%, median >= %.1f dB; "
-           "ALIKE: > %.0f %% of pairs over %.2f or < %.2f shapes / event\n", njobs, secs, nseeds, BEAT_AGREE * 100, BEAT_DB,
-           ALIKE_SHARE * 100, ALIKE_X, ALIKE_SHAPES);
-    printf("%-20s %-9s | %-30s | %-26s | verdict\n", "sound", "corner", "beat: band, Hz, dB, seeds", "events, >0.95, shapes/ev");
+           "ALIKE: > %.0f %% of pairs over %.2f or < %.2f shapes / event; SILENT: half the seeds never over %.0f dBFS; "
+           "HOT: a peak over %+.0f dBFS\n", njobs, secs, nseeds, BEAT_AGREE * 100, BEAT_DB, ALIKE_SHARE * 100, ALIKE_X,
+           ALIKE_SHAPES, AUDIBLE_DB, HOT_DB);
+    printf("%-20s %-9s | %-30s | %-26s | %-21s | verdict\n", "sound", "corner", "beat: band, Hz, dB, seeds",
+           "events, >0.95, shapes/ev", "peak dB, >0dB, first");
     for (i = 0; i < njobs; i += nseeds) {
         const snd_t *S = &all[jobs[i].s];
         unsigned b, bb = 0, bagree = 0, nev = 0, nsh = 0, npr = 0, nal = 0, beatf = 0, alikef = 0;
-        double bmed = 0, bfm = 0;
+        double bmed = 0, bfm = 0, pk, pkdb, late;
+        unsigned nclipsd, nsil, nok, silf, hotf;
         {   /* every line of every seed is a candidate: how many seeds have a line within BEAT_AGREE of it? */
             unsigned nv = 0, need, sa, ba, ta;
             for (sd = 0; sd < nseeds; sd++) nv += res[i + sd].ok;
@@ -489,34 +553,56 @@ int main(int argc, char **argv)
             }
         }
         beatf = bmed >= BEAT_DB;
+        {   /* the level: the loudest seed's peak, the seeds over full scale, the seeds silent all through, the latest
+             * first sound of the others */
+            pk = 0; late = 0; nclipsd = nsil = nok = 0;
+            for (sd = 0; sd < nseeds; sd++) {
+                const res_t *r = &res[i + sd];
+                if (!r->ok) continue;
+                nok++;
+                if (r->peak > pk) pk = r->peak;
+                nclipsd += r->nclip > 0;
+                if (r->first < 0) nsil++; else if (r->first > late) late = r->first;
+            }
+            pkdb = 20 * log10(pk + 1e-12);
+            hotf = pkdb > HOT_DB;
+            silf = nok && 2 * nsil >= nok;
+        }
         for (sd = 0; sd < nseeds; sd++) { nev += res[i + sd].nev; nsh += res[i + sd].nshape; npr += res[i + sd].npair; nal += res[i + sd].nalike; }
         alikef = nev >= ALIKE_MIN_EV && npr && ((double)nal / npr > ALIKE_SHARE || (double)nsh / nev < ALIKE_SHAPES);
         {
             const allow_t *ab = beatf ? listed(ALLOW, NALLOW, S->name, 1) : 0, *aa = alikef ? listed(ALLOW, NALLOW, S->name, 2) : 0;
             const allow_t *ob = beatf && !ab ? listed(OPEN, NOPEN, S->name, 1) : 0;
             const allow_t *oa = alikef && !aa ? listed(OPEN, NOPEN, S->name, 2) : 0;
-            const allow_t *why = ab ? ab : aa ? aa : ob ? ob : oa;
-            int bad = (beatf && !ab && !ob) || (alikef && !aa && !oa);
-            char bs[48], es[40];
+            const allow_t *os = silf ? listed(OPEN, NOPEN, S->name, 4) : 0;
+            const allow_t *oh = hotf ? listed(OPEN, NOPEN, S->name, 8) : 0;
+            const allow_t *why = ab ? ab : aa ? aa : ob ? ob : oa ? oa : os ? os : oh;
+            int bad = (beatf && !ab && !ob) || (alikef && !aa && !oa) || (silf && !os) || (hotf && !oh);
+            int flag = beatf || alikef || silf || hotf;
+            char bs[48], es[40], ls[40];
             if (bagree) snprintf(bs, sizeof bs, "%-6s %6.2f %5.1f %u/%u", BN[bb], bfm, bmed, bagree, nseeds);
             else snprintf(bs, sizeof bs, "-");
             if (nev) snprintf(es, sizeof es, "%4u %6.3f %5.2f", nev, npr ? (double)nal / npr : 0, (double)nsh / nev);
             else snprintf(es, sizeof es, "-");
-            if (verbose || beatf || alikef)
-                printf("%-20s %-9s | %-30s | %-26s | %s%s%s%s\n", S->name, COR[jobs[i].c].label, bs, es,
+            if (nsil) snprintf(ls, sizeof ls, "%+6.1f %u/%u %u silent", pkdb, nclipsd, nok, nsil);
+            else snprintf(ls, sizeof ls, "%+6.1f %u/%u %5.1f s", pkdb, nclipsd, nok, late);
+            if (verbose || flag)
+                printf("%-20s %-9s | %-30s | %-26s | %-21s | %s%s%s%s%s%s\n", S->name, COR[jobs[i].c].label, bs, es, ls,
                        beatf ? (ab ? "beat (allowed) " : ob ? "beat (open) " : "BEAT ") : "",
                        alikef ? (aa ? "alike (allowed) " : oa ? "alike (open) " : "ALIKE ") : "",
-                       beatf || alikef ? "" : "ok", why ? why->why : "");
+                       silf ? (os ? "silent (open) " : "SILENT ") : "", hotf ? (oh ? "hot (open) " : "HOT ") : "",
+                       flag ? "" : "ok", why ? why->why : "");
             if (detail)
                 for (sd = 0; sd < nseeds; sd++) {
                     const res_t *r = &res[i + sd];
                     printf("    seed %u:", sd + 1);
                     for (b = 0; b < NBAND; b++) printf("  %s %5.1f dB @ %5.2f Hz (%5.1f)", BN[b], r->bp[b], r->bf[b], r->blev[b]);
-                    printf("  | %u events, %u / %u pairs, %u shapes\n", r->nev, r->nalike, r->npair, r->nshape);
+                    printf("  | %u events, %u / %u pairs, %u shapes | peak %+.1f dBFS, %u samples over, first %.2f s\n",
+                           r->nev, r->nalike, r->npair, r->nshape, 20 * log10(r->peak + 1e-12), r->nclip, r->first);
                 }
             fails += (unsigned)bad;
             allows += (unsigned)(!bad && (ab || aa));
-            opens += (unsigned)(!bad && (ob || oa));
+            opens += (unsigned)(!bad && (ob || oa || os || oh));
         }
     }
     printf("txaudit: %u flagged, %u allowed (a species' own rhythm or call), %u open, %.1f s\n", fails, allows, opens,
