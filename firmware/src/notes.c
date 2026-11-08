@@ -126,7 +126,10 @@ static void nt_leds(uint32_t btn)
     }
     if (was.done && lit == was.lit && glow == was.glow && btn == was.btn) return;
     was.done = 1; was.lit = lit; was.glow = glow; was.btn = btn;
-    for (k = 0; k < 14u; k++) fm1_led_key(k, btn >> k & 1u);
+    for (k = 0; k < 14u; k++) {                 /* the buttons: lit when on, else a glow (every one does something) */
+        fm1_led_key(k, btn >> k & 1u);
+        fm1_led_key_glow(k, !(btn >> k & 1u));
+    }
     for (k = 0; k < TX_NKEYS; k++) {
         fm1_led_key(KEY_LED(k), lit >> k & 1u);
         fm1_led_key_glow(KEY_LED(k), glow >> k & 1u && !(lit >> k & 1u));
