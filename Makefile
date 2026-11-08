@@ -150,15 +150,10 @@ $(FW)/lanes_test_par: tests/lanes_test.c firmware/src/lanes.c $(ENG_SRC) $(ENG_H
 
 fw-host: $(FW)/textura-host
 
-$(FW)/lanes_test_pipe: tests/lanes_test.c firmware/src/lanes.c $(ENG_SRC) $(ENG_HDR)
-	@mkdir -p $(FW)
-	$(CC) $(CSTD) -Wno-unused-function -Ifirmware/src -O1 -g -fsanitize=thread -DLANES_TEST_PAR -DLANES_TEST_PIPE -o $@ tests/lanes_test.c $(ENG_SRC) -lm -lpthread
-
-fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textura-host
+fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/textura-host
 	@python3 -I tools/gen_landscapes.py --check || exit 1; \
 	$(FW)/lanes_test || exit 1; \
 	$(FW)/lanes_test_par || exit 1; \
-	$(FW)/lanes_test_pipe || exit 1; \
 	fail=0; for s in tests/scripts/*.txt; do n=$$(basename $$s .txt); \
 	  if $(FW)/textura-host $(FW)/$$n $$s > $(FW)/$$n.log 2>&1; then echo "ok    host $$n"; \
 	  else echo "FAIL  host $$n ($(FW)/$$n.log)"; fail=1; fi; done; \

@@ -238,21 +238,6 @@ int main(int argc, char **argv)
                 cfg[nc - 1u].nblk = (1800u * TX_FS) / TX_BLOCK;
                 lanes(ls, 4, "SOAK storm, 15 grains, two cores, 2 h"); cfg[nc - 1u].type = FM_G15 | FM_PAR;
                 cfg[nc - 1u].nblk = (7200u * TX_FS) / TX_BLOCK;
-                /* the mix end one block behind on core 1 (FM_PIPE: lanes.c LN_PIPE), each as its row above (the same
-                 * hash: the first block's silence is not hashed), then the soak (appended: the rows above keep their
-                 * numbers) */
-                for (k = 0; k < 4u; k++) {
-                    snprintf(lab, sizeof lab, "4 lanes %s, 15 grains, two cores, bus one block behind", NM[k]);
-                    lanes(L4[k], 4, lab); cfg[nc - 1u].type = FM_G15 | FM_PAR | FM_PIPE;
-                }
-                for (k = 0; k < 4u; k++) {
-                    snprintf(lab, sizeof lab, "4 lanes %s, 30 grains, two cores, bus one block behind", NM[k]);
-                    lanes(L4[k], 4, lab); cfg[nc - 1u].type = FM_G30 | FM_PAR | FM_PIPE;
-                }
-                lanes(lw, 4, "4 lanes worst (stress), 30 grains, two cores, bus one block behind, 300 s");
-                cfg[nc - 1u].type = FM_G30 | FM_PAR | FM_PIPE; cfg[nc - 1u].nblk = (uint16_t)((300u * TX_FS) / TX_BLOCK);
-                lanes(ls, 4, "SOAK storm, 15 grains, two cores, bus one block behind, 30 min");
-                cfg[nc - 1u].type = FM_G15 | FM_PAR | FM_PIPE; cfg[nc - 1u].nblk = (1800u * TX_FS) / TX_BLOCK;
             }
         }
     }

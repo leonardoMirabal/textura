@@ -18,7 +18,7 @@ const tx_param_t tx_comp_params[TX_CP_NP] = {
 };
 
 /* the gain computer: the reduction (power log2 Q12, >= 0) at level lp, over a soft knee */
-static int32_t gc(const tx_comp_t *c, int32_t lp)
+TX_RAM static int32_t gc(const tx_comp_t *c, int32_t lp)
 {
     int32_t over = lp - c->t, x;
     if (over <= -KNEE / 2) return 0;
@@ -64,12 +64,12 @@ void tx_comp_param(tx_comp_t *c, unsigned id, unsigned v)
     }
 }
 
-static int32_t env(int32_t e, int32_t p, int32_t ka, int32_t kr)
+TX_RAM static int32_t env(int32_t e, int32_t p, int32_t ka, int32_t kr)
 {
     return e + ((((p - e) >> 11) * (p > e ? ka : kr)) >> 5);   /* |p - e| < 2^26: 2^15 x 2^16 < 2^31 */
 }
 
-TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *L, int32_t *R, unsigned n)
+TX_RAM TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *L, int32_t *R, unsigned n)
 {
     unsigned j0, j, m;
     if (!c->p[TX_CP_ON] && c->g == 16384) { c->on = 0; c->gr = 0; return; }   /* off: the samples untouched */

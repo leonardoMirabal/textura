@@ -76,25 +76,17 @@ TX_AUDIO_CODE void tx_mix_slot_render(tx_mix_t *m, unsigned k, unsigned n)
 
 TX_AUDIO_CODE void tx_mix_end(tx_mix_t *m, int32_t *L, int32_t *R, unsigned n)
 {
-    tx_mix_run(m, n, 0u);
-    tx_mix_out(m, L, R, n);
-}
-TX_AUDIO_CODE void tx_mix_run(tx_mix_t *m, unsigned n, unsigned c)
-{
     unsigned j;
     int32_t pk = 0;
-    void (*pre)(void *, int32_t *, int32_t *, unsigned) = c ? m->pre1 : m->pre;
-    void (*bus)(void *, int32_t *, int32_t *, unsigned) = c ? m->bus1 : m->bus;
-    if (pre) pre(m->fx, m->L, m->R, n);                      /* the DRIVE, the first effect (off: returns at once) */
-    TX_FAR(tx_comp_process)(&m->comp, m->L, m->R, n);        /* the compressor, after it (off: returns at once; in XIP,
-                                                              * as the limiter: the bus runs on core 1, LN_PIPE) */
+    if (m->pre) m->pre(m->fx, m->L, m->R, n);               /* the DRIVE, the first effect (off: returns at once) */
+    TX_FAR(tx_comp_process)(&m->comp, m->L, m->R, n);        /* the compressor, after it (off: returns at once; in RAM
+                                                              * on the FM-1: TX_RAM) */
     if (m->ch && m->ch_on) {                                 /* the chamber on the mid: its added part to both sides */
         for (j = 0; j < n; j++) m->mid[j] = m->blk[j] = (m->L[j] >> 1) + (m->R[j] >> 1);
-        if (c) TX_C1(tx_chamber_process)(m->ch, m->mid, n);
-        else TX_FAR(tx_chamber_process)(m->ch, m->mid, n);   /* (in RAM on the FM-1: TX_RAM) */
+        TX_FAR(tx_chamber_process)(m->ch, m->mid, n);   /* (in RAM on the FM-1: TX_RAM) */
         for (j = 0; j < n; j++) { int32_t w = m->mid[j] - m->blk[j]; m->L[j] += w; m->R[j] += w; }
     }
-    if (bus) bus(m->fx, m->L, m->R, n);                      /* the bus effects (the grain delay, the reverb) */
+    if (m->bus) m->bus(m->fx, m->L, m->R, n);               /* the bus effects (the grain delay, the reverb) */
     for (j = 0; j < n; j++) {                                /* linked: one gain for both, from the louder */
         int32_t a = m->L[j] < 0 ? -m->L[j] : m->L[j], b = m->R[j] < 0 ? -m->R[j] : m->R[j];
         if (a > pk) pk = a;
@@ -102,11 +94,8 @@ TX_AUDIO_CODE void tx_mix_run(tx_mix_t *m, unsigned n, unsigned c)
         m->ilv[2 * j] = m->L[j]; m->ilv[2 * j + 1] = m->R[j];
     }
     m->raw_peak = pk;
-    TX_FAR(tx_limit_process)(&m->lim, m->ilv, 2u * n);       /* interleaved: the pair shares the gain envelope (in XIP) */
-}
-TX_AUDIO_CODE void tx_mix_out(const tx_mix_t *m, int32_t *L, int32_t *R, unsigned n)
-{
-    unsigned j;
+    TX_FAR(tx_limit_process)(&m->lim, m->ilv, 2u * n);      /* interleaved: the pair shares the gain envelope (in RAM
+                                                              * on the FM-1: TX_RAM) */
     for (j = 0; j < n; j++) { L[j] = m->ilv[2 * j]; R[j] = m->ilv[2 * j + 1]; }
 }
 

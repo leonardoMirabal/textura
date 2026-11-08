@@ -7,4 +7,3 @@ int c1prof_wait(void);
 #define LN_PAR_ON() 1
 #define LN_PAR_RUN(fn, a) c1prof_run(fn, a)
 #define LN_PAR_WAIT() c1prof_wait()
-#define LN_PIPE                                 /* (as the FM-1: the mix end one block behind, on core 1) */

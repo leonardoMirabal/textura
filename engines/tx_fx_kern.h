@@ -132,7 +132,8 @@ typedef struct {
     int32_t g[HQ_NL], a[HQ_NL];                  /* each line's gain below the shelf and above it (Q15) */
     int32_t sz, damp;                            /* what the gains were made for (-1: none yet) */
     int32_t jmd;                                 /* (the block's depth: the other half's argument) */
-    int32_t bx[HL_NC];                           /* the block's send (DC-blocked by the caller), diffused in place */
+    int32_t hp, he;
+    int32_t bx[HL_NC];
     uint16_t apd[HQ_NAP];
     int16_t apb[HQ_APSUM];
     uint32_t ew;

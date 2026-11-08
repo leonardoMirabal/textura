@@ -7,11 +7,6 @@
  * split of the lanes in turn, and the cost's), so the samples must not depend on which core renders which lane;
  * built with the thread sanitizer it also finds what the two would race on.
  *
- * LANES_TEST_PIPE (with LANES_TEST_PAR): lanes.c LN_PIPE, the mix end on the thread one block behind, running while
- * this one goes on (the scene's next steps, the player's block): every block must be the player's block before.
- * The thread's jobs are counted by kind; the reverb's and the DRIVE's halves then never go there (nothing is handed
- * on from the thread itself), so those checks are the plain test's.
- *
  *   make fw-test (or: cc -Iengines -Ifirmware/src tests/lanes_test.c ENGINES -lm) */
 #include <stdio.h>
 #include <string.h>
@@ -45,15 +40,9 @@ static void ln_kjob(uint32_t a);
 static uint32_t par_rvt(void);
 static uint32_t par_drv(void);
 static void ln_rev_job(uint32_t a);
-static uint32_t par_dt, par_rj, par_pj;
-#ifdef LANES_TEST_PIPE
-static void ln_pipe_job(uint32_t a);
-#endif
+static uint32_t par_dt, par_rj;
 static int par_run(void (*fn)(uint32_t), uint32_t a)
 {
-#ifdef LANES_TEST_PIPE
-    if (fn == ln_pipe_job) par_pj++;                      /* the mix end, one block behind */
-#endif
     if (fn == ln_rev_job) par_rj++;                       /* the reverb's ROOM body */
     uint32_t dt = fn == ln_kjob ? par_drv() : 0u;         /* the mix's DRIVE's R: the TYPEs it ran for */
     if (dt) par_dt |= dt;
@@ -72,9 +61,6 @@ static int par_wait(void)
     return 0;
 }
 #define LN_PAR
-#ifdef LANES_TEST_PIPE
-#define LN_PIPE
-#endif
 #define LN_PAR_ON() 1
 #define LN_PAR_RUN(fn, a) par_run(fn, a)
 #define LN_PAR_WAIT() par_wait()
@@ -208,9 +194,6 @@ static const step_t SCENE[] = {
 int main(void)
 {
     static int32_t L[TX_BLOCK], R[TX_BLOCK], rL[TX_BLOCK], rR[TX_BLOCK];
-#ifdef LANES_TEST_PIPE
-    static int32_t pL[TX_BLOCK], pR[TX_BLOCK];          /* the player's block before (the first: silence) */
-#endif
     uint32_t b, s = 0, seed = 12345u, fails = 0, j, loud = 0;
     ln_init();
     r_init();
@@ -277,24 +260,14 @@ int main(void)
                                                  * (0: by cost) */
 #endif
         ln_block(L, R, TX_BLOCK);
-#ifdef LANES_TEST_PIPE
-        memcpy(pL, rL, sizeof rL); memcpy(pR, rR, sizeof rR);   /* (block 0: rL, rR still zero: silence) */
         r_block(rL, rR);
-        {
-            const int32_t *cL = pL, *cR = pR;
-#else
-        r_block(rL, rR);
-        {
-            const int32_t *cL = rL, *cR = rR;
-#endif
-            for (j = 0; j < TX_BLOCK; j++) {
-                if (L[j] != cL[j] || R[j] != cR[j]) {
-                    if (fails < 5u) printf("FAIL block %u frame %u: %d %d vs the player's %d %d\n", b, j, L[j], R[j], cL[j], cR[j]);
-                    fails++;
-                    break;
-                }
-                if (L[j] > 1000 || L[j] < -1000) loud = 1;
+        for (j = 0; j < TX_BLOCK; j++) {
+            if (L[j] != rL[j] || R[j] != rR[j]) {
+                if (fails < 5u) printf("FAIL block %u frame %u: %d %d vs the player's %d %d\n", b, j, L[j], R[j], rL[j], rR[j]);
+                fails++;
+                break;
             }
+            if (L[j] > 1000 || L[j] < -1000) loud = 1;
         }
     }
     {   /* the one spare arena: two sounding lanes switched at once, the second waits for the first's fade (4 blocks) */
@@ -312,16 +285,7 @@ int main(void)
             for (k = 0; k < LN_N; k++) { if (seen >> ln.ar[k] & 1u) { printf("FAIL the arenas: %u twice\n", ln.ar[k]); fails++; } seen |= 1u << ln.ar[k]; }
         }
     }
-#ifdef LANES_TEST_PIPE
-    par_wait();                                         /* (the last mix end done: the state read below is still) */
-    if (!ln.par_blocks) { printf("FAIL the second core rendered nothing\n"); fails++; }
-    if (par_pj != b + 8u || ln.pipe_lost) {             /* (every block of the scene and the spare check's 8) */
-        printf("FAIL the mix end: %u jobs on the second core for %u blocks, %u lost\n", par_pj, b + 8u, ln.pipe_lost); fails++;
-    }
-    if (par_rj || par_kt || par_dt) { printf("FAIL a job handed on from the second core itself\n"); fails++; }
-    printf("     lanes (one block behind): %u blocks with lanes on the second core, %u mix ends there, %u jobs\n",
-           ln.par_blocks, par_pj, par_jobs);
-#elif defined(LANES_TEST_PAR)
+#ifdef LANES_TEST_PAR
     if (!ln.par_blocks) { printf("FAIL the second core rendered nothing\n"); fails++; }
     if (!par_rj) { printf("FAIL the reverb's ROOM body never ran on the second core\n"); fails++; }
     if ((par_kt & (1u << TX_RVT_HALL | 1u << TX_RVT_INF | 1u << TX_RVT_PLATE)) != (1u << TX_RVT_HALL | 1u << TX_RVT_INF | 1u << TX_RVT_PLATE)) {
