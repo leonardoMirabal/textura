@@ -8,7 +8,7 @@
  * An element is drawn again when what it shows changes: each pass (every UI_SIG_MS) works out a signature of each
  * element's content and marks the ones that differ.
  *
- *   SELECT     the pages, in order (the first to the last, no wrap): LANDSCAPE, MIXER 1/2 (levels) 2/2 (pans), SOUND 1..n (the selected lane's sound:
+ *   SELECT     the pages, in order (the first to the last, no wrap): LANDSCAPE, MIXER VOLUME, MIXER PAN (the lanes' levels, pans), SOUND 1..n (the selected lane's sound:
  *              its cards, four a page), FILTER 1/3 (K1..K4: FREQ of lanes 1..4) 2/3 3/3 (the selected lane's: TYPE
  *              FREQ RESO LFO, then RATE SHAPE), DRIVE (the mix's, its first effect: AMOUNT TONE MIX TYPE),
  *              COMPRESSOR 1/2 2/2 (the mix's, after the DRIVE, Frodhes': THR RAT ATK MKUP, then COMP REL; the footer
@@ -371,7 +371,8 @@ static void draw_title(void)
     x = aa_text(10, S_TOP(10), &AF_S, ui_g == G_ENV && ui_env >= TX_ENV_N ? "FOLLOW" : ui_g == G_LAND ? "TEXTURA"
                 : G_TITLE[ui_g], UI_ACC, FC_BG);   /* (the home page shows TEXTURA, as Frodhes' main page FRODHES; its
                                                  * name stays LANDSCAPE for the host / web API) */
-    if (n > 1u) { ui_frac(t, ui_sub + 1u, n); x = aa_text(x + 5, S_TOP(10), &AF_S, t, FC_VAL, FC_BG); }
+    if (ui_g == G_MIX) x = aa_text(x + 5, S_TOP(10), &AF_S, ui_sub ? "PAN" : "VOLUME", FC_VAL, FC_BG);   /* (not 1/2) */
+    else if (n > 1u) { ui_frac(t, ui_sub + 1u, n); x = aa_text(x + 5, S_TOP(10), &AF_S, t, FC_VAL, FC_BG); }
     if (ui_lane_detail() && ui_g != G_SOUND) {  /* "FILTER 2/3  LANE 2": the lane these cards are */
         char l[8] = {'L', 'A', 'N', 'E', ' ', (char)('1' + sc.sel), 0};
         aa_text(x + 10, S_TOP(10), &AF_S, l, UI_ACC, FC_BG);
@@ -655,7 +656,7 @@ static void draw_footer(void)
         if (sc.mute[sc.sel]) p_cat(t, " (MUTED)", 31);
         ft_c(7, t, FC_LAB);
         ft_c(22, "SOUND   MANY   ACTIVE   VOLUME", FC_DIM);
-    } else if (ui_g == G_MIX) ft_c(19, ui_sub == 0u ? "K1-K4: THE LANES' LEVELS" : "K1-K4: THE LANES' PANS", FC_DIM);
+    } else if (ui_g == G_MIX) ft_c(19, ui_sub == 0u ? "K1-K4: THE LANES' VOLUMES" : "K1-K4: THE LANES' PANS", FC_DIM);
     else if (UI_OVERVIEW()) {                   /* the four lanes' page: what K1..K4 turn, then the detail's lane */
         char t[32];
         ft_c(7, "K1-K4: THE LANES' CUTOFF", FC_DIM);
