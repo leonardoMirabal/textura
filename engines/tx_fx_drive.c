@@ -239,10 +239,31 @@ TX_AUDIO_CODE void tx_fx_drive_prep(tx_fx_drive_t *d)
     d->sw = 1;
     if (d->p[TX_DR_TYPE] != d->cur) d->sw = (uint8_t)TX_FAR(dr_switch)(d, d->p[TX_DR_TYPE]);
 }
+/* the rest (Frodhes 05c6e2b7, 935763a5, for every TYPE here): on zero input the rounding inside a TYPE's recursions
+ * (every >> floors) holds fixed points that are not 0: a DC of 1 .. 75 LSB out after the music, for ever (KHLON's
+ * coupling capacitor, FDRV's low-passes, a biquad's last LSB). A block of zero input whose output is one constant, not
+ * 0, is that fixed point: the TYPE's states go to rest (exact 0 from the next block) and that next block ramps from
+ * the constant to 0 (dropped in one sample, the DC was a tick after every last note). Once a block, no per-sample work
+ * while anything sounds (the scans only on a block whose first, middle and last inputs are 0) */
+static void dr_rest(tx_fx_drive_t *d)
+{
+    if (!d->cur) d->hp = d->lp1 = d->lp2 = d->tlp = 0;
+    else drv_reset(d, d->cur);
+}
 TX_AUDIO_CODE void tx_fx_drive_run(tx_fx_drive_t *d, int32_t *x23, unsigned n, tx_drv_scr_t *w)
 {   /* (in XIP, as the TYPEs: the mix's DRIVE runs with the bus on core 1, lanes.c LN_PIPE) */
+    unsigned i, z = n && !(x23[0] | x23[n >> 1] | x23[n - 1]);
+    for (i = 1; z && i < n; i++) z = !x23[i];
     if (!d->cur) dr_classic(d, x23, n, d->sw ? d->p[TX_DR_AMOUNT] : 0);
     else TX_FAR(dr_types)(d, w ? w : &d->sh->scr, x23, n, d->sw);
+    if (d->rl) {                                          /* the block after a rest: the constant ramps out */
+        for (i = 0; i < n; i++) x23[i] += d->rl * (int32_t)(n - 1u - i) / (int32_t)n;   /* (|rl| < 2^23 / 256) */
+        d->rl = 0;
+    } else if (z && d->on && x23[0]) {
+        int32_t c = x23[0];
+        for (i = 1; i < n && x23[i] == c; i++) {}
+        if (i == n && c > -(1 << 15) && c < (1 << 15)) { dr_rest(d); d->rl = c; }   /* (a held DC, at most 128 LSB) */
+    }
 }
 TX_AUDIO_CODE void tx_fx_drive_process(tx_fx_drive_t *d, int32_t *x23, unsigned n)
 {

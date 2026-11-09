@@ -2014,6 +2014,25 @@ static void check_fx(FILE *update)
         snprintf(msg, sizeof msg, "DRIVE TYPEs %s .. %s at AMOUNT 127: zeros in, %u nonzero out; AMOUNT 0: %u samples "
                  "not dry after the glide", DN[1], DN[TX_DRT_N - 1], nzt, dry);
         verdict("fx", "drive-types", !nzt && !dry, msg, 0);
+        nzt = 0; step = 0;                               /* after the music every TYPE rests: exact zeros, no step */
+        for (t = 0; t < TX_DRT_N; t++) {
+            tx_fx_init(fx);
+            tx_fx_drive_param(&fx->drive[0], TX_DR_TYPE, t); tx_fx_drive_param(&fx->drive[0], TX_DR_AMOUNT, 64);
+            rng = 3u; pv = 0;
+            for (b = 0; b < 500u; b++) {
+                for (j = 0; j < TX_BLOCK; j++) y[j] = fx_in(b * TX_BLOCK + j, &rng);
+                tx_fx_drive_process(&fx->drive[0], y, TX_BLOCK);
+                for (j = 0; j < TX_BLOCK; j++) {
+                    int32_t d = y[j] - pv; d = d < 0 ? -d : d;
+                    if (b >= 90u && d > step) step = d;  /* (the burst ends in block 86: its tail, then the rest) */
+                    if (b >= 400u) nzt += y[j] != 0;
+                    pv = y[j];
+                }
+            }
+        }
+        snprintf(msg, sizeof msg, "DRIVE every TYPE at AMOUNT 64 after a burst: %u nonzero samples 1.7 s on (a held DC), "
+                 "the largest step once the input is zero %.2f LSB (a rest dropped at once)", nzt, step / 256.0);
+        verdict("fx", "drive-rest", !nzt && step <= 3 * 256, msg, 0);
         tx_fx_init(fx);                                  /* a sine through every TYPE in turn, switched while it sounds */
         tx_fx_drive_param(&fx->drive[0], TX_DR_AMOUNT, 100);
         for (b = 0; b < 1200u; b++) {
