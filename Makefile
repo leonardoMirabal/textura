@@ -79,7 +79,7 @@ HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
 PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-timing fw-c1map
-.PHONY: $(PHONY_FM1) fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
+.PHONY: $(PHONY_FM1) fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-pristine tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -92,6 +92,10 @@ $(B)/txtest: bench/txtest.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 $(B)/txbench: bench/txbench.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
 	$(CC) $(CSTD) -O2 -o $@ bench/txbench.c $(HOST_SRC) $(ENG_SRC) -lm
+
+$(B)/txpristine: bench/txpristine.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
+	@mkdir -p $(B)
+	$(CC) $(CSTD) -O2 -o $@ bench/txpristine.c $(HOST_SRC) $(ENG_SRC) -lm
 
 $(B)/txgen: bench/txgen.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -123,6 +127,11 @@ tx-drive-tables:
 
 tx-test: $(B)/txtest tx-libcalls
 	$(B)/txtest
+
+# the effects' pristine measurement (bench/txpristine.c): the DRIVE TYPEs on quiet and loud sines, at rest, under a
+# moving AMOUNT; the limiter on a chord over its ceiling; exit 1 when a judged value passes its limit
+tx-pristine: $(B)/txpristine
+	$(B)/txpristine --check
 
 tx-baseline: $(B)/txtest
 	$(B)/txtest --update
