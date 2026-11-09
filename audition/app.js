@@ -519,30 +519,32 @@ const FAMILIES = [
     "bittern"].map(n => [n, n, 0])],
 ];
 // each sound's own level, dB (a trim on its lane, before the pan; the FM-1's landscapes.h carries it too): its loudness
-// at HOW MANY 2 / HOW ACTIVE 4, played alone (p95 of 400 ms RMS), brought to -24 dBFS, but no further than its loudest
-// 1 % of 50 ms peaks reaching -3 dBFS (the clicky sounds stay under the target and keep their crest); -24 .. +20 dB
+// played alone on the firmware's host build (BS.1770 integrated), the median over the everyday keys (HOW MANY 1 .. 3 x
+// HOW ACTIVE rare .. middle), brought to -28 LUFS, but no further than its loudest 1 % of 50 ms peaks reaching -2 dBFS
+// (the crackling and clicking sounds stay under the target and keep their crest); -24 .. +20 dB. tools/snd_level.py
+// measures and writes them
 const LEVEL_DB = {
-  "Water": {"rain on water": 2, "lake lapping": 3, "water drops": -1, "cave drips": 2, "eaves dripping": -1,
-    "brook": -2, "bubbling spring": 4, "waterfall": 4, "waves on sand": 6, "waves on shingle": 4},
-  "Stones & sand": {"stones": 13, "rockfall": 10, "ringing rocks": -5, "gravel": -1, "marbles": 10, "sand": 2,
-    "singing dune": 0, "minerals": 5, "stone friction": -3, "stone clinks": -1},
-  "Ice & glass": {"icicles": -8, "ice in a glass": -23, "frost tinkling": -9, "snow underfoot": -10, "lake ice": -3,
-    "frozen lake booming": -2, "thin ice underfoot": -5, "glass pane": -2, "bottles": 3, "shards settling": 8},
-  "Fire": {"campfire": -22, "bonfire": -10, "fireplace": -17, "embers": -9, "kindling": -16, "pine fire": -18,
-    "leaves, paper": -16, "torch": -14, "flame": -10, "sparks": 8},
-  "Wood": {"spruce": 5, "pine": 0, "maple": -6, "oak": 4, "green branch": 3, "tree trunk": -1, "twigs underfoot": -6,
-    "rain stick": 0, "crumpled paper": -1},
-  "Wind": {"wind": 0, "breeze in grass": -2, "wind in pines": -8, "leafy trees": 2, "open moor": -8, "sea wind": -4,
-    "ridge gale": -12, "gusty autumn": -8, "winter storm": -16, "desert wind": -5, "wind chimes": 2},
-  "Storm": {"rain on water": 0, "rain on a roof": 9, "storm": 4, "thunder": 0, "ridge gale": -14, "winter storm": -9,
-    "hail on a roof": 4, "hail on a car": 2, "hail in leaves": 7, "sleet on a window": 7, "thunder sheet": -5,
-    "spring echo": -1},
-  "Insects": {"field cricket": 5, "tree cricket": 10, "mole cricket": 0, "cicada": 8, "small cicada": 10,
-    "cicada chorus": 8, "katydid": 16, "grasshopper": 20, "honeybee": -7, "bumblebee": -5, "cicada up close": 0},
-  "Songbirds": {"songbird": 17, "blackbird": 17, "song thrush": 15, "nightingale": 12, "robin": 17, "wren": 13,
-    "hermit thrush": 13, "skylark": 15, "wood thrush": 15, "reed warbler": 15},
-  "Wild birds": {"chirper": 17, "crow": 17, "gull": 12, "curlew": 12, "oystercatcher": 16, "cuckoo": 14,
-    "woodpecker": 19, "wood pigeon": 6, "nightjar": 14, "bittern": 13},
+  "Water": {"rain on water": 12, "lake lapping": 3, "water drops": 5, "cave drips": -7, "eaves dripping": -4,
+    "brook": -1, "bubbling spring": 2, "waterfall": -2, "waves on sand": 0, "waves on shingle": 1},
+  "Stones & sand": {"stones": -4, "rockfall": 1, "ringing rocks": -12, "gravel": -6, "marbles": 8, "sand": -2,
+    "singing dune": 2, "minerals": -12, "stone friction": -1, "stone clinks": -3},
+  "Ice & glass": {"icicles": -14, "ice in a glass": -24, "frost tinkling": -18, "snow underfoot": -17, "lake ice": -10,
+    "frozen lake booming": -8, "thin ice underfoot": -6, "glass pane": -9, "bottles": -5, "shards settling": 1},
+  "Fire": {"campfire": -22, "bonfire": -16, "fireplace": -18, "embers": -11, "kindling": -20, "pine fire": -18,
+    "leaves, paper": -18, "torch": -13, "flame": -11, "sparks": 3},
+  "Wood": {"spruce": 3, "pine": 2, "maple": 3, "oak": 3, "green branch": 1, "tree trunk": -4, "twigs underfoot": -10,
+    "rain stick": -5, "crumpled paper": -2},
+  "Wind": {"wind": -5, "breeze in grass": -8, "wind in pines": -5, "leafy trees": -6, "open moor": -5, "sea wind": -7,
+    "ridge gale": -8, "gusty autumn": -3, "winter storm": -7, "desert wind": 3, "wind chimes": -5},
+  "Storm": {"rain on water": 12, "rain on a roof": 2, "storm": 0, "thunder": 5, "ridge gale": -8, "winter storm": -7,
+    "hail on a roof": 6, "hail on a car": 8, "hail in leaves": 6, "sleet on a window": 10, "thunder sheet": -11,
+    "spring echo": -8},
+  "Insects": {"field cricket": 7, "tree cricket": 0, "mole cricket": -2, "cicada": -3, "small cicada": -5,
+    "cicada chorus": -2, "katydid": 13, "grasshopper": 18, "honeybee": -4, "bumblebee": -4, "cicada up close": -8},
+  "Songbirds": {"songbird": 9, "blackbird": 9, "song thrush": 9, "nightingale": 7, "robin": 5, "wren": 9,
+    "hermit thrush": 8, "skylark": 6, "wood thrush": 7, "reed warbler": 5},
+  "Wild birds": {"chirper": 10, "crow": 3, "gull": 12, "curlew": 15, "oystercatcher": 10, "cuckoo": 10,
+    "woodpecker": 12, "wood pigeon": 12, "nightjar": 14, "bittern": 11},
 };
 function trimQ12(f, i) {                             // the sound's trim, Q12 (4096 = 0 dB): as tools/gen_landscapes.py
   const s = FAMILIES[f][1][i], d = s ? (LEVEL_DB[FAMILIES[f][0]] || {})[s[0].replace("#", "")] || 0 : 0;
