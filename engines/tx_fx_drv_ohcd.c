@@ -9,7 +9,7 @@
  *
  * Once a block (n <= TX_DRV_BLK, even), on pointers, two samples an iteration. Four passes, each its own function:
  *   A  the input high-pass (a shift-only one-pole, ~14 Hz, on x x 2^8) and stage 1 x P (a biquad per AMOUNT step,
- *      direct form I: its states are the signal's own history, so a row change is clean)               -> u
+ *      direct form I: its states are the signal's own history, so a row change is clean; x 2^4 inside) -> u
  *   C  oh_aa1: stage 1's rail (a clamp at 2^17 u) and the clipper with first-order antiderivative anti-aliasing (no
  *      divide: clz and the shared reciprocal table DRV_AA_RCP; its exact antiderivative on a {2 g, F, step} node
  *      table; the midpoint below |du| 4), output u x 2^12
@@ -19,15 +19,20 @@
  *      drive off); W = the bus x 2^4 inside, the bus out, rounded
  * Units: u = 2.8 V / 2^17 (stage 1 out, the curve); the bus (Q15) in and out.
  * Knobs: the steps that run glide toward the knobs, OHCD_GSTEP steps a block (the whole range in 64 blocks, 0.37 s).
- * Cost (Frodhes, pi32v2 -Os): 19 + 38 + 21 + 16 = 94 instructions a sample, 150.4 us at 1.6, + set-up and the rail's
- * crossings: 157 us. */
+ * Cost (Frodhes, pi32v2 -Os): 21 + 38 + 21 + 16 = 96 instructions a sample, 153.6 us at 1.6, + set-up and the rail's
+ * crossings: 160 us. */
 #ifdef TX_FX_DRIVE_UNIT
-#define DRV_US_OHCD 157u
+#define DRV_US_OHCD 160u                                 /* (Frodhes 97b0da39: stage 1 finer, +2 a sample) */
 _Static_assert(OHCD_AA, "OHCD runs its anti-aliased kernel only (tools/drive_gen/ohcd.py AA)");
 #define OHCD_GSTEP 2                                     /* AMOUNT / TONE steps the rows move at most a block */
 #define OHCD_RAIL (1 << 17)                              /* 2.8 V in u: the curve is flat beyond it */
 #define OH_PASS __attribute__((noinline))                /* each pass its own function: its loop gets every register */
 #define OHM(a, b) ((int64_t)(a) * (b))
+/* stage 1 (pass A) runs 2^OHCD_S1F finer than u inside (its b x 2^S1F, oh_set; its output states so), the clipper
+ * gets u rounded (Frodhes 97b0da39): its feedback kept in whole u was a staircase on quiet notes (a bass note's 3rd and
+ * 5th harmonics 15-25 dB over the curve's own at an input of 40..160, -38 dB re H1 at 40); 2 instructions a sample */
+#define OHCD_S1F 4
+#define OHCD_S1R (1 << (OHCD_S1F - 1))
 #define OHCD_AT 4                                        /* 2^AA_SF, F in u^2 / 4 */
 #define OHCD_VSH 12                                      /* the clipper's output: u x 2^12 (the quotient's bits kept) */
 #define OH_RCP ((const uint16_t *)((uintptr_t)DRV_AA_RCP - (2u << (DRV_AA_RB - 1))))   /* (indexed from 2^(RB-1)) */
@@ -99,7 +104,7 @@ static OH_PASS void oh_s12(const tx_drv_ohk_t *k, tx_drv_ohs_t *st, const int32_
         pb += OHM(c, ya);
         yb = (int32_t)(pb >> OHCD_QS1);
         x2 = xa; x1 = xb; y2 = ya; y1 = yb;
-        m[0] = ya; m[1] = yb;
+        m[0] = (ya + OHCD_S1R) >> OHCD_S1F; m[1] = (yb + OHCD_S1R) >> OHCD_S1F;
         in += 2; m += 2;
     }
     st->lp = lp; st->x1 = x1; st->x2 = x2; st->y1 = y1; st->y2 = y2;
@@ -189,7 +194,7 @@ static void oh_set(tx_drv_oh_t *s, int32_t a, int32_t t)
     for (i = 0; i < 5; i++) {
         int32_t v = (int32_t)(r[i] ^ 0x80000000u);
         if (gh) v = (v + (int32_t)(r[5 + i] ^ 0x80000000u)) >> 1;
-        w[i] = i < 3 ? v : -v;
+        w[i] = i < 3 ? v * (1 << OHCD_S1F) : -v;         /* (b x 2^S1F: |b| < 2^25) */
         o[i] = th ? (OHCD_OUT[tr][i] + OHCD_OUT[tr + 1][i]) >> 1 : OHCD_OUT[tr][i];
     }
     k->b0 = w[0]; k->b1 = w[1]; k->b2 = w[2]; k->a1 = w[3]; k->a2 = w[4];

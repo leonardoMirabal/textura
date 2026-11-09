@@ -34,6 +34,9 @@ _Static_assert((TX_DRV_BLK & 1u) == 0, "TSH8 runs two samples a pass: the block 
 #define TSH8_SLICE 32u                                   /* table nodes built a block */
 #define TSH8_GSTEP 2                                     /* AMOUNT / TONE steps the rows move at most a block */
 #define TSH8_OSH 12                                      /* the tone stage's output bits below the sample's */
+#define TSH8_VSH 4                     /* V, the clipper's output, in Q15 + TSH8_VSH (Frodhes 97b0da39: in Q15 its
+                                        * whole-LSB steps were a quiet bass note's 3rd harmonic, -38 dB re H1 at an
+                                        * input of 80, -59 at 640; the longest paths the same instructions) */
 #define TSH8_XF 16u                                      /* samples a table swap is crossfaded over */
 #define TSH8_TSTEP 16                                    /* AMOUNT steps a table moves at most per swap */
 #define TSH8_AA_SF 5
@@ -70,7 +73,7 @@ static __attribute__((noinline)) void ts_tone2qi(const int32_t *c, int32_t *st, 
     int32_t x1 = st[0], x2 = st[1], y1 = st[2], y2 = st[3];
     uint32_t i;
     for (i = n >> 1; i; i--) {
-        int32_t xa = vi[0] + v[0] * 512, xb = vi[1] + v[1] * 512, ya, yb, k;
+        int32_t xa = vi[0] + v[0] * (1 << (9 - TSH8_VSH)), xb = vi[1] + v[1] * (1 << (9 - TSH8_VSH)), ya, yb, k;
         int64_t pa, pb;
         k = c[2]; pa = TSM(k, x2); pb = TSM(k, x1);
         k = c[1]; pa += TSM(k, x1); pb += TSM(k, xa);
@@ -140,7 +143,7 @@ static __attribute__((noinline)) void ts_br2qa(const int32_t *c, int32_t *st, in
     st[0] = x1; st[1] = x2; st[2] = y1; st[3] = y2;
 }
 
-/* one sample of the clipper: x (u Q14) -> V (Q15); X1, F1 the previous input and its F (updated); gf / gc the {g, F}
+/* one sample of the clipper: x (u Q14) -> V (Q15 + TSH8_VSH); X1, F1 the previous input and its F (updated); gf / gc the {g, F}
  * table's fine and coarse bases, rcp the reciprocal table's base */
 #define TS_SEGA(BASE, SH)                                                                                   \
     do {                                                                                                    \
@@ -160,15 +163,15 @@ static __attribute__((noinline)) void ts_br2qa(const int32_t *c, int32_t *st, in
         d = x - (X1);                                                                                       \
         ad = (uint32_t)(d < 0 ? -d : d);                                                                    \
         if (ad < TSH8_AT) {                                                                                 \
-            int32_t v_ = g0 + (p >> (hd - 1));                                                              \
+            int32_t v_ = g0 * (1 << TSH8_VSH) + (p >> (hd - 1 - TSH8_VSH));                                 \
             v_ = x < 0 ? -v_ : v_;                                                                          \
-            (vout) = v_ - ((dg * d) >> hd);                                                                 \
+            (vout) = v_ - ((dg * d) >> (hd - TSH8_VSH));                                                    \
         } else {                                                                                            \
             int nz = __builtin_clz(ad);                                                                     \
             int32_t r = rcp[(ad << nz) >> (32 - DRV_AA_RB)];                                                \
             int32_t df_ = F - (F1);                                                                         \
             if (d < 0) df_ = -df_;                                                                          \
-            (vout) = (int32_t)(TSM(df_, r) >> (47 - TSH8_AA_SF - nz));                                      \
+            (vout) = (int32_t)(TSM(df_, r) >> (47 - TSH8_AA_SF - TSH8_VSH - nz));                           \
         }                                                                                                   \
         (X1) = x; (F1) = F;                                                                                 \
     } while (0)
