@@ -74,179 +74,190 @@
 
 #define SCD_MAX 8u                              /* cards a sound has at most (two screens) */
 enum { CK_SRC = 0, CK_HOST = 1, CK_INV = 2 };
-typedef struct { const char *lab, *par; uint8_t kind; } scd_card_t;
-typedef struct { const char *sound, *hosted; uint8_t n; scd_card_t c[SCD_MAX]; } scd_sound_t;
+/* A card: its label and its parameter's name; a card of the hosted engine (CK_HOST) or turned around (CK_INV) has its
+ * kind as the name's first character (H, INV: "\001", "\002"), so a card is two pointers (scd_kind, scd_par). A sound's
+ * cards are a list of their own (CL: a compound literal, as long as the sound has cards), not SCD_MAX slots. */
+#define H "\001"
+#define INV "\002"
+typedef struct { const char *lab, *par; } scd_card_t;
+typedef struct { const char *sound, *hosted; uint8_t n; const scd_card_t *c; } scd_sound_t;
+#define CL (const scd_card_t[])
+static inline uint8_t scd_kind(const scd_card_t *c) { return (uint8_t)c->par[0] < 4u ? (uint8_t)c->par[0] : CK_SRC; }
+static inline const char *scd_par(const scd_card_t *c) { return c->par + (scd_kind(c) != CK_SRC); }
 
-#define DIST_CARD {"DIST", "PROXIMITY", CK_INV}
+#define DIST_CARD {"DIST", INV "PROXIMITY"}
 static const scd_sound_t SCD[] = {
-    {"rain on water", 0, 7, {{"DROPS", "SIZE", 0}, DIST_CARD, {"SURFACE", "TONE", 0}, {"WIND", "HARD", 0},
-                             {"CLUMPS", "SPACING", 0}, {"LIFE", "LIFE", 0}, {"AREA", "AREA", 0}}},
-    {"rain on a roof", "rainsurf", 7, {{"SURFACE", "SURFACE", CK_HOST}, {"DROPS", "DROPS", CK_HOST},
-                                       {"INSIDE", "INSIDE", CK_HOST}, {"AREA", "AREA", CK_HOST}, DIST_CARD,
-                                       {"EAVES", "EAVES", CK_HOST}, {"WIND", "WIND", CK_HOST}}},
-    {"water drops", 0, 7, {{"SIZE", "SIZE", 0}, {"HEIGHT", "HARD", 0}, {"POOL", "TONE", 0}, {"SCATTER", "SPREAD", 0},
-                           {"CLUMPS", "SPACING", 0}, {"LIFE", "LIFE", 0}, DIST_CARD}},
-    {"cave drips", "drip", 7, {{"SIZE", "SIZE", CK_HOST}, {"HEIGHT", "HEIGHT", CK_HOST}, {"POOL", "DEPTH", CK_HOST},
-                               {"CAVE", "EXTRA", 0}, {"SCATTER", "SCATTER", CK_HOST}, {"RHYTHM", "CLUMP", CK_HOST}, DIST_CARD}},
-    {"eaves dripping", "drip", 6, {{"SIZE", "SIZE", CK_HOST}, {"HEIGHT", "HEIGHT", CK_HOST}, {"RHYTHM", "CLUMP", CK_HOST},
-                                   {"POOL", "DEPTH", CK_HOST}, {"SCATTER", "SCATTER", CK_HOST}, DIST_CARD}},
-    {"brook", "stream", 6, {{"SIZE", "SIZE", CK_HOST}, {"SURFACE", "NEAR", CK_HOST}, {"GURGLE", "EDDY", CK_HOST},
-                            {"SPREAD", "SPREAD", CK_HOST}, {"ROAR", "EXTRA", 0}, DIST_CARD}},
-    {"bubbling spring", "stream", 6, {{"SIZE", "SIZE", CK_HOST}, {"SURFACE", "NEAR", CK_HOST},
-                                      {"SPREAD", "SPREAD", CK_HOST}, {"GURGLE", "EDDY", CK_HOST}, {"ROAR", "EXTRA", 0},
+    {"rain on water", 0, 7, CL {{"DROPS", "SIZE"}, DIST_CARD, {"SURFACE", "TONE"}, {"WIND", "HARD"},
+                             {"CLUMPS", "SPACING"}, {"LIFE", "LIFE"}, {"AREA", "AREA"}}},
+    {"rain on a roof", "rainsurf", 7, CL {{"SURFACE", H "SURFACE"}, {"DROPS", H "DROPS"},
+                                       {"INSIDE", H "INSIDE"}, {"AREA", H "AREA"}, DIST_CARD,
+                                       {"EAVES", H "EAVES"}, {"WIND", H "WIND"}}},
+    {"water drops", 0, 7, CL {{"SIZE", "SIZE"}, {"HEIGHT", "HARD"}, {"POOL", "TONE"}, {"SCATTER", "SPREAD"},
+                           {"CLUMPS", "SPACING"}, {"LIFE", "LIFE"}, DIST_CARD}},
+    {"cave drips", "drip", 7, CL {{"SIZE", H "SIZE"}, {"HEIGHT", H "HEIGHT"}, {"POOL", H "DEPTH"},
+                               {"CAVE", "EXTRA"}, {"SCATTER", H "SCATTER"}, {"RHYTHM", H "CLUMP"}, DIST_CARD}},
+    {"eaves dripping", "drip", 6, CL {{"SIZE", H "SIZE"}, {"HEIGHT", H "HEIGHT"}, {"RHYTHM", H "CLUMP"},
+                                   {"POOL", H "DEPTH"}, {"SCATTER", H "SCATTER"}, DIST_CARD}},
+    {"brook", "stream", 6, CL {{"SIZE", H "SIZE"}, {"SURFACE", H "NEAR"}, {"GURGLE", H "EDDY"},
+                            {"SPREAD", H "SPREAD"}, {"ROAR", "EXTRA"}, DIST_CARD}},
+    {"bubbling spring", "stream", 6, CL {{"SIZE", H "SIZE"}, {"SURFACE", H "NEAR"},
+                                      {"SPREAD", H "SPREAD"}, {"GURGLE", H "EDDY"}, {"ROAR", "EXTRA"},
                                       DIST_CARD}},
-    {"waterfall", "stream", 6, {{"ROAR", "EXTRA", 0}, {"SIZE", "SIZE", CK_HOST}, DIST_CARD,
-                                {"SURFACE", "NEAR", CK_HOST}, {"SPREAD", "SPREAD", CK_HOST}, {"GURGLE", "EDDY", CK_HOST}}},
-    {"waves on sand", "surf", 6, {{"HEIGHT", "HEIGHT", CK_HOST}, {"PERIOD", "EXTRA", 0}, {"DIST", "DIST", CK_HOST},
-                                  {"BACKWSH", "BACKWASH", CK_HOST}, {"CHOP", "CHOP", CK_HOST}, {"FLOOR", "FLOOR", CK_HOST}}},
-    {"waves on shingle", "surf", 6, {{"HEIGHT", "HEIGHT", CK_HOST}, {"PERIOD", "EXTRA", 0}, {"DIST", "DIST", CK_HOST},
-                                     {"BACKWSH", "BACKWASH", CK_HOST}, {"CHOP", "CHOP", CK_HOST}, {"FLOOR", "FLOOR", CK_HOST}}},
-    {"lake lapping", "surf", 5, {{"FACE", "FACE", CK_HOST}, {"HEIGHT", "HEIGHT", CK_HOST}, {"PERIOD", "EXTRA", 0},
-                                 {"DIST", "DIST", CK_HOST}, {"CHOP", "CHOP", CK_HOST}}},
+    {"waterfall", "stream", 6, CL {{"ROAR", "EXTRA"}, {"SIZE", H "SIZE"}, DIST_CARD,
+                                {"SURFACE", H "NEAR"}, {"SPREAD", H "SPREAD"}, {"GURGLE", H "EDDY"}}},
+    {"waves on sand", "surf", 6, CL {{"HEIGHT", H "HEIGHT"}, {"PERIOD", "EXTRA"}, {"DIST", H "DIST"},
+                                  {"BACKWSH", H "BACKWASH"}, {"CHOP", H "CHOP"}, {"FLOOR", H "FLOOR"}}},
+    {"waves on shingle", "surf", 6, CL {{"HEIGHT", H "HEIGHT"}, {"PERIOD", "EXTRA"}, {"DIST", H "DIST"},
+                                     {"BACKWSH", H "BACKWASH"}, {"CHOP", H "CHOP"}, {"FLOOR", H "FLOOR"}}},
+    {"lake lapping", "surf", 5, CL {{"FACE", H "FACE"}, {"HEIGHT", H "HEIGHT"}, {"PERIOD", "EXTRA"},
+                                 {"DIST", H "DIST"}, {"CHOP", H "CHOP"}}},
     /* Storm */
-    {"storm", 0, 8, {{"RAIN", "RAIN", 0}, {"WIND", "WIND", 0}, {"FLASHES", "FLASHES", 0}, {"DIST", "DIST", 0},
-                     {"AGE", "AGE", 0}, {"SURFACE", "SURFACE", 0}, {"PASSING", "PASSING", 0}, {"INSIDE", "INSIDE", 0}}},
-    {"thunder", 0, 3, {{"JAGGED", "TORT", 0}, {"HEIGHT", "HEIGHT", 0}, {"GROUND", "GROUND", 0}}},
+    {"storm", 0, 8, CL {{"RAIN", "RAIN"}, {"WIND", "WIND"}, {"FLASHES", "FLASHES"}, {"DIST", "DIST"},
+                     {"AGE", "AGE"}, {"SURFACE", "SURFACE"}, {"PASSING", "PASSING"}, {"INSIDE", "INSIDE"}}},
+    {"thunder", 0, 3, CL {{"JAGGED", "TORT"}, {"HEIGHT", "HEIGHT"}, {"GROUND", "GROUND"}}},
     /* Wind (and the gales in Storm) */
-#define W_GUST {"GUST", "GUST", CK_HOST}
-#define W_SCALE {"SCALE", "SCALE", CK_HOST}
-#define W_EXPOSED {"EXPOSED", "BUFFET", CK_HOST}
-#define W_FOLIAGE {"FOLIAGE", "FOLIAGE", CK_HOST}
-#define W_WHOOSH {"WHOOSH", "WHOOSH", CK_HOST}
-#define W_EDGE {"EDGE", "EDGE", CK_HOST}
-#define W_DRIFT {"DRIFT", "DRIFT", CK_HOST}
+#define W_GUST {"GUST", H "GUST"}
+#define W_SCALE {"SCALE", H "SCALE"}
+#define W_EXPOSED {"EXPOSED", H "BUFFET"}
+#define W_FOLIAGE {"FOLIAGE", H "FOLIAGE"}
+#define W_WHOOSH {"WHOOSH", H "WHOOSH"}
+#define W_EDGE {"EDGE", H "EDGE"}
+#define W_DRIFT {"DRIFT", H "DRIFT"}
 #define W_TREES {W_GUST, W_FOLIAGE, W_SCALE, W_EXPOSED, W_WHOOSH, W_EDGE, DIST_CARD}
 #define W_OPEN {W_GUST, W_EXPOSED, W_SCALE, W_WHOOSH, W_FOLIAGE, W_EDGE, DIST_CARD}
-    {"wind", "wind", 7, W_TREES},
-    {"wind in pines", "wind", 7, W_TREES},
-    {"leafy trees", "wind", 7, W_TREES},
-    {"breeze in grass", "wind", 6, {W_GUST, W_SCALE, W_FOLIAGE, W_WHOOSH, W_EXPOSED, DIST_CARD}},
-    {"open moor", "wind", 7, W_OPEN},
-    {"ridge gale", "wind", 7, W_OPEN},
-    {"sea wind", "wind", 6, {W_GUST, W_EXPOSED, W_WHOOSH, W_SCALE, W_FOLIAGE, DIST_CARD}},
-    {"gusty autumn", "wind", 7, {W_GUST, W_FOLIAGE, {"SKITTER", "SKITTER", CK_HOST}, W_SCALE, W_EXPOSED, W_WHOOSH,
+    {"wind", "wind", 7, CL W_TREES},
+    {"wind in pines", "wind", 7, CL W_TREES},
+    {"leafy trees", "wind", 7, CL W_TREES},
+    {"breeze in grass", "wind", 6, CL {W_GUST, W_SCALE, W_FOLIAGE, W_WHOOSH, W_EXPOSED, DIST_CARD}},
+    {"open moor", "wind", 7, CL W_OPEN},
+    {"ridge gale", "wind", 7, CL W_OPEN},
+    {"sea wind", "wind", 6, CL {W_GUST, W_EXPOSED, W_WHOOSH, W_SCALE, W_FOLIAGE, DIST_CARD}},
+    {"gusty autumn", "wind", 7, CL {W_GUST, W_FOLIAGE, {"SKITTER", H "SKITTER"}, W_SCALE, W_EXPOSED, W_WHOOSH,
                                  DIST_CARD}},
-    {"winter storm", "wind", 8, {W_GUST, W_EXPOSED, W_DRIFT, W_SCALE, W_WHOOSH, W_FOLIAGE, W_EDGE, DIST_CARD}},
-    {"desert wind", "wind", 6, {W_DRIFT, W_GUST, W_EXPOSED, W_WHOOSH, W_FOLIAGE, DIST_CARD}},
+    {"winter storm", "wind", 8, CL {W_GUST, W_EXPOSED, W_DRIFT, W_SCALE, W_WHOOSH, W_FOLIAGE, W_EDGE, DIST_CARD}},
+    {"desert wind", "wind", 6, CL {W_DRIFT, W_GUST, W_EXPOSED, W_WHOOSH, W_FOLIAGE, DIST_CARD}},
     /* Fire */
-#define F_SIZE {"SIZE", "SIZE", CK_HOST}
-#define F_MOIST {"MOIST", "MOIST", CK_HOST}
-#define F_DRAUGHT {"DRAUGHT", "DRAUGHT", CK_HOST}
-#define F_WOOD {"WOOD", "WOOD", CK_HOST}
-#define F_ROAR {"ROAR", "ROAR", CK_HOST}
-#define F_BURSTY {"BURSTY", "BURSTY", CK_HOST}
+#define F_SIZE {"SIZE", H "SIZE"}
+#define F_MOIST {"MOIST", H "MOIST"}
+#define F_DRAUGHT {"DRAUGHT", H "DRAUGHT"}
+#define F_WOOD {"WOOD", H "WOOD"}
+#define F_ROAR {"ROAR", H "ROAR"}
+#define F_BURSTY {"BURSTY", H "BURSTY"}
 #define F_OPEN {F_SIZE, F_MOIST, F_DRAUGHT, F_WOOD, F_ROAR, F_BURSTY, DIST_CARD}
 #define F_LIGHT {F_MOIST, F_SIZE, F_DRAUGHT, F_WOOD, F_ROAR, F_BURSTY, DIST_CARD}
-    {"campfire", "fire", 7, F_OPEN},
-    {"bonfire", "fire", 7, F_OPEN},
-    {"pine fire", "fire", 7, F_OPEN},
-    {"kindling", "fire", 7, F_LIGHT},
-    {"leaves, paper", "fire", 7, F_LIGHT},
-    {"fireplace", "fire", 7, {F_SIZE, F_MOIST, F_ROAR, F_WOOD, F_DRAUGHT, F_BURSTY, DIST_CARD}},
-    {"embers", "fire", 5, {F_MOIST, F_WOOD, F_BURSTY, DIST_CARD, F_SIZE}},
-    {"torch", "fire", 6, {F_ROAR, F_DRAUGHT, F_SIZE, F_MOIST, F_WOOD, DIST_CARD}},
-    {"flame", "candle", 5, {{"FLOW", "FLOW", CK_HOST}, {"DRAUGHT", "DRAUGHT", CK_HOST}, {"SPUTTER", "SPUTTER", CK_HOST},
-                            {"SLOPE", "SLOPE", CK_HOST}, DIST_CARD}},
+    {"campfire", "fire", 7, CL F_OPEN},
+    {"bonfire", "fire", 7, CL F_OPEN},
+    {"pine fire", "fire", 7, CL F_OPEN},
+    {"kindling", "fire", 7, CL F_LIGHT},
+    {"leaves, paper", "fire", 7, CL F_LIGHT},
+    {"fireplace", "fire", 7, CL {F_SIZE, F_MOIST, F_ROAR, F_WOOD, F_DRAUGHT, F_BURSTY, DIST_CARD}},
+    {"embers", "fire", 5, CL {F_MOIST, F_WOOD, F_BURSTY, DIST_CARD, F_SIZE}},
+    {"torch", "fire", 6, CL {F_ROAR, F_DRAUGHT, F_SIZE, F_MOIST, F_WOOD, DIST_CARD}},
+    {"flame", "candle", 5, CL {{"FLOW", H "FLOW"}, {"DRAUGHT", H "DRAUGHT"}, {"SPUTTER", H "SPUTTER"},
+                            {"SLOPE", H "SLOPE"}, DIST_CARD}},
     /* Insects */
-#define I_TEMP {"TEMP", "TEMP", CK_HOST}
-#define I_CHORUS {"CHORUS", "FIELD", CK_HOST}
-#define I_SYNC {"SYNC", "SYNC", CK_HOST}
-#define I_RASP {"RASP", "JITTER", CK_HOST}
-#define I_SIZE {"SIZE", "SIZE", CK_HOST}
-#define C_CARDS(a, b, c, d) {a, b, c, d, {"BUZZ", "HARD", 0}}
-#define C_SIZE {"SIZE", "SIZE", 0}
-#define C_RING {"RING", "TONE", 0}
-#define C_DEPTH {"DEPTH", "DEPTH", 0}
-#define B_CARDS {{"SWARM", "SWARM", CK_HOST}, {"SPEED", "SPEED", CK_HOST}, DIST_CARD, {"SPREAD", "SPREAD", CK_HOST}}
-    {"field cricket", "crickets", 5, {I_TEMP, I_CHORUS, I_SYNC, DIST_CARD, I_SIZE}},
-    {"tree cricket", "crickets", 5, {I_TEMP, I_CHORUS, I_SYNC, DIST_CARD, I_SIZE}},
-    {"mole cricket", "crickets", 5, {I_TEMP, I_CHORUS, DIST_CARD, I_SYNC, I_SIZE}},
-    {"cicada", 0, 5, C_CARDS(C_SIZE, C_RING, C_DEPTH, DIST_CARD)},
-    {"small cicada", 0, 5, C_CARDS(C_SIZE, C_RING, C_DEPTH, DIST_CARD)},
-    {"cicada chorus", 0, 5, C_CARDS(C_DEPTH, C_SIZE, C_RING, DIST_CARD)},
-    {"katydid", "katydids", 6, {I_TEMP, I_RASP, I_CHORUS, DIST_CARD, I_SYNC, I_SIZE}},
-    {"grasshopper", "katydids", 7, {{"PEGS", "PEGS", CK_HOST}, I_TEMP, I_RASP, DIST_CARD, I_CHORUS, I_SYNC, I_SIZE}},
-    {"honeybee", "bees", 4, B_CARDS},
-    {"bumblebee", "bees", 4, B_CARDS},
+#define I_TEMP {"TEMP", H "TEMP"}
+#define I_CHORUS {"CHORUS", H "FIELD"}
+#define I_SYNC {"SYNC", H "SYNC"}
+#define I_RASP {"RASP", H "JITTER"}
+#define I_SIZE {"SIZE", H "SIZE"}
+#define C_CARDS(a, b, c, d) {a, b, c, d, {"BUZZ", "HARD"}}
+#define C_SIZE {"SIZE", "SIZE"}
+#define C_RING {"RING", "TONE"}
+#define C_DEPTH {"DEPTH", "DEPTH"}
+#define B_CARDS {{"SWARM", H "SWARM"}, {"SPEED", H "SPEED"}, DIST_CARD, {"SPREAD", H "SPREAD"}}
+    {"field cricket", "crickets", 5, CL {I_TEMP, I_CHORUS, I_SYNC, DIST_CARD, I_SIZE}},
+    {"tree cricket", "crickets", 5, CL {I_TEMP, I_CHORUS, I_SYNC, DIST_CARD, I_SIZE}},
+    {"mole cricket", "crickets", 5, CL {I_TEMP, I_CHORUS, DIST_CARD, I_SYNC, I_SIZE}},
+    {"cicada", 0, 5, CL C_CARDS(C_SIZE, C_RING, C_DEPTH, DIST_CARD)},
+    {"small cicada", 0, 5, CL C_CARDS(C_SIZE, C_RING, C_DEPTH, DIST_CARD)},
+    {"cicada chorus", 0, 5, CL C_CARDS(C_DEPTH, C_SIZE, C_RING, DIST_CARD)},
+    {"katydid", "katydids", 6, CL {I_TEMP, I_RASP, I_CHORUS, DIST_CARD, I_SYNC, I_SIZE}},
+    {"grasshopper", "katydids", 7, CL {{"PEGS", H "PEGS"}, I_TEMP, I_RASP, DIST_CARD, I_CHORUS, I_SYNC, I_SIZE}},
+    {"honeybee", "bees", 4, CL B_CARDS},
+    {"bumblebee", "bees", 4, CL B_CARDS},
     /* Songbirds */
-#define SB_PAGE1 {"SIZE", "SIZE", 0}, {"DEPTH", "DEPTH", 0}, DIST_CARD, {"VARY", "SPREAD", 0}
-#define SB_SING {"TEMPO", "SPACING", 0}, {"SONG", "EXTRA", 0}, {"VARIETY", "TONE", 0}, {"EXCITE", "HARD", 0}
-    {"songbird", 0, 8, {SB_PAGE1, SB_SING}},
-    {"blackbird", 0, 8, {SB_PAGE1, SB_SING}},
-    {"song thrush", 0, 8, {SB_PAGE1, SB_SING}},
-    {"nightingale", 0, 8, {SB_PAGE1, SB_SING}},
-    {"robin", 0, 8, {SB_PAGE1, SB_SING}},
-    {"wren", 0, 8, {SB_PAGE1, SB_SING}},
-    {"hermit thrush", 0, 8, {SB_PAGE1, SB_SING}},
-    {"skylark", 0, 8, {SB_PAGE1, SB_SING}},
-    {"wood thrush", 0, 8, {SB_PAGE1, SB_SING}},
-    {"reed warbler", 0, 8, {SB_PAGE1, SB_SING}},
+#define SB_PAGE1 {"SIZE", "SIZE"}, {"DEPTH", "DEPTH"}, DIST_CARD, {"VARY", "SPREAD"}
+#define SB_SING {"TEMPO", "SPACING"}, {"SONG", "EXTRA"}, {"VARIETY", "TONE"}, {"EXCITE", "HARD"}
+    {"songbird", 0, 8, CL {SB_PAGE1, SB_SING}},
+    {"blackbird", 0, 8, CL {SB_PAGE1, SB_SING}},
+    {"song thrush", 0, 8, CL {SB_PAGE1, SB_SING}},
+    {"nightingale", 0, 8, CL {SB_PAGE1, SB_SING}},
+    {"robin", 0, 8, CL {SB_PAGE1, SB_SING}},
+    {"wren", 0, 8, CL {SB_PAGE1, SB_SING}},
+    {"hermit thrush", 0, 8, CL {SB_PAGE1, SB_SING}},
+    {"skylark", 0, 8, CL {SB_PAGE1, SB_SING}},
+    {"wood thrush", 0, 8, CL {SB_PAGE1, SB_SING}},
+    {"reed warbler", 0, 8, CL {SB_PAGE1, SB_SING}},
     /* Wild birds */
-    {"chirper", 0, 8, {SB_PAGE1, SB_SING}},
-    {"crow", 0, 7, {SB_PAGE1, {"TEMPO", "SPACING", 0}, {"SERIES", "EXTRA", 0}, {"EXCITE", "HARD", 0}}},
-    {"gull", 0, 8, {SB_PAGE1,
-                    {"TEMPO", "SPACING", 0}, {"CALLS", "EXTRA", 0}, {"LONGCALL", "TONE", 0}, {"EXCITE", "HARD", 0}}},
-    {"curlew", 0, 8, {SB_PAGE1,
-                      {"TEMPO", "SPACING", 0}, {"SONG", "EXTRA", 0}, {"BUBBLE", "TONE", 0}, {"EXCITE", "HARD", 0}}},
-    {"oystercatcher", 0, 8, {SB_PAGE1,
-        {"TEMPO", "SPACING", 0}, {"SONG", "EXTRA", 0}, {"PIPING", "TONE", 0}, {"EXCITE", "HARD", 0}}},
-    {"cuckoo", 0, 8, {SB_PAGE1,
-                      {"TEMPO", "SPACING", 0}, {"CALLS", "EXTRA", 0}, {"INTERVAL", "TONE", 0}, {"EXCITE", "HARD", 0}}},
-    {"woodpecker", 0, 7, {SB_PAGE1, {"DRUM", "SPACING", 0}, {"ROLL", "EXTRA", 0}, {"EXCITE", "HARD", 0}}},
-    {"wood pigeon", 0, 7, {SB_PAGE1, {"TEMPO", "SPACING", 0}, {"PHRASES", "EXTRA", 0}, {"EXCITE", "HARD", 0}}},
-    {"nightjar", 0, 8, {SB_PAGE1,
-                        {"RATE", "SPACING", 0}, {"CHURR", "EXTRA", 0}, {"SWITCH", "TONE", 0}, {"EXCITE", "HARD", 0}}},
-    {"bittern", 0, 7, {SB_PAGE1, {"TEMPO", "SPACING", 0}, {"BOOMS", "EXTRA", 0}, {"EXCITE", "HARD", 0}}},
+    {"chirper", 0, 8, CL {SB_PAGE1, SB_SING}},
+    {"crow", 0, 7, CL {SB_PAGE1, {"TEMPO", "SPACING"}, {"SERIES", "EXTRA"}, {"EXCITE", "HARD"}}},
+    {"gull", 0, 8, CL {SB_PAGE1,
+                    {"TEMPO", "SPACING"}, {"CALLS", "EXTRA"}, {"LONGCALL", "TONE"}, {"EXCITE", "HARD"}}},
+    {"curlew", 0, 8, CL {SB_PAGE1,
+                      {"TEMPO", "SPACING"}, {"SONG", "EXTRA"}, {"BUBBLE", "TONE"}, {"EXCITE", "HARD"}}},
+    {"oystercatcher", 0, 8, CL {SB_PAGE1,
+        {"TEMPO", "SPACING"}, {"SONG", "EXTRA"}, {"PIPING", "TONE"}, {"EXCITE", "HARD"}}},
+    {"cuckoo", 0, 8, CL {SB_PAGE1,
+                      {"TEMPO", "SPACING"}, {"CALLS", "EXTRA"}, {"INTERVAL", "TONE"}, {"EXCITE", "HARD"}}},
+    {"woodpecker", 0, 7, CL {SB_PAGE1, {"DRUM", "SPACING"}, {"ROLL", "EXTRA"}, {"EXCITE", "HARD"}}},
+    {"wood pigeon", 0, 7, CL {SB_PAGE1, {"TEMPO", "SPACING"}, {"PHRASES", "EXTRA"}, {"EXCITE", "HARD"}}},
+    {"nightjar", 0, 8, CL {SB_PAGE1,
+                        {"RATE", "SPACING"}, {"CHURR", "EXTRA"}, {"SWITCH", "TONE"}, {"EXCITE", "HARD"}}},
+    {"bittern", 0, 7, CL {SB_PAGE1, {"TEMPO", "SPACING"}, {"BOOMS", "EXTRA"}, {"EXCITE", "HARD"}}},
     /* Stones & sand */
-#define S_H(n) {#n, #n, CK_HOST}
-#define S_S(l, p) {l, p, 0}
-    {"stones", 0, 6, {S_S("SIZE", "SIZE"), S_S("GROUND", "HARD"), S_S("RING", "TONE"), S_S("CLUMPS", "SPACING"),
+#define S_H(n) {#n, H #n}
+#define S_S(l, p) {l, p}
+    {"stones", 0, 6, CL {S_S("SIZE", "SIZE"), S_S("GROUND", "HARD"), S_S("RING", "TONE"), S_S("CLUMPS", "SPACING"),
                       S_S("SPREAD", "SPREAD"), DIST_CARD}},
-    {"rockfall", "rockfall", 5, {S_H(VOLUME), S_H(HEIGHT), S_H(GROUND), S_H(FRAG), DIST_CARD}},
-    {"ringing rocks", "stonedrum", 8, {{"STONE", "MATERIAL", CK_HOST}, S_H(TUNE), S_H(MALLET), S_H(SHAPE),
+    {"rockfall", "rockfall", 5, CL {S_H(VOLUME), S_H(HEIGHT), S_H(GROUND), S_H(FRAG), DIST_CARD}},
+    {"ringing rocks", "stonedrum", 8, CL {{"STONE", H "MATERIAL"}, S_H(TUNE), S_H(MALLET), S_H(SHAPE),
                                        S_H(DAMP), S_H(POS), S_H(VARY), DIST_CARD}},
-    {"gravel", "gravel", 5, {S_H(SIZE), S_H(AMOUNT), S_H(SHAKE), S_H(GROUND), DIST_CARD}},
-    {"marbles", "pebble", 7, {S_H(SIZE), S_H(SURFACE), S_H(ROUGH), S_H(SPEED), S_H(DRAG), S_H(ROUND), DIST_CARD}},
-    {"sand", "sand", 6, {S_H(GRAIN), S_H(SURFACE), S_H(HEIGHT), S_H(PULSE), S_H(SIZE), DIST_CARD}},
-    {"singing dune", "sandsong", 5, {S_H(GRAIN), S_H(SORTING), S_H(STEADY), DIST_CARD, S_H(DETUNE)}},
-    {"minerals", "minerals", 7, {S_H(MINERAL), S_H(SIZE), S_H(ACTION), S_H(HOLD), S_H(HUMID), S_H(VARY), DIST_CARD}},
-    {"stone friction", "mineral", 6, {S_H(ROUGH), S_H(STICK), S_H(PRESSURE), S_H(SPEED), S_H(SIZE), DIST_CARD}},
+    {"gravel", "gravel", 5, CL {S_H(SIZE), S_H(AMOUNT), S_H(SHAKE), S_H(GROUND), DIST_CARD}},
+    {"marbles", "pebble", 7, CL {S_H(SIZE), S_H(SURFACE), S_H(ROUGH), S_H(SPEED), S_H(DRAG), S_H(ROUND), DIST_CARD}},
+    {"sand", "sand", 6, CL {S_H(GRAIN), S_H(SURFACE), S_H(HEIGHT), S_H(PULSE), S_H(SIZE), DIST_CARD}},
+    {"singing dune", "sandsong", 5, CL {S_H(GRAIN), S_H(SORTING), S_H(STEADY), DIST_CARD, S_H(DETUNE)}},
+    {"minerals", "minerals", 7, CL {S_H(MINERAL), S_H(SIZE), S_H(ACTION), S_H(HOLD), S_H(HUMID), S_H(VARY), DIST_CARD}},
+    {"stone friction", "mineral", 6, CL {S_H(ROUGH), S_H(STICK), S_H(PRESSURE), S_H(SPEED), S_H(SIZE), DIST_CARD}},
     /* Ice & glass */
-#define G_H(n) {#n, #n, CK_HOST}
-#define G_CLUMPS {"CLUMPS", "SPACING", 0}
-#define G_LAKE {G_H(THICK), G_H(COLD), {"FAR", "DIST", CK_HOST}, DIST_CARD}
-    {"icicles", "ice", 6, {G_H(SIZE), G_H(TEMP), G_H(AMOUNT), G_H(FIZZ), G_CLUMPS, DIST_CARD}},
-    {"ice in a glass", "ice", 4, {G_H(SIZE), G_H(FIZZ), G_CLUMPS, DIST_CARD}},
-    {"frost tinkling", "ice", 3, {G_H(TEMP), G_CLUMPS, DIST_CARD}},
-    {"snow underfoot", "ice", 3, {G_H(TEMP), G_CLUMPS, DIST_CARD}},
-    {"lake ice", "lakeice", 4, G_LAKE},
-    {"frozen lake booming", "lakeice", 4, G_LAKE},
-    {"thin ice underfoot", "lakeice", 2, {G_H(THICK), DIST_CARD}},
-    {"glass pane", "glass", 6, {G_H(SIZE), G_H(RING), G_H(ENERGY), G_H(HEIGHT), G_H(BOUNCE), DIST_CARD}},
-    {"bottles", "glass", 4, {G_H(SIZE), G_H(RING), G_CLUMPS, DIST_CARD}},
-    {"shards settling", "glass", 5, {G_H(SIZE), G_H(RING), G_H(ENERGY), G_H(BOUNCE), DIST_CARD}},
+#define G_H(n) {#n, H #n}
+#define G_CLUMPS {"CLUMPS", "SPACING"}
+#define G_LAKE {G_H(THICK), G_H(COLD), {"FAR", H "DIST"}, DIST_CARD}
+    {"icicles", "ice", 6, CL {G_H(SIZE), G_H(TEMP), G_H(AMOUNT), G_H(FIZZ), G_CLUMPS, DIST_CARD}},
+    {"ice in a glass", "ice", 4, CL {G_H(SIZE), G_H(FIZZ), G_CLUMPS, DIST_CARD}},
+    {"frost tinkling", "ice", 3, CL {G_H(TEMP), G_CLUMPS, DIST_CARD}},
+    {"snow underfoot", "ice", 3, CL {G_H(TEMP), G_CLUMPS, DIST_CARD}},
+    {"lake ice", "lakeice", 4, CL G_LAKE},
+    {"frozen lake booming", "lakeice", 4, CL G_LAKE},
+    {"thin ice underfoot", "lakeice", 2, CL {G_H(THICK), DIST_CARD}},
+    {"glass pane", "glass", 6, CL {G_H(SIZE), G_H(RING), G_H(ENERGY), G_H(HEIGHT), G_H(BOUNCE), DIST_CARD}},
+    {"bottles", "glass", 4, CL {G_H(SIZE), G_H(RING), G_CLUMPS, DIST_CARD}},
+    {"shards settling", "glass", 5, CL {G_H(SIZE), G_H(RING), G_H(ENERGY), G_H(BOUNCE), DIST_CARD}},
     /* Wood */
-#define WD_H(n) {#n, #n, CK_HOST}
+#define WD_H(n) {#n, H #n}
 #define WD_TREE {WD_H(SIZE), WD_H(CREAK), WD_H(PITCH), WD_H(MOIST), DIST_CARD}
-    {"spruce", "wood", 5, WD_TREE},
-    {"pine", "wood", 5, WD_TREE},
-    {"maple", "wood", 5, WD_TREE},
-    {"oak", "wood", 5, WD_TREE},
-    {"green branch", "wood", 5, {WD_H(SIZE), WD_H(CREAK), WD_H(MOIST), WD_H(PITCH), DIST_CARD}},
-    {"tree trunk", "wood", 4, {WD_H(CREAK), WD_H(PITCH), WD_H(SIZE), DIST_CARD}},
-    {"twigs underfoot", "wood", 5, {WD_H(SIZE), WD_H(MOIST), WD_H(WEIGHT), {"DEPTH", "LITTER", CK_HOST}, DIST_CARD}},
+    {"spruce", "wood", 5, CL WD_TREE},
+    {"pine", "wood", 5, CL WD_TREE},
+    {"maple", "wood", 5, CL WD_TREE},
+    {"oak", "wood", 5, CL WD_TREE},
+    {"green branch", "wood", 5, CL {WD_H(SIZE), WD_H(CREAK), WD_H(MOIST), WD_H(PITCH), DIST_CARD}},
+    {"tree trunk", "wood", 4, CL {WD_H(CREAK), WD_H(PITCH), WD_H(SIZE), DIST_CARD}},
+    {"twigs underfoot", "wood", 5, CL {WD_H(SIZE), WD_H(MOIST), WD_H(WEIGHT), {"DEPTH", H "LITTER"}, DIST_CARD}},
     /* Storm's hail */
-#define HAIL_CARDS {{"STONES", "DROPS", CK_HOST}, {"AREA", "AREA", CK_HOST}, {"INSIDE", "INSIDE", CK_HOST}, \
-                    {"RAIN", "RAIN", CK_HOST}, {"BOUNCE", "BOUNCE", CK_HOST}, DIST_CARD}
-    {"hail on a roof", "rainsurf", 6, HAIL_CARDS},
-    {"hail on a car", "rainsurf", 6, HAIL_CARDS},
-    {"hail in leaves", "rainsurf", 6, HAIL_CARDS},
-    {"sleet on a window", "rainsurf", 5, {{"STONES", "DROPS", CK_HOST}, {"AREA", "AREA", CK_HOST},
-                                          {"INSIDE", "INSIDE", CK_HOST}, DIST_CARD, {"RAIN", "RAIN", CK_HOST}}},
+#define HAIL_CARDS {{"STONES", H "DROPS"}, {"AREA", H "AREA"}, {"INSIDE", H "INSIDE"}, \
+                    {"RAIN", H "RAIN"}, {"BOUNCE", H "BOUNCE"}, DIST_CARD}
+    {"hail on a roof", "rainsurf", 6, CL HAIL_CARDS},
+    {"hail on a car", "rainsurf", 6, CL HAIL_CARDS},
+    {"hail in leaves", "rainsurf", 6, CL HAIL_CARDS},
+    {"sleet on a window", "rainsurf", 5, CL {{"STONES", H "DROPS"}, {"AREA", H "AREA"},
+                                          {"INSIDE", H "INSIDE"}, DIST_CARD, {"RAIN", H "RAIN"}}},
 };
 #define SCD_N (sizeof SCD / sizeof SCD[0])
 /* the source's general cards (every sound not in SCD) */
-static const scd_sound_t SC_SRC_DEFAULT = {"", 0, 8, {{"SIZE", "SIZE", 0}, {"SPREAD", "SPREAD", 0}, {"TONE", "TONE", 0},
-    {"HARD", "HARD", 0}, {"NEAR", "PROXIMITY", 0}, {"DEPTH", "DEPTH", 0}, {"LIFE", "LIFE", 0}, {"CLUMPS", "SPACING", 0}}};
+static const scd_sound_t SC_SRC_DEFAULT = {"", 0, 8, CL {{"SIZE", "SIZE"}, {"SPREAD", "SPREAD"}, {"TONE", "TONE"},
+    {"HARD", "HARD"}, {"NEAR", "PROXIMITY"}, {"DEPTH", "DEPTH"}, {"LIFE", "LIFE"}, {"CLUMPS", "SPACING"}}};
 
+#undef H
+#undef INV
+#undef CL
 #endif

@@ -226,7 +226,7 @@ static void p_cards_resolve(uint32_t k)
         const scd_sound_t *d = 0;
         for (i = 0; i < SCD_N; i++) if (sc.snd[k] >= 0 && sc_eq(SCD[i].sound, sc_sound_name(k))) d = &SCD[i];
         for (i = 0; d && i < d->n; i++) {      /* listed: those cards, in that order (as the engine has them) */
-            int id = tx_param_find(e, d->c[i].par);
+            int id = tx_param_find(e, scd_par(&d->c[i]));
             if (id < 0 || p_quick_param(e, e->params[id].name)) continue;
             c->lab[c->n] = d->c[i].lab; c->kind[c->n] = CK_SRC; c->id[c->n] = (uint8_t)id;
             c->hi[c->n] = e->params[id].max; c->def[c->n] = e->params[id].def; c->n++;
@@ -245,12 +245,13 @@ static void p_cards_resolve(uint32_t k)
         if (c->hosted != c->live) { d = &SC_SRC_DEFAULT; c->hosted = 0; }   /* (the source plays it another way: its own
                                                                       * general cards) */
         for (i = 0; i < d->n; i++) {
-            const tx_engine_t *t = d->c[i].kind & CK_HOST ? c->hosted : e;
-            int id = t ? tx_param_find(t, d->c[i].par) : -1;
+            uint8_t kd = scd_kind(&d->c[i]);
+            const tx_engine_t *t = kd & CK_HOST ? c->hosted : e;
+            int id = t ? tx_param_find(t, scd_par(&d->c[i])) : -1;
             if (id < 0) continue;               /* (a parameter this build's engine has not got) */
-            c->lab[c->n] = d->c[i].lab; c->kind[c->n] = d->c[i].kind; c->id[c->n] = (uint8_t)id;
+            c->lab[c->n] = d->c[i].lab; c->kind[c->n] = kd; c->id[c->n] = (uint8_t)id;
             c->hi[c->n] = t->params[id].max; c->def[c->n] = t->params[id].def;
-            if (d->c[i].kind & CK_INV) c->def[c->n] = (uint8_t)(c->hi[c->n] - c->def[c->n]);
+            if (kd & CK_INV) c->def[c->n] = (uint8_t)(c->hi[c->n] - c->def[c->n]);
             c->n++;
         }
     }
