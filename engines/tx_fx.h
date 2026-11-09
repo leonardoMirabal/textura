@@ -62,7 +62,9 @@ typedef struct {
     uint8_t p[TX_DR_NP];
     uint8_t ton, on, la;           /* the shelf runs; the drive runs (or glides out); the last AMOUNT */
     uint8_t cur;                   /* the TYPE that runs (p[TX_DR_TYPE] after a change has faded through) */
-    int32_t hp, lp1, lp2, w, tg, tlp;
+    int32_t hp, lp1, lp2, w, tg, tlp;  /* (FDRV: hp Q7, lp1 lp2 Q19) */
+    int32_t gl, kl, ml;            /* FDRV: the gain, low-pass and make-up the last block ended on (-1: none) */
+    uint8_t dl;                    /* FDRV: the AMOUNT that ran (it glides) */
     tx_drv_shared_t *sh;           /* what the TYPEs share (tx_fx_t; 0: the classic drive only) */
     const void *own;               /* TSH8's owner as this one (itself; the pair's second: the first's, tx_fx_drive_pair) */
     uint8_t fol;                   /* 1: the pair's second (TSH8: runs on the tables the first builds) */

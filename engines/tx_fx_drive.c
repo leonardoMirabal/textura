@@ -6,8 +6,8 @@
  * on / off over ~46 ms: no zipper, no click. AMOUNT 0 = off (after its glide out): the lane untouched.
  * Precision: the drive works at Q15 (Frodhes' scale); the dry share of MIX stays at the lane's Q23.
  *
- * TYPE: 0 FDRV is that classic drive (its loops as they were: TYPE 0 changes no sample); 1 KHLON, 2 TSH8, 3 OHCD,
- * 4 BHLUE are Frodhes' four circuit TYPEs (drive.c and drv_<type>.c there: our own), one file each here
+ * TYPE: 0 FDRV is that classic drive (Frodhes' later fixes in: its fractions kept, AMOUNT glides); 1 KHLON, 2 TSH8,
+ * 3 OHCD, 4 BHLUE are Frodhes' four circuit TYPEs (drive.c and drv_<type>.c there: our own), one file each here
  * (tx_fx_drv_<type>.c, included below; their tables tx_drive_tables.h, from tools/gen_drive_tables.py). The framework
  * is Frodhes' drive.c as an instance: a TYPE runs once a block on the lane's signal at Q15 (in place, all wet), then
  * the dry / wet blend at Q23 (w ramping every 4 samples: MIX and on / off over ~46 ms, as the classic drive), AMOUNT 0
@@ -43,6 +43,7 @@ void tx_fx_drive_init(tx_fx_drive_t *d)
     for (i = 0; i < TX_DR_NP; i++) d->p[i] = tx_fx_drive_params[i].def;
     d->w = 32768;
     d->tg = 4096;
+    d->gl = -1;
     d->own = d;
 }
 void tx_fx_drive_param(tx_fx_drive_t *d, unsigned id, unsigned v)
@@ -51,8 +52,36 @@ void tx_fx_drive_param(tx_fx_drive_t *d, unsigned id, unsigned v)
 }
 TX_INLINE int32_t dr_cl(int32_t v) { v = v > -230000 ? v : -230000; return v < 230000 ? v : 230000; }
 
-/* the glides at rest (TONE's gain and the wet share where they go): each sample as the loop below does then, its state
- * in locals (Frodhes' dr_settled); shelf and full are constants at each use */
+/* FDRV keeps its fractions (Frodhes 0.9.8 .. 0.9.10, at 1x here): a quiet note through the drive came out of a
+ * staircase. The high-pass's state is in Q7 (it moved only once the input was 64 LSB away: a 41 Hz sine of 160 LSB
+ * came out at H3 -13 dB re H1); the shaper's input is x g >> 6 (DR_IN more bits from the product, not (x >> 2) g >> 10);
+ * the curve reads its table between entries at 16 bits; its output and both low-passes carry DR_YS more bits (64-bit
+ * products); the make-up rounds once to the output. b0 is the curve at the bias at the same precision: 0 in, 0 out. */
+#define DR_IN 6u                    /* the shaper's input: bits below the LSB */
+#define DR_YS 4u                    /* the curve's output and the low-passes: bits below the LSB */
+#define DR_DSTEP 4                  /* AMOUNT glides at most this a block (its gain, low-pass and make-up ramp over it) */
+TX_INLINE int32_t dr_curve(int32_t v)                    /* tx_fx_softclip on DR_IN more bits in, DR_YS more out */
+{
+    uint32_t u, i;
+    int32_t f;
+    v = v > -(131072 << DR_IN) ? v : -(131072 << DR_IN);
+    v = v < (131071 << DR_IN) ? v : (131071 << DR_IN);
+    u = (uint32_t)(v + (131072 << DR_IN)); i = u >> (10u + DR_IN); f = (int32_t)(u & ((1u << (10u + DR_IN)) - 1u));
+    return TX_FX_TANH[i] * (1 << DR_YS) + (((TX_FX_TANH[i + 1] - TX_FX_TANH[i]) * f) >> (10u + DR_IN - DR_YS));
+}
+/* one sample of the drive up to its make-up: x23 in, y (Q15) out; hp, lp1, lp2 the states (locals or the struct's) */
+#define DR_CORE(x23v, y, hp, lp1, lp2, g, k, mk)                                                                    \
+    do {                                                                                                            \
+        int32_t x0_ = ((x23v) + 128) >> 8, d_ = x0_ - (((hp) + 64) >> 7), s_;   /* Q23 -> Q15 */                    \
+        (hp) += d_;                                                                                                 \
+        s_ = dr_curve((int32_t)(((int64_t)dr_cl(d_) * (g)) >> (12u - DR_IN)) + (DR_BIAS << DR_IN)) - b0;           \
+        (lp1) += (int32_t)(((int64_t)(s_ - (lp1)) * (k)) >> 15);                                                    \
+        (lp2) += (int32_t)(((int64_t)((lp1) - (lp2)) * (k)) >> 15);                                                 \
+        (y) = (int32_t)(((int64_t)(lp2) * (mk) + (1 << (14u + DR_YS))) >> (15u + DR_YS));                          \
+    } while (0)
+
+/* the glides at rest (TONE's gain and the wet share where they go, AMOUNT not moving): each sample as the loop below
+ * does then, its state in locals (Frodhes' dr_settled); shelf and full are constants at each use */
 static inline __attribute__((always_inline)) void dr_settled(tx_fx_drive_t *d, int32_t *x23, unsigned n, int32_t g,
                                                              int32_t k, int32_t mk, int32_t b0, int32_t tg, int32_t w,
                                                              const int shelf, const int full)
@@ -60,13 +89,8 @@ static inline __attribute__((always_inline)) void dr_settled(tx_fx_drive_t *d, i
     int32_t hp = d->hp, lp1 = d->lp1, lp2 = d->lp2, tlp = d->tlp;
     unsigned i;
     for (i = 0; i < n; i++) {
-        int32_t x0 = (x23[i] + 128) >> 8, x, y;
-        hp += (x0 - hp + 64) >> 7;
-        x = dr_cl(x0 - hp);
-        y = tx_fx_softclip((int32_t)(((int64_t)(x >> 2) * g) >> 10) + DR_BIAS) - b0;
-        lp1 += mulq15(y - lp1, k);
-        lp2 += mulq15(lp1 - lp2, k);
-        y = mulq15(lp2, mk);
+        int32_t y;
+        DR_CORE(x23[i], y, hp, lp1, lp2, g, k, mk);
         if (shelf) {
             tlp += mulq15(y - tlp, DR_TA);
             y = tlp + (int32_t)(((int64_t)(y - tlp) * tg) >> 12);
@@ -83,11 +107,17 @@ static void dr_classic(tx_fx_drive_t *d, int32_t *x23, unsigned n, int32_t amt)
     int32_t a = amt ? amt : d->la, tv = d->p[TX_DR_TONE], mv = d->p[TX_DR_MIX], g, k, mk, b0;
     int32_t wt = !amt ? 0 : mv >= 127 ? 32768 : mv * 258;      /* the wet share it goes to (AMOUNT 0: 0) */
     int32_t tt = tv >= 64 ? 4096 + (((tv - 64) * 4161) >> 6) : tv * 64;   /* the shelf's gain: 0 .. 1 .. 2 (Q12) */
+    int32_t gq, kq, mq, dgq = 0, dkq = 0, dmq = 0;            /* the ramp (Q8) while AMOUNT moves */
     unsigned i;
     if (!d->on) {                                               /* off: the lane untouched */
         if (!amt) return;
         d->on = 1; d->w = 0; d->hp = d->lp1 = d->lp2 = 0; d->ton = 0; d->tg = 4096;   /* on: from dry, a 46 ms glide */
+        d->gl = -1;
     }
+    if (d->gl >= 0 && a != d->dl) a = d->dl + clampi(a - d->dl, -DR_DSTEP, DR_DSTEP);   /* (Frodhes 0.9.6, #5: AMOUNT
+                                                 * stepped once a block, a zipper; the make-up matches the gain per
+                                                 * AMOUNT only, so AMOUNT itself glides, its values ramp over the block) */
+    d->dl = (uint8_t)a;
     d->la = (uint8_t)a;
     g = 4096 + ((a * a * 2 * DR_S) >> 4);
     if (a > 16) g = 4096 + ((g - 4096) * (95 + a)) / 111;     /* (<= 32258 x 222: 32-bit) the gain to ~18x */
@@ -95,22 +125,24 @@ static void dr_classic(tx_fx_drive_t *d, int32_t *x23, unsigned n, int32_t amt)
     mk = ((30000 - a * 120) * DR_MU) >> 12;
     mk = (mk * (int32_t)TX_FX_DRV_LVL[a]) >> 15;
     mk = (mk * 39000) >> 15;
-    b0 = tx_fx_softclip(DR_BIAS);
+    b0 = dr_curve(DR_BIAS << DR_IN);
     if (tt > 8192) tt = 8192;
-    if (d->w == wt && wt && (d->ton ? d->tg == tt && tt != 4096 : tt == 4096)) {   /* settled */
+    gq = g << 8; kq = k << 8; mq = mk << 8;
+    if (d->gl >= 0 && (d->gl != g || d->kl != k || d->ml != mk)) {   /* AMOUNT moved: from the last block's, over this */
+        gq = d->gl << 8; kq = d->kl << 8; mq = d->ml << 8;
+        dgq = ((g - d->gl) << 8) / (int32_t)n; dkq = ((k - d->kl) << 8) / (int32_t)n; dmq = ((mk - d->ml) << 8) / (int32_t)n;
+    }
+    d->gl = g; d->kl = k; d->ml = mk;
+    if (!(dgq | dkq | dmq) && d->w == wt && wt && (d->ton ? d->tg == tt && tt != 4096 : tt == 4096)) {   /* settled */
         if (!d->ton) { if (wt == 32768) dr_settled(d, x23, n, g, k, mk, b0, tt, wt, 0, 1); else dr_settled(d, x23, n, g, k, mk, b0, tt, wt, 0, 0); }
         else if (wt == 32768) dr_settled(d, x23, n, g, k, mk, b0, tt, wt, 1, 1);
         else dr_settled(d, x23, n, g, k, mk, b0, tt, wt, 1, 0);
         return;
     }
     for (i = 0; i < n; i++) {
-        int32_t x0 = (x23[i] + 128) >> 8, x, y;                 /* Q23 -> Q15 */
-        d->hp += (x0 - d->hp + 64) >> 7;
-        x = dr_cl(x0 - d->hp);
-        y = tx_fx_softclip((int32_t)(((int64_t)(x >> 2) * g) >> 10) + DR_BIAS) - b0;
-        d->lp1 += mulq15(y - d->lp1, k);
-        d->lp2 += mulq15(d->lp1 - d->lp2, k);
-        y = mulq15(d->lp2, mk);
+        int32_t y;
+        gq += dgq; kq += dkq; mq += dmq;
+        DR_CORE(x23[i], y, d->hp, d->lp1, d->lp2, gq >> 8, kq >> 8, mq >> 8);
         if (d->ton || tt != 4096) {                             /* TONE: lows + the highs x gain */
             if (!d->ton) { d->tlp = y; d->ton = 1; }
             d->tg += d->tg < tt ? (tt - d->tg > 8 ? 8 : tt - d->tg) : -(d->tg - tt > 8 ? 8 : d->tg - tt);
