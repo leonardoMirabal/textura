@@ -23,13 +23,13 @@
  * two modes' states do not map onto each other, so it dips through the dry signal, a block each: the wet fades out
  * (5.8 ms), the new mode starts from rest and runs a block under the dry signal, then fades in.
  * Cost (Frodhes, pi32v2 -Os, ~1.6 us per instruction per sample): post 69, pre 70, a dip block 80.5 instructions a
- * sample: 129 us a block at the worst. */
+ * sample: 129 us a block at the worst; here +~5 a sample for the mirrored node table (KH_GP): 137 us. */
 #ifdef TX_FX_DRIVE_UNIT
 #ifndef KH_AA
 #define KH_AA 0
 #endif
 #if !KH_AA
-#define DRV_US_KHLON 129u
+#define DRV_US_KHLON 137u              /* (129 + the mirrored node table: ~5 instructions a sample, estimated) */
 #define KH_AA_FROM 127u
 #else
 #define DRV_US_KHLON 177u
@@ -53,6 +53,7 @@ static int32_t kh_unf(const uint32_t *r0, uint32_t i, uint32_t h)   /* a stored 
     return h ? (v + (int32_t)(r0[11u + i] ^ 0x80000000u)) >> 1 : v;
 }
 static uint32_t kh_mode_of(uint32_t ra) { return (uint32_t)(KH_AMAP[ra] >> 1) >= KH_PRE_ROW; }
+#if KH_AA                                        /* (the anti-aliased clipper and its {g, F} table: KH_AA builds) */
 static int32_t kh_F(int32_t e)                   /* F at the carried e1 (once, when the AA rows start) */
 {
     int32_t a = e < 0 ? -e : e, fr = a & ((1 << 14) - 1), g0, dg;
@@ -60,6 +61,7 @@ static int32_t kh_F(int32_t e)                   /* F at the carried e1 (once, w
     g0 = p[0]; dg = p[2] - g0;
     return p[1] + (int32_t)(KH_M64(fr, g0 + ((dg * fr) >> 15)) >> 13);
 }
+#endif
 static void kh_load(tx_drv_kh_t *s)              /* the rows -> the coefficients (only when one changes) */
 {
     uint32_t ga = KH_AMAP[s->ra], gr = ga >> 1, gh = ga & 1u, tr = s->rt >> 1, th = s->rt & 1u, i;
@@ -75,9 +77,11 @@ static void kh_load(tx_drv_kh_t *s)              /* the rows -> the coefficients
         s->po[i] = i < 3 ? (int32_t)((KH_M64(v, sc) + (1 << 23)) >> 24) : v;
     }
     s->pre = (uint8_t)(gr >= KH_PRE_ROW);
+#if KH_AA
     if (s->ra >= KH_AA_FROM && !s->aa) s->F1 = kh_F(s->e1);   /* (the AA rows start: F1 from the carried e1) */
     s->aa = s->ra >= KH_AA_FROM;
-    s->gf = KH_GF; s->kc4 = KH_KC4; s->rail = KH_RAIL;
+#endif
+    s->gf = KH_GP; s->kc4 = KH_KC4; s->rail = KH_RAIL;
 }
 static void kh_rest(tx_drv_kh_t *s)              /* every state to rest */
 {
@@ -96,6 +100,7 @@ static void drv_khlon_reset(tx_drv_kh_t *s)
     s->ra = 0xFFu; s->dip = s->held = 0; s->aa = 0;      /* the next run starts at the knobs' rows, no glide */
 }
 
+#if KH_AA
 /* the clipper's input: e = rail(x) - sc; its node pointer, fraction, g0, dg for |e| (the curve is odd) */
 #define KH_E(x)                                                                                 \
             e = (x); e = e < nL ? nL : e; e = e > L ? L : e; e -= sc;                           \
@@ -105,6 +110,7 @@ static void drv_khlon_reset(tx_drv_kh_t *s)
             g0 = p[0]; dg = p[2] - g0;
 #define KH_AA_SF 12                                     /* F in Q28 = Q40 >> 12 */
 #define KH_BETA_Q8 38                                   /* the droop compensation: 0.148 */
+#endif
 /* O1 and CL in one pass (the input read and scaled once): in -> t (O1), u (CL); in may be u */
 KH_FN void kh_o1cl_pass(tx_drv_kh_t *s, int32_t *t, const int32_t *in, int32_t *u, uint32_t n)
 {
@@ -124,13 +130,16 @@ KH_FN void kh_o1cl_pass(tx_drv_kh_t *s, int32_t *t, const int32_t *in, int32_t *
     }
     s->so1[0] = s1; s->so1[1] = s2; s->scl = sc;
 }
-/* the plain clipper, on the signed node table KH_GFS (the curve over -9.06 .. 9.06 V, its negative half mirrored): e's
- * cell and fraction come from e itself (two's complement: e = (e >> 14) 2^14 + (e & 16383)), no |e| and no sign
- * select; g0, D are even (Q21). Keeps e1 current for a switch to the AA rows. KH_PV: one sample, e and v. */
+/* the plain clipper on the curve's nodes for e >= 0 (KH_GP: g, Q21, even), mirrored at run time, the same integers
+ * as a table over the whole range with its negative half mirrored (Frodhes' KH_GFS, 9288 B; KH_GP 2324 B): e's cell
+ * and fraction come from e itself (two's complement: e = (e >> 14) 2^14 + (e & 16383)); a cell left of 0 reads its
+ * nodes -(cell) and -(cell) - 1, negated (x ^ sg - sg: no branch). Keeps e1 current for a switch to the AA rows. KH_PV:
+ * one sample, e and v. */
 #define KH_PV(x)                                                                                   \
             e = (x); e = e < nL ? nL : e; e = e > L ? L : e; e -= sc;                              \
-            p = gs + (e >> 14) * 2; g0 = p[0];                                                     \
-            v = (g0 + (((p[2] - g0) * (e & ((1 << 14) - 1))) >> 14)) >> 1;                         \
+            sg = e >> 31; m = ((e >> 14) ^ sg) - sg;                                               \
+            g0 = (gs[m] ^ sg) - sg; d = ((gs[m + 1 + 2 * sg] ^ sg) - sg) - g0;                     \
+            v = (g0 + ((d * (e & ((1 << 14) - 1))) >> 14)) >> 1;                                   \
             sc += (int32_t)(KH_M64(e - v, kc4) >> 32);
 /* post: the clipper in place on t */
 KH_FN void kh_clipv_pass(tx_drv_kh_t *s, int32_t *t, uint32_t n)
@@ -138,8 +147,7 @@ KH_FN void kh_clipv_pass(tx_drv_kh_t *s, int32_t *t, uint32_t n)
     const int32_t *gs = s->gf;
     int32_t sc = s->sc, kc4 = s->kc4, L = s->rail, nL = -s->rail, e = s->e1, *te = t + n;
     while (t < te) {
-        int32_t g0, v;
-        const int32_t *p;
+        int32_t g0, v, sg, m, d;
         KH_PV(*t)
         *t++ = v;
     }
@@ -151,13 +159,13 @@ KH_FN void kh_clipvadd_pass(tx_drv_kh_t *s, const int32_t *t, int32_t *u, uint32
     const int32_t *gs = s->gf;
     int32_t sc = s->sc, kc4 = s->kc4, L = s->rail, nL = -s->rail, e = s->e1, *ue = u + n;
     while (u < ue) {
-        int32_t g0, v;
-        const int32_t *p;
+        int32_t g0, v, sg, m, d;
         KH_PV(*t++)
         *u++ += v;
     }
     s->sc = sc; s->e1 = e;
 }
+#if KH_AA
 /* the anti-aliased clipper (rows from KH_AA_FROM), V_S into t: F(e) = F[k] + (fr (g0 + (dg fr) >> 15)) >> 13;
  * |d| = |e - e1| >= 2^12: v = (F - F1) 2^12 / d by clz, KH_RCP and one 64-bit product; else g at the midpoint */
 KH_FN void kh_clipaa_pass(tx_drv_kh_t *s, int32_t *t, uint32_t n)
@@ -190,6 +198,7 @@ KH_FN void kh_clipaa_pass(tx_drv_kh_t *s, int32_t *t, uint32_t n)
     }
     s->sc = sc; s->e1 = e1; s->F1 = F1;
 }
+#endif
 KH_FN void kh_sladd_pass(tx_drv_kh_t *s, const int32_t *t, int32_t *u, uint32_t n)   /* post: u += the slot (V_S) */
 {
     int32_t b0 = s->sl[0], b1 = s->sl[1], a1 = s->sl[2];
@@ -216,6 +225,7 @@ KH_FN void kh_sl_pass(tx_drv_kh_t *s, int32_t *t, uint32_t n)   /* pre: the thir
     }
     s->ssl = st;
 }
+#if KH_AA
 /* the AA rows' droop compensation w = v + beta (v - v1), fused where V_S enters the sum: post mode u += slot(w) */
 KH_FN void kh_slfadd_pass(tx_drv_kh_t *s, const int32_t *t, int32_t *u, uint32_t n)
 {
@@ -242,6 +252,7 @@ KH_FN void kh_firadd_pass(tx_drv_kh_t *s, const int32_t *t, int32_t *u, uint32_t
     }
     s->v1 = v1;
 }
+#endif
 KH_FN void kh_post_pass(tx_drv_kh_t *s, int32_t *u, uint32_t n)
 {
     int32_t b0 = s->po[0], b1 = s->po[1], b2 = s->po[2], a1 = s->po[3], a2 = s->po[4];
@@ -311,20 +322,26 @@ static void drv_khlon_run(tx_drv_kh_t *s, tx_drv_scr_t *sh, const int32_t *in, i
     kh_hist(s->hcl, x1, x2, cl1 = u[n - 1], cl2 = u[n - 2]);
     if (!s->pre) {
         int32_t w1, w2;
-        if (!s->aa) {
-            kh_clipv_pass(s, t, n); kh_sladd_pass(s, t, u, n);
-            s->v1 = w1 = t[n - 1]; w2 = t[n - 2];
-        } else {
+#if KH_AA
+        if (s->aa) {
             kh_clipaa_pass(s, t, n); kh_slfadd_pass(s, t, u, n);
             w1 = t[n - 1] + (((t[n - 1] - t[n - 2]) * KH_BETA_Q8) >> 8);
             w2 = t[n - 2] + (((t[n - 2] - t[n - 3]) * KH_BETA_Q8) >> 8);
+        } else
+#endif
+        {
+            kh_clipv_pass(s, t, n); kh_sladd_pass(s, t, u, n);
+            s->v1 = w1 = t[n - 1]; w2 = t[n - 2];
         }
         kh_hist(s->hsl, w1, w2, u[n - 1] - cl1, u[n - 2] - cl2);
     } else {
         kh_sl_pass(s, t, n);
         kh_hist(s->hsl, s->ho1[2], s->ho1[3], t[n - 1], t[n - 2]);
+#if KH_AA
         if (s->aa) { kh_clipaa_pass(s, t, n); kh_firadd_pass(s, t, u, n); }
-        else kh_clipvadd_pass(s, t, u, n);
+        else
+#endif
+        kh_clipvadd_pass(s, t, u, n);
     }
     s->hpo[0] = u[n - 1]; s->hpo[1] = u[n - 2];
     if (!ph) kh_post_pass(s, u, n);

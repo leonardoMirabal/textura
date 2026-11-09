@@ -14,9 +14,10 @@ a2 y2), signals in volts Q20 inside the TYPE.
   KH_T[65][5]       per stored TONE row (j = 0, 2 .. 128; j / 128): the output section (the summing amp's pole x the
                     treble control); an odd j the mean of its neighbours
   KH_LT[65]         per stored TONE row: the level (Q14)
-  KH_GFS[2 x (2 KH_GN - 1)]  the clipper's nodes over -9.06 .. 9.06 V (the negative half mirrored: g odd, F even;
-                    KH_GF = the node at 0: the half for e >= 0, as the AA clipper reads it)
-  KH_GF             the clipper's nodes for e >= 0 (the curve is odd; e in Q20, 1/64 V nodes 0 .. 9.06 V: |e| stays
+  KH_GP[KH_GN]      the plain clipper's nodes for e >= 0: g (Q21, 2 x the Q20 curve); the curve is odd, so the
+                    clipper mirrors them for e < 0 at run time (the same integers as Frodhes' KH_GFS, the whole range
+                    with its negative half stored: 9288 B, here 2324 B)
+  KH_GF             (KH_AA builds only) the anti-aliased clipper's nodes for e >= 0 (the curve is odd; e in Q20, 1/64 V nodes 0 .. 9.06 V: |e| stays
                     below 9 V): {g = G in Q21 (2 x the Q20 curve), F = the exact integral of the interpolated curve up
                     to the node (Q28: sum of g[i] + g[i + 1])}; read as one 64-bit load: 8-byte aligned
   KH_RCP[1024]      the reciprocal of a normalised mantissa (the anti-aliased clipper's quotient without a divide):
@@ -120,16 +121,6 @@ def gf(J):
     return out
 
 
-def gfs(c):
-    """the node table over the whole range, -(GN - 1) .. GN - 1: the negative half mirrored (g odd, F even), so the
-    plain clipper takes its cell and fraction from e itself (no |e|, no sign select)"""
-    g, F = c[0::2], c[1::2]
-    out = []
-    for j in range(-(GN - 1), GN):
-        out += [-g[-j] if j < 0 else g[j], F[abs(j)]]
-    return out
-
-
 def rcp():
     h = 1 << (RB - 1)
     r = [round(2 ** (15 + RB) / (J + 0.5)) for J in range(h, 2 * h)]
@@ -163,15 +154,16 @@ def tables():
     check_stable(g[:pre_row(J)]); check_stable(t)
     head = (f"#define KH_PRE_ROW {pre_row(J)}u\n#define KH_KC4 {kc4}\n#define KH_RAIL {rail}\n"
             f"#define KH_GN {GN}\n#define KH_AA_A {aa_a(J)}u\n")
-    cs = gfs(c)
-    G.check("KH_GFS", cs)
+    gp = c[0::2]                             # the plain clipper's nodes: g for e >= 0 (mirrored at run time)
+    G.check("KH_GP", gp)
     import sys
     sys.path.insert(0, HERE)
     import aa                                # (tools/drive_gen/: the shared tables)
     assert rcp() == aa.rcp(), "KH_RCP is no longer DRV_AA_RCP: emit its own table again"
-    gct = G.arr("KH_GFS", "int32_t", cs, 8).replace("static const int32_t KH_GFS", "static const int32_t "
-                                                   "__attribute__((aligned(8))) KH_GFS")
-    gct += "#define KH_GF (KH_GFS + 2 * (KH_GN - 1))   /* the node at 0 V: e >= 0 reads from here, as before */\n"
+    gct = G.arr("KH_GP", "int32_t", gp, 8)
+    gct += ("#if defined(KH_AA) && KH_AA   /* the anti-aliased clipper's {g, F} nodes (e >= 0): KH_AA builds only */\n" +
+            G.arr("KH_GF", "int32_t", c, 8).replace("static const int32_t KH_GF", "static const int32_t "
+                                                    "__attribute__((aligned(8))) KH_GF") + "#endif\n")
     return [head, rows2d("KH_G", g), G.arr("KH_AMAP", "uint8_t", amap(A_ROWS, 127, 1)),
             G.arr("KH_GS", "int32_t", gs(J)), rows2d("KH_T", t), G.arr("KH_LT", "int32_t", lt(J)), gct,
             KH_RCP_SHARED]
