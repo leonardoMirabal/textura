@@ -382,10 +382,14 @@ def main():
                     break
             cut =[k for k in (0, 1) if gv[k][0] < gv[k][1]]
             page.evaluate("window.txTest.gov(100000)")       # plenty of budget: the heroes come back, one a second
-            time.sleep(3.5)
-            gv2 = page.evaluate("window.txTest.gov(0)")
+            t_back = time.time()
+            for _ in range(32):                              # (after a calm second each: up to 8 s, as a loaded host's
+                time.sleep(0.25)                             # slow blocks reset the calm; a louder lane renders more of
+                gv2 = page.evaluate("window.txTest.gov(0)")  # its heroes, so it costs more there)
+                if any(gv2[k][0] > gv[k][0] for k in cut):
+                    break
             check(cut and pk2 > 0 and any(gv2[k][0] > gv[k][0] for k in cut),
-                  f"CPU governor: over budget it took heroes ({gv[:2]}, still sounding: peak {pk2}), back under it gave them back ({gv2[:2]})")
+                  f"CPU governor: over budget it took heroes ({gv[:2]}, still sounding: peak {pk2}), back under it gave them back ({gv2[:2]}, in {time.time() - t_back:.1f} s)")
             ng = page.eval_on_selector_all("#gen-sliders input", "x => x.length")
             key(79)                                          # G5: the generator at its most: notes come
             time.sleep(2.0)
