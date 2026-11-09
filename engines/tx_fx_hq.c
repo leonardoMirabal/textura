@@ -95,7 +95,8 @@ static void hq_half(tx_hq_t *h, uint32_t hf)
                     q = *bq;
                     x = p + (((q - p) * f + 128) >> 8);
                     p = q;
-                    l += ((x - l) * HQ_SHC) >> 15;   /* the shelf's low part (a one-pole) */
+                    l += ((x - l) * HQ_SHC + 16384) >> 15;   /* the shelf's low part (a one-pole; rounded: the
+                                                     * floor's bias held a limit cycle under TONE 0, -95 dBFS for ever) */
                     c += x * gh + l * gd;           /* the gains (low x g, high x g_hi), / 4 for the Hadamard, the */
                     *y = c >> 17; c &= 131071;      /* remainder carried (no loss a pass) */
                 }

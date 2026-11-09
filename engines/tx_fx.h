@@ -195,7 +195,10 @@ typedef struct {
 #define SHN 2056u                                /* (the span's 2048 + the interpolation's 2 + the head's sample) */
     int32_t shb[SHN];                            /* SHIMMER: the tank's mid (46 ms window + its reach) */
     uint32_t shw, shph;                          /* its write index, the two heads' phase (Q32) */
-    int32_t shlp, she, shpk, shg;                /* its input low-pass and remainder, the block's peak, its guard gain */
+    int32_t shlp, shlp2, shg;                    /* its input low-pass (two poles), its guard gain */
+    int32_t shm, shp, shd;                       /* the decay guard: this window's feed peak, the last window's, its
+                                                  * gain */
+    uint16_t shn, shq;                           /* its window's control blocks, the send's quiet ones */
     int32_t sh[HL_NC];                           /* the shifted mid, into the next control block's input */
     int32_t m[HL_NC], s[HL_NC];                  /* the TYPE's mid / side, a control block */
     uint32_t r0, rn;                             /* ROOM: the gathered run's start and length */
