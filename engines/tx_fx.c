@@ -71,10 +71,13 @@ static void swell(tx_fx_reverb_t *r, int32_t pk, int32_t *om, int32_t *os)
  * a 2048-sample (46 ms) span: their sum is the mid shifted by SHIFT, with no gaps and no clicks; linear interpolation.
  * The feed goes into the send ahead of the tanks' DC blocker (tx_rev_down; ROOM's tail runs its own), so neither DC
  * nor the windows' 21.5 Hz can circulate. Its gain: SHIMMER's concave law x the kernel's row at the DECAY (SH_KT, under
- * the loop's limit everywhere), x SHIFT's and TONE's room. A guard lowers the feed when a block's peak is high, so a
- * SUSTAIN or a FREEZE holds its level; it recovers slowly. A second one (the decay guard, below) makes any tail with
- * no send die away; the feed's lowest steps are not fed back. ~20 us a block on the FM-1. */
+ * the loop's limit everywhere), x SHIFT's and TONE's room. A guard lowers the feed when its or the tank's peak is
+ * high, so a SUSTAIN or a FREEZE holds its level and a loud held chord keeps the bus under full scale; it recovers
+ * slowly. A second one (the decay guard, below) makes any tail with no send die away; the feed's lowest steps are not
+ * fed back. ~20 us a block on the FM-1. */
 #define SH_GUARD 16000                  /* (the guard's block peak: the feed's) */
+#define SH_MIDG 20000                   /* (and the tank's mid's: a loud held chord under a long PLATE built the bus
+                                         * past full scale, x1.24; at 20000 every TYPE's worst held case is < 0.98) */
 #define SH_CLAMP 48000                  /* (the feed's bound, a sample) */
 #define SH_LIVE 64                      /* (a send over this, -54 dBFS: the input plays) */
 #define SH_WIN 4096                     /* (the decay guard's window: 4096 control blocks, 3 s) */
@@ -97,7 +100,7 @@ static void shimmer(tx_fx_reverb_t *r, const int32_t *mid, int live)
 {
     int32_t amt = r->p[TX_RV_SHIMMER], dk = r->dk, pk = 0, row = r->cur == TX_RVT_ROOM ? 0 : r->cur == TX_RVT_HALL ? 1
         : r->cur != TX_RVT_INF ? 3 : r->p[TX_RV_TYPE] == TX_RVT_DARK ? 4 : 2;
-    int32_t kg = SH_KT[row][dk >> 5], g, held, zv = r->p[TX_RV_SIZE];
+    int32_t kg = SH_KT[row][dk >> 5], g, held, zv = r->p[TX_RV_SIZE], mpk = 0;
     uint32_t i, inc = SH_INC[r->p[TX_RV_SHIFT] & 3u], ph = r->shph, w = r->shw;
     kg += ((SH_KT[row][(dk >> 5) + 1] - kg) * (dk & 31)) >> 5;          /* (the row at DECAY) */
     kg = (kg * SH_KS[r->p[TX_RV_SHIFT] & 3u]) >> 8;                    /* (the rows hold for a fifth up, TONE 127: */
@@ -110,6 +113,7 @@ static void shimmer(tx_fx_reverb_t *r, const int32_t *mid, int live)
                                                                  * knob already 0.56 of the gain; g < 76000) */
     for (i = 0; i < HL_NC; i++) {
         int32_t y = 0, k;
+        mpk = mid[i] > mpk ? mid[i] : -mid[i] > mpk ? -mid[i] : mpk;
         r->shlp += mq15s(mid[i] - r->shlp, 9598);                    /* (the input low-pass, two poles at ~2 kHz: */
         r->shlp2 += mq15s(r->shlp - r->shlp2, 9598);                 /* what the shift lifts past fs / 2 folds back) */
         r->shb[w] = r->shlp2;
@@ -145,7 +149,7 @@ static void shimmer(tx_fx_reverb_t *r, const int32_t *mid, int live)
         if (r->shq >= SH_WIN && r->shm > SH_FLOOR && r->shm > r->shp - (r->shp >> 2) && !held) r->shd -= r->shd >> 2;
         r->shp = r->shm; r->shm = 0; r->shn = 0;
     }
-    if (pk > SH_GUARD) r->shg -= r->shg >> 3;                           /* the peak guard: down fast, back slowly */
+    if (pk > SH_GUARD || mpk > SH_MIDG) r->shg -= r->shg >> 3;          /* the peak guard: down fast, back slowly */
     else if (r->shg < 32768) r->shg += ((32768 - r->shg) >> 9) + 1;
     if (live && r->shd < 32768) r->shd += ((32768 - r->shd) >> 9) + 1;   /* (the decay guard's: back while the send
                                                                  * plays) */
