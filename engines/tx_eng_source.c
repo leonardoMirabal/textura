@@ -217,8 +217,12 @@ static const clu_pre_t CLU[NPRE] = {
 #define HOST_HEROES 12u             /* an engine counting its own individuals: heroes at most (CPU: half the pool) */
 #define HOST_BYTES 12544u           /* the largest hosted engine's state (sand 12 528 B) */
 typedef struct { const char *name; int8_t v0; uint8_t v64, v127; } curve_t;   /* (v0 < 0: off until the line crosses 0) */
+/* a row's curves are a list of their own, as long as the row has curves (CURVES: the list and its length; a curve
+ * past nc is off, as a nameless one): no HOST_NC slots a row */
+#define CURVES(...) (const curve_t[]){__VA_ARGS__}, (uint8_t)(sizeof (const curve_t[]){__VA_ARGS__} / sizeof(curve_t))
+#define NO_CURVES 0, 0
 typedef struct {
-    const char *eng; int16_t g0, g64, g127; curve_t c[HOST_NC]; uint8_t k0, k64, k127;
+    const char *eng; int16_t g0, g64, g127; const curve_t *c; uint8_t nc, k0, k64, k127;
     uint16_t e0, e64, e127;         /* event engines: the mean time between presses (0.1 s; log between; 0 = none) */
     uint8_t oneshot;                /* 1: each press released after 150 ms (a strike); 0: the held key pressed afresh */
 } host_t;   /* (g: one calibration, flat:
@@ -229,14 +233,14 @@ static const host_t HOST[] = {
      * (k0 2): light air comes in puffs with lulls between; the held key is never pressed afresh (each press is a gust: a
      * renewal every ~10 s was a train of big gusts no knob moved); its own weather (k0 32); 3 dB up
      * with it (the renewed gusts had carried the level) */
-    {"wind", 130, -43, -90, {{"WIND", 20, 64, 127}, {"GUST", 40, 70, 110}, {"WHOOSH", 30, 64, 90}, {"BUFFET", 30, 48, 80},
-                    {"EDGE", 0, 12, 28}}, 34, 1, 4, 0, 0, 0, 0},
+    {"wind", 130, -43, -90, CURVES({"WIND", 20, 64, 127}, {"GUST", 40, 70, 110}, {"WHOOSH", 30, 64, 90}, {"BUFFET", 30, 48, 80},
+                    {"EDGE", 0, 12, 28}), 34, 1, 4, 0, 0, 0, 0},
     /* stream: a trickle of plinks .. a babbling brook .. a torrent: bigger gulping bubbles, eddies, the low roar */
-    {"stream", -42, -42, -42, {{"FLOW", 10, 70, 105}, {"ROAR", 0, 0, 50}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
-                            {"SPREAD", 80, 64, 45}}, 0, 0, 0, 0, 0, 0, 0},
+    {"stream", -42, -42, -42, CURVES({"FLOW", 10, 70, 105}, {"ROAR", 0, 0, 50}, {"EDDY", 20, 30, 60}, {"NEAR", 80, 64, 50},
+                            {"SPREAD", 80, 64, 45}), 0, 0, 0, 0, 0, 0, 0},
     /* fire: embers (a rare crackle, a faint roar) .. a campfire .. a blaze (a big fire, dense crackles in bursts, roar, gusts) */
-    {"fire", 110, 110, 80, {{"MOIST", 0, 0, 95}, {"SIZE", 8, 50, 100}, {"ROAR", -30, 28, 100}, {"DRAUGHT", 10, 30, 70},
-                          {"BURSTY", 0, 24, 40}}, 34, 26, 4, 0, 0, 0, 0},   /* (the top: no denser than the references, and
+    {"fire", 110, 110, 80, CURVES({"MOIST", 0, 0, 95}, {"SIZE", 8, 50, 100}, {"ROAR", -30, 28, 100}, {"DRAUGHT", 10, 30, 70},
+                          {"BURSTY", 0, 24, 40}), 34, 26, 4, 0, 0, 0, 0},   /* (the top: no denser than the references, and
                                                                      * under the output limiter: agent D, 2026-10-25;
                                                                      * its own weather and no bouts (k0 34: a fire
                                                                      * does not stop and restart), 4 logs at most and
@@ -244,92 +248,90 @@ static const host_t HOST[] = {
                                                                      * a second, 2026-10-26) */
     /* crickets (COUNT: the engine's own, up to 32): each singing now and then .. all the time, a little in step,
      * warmer (a little faster) */
-    {"crickets", -12, -12, -12, {{"ACTIVITY", 0, 64, 127}, {"SYNC", 30, 40, 50}, {"TEMP", 70, 76, 84}, {0, 0, 0, 0},
-                             {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"crickets", -12, -12, -12, CURVES({"ACTIVITY", 0, 64, 127}, {"SYNC", 30, 40, 50}, {"TEMP", 70, 76, 84}), 0, 0, 0, 0, 0, 0, 0},
     /* sand: a trickle of grains through a narrow neck .. a pour .. a heavy pour from higher, pulsing */
-    {"sand", -37, -37, -37, {{"ORIFICE", 20, 50, 115}, {"HEIGHT", 30, 50, 90}, {"PULSE", 0, 0, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 16, 2, 0, 0, 0, 0},
+    {"sand", -37, -37, -37, CURVES({"ORIFICE", 20, 50, 115}, {"HEIGHT", 30, 50, 90}, {"PULSE", 0, 0, 40}), 2, 16, 2, 0, 0, 0, 0},
     /* gravel: a few stones now and then .. footsteps on gravel .. a slide (many stones, long rattles) */
-    {"gravel", 16, 16, 16, {{"RATE", 20, 59, 110}, {"AMOUNT", 20, 64, 120}, {"SHAKE", 20, 30, 70}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 16, 4, 0, 0, 0, 0},
+    {"gravel", 16, 16, 16, CURVES({"RATE", 20, 59, 110}, {"AMOUNT", 20, 64, 120}, {"SHAKE", 20, 30, 70}), 2, 16, 4, 0, 0, 0, 0},
     /* katydids (COUNT: the engine's own, up to 16; they come and go on their own): a call now and then on a cold
      * night .. singing on, warm, falling into step. By default a chorus, as the references: the near ones singing on
      * with short pauses, the far callers (FIELD) between their calls (the references' gaps 20-35 dB under the calls,
      * never silent); -1.8 dB: the katydid and the grasshopper within 0.4 LU of the lone singers they were (agent D,
      * 2026-10-26) */
-    {"katydids", -18, -18, -18, {{"ACTIVITY", 0, 110, 127}, {"TEMP", 40, 76, 90}, {"SYNC", 40, 50, 64}, {"FIELD", 0, 70, 90},
-                                 {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"katydids", -18, -18, -18, CURVES({"ACTIVITY", 0, 110, 127}, {"TEMP", 40, 76, 90}, {"SYNC", 40, 50, 64}, {"FIELD", 0, 70, 90}), 0, 0, 0, 0, 0, 0, 0},
     /* bees: one bee wandering farther off, slower .. one at its ease .. a swarm of 8 close by */
-    {"bees", -45, -45, -45, {{"SWARM", 0, 0, 64}, {"DIST", 90, 50, 30}, {"SPEED", 40, 64, 80}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 3, 10, 4, 0, 0, 0, 0},
+    {"bees", -45, -45, -45, CURVES({"SWARM", 0, 0, 64}, {"DIST", 90, 50, 30}, {"SPEED", 40, 64, 80}), 3, 10, 4, 0, 0, 0, 0},
     /* ice: an icicle breaking off now and then .. icicles falling every few seconds, more chunks each */
-    {"ice", 175, 175, 100, {{"AMOUNT", 20, 64, 127}, {"FIZZ", 10, 20, 40}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0,
+    {"ice", 175, 175, 100, CURVES({"AMOUNT", 20, 64, 127}, {"FIZZ", 10, 20, 40}), 0, 12, 0,
      300, 20, 3, 1},                /* (the top: a pile of icicles shattering, 3-5 breaks/s as the references; the middle
                                      * a press every ~2 s: was 7 s, icicles 2.25 from their references, 1.8 now; cubes,
                                      * frost and snow, whose press starts a bout, were mostly silence) */
     /* wood: a branch taken and bent now and then, creaking .. load building faster, snapping every few seconds */
-    {"wood", -35, -35, -35, {{"LOAD", 110, 40, 0}, {"CREAK", 15, 25, 30}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 10, 12, 0,
+    {"wood", -35, -35, -35, CURVES({"LOAD", 110, 40, 0}, {"CREAK", 15, 25, 30}), 10, 12, 0,
      300, 80, 4, 0},                /* (the top: a snap every ~0.4 s, each bend 0.3 s: a press sooner cuts the bend) */
     /* minerals: a knock on a stone now and then .. knocking and clinking, quicker */
-    {"minerals", -40, -40, -40, {{"HOLD", 50, 36, 30}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+    {"minerals", -40, -40, -40, CURVES({"HOLD", 50, 36, 30}), 0, 0, 0,
      100, 12, 2, 1},
     /* glass: a pane cracking now and then .. smashing every few seconds, harder */
-    {"glass", 0, 0, 0, {{"ENERGY", 60, 100, 127}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 8, 0,
+    {"glass", 0, 0, 0, CURVES({"ENERGY", 60, 100, 127}), 0, 8, 0,
      400, 35, 3, 1},                /* (the top: a pane collapsing, 4-5 breaks/s; the middle a break every ~3.5 s, as the
                                      * references: was 9 s, a pane 3.1 from them, 2.0 now) */
     /* the family members TYPE reaches (FAM below; note 16): */
     /* rain on surfaces (rain): drizzle on a roof .. a downpour, bigger drops */
-    {"rainsurf", -10, -10, -10, {{"RATE", -20, 60, 120}, {"DROPS", 40, 64, 110}, {"AREA", -20, 50, 50}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 16, 4, 0, 0, 0, 0},
+    {"rainsurf", -10, -10, -10, CURVES({"RATE", -20, 60, 120}, {"DROPS", 40, 64, 110}, {"AREA", -20, 50, 50}), 0, 16, 4, 0, 0, 0, 0},
     /* lake ice (ice): a crack now and then .. a lake singing and booming */
-    {"lakeice", -30, -30, -30, {{"RATE", 8, 34, 90}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 4, 16, 4, 0, 0, 0, 0},
+    {"lakeice", -30, -30, -30, CURVES({"RATE", 8, 34, 90}), 4, 16, 4, 0, 0, 0, 0},
     /* rolling balls and marbles (gravel): a ball pushed now and then .. marbles rolling about (COUNT: the marbles,
      * each its own key, up to 8) */
-    {"pebble", -105, -105, -105, {{"SPEED", 40, 64, 96}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 18, 0, 0,
+    {"pebble", -105, -105, -105, CURVES({"SPEED", 40, 64, 96}), 18, 0, 0,
      60, 20, 6, 0},
     /* a flame without crackle (fire): a candle .. a gas burner roaring in a draught */
-    {"candle", 30, 30, 30, {{"FLOW", 5, 15, 90}, {"DRAUGHT", 5, 20, 70}, {"SPUTTER", 30, 100, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 8, 8, 0, 0, 0, 0},
+    {"candle", 30, 30, 30, CURVES({"FLOW", 5, 15, 90}, {"DRAUGHT", 5, 20, 70}, {"SPUTTER", 30, 100, 100}), 2, 8, 8, 0, 0, 0, 0},
     /* singing dunes (sand): a slip below the threshold .. a booming avalanche */
-    {"sandsong", 0, 0, 0, {{"FLOW", 60, 100, 127}, {"STEADY", 50, 100, 127}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 8, 2, 0, 0, 0, 0},
+    {"sandsong", 0, 0, 0, CURVES({"FLOW", 60, 100, 127}, {"STEADY", 50, 100, 127}), 2, 8, 2, 0, 0, 0, 0},
     /* stone friction (minerals): a slow rub .. scraping hard and fast */
-    {"mineral", -45, -45, -45, {{"SPEED", 30, 64, 100}, {"PRESSURE", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 2, 8, 2, 0, 0, 0, 0},
+    {"mineral", -45, -45, -45, CURVES({"SPEED", 30, 64, 100}, {"PRESSURE", 40, 64, 100}), 2, 8, 2, 0, 0, 0, 0},
     /* rockfall (stones): a fall now and then .. falls every few seconds, bigger */
-    {"rockfall", 80, 80, 80, {{"VOLUME", 0, 64, 110}, {"FRAG", 40, 64, 100}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0,
+    {"rockfall", 80, 80, 80, CURVES({"VOLUME", 0, 64, 110}, {"FRAG", 40, 64, 100}), 0, 12, 0,
      300, 100, 60, 1},
     /* ringing rocks (stones): a boulder struck now and then .. struck quickly */
-    {"stonedrum", -50, -50, -50, {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0,
+    {"stonedrum", -50, -50, -50, NO_CURVES, 0, 0, 0,
      60, 12, 3, 1},
     /* whistling wires (wind): a breath (1.6 m/s) .. a gale (20 m/s); gusts deepen; at the top the strings lock in */
-    {"aeolian", -78, -78, -78, {{"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"aeolian", -78, -78, -78, CURVES({"WIND", 45, 88, 127}, {"GUST", 15, 40, 90}, {"LOCK", 60, 90, 120}), 0, 0, 0, 0, 0, 0, 0},
     /* hail and sleet (rain): a lone stone now and then, a small patch heard .. a hailstorm hammering, bigger stones */
-    {"rainsurf", -125, -125, -125, {{"RATE", 34, 115, 127}, {"DROPS", 40, 64, 100}, {"AREA", 30, 90, 90}, {0, 0, 0, 0}, {0, 0, 0, 0}}, 0, 12, 0, 0, 0, 0, 0},
+    {"rainsurf", -125, -125, -125, CURVES({"RATE", 34, 115, 127}, {"DROPS", 40, 64, 100}, {"AREA", 30, 90, 90}), 0, 12, 0, 0, 0, 0, 0},
     /* drips in a cave (water): a drop into a pool now and then, from high up .. drip points all over, quicker (one per
      * 10 s .. 4 /s each, at random: a cave's drips are Poisson) */
-    {"drip", -135, -135, -135, {{"RATE", 0, 38, 88}, {"HEIGHT", 95, 100, 105}, {"SIZE", 70, 70, 70}, {"CLUMP", 0, 0, 0},
-                     {"DEPTH", 30, 30, 30}, {"CAVE", 64, 64, 64}}, 4, 12, 8, 0, 0, 0, 0},   /* (k0 4: each drip point its own: they
+    {"drip", -135, -135, -135, CURVES({"RATE", 0, 38, 88}, {"HEIGHT", 95, 100, 105}, {"SIZE", 70, 70, 70}, {"CLUMP", 0, 0, 0},
+                     {"DEPTH", 30, 30, 30}, {"CAVE", 64, 64, 64}), 4, 12, 8, 0, 0, 0, 0},   /* (k0 4: each drip point its own: they
                                                                      * begin at their own pace, not as a burst) */
     /* eaves dripping (water): the run-off after heavy rain, a dribble of small drops all along the edge (DRIBBLE, never
      * a noise bed) under the bigger drips off the eaves, in runs and quiet spells as the wind shakes it; a thin
      * dribble .. pouring off the gutter */
-    {"drip", -105, -105, -105, {{"RATE", 0, 90, 120}, {"CLUMP", 60, 60, 70}, {"HEIGHT", 60, 64, 70}, {"SIZE", 45, 45, 45},
-                     {"SCATTER", 40, 40, 40}, {"DRIBBLE", 80, 115, 127}}, 4, 12, 8, 0, 0, 0, 0},
+    {"drip", -105, -105, -105, CURVES({"RATE", 0, 90, 120}, {"CLUMP", 60, 60, 70}, {"HEIGHT", 60, 64, 70}, {"SIZE", 45, 45, 45},
+                     {"SCATTER", 40, 40, 40}, {"DRIBBLE", 80, 115, 127}), 4, 12, 8, 0, 0, 0, 0},
     /* a brook (water): a little gurgle now and then .. a babbling brook .. a rushing one (COUNT: the riffles heard) */
-    {"stream", -113, -113, -113, {{"FLOW", 0, 64, 95}, {"EDDY", 18, 21, 30}, {"NEAR", 80, 64, 50}, {"SPREAD", 80, 64, 45},
-                             {"ROAR", 0, 0, 30}, {"SIZE", 90, 90, 90}}, 2, 8, 2, 0, 0, 0, 0},
+    {"stream", -113, -113, -113, CURVES({"FLOW", 0, 64, 95}, {"EDDY", 18, 21, 30}, {"NEAR", 80, 64, 50}, {"SPREAD", 80, 64, 45},
+                             {"ROAR", 0, 0, 30}, {"SIZE", 90, 90, 90}), 2, 8, 2, 0, 0, 0, 0},
     /* a bubbling spring (water): water welling up through the sand, a gulp now and then .. bubbling on, bigger bubbles
      * close by */
-    {"stream", -82, -82, -82, {{"FLOW", 0, 15, 40}, {"SIZE", 45, 45, 51}, {"NEAR", 100, 100, 100}, {"EDDY", 30, 30, 32},
-                             {"SPREAD", 30, 30, 30}}, 2, 8, 2, 0, 0, 0, 0},
+    {"stream", -82, -82, -82, CURVES({"FLOW", 0, 15, 40}, {"SIZE", 45, 45, 51}, {"NEAR", 100, 100, 100}, {"EDDY", 30, 30, 32},
+                             {"SPREAD", 30, 30, 30}), 2, 8, 2, 0, 0, 0, 0},
     /* a waterfall (water): a thin fall now and then .. pouring .. a big fall's roar from farther off */
-    {"stream", -100, -100, -100, {{"FLOW", 30, 95, 105}, {"ROAR", 0, 8, 18}, {"SIZE", 30, 30, 30}, {"NEAR", 20, 20, 20},
-                             {"EDDY", 10, 12, 14}, {"SPREAD", 127, 127, 127}}, 2, 6, 2, 0, 0, 0, 0},
+    {"stream", -100, -100, -100, CURVES({"FLOW", 30, 95, 105}, {"ROAR", 0, 8, 18}, {"SIZE", 30, 30, 30}, {"NEAR", 20, 20, 20},
+                             {"EDDY", 10, 12, 14}, {"SPREAD", 127, 127, 127}), 2, 6, 2, 0, 0, 0, 0},
     /* waves on a sandy beach (water): a small wave every 15 s .. breakers every 6 s, higher (COUNT: the engine's wave
      * trains along the shore, up to 8; past them higher); no far-surf floor, the sea starts partway into a period */
-    {"surf", -25, -25, -25, {{"HEIGHT", 0, 64, 110}, {"PERIOD", 127, 70, 30}, {"BACKWASH", 20, 26, 32}, {"DIST", 70, 64, 50},
-                     {"FLOOR", 0, 0, 0}, {"STRIKE", 0, 0, 0}}, 0, 10, 0, 0, 0, 0, 0},
+    {"surf", -25, -25, -25, CURVES({"HEIGHT", 0, 64, 110}, {"PERIOD", 127, 70, 30}, {"BACKWASH", 20, 26, 32}, {"DIST", 70, 64, 50},
+                     {"FLOOR", 0, 0, 0}, {"STRIKE", 0, 0, 0}), 0, 10, 0, 0, 0, 0, 0},
     /* waves on shingle (water): the same sea on a stony beach close by: the backwash draining loud through the stones */
-    {"surf", -100, -100, -100, {{"HEIGHT", 0, 50, 100}, {"PERIOD", 127, 80, 40}, {"BACKWASH", 50, 58, 66}, {"DIST", 40, 40, 40},
-                     {"FLOOR", 40, 40, 40}, {"STRIKE", 0, 0, 0}, {"SHORE", 127, 127, 127}}, 0, 10, 0, 0, 0, 0, 0},
+    {"surf", -100, -100, -100, CURVES({"HEIGHT", 0, 50, 100}, {"PERIOD", 127, 80, 40}, {"BACKWASH", 50, 58, 66}, {"DIST", 40, 40, 40},
+                     {"FLOOR", 40, 40, 40}, {"STRIKE", 0, 0, 0}, {"SHORE", 127, 127, 127}), 0, 10, 0, 0, 0, 0, 0},
     /* lake lapping (water): ripples lapping now and then .. a lake's short waves in a breeze, higher and quicker
      * (TYPE: on a sloping shore .. against a hull or a jetty; COUNT: the engine's wave trains, up to 8) */
-    {"surf", -65, -65, -65, {{"WATER", 1, 1, 1}, {"STRIKE", 0, 0, 0}, {"HEIGHT", 0, 64, 110}, {"PERIOD", 127, 80, 50},
-                     {"CHOP", 10, 10, 10}, {"DIST", 50, 30, 20}, {"FLOOR", 0, 0, 0}}, 0, 0, 0, 0, 0, 0, 0},
+    {"surf", -65, -65, -65, CURVES({"WATER", 1, 1, 1}, {"STRIKE", 0, 0, 0}, {"HEIGHT", 0, 64, 110}, {"PERIOD", 127, 80, 50},
+                     {"CHOP", 10, 10, 10}, {"DIST", 50, 30, 20}, {"FLOOR", 0, 0, 0}), 0, 0, 0, 0, 0, 0, 0},
 };
 
 /* the loud hosted sounds' nearest gain, Q12 (the rest: 32767, the source's own cap): their peaks at ACTIVITY 127 a few
@@ -583,71 +585,75 @@ static int32_t pre_trim(const src_t *s, unsigned pre)
  * engine's own parameters, so a hosted preset covers its family's sizes, species, materials and surfaces (note 16).
  * Indexed as HOST[]. */
 typedef struct { const char *name; uint8_t knob; int8_t depth; } kmap_t;   /* depth 0 with P_TYPE: the value itself */
-static const kmap_t HMAP[][HOST_NK] = {
+/* a row's maps are a list of their own, as long as the row has maps (KMAPS: the list and its length; a map past n is
+ * off, as a nameless one): no HOST_NK slots a row */
+#define KMAPS(...) (const kmap_t[]){__VA_ARGS__}, (uint8_t)(sizeof (const kmap_t[]){__VA_ARGS__} / sizeof(kmap_t))
+typedef struct { const kmap_t *k; uint8_t n; } kmap_row_t;
+static const kmap_row_t HMAP[] = {
     /* wind: the place (TYPE 1 .. 63: grass, pines, leafy trees, a moor, the coast, a ridge, autumn, a winter storm, a
      * desert), bigger obstacles lower, leafier, gustier, more gusts passing; COUNT: the keys held, 1 .. 4 (more gust
      * sources and more canopy around) */
-    {{"SCALE", P_SIZE, -64}, {"FOLIAGE", P_TONE, 64}, {"GUST", P_HARD, 48}, {"WHOOSH", P_SPREAD, 48}, {"KIND", P_TYPE, 0}},
-    {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},                       /* (stream: inside the water) */
+    {KMAPS({"SCALE", P_SIZE, -64}, {"FOLIAGE", P_TONE, 64}, {"GUST", P_HARD, 48}, {"WHOOSH", P_SPREAD, 48}, {"KIND", P_TYPE, 0})},
+    {0, 0},                       /* (stream: inside the water) */
     /* fire: a bigger fire, drier wood, burstier crackle, a draught */
-    {{"SIZE", P_SIZE, 64}, {"WOOD", P_TONE, 64}, {"BURSTY", P_HARD, 64}, {"DRAUGHT", P_SPREAD, 48}, {"KIND", P_TYPE, 0}},
+    {KMAPS({"SIZE", P_SIZE, 64}, {"WOOD", P_TONE, 64}, {"BURSTY", P_HARD, 64}, {"DRAUGHT", P_SPREAD, 48}, {"KIND", P_TYPE, 0})},
     /* crickets: species, warmer (faster), less in step */
-    {{"SPECIES", P_TYPE, 0}, {"TEMP", P_TONE, 24}, {"SYNC", P_SPREAD, -64}, {0, 0, 0}, {0, 0, 0}},
+    {KMAPS({"SPECIES", P_TYPE, 0}, {"TEMP", P_TONE, 24}, {"SYNC", P_SPREAD, -64})},
     /* sand: grain, landing surface, container, fall height, pulsing */
-    {{"GRAIN", P_SIZE, 64}, {"SURFACE", P_TYPE, 0}, {"SIZE", P_TONE, 64}, {"HEIGHT", P_HARD, 64}, {"PULSE", P_SPREAD, 48}},
+    {KMAPS({"GRAIN", P_SIZE, 64}, {"SURFACE", P_TYPE, 0}, {"SIZE", P_TONE, 64}, {"HEIGHT", P_HARD, 64}, {"PULSE", P_SPREAD, 48})},
     /* gravel: stone size, the ground (a box, a floor), crunch .. rattle, grain shapes */
-    {{"SIZE", P_SIZE, 64}, {"GROUND", P_TONE, 64}, {"SHAKE", P_HARD, -64}, {"SPREAD", P_SPREAD, 64}, {0, 0, 0}},
+    {KMAPS({"SIZE", P_SIZE, 64}, {"GROUND", P_TONE, 64}, {"SHAKE", P_HARD, -64}, {"SPREAD", P_SPREAD, 64})},
     /* katydids: species, warmer, pegs, rasp */
-    {{"SPECIES", P_TYPE, 0}, {"TEMP", P_TONE, 48}, {"PEGS", P_HARD, 64}, {"JITTER", P_SPREAD, 64}, {0, 0, 0}},
+    {KMAPS({"SPECIES", P_TYPE, 0}, {"TEMP", P_TONE, 48}, {"PEGS", P_HARD, 64}, {"JITTER", P_SPREAD, 64})},
     /* bees: species, flight speed, wingbeat spread */
-    {{"SPECIES", P_TYPE, 0}, {"SPEED", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {0, 0, 0}, {0, 0, 0}},
+    {KMAPS({"SPECIES", P_TYPE, 0}, {"SPEED", P_HARD, 48}, {"SPREAD", P_SPREAD, 64})},
     /* ice: icicles or cubes, size, colder (ringing) .. wet, more chunks */
-    {{"ACTION", P_TYPE, 0}, {"SIZE", P_SIZE, 64}, {"TEMP", P_TONE, -64}, {"AMOUNT", P_HARD, 48}, {0, 0, 0}},
+    {KMAPS({"ACTION", P_TYPE, 0}, {"SIZE", P_SIZE, 64}, {"TEMP", P_TONE, -64}, {"AMOUNT", P_HARD, 48})},
     /* wood: species, piece length, dry .. wet, creak pitch */
-    {{"WOOD", P_TYPE, 0}, {"SIZE", P_SIZE, 64}, {"MOIST", P_TONE, -64}, {"PITCH", P_HARD, 64}, {0, 0, 0}},
+    {KMAPS({"WOOD", P_TYPE, 0}, {"SIZE", P_SIZE, 64}, {"MOIST", P_TONE, -64}, {"PITCH", P_HARD, 64})},
     /* minerals: mineral, specimen size (bigger = lower), free ring .. gripped, strike .. clink .. rub */
-    {{"MINERAL", P_TYPE, 0}, {"SIZE", P_SIZE, -64}, {"HOLD", P_TONE, -64}, {"ACTION", P_HARD, 64}, {0, 0, 0}},
+    {KMAPS({"MINERAL", P_TYPE, 0}, {"SIZE", P_SIZE, -64}, {"HOLD", P_TONE, -64}, {"ACTION", P_HARD, 64})},
     /* glass: shard size, ring (soft floor .. crystal), bounce, height, kind (a pane, bottles, shards) */
-    {{"SIZE", P_SIZE, 64}, {"RING", P_TONE, 64}, {"BOUNCE", P_HARD, 64}, {"HEIGHT", P_SPREAD, 48}, {"KIND", P_TYPE, 0}},
+    {KMAPS({"SIZE", P_SIZE, 64}, {"RING", P_TONE, 64}, {"BOUNCE", P_HARD, 64}, {"HEIGHT", P_SPREAD, 48}, {"KIND", P_TYPE, 0})},
     /* rain on surfaces: the surface (leaves .. metal roof), drop sizes, the area heard, inside */
-    {{"SURFACE", P_TYPE, 0}, {"DROPS", P_SIZE, 64}, {"AREA", P_SPREAD, 64}, {"INSIDE", P_TONE, -64}, {0, 0, 0}},
+    {KMAPS({"SURFACE", P_TYPE, 0}, {"DROPS", P_SIZE, 64}, {"AREA", P_SPREAD, 64}, {"INSIDE", P_TONE, -64})},
     /* lake ice: thicker (lower), colder (ringing), farther (harder: nearer), fresh .. sea ice */
-    {{"ICE", P_TYPE, 0}, {"THICK", P_SIZE, 64}, {"COLD", P_TONE, 64}, {"DIST", P_HARD, -64}, {0, 0, 0}},
+    {KMAPS({"ICE", P_TYPE, 0}, {"THICK", P_SIZE, 64}, {"COLD", P_TONE, 64}, {"DIST", P_HARD, -64})},
     /* balls: the surface (wood .. metal), radius, rough, out of round, drag */
-    {{"SURFACE", P_TYPE, 0}, {"SIZE", P_SIZE, 64}, {"ROUGH", P_HARD, 64}, {"ROUND", P_SPREAD, 64}, {"DRAG", P_TONE, -64}},
+    {KMAPS({"SURFACE", P_TYPE, 0}, {"SIZE", P_SIZE, 64}, {"ROUGH", P_HARD, 64}, {"ROUND", P_SPREAD, 64}, {"DRAG", P_TONE, -64})},
     /* flame: size, its roar's slope, sputter, spacing */
-    {{"SIZE", P_SIZE, 64}, {"SLOPE", P_TONE, -64}, {"SPUTTER", P_HARD, 64}, {"SPACING", P_SPREAD, 64}, {0, 0, 0}},
+    {KMAPS({"SIZE", P_SIZE, 64}, {"SLOPE", P_TONE, -64}, {"SPUTTER", P_HARD, 64}, {"SPACING", P_SPREAD, 64})},
     /* dunes: grain (bigger = lower), sorting, detune */
-    {{"GRAIN", P_SIZE, 64}, {"SORTING", P_SPREAD, 64}, {"DETUNE", P_TONE, 64}, {0, 0, 0}, {0, 0, 0}},
+    {KMAPS({"GRAIN", P_SIZE, 64}, {"SORTING", P_SPREAD, 64}, {"DETUNE", P_TONE, 64})},
     /* friction: the stone, its pitch (bigger = lower), rough, stick-slip */
-    {{"STONE", P_TYPE, 0}, {"SIZE", P_SIZE, -64}, {"ROUGH", P_HARD, 64}, {"STICK", P_TONE, 64}, {0, 0, 0}},
+    {KMAPS({"STONE", P_TYPE, 0}, {"SIZE", P_SIZE, -64}, {"ROUGH", P_HARD, 64}, {"STICK", P_TONE, 64})},
     /* rockfall: volume, ground (soft .. hard), fragmentation, height */
-    {{"VOLUME", P_SIZE, 64}, {"GROUND", P_HARD, 64}, {"FRAG", P_SPREAD, 64}, {"HEIGHT", P_TONE, 64}, {0, 0, 0}},
+    {KMAPS({"VOLUME", P_SIZE, 64}, {"GROUND", P_HARD, 64}, {"FRAG", P_SPREAD, 64}, {"HEIGHT", P_TONE, 64})},
     /* ringing rocks: material, its tuning (bigger = lower), mallet, a hand on it, where struck */
-    {{"MATERIAL", P_TYPE, 0}, {"TUNE", P_SIZE, -64}, {"MALLET", P_HARD, -64}, {"DAMP", P_TONE, -64}, {"POS", P_SPREAD, 64}},
+    {KMAPS({"MATERIAL", P_TYPE, 0}, {"TUNE", P_SIZE, -64}, {"MALLET", P_HARD, -64}, {"DAMP", P_TONE, -64}, {"POS", P_SPREAD, 64})},
     /* whistling wires: thicker wires lower, locking harder, gustier */
-    {{"WIRE", P_SIZE, 64}, {"LOCK", P_TONE, 48}, {"GUST", P_HARD, 48}, {0, 0, 0}, {0, 0, 0}},
+    {KMAPS({"WIRE", P_SIZE, 64}, {"LOCK", P_TONE, 48}, {"GUST", P_HARD, 48})},
     /* hail: the kind (a metal roof, a car, leaves, sleet on a window), stone sizes, the area heard, inside */
-    {{"HAIL", P_TYPE, 0}, {"DROPS", P_SIZE, 64}, {"AREA", P_SPREAD, 64}, {"INSIDE", P_TONE, -64}, {0, 0, 0}},
+    {KMAPS({"HAIL", P_TYPE, 0}, {"DROPS", P_SIZE, 64}, {"AREA", P_SPREAD, 64}, {"INSIDE", P_TONE, -64})},
     /* drips (cave, eaves): bubble size, fall height, the pool (TONE up: shallower, the plinks rise; down: deep plops),
      * size spread, rhythm (SPACING: random .. in runs; no steady end, the no-regular-beat rule); the cave's tail on
      * EXTRA (its card: CAVE; 0 = dry) */
-    {{"SIZE", P_SIZE, 64}, {"HEIGHT", P_HARD, 64}, {"DEPTH", P_TONE, -64}, {"SCATTER", P_SPREAD, 64},
-     {"CLUMP", P_SPACING, 64}, {"CAVE", P_EXTRA, 64}},
-    {{"SIZE", P_SIZE, 64}, {"HEIGHT", P_HARD, 64}, {"DEPTH", P_TONE, -64}, {"SCATTER", P_SPREAD, 64},
-     {"CLUMP", P_SPACING, 64}},
+    {KMAPS({"SIZE", P_SIZE, 64}, {"HEIGHT", P_HARD, 64}, {"DEPTH", P_TONE, -64}, {"SCATTER", P_SPREAD, 64},
+     {"CLUMP", P_SPACING, 64}, {"CAVE", P_EXTRA, 64})},
+    {KMAPS({"SIZE", P_SIZE, 64}, {"HEIGHT", P_HARD, 64}, {"DEPTH", P_TONE, -64}, {"SCATTER", P_SPREAD, 64},
+     {"CLUMP", P_SPACING, 64})},
     /* streams (brook, spring, waterfall): bubble size, nearer the surface (babble), eddies (GURGLE), size spread; the
      * low roar on EXTRA (its card: ROAR) */
-    {{"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {"ROAR", P_EXTRA, 64}},
-    {{"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {"ROAR", P_EXTRA, 64}},
-    {{"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {"ROAR", P_EXTRA, 64}},
+    {KMAPS({"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {"ROAR", P_EXTRA, 64})},
+    {KMAPS({"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {"ROAR", P_EXTRA, 64})},
+    {KMAPS({"SIZE", P_SIZE, 64}, {"NEAR", P_TONE, 48}, {"EDDY", P_HARD, 48}, {"SPREAD", P_SPREAD, 64}, {"ROAR", P_EXTRA, 64})},
     /* waves (sand, shingle): height, backwash, chop, the far surf (FLOOR; distance is PROXIMITY's); the period on
      * EXTRA (its card: PERIOD; up = longer) */
-    {{"HEIGHT", P_SIZE, 64}, {"BACKWASH", P_TONE, 64}, {"CHOP", P_HARD, 64}, {"FLOOR", P_SPREAD, 64}, {"PERIOD", P_EXTRA, 64}},
-    {{"HEIGHT", P_SIZE, 64}, {"BACKWASH", P_TONE, 64}, {"CHOP", P_HARD, 64}, {"FLOOR", P_SPREAD, 64}, {"PERIOD", P_EXTRA, 64}},
+    {KMAPS({"HEIGHT", P_SIZE, 64}, {"BACKWASH", P_TONE, 64}, {"CHOP", P_HARD, 64}, {"FLOOR", P_SPREAD, 64}, {"PERIOD", P_EXTRA, 64})},
+    {KMAPS({"HEIGHT", P_SIZE, 64}, {"BACKWASH", P_TONE, 64}, {"CHOP", P_HARD, 64}, {"FLOOR", P_SPREAD, 64}, {"PERIOD", P_EXTRA, 64})},
     /* lake lapping: what the waves meet (TYPE: a shore .. a hull), height, chop; the period on EXTRA (its card:
      * PERIOD; up = longer) */
-    {{"FACE", P_TYPE, 0}, {"HEIGHT", P_SIZE, 64}, {"CHOP", P_HARD, 64}, {"PERIOD", P_EXTRA, 64}},
+    {KMAPS({"FACE", P_TYPE, 0}, {"HEIGHT", P_SIZE, 64}, {"CHOP", P_HARD, 64}, {"PERIOD", P_EXTRA, 64})},
 };
 
 /* the family members TYPE reaches (note 16: every family had members no knob could reach): TYPE from lo up to the
@@ -1591,7 +1597,7 @@ static void host_clock(src_t *s)
 /* a character map's offset now (a centred knob x its depth) */
 static int32_t kmap_off(const src_t *s, unsigned j)
 {
-    const kmap_t *k = &HMAP[s->hd - HOST][j];
+    const kmap_t *k = &HMAP[s->hd - HOST].k[j];          /* (j < n: a map with a parameter) */
     if (k->knob == P_TYPE) return 0;
     return (knob(s, k->knob) * k->depth) / 64;
 }
@@ -1634,7 +1640,7 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
     for (i = 0; i < HOST_NC; i++) {
         int32_t v;
         unsigned j;
-        if (!s->hd->c[i].name || s->hid[i] < 0) continue;
+        if (s->hid[i] < 0 || !s->hd->c[i].name) continue;   /* (hid >= 0: i < nc) */
         v = curve_at(&s->hd->c[i], i ? s->i_eff : act_idx(s));
         if (!i && s->hd->k64) {                              /* COUNT past the keys: each doubling more on the first */
             int32_t kb = s->hd->k127 >= 8 ? 63 : s->hd->k127 >= 4 ? 42 : s->hd->k127 >= 2 ? 21 : 0;   /* curve (the */
@@ -1649,9 +1655,10 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
         if ((force || v != s->hval[i]) && !OVR(s, s->hid[i])) { s->hval[i] = (uint8_t)v; s->hst->param(s->host, (uint8_t)s->hid[i], (uint8_t)v); }
     }
     for (i = 0; i < HOST_NK; i++) {                          /* the character maps on the engine's other parameters */
-        const kmap_t *k = &HMAP[s->hd - HOST][i];
+        const kmap_t *k;
         int32_t v;
         if (s->kid[i] < 0 || s->kcur[i] >= 0) continue;
+        k = &HMAP[s->hd - HOST].k[i];                       /* (kid >= 0: i < n) */
         if (k->knob == P_TYPE)                               /* the kind: over TYPE's range for it (0: the own) */
             v = s->p[P_TYPE] >= s->tlo && (s->tlo || s->p[P_TYPE])
                 ? clampi(((int32_t)(s->p[P_TYPE] - s->tlo) * 127) / s->tspan, 0, 127) : s->kdef[i];
@@ -1753,11 +1760,11 @@ static void host_switch(src_t *s, unsigned pre)
     for (i = 0; i < TX_BLOCK; i++) s->buf[i] = s->ck[i] = 0;
     if (ne && ne->state_bytes <= HOST_BYTES) {
         ne->init(s->host, tx_rand(&s->rng));
-        for (i = 0; i < HOST_NC; i++) s->hid[i] = (int8_t)(hd->c[i].name ? tx_param_find(ne, hd->c[i].name) : -1);
+        for (i = 0; i < HOST_NC; i++) s->hid[i] = (int8_t)(i < hd->nc && hd->c[i].name ? tx_param_find(ne, hd->c[i].name) : -1);
         for (i = 0; i < HOST_NK; i++) {                      /* the character maps: on a curve, or on their own */
-            const kmap_t *k = &HMAP[hd - HOST][i];
+            const kmap_t *k = i < HMAP[hd - HOST].n ? &HMAP[hd - HOST].k[i] : 0;
             unsigned c;
-            s->kid[i] = (int8_t)(k->name ? tx_param_find(ne, k->name) : -1);
+            s->kid[i] = (int8_t)(k && k->name ? tx_param_find(ne, k->name) : -1);
             s->kcur[i] = -1;
             s->kdef[i] = s->kid[i] >= 0 ? ne->params[s->kid[i]].def : 0;
             s->kval[i] = 0xFF;
@@ -1806,7 +1813,8 @@ static void host_switch(src_t *s, unsigned pre)
                 s->wst = we;
                 we->init(ws, tx_rand(&s->rng));
                 for (i = 0; i < HOST_NC; i++) {
-                    const char *nm = HOST[PRE[pre].act_lo].c[i].name;
+                    const host_t *wh = &HOST[PRE[pre].act_lo];
+                    const char *nm = i < wh->nc ? wh->c[i].name : 0;
                     s->wid[i] = (int8_t)(nm ? tx_param_find(we, nm) : -1);
                     s->wval[i] = 0xFF;
                 }

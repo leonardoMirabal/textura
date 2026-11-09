@@ -33,10 +33,10 @@ def host_rows():
     j = SRC.index("\n};", i)
     body = SRC[i:j]
     rows = []
-    # each row: {"eng", g0, g64, g127, {{curves}}, k0, k64, k127[, e0, e64, e127, oneshot]}
-    for m in re.finditer(r'\{"(\w+)",\s*-?\d+,\s*-?\d+,\s*-?\d+,\s*\{(.*?)\}\},\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\}',
+    # each row: {"eng", g0, g64, g127, CURVES({curves}) or NO_CURVES, k0, k64, k127[, e0, e64, e127, oneshot]}
+    for m in re.finditer(r'\{"(\w+)",\s*-?\d+,\s*-?\d+,\s*-?\d+,\s*(?:CURVES\((.*?)\)|NO_CURVES),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\}',
                          body, re.S):
-        curves = re.findall(r'\{"(\w+)",\s*(-?\d+),\s*(\d+),\s*(\d+)\}', m.group(2))
+        curves = re.findall(r'\{"(\w+)",\s*(-?\d+),\s*(\d+),\s*(\d+)\}', m.group(2) or "")
         rows.append(dict(eng=m.group(1), c0=curves[0] if curves else None, k0=int(m.group(3)),
                          e=(int(m.group(6)), int(m.group(7)), int(m.group(8)))))
     return rows
