@@ -9,12 +9,19 @@ host builds that take it as PR_TABLE (the engines compiled once). A sound's new 
 everyday keys (REF: HOW MANY 1 .. 3 x HOW ACTIVE rare .. middle, where a sound starts and the presets play; their
 median) to TARGET LUFS (-28: the presets' foreground), but no further than its loudest 1 % of 50 ms peaks there (the
 median over REF) at PEAK_MAX dBFS (under the limiter: the crackling and dripping
-sounds stay under the target and keep their crest). Run it again after --write: a sound the limiter held at the
-old trim reads its peaks low the first time.
+sounds stay under the target and keep their crest).
+
+Across the keys a sound's own loudness may move 40 dB and more (a calm .. a gale). KEY_DB (audition/app.js; the
+firmware's LS_KC) bends it into a common window: a gain at HOW MANY 1, 3, 6 x HOW ACTIVE rare, middle, busy
+(bilinear between them, scape.c), so that what it rises above the everyday keys is squeezed into WIN_UP dB and
+what it falls below them into WIN_DOWN dB: the top keys still sound bigger, never 20 dB over the other lanes;
+the physics (density, timbre) still change. A boost stays under PEAK_MAX too. The bus COMPRESSOR is not linear:
+run --write until nothing moves.
 
   .local/venv/bin/python tools/snd_level.py [-j JOBS] [-s SECS] [-t TARGET] [-o DIR] [--grid N:A,...] [--only F:name]
       prints a table (one row per sound: its trim, its loudness at each grid point, the range, the new trim) and
-      writes DIR/snd_level.json; --write sets the new trims in audition/app.js LEVEL_DB (then: make fw-landscapes)"""
+      writes DIR/snd_level.json; --write sets the new trims in audition/app.js LEVEL_DB and the curves in KEY_DB
+      (then: make fw-landscapes)"""
 import argparse
 import glob
 import json
@@ -33,7 +40,10 @@ ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "audition" / "app.js"
 DEF = (2, 4)                                    # the default keys: HOW MANY 2, HOW ACTIVE 4 (LEVEL_DB's old rule)
 REF = [(1, 0), (1, 4), (2, 4), (3, 0), (3, 4)]  # the everyday keys: a sound starts at HOW MANY 1, rare; presets play here
-GRID = [(1, 0), (1, 4), (1, 8), (2, 4), (3, 0), (3, 4), (3, 8), (6, 0), (6, 4), (6, 8)]
+NODES = [(1, 0), (1, 4), (1, 8), (3, 0), (3, 4), (3, 8), (6, 0), (6, 4), (6, 8)]   # KEY_DB's points (scape.c sc_kc)
+GRID = NODES[:3] + [(2, 4)] + NODES[3:]
+WIN_UP, WIN_DOWN = 6.0, 10.0                    # dB above / below the everyday keys' loudness: -22 .. -38 LUFS
+KC_LO, KC_HI = -31.0, 12.0                      # dB: KEY_DB's range (LS_KC: int8 half dB)
 T_LOAD = 1500                                   # ms: the PC
 T_FROM = 1000                                   # ms after the load: the measurement (the load's glide is over)
 PEAK_MAX = -2.0                                 # dBFS: the everyday keys' loudest 1 % of 50 ms peaks (the limiter: -1)
@@ -56,6 +66,23 @@ def level_db():
     i = s.index("const LEVEL_DB = {")
     j = s.index("\n};", i)
     return ast.literal_eval("{" + s[i + len("const LEVEL_DB = {"):j] + "}")
+
+
+def key_db():
+    import ast
+    s = APP.read_text()
+    i = s.index("const KEY_DB = {")
+    j = s.index("\n};", i)
+    return ast.literal_eval("{" + s[i + len("const KEY_DB = {"):j] + "}")
+
+
+def kc_at(c, g):
+    """KEY_DB's gain at keys g = (n, a), bilinear between its nodes (as scape.c, in the key index)"""
+    n, a = g
+    i, fn = (0, (n - 1) / 2) if n <= 3 else (1, (n - 3) / 3)
+    j, fa = (0, a / 4) if a <= 4 else (1, (a - 4) / 4)
+    v = lambda ii, jj: c[ii * 3 + jj]
+    return ((1 - fn) * ((1 - fa) * v(i, j) + fa * v(i, j + 1)) + fn * ((1 - fa) * v(i + 1, j) + fa * v(i + 1, j + 1)))
 
 
 def build(jobs, od, cc, objs):
@@ -135,27 +162,41 @@ def main():
         res = dict(zip([t[2] for t in tasks],
                        ex.map(lambda t: run(t[0], t[1], a.s, od / ("w%d_%d_%d_%d.wav" % t[2])), tasks)))
     rows = []
+    kdb = key_db()
     hdr = " ".join(f"n{n}a{ac:<2d}" for n, ac in grid)
-    print(f"{'family':<14s}{'sound':<20s} trim | {hdr} | range  peak | new  default")
+    print(f"{'family':<14s}{'sound':<20s} trim | {hdr} | range  peak | new  ref")
+    med = lambda v: sorted(v)[len(v) // 2]
     for f, s, fn, sn in sounds:
         t0 = (ldb.get(fn) or {}).get(sn, 0)
+        c0 = list((kdb.get(fn) or {}).get(sn, [0.0] * 9))
         r = {g: res[(f, s) + g] for g in grid}
         li = [r[g][0] for g in grid if r[g][0] > -90]
-        ref = sorted(r[g][0] for g in REF)
-        d = ref[len(ref) // 2]
+        d = med([r[g][0] for g in REF])
         pk = max(r[g][2] for g in grid)
-        if d > -90:
-            new = t0 + a.t - d
-            pq = sorted(r[g][3] for g in REF)
-            new = min(new, t0 + PEAK_MAX - pq[len(pq) // 2])
-            new = int(round(max(TRIM_LO, min(TRIM_HI, new))))
-        else:
-            new = t0
-        rows.append({"family": fn, "sound": sn, "trim": t0, "new": new,
+        new, c1 = t0, c0
+        if d > -90 and all(r[g][0] > -90 for g in NODES):
+            raw = {g: r[g][0] - kc_at(c0, g) for g in grid}            # (as without KEY_DB, at the trim t0)
+            rr = med([raw[g] for g in REF])
+            hi = max(raw[g] - rr for g in grid)
+            lo = min(raw[g] - rr for g in grid)
+            ku = min(1.0, WIN_UP / hi) if hi > 0 else 1.0
+            kd = min(1.0, WIN_DOWN / -lo) if lo < 0 else 1.0
+            want = {g: a.t + (raw[g] - rr) * (ku if raw[g] > rr else kd) for g in grid}
+            room = {g: PEAK_MAX - r[g][3] for g in grid}               # (dB more this point may take)
+            need = {g: min(want[g] - r[g][0], room[g]) for g in grid}
+            dt = med([need[g] for g in REF])
+            new = int(round(max(TRIM_LO, min(TRIM_HI, t0 + dt))))
+            c1 = [c0[q] + need[g] - (new - t0) for q, g in enumerate(NODES)]
+            over = (kc_at(c1, DEF) - kc_at(c0, DEF) + new - t0) - room[DEF]   # (HOW MANY 2, between the nodes:
+            if over > 0:                                                    # its peaks bound its neighbours too)
+                for g in ((1, 4), (3, 4)):
+                    c1[NODES.index(g)] -= over
+            c1 = [round(2 * max(KC_LO, min(KC_HI, v))) / 2 for v in c1]
+        rows.append({"family": fn, "sound": sn, "trim": t0, "new": new, "kc": c0, "kc_new": c1,
                      "grid": {f"{n}:{ac}": r[(n, ac)] for n, ac in grid}})
         rng = (max(li) - min(li)) if li else 0
         print(f"{fn:<14s}{sn:<20s} {t0:4d} | " + " ".join(f"{r[g][0]:6.1f}" for g in grid)
-              + f" | {rng:5.1f} {pk:5.1f} | {new:4d} {d + new - t0:6.1f}")
+              + f" | {rng:5.1f} {pk:5.1f} | {new:4d} {d:6.1f}  kc " + " ".join(f"{v:g}" for v in c1))
     (od / "snd_level.json").write_text(json.dumps({"target": a.t, "grid": grid, "rows": rows}, indent=1))
     if a.write:
         s = APP.read_text()
@@ -170,9 +211,20 @@ def main():
             if not k:
                 sys.exit(f"snd_level: {r['family']}:{r['sound']} not in LEVEL_DB")
             blk = blk[:fam_at] + seg2 + blk[end:]
-        APP.write_text(s[:i] + blk + s[j:])
-        print("snd_level: trims written to audition/app.js LEVEL_DB (make fw-landscapes next)")
-
+        s = s[:i] + blk + s[j:]
+        for r in rows:
+            kdb.setdefault(r["family"], {})[r["sound"]] = r["kc_new"]
+        i = s.index("const KEY_DB = {")
+        j = s.index("\n};", i)
+        fmt = lambda v: str(int(v)) if v == int(v) else str(v)
+        lines = []
+        for fam, _ in fams:
+            if fam in kdb:
+                lines += [f'  "{fam}": {{'] + [f'    "{sn}": [' + ", ".join(fmt(v) for v in c) + "],"
+                                              for sn, c in kdb[fam].items()] + ["  },"]
+        s = s[:i] + "const KEY_DB = {\n" + "\n".join(lines) + s[j:]
+        APP.write_text(s)
+        print("snd_level: trims and key curves written to audition/app.js LEVEL_DB, KEY_DB (make fw-landscapes next)")
 
 if __name__ == "__main__":
     main()

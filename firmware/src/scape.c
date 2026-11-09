@@ -27,6 +27,8 @@
 #define SC_FAM_MS 300u                          /* ALGORITHM: the landscape changes this long after the last detent */
 #define SC_GLIDE_MS 500u                        /* a scene's (a switch's) lane settings: from the old to the new */
 #define SC_GLIDE_TICK 10u                       /* (its steps) */
+#define SC_KC_STEP 3                            /* the key curve's slew: 3/16 dB a tick (19 dB/s: a key's change of
+                                                 * density takes as long to be heard) */
 enum { SC_GL_LEVEL, SC_GL_PAN, SC_GL_TRIM, SC_GL_COUNT, SC_GL_ACT };
 
 static const uint16_t SC_BLINK_MS[LS_NACT] = {1600, 1498, 1155, 776, 503, 333, 228, 163, 120};   /* the blink's rate on the
@@ -54,6 +56,8 @@ static struct {
     const tx_engine_t *a_eng[SC_N];
     int16_t a_preset[SC_N], a_type[SC_N], a_count[SC_N], a_act[SC_N], a_level[SC_N], a_pan[SC_N];
     int32_t a_trim[SC_N];                       /* (the sound's own level, Q12: landscapes.h) */
+    int32_t kc[SC_N];                           /* the sound's key curve now (sc_kc: dB x 16), on its way to sc_kc_want */
+    int16_t kc_snd[SC_N];                       /* (the sound it was for: another sound takes its own at once) */
     uint8_t a_gen[SC_N], a_mute[SC_N], a_held[SC_N], a_gate[SC_N];   /* (a_gate: muted as last sent) */
     /* the glide (sc_glide): LEVEL, PAN, the sound's trim, HOW MANY (COUNT), HOW ACTIVE (ACTIVITY) on their way from
      * what was sent (-1: nothing yet, so no glide) to what is wanted, SC_GLIDE_MS end to end */
@@ -149,6 +153,38 @@ static int32_t sc_gl(uint32_t k, uint32_t q, int32_t to)   /* what to send now: 
     return f + (to - f) * (int32_t)t / (int32_t)SC_GLIDE_MS;   /* (|to - f| < 2^16: 32 bits) */
 }
 
+/* ---- the sound's key curve (landscapes.h LS_KC, measured: tools/snd_level.py): its own loudness bent into a common
+ * window over HOW MANY x HOW ACTIVE, so the top keys sound bigger but never swamp the other lanes. A gain in half dB
+ * at HOW MANY 1, 3, 6 x HOW ACTIVE rare, middle, busy, bilinear between them in the keys; dB x 16 */
+static int32_t sc_kc_want(uint32_t k)
+{
+    const int8_t *c;
+    uint32_t n, a8;
+    int32_t fn, fa, i, j, top, bot;
+    if (sc.snd[k] < 0) return 0;
+    c = LS_KC[sc.lf[k]][sc.snd[k]];
+    n = sc.cnt[k] ? sc.cnt[k] : 1u;
+    a8 = sc.step[k] > 1u ? (sc.step[k] - 1u) * 2048u / (unsigned)(SC_STEPS - 1) : 0u;   /* HOW ACTIVE 0 .. 8, Q8 */
+    if (n <= 3u) { i = 0; fn = (int32_t)(n - 1u) * 128; } else { i = 1; fn = (int32_t)(n - 3u) * 256 / 3; }
+    if (a8 <= 1024u) { j = 0; fa = (int32_t)a8 / 4; } else { j = 1; fa = (int32_t)(a8 - 1024u) / 4; }
+    top = c[i * 3 + j] * (256 - fa) + c[i * 3 + j + 1] * fa;
+    bot = c[i * 3 + 3 + j] * (256 - fa) + c[i * 3 + 3 + j + 1] * fa;
+    return (top * (256 - fn) + bot * fn + 4096) >> 13;   /* (half dB Q16 -> dB x 16) */
+}
+static uint32_t sc_kc_gain(int32_t d16)         /* 10^(d16 / 320), Q12: 2^(e / 64), e = d16 x 64 / (16 x 6.0206) */
+{
+    int32_t e = (d16 * 680) >> 10, sh = e >> 6;
+    uint32_t g = (uint32_t)LS_EXP2[e & 63] >> 3;
+    return sh >= 0 ? g << sh : g >> -sh;
+}
+static int32_t sc_trim_want(uint32_t k)         /* the sound's trim with its key curve, Q12 */
+{
+    uint32_t t;
+    if (sc.snd[k] < 0) return 4096;
+    t = (uint32_t)LS[sc.lf[k]].s[sc.snd[k]].trim * sc_kc_gain(sc.kc[k]) >> 12;
+    return (int32_t)(t > 65535u ? 65535u : t);
+}
+
 /* the instance lane k plays has another sound than family f's sound s on engine e (loaded: a switch, a fresh one) */
 static int sc_swaps(uint32_t k, const ls_sound_t *s, const tx_engine_t *e)
 {
@@ -195,7 +231,9 @@ static void sc_sync(uint32_t k)
     if ((w = sc_gl(k, SC_GL_LEVEL, (int32_t)sc_vol_of(k))) != sc.a_level[k]) { ln_level(k, (uint32_t)w); sc.a_level[k] = (int16_t)w; }
     if ((w = sc_gl(k, SC_GL_PAN, sc.pan[k])) != sc.a_pan[k]) { ln_pan(k, (uint32_t)w); sc.a_pan[k] = (int16_t)w; }
     {
-        int32_t t = sc_gl(k, SC_GL_TRIM, sc.snd[k] >= 0 ? (int32_t)LS[sc.lf[k]].s[sc.snd[k]].trim : 4096);
+        int32_t t, id = sc.snd[k] >= 0 ? (int32_t)(sc.lf[k] << 4 | (uint32_t)sc.snd[k]) : -1;
+        if (id != sc.kc_snd[k]) { sc.kc[k] = sc_kc_want(k); sc.kc_snd[k] = (int16_t)id; }   /* (another sound: its own) */
+        t = sc_gl(k, SC_GL_TRIM, sc_trim_want(k));
         if (t != sc.a_trim[k] && ln_trim(k, (uint32_t)t) >= 0) sc.a_trim[k] = t;
     }
     gen = sc.run[k] && sc.notes[k];             /* the generator: on while the lane runs (Notes on) */
@@ -412,7 +450,7 @@ static void sc_init(void)
     for (k = 0; k < SC_N; k++) {
         sc.snd[k] = -1; sc.notes[k] = 1; sc.pan[k] = 64;
         sc.a_preset[k] = sc.a_type[k] = sc.a_count[k] = sc.a_act[k] = sc.a_level[k] = sc.a_pan[k] = -1;
-        sc.a_trim[k] = -1;
+        sc.a_trim[k] = -1; sc.kc_snd[k] = -2;
     }
     sc_family(0);
 }
@@ -437,6 +475,12 @@ static void sc_poll(void)
     }
     if (fm1_ms - sc.gl_tick >= SC_GLIDE_TICK) {   /* the glides' next step (and the last: the value wanted) */
         sc.gl_tick = fm1_ms;
+        for (k = 0; k < SC_N; k++) {                 /* the key curves' slew (a glide sends it below) */
+            int32_t w = sc_kc_want(k), d = w - sc.kc[k];
+            if (!d || !sc.eng[k]) continue;
+            sc.kc[k] += d > SC_KC_STEP ? SC_KC_STEP : d < -SC_KC_STEP ? -SC_KC_STEP : d;
+            if (!sc.gl_on[k]) sc_sync(k);
+        }
         for (k = 0; k < SC_N; k++) {
             int end;
             if (!sc.gl_on[k]) continue;

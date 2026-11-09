@@ -9,7 +9,8 @@
 5000 midi 0xB1 21 127
 8000 expect state run1 1
 8000 expect state snd1 water_drops
-8000 expect rms > -40
+# (playing; its key curve, KEY_DB, brings HOW ACTIVE high down)
+8000 expect rms > -55
 8500 midi 0xB1 22 0
 12000 expect state run1 0
 20000 expect rms < -150

@@ -6,13 +6,14 @@
 # lanes' numbers glide 500 ms. "expect cut": while a change is under way the level never falls (from one 2.9 ms
 # window to the next) more than 9 dB further than the sounds fall by themselves before and after it, so a sound's own
 # pulses (crickets, birds) don't count (a build without the ring cuts by 14-34 dB at the switches); the scene change
-# to F062 has no gap (the rms checks: the old firmware fell to silence there)
+# to F062 has no gap (the rms checks: the old firmware fell to silence there; their floors sit 10 dB under the levels
+# as played since the sounds' key curves, KEY_DB, bring the dense, busy keys down)
 # lane 1 alone, dense (E4: 32 of it, G5: busy)
 1700 keys 0x800
 1750 keys 0
 1800 keys 0x4000000
 1850 keys 0
-3900 expect rms > -30
+3900 expect rms > -40
 # SEQ, ALGORITHM 2, EDIT: water drops (another PRESET of the source): the rain fades out under it, the level holds
 4000 btn 11
 4010 turn 1 2
@@ -21,10 +22,10 @@
 4030 expect state lane0 source
 4030 expect state ring0 1
 4030 expect state swaps 0
-4080 expect rms > -35
+4080 expect rms > -45
 4100 expect state rings0 1
-4200 expect rms > -30
-4300 expect rms > -30
+4200 expect rms > -40
+4300 expect rms > -40
 4500 expect state ring0 0
 # lanes 2, 3, 4 dense too (OCT+, E4, G5)
 4600 btn 1
@@ -43,18 +44,18 @@
 5200 keys 0
 5250 keys 0x4000000
 5300 keys 0
-6500 expect rms > -30
+6500 expect rms > -40
 # F062 JUNE NIGHT (PC 61): every lane gets another sound: lane 1 switches at once, the other three wait their turn while their old
 # sounds play on (the output used to fall to silence here); the scene's records wait for the last lane
 6600 midi 0xC0 61 0
 6620 expect state swaps 3
 6620 expect state ring0 1
 6620 expect state loading 1
-6700 expect rms > -30
+6700 expect rms > -40
 6700 expect state rings0 1
-6900 expect rms > -30
+6900 expect rms > -40
 7000 expect state loading 1
-7000 expect rms > -30
+7000 expect rms > -40
 7300 expect state swaps 0
 7300 expect state loading 0
 8300 expect state landscape Insects
@@ -128,21 +129,21 @@
 16400 expect state sel1 5
 16400 expect state sel2 5
 16400 expect state sel3 5
-16500 expect rms > -20
+16500 expect rms > -30
 16500 midi 0xC0 101 0
-16600 expect rms > -25
-16700 expect rms > -25
-16800 expect rms > -25
-16900 expect rms > -25
-17000 expect rms > -25
-17100 expect rms > -25
-17200 expect rms > -25
+16600 expect rms > -35
+16700 expect rms > -35
+16800 expect rms > -35
+16900 expect rms > -35
+17000 expect rms > -35
+17100 expect rms > -35
+17200 expect rms > -35
 17200 expect state swaps 0
 17200 expect state loading 0
-17300 expect rms > -25
-17400 expect rms > -25
-17500 expect rms > -25
-17600 expect rms > -25
+17300 expect rms > -35
+17400 expect rms > -35
+17500 expect rms > -35
+17600 expect rms > -35
 17600 expect state glides 0
 17600 expect state sel0 7
 17600 expect state sel1 6
@@ -163,93 +164,93 @@
 # the browser's quickest hops on lane 4: a preview every 450 ms (400 ms after each detent), each a switch: smooth
 20000 btn 11
 20010 turn 1 -1
-20100 expect rms > -25
-20200 expect rms > -25
-20300 expect rms > -25
-20400 expect rms > -25
+20100 expect rms > -35
+20200 expect rms > -35
+20300 expect rms > -35
+20400 expect rms > -35
 20460 turn 1 1
-20500 expect rms > -25
-20600 expect rms > -25
-20700 expect rms > -25
-20800 expect rms > -25
-20900 expect rms > -25
+20500 expect rms > -35
+20600 expect rms > -35
+20700 expect rms > -35
+20800 expect rms > -35
+20900 expect rms > -35
 20910 turn 1 -1
-21000 expect rms > -25
-21100 expect rms > -25
-21200 expect rms > -25
-21300 expect rms > -25
+21000 expect rms > -35
+21100 expect rms > -35
+21200 expect rms > -35
+21300 expect rms > -35
 21360 turn 1 1
-21400 expect rms > -25
-21500 expect rms > -25
-21600 expect rms > -25
-21700 expect rms > -25
-21800 expect rms > -25
+21400 expect rms > -35
+21500 expect rms > -35
+21600 expect rms > -35
+21700 expect rms > -35
+21800 expect rms > -35
 21810 turn 1 -1
-21900 expect rms > -25
-22000 expect rms > -25
-22100 expect rms > -25
-22200 expect rms > -25
+21900 expect rms > -35
+22000 expect rms > -35
+22100 expect rms > -35
+22200 expect rms > -35
 22260 turn 1 1
-22300 expect rms > -25
-22400 expect rms > -25
-22500 expect rms > -25
-22600 expect rms > -25
-22700 expect rms > -25
-22800 expect rms > -25
-22900 expect rms > -25
-23000 expect rms > -25
-23100 expect rms > -25
+22300 expect rms > -35
+22400 expect rms > -35
+22500 expect rms > -35
+22600 expect rms > -35
+22700 expect rms > -35
+22800 expect rms > -35
+22900 expect rms > -35
+23000 expect rms > -35
+23100 expect rms > -35
 23190 expect cut < 9 20000 23000
-23200 expect rms > -25
+23200 expect rms > -35
 23200 expect state swaps 0
 23200 expect state sel3 12
 23200 btn 8
 # program changes every 400 ms, U01 / U02: each waits for the load before it (the last one asked wins), smooth
 23600 midi 0xC0 100 0
-23700 expect rms > -25
-23800 expect rms > -25
-23900 expect rms > -25
+23700 expect rms > -35
+23800 expect rms > -35
+23900 expect rms > -35
 24000 midi 0xC0 101 0
-24000 expect rms > -25
-24100 expect rms > -25
-24200 expect rms > -25
-24300 expect rms > -25
+24000 expect rms > -35
+24100 expect rms > -35
+24200 expect rms > -35
+24300 expect rms > -35
 24400 midi 0xC0 100 0
-24400 expect rms > -25
-24500 expect rms > -25
-24600 expect rms > -25
-24700 expect rms > -25
+24400 expect rms > -35
+24500 expect rms > -35
+24600 expect rms > -35
+24700 expect rms > -35
 24800 midi 0xC0 101 0
-24800 expect rms > -25
-24900 expect rms > -25
-25000 expect rms > -25
-25100 expect rms > -25
+24800 expect rms > -35
+24900 expect rms > -35
+25000 expect rms > -35
+25100 expect rms > -35
 25200 midi 0xC0 100 0
-25200 expect rms > -25
-25300 expect rms > -25
-25400 expect rms > -25
-25500 expect rms > -25
+25200 expect rms > -35
+25300 expect rms > -35
+25400 expect rms > -35
+25500 expect rms > -35
 25600 midi 0xC0 101 0
-25600 expect rms > -25
-25700 expect rms > -25
-25800 expect rms > -25
-25900 expect rms > -25
-26000 expect rms > -25
-26100 expect rms > -25
-26200 expect rms > -25
-26300 expect rms > -25
-26400 expect rms > -25
-26500 expect rms > -25
-26600 expect rms > -25
-26700 expect rms > -25
-26800 expect rms > -25
-26900 expect rms > -25
-27000 expect rms > -25
-27100 expect rms > -25
-27200 expect rms > -25
-27300 expect rms > -25
-27400 expect rms > -25
-27500 expect rms > -25
+25600 expect rms > -35
+25700 expect rms > -35
+25800 expect rms > -35
+25900 expect rms > -35
+26000 expect rms > -35
+26100 expect rms > -35
+26200 expect rms > -35
+26300 expect rms > -35
+26400 expect rms > -35
+26500 expect rms > -35
+26600 expect rms > -35
+26700 expect rms > -35
+26800 expect rms > -35
+26900 expect rms > -35
+27000 expect rms > -35
+27100 expect rms > -35
+27200 expect rms > -35
+27300 expect rms > -35
+27400 expect rms > -35
+27500 expect rms > -35
 28000 expect state loading 0
 28000 expect state scene U02_WIND
 28000 expect preset

@@ -524,28 +524,184 @@ const FAMILIES = [
 // (the crackling and clicking sounds stay under the target and keep their crest); -24 .. +20 dB. tools/snd_level.py
 // measures and writes them
 const LEVEL_DB = {
-  "Water": {"rain on water": 12, "lake lapping": 3, "water drops": 5, "cave drips": -7, "eaves dripping": -4,
+  "Water": {"rain on water": 12, "lake lapping": 3, "water drops": 6, "cave drips": -7, "eaves dripping": -4,
     "brook": -1, "bubbling spring": 2, "waterfall": -2, "waves on sand": 0, "waves on shingle": 1},
-  "Stones & sand": {"stones": -4, "rockfall": 1, "ringing rocks": -12, "gravel": -6, "marbles": 8, "sand": -2,
-    "singing dune": 2, "minerals": -12, "stone friction": -1, "stone clinks": -3},
+  "Stones & sand": {"stones": -3, "rockfall": 1, "ringing rocks": -12, "gravel": -5, "marbles": 8, "sand": -1,
+    "singing dune": 2, "minerals": -12, "stone friction": 0, "stone clinks": -3},
   "Ice & glass": {"icicles": -14, "ice in a glass": -24, "frost tinkling": -18, "snow underfoot": -17, "lake ice": -10,
     "frozen lake booming": -8, "thin ice underfoot": -6, "glass pane": -9, "bottles": -5, "shards settling": 1},
   "Fire": {"campfire": -22, "bonfire": -16, "fireplace": -18, "embers": -11, "kindling": -20, "pine fire": -18,
     "leaves, paper": -18, "torch": -13, "flame": -11, "sparks": 3},
   "Wood": {"spruce": 3, "pine": 2, "maple": 3, "oak": 3, "green branch": 1, "tree trunk": -4, "twigs underfoot": -10,
     "rain stick": -5, "crumpled paper": -2},
-  "Wind": {"wind": -5, "breeze in grass": -8, "wind in pines": -5, "leafy trees": -6, "open moor": -5, "sea wind": -7,
-    "ridge gale": -8, "gusty autumn": -3, "winter storm": -7, "desert wind": 3, "wind chimes": -5},
-  "Storm": {"rain on water": 12, "rain on a roof": 2, "storm": 0, "thunder": 5, "ridge gale": -8, "winter storm": -7,
-    "hail on a roof": 6, "hail on a car": 8, "hail in leaves": 6, "sleet on a window": 10, "thunder sheet": -11,
+  "Wind": {"wind": -4, "breeze in grass": -7, "wind in pines": -4, "leafy trees": -5, "open moor": -5, "sea wind": -6,
+    "ridge gale": -8, "gusty autumn": -2, "winter storm": -6, "desert wind": 4, "wind chimes": -5},
+  "Storm": {"rain on water": 12, "rain on a roof": 3, "storm": 0, "thunder": 5, "ridge gale": -8, "winter storm": -6,
+    "hail on a roof": 6, "hail on a car": 8, "hail in leaves": 6, "sleet on a window": 11, "thunder sheet": -11,
     "spring echo": -8},
   "Insects": {"field cricket": 7, "tree cricket": 0, "mole cricket": -2, "cicada": -3, "small cicada": -5,
     "cicada chorus": -2, "katydid": 13, "grasshopper": 18, "honeybee": -4, "bumblebee": -4, "cicada up close": -8},
   "Songbirds": {"songbird": 9, "blackbird": 9, "song thrush": 9, "nightingale": 7, "robin": 5, "wren": 9,
-    "hermit thrush": 8, "skylark": 6, "wood thrush": 7, "reed warbler": 5},
+    "hermit thrush": 8, "skylark": 7, "wood thrush": 7, "reed warbler": 5},
   "Wild birds": {"chirper": 10, "crow": 3, "gull": 12, "curlew": 15, "oystercatcher": 10, "cuckoo": 10,
     "woodpecker": 12, "wood pigeon": 12, "nightjar": 14, "bittern": 11},
 };
+// each sound's key curve, dB (tools/snd_level.py writes it; the FM-1's landscapes.h LS_KC): a gain at HOW MANY 1, 3, 6
+// x HOW ACTIVE rare, middle, busy, bilinear between them, that bends its own loudness over the keys into a common
+// window (-22 .. -38 LUFS around the everyday keys' -28): the top keys sound bigger, never swamp the other lanes
+const KEY_DB = {
+  "Water": {
+    "rain on water": [2, 1, -12.5, 2, -1, -16, 2, -9.5, -20.5],
+    "lake lapping": [0.5, -1.5, -8.5, 0.5, -3, -7.5, -3.5, -2.5, -10],
+    "water drops": [0, 0, -20, -1.5, -3.5, -19, -3.5, -11.5, -20],
+    "cave drips": [0, -1, -4, 0, -1, -5.5, -0.5, -2, -8],
+    "eaves dripping": [0.5, 0.5, -4, 0.5, 0, -5.5, 0.5, -1.5, -7],
+    "brook": [6, 1, -6.5, 2.5, -1.5, -7, 2, -5, -7.5],
+    "bubbling spring": [0.5, 0.5, -7.5, 0.5, -3.5, -13, -3, -7.5, -19],
+    "waterfall": [8.5, 1, -8, 6, -3.5, -8, 4.5, -7.5, -8],
+    "waves on sand": [0.5, 0, -6, 0.5, -2, -8.5, -3, -6, -13],
+    "waves on shingle": [0.5, 0.5, -5.5, 0.5, -5.5, -9.5, -5.5, -9, -13.5],
+  },
+  "Stones & sand": {
+    "stones": [0, -1, -12.5, 0, -3.5, -8, 0, -6.5, -13],
+    "rockfall": [0, 0.5, -3, -2, 0.5, -9.5, 0.5, -18.5, -25],
+    "ringing rocks": [0, 0, -2, 0, 0, -1.5, 0, -0.5, -2.5],
+    "gravel": [0.5, 0, -14, 0.5, 0, -14.5, -1, -1.5, -16],
+    "marbles": [1, 0.5, -5, 1, -1.5, -20, -0.5, -2.5, -15],
+    "sand": [-0.5, -0.5, -10.5, -2, -5.5, -12.5, -11, -11, -12.5],
+    "singing dune": [0.5, -0.5, -6, 0.5, -2.5, -6, -1.5, -4.5, -9],
+    "minerals": [0, 0, -1, 0, 0, -1, 0, 0, -1],
+    "stone friction": [1.5, 0, -11, 1.5, -2, -14, 1.5, -6.5, -16],
+    "stone clinks": [0.5, 0.5, -0.5, 0.5, 0, 0, 0.5, -0.5, -1.5],
+  },
+  "Ice & glass": {
+    "icicles": [2.5, -0.5, 2.5, 2.5, -1.5, 2.5, 2.5, -2, 2.5],
+    "ice in a glass": [-0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5],
+    "frost tinkling": [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "snow underfoot": [-0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5],
+    "lake ice": [0, 0, -2, 0, -1, -3, -0.5, -2, -3.5],
+    "frozen lake booming": [3.5, 0, 0, 0.5, 0, 0, 0, 0, 0],
+    "thin ice underfoot": [5, 0.5, -1, 2, -2.5, -2, -0.5, -2.5, -2],
+    "glass pane": [-0.5, -0.5, -1, -0.5, -0.5, -1, -0.5, -0.5, -1.5],
+    "bottles": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+    "shards settling": [0, 0, 0, 0, 0, 0, 0, 0, 0],
+  },
+  "Fire": {
+    "campfire": [2, -0.5, -0.5, 2, -0.5, -0.5, 2, -0.5, 0],
+    "bonfire": [4.5, 0, -2.5, 4, -1, -1.5, 4.5, -2.5, 0],
+    "fireplace": [3, 0, 0, 2.5, -5, -0.5, 3, -4, -0.5],
+    "embers": [4.5, 0, -3, 4.5, -2, -4, 4.5, -4.5, -4],
+    "kindling": [5, 0.5, -0.5, 5, -1, -0.5, 5, -1, -1],
+    "pine fire": [1.5, -1.5, -2.5, 1.5, 0, -2.5, 1.5, 0, -2],
+    "leaves, paper": [4, 0, -1, 4, 0, 0, 4, -3, -0.5],
+    "torch": [2.5, -0.5, -4.5, 2.5, -5.5, -6.5, 2.5, -4, -6.5],
+    "flame": [6, 1, -9.5, 3.5, -1, -13.5, 5.5, 0.5, -20.5],
+    "sparks": [6, -0.5, -2, 0, -3, -2, -1.5, -2.5, -3],
+  },
+  "Wood": {
+    "spruce": [0, 0, -0.5, 0, 0, 0, 0, -1, -1.5],
+    "pine": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0],
+    "maple": [0.5, 0, -1.5, 0.5, 0, -1.5, 0.5, 0.5, -0.5],
+    "oak": [1, 0.5, 0, 1, 0, 0, 1, -0.5, -0.5],
+    "green branch": [-0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5],
+    "tree trunk": [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "twigs underfoot": [-0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5],
+    "rain stick": [0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0, 0, -2.5],
+    "crumpled paper": [0, -0.5, 0, 0, -1, -3.5, -1, -4, -4.5],
+  },
+  "Wind": {
+    "wind": [3, -1, -14.5, 4, -1.5, -16.5, 5, -1.5, -16.5],
+    "breeze in grass": [6, 1, -22, 7.5, 1, -31, 6.5, -0.5, -31],
+    "wind in pines": [1, -0.5, -14, 1, -0.5, -16.5, 2.5, -3.5, -17],
+    "leafy trees": [3, 0, -21.5, 4.5, -3, -26, 4, -6, -26.5],
+    "open moor": [4, 0.5, -10.5, 6.5, 1.5, -10.5, 6.5, 0, -13],
+    "sea wind": [4, 0, -10.5, 6.5, -1, -11, 7.5, -2, -10.5],
+    "ridge gale": [8, -1, -5, 9, 0, -4.5, 7.5, -0.5, -4.5],
+    "gusty autumn": [8.5, 0.5, -19.5, 12, -1.5, -27, 9, -4, -26.5],
+    "winter storm": [7.5, -0.5, -8, 9.5, -1, -8.5, 9, -1, -9],
+    "desert wind": [6, 0.5, -20.5, 10, -4, -22.5, 7.5, -6.5, -25],
+    "wind chimes": [0, 0, 0, -0.5, 0, -2, 0, -2.5, -9.5],
+  },
+  "Storm": {
+    "rain on water": [2, 1, -12.5, 2, -1, -16, 2, -9.5, -20.5],
+    "rain on a roof": [7, 0.5, -23, 11, 0, -22, 8.5, -10, -23.5],
+    "storm": [-2, 0.5, -0.5, 0.5, -2, -3, -0.5, -4, -8],
+    "thunder": [5, 0.5, -13, -0.5, -9.5, -17, -13, -17.5, -27.5],
+    "ridge gale": [8, -1, -5, 9, 0, -4.5, 7.5, -0.5, -4.5],
+    "winter storm": [7.5, -0.5, -8, 9.5, -1, -8.5, 9, -1, -9],
+    "hail on a roof": [3, 0.5, -10, 3, 0, -14.5, 2, -4.5, -17],
+    "hail on a car": [8, 0, -18, 7, -8, -21.5, 0, -12, -22.5],
+    "hail in leaves": [1.5, 1, -10, 1.5, -2, -14.5, 1.5, -8, -17],
+    "sleet on a window": [3.5, 0.5, -15.5, 3.5, -3, -23.5, -1.5, -7.5, -26],
+    "thunder sheet": [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "spring echo": [-0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5],
+  },
+  "Insects": {
+    "field cricket": [-0.5, -3.5, -3, -0.5, -0.5, -5, -5.5, -5.5, -7],
+    "tree cricket": [0, 0, 0, 0, 0, -0.5, -0.5, -1, -2],
+    "mole cricket": [-0.5, 0.5, -1.5, 0.5, -1.5, -2.5, -1.5, -3.5, -5],
+    "cicada": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+    "small cicada": [-0.5, -0.5, 3, -0.5, -0.5, 1.5, 0, -0.5, 1.5],
+    "cicada chorus": [-0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5],
+    "katydid": [0, 0, -2.5, 0, -0.5, -2.5, -1.5, -2, -3.5],
+    "grasshopper": [0.5, 0.5, 0, -0.5, 0, 0, -0.5, -1, -1],
+    "honeybee": [2, 0, -5.5, 1.5, 0, -6, 1, 0, -6],
+    "bumblebee": [3, 1, -7.5, 2, 1, -10.5, 1.5, 0, -7],
+    "cicada up close": [0, 0, 0, 0, 0, 0, 0, 0, 0],
+  },
+  "Songbirds": {
+    "songbird": [0, 0, -2, 0, -3.5, -3, -1, -1.5, -2.5],
+    "blackbird": [-0.5, -0.5, -0.5, -0.5, -1.5, -0.5, -2, -2.5, -0.5],
+    "song thrush": [-0.5, -2, -1.5, -0.5, -0.5, -4, -0.5, -6, -6],
+    "nightingale": [-0.5, -1, -2, -0.5, -0.5, -2.5, -0.5, -1.5, -2.5],
+    "robin": [-0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5],
+    "wren": [-1, -0.5, -2, -0.5, -0.5, -1, -0.5, -2.5, -2.5],
+    "hermit thrush": [0, 0, -0.5, 0, 0, 0, -2, -5, 0],
+    "skylark": [0, -1, -2, 0, 0, -9, -3.5, -5.5, -11],
+    "wood thrush": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+    "reed warbler": [0, 0, 0, 0, 0, 0, 0, 0, 0],
+  },
+  "Wild birds": {
+    "chirper": [0.5, 0.5, -1.5, 0.5, -3, -0.5, 0, -6.5, -0.5],
+    "crow": [0.5, 0, -0.5, 0.5, 0.5, -2, 0.5, -1.5, -2],
+    "gull": [0.5, 0.5, -5.5, 0.5, -5, -10, -4, -8, -14.5],
+    "curlew": [0, 0, -1.5, 0, -6, -6.5, -4.5, -6.5, -10],
+    "oystercatcher": [6, 0, -2, 1.5, -3, -8, -4, -6, -10],
+    "cuckoo": [0, 0, -1.5, 0, -0.5, -5, -1, -4, -5],
+    "woodpecker": [-0.5, -1, -1, -0.5, -2.5, -2.5, -1.5, -2.5, -1.5],
+    "wood pigeon": [0, 0, -4, 0, -3.5, -10.5, -1.5, -8, -9],
+    "nightjar": [0, 0, -3, 0, -1.5, -8.5, -2, -4.5, -8.5],
+    "bittern": [0.5, 0.5, -0.5, 0.5, 0.5, -3.5, 0, -4.5, -4],
+  },
+};
+function kcWant(k) {                                 // the lane's key curve now, dB x 16 (as scape.c sc_kc_want)
+  const s = laneSnd[k] >= 0 ? FAMILIES[fam][1][laneSnd[k]] : 0;
+  const c = s && (KEY_DB[FAMILIES[fam][0]] || {})[s[0].replace("#", "")];
+  if (!c) return 0;
+  const h = c.map(v => Math.round(2 * v)), n = laneCnt[k] || 1, st = gen[k].step || 1;
+  const a8 = st > 1 ? Math.floor((st - 1) * 2048 / 13) : 0;
+  const [i, fn] = n <= 3 ? [0, (n - 1) * 128] : [1, Math.trunc((n - 3) * 256 / 3)];
+  const [j, fa] = a8 <= 1024 ? [0, a8 >> 2] : [1, (a8 - 1024) >> 2];
+  const top = h[i * 3 + j] * (256 - fa) + h[i * 3 + j + 1] * fa, bot = h[i * 3 + 3 + j] * (256 - fa) + h[i * 3 + 3 + j + 1] * fa;
+  return (top * (256 - fn) + bot * fn + 4096) >> 13;
+}
+function kcGain(d16) {                               // 10^(d16 / 320), Q12 (as scape.c sc_kc_gain)
+  const e = (d16 * 680) >> 10, sh = e >> 6, g = Math.round(32768 * Math.pow(2, (e & 63) / 64)) >> 3;
+  return sh >= 0 ? g << sh : g >> -sh;
+}
+const laneKc = [0, 0, 0, 0], laneKcSnd = [-2, -2, -2, -2];
+function laneTrim(k) {                               // the lane's trim: the sound's, with its key curve (slewed: kcTick)
+  const id = laneSnd[k] >= 0 ? fam * 16 + laneSnd[k] : -1;
+  if (id !== laneKcSnd[k]) { laneKc[k] = kcWant(k); laneKcSnd[k] = id; }
+  M._txw_trim(k, laneSnd[k] >= 0 ? Math.min(65535, (trimQ12(fam, laneSnd[k]) * kcGain(laneKc[k])) >> 12) : 4096);
+}
+setInterval(() => {                                  // the key curves' slew: 3/16 dB per 10 ms, as scape.c
+  if (!M || !M._txw_trim) return;
+  for (let k = 0; k < 4; k++) {
+    const d = kcWant(k) - laneKc[k];
+    if (d) { laneKc[k] += Math.max(-3, Math.min(3, d)); laneTrim(k); }
+  }
+}, 10);
 function trimQ12(f, i) {                             // the sound's trim, Q12 (4096 = 0 dB): as tools/gen_landscapes.py
   const s = FAMILIES[f][1][i], d = s ? (LEVEL_DB[FAMILIES[f][0]] || {})[s[0].replace("#", "")] || 0 : 0;
   return Math.round(4096 * Math.pow(10, d / 20));
@@ -563,7 +719,7 @@ function laneVol(k, v) {                             // a lane's volume: kept wi
   if (v !== undefined && laneSnd[k] >= 0) sndVol[volKey(k)] = v;
   const x = laneSnd[k] >= 0 && volKey(k) in sndVol ? sndVol[volKey(k)] : 100;
   M._txw_slot(k); M._txw_param(-2, x); M._txw_slot(ed); layers[k].vals[-2] = x;
-  M._txw_trim(k, laneSnd[k] >= 0 ? trimQ12(fam, laneSnd[k]) : 4096);
+  laneTrim(k);
   return x;
 }
 function actStep(a) { return 1 + Math.round(a * 13 / (NACT - 1)); }        // HOW ACTIVE 0 .. 8 -> step 1 .. 14
