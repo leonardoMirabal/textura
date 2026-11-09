@@ -13,17 +13,18 @@
  *              COMPRESSOR 1/2 2/2 (the mix's, after the DRIVE, Frodhes': THR RAT ATK MKUP, then COMP REL; the footer
  *              its gain-reduction meter), GRAIN 1/3 .. 3/3, REVERB 1/3 .. 3/3 (in series: the reverb takes what the
  *              grain delay gives; MIX on DRIVE, GRAIN, REVERB reads DRY..WET), LFO 1/3 .. 3/3,
- *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, TEMPO 1/2 2/2, MIDI, DISPLAY (COLOR: the screen's palette)
+ *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, TEMPO 1/2 2/2, GROOVE 1/2 2/2
+ *              (AMOUNT TYPE SHIFT and the selected lane's PART; its CYCLE), MIDI, DISPLAY (COLOR: the screen's palette)
  *   ALGORITHM  LANDSCAPE: the landscape (loaded 300 ms after the last detent); SOUND: opens the sound browser; DRIVE: its
  *              TYPE; FILTER: its SLOPE; COMPRESSOR: COMP (up on, down off); GRAIN: FREEZE (up on, down
  *              off); REVERB: its type; LFO: which (1..8); ENV:
- *              which (ENV 1, ENV 2, FOLLOW 1, FOLLOW 2); MATRIX: which slot (1..16)
+ *              which (ENV 1, ENV 2, FOLLOW 1, FOLLOW 2); MATRIX: which slot (1..16); GROOVE: its TYPE
  *   K1..K4     LANDSCAPE: the volumes of lanes 1..4 (a lane's sound: its SOUND page; HOW MANY, HOW ACTIVE: the white
  *              keys); MIXER: lanes 1..4; else the cards
  *   HOME       LANDSCAPE, remembering the page it came from; on LANDSCAPE: back to that page (none remembered,
  *              or it was left another way: LANDSCAPE stays)
  *   EDIT       SOUND (again: its next page)        FX  DRIVE (again: FILTER, COMPRESSOR, GRAIN, REVERB)
- *   GLO        TEMPO (again: MIDI, DISPLAY)        LFO  the LFO pages; held + a card turned: mod learn (the
+ *   GLO        TEMPO (again: GROOVE, MIDI, DISPLAY)        LFO  the LFO pages; held + a card turned: mod learn (the
  *              selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP  MATRIX
  *   ENV        the ENV / FOLLOW pages; held + a card turned: mod learn from the selected ENV or FOLLOW
  *   SEL        key mode: LANDSCAPE / PLAY      OCT- OCT+  LANDSCAPE mode: the previous / next lane (a lane's page,
@@ -31,7 +32,8 @@
  *   black keys LANDSCAPE mode, by their groups: lanes 1..4, shown on LANDSCAPE (it stays, any other page goes to it;
  *              EDIT then opens the lane's SOUND); held 600 ms (notes.c NT_HOLD_MS): that lane muted / unmuted too (it
  *              plays on, only its output gated: back at once, a short ramp; its card dimmed, MUTED; a scene keeps it)
- *   REC        LANDSCAPE mode: all lanes stop (remembered) / start again
+ *   REC        LANDSCAPE mode: all lanes and the transport stop (remembered) / start again (bar 1 there); pressed
+ *              again within 1.5 s: taps, the tempo from the third (ui_rec)
  *   SEQ        SOUNDS: the sound browser for the selected lane, over the rows (any page stays under it): level 1 the
  *              families, level 2 a family's sounds (the lane's own marked, the other lanes' numbers at the right; any
  *              sound on any lane, the same one on two lanes too). ALGORITHM / K1 the cursor (level 2: it plays on the
@@ -58,16 +60,16 @@
 #define TX_BTN_TAP BTN_PLAY                     /* TAP TEMPO is the PLAY button, as in Frodhes (the user, 2026-10-25) */
 
 /* the pages: a group (SELECT walks through each group's sub-pages, then the next group) */
-enum { G_LAND, G_MIX, G_SOUND, G_DRIVE, G_MFILT, G_COMP, G_GRAIN, G_REVERB, G_LFO, G_ENV, G_MATRIX, G_TEMPO, G_MIDI,
-       G_DISPLAY, G_N };
+enum { G_LAND, G_MIX, G_SOUND, G_DRIVE, G_MFILT, G_COMP, G_GRAIN, G_REVERB, G_LFO, G_ENV, G_MATRIX, G_TEMPO, G_GROOVE,
+       G_MIDI, G_DISPLAY, G_N };
 static const char *const G_TITLE[G_N] = {"LANDSCAPE", "MIXER", "SOUND", "DRIVE", "FILTER", "COMPRESSOR", "GRAIN", "REVERB",
-                                         "LFO", "ENV", "MATRIX", "TEMPO", "MIDI", "DISPLAY"};
-static const uint8_t G_NSUB[G_N] = {1, 2, 0, 1, 1, 2, 4, 3, 3, 2, 1, 2, 1, 1};   /* (SOUND: as many as its cards need; ENV:
+                                         "LFO", "ENV", "MATRIX", "TEMPO", "GROOVE", "MIDI", "DISPLAY"};
+static const uint8_t G_NSUB[G_N] = {1, 2, 0, 1, 1, 2, 4, 3, 3, 2, 1, 2, 2, 1, 1};   /* (SOUND: as many as its cards need; ENV:
                                                          * a FOLLOW has one) */
 #define LA P_LANE_ANY
 #define NOID 0xFFFFu
 /* the effects' pages: a parameter per knob (a global, or the selected LFO's, ENV's, slot's), from G_FX0 */
-static const uint8_t G_FX0[G_N] = {0, 0, 0, 0, 21, 19, 1, 5, 8, 14, 11, 12, 17, 18};   /* (ENV: 14, 15; FOLLOW: 16) */
+static const uint8_t G_FX0[G_N] = {0, 0, 0, 0, 21, 19, 1, 5, 8, 14, 11, 12, 22, 17, 18};   /* (ENV: 14, 15; FOLLOW: 16) */
 #define LFO_ANY(p) PID(P_LFO, 0xF0u | (p))        /* the selected LFO's (ui_lfo) */
 #define ENV_ANY(p) PID(P_ENV, 0xF0u | (p))        /* the selected ENV's or FOLLOW's (ui_env) */
 #define MAT_ANY(q) PID(P_MAT, 0xF0u | (q))        /* the selected slot's (ui_slot) */
@@ -75,7 +77,8 @@ static const uint8_t G_FX0[G_N] = {0, 0, 0, 0, 21, 19, 1, 5, 8, 14, 11, 12, 17, 
 #define DRV(p) PID(P_GLOBAL, PG_DRIVE0 + (p))
 #define MFL(p) PID(P_GLOBAL, PG_MF0 + (p))
 #define GDL(p) PID(P_GLOBAL, PG_GD(p))
-static const uint16_t FX_IDS[22][4] = {
+#define GRV(i) PID(P_GLOBAL, PG_GRV0 + (i))
+static const uint16_t FX_IDS[24][4] = {
     {DRV(TX_DR_AMOUNT), DRV(TX_DR_TONE), DRV(TX_DR_MIX), DRV(TX_DR_TYPE)},   /* DRIVE: the mix's */
     {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_MIX), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_TIME), PID(P_GLOBAL, PG_GSYNC), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_FEEDBACK)},
     {GDL(TX_GD_MOD), GDL(TX_GD_MODRATE), GDL(TX_GD_IVL), GDL(TX_GD_GRAIN)},   /* GRAIN 2/4: the animation, the grains' share */
@@ -98,6 +101,8 @@ static const uint16_t FX_IDS[22][4] = {
     {CMP(TX_CP_THR), CMP(TX_CP_RATIO), CMP(TX_CP_ATK), CMP(TX_CP_MKUP)},   /* COMPRESSOR: Frodhes' four knobs */
     {CMP(TX_CP_ON), CMP(TX_CP_REL), NOID, NOID},
     {MFL(TX_MF_LOW), MFL(TX_MF_HIGH), MFL(TX_MF_RESO), MFL(TX_MF_SLOPE)},   /* FILTER: the mix's, after the DRIVE */
+    {GRV(0), GRV(1), GRV(2), PID(LA, PL_GPART)},   /* GROOVE: AMOUNT TYPE SHIFT, the selected lane's PART */
+    {PID(LA, PL_GCYC), NOID, NOID, NOID},       /* GROOVE 2/2: the selected lane's CYCLE */
 };
 /* what ALGORITHM turns on an effect's page */
 #define ALG_DRIVE DRV(TX_DR_TYPE)
@@ -105,6 +110,7 @@ static const uint16_t FX_IDS[22][4] = {
 #define ALG_FREEZE PID(P_GLOBAL, PG_GRAIN0 + TX_GD_FREEZE)
 #define ALG_REVERB PID(P_GLOBAL, PG_REVERB0 + TX_RV_TYPE)
 #define ALG_COMP CMP(TX_CP_ON)
+#define ALG_GROOVE GRV(1)
 enum { E_HEADER = 0, E_TITLE = 1, E_ROW0 = 2, E_FOOTER = 6, E_N = 7 };
 
 static uint8_t ui_g, ui_sub;                    /* the page: its group, its sub-page */
@@ -219,7 +225,8 @@ static uint32_t ui_nsub(uint32_t g)             /* a group's sub-pages */
     if (g == G_ENV && ui_env >= TX_ENV_N) return 1u;   /* (a FOLLOW: one page) */
     return G_NSUB[g];
 }
-static int ui_lane_page(void) { return ui_g == G_SOUND; }   /* (the selected lane's pages) */
+static int ui_lane_page(void) { return ui_g == G_SOUND || ui_g == G_GROOVE; }   /* (the selected lane's pages; GROOVE:
+                                                 * its PART, CYCLE) */
 static uint32_t ui_id_lane(uint32_t id)         /* a page's id made concrete: the selected lane, LFO, slot */
 {
     if (P_SCOPE(id) == LA) return PID(sc.sel, P_IDX(id));
@@ -644,7 +651,7 @@ static void draw_footer(void)
                                           "ALGORITHM: THE DRIVE'S TYPE", "ALGORITHM: SLOPE 12 / 24 DB", "ALGORITHM: COMP ON / OFF", "ALGORITHM: FREEZE",
                                           "ALGORITHM: THE REVERB'S TYPE",
                                           "ALGORITHM: WHICH LFO", "ALGORITHM: ENV 1 2, FOLLOW 1 2", "ALGORITHM: WHICH SLOT",
-                                          "PLAY: TAP, HOLD: START / STOP", "CLOCK OUT: IN MASTER", "THE SCREEN'S COLOUR, KEPT"};
+                                          "PLAY: TAP, HOLD: START / STOP", "ALGORITHM: TYPE  OCT: THE LANE", "CLOCK OUT: IN MASTER", "THE SCREEN'S COLOUR, KEPT"};
     cv_begin(240, FT_H, FC_BG);
     if (scn_save_mode) {                   /* the save mode: where to, the name (its letter underlined) */
         char t[32], m[20];
@@ -1176,6 +1183,7 @@ static void ui_algorithm(int32_t d)
     else if (ui_g == G_COMP) id = ALG_COMP;
     else if (ui_g == G_GRAIN) id = ALG_FREEZE;
     else if (ui_g == G_REVERB) id = ALG_REVERB;
+    else if (ui_g == G_GROOVE) id = ALG_GROOVE;
     if (id == NOID) return;
     ui_turn(id, d);
     ui_hot_card = 0xFF;
@@ -1187,6 +1195,16 @@ static void ui_algorithm(int32_t d)
         ui_say(t);
     }
 }
+static void ui_tap(int say)                     /* a tap (PLAY's, REC's): the third says "TEMPO 120.0" (FINE's text); none
+                                                 * while a clock leads (say: "EXT CLOCK") */
+{
+    char t[24], n[16];
+    if (tm.clock == CLK_FOLLOW || clk_follows()) { if (say) ui_say("EXT CLOCK"); return; }
+    if (!tempo_tap()) return;
+    (void)p_text(PID(P_GLOBAL, PG_FINE), n);
+    p_strcpy(t, "TEMPO ", 7); p_cat(t, n, 23);
+    ui_say(t);
+}
 /* PLAY: a tap on the press (its time exact); held 600 ms, the transport instead, and the press's tap taken back */
 #define TAP_HOLD_MS 600u
 static uint32_t ui_play_t;
@@ -1195,13 +1213,7 @@ static void ui_play(uint32_t press, uint32_t release)
 {
     if (press) {
         ui_play_t = fm1_ms; ui_play_down = 1; ui_play_held = 0;
-        if (tm.clock == CLK_FOLLOW || clk_follows()) ui_say("EXT CLOCK");
-        else if (tempo_tap()) {
-            char t[16], n[8], d[2] = {(char)('0' + tempo_bpm10() % 10u), 0};
-            p_strcpy(t, "TEMPO ", 6); p_fmt_int(n, (int32_t)(tempo_bpm10() / 10u)); p_cat(t, n, 15);
-            p_cat(t, ".", 15); p_cat(t, d, 15);
-            ui_say(t);
-        }
+        ui_tap(1);
     }
     if (release) ui_play_down = 0;
     if (ui_play_down && !ui_play_held && fm1_ms - ui_play_t >= TAP_HOLD_MS) {
@@ -1210,6 +1222,25 @@ static void ui_play(uint32_t press, uint32_t release)
         if (tempo_transport(!tm_running())) ui_say(tm_running() ? "TRANSPORT: RUNNING" : "TRANSPORT: STOPPED");
         else ui_say("EXT CLOCK");
     }
+}
+/* REC: a press alone stops all lanes and the transport together, or starts them (bar 1 there: the grooved lanes start
+ * in phase); presses within REC_TAP_MS of the one before are taps: the tempo from the third press (as PLAY's taps;
+ * none while a clock leads, REC still starts and stops then), and a series that stopped things at its first press
+ * starts them again at its second, so tapping never leaves them stopped */
+#define REC_TAP_MS 1500u
+static uint32_t ui_rec_t;
+static uint8_t ui_rec_stopped;
+static void ui_rec(void)
+{
+    int run = sc_any_run(), tap = fm1_ms - ui_rec_t < REC_TAP_MS && ui_rec_t, on = tap || !run;
+    ui_rec_t = fm1_ms ? fm1_ms : 1u;
+    if (!tap || ui_rec_stopped) {               /* (a series' first press; its second, the first having stopped) */
+        if (on != run) sc_all_toggle();
+        (void)tempo_transport(on);              /* (0: a clock leads, it moves the transport) */
+        ui_rec_stopped = (uint8_t)!on;
+        ui_say(on ? "ALL PLAYING" : "ALL STOPPED");
+    }
+    ui_tap(tap);                                /* (the third: the tempo, bar 1 there; none while a clock leads) */
 }
 static void ui_input(uint32_t b, uint32_t rel)
 {
@@ -1259,7 +1290,7 @@ static void ui_input(uint32_t b, uint32_t rel)
     if (b >> BTN_FX & 1u) ui_goto(ui_g == G_DRIVE ? G_MFILT : ui_g == G_MFILT ? G_COMP : ui_g == G_COMP ? G_GRAIN
                                   : ui_g == G_GRAIN ? G_REVERB : G_DRIVE, 0);   /* (the mix's, in its order: DRIVE,
                                                  * FILTER, COMPRESSOR, GRAIN, REVERB) */
-    if (b >> BTN_GLO & 1u) ui_goto(ui_g == G_TEMPO ? G_MIDI : ui_g == G_MIDI ? G_DISPLAY : G_TEMPO, 0);
+    if (b >> BTN_GLO & 1u) ui_goto(ui_g == G_TEMPO ? G_GROOVE : ui_g == G_GROOVE ? G_MIDI : ui_g == G_MIDI ? G_DISPLAY : G_TEMPO, 0);
     if (b & ~(1u << BTN_LFO | 1u << BTN_ENV)) ui_latch_t = 0;   /* (another button: learn unlatched) */
     if (b >> BTN_ARP & 1u) ui_goto(G_MATRIX, 0);
     if ((b >> BTN_ENV & 1u && ui_lsrc < MS_ENV1) || (b >> BTN_LFO & 1u && ui_lsrc >= MS_ENV1)) ui_latch_t = 0;   /* (the
@@ -1283,7 +1314,7 @@ static void ui_input(uint32_t b, uint32_t rel)
     if (b >> BTN_SEL & 1u) { nt_mode_set(nt.mode == NT_PLAY ? NT_LANDSCAPE : NT_PLAY); ui_say(nt.mode == NT_PLAY ? "KEYS: PLAY" : "KEYS: LANDSCAPE"); }
     if (b >> BTN_OCT_DOWN & 1u) { if (nt.mode == NT_PLAY) nt_oct_step(-1); else ui_lane_step(-1); }
     if (b >> BTN_OCT_UP & 1u) { if (nt.mode == NT_PLAY) nt_oct_step(1); else ui_lane_step(1); }
-    if (b >> BTN_REC & 1u && nt.mode == NT_LANDSCAPE) { sc_all_toggle(); ui_say(sc_any_run() ? "ALL PLAYING" : "ALL STOPPED"); }
+    if (b >> BTN_REC & 1u && nt.mode == NT_LANDSCAPE) ui_rec();
     if (d[ENC_SELECT]) ui_page_step(d[ENC_SELECT]);
     if (d[ENC_ALGORITHM]) ui_algorithm(d[ENC_ALGORITHM]);
     for (i = 0; i < 4u; i++) if (d[ENC_KNOB1 + i]) ui_knob(i, d[ENC_KNOB1 + i]);

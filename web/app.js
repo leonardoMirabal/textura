@@ -145,9 +145,9 @@ const KNOBS = [["MASTER", -1, 50, 22, "VOLUME"], ["SELECT", 0, 200, 22, "PAGES"]
                ["KNOB 3", 4, 915, 22, "CARD 3"], ["KNOB 4", 5, 1030, 22, "CARD 4"]];
 // the buttons' captions (the ones still to come are blank: envelopes and scenes)
 const HINT = { FX: "EFFECTS", SEL: "KEY MODE", ENV: "LEARN · AGAIN: ENV", LFO: "LEARN · AGAIN: LFO", EDIT: "SOUND", GLO: "TEMPO", HOME: "LANDSCAPE", SAVE: "SCENE · HOLD: UNDO", ARP: "MATRIX",
-               SEQ: "SOUNDS", PLAY: "TAP · HOLD: RUN", REC: "ALL ON·OFF", "OCT−": "LANE", "OCT+": "LANE" };
+               SEQ: "SOUNDS", PLAY: "TAP · HOLD: RUN", REC: "ALL ON·OFF · TAP", "OCT−": "LANE", "OCT+": "LANE" };
 const HINT_ON = {                                    // what a button does on a given page (else HINT)
-  LANDSCAPE: { HOME: "BACK" }, SOUND: { EDIT: "NEXT" }, DRIVE: { FX: "FILTER" }, FILTER: { FX: "COMPRESSOR" }, COMPRESSOR: { FX: "GRAIN" }, GRAIN: { FX: "REVERB" }, TEMPO: { GLO: "MIDI" }, MIDI: { GLO: "DISPLAY" },
+  LANDSCAPE: { HOME: "BACK" }, SOUND: { EDIT: "NEXT" }, DRIVE: { FX: "FILTER" }, FILTER: { FX: "COMPRESSOR" }, COMPRESSOR: { FX: "GRAIN" }, GRAIN: { FX: "REVERB" }, TEMPO: { GLO: "GROOVE" }, GROOVE: { GLO: "MIDI" }, MIDI: { GLO: "DISPLAY" },
   LFO: { LFO: "NEXT" }, ENV: { ENV: "NEXT" },
 };
 let shownPage = "";

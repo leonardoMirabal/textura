@@ -4,7 +4,8 @@
  * A scene is everything a sound place is: the landscape, each lane's sound, HOW MANY, HOW ACTIVE, playing or not, its
  * level, pan and mute, its name, then a list of (parameter id, value) records: the lanes' cards (the ones set), the tempo,
  * and of the grain delay and its SYNC, the reverb, the compressor, the drive, the mix's filter, the eight LFOs, the
- * envelopes, the followers and the matrix the values away from their defaults (scn_def_*). A load sets every one of those to its default first,
+ * envelopes, the followers, the matrix and the GROOVE (AMOUNT, TYPE, SHIFT, each lane's PART and CYCLE) the values
+ * away from their defaults (scn_def_*). A load sets every one of those to its default first,
  * then the scene's records over them, so a record of an older firmware loads into a newer one (an id it lacks gets
  * its default; ids never change, params.c). The tempo is set only with SCENE TEMPO on (tempo.c), and the mix's
  * effects (DRIVE, FILTER, COMPRESSOR, GRAIN, REVERB) only with SCENE FX at RECALL (and by the boot's load): at KEEP, the
@@ -159,13 +160,16 @@ static void scn_name_of(uint32_t idx, char *s)  /* "F003 GARDEN RAIN", "U05 WATE
 }
 
 /* ---- the defaults a load starts from: the grain delay and its SYNC, the reverb, the compressor,
- * the drive, the mix's filter, the LFOs, the envelopes, the followers, the matrix (in that order; SCN_DEF_N of them) */
+ * the drive, the mix's filter, the GROOVE's AMOUNT TYPE SHIFT (the globals after the filter's), the LFOs, the
+ * envelopes, the followers, the matrix, each lane's GROOVE PART and CYCLE (in that order; SCN_DEF_N of them) */
 #define SCN_DEF_GLOB 0u                          /* (the lanes' FILTER once came first: retired) */
-#define SCN_DEF_LFO (SCN_DEF_GLOB + TX_GD_NP + 1u + TX_RV_NP + TX_CP_NP + TX_DR_NP + TX_MF_NP)
+#define SCN_DEF_LFO (SCN_DEF_GLOB + TX_GD_NP + 1u + TX_RV_NP + TX_CP_NP + TX_DR_NP + TX_MF_NP + 3u)
 #define SCN_DEF_ENV (SCN_DEF_LFO + TX_LFO_N * TX_LP_N)
 #define SCN_DEF_FOL (SCN_DEF_ENV + TX_ENV_N * TX_EP_N)
 #define SCN_DEF_MAT (SCN_DEF_FOL + TX_FOL_N * TX_FP_N)
-#define SCN_DEF_N (SCN_DEF_MAT + MOD_NS * MQ_N + 1u)
+#define SCN_DEF_GRV (SCN_DEF_MAT + MOD_NS * MQ_N + 1u)   /* each lane's GROOVE PART and CYCLE */
+#define SCN_DEF_N (SCN_DEF_GRV + 2u * SC_N)
+typedef char scn_grv_after_mf[PG_GRV0 == PG_MF0 + TX_MF_NP ? 1 : -1];   /* (scn_def_id counts on it) */
 static uint8_t scn_lfo_def[TX_LFO_N][TX_LP_N];  /* (tx_lfo_init's, per LFO: taken at boot) */
 static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id */
 {
@@ -176,21 +180,25 @@ static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id *
         i -= TX_GD_NP + 1u;
         if (i < TX_RV_NP) return PID(P_GLOBAL, PG_REVERB0 + i);
         i -= TX_RV_NP;
-        if (i >= TX_CP_NP + TX_DR_NP) return PID(P_GLOBAL, PG_MF0 + i - TX_CP_NP - TX_DR_NP);
+        if (i >= TX_CP_NP + TX_DR_NP) return PID(P_GLOBAL, PG_MF0 + i - TX_CP_NP - TX_DR_NP);   /* (and GROOVE's,
+                                                 * PG_GRV0 .. : right after the filter's) */
         return PID(P_GLOBAL, i < TX_CP_NP ? PG_COMP0 + i : PG_DRIVE0 + i - TX_CP_NP);
     }
     if (i < SCN_DEF_ENV) { i -= SCN_DEF_LFO; return PID(P_LFO, i / TX_LP_N * 16u + i % TX_LP_N); }
     if (i < SCN_DEF_FOL) { i -= SCN_DEF_ENV; return PID(P_ENV, i / TX_EP_N * 16u + i % TX_EP_N); }
     if (i < SCN_DEF_MAT) { i -= SCN_DEF_FOL; return PID(P_ENV, MV_FOL0 + i / TX_FP_N * 16u + i % TX_FP_N); }
-    i -= SCN_DEF_MAT;
-    return PID(P_MAT, i < MOD_NS * MQ_N ? i : MQ_CC);
+    if (i < SCN_DEF_GRV) { i -= SCN_DEF_MAT; return PID(P_MAT, i < MOD_NS * MQ_N ? i : MQ_CC); }
+    i -= SCN_DEF_GRV;
+    return PID(i / 2u, PL_GPART + (i & 1u));
 }
 static int32_t scn_def_of(uint32_t id)          /* an id's default (-1: none: the cards, the tempo) */
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
+    const p_gx_t *g = p_gx(id);                 /* (SYNC; GROOVE: light and loose, each lane AUTO: a scene from before
+                                                 * it gets these) */
+    if (g) return g->def == PGX_NODEF ? -1 : g->def;
     if (s < SC_N) return -1;
     if (s == P_GLOBAL) {
-        if (i == PG_GSYNC) return 0;
         if (i < PG_REVERB0) return tx_fx_grain_params[PG_GDE(i)].def;
         if (i >= PG_REVERB0 && i < PG_REVERB0 + TX_RV_NP) return tx_fx_reverb_params[i - PG_REVERB0].def;
         if (i >= PG_COMP0 && i < PG_COMP0 + TX_CP_NP) return tx_comp_params[i - PG_COMP0].def;

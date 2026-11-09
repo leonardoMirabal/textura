@@ -44,10 +44,11 @@
 4400 expect state gdmod 0
 4400 expect state gdwow 0
 4400 expect sound
-# the matrix (ARP): LFO 1 > GRAIN MOD (the last TARGET), depth +50 %: the route holds MOD; gone: MOD back to its base
+# the matrix (ARP): LFO 1 > GRAIN MOD (the one before the last TARGET, GROOVE AMOUNT), depth +50 %: the route holds MOD; gone: MOD back to its base
 4500 btn 10
 4520 turn 2 1
 4540 turn 3 200
+4550 turn 3 -1
 4560 expect state card1 GRAIN_MOD
 4580 turn 4 50
 4700 expect state routes 1

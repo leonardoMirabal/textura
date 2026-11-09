@@ -10,6 +10,7 @@
  *           36 .. 41  retired (a lane's FILTER, up to one firmware: the mix has one FILTER now, globals 52 .. 55; a
  *                     scene's records of them are skipped)
  *           42 .. 47  reserved (a lane's COMPRESSOR, one firmware's: a scene's records of them are ignored)
+ *           48 49     GROOVE: the lane's PART (AUTO PULSE OFFBEAT FILL FREE), CYCLE (AUTO, 2 .. 9 pulses over the span)
  *   global  0 .. 11   GRAIN DELAY (tx_fx_grain_params order)   12 its SYNC (tempo.c)
  *           16 .. 25  REVERB (tx_fx_reverb_params order)
  *           26 .. 31  COMPRESSOR: COMP THR ATK REL RAT MKUP (tx_comp_params order; Frodhes' COMPRESSOR's)
@@ -23,6 +24,7 @@
  *                     COMPRESSOR)
  *           52 .. 55  FILTER: LOW CUT HIGH CUT RESONANCE SLOPE (tx_fx_mfilter_params order): the mix's, right after the
  *                     DRIVE (a band: a high-pass, then a low-pass; both at their ends: off)
+ *           56 .. 58  GROOVE: AMOUNT TYPE SHIFT (groove.c; not an effect: a scene keeps them whatever SCENE FX says)
  *   5       LFO n (0..7): n x 16 + SHAPE RATE SYNC MODE PHASE WIDTH JITTER FADE RESTART LEVEL (tx_lfo_params order),
  *           10 NOW 11 ROUTES (read only)
  *   6       ENV n (0..1): n x 16 + TRIGGER ATTACK DECAY RELEASE SUSTAIN CURVE VARY LOOP (tx_env_params order);
@@ -66,10 +68,12 @@ static void p_cat(char *d, const char *s, uint32_t max) { uint32_t n = 0; while 
 #define P_ENV 6u                                /* the envelopes: n x 16 + param; the followers: 32 + n x 16 + param (mod.c) */
 #define P_MODS(s) ((s) == P_LFO || (s) == P_ENV || (s) == P_MAT)   /* the modulation's scopes (mod.c's) */
 #define NOID_P 0xFFFFu
-enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_ODRIVE0 = 32, PL_OFILTER0 = 36 };   /* (PL_OFILTER0:
+enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_ODRIVE0 = 32, PL_OFILTER0 = 36, PL_GPART = 48,
+       PL_GCYC };   /* (PL_OFILTER0:
                                                  * the retired lane FILTER's ids, 36 .. 41) */
 enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP0 = 26, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN, PG_TAP,
-       PG_SCNTEMPO, PG_SCNFX, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR, PG_DRIVE0 = 48, PG_MF0 = 52, PG_N_ = 56 };   /* (PL_ODRIVE0:
+       PG_SCNTEMPO, PG_SCNFX, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR, PG_DRIVE0 = 48, PG_MF0 = 52, PG_N_ = 56,
+       PG_GRV0 = 56, PG_GTYPE, PG_GSHIFT };   /* (PL_ODRIVE0:
                                                  * the retired lane DRIVE's ids; pv_glob: the effects' values, 0 .. 55) */
 /* the GRAIN delay's ids: its params 0 .. 11 at 0 .. 11, SYNC 12 (the tempo's), its appended ones (MOD, MOD RATE,
  * INTERVALS) at 13 .. 15 */
@@ -80,7 +84,7 @@ typedef char pg_gd_fits[TX_GD_NP + 1 <= PG_REVERB0 - PG_GRAIN0 ? 1 : -1];
 
 /* how a value reads */
 enum { F_NUM, F_ENUM, F_ONOFF, F_SOUND, F_COUNT, F_ACTIVE, F_PAN, F_HZ_FL, F_MS_GD, F_MS_GS, F_MS_PD, F_SEMI,
-       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_THR, F_R10, F_GAIN, F_MIX, F_HZ_LO, F_HZ_HI };
+       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_THR, F_R10, F_GAIN, F_MIX, F_HZ_LO, F_HZ_HI, F_GRV };
 static const char *const N_DRIVE[] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
 static const char *const N_REVERB[] = {"OFF", "ROOM", "HALL", "INFINITE", "DARK", "DRIFT", "SWELL", "PLATE"};
 static const char *const N_SHIFT[] = {"+OCT", "+5TH", "+OCT+5", "-OCT"};
@@ -91,6 +95,7 @@ static const char *const N_IVL[] = {"NONE", "OCTAVES", "5TH+OCT", "4TH+5TH", "MA
                                                  * GRAIN's INTERVALS */
 static const char *const N_SLOPE[] = {"12 dB", "24 dB"};   /* the mix's FILTER: its edges' steepness */
 static const char *const N_RATIO[] = {"1.5:1", "2:1", "3:1", "4:1", "6:1", "8:1", "10:1", "20:1"};   /* (Frodhes') */
+static const char *const N_GPART[] = {"AUTO", "PULSE", "OFFBEAT", "FILL", "FREE"};   /* GROOVE: a lane's PART */
 
 /* ---- COLOR (DISPLAY K1): the screen's palette, Frodhes' (its ui.c, COLOR_ACC) with RED first: step 0 RED and 1 AMBER
  * are gfx.c's own ramps (RED the default: the screen as before), then 25 pastel hues around the colour wheel, hue
@@ -161,23 +166,32 @@ static uint8_t scn_fx_recall;                   /* SCENE FX: 0 KEEP (a load leav
                                                  * REVERB as they are, their tails ringing), 1 RECALL (scenes.c) */
 static uint32_t tm_get(uint32_t what);
 /* the globals that are not an effect's: the tempo's and the clock's (tempo.c holds their values) */
-typedef struct { uint8_t idx; const char *lab; uint16_t hi; uint8_t fmt; } p_gx_t;
+/* and GROOVE's (groove.c: AMOUNT TYPE SHIFT, the values in pv_glob; a lane's PART and CYCLE, idx | PGX_LANE); def: a
+ * scene's default (PGX_NODEF: none, scenes.c) */
+#define PGX_LANE 0x80u
+#define PGX_NODEF 0xFFu
+typedef struct { uint8_t idx; const char *lab; uint16_t hi; uint8_t fmt, def; } p_gx_t;
 static const p_gx_t PGX[] = {
-    {PG_GSYNC, "SYNC", 14, F_DIV}, {PG_BPM, "BPM", 200, F_BPM}, {PG_FINE, "FINE", 2000, F_BPM10},
-    {PG_STATUS, "STATUS", 0, F_STATUS}, {PG_RUN, "TRANSPORT", 1, F_RUN}, {PG_TAP, "TAP", 127, F_NUM},
-    {PG_CLOCK, "CLOCK", 3, F_ENUM}, {PG_INUSB, "CLK IN USB", 1, F_ONOFF}, {PG_INTRS, "CLK IN TRS", 1, F_ONOFF},
-    {PG_OUT, "CLK OUT", 1, F_ENUM}, {PG_SCNTEMPO, "SCENE TEMPO", 1, F_ONOFF}, {PG_SCNFX, "SCENE FX", 1, F_ENUM}, {PG_COLOR, "COLOR", COLOR_N - 1u, F_ENUM},
+    {PG_GSYNC, "SYNC", 14, F_DIV, 0}, {PG_BPM, "BPM", 200, F_BPM, PGX_NODEF}, {PG_FINE, "FINE", 2000, F_BPM10, PGX_NODEF},
+    {PG_STATUS, "STATUS", 0, F_STATUS, PGX_NODEF}, {PG_RUN, "TRANSPORT", 1, F_RUN, PGX_NODEF},
+    {PG_TAP, "TAP", 127, F_NUM, PGX_NODEF}, {PG_CLOCK, "CLOCK", 3, F_ENUM, PGX_NODEF},
+    {PG_INUSB, "CLK IN USB", 1, F_ONOFF, PGX_NODEF}, {PG_INTRS, "CLK IN TRS", 1, F_ONOFF, PGX_NODEF},
+    {PG_OUT, "CLK OUT", 1, F_ENUM, PGX_NODEF}, {PG_SCNTEMPO, "SCENE TEMPO", 1, F_ONOFF, PGX_NODEF},
+    {PG_SCNFX, "SCENE FX", 1, F_ENUM, PGX_NODEF}, {PG_COLOR, "COLOR", COLOR_N - 1u, F_ENUM, PGX_NODEF},
+    {PG_GRV0, "AMOUNT", 127, F_NUM, TX_GR_AMOUNT_DEF}, {PG_GTYPE, "TYPE", TX_GR_NTYPES - 1u, F_GRV, TX_GR_TYPE_DEF},
+    {PG_GSHIFT, "SHIFT", 31, F_NUM, 0}, {PGX_LANE | PL_GPART, "PART", TX_GRP_N - 1, F_ENUM, 0},
+    {PGX_LANE | PL_GCYC, "CYCLE", 8, F_GRV, 0},
 };
 static const p_gx_t *p_gx(uint32_t id)
 {
-    uint32_t i;
-    if (P_SCOPE(id) != P_GLOBAL) return 0;
-    for (i = 0; i < sizeof PGX / sizeof PGX[0]; i++) if (PGX[i].idx == P_IDX(id)) return &PGX[i];
+    uint32_t i, x = P_IDX(id) | (P_SCOPE(id) < P_LANES ? PGX_LANE : 0u);
+    if (P_SCOPE(id) != P_GLOBAL && x < PGX_LANE) return 0;
+    for (i = 0; i < sizeof PGX / sizeof PGX[0]; i++) if (PGX[i].idx == x) return &PGX[i];
     return 0;
 }
 
 /* the effects' values (the drive, its filter, the compressor, the grain delay, the reverb) */
-static uint8_t pv_glob[PG_N_];
+static uint8_t pv_glob[PG_GSHIFT + 1];          /* (and GROOVE's AMOUNT TYPE SHIFT, 56 .. 58) */
 
 /* ---- the cards of each lane's sound, resolved when its sound changes */
 typedef struct {
@@ -334,13 +348,13 @@ static uint32_t p_fmt(uint32_t id)
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
     if (P_MODS(s)) return mod_choice(id) ? F_ENUM : F_NUM;
+    if (p_gx(id)) return p_gx(id)->fmt;
     if (s < P_LANES) {
         if (i == PL_SOUND) return F_SOUND;
         if (i == PL_COUNT) return F_COUNT;
         if (i == PL_ACTIVE) return F_ACTIVE;
         if (i == PL_PAN) return F_PAN;
     } else if (s == P_GLOBAL) {
-        if (p_gx(id)) return p_gx(id)->fmt;
         if (i == PG_GRAIN0 + TX_GD_FREEZE) return F_ONOFF;
         if (i == PG_GRAIN0 + TX_GD_TIME) return F_MS_GD;
         if (i == PG_GRAIN0 + TX_GD_SIZE) return F_MS_GS;
@@ -364,6 +378,7 @@ static uint32_t p_fmt(uint32_t id)
 static const char *const *p_names(uint32_t id)
 {
     uint32_t i = P_IDX(id);
+    if (P_SCOPE(id) < P_LANES) return N_GPART;
     if (i == PG_COMP0 + TX_CP_RATIO) return N_RATIO;
     if (i == PG_DRIVE0 + TX_DR_TYPE) return N_DRIVE;
     if (i == PG_MF0 + TX_MF_SLOPE) return N_SLOPE;
@@ -388,7 +403,7 @@ static int32_t p_get(uint32_t id)
         case PG_SCNFX: return scn_fx_recall;
         case PG_COLOR: return p_color;
         }
-        return i < PG_N_ ? pv_glob[i] : 0;
+        return i <= PG_GSHIFT ? pv_glob[i] : 0;
     }
     if (s >= P_LANES) return 0;
     switch (i) {
@@ -398,6 +413,7 @@ static int32_t p_get(uint32_t id)
     case PL_LEVEL: return (int32_t)sc_vol_of(s);
     case PL_PAN: return sc.pan[s];
     }
+    if (i == PL_GPART || i == PL_GCYC) return gr_set[i - PL_GPART][s];
     if (i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX) return p_card_get(s, i - PL_CARD0);
     return 0;
 }
@@ -422,6 +438,7 @@ static void p_set(uint32_t id, int32_t v)
         case PG_SCNTEMPO: tempo_scene_flag((uint32_t)v); break;
         case PG_SCNFX: scn_fx_recall = (uint8_t)(v != 0); break;
         case PG_COLOR: color_apply((uint32_t)v); break;
+        default: pv_glob[i] = (uint8_t)v;       /* (GROOVE's; STATUS, read only, never read from it) */
         }
         return;
     }
@@ -443,6 +460,7 @@ static void p_set(uint32_t id, int32_t v)
     case PL_LEVEL: sc_volume(s, (uint32_t)v); return;
     case PL_PAN: sc_pan(s, (uint32_t)v); return;
     }
+    if (i == PL_GPART || i == PL_GCYC) { gr_set[i - PL_GPART][s] = (uint8_t)v; return; }
     if (i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX) { p_card_set(s, i - PL_CARD0, (uint32_t)v); return; }
 }
 /* a value as the screen writes it, and its unit apart (0: none) */
@@ -454,6 +472,9 @@ static const char *p_text(uint32_t id, char *t)
     if (P_MODS(P_SCOPE(id))) return mod_text(id, t);
     switch (f) {
     case F_ENUM: p_strcpy(t, p_names(id)[v], 10); return 0;
+    case F_GRV:                                 /* GROOVE's TYPE (11 characters at most), a lane's CYCLE (AUTO, 2 .. 9) */
+        if (P_SCOPE(id) == P_GLOBAL) tx_groove_name((unsigned)v, t); else if (v) p_fmt_int(t, v + 1); else p_strcpy(t, "AUTO", 5);
+        return 0;
     case F_ONOFF: p_strcpy(t, v ? "ON" : "OFF", 4); return 0;
     case F_SOUND: p_upper(t, sc_sound_name(P_SCOPE(id)), 22); return 0;
     case F_COUNT: if (!v) p_strcpy(t, "OFF", 4); else p_fmt_int(t, LS_COUNT_N[v < LS_NCNT ? v : LS_NCNT - 1]); return 0;   /* (the count the key gives) */
@@ -512,7 +533,7 @@ static uint32_t p_kind(uint32_t id)
 {
     uint32_t f = p_fmt(id);
     if (f == F_ONOFF || f == F_RUN) return PK_TOGGLE;
-    if (f == F_ENUM || f == F_DIV || f == F_SOUND || f == F_COUNT || f == F_ACTIVE) return PK_SELECT;
+    if (f == F_ENUM || f == F_DIV || f == F_GRV || f == F_SOUND || f == F_COUNT || f == F_ACTIVE) return PK_SELECT;
     return PK_AMOUNT;
 }
 
@@ -551,7 +572,7 @@ static const p_cc_t P_CC_GLOBAL[] = {
     {118, PG_COMP0 + TX_CP_RATIO}, {119, PG_COMP0 + TX_CP_MKUP},
     {76, PG_DRIVE0 + TX_DR_AMOUNT}, {77, PG_DRIVE0 + TX_DR_TONE}, {78, PG_DRIVE0 + TX_DR_MIX}, {79, PG_DRIVE0 + TX_DR_TYPE},
     {75, PG_MF0 + TX_MF_LOW}, {74, PG_MF0 + TX_MF_HIGH}, {71, PG_MF0 + TX_MF_RESO}, {70, PG_MF0 + TX_MF_SLOPE},
-    {3, PG_BPM}, {9, PG_TAP}, {80, PG_RUN},
+    {3, PG_BPM}, {9, PG_TAP}, {80, PG_RUN}, {84, PG_GRV0},
 };
 /* a 7-bit value onto a parameter's range (0 .. hi): 127 always reaches hi */
 static int32_t p_scale7(uint32_t id, uint32_t v)

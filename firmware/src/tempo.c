@@ -83,7 +83,7 @@ static int tempo_tap(void)
     tap_t[tap_n++] = now;
     if (tap_n >= 3u && tap_t[tap_n - 1u] != tap_t[0]) {
         tempo_set10(600000u * (tap_n - 1u) / (tap_t[tap_n - 1u] - tap_t[0]));
-        beat_t0 = now; beat_k0 = 0;                                          /* re-phase on the tap (bar 1 here) */
+        beat_t0 = now; beat_k0 = 0; gr_rephase = 1;                        /* re-phase on the tap (bar 1 here) */
         return 1;
     }
     return 0;
@@ -173,7 +173,7 @@ static int tempo_clock(uint8_t st, uint32_t stamp, int src)   /* 1: a clock or t
     if (clk_src != src) { clk_h = 0; clk_lock = 0; }   /* (another source: its own history) */
     clk_src = (uint8_t)src;
     clk_src_t = now;
-    if (st == 0xFAu) { clk_k = 0; clk_sp = 0; clk_stop = 0; clk_fa = 1; clk_wait = 1; clk_wait_t = now; beat_t0 = now; beat_k0 = 0; tm.run = 1; return 1; }
+    if (st == 0xFAu) { clk_k = 0; clk_sp = 0; clk_stop = 0; clk_fa = 1; clk_wait = 1; clk_wait_t = now; beat_t0 = now; beat_k0 = 0; gr_rephase = 1; tm.run = 1; return 1; }
     if (st == 0xFBu) { clk_k = clk_sp; clk_stop = 0; clk_fa = 1; clk_wait = 1; clk_wait_t = now; tm.run = 1; return 1; }   /* Continue:
                                                          * from the song position (Stop's, or a Song Position's) */
     if (st == 0xFCu) { clk_stop = 1; tm.run = 0; return 1; }
@@ -282,7 +282,7 @@ static int tempo_transport(int on)                      /* PLAY held: 1 taken; 0
 {
     if (tm.clock == CLK_FOLLOW || clk_follows()) return 0;
     tm.run = (uint8_t)(on != 0);
-    if (on) { beat_t0 = fm1_ms; beat_k0 = 0; }          /* START: bar 1 from here */
+    if (on) { beat_t0 = fm1_ms; beat_k0 = 0; gr_rephase = 1; }   /* START: bar 1 from here */
     return 1;
 }
 static void tempo_mode(uint32_t m)

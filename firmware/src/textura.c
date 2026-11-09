@@ -87,6 +87,7 @@ static void mod_lane_reset_isr(uint32_t k);
 #define LN_CLOCK_US(d) ((uint32_t)(d) / FM1_TICKS_PER_US)
 #define LN_ISR_US() isr_st.last_us              /* the last block's whole interrupt, us (platform.c) */
 #endif
+#include "groove.h"                             /* (GROOVE: lanes.c's hook, LN_GROOVE) */
 #include "lanes.c"
 
 #define TX_PALETTE "RED"                        /* the colour before the settings load (COLOR's default: RED) */
@@ -133,6 +134,7 @@ static uint32_t tx_palette_index(const char *name)
 #include "params.c"
 #include "tempo.c"
 #include "mod.c"
+#include "groove.c"
 #include "presets.c"
 #include "scenes.c"
 #include "ui.c"
@@ -218,6 +220,7 @@ static void app_main(void)
     palette_set(tx_palette_index(TX_PALETTE));
     ln_init();
     sc_init();
+    gr_init();
     p_init();
     mod_init();
     scn_init();
@@ -237,6 +240,7 @@ static void app_main(void)
         p_poll();
         tempo_poll();
         mod_poll();
+        gr_poll();
         scn_poll();
         ui_draw();
         nt_leds(ui_btn_leds());
@@ -394,6 +398,25 @@ static int host_state(const char *key, char *v, unsigned n)
                                                  * FILTER: its edges running (1 LOW CUT, 2 HIGH CUT; 0: untouched) */
     else if (!strcmp(key, "gdsync")) snprintf(v, n, "%u", ln.fx.gd.sync);         /* as the chain has it */
     else if (!strcmp(key, "gdmod")) snprintf(v, n, "%d", (int)ln.fx.gd.mg);   /* the GRAIN's MOD, gliding (Q15) */
+    else if (sscanf(key, "grpart%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", gr_lane[k].part);   /* GROOVE: the
+                                                 * lane's part now (1 PULSE 2 OFFBEAT 3 FILL 4 FREE) */
+    else if (sscanf(key, "grcyc%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", gr_lane[k].cycle);
+    else if (sscanf(key, "grw%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", gr_lane[k].wl);   /* its sound's weight */
+    else if (sscanf(key, "grm%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%d", (int)gr_m[k]);   /* its multiplier, Q12 */
+    else if (sscanf(key, "grnotes%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", grh_n[k]);   /* notes since read */
+    else if (sscanf(key, "grnear%u%c", &k, &c) == 1 && k < SC_N) {   /* the share of them within 1/32 beat of its pulse
+                                                 * (%; the counts start again) */
+        snprintf(v, n, "%u", grh_n[k] ? grh_near[k] * 100u / grh_n[k] : 0u); grh_n[k] = grh_near[k] = 0;
+    }
+    else if (sscanf(key, "grfeel%u%c", &k, &c) == 1 && k < SC_N) {   /* how they fall: FREE (near its pulse no more than
+                                                 * by chance, under 1.5 x), LEANS (more), SNAPS (70 % or more on it: a
+                                                 * beat, never wanted; NONE: the lane has no pulse, a FREE part); the counts start again */
+        uint32_t t, fr = 0, nr = grh_n[k] ? grh_near[k] * 1000u / grh_n[k] : 0u;
+        for (t = 0; t < 96u * 42u; t++) fr += tx_groove_dist(&gr_lane[k], gr_type, gr_shift, t) <= 3;
+        fr = fr * 1000u / (96u * 42u);          /* (by chance: the share of the time that near) */
+        snprintf(v, n, "%s", !fr ? "NONE" : grh_n[k] < 20u ? "FEW" : nr >= 700u ? "SNAPS" : nr * 2u >= fr * 3u ? "LEANS" : "FREE");
+        grh_n[k] = grh_near[k] = 0;
+    }
     else if (!strcmp(key, "gdwow")) snprintf(v, n, "%d", (int)(ln.fx.gd.wq1 != 0));   /* its time drifting now */
     else if (!strcmp(key, "compred")) snprintf(v, n, "%d", tx_comp_gr_db10(&ln.mix.comp) >= 10);   /* the COMPRESSOR
                                                          * reducing 1 dB or more now (its meter's reading) */

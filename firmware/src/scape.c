@@ -454,6 +454,7 @@ static void sc_init(void)
     }
     sc_family(0);
 }
+static int gr_due(uint32_t k);                  /* groove.c: a press due, its gap in the groove's time */
 static void sc_poll(void)
 {
     uint32_t k;
@@ -461,14 +462,14 @@ static void sc_poll(void)
     for (k = 0; k < SC_N; k++) {
         if (sc.a_eng[k] != sc.eng[k] || sc.reswap[k] || sc.a_gate[k] != sc.mute[k]) sc_sync(k);   /* a switch (a mute) that had to wait */
         if (sc.q_rel[k] && (int32_t)(fm1_ms - sc.q_rel[k]) >= 0) { ln_key(k, SC_HOLD_NOTE, 0, 0); sc.q_rel[k] = 0; }
-        if (sc.run[k] && sc.q_next[k] && sc_oneshot(k) && sc.a_eng[k] == sc.eng[k] && (int32_t)(fm1_ms - sc.q_next[k]) >= 0) {
+        if (sc.run[k] && sc.q_next[k] && sc_oneshot(k) && sc.a_eng[k] == sc.eng[k] && gr_due(k)) {
             ln_key(k, SC_HOLD_NOTE, SC_HOLD_VEL, 1);   /* quickPress */
             sc.q_rel[k] = fm1_ms + (sc.q[k]->hold < 2u ? SC_PRESS_MS   /* (a call: hold x 100 ms, 0.5 .. 1.5 x) */
                                     : sc.q[k]->hold * 50u + tx_rand(&sc.rng) % (sc.q[k]->hold * 100u));
             if (!sc.q_rel[k]) sc.q_rel[k] = 1;
             sc.q_next[k] = fm1_ms + sc_quick_gap(k); if (!sc.q_next[k]) sc.q_next[k] = 1;
         }
-        if (sc.run[k] && sc.q_next[k] && sc_turned(k) && sc.a_held[k] && sc.a_eng[k] == sc.eng[k] && (int32_t)(fm1_ms - sc.q_next[k]) >= 0) {
+        if (sc.run[k] && sc.q_next[k] && sc_turned(k) && sc.a_held[k] && sc.a_eng[k] == sc.eng[k] && gr_due(k)) {
             ln_key(k, SC_HOLD_NOTE, 0, 0); ln_key(k, SC_HOLD_NOTE, SC_HOLD_VEL, 1);   /* turned over again */
             sc.q_next[k] = fm1_ms + sc_quick_gap(k); if (!sc.q_next[k]) sc.q_next[k] = 1;
         }

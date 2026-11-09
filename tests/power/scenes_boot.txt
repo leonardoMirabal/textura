@@ -9,6 +9,7 @@
 1700 expect preset
 1800 btn 7
 1820 btn 7
+1825 btn 7
 1840 expect state card0 AUTO
 1840 expect state card3 OFF
 1860 btn 7

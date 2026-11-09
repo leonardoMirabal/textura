@@ -38,7 +38,7 @@ enum { MS_NONE, MS_LFO1, MS_VEL = 9, MS_MODW, MS_AT, MS_CC, MS_ACTIVE, MS_RANDOM
        MS_N = MS_FOL1 + TX_FOL_N };   /* (append only: a scene stores the number) */
 enum { ME_VEL, ME_MODW, ME_AT, ME_CC, ME_ACT1, ME_RANDOM = ME_ACT1 + 4, ME_CONST, ME_ENV1, ME_FOL1 = ME_ENV1 + TX_ENV_N,
        ME_N = ME_FOL1 + TX_FOL_N };   /* mod_ext[] */
-enum { MK_ENG, MK_HOST, MK_PAN, MK_FX, MK_ACT, MK_COUNT, MK_LRATE, MK_LLEVEL };
+enum { MK_ENG, MK_HOST, MK_PAN, MK_FX, MK_ACT, MK_COUNT, MK_LRATE, MK_LLEVEL, MK_GRV };   /* (MK_GRV: GROOVE AMOUNT) */
 #define MT_LANE_N 19u                           /* a lane's targets */
 #define MT_GRAIN0 (1u + 5u * MT_LANE_N)         /* 96 */
 #define MT_REV0 (MT_GRAIN0 + 11u)               /* 107 */
@@ -46,7 +46,8 @@ enum { MK_ENG, MK_HOST, MK_PAN, MK_FX, MK_ACT, MK_COUNT, MK_LRATE, MK_LLEVEL };
 #define MT_DRV0 (MT_LFO0 + 2u * TX_LFO_N)       /* 131: the mix's DRIVE AMOUNT TONE MIX */
 #define MT_MF0 (MT_DRV0 + 3u)                   /* 134: the mix's FILTER LOW CUT HIGH CUT */
 #define MT_GMOD (MT_MF0 + 2u)                   /* 136: the GRAIN delay's MOD */
-#define MT_N (MT_GMOD + 1u)                     /* 137: TARGET 0 (none) .. 136 */
+#define MT_GRV (MT_GMOD + 1u)                   /* 137: GROOVE AMOUNT (groove.c) */
+#define MT_N (MT_GRV + 1u)                      /* 138: TARGET 0 (none) .. 137 */
 #define MT_LDRV 12u                             /* a lane's targets 12 .. 14: its DRIVE once, the mix's now */
 static const uint8_t MT_GRAIN[11] = {TX_GD_MIX, TX_GD_TIME, TX_GD_FEEDBACK, TX_GD_GRAINS, TX_GD_SIZE, TX_GD_SPRAY,
                                      TX_GD_PITCH, TX_GD_REVERSE, TX_GD_SPREAD, TX_GD_TONE, TX_GD_GRAIN};
@@ -92,6 +93,9 @@ static volatile uint32_t mpos_snap_v;
 static void mod_key_isr(uint32_t k, uint32_t vel)   /* a note on (a key, the generator, a lane's start: lanes.c) */
 {
     m_trig |= 1u << (k & 3u);
+#ifdef DINGHY_HOST
+    gr_note_host(k);                            /* (groove.c: how near its pulse each note falls) */
+#endif
     if (m_held[k & 3u] < 255u) m_held[k & 3u]++;
     mod_ext[ME_VEL] = (int16_t)(vel > 127u ? 32767 : vel * 258u);
     m_rng ^= m_rng << 13; m_rng ^= m_rng >> 17; m_rng ^= m_rng << 5;
@@ -173,7 +177,7 @@ static void mod_block(void)
         tx_lfo_block(l, m_lmod >> i & 1u ? m_lrate[i] : l->p[TX_LP_RATE], m_lmod >> (i + 8u) & 1u ? m_llev[i] : l->p[TX_LP_LEVEL], mpos);
     }
     mod_env_block(trig, start);
-    if (mgen != m_seen) { m_seen = mgen; for (t = 0; t < MOD_NT; t++) m_last[t] = -1; m_lmod = 0; }
+    if (mgen != m_seen) { m_seen = mgen; for (t = 0; t < MOD_NT; t++) m_last[t] = -1; m_lmod = 0; gr_amt_on = 0; }
     if (!b->nt) return;
     for (t = 0; t < b->nt; t++) m_sum[t] = 0;
     tx_mod_sum(b->r, b->nr, mod_lfo, (const int16_t *)mod_ext, m_sum);
@@ -187,6 +191,7 @@ static void mod_block(void)
         m_fq8[t] = q; m_final[t] = (int16_t)v;
         if (d->kind == MK_LRATE) { m_lrate[d->lane] = (uint8_t)v; m_lmod |= 1u << d->lane; }
         else if (d->kind == MK_LLEVEL) { m_llev[d->lane] = (uint8_t)v; m_lmod |= 1u << (d->lane + 8u); }
+        else if (d->kind == MK_GRV) { gr_amt_mod = (uint8_t)v; gr_amt_on = 1; }   /* (groove.c reads it this block) */
     }
     for (i = 0; i < b->nt && sent < MOD_SENDS; i++) {   /* the changed ones, in rotation */
         t = (m_rot + i) % b->nt;
@@ -221,6 +226,7 @@ static uint32_t mod_tgt_pid(uint32_t T, uint32_t k)   /* the param id it is on l
     if (!T || T >= MT_N || mod_tgt_retired(T)) return NOID_P;
     if (mod_tgt_drv(T) < TX_DR_NP) return PID(P_GLOBAL, PG_DRIVE0 + mod_tgt_drv(T));
     if (T == MT_GMOD) return PID(P_GLOBAL, PG_GD(TX_GD_MOD));
+    if (T == MT_GRV) return PID(P_GLOBAL, PG_GRV0);
     if (T >= MT_MF0) return PID(P_GLOBAL, PG_MF0 + (T - MT_MF0));   /* (TX_MF_LOW, TX_MF_HIGH) */
     if (T < MT_GRAIN0) {
         static const uint8_t J[MT_LANE_N] = {PL_LEVEL, PL_PAN, PL_COUNT, PL_ACTIVE, PL_CARD0, PL_CARD0 + 1, PL_CARD0 + 2,
@@ -240,6 +246,7 @@ static void mod_tgt_text(uint32_t T, char *s)
     if (!T || T >= MT_N || mod_tgt_retired(T)) { p_strcpy(s, "NONE", 5); return; }
     if (mod_tgt_drv(T) < TX_DR_NP) { p_strcpy(s, "DRV ", 4); p_cat(s, p_lab(mod_tgt_pid(T, 0)), 23); return; }
     if (T == MT_GMOD) { p_strcpy(s, "GRAIN ", 6); p_cat(s, p_lab(mod_tgt_pid(T, 0)), 23); return; }
+    if (T == MT_GRV) { p_strcpy(s, "GROOVE AMOUNT", 23); return; }
     if (T >= MT_MF0) { p_strcpy(s, "FLT ", 4); p_cat(s, p_lab(mod_tgt_pid(T, 0)), 23); return; }
     if (sc_ < 4u) { s[0] = 'L'; s[1] = (char)('1' + sc_); s[2] = ' '; s[3] = 0; }
     else if (sc_ == 4u) p_strcpy(s, "ALL ", 4);
@@ -280,6 +287,10 @@ static int mod_concrete(uint32_t T, uint32_t k, mt_t *o)   /* target T on lane k
     if (T == MT_GMOD) {                         /* the GRAIN delay's MOD */
         o->kind = MK_FX; o->lane = 0; o->grp = LN_FX_GRAIN; o->pid = TX_GD_MOD;
         o->hi = (uint8_t)p_hi(id); o->base = (int16_t)pv_glob[i];
+        return 1;
+    }
+    if (T == MT_GRV) {                          /* GROOVE AMOUNT (the interrupt sets groove.c's gr_amt_mod) */
+        o->kind = MK_GRV; o->lane = 0; o->hi = 127; o->base = gr_amount;
         return 1;
     }
     if (T >= MT_MF0) {                          /* the mix's FILTER (the DRIVE's group: the mix's first stage) */
@@ -422,7 +433,8 @@ static void mod_pos_poll(void)
     err = (int32_t)(want - p);
     if (err > (int32_t)(MPOS_W / 2u)) err -= (int32_t)MPOS_W;
     if (err < -(int32_t)(MPOS_W / 2u)) err += (int32_t)MPOS_W;
-    if (err > (96 << 7) || err < -(96 << 7)) { mpos_snap_v = want; mpos_snap = 1; }
+    if (gr_rephase || err > (96 << 7) || err < -(96 << 7)) { mpos_snap_v = want; mpos_snap = 1; gr_rephase = 0; }   /* (bar 1
+                                                 * anew, tempo.c: the position snaps there, not glides) */
     else if (!mpos_nudge) mpos_nudge = err / 8;
 }
 static void mod_poll(void)

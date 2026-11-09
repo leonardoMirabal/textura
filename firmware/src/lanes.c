@@ -605,7 +605,16 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
         if (ln.gen_on[k] && ln.mix.e[k]) {      /* the lane's generator: its activity and notes */
             tx_gen_ev_t ev[TX_GEN_EV_MAX];
             uint8_t in;
-            unsigned ne = tx_gen_block(&ln.gen[k], n, ev, TX_GEN_EV_MAX, &in), q;
+            unsigned ne, q;
+#ifdef LN_GROOVE
+            int32_t gm = gr_isr(k);             /* GROOVE (groove.c): the notes' rate leans to its pulse, ACTIVITY the
+                                                 * same way; 4096: untouched */
+            ln.gen[k].rlean = (int16_t)(gm - 4096);
+#endif
+            ne = tx_gen_block(&ln.gen[k], n, ev, TX_GEN_EV_MAX, &in);
+#ifdef LN_GROOVE
+            if (gm != 4096) in = gr_act(gm, in);
+#endif
             if (ln.int_id[k] >= 0) ln.mix.e[k]->param(ln.mix.st[k], (uint8_t)ln.int_id[k], in);
             for (q = 0; q < ne && !ln.gen_mute[k]; q++) {
                 ln.mix.e[k]->key(ln.mix.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);

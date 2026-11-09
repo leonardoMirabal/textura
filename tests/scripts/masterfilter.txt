@@ -43,14 +43,16 @@
 2620 expect state p435 0
 3200 expect rms > -80
 3200 expect sound
-# the matrix (ARP): LFO 1 > FLT HIGH CUT (the one before the last TARGET, GRAIN MOD), depth +30 %; the chain is held by the
+# the matrix (ARP): LFO 1 > FLT HIGH CUT (two before the last TARGET, GROOVE AMOUNT: GRAIN MOD between), depth +30 %; the chain is held by the
 # route; the route gone: HIGH CUT back to its base
 3300 midi 0xB4 75 30
 3310 midi 0xB4 74 90
 3400 btn 10
 3420 turn 2 1
 3440 turn 3 200
-3450 expect state card1 GRAIN_MOD
+3450 expect state card1 GROOVE_AMOUNT
+3452 turn 3 -1
+3453 expect state card1 GRAIN_MOD
 3455 turn 3 -1
 3460 expect state card1 FLT_HIGH_CUT
 3480 turn 4 30

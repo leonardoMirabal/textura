@@ -3,7 +3,7 @@
 firmware runs (the splash, then the LANDSCAPE page on the screen), ?selftest starts the landscape and it sounds, the
 on-screen keys reach the firmware and its key LEDs come back (a black key selects its group's lane, LANDSCAPE stays,
 held it mutes the lane; a white key starts it), the knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
-tests/py/test_web_knobs.py), HOME turns to MIXER, EDIT to SOUND, FX to DRIVE / FILTER / COMPRESSOR / GRAIN / REVERB, GLO to TEMPO / MIDI, LFO to
+tests/py/test_web_knobs.py), HOME turns to MIXER, EDIT to SOUND, FX to DRIVE / FILTER / COMPRESSOR / GRAIN / REVERB, GLO to TEMPO / GROOVE / MIDI, LFO to
 LFO, ARP to MATRIX (the captions follow), SAVE saves a scene that a reload brings back, and the page fits a phone (390 px, no sideways scroll). Screenshots at desktop and phone width.
 
     make fw-web-check     (PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py)
@@ -166,11 +166,15 @@ def main():
         glo.click(delay=60)
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "TEMPO", "GLO: the TEMPO page")
-        check(glo.locator("small").inner_text() == "MIDI", "GLO's caption on TEMPO: MIDI")
+        check(glo.locator("small").inner_text() == "GROOVE", "GLO's caption on TEMPO: GROOVE")
         pg.screenshot(path=os.path.join(OUT, "desktop-tempo.png"))
         glo.click(delay=60)
         pg.wait_for_timeout(300)
-        check(pg.evaluate(PAGE) == "MIDI", "GLO again: the MIDI page")
+        check(pg.evaluate(PAGE) == "GROOVE", "GLO again: the GROOVE page")
+        check(glo.locator("small").inner_text() == "MIDI", "GLO's caption on GROOVE: MIDI")
+        glo.click(delay=60)
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(PAGE) == "MIDI", "GLO a third time: the MIDI page")
         # LFO: the LFO pages (the caption: the next one / learn); ARP: the MATRIX
         lfo, arp = pg.locator('button.b[data-name="LFO"]'), pg.locator('button.b[data-name="ARP"]')
         check(lfo.locator("small").inner_text() == "LEARN · AGAIN: LFO" and arp.locator("small").inner_text() == "MATRIX",

@@ -57,13 +57,15 @@
 5700 turn 4 -12
 5720 expect state card2 FREE
 5740 expect state gdsync 0
-# GLO, SELECT: SCENE TEMPO (off: a scene keeps the tempo that plays); GLO: MIDI
+# GLO, SELECT: SCENE TEMPO (off: a scene keeps the tempo that plays); GLO: GROOVE, again: MIDI
 5800 btn 7
 5810 turn 0 1
 5815 expect state page TEMPO_2/2
 5815 expect state lab0 SCENE_TEMPO
 5815 expect state card0 OFF
 5820 btn 7
+5825 expect state page GROOVE_1/2
+5830 btn 7
 5840 expect state page MIDI
 5840 expect state lab0 CLOCK
 5840 expect state card0 AUTO
