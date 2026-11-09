@@ -143,6 +143,7 @@ typedef struct {
     int32_t hot, slv;                            /* FEEDBACK past 1: the share of its excess let through (Q12; under 0
                                                   * down to -0.75 dB a pass), the loop's peak as heard (Q22, falling back
                                                   * over ~3 s) */
+    int32_t fbl;                                 /* FEEDBACK's gain the last block ended on (Q15; -1: none) */
     tx_gd_grain_t g[TX_GD_MAXG];
     uint32_t sync;                               /* the echo's delay from the tempo, samples (0: TIME's) */
     uint8_t ahead;                               /* (begin: the voices run before the input, this block) */

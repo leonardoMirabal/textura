@@ -84,6 +84,7 @@ void tx_fx_grain_init(tx_fx_grain_t *d)
     d->wg = 32768;
     d->cap = TX_GD_MAXG;
     d->gc = d->gct = d->gcr = d->hot = 4096;
+    d->fbl = -1;
 }
 void tx_fx_grain_sync(tx_fx_grain_t *d, unsigned samples)
 {
@@ -368,7 +369,7 @@ TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
         d->wg = 0;                                      /* (the line fades in, 10 ms: its first echo never starts on a
                                                          * step of the sound it caught mid-way) */
         d->gbl = gb > 32768 ? 32768 : gb;
-        d->gc = d->gct = d->gcr = d->hot = 4096; d->sae = d->saf = d->slv = 0;
+        d->gc = d->gct = d->gcr = d->hot = 4096; d->sae = d->saf = d->slv = 0; d->fbl = -1;
         for (k = 0; k < TX_GD_MAXG; k++) d->g[k].on = 0;
         d->mg = d->wm = d->wq1 = 0;
         for (k = 0; k < 4u; k++) d->dt[k] = d->da[k] = d->du[k] = 0;
@@ -499,6 +500,7 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
     int32_t gnt = cap ? (int32_t)(65536u / (cap < 2u ? 2u : cap)) : 0;   /* the grains' level: 2 / sounding (Q15) */
     int32_t *e = d->we, *sl = d->wl, *sr = d->wr;
     int32_t gs[2], gc[2];                               /* MIX: the wet / dry gains at the block's edges (Q15) */
+    int32_t fq, dfq;                                    /* FEEDBACK's gain along the block (Q8 of Q15), its step */
     int dry;
     if (n > TX_BLOCK) n = TX_BLOCK;
     if (!d->on) return;                                 /* (MIX 0 and faded: begin left it off) */
@@ -525,6 +527,12 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
     if (fbk > 32768)                                    /* (past 1: the share the level allows; over the wall, less) */
         fbk = d->hot >= 0 ? 32768 + (((fbk - 32768) * d->hot) >> 12) : 32768 + ((5208 * d->hot) >> 12);   /* (5208:
                                                          * -1.5 dB at -4096, -0.75 at the floor) */
+    {   /* FEEDBACK's gain ramps over the block from the last block's (Frodhes a539d91d: it stepped once a block, a zipper
+         * in every repeat while FEEDBACK moved or the wall's share changed); Q8 steps, 0 while it holds */
+        int32_t f0 = d->fbl < 0 ? fbk : d->fbl;
+        fq = f0 * 256; dfq = (fbk - f0) * 256 / (int32_t)n;
+        d->fbl = fbk;
+    }
     dry = !gb && !d->gbl;
     w0 = d->w;
     TX_FAR(tx_fx_mix_glide)(&d->mix, mixt, 16 * (int32_t)n, 1u, gs, gc);   /* (MIX glides: 46 ms end to end; in flash) */
@@ -554,6 +562,7 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
         f = d->lp;
         if (f > GD_KNEE) f = GD_KNEE + tx_fx_softclip((f - GD_KNEE) >> 6) * 64;
         else if (f < -GD_KNEE) f = -GD_KNEE - tx_fx_softclip((-f - GD_KNEE) >> 6) * 64;
+        if (dfq) { fq += dfq; fbk = fq >> 8; }
         f = mq15z(f, fbk);
         d->dcy = op15(d->dcy, f, 8, &d->dce);
         f -= d->dcy;

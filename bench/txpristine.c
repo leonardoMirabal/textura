@@ -21,12 +21,15 @@
  *             largest second difference at a block's edge re the largest inside the blocks (1 = none). Reported
  *     dip     KHLON only, AMOUNT 125 <-> 126 (its two modes, through the dry signal) every 40 blocks, a 345 Hz sine
  *             (2 cycles a block: each block's level steady): the largest block-to-block level jump (dB). Reported
+ *   GRAIN DELAY: FEEDBACK 20 .. 60 .. 20 by 3 a block under a 220 Hz sine (GRAIN 0, MIX 127, TIME 20; under 64,
+ *     where the loop's make-up stays out): the energy above 1.5 kHz re the whole (dB; the sine and its echoes have none:
+ *     the loop gain's steps; FEEDBACK held: ~-63). Reported
  *   LIMITER (tx_core_limit, the pair interleaved as the mix runs it):
  *     chord   four sines (196 247 294 392 Hz) peaking 4 dB over the ceiling, 0.25 s on / 0.25 s off (5 ms edges):
  *             the energy above 5 kHz re the whole (dB; the chord has none: the gain's own steps and clicks), the
  *             largest output (never over -1 dBFS: judged)
  *     bass    a 55 Hz sine 2 dB over: H2..H9 re H1 (dB), reported
- *   COMPRESSOR (tx_core_comp at THR 40 RAT 80 (4:1), MKUP 0): a 41 Hz sine at -30 dBFS: the worst of H2..H5 re H1,
+ *   COMPRESSOR (tx_core_comp at THR 127 (-40 dBFS), RAT 3 (4:1), MKUP 0): a 41 Hz sine at -30 dBFS: the worst of H2..H5 re H1,
  *     reported */
 #include <math.h>
 #include <stdio.h>
@@ -223,6 +226,34 @@ static void drv_dip(void)
     printf("DRIVE KHLON dip (AMOUNT 125 <-> 126): the largest block-to-block level jump %.2f dB\n", jump);
 }
 
+/* ---- the GRAIN DELAY: FEEDBACK moving (a modulated FEEDBACK) under a steady 220 Hz sine, GRAIN 0 (the echo alone),
+ * MIX 127, TIME 20: the largest second difference at a block's edge re inside (1 = none) */
+static void gd_zipper(void)
+{
+    tx_fx_grain_t *d = calloc(1, sizeof *d);
+    int b, j, f = 20, df = 3, nb = 600;
+    double *o = malloc(sizeof(double) * nb * NB), tot = 0, hf = 0;
+    tx_fx_grain_init(d);
+    tx_fx_grain_param(d, TX_GD_MIX, 127); tx_fx_grain_param(d, TX_GD_GRAIN, 0); tx_fx_grain_param(d, TX_GD_TIME, 20);
+    tx_fx_grain_param(d, TX_GD_FEEDBACK, 20);
+    for (b = 0; b < nb; b++) {
+        if (b >= 200) { f += df; if (f >= 60 || f <= 20) df = -df; tx_fx_grain_param(d, TX_GD_FEEDBACK, (unsigned)f); }
+        for (j = 0; j < (int)NB; j++) L[j] = R[j] = (int32_t)lrint(500000.0 * sin(2.0 * M_PI * 220.0 * (double)(b * NB + j) / FS));
+        tx_fx_grain_process(d, L, R, NB);
+        for (j = 0; j < (int)NB; j++) o[b * NB + j] = L[j];
+    }
+    {   /* the last second: the energy above 1.5 kHz re the whole (the sine and its echoes are 220 Hz) */
+        const double *t = o + nb * NB - FS;
+        int k;
+        for (j = 0; j < FS; j++) tot += t[j] * t[j];
+        tot *= FS / 2.0;
+        for (k = 1500; k < FS / 2; k += 10) hf += bin2(t, FS, k) * 10.0;
+    }
+    printf("GRAIN DELAY zipper: FEEDBACK 20 .. 60 .. 20 by 3 a block under a 220 Hz sine: the energy above 1.5 kHz "
+           "%.1f dB re the whole\n", db(hf / tot));
+    free(d); free(o);
+}
+
 /* ---- the LIMITER and the COMPRESSOR */
 static void lim_chord(void)
 {
@@ -278,7 +309,7 @@ static void comp_quiet(void)
     int32_t a[NB], r[NB];
     double *o = malloc(sizeof(double) * nb * NB), h1, hw = -300;
     tx_comp_init(c);
-    tx_comp_param(c, TX_CP_ON, 1); tx_comp_param(c, TX_CP_THR, 40); tx_comp_param(c, TX_CP_RATIO, 80); tx_comp_param(c, TX_CP_MKUP, 0);
+    tx_comp_param(c, TX_CP_ON, 1); tx_comp_param(c, TX_CP_THR, 127); tx_comp_param(c, TX_CP_RATIO, 3); tx_comp_param(c, TX_CP_MKUP, 0);
     for (b = 0; b < nb; b++) {
         for (i = 0; i < (int)NB; i++) a[i] = r[i] = (int32_t)lrint(8388608.0 * pow(10.0, -1.5) * sin(2.0 * M_PI * 41 * (double)(b * NB + i) / FS));
         tx_comp_process(c, a, r, NB);
@@ -286,7 +317,7 @@ static void comp_quiet(void)
     }
     h1 = bin2(o + nb * NB - FS, FS, 41);
     for (k = 2; k <= 5; k++) { double h = db(bin2(o + nb * NB - FS, FS, 41 * k) / h1); if (h > hw) hw = h; }
-    printf("COMPRESSOR (THR 40, 4:1) a 41 Hz sine at -30 dBFS: the worst of H2..H5 re H1 %.1f dB (gain reduction %.1f dB)\n",
+    printf("COMPRESSOR (THR 127, 4:1) a 41 Hz sine at -30 dBFS: the worst of H2..H5 re H1 %.1f dB (gain reduction %.1f dB)\n",
            hw, tx_comp_gr_db10(c) / 10.0);
     free(c); free(o);
 }
@@ -301,6 +332,7 @@ int main(int argc, char **argv)
     drv_rest();
     drv_zipper();
     drv_dip();
+    gd_zipper();
     lim_chord();
     lim_bass();
     comp_quiet();
