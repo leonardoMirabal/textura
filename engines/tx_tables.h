@@ -6,7 +6,8 @@
 
 extern const uint16_t TX_LOG2_FRAC[257];
 extern const uint32_t TX_EXP2_FRAC[257];
-extern const int16_t TX_QSIN[257];
+#include "tx_fx_tables.h"
+#define TX_QSIN TX_FX_SINE                /* sin(i/256 * pi/2) in Q15, i = 0..256: TX_FX_SINE's first quarter */
 #define TX_PULSE_N 64                 /* points per pulse shape (+1 guard point) */
 extern const int16_t TX_PULSE_HERTZ[65];
 extern const int16_t TX_PULSE_RCOS[65];

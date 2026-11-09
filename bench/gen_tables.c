@@ -40,10 +40,10 @@ int main(int argc, char **argv)
     for (i = 0; i <= 256; i++) v[i] = (long)llround(pow(2.0, i / 256.0) * 1073741824.0);
     fprintf(f, "/* 2^(i/256) in Q30, i = 0..256 (2^30 .. 2^31) */\n");
     row(f, "uint32_t", "TX_EXP2_FRAC", v, 257, 8);
-    /* quarter sine, Q15 */
-    for (i = 0; i <= 256; i++) v[i] = lround(sin(i / 256.0 * M_PI / 2.0) * lim);
-    fprintf(f, "/* sin(i/256 * pi/2) in Q15, i = 0..256 (a quarter period) */\n");
-    row(f, "int16_t", "TX_QSIN", v, 257, 12);
+    /* quarter sine, Q15: the first quarter of the effects' full-cycle sine (TX_FX_SINE, lround(32767 sin(2 pi i / 1024)):
+     * the same 257 values), so the device keeps one copy */
+    fprintf(hdr, "#include \"tx_fx_tables.h\"\n"
+                 "#define TX_QSIN TX_FX_SINE                /* sin(i/256 * pi/2) in Q15, i = 0..256: TX_FX_SINE's first quarter */\n");
     /* pulse shapes, PULSE_N + 1 points each (the last is the end value), Q15 */
     fprintf(hdr, "#define TX_PULSE_N %d                 /* points per pulse shape (+1 guard point) */\n", PULSE_N);
     for (i = 0; i <= PULSE_N; i++) {               /* Hertz contact force: sin^1.5 over the contact */
