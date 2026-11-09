@@ -4,7 +4,8 @@
  * summed with it in an inverting amp with an active treble control (TONE: cut .. boost). AMOUNT 1..127 is the GAIN
  * knob from its minimum (a clean boost) to its maximum; TONE is the TREBLE knob.
  * Frodhes' drv_khlon.c (TYPE 2 there) as an instance (included by tx_fx_drive.c): the same integers out (checked
- * against Frodhes' file, bit for bit, on moving knobs), its state in tx_drv_kh_t, its two scratch blocks shared.
+ * against Frodhes' file, bit for bit, on moving knobs; with its 0.9.6 dip at the wet's level and 0.9.10 POST in Q8
+ * since), its state in tx_drv_kh_t, its two scratch blocks shared.
  *
  * Per sample, loops over the block, signals in volts Q20 (the bus x 32: 1.0 V for the engine's full scale):
  *   O1   the gain stage, a biquad (transposed form II, 64-bit states)                 in -> t1
@@ -74,7 +75,7 @@ static void kh_load(tx_drv_kh_t *s)              /* the rows -> the coefficients
     for (i = 0; i < 5; i++) {
         int32_t v = (int32_t)(t[i] ^ 0x80000000u);
         if (th) v = (v + (int32_t)(t[5 + i] ^ 0x80000000u)) >> 1;
-        s->po[i] = i < 3 ? (int32_t)((KH_M64(v, sc) + (1 << 23)) >> 24) : v;
+        s->po[i] = i < 3 ? (int32_t)((KH_M64(v, sc) + (1 << 15)) >> 16) : v;   /* (b x 2^8: POST's output Q8) */
     }
     s->pre = (uint8_t)(gr >= KH_PRE_ROW);
 #if KH_AA
@@ -97,7 +98,7 @@ static void kh_hist(int32_t *h, int32_t x1, int32_t x2, int32_t y1, int32_t y2)
 static void drv_khlon_reset(tx_drv_kh_t *s)
 {
     kh_rest(s);
-    s->ra = 0xFFu; s->dip = s->held = 0; s->aa = 0;      /* the next run starts at the knobs' rows, no glide */
+    s->ra = 0xFFu; s->dip = s->held = 0; s->aa = 0; s->dg = 4096;      /* the next run starts at the knobs' rows, no glide */
 }
 
 #if KH_AA
@@ -253,38 +254,67 @@ KH_FN void kh_firadd_pass(tx_drv_kh_t *s, const int32_t *t, int32_t *u, uint32_t
     s->v1 = v1;
 }
 #endif
+/* POST, in place, transposed form II. Its output carries 8 bits below the bus's LSB through the recursion (b x 2^8:
+ * kh_load), cut to the bus on the way out (Frodhes 83fa7520): with the output floored to the bus in the loop, its
+ * rounding error went round the poles (a DC gain of ~95 at GAIN 20) and a quiet note (below ~-60 dBFS in) sat in a
+ * dead band or came out at H3 -5..-15 dB, over a standing DC of ~-40 LSB. The last two outputs (Q8) are POST's history
+ * (hpo[2], hpo[3]). */
 KH_FN void kh_post_pass(tx_drv_kh_t *s, int32_t *u, uint32_t n)
 {
-    int32_t b0 = s->po[0], b1 = s->po[1], b2 = s->po[2], a1 = s->po[3], a2 = s->po[4];
+    int32_t b0 = s->po[0], b1 = s->po[1], b2 = s->po[2], a1 = s->po[3], a2 = s->po[4], y = 0, y1 = 0;
     int64_t s1 = s->spo[0], s2 = s->spo[1];
     uint32_t i;
     for (i = 0; i < n; i++) {
-        int32_t x = u[i], y;
-        y = (int32_t)((s1 + KH_M64(b0, x)) >> 24);
+        int32_t x = u[i];
+        int64_t t = s1 + KH_M64(b0, x);
+        y1 = y;
+        y = (int32_t)(t >> 24);
+        u[i] = (int32_t)(t >> 32);                      /* (y >> 8: the sum's high word) */
         s1 = s2 + KH_M64(b1, x) + KH_M64(a1, y);
         s2 = KH_M64(b2, x) + KH_M64(a2, y);
-        u[i] = y;
     }
-    s->spo[0] = s1; s->spo[1] = s2;
+    s->spo[0] = s1; s->spo[1] = s2; s->hpo[2] = y; s->hpo[3] = y1;
 }
-/* a dip's fade block: POST into u, then the blend over the dry signal, out = dry + (POST(u) - dry) w / 256, w = 1..n
- * (up: fading in) or n - 1..0 (fading out) a sample, the product 32-bit (|POST(u) - dry| < 2^23) */
-KH_FN void kh_fade_pass(const int32_t *dry, const int32_t *y, int32_t *out, uint32_t n, int32_t w, int32_t dw)
+/* the dip's dry at the wet's level (Frodhes a316e7da: the wet and the dry differ by a few dB, so the 17 ms dip through
+ * the plain dry was a level jump of ~3.5 dB): the dry x dg (Q12, 1/4 .. 4), the RMS ratio of the wet to the dry over
+ * the dip's first block (every 4th sample), taken there (a square root of each, then a 32-bit divide) */
+static uint32_t kh_isqrt(uint64_t v)              /* floor(sqrt(v)), bit by bit (no divide) */
+{
+    uint64_t r = 0, b = (uint64_t)1 << 62;
+    while (b > v) b >>= 2;
+    while (b) { if (v >= r + b) { v -= r + b; r = (r >> 1) + b; } else r >>= 1; b >>= 2; }
+    return (uint32_t)r;
+}
+static void kh_dip_gain(tx_drv_kh_t *s, const int32_t *dry, const int32_t *y, uint32_t n)
+{
+    uint64_t ew = 0, ed = 0;
+    uint32_t i, rw, rd;
+    for (i = 0; i < n; i += 4u) { ew += (uint64_t)KH_M64(y[i], y[i]); ed += (uint64_t)KH_M64(dry[i], dry[i]); }
+    rw = kh_isqrt(ew); rd = kh_isqrt(ed);
+    while (rw >= (1u << 18) || rd >= (1u << 18)) { rw >>= 1; rd >>= 1; }
+    s->dg = !rd ? 4096 : (int32_t)((rw << 12) / rd);
+    s->dg = s->dg < 1024 ? 1024 : s->dg > 16384 ? 16384 : s->dg;
+}
+#define KH_DRY(d) ((int32_t)(KH_M64(d, dg) >> 12))
+/* a dip's fade block: POST into u, then the blend over the dry signal (x dg), out = dry + (POST(u) - dry) w / 256,
+ * w = 1..n (up: fading in) or n - 1..0 (fading out) a sample, the product 32-bit (|POST(u) - dry| < 2^23) */
+KH_FN void kh_fade_pass(const int32_t *dry, const int32_t *y, int32_t *out, uint32_t n, int32_t w, int32_t dw,
+                        int32_t dg)
 {
     const int32_t *e = dry + (n & ~1u);
     while (dry < e) {
-        int32_t d0 = dry[0], d1 = dry[1];
+        int32_t d0 = KH_DRY(dry[0]), d1 = KH_DRY(dry[1]);
         out[0] = d0 + (((y[0] - d0) * w) >> 8);
         out[1] = d1 + (((y[1] - d1) * (w + dw)) >> 8);
         dry += 2; y += 2; out += 2; w += 2 * dw;
     }
-    if (n & 1u) out[0] = dry[0] + (((y[0] - dry[0]) * w) >> 8);
+    if (n & 1u) { int32_t d0 = KH_DRY(dry[0]); out[0] = d0 + (((y[0] - d0) * w) >> 8); }
 }
 static void kh_fade(tx_drv_kh_t *s, const int32_t *in, int32_t *u, int32_t *out, uint32_t n, uint32_t up)
 {
     kh_post_pass(s, u, n);
-    if (up) kh_fade_pass(in, u, out, n, 1, 1);
-    else kh_fade_pass(in, u, out, n, (int32_t)n - 1, -1);
+    if (up) kh_fade_pass(in, u, out, n, 1, 1, s->dg);
+    else { kh_dip_gain(s, in, u, n); kh_fade_pass(in, u, out, n, (int32_t)n - 1, -1, s->dg); }
 }
 
 /* the wet signal of the block, in -> out (out may be in); 3 <= n <= TX_DRV_BLK */
@@ -348,12 +378,13 @@ static void drv_khlon_run(tx_drv_kh_t *s, tx_drv_scr_t *sh, const int32_t *in, i
     else {
         if (ph != 2) kh_fade(s, in, u, out, n, ph == 3);
         else {
+            int32_t dg = s->dg;
+            uint32_t i;
             kh_post_pass(s, u, n);
-            if (out != in) { uint32_t i; for (i = 0; i < n; i++) out[i] = in[i]; }
+            for (i = 0; i < n; i++) out[i] = KH_DRY(in[i]);   /* (the dry at the wet's level) */
         }
         ph = ph < 3u ? ph + 1u : 0u;
     }
-    s->hpo[2] = u[n - 1]; s->hpo[3] = u[n - 2];  /* POST's output (in a dip block: not; the rows hold the block after) */
     s->held = u != out;
     s->dip = (uint8_t)ph;
 }

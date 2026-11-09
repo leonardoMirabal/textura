@@ -28,6 +28,7 @@ typedef struct {                   /* KHLON: the rows that run, the transposed f
     int32_t o1[5], cl[3], sl[3], po[5];
     int64_t so1[2], spo[2], scl, ssl;
     int32_t sc, e1, F1, v1, kc4, rail;
+    int32_t dg;                               /* the dip's dry gain (Q12: the wet's level / the dry's) */
     const int32_t *gf;
     int32_t ho1[4], hcl[4], hsl[4], hpo[4];   /* each section's last inputs and outputs (a row change rebuilds) */
     uint8_t aa, ra, rt, pre, dip, held;
