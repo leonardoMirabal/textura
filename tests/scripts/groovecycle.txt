@@ -1,0 +1,62 @@
+# GROOVE 2/2: K1 turns the selected lane's CYCLE (AUTO, 2 .. 9 pulses over the span) and it stays: on the card, in
+# the lane's groove (grcyc: the cycle the lane plays, 0 AUTO), after a while, across another lane's and back, and
+# across leaving the page (the user's report: "groove 2/2 page k1 cycle can't be changed, always is auto")
+1600 btn 7
+1620 btn 7
+1640 expect state page GROOVE_1/2
+1660 turn 0 1
+1680 expect state page GROOVE_2/2
+1680 expect state lab0 CYCLE
+1680 expect state card0 AUTO
+1680 expect state grcyc0 0
+# one detent clockwise: 2; the lane's groove has it at once
+1700 turn 2 1
+1720 expect state card0 2
+1720 expect state p031 1
+1720 expect state grcyc0 2
+1730 shot
+# three more: 5; still there 3 s later
+1740 turn 2 3
+1760 expect state card0 5
+4760 expect state card0 5
+4760 expect state grcyc0 5
+# past the top: 9; back past the bottom: AUTO; then 4 again
+4800 turn 2 20
+4820 expect state card0 9
+4840 turn 2 -20
+4860 expect state card0 AUTO
+4860 expect state grcyc0 0
+4880 turn 2 3
+4900 expect state card0 4
+# lane 2 (OCT+): its own CYCLE (AUTO), set to 3; lane 1 (OCT-) keeps its 4
+4920 btn 1
+4940 expect state card0 AUTO
+4960 turn 2 2
+4980 expect state card0 3
+4980 expect state p131 2
+5000 btn 0
+5020 expect state card0 4
+5020 expect state grcyc0 4
+5020 expect state grcyc1 3
+# the page left (GLO: MIDI) and found again (GLO from MIDI: DISPLAY, then TEMPO, GROOVE; SELECT to 2/2): still 4
+5040 btn 7
+5060 btn 7
+5080 btn 7
+5100 btn 7
+5120 expect state page GROOVE_1/2
+5140 turn 0 1
+5160 expect state card0 4
+8000 expect state grcyc0 4
+# lanes 3 and 4 (the device photo: LANE 3), each its own: lane 3 to 5, lane 4 to 3; lane 1 keeps its 4
+8020 btn 1
+8040 btn 1
+8060 expect state card0 AUTO
+8080 turn 2 4
+8100 expect state card0 5
+8120 btn 1
+8140 turn 2 2
+8160 expect state card0 3
+9500 expect state grcyc2 5
+9500 expect state grcyc3 3
+9500 expect state grcyc0 4
+9600 end
