@@ -82,4 +82,19 @@
 14600 expect state scene F006_STEADY_RAIN
 14600 expect state loading 0
 14600 expect state dropped 0
-14700 end
+# one list: past RAIN's last preset the cursor goes on into STORM (its first), and back into RAIN (its last)
+14700 turn 6 5
+14720 expect state brfam STORM
+14720 expect state brcur 0
+14800 turn 6 -1
+14820 expect state brfam RAIN
+14820 expect state brcur 9
+14900 turn 6 -1
+14920 expect state brcur 8
+# HOME, HOME: cancelled, F006 back
+15000 btn 8
+15100 btn 8
+15120 expect state browser 0
+16500 expect state scene F006_STEADY_RAIN
+16500 expect state dropped 0
+16600 end

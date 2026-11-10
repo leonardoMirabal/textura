@@ -43,7 +43,8 @@
  *   SAVE       the save mode (scenes.c: PRESETS / K1 the user scene, SAVE again saves, HOME cancels); held 700 ms:
  *              undo the last scene load
  *   PRESETS    the presets browser, over the rows like SOUNDS: level 1 the categories (and USER: the saved scenes),
- *              level 2 their presets; PRESETS / ALGORITHM / K1 the cursor (level 2: the preset plays UB_PREVIEW_MS
+ *              level 2 their presets, one list (past a category's last preset the next category's first, and back);
+ *              PRESETS / ALGORITHM / K1 the cursor (level 2: the preset plays UB_PREVIEW_MS
  *              after the last detent, a smooth scene change), SELECT (level 2) the category, EDIT opens / picks, HOME
  *              back / cancel (what played before the browser back); SEQ: the sound browser instead; any other button:
  *              closed, what plays kept
@@ -976,10 +977,15 @@ static void ub_follow(void)                     /* another lane (OCT, a black ke
     ub.lane = sc.sel; ub.of = sc.lf[ub.lane]; ub.oi = sc.snd[ub.lane];
     ub_at_lane();
 }
-static void ub_move(int32_t d)                  /* ALGORITHM, K1: the cursor (no wrap); level 2: the preview's wait */
+static void ub_move(int32_t d)                  /* ALGORITHM, K1: the cursor (no wrap); level 2: the preview's wait;
+                                                 * the presets' level 2: one list, past a category's end the next one */
 {
-    int32_t n = (int32_t)ub_n();
-    ub.cur = (uint8_t)clampi((int32_t)ub.cur + d, 0, n - 1);
+    int32_t n = (int32_t)ub_n(), c = (int32_t)ub.cur + d;
+    if (ub.pr && ub.lv == 2) {
+        while (c >= n && ub.f + 1u < ub_ncat()) { c -= n; ub.f++; ub.top = 0; n = (int32_t)ub_n(); }
+        while (c < 0 && ub.f > 0) { ub.f--; ub.top = 0; n = (int32_t)ub_n(); c += n; }
+    }
+    ub.cur = (uint8_t)clampi(c, 0, n - 1);
     ub_view();
     if (ub.lv == 2) { ub.pend = 1; ub.t = fm1_ms; }
 }
