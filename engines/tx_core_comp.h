@@ -12,6 +12,17 @@
  * MKUP glides (1/8 of the way a control block, then exactly there; after Frodhes' 8354082b): a jump 0 -> 127 was a
  * click of 3.2x the held render's largest second difference, 1.3 now (make tx-pristine).
  *
+ * Clean on low notes and chords (after Frodhes' compressor, 2026-11-09/10): the fast envelope is held 16 control
+ * blocks (11.6 ms, a cycle down to 86 Hz) after the last block that raised it, so it does not fall between a note's
+ * waveform peaks; the reduction applied rises at once (ATK is the detector's) but falls through a one-pole of ~93 ms,
+ * at most half REL's time constant (a fast REL stays fast). The release adapts to the playing: a released envelope
+ * caught again by less than +3.5 dB (a chord's beats, a low note's cycle) halves its release speed, down to REL's / 8;
+ * a new strike (+3.5 dB) gives REL back at once, else it drifts back over ~93 ms; with REL 59 and under (fast enough
+ * to fall between beats) a rise under +3.5 dB is caught at ATK's speed / 16. A 41 Hz sine 10 dB over THR (4:1): H2..H5
+ * -58.3 -> -87.8 dB re H1; held chords: the intermodulation re the tones at the defaults -39.4 -> -44.3 dB, the median
+ * over the settings -30.1 -> -32.5 (make tx-pristine). The cost: the envelope sits nearer the tops, 0.6 .. 0.7 dB more
+ * reduction on held chords and low notes.
+ *
  * Integers only, 32-bit products; the levels in "power log2" units (log2 of the power, Q12: 1 dB = 1360.6). */
 #ifndef TX_CORE_COMP_H
 #define TX_CORE_COMP_H
@@ -34,6 +45,9 @@ typedef struct {
     int32_t ka, kr;                /* the fast envelope's attack and release a control block (Q16) */
     int32_t gr;                    /* the gain reduction at the last control block (power log2 Q12, >= 0) */
     int32_t mg;                    /* the make-up the gain uses: glides to mk (power log2 Q12) */
+    int32_t gs;                    /* the reduction applied: up at once, its release smoothed (power log2 Q12 x 16) */
+    int32_t kq;                    /* the fast envelope's release in use (Q16; adapted to the playing, from kr) */
+    uint8_t hd, gsh;               /* the fast envelope's hold left (control blocks); the smoothing's shift (from REL) */
     uint8_t p[TX_CP_NP];           /* the controls */
     uint8_t on;                    /* the detector running (0: its envelopes restart from the next block) */
 } tx_comp_t;

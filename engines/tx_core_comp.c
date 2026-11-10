@@ -7,6 +7,12 @@
 #define KNEE (120 * 13606 / 100)   /* 12 dB (power log2 Q12) */
 #define K_SA 119                   /* the slow envelope a control block (0.726 ms), Q16: attack 400 ms */
 #define K_SR 32                    /*                                                    release 1.5 s */
+#define HOLD 16u                   /* the fast envelope held after its last rise, control blocks (11.6 ms) */
+#define GSH 7                      /* the reduction's release: 2^-7 a control block (~93 ms) */
+#define PDR 3                      /* the slowest adapted release: REL's speed / 2^3 */
+#define SAS 4                      /* a rise under +3.5 dB (power x 2.25) caught at ATK's speed / 16 ... */
+#define SAK 59                     /* ... when REL is fast (59 and under: 150 ms, quick enough to fall between beats) */
+#define PDT 7                      /* its drift back to REL's: 2^-7 a control block (~93 ms) */
 
 const tx_param_t tx_comp_params[TX_CP_NP] = {
     {"COMP", 1, 1, TX_TEXT("the bus compressor, the first effect on the mix: off / on")},
@@ -58,7 +64,11 @@ void tx_comp_param(tx_comp_t *c, unsigned id, unsigned v)
     switch (id) {
     case TX_CP_THR: c->t = -(x * 54424) / 127; break;                         /* -40 dB x v / 127 */
     case TX_CP_ATK: c->ka = k_of(187381 - x * 587582 / 127); break;          /* tau 0.1 ms x 500^(v / 127) */
-    case TX_CP_REL: c->kr = k_of(-313570 - x * 408211 / 127); break;         /* tau 20 ms x 75^(v / 127) */
+    case TX_CP_REL:
+        c->kr = k_of(-313570 - x * 408211 / 127);                            /* tau 20 ms x 75^(v / 127) */
+        for (x = GSH; x > 0 && (c->kr << (x + 1)) > 65536; x--) ;             /* the smoothing at most half REL's tau */
+        c->gsh = (uint8_t)x;
+        break;
     case TX_CP_RATIO: c->s = SLOPE[v & 7u]; break;
     case TX_CP_MKUP: c->mk = x * 32654 / 127; break;                         /* +24 dB x v / 127 */
     }
@@ -82,21 +92,37 @@ TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *L, int32_t *R, unsigne
             p += (v * v) >> 5;
         }
         if (m != CB) p = p / (int32_t)m * (int32_t)CB;
-        if (!c->on) { c->ef = c->es = p; c->on = 1; c->mg = c->mk; }   /* (from the bypass: no stale level; MKUP at once) */
-        c->ef = env(c->ef, p, c->ka, c->kr);
+        if (!c->on) { c->ef = c->es = p; c->on = 1; c->hd = 0; c->gs = -1; c->kq = c->kr; c->mg = c->mk; }   /* (from the bypass: no
+                                                                                             * stale level) */
+        {
+            int32_t e0 = c->ef, h0 = c->hd, k = c->kq;
+            if (p >= c->ef) {                                 /* attack (a small rise slower, REL fast), then held */
+                c->ef = env(c->ef, p, p - c->ef > c->ef + (c->ef >> 2) || c->p[TX_CP_REL] > SAK ? c->ka : (c->ka >> SAS) + 1, k);
+                c->hd = HOLD;
+            }
+            else if (c->hd) c->hd--;
+            else c->ef = env(c->ef, p, c->ka, k);
+            if (c->ef - e0 > e0 + (e0 >> 2)) k = c->kr;       /* a new strike (power x 2.25, +3.5 dB): REL's own */
+            else if (!h0 && c->ef > e0) { k -= k >> 1; if (k < (c->kr >> PDR)) k = c->kr >> PDR; }   /* caught again */
+            else k += (c->kr - k) >> PDT;
+            c->kq = k < 1 ? 1 : k;
+        }
         c->es = env(c->es, p, K_SA, K_SR);
         det = c->ef > c->es ? c->ef : c->es;
         det = det < 1 ? 1 : det > (1 << 26) - 1 ? (1 << 26) - 1 : det;
         if (c->p[TX_CP_ON]) {
             int32_t lp = -(int32_t)TX_FAR(tx_neglog2_q12)((uint32_t)det << 6);   /* power log2 re full scale, Q12
                                                          * (TX_FAR: the helper may stay in flash at -Os) */
-            c->gr = gc(c, lp);
+            int32_t g16 = gc(c, lp) << 4;
+            if (g16 >= c->gs) c->gs = g16;       /* more reduction at once, less through the one-pole */
+            else c->gs += (g16 - c->gs) >> c->gsh;
+            c->gr = c->gs >> 4;
             {   /* MKUP glides: 1/8 of the way a control block (~6 ms), then exactly there (no click on a fast move) */
                 int32_t dm = (c->mk - c->mg) >> 3;
                 c->mg = dm ? c->mg + dm : c->mk;
             }
             gt = (int32_t)TX_FAR(tx_exp2)(((c->mg - c->gr) / 2) * 16 + (14 << 16));   /* the amplitude: half the power log2 */
-        } else { c->gr = 0; gt = 16384; }
+        } else { c->gr = 0; c->gs = 0; gt = 16384; }
         g = g0 + ((gt - g0) >> 3);                            /* the glide: ~6 ms */
         if (g - gt < 8 && gt - g < 8) g = gt;
         c->g = g;
