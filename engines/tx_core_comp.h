@@ -9,6 +9,8 @@
  * sound holds its gain (the release follows the programme, no pumping). A soft knee (12 dB wide) around THR (0 ..
  * -40 dBFS); RAT 1.5:1 .. 20:1; MKUP 0 .. +24 dB. The gain glides to its target over ~6 ms and ramps across each
  * control block (no zipper). COMP off: the gain glides back to 1, then bypassed, bit-exact.
+ * MKUP glides (1/8 of the way a control block, then exactly there; after Frodhes' 8354082b): a jump 0 -> 127 was a
+ * click of 3.2x the held render's largest second difference, 1.3 now (make tx-pristine).
  *
  * Integers only, 32-bit products; the levels in "power log2" units (log2 of the power, Q12: 1 dB = 1360.6). */
 #ifndef TX_CORE_COMP_H
@@ -31,6 +33,7 @@ typedef struct {
     int32_t s, t, mk;              /* the slope 1 - 1/ratio (Q12), the threshold and the make-up (power log2 Q12) */
     int32_t ka, kr;                /* the fast envelope's attack and release a control block (Q16) */
     int32_t gr;                    /* the gain reduction at the last control block (power log2 Q12, >= 0) */
+    int32_t mg;                    /* the make-up the gain uses: glides to mk (power log2 Q12) */
     uint8_t p[TX_CP_NP];           /* the controls */
     uint8_t on;                    /* the detector running (0: its envelopes restart from the next block) */
 } tx_comp_t;

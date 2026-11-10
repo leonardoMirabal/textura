@@ -82,7 +82,7 @@ TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *L, int32_t *R, unsigne
             p += (v * v) >> 5;
         }
         if (m != CB) p = p / (int32_t)m * (int32_t)CB;
-        if (!c->on) { c->ef = c->es = p; c->on = 1; }         /* (from the bypass: no stale level) */
+        if (!c->on) { c->ef = c->es = p; c->on = 1; c->mg = c->mk; }   /* (from the bypass: no stale level; MKUP at once) */
         c->ef = env(c->ef, p, c->ka, c->kr);
         c->es = env(c->es, p, K_SA, K_SR);
         det = c->ef > c->es ? c->ef : c->es;
@@ -91,7 +91,11 @@ TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *L, int32_t *R, unsigne
             int32_t lp = -(int32_t)TX_FAR(tx_neglog2_q12)((uint32_t)det << 6);   /* power log2 re full scale, Q12
                                                          * (TX_FAR: the helper may stay in flash at -Os) */
             c->gr = gc(c, lp);
-            gt = (int32_t)TX_FAR(tx_exp2)(((c->mk - c->gr) / 2) * 16 + (14 << 16));   /* the amplitude: half the power log2 */
+            {   /* MKUP glides: 1/8 of the way a control block (~6 ms), then exactly there (no click on a fast move) */
+                int32_t dm = (c->mk - c->mg) >> 3;
+                c->mg = dm ? c->mg + dm : c->mk;
+            }
+            gt = (int32_t)TX_FAR(tx_exp2)(((c->mg - c->gr) / 2) * 16 + (14 << 16));   /* the amplitude: half the power log2 */
         } else { c->gr = 0; gt = 16384; }
         g = g0 + ((gt - g0) >> 3);                            /* the glide: ~6 ms */
         if (g - gt < 8 && gt - g < 8) g = gt;
