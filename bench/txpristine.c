@@ -30,7 +30,12 @@
  *             largest output (never over -1 dBFS: judged)
  *     bass    a 55 Hz sine 2 dB over: H2..H9 re H1 (dB), reported
  *   COMPRESSOR (tx_core_comp at THR 127 (-40 dBFS), RAT 3 (4:1), MKUP 0): a 41 Hz sine at -30 dBFS: the worst of H2..H5 re H1,
- *     reported */
+ *     reported
+ *     chords  three chords (131 165 196, 98 123 147 196, 220 277 330 Hz; -14 dBFS a tone) held: the energy off the tones
+ *             re the tones (dB; the gain riding the beats), the worst chord: at the defaults, and the median and the
+ *             worst over THR 64 / 127 x RAT 1.5:1 / 4:1 / 20:1 x ATK 0 / 40 / 108 x REL 0 / 30 / 59. Reported
+ *     mkup    MKUP 0 -> 127 -> 0 in one step (THR 0, a 220 Hz sine at -30 dBFS): the largest second difference within
+ *             50 ms of a step re the held MKUP 127 render's largest (Frodhes' control-sweep click; 1 = none). Reported */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -322,6 +327,88 @@ static void comp_quiet(void)
     free(c); free(o);
 }
 
+/* chords through the compressor: the intermodulation its gain adds (the gain riding the chords' beats). Three chords
+ * (131 165 196, 98 123 147 196, 220 277 330 Hz; each tone -14 dBFS) held 3 s; over the last second, the energy off the
+ * tones re the tones (dB), the worst of the three. At the defaults (THR 64 RAT 0 ATK 108 REL 59), and over THR 64 / 127
+ * x RAT 0 / 3 / 7 x ATK 0 / 40 / 108 x REL 0 / 30 / 59: the median and the worst */
+static const int CHD[3][5] = {{3, 131, 165, 196}, {4, 98, 123, 147, 196}, {3, 220, 277, 330}};
+static double comp_chord_one(const int *F, unsigned thr, unsigned rat, unsigned atk, unsigned rel, double *grd)
+{
+    tx_comp_t *c = malloc(sizeof *c);
+    int nb = 3 * FS / (int)NB + 1, b, i, k, n0, nt = F[0];
+    int32_t a[NB], r[NB];
+    double *o = malloc(sizeof(double) * nb * NB), tot = 0, ton = 0, amp = 8388608.0 * pow(10.0, -14.0 / 20.0);
+    const double *t;
+    tx_comp_init(c);
+    tx_comp_param(c, TX_CP_ON, 1); tx_comp_param(c, TX_CP_THR, thr); tx_comp_param(c, TX_CP_RATIO, rat);
+    tx_comp_param(c, TX_CP_ATK, atk); tx_comp_param(c, TX_CP_REL, rel); tx_comp_param(c, TX_CP_MKUP, 0);
+    for (b = 0; b < nb; b++) {
+        for (i = 0; i < (int)NB; i++) {
+            double s = 0, tt = (double)(b * NB + i) / FS;
+            for (k = 0; k < nt; k++) s += sin(2.0 * M_PI * F[1 + k] * tt + k);
+            a[i] = r[i] = (int32_t)lrint(amp * s);
+        }
+        tx_comp_process(c, a, r, NB);
+        for (i = 0; i < (int)NB; i++) o[b * NB + i] = a[i];
+    }
+    n0 = nb * NB - FS; t = o + n0;
+    for (i = 0; i < FS; i++) tot += t[i] * t[i];
+    tot *= FS;
+    for (k = 0; k < nt; k++) ton += 2.0 * bin2(t, FS, F[1 + k]);
+    *grd = tx_comp_gr_db10(c) / 10.0;
+    free(c); free(o);
+    return db((tot - ton) / ton);
+}
+static double comp_chords(unsigned thr, unsigned rat, unsigned atk, unsigned rel, double *grd)
+{
+    double w = -300, g;
+    int k;
+    for (k = 0; k < 3; k++) { double v = comp_chord_one(CHD[k], thr, rat, atk, rel, &g); if (v > w) { w = v; *grd = g; } }
+    return w;
+}
+static int dcmp(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
+static void comp_chord(void)
+{
+    static const uint8_t TH[2] = {64, 127}, RA[3] = {0, 3, 7}, AT[3] = {0, 40, 108}, RE[3] = {0, 30, 59};
+    double w = -300, gw = 0, g, all[54], dv;
+    int a, b, c, d, wi = 0, n = 0;
+    for (a = 0; a < 2; a++) for (b = 0; b < 3; b++) for (c = 0; c < 3; c++) for (d = 0; d < 3; d++) {
+        double v = comp_chords(TH[a], RA[b], AT[c], RE[d], &g);
+        if (getenv("TXP_ALL")) printf("  comp chord THR %3d RAT %d ATK %3d REL %2d: %6.1f dB (GR %.1f)\n", TH[a], RA[b], AT[c], RE[d], v, g);
+        all[n++] = v;
+        if (v > w) { w = v; gw = g; wi = ((a * 3 + b) * 3 + c) * 3 + d; }
+    }
+    qsort(all, 54, sizeof all[0], dcmp);
+    dv = comp_chords(64, 0, 108, 59, &g);
+    printf("COMPRESSOR chords (3, each tone -14 dBFS): the intermodulation re the tones at the defaults %.1f dB (GR %.1f); "
+           "over the settings median %.1f, worst %.1f (THR %d RAT %d ATK %d REL %d, GR %.1f)\n",
+           dv, g, 0.5 * (all[26] + all[27]), w, TH[wi / 27], RA[wi / 9 % 3], AT[wi / 3 % 3], RE[wi % 3], gw);
+}
+
+/* MKUP jumped 0 -> 127 -> 0 (THR 0: no reduction; a 220 Hz sine at -30 dBFS): the largest second difference out
+ * within 50 ms of each jump re the largest of the held render at MKUP 127 (Frodhes' control sweep "click"; 1 = none) */
+static void comp_mkup(void)
+{
+    tx_comp_t *c = malloc(sizeof *c);
+    int nb = 2 * FS / (int)NB, b, i, jb[2] = {nb / 4, 3 * nb / 4}, k;
+    int32_t a[NB], r[NB];
+    double *o = malloc(sizeof(double) * nb * NB), hd = 0, cl = 0;
+    tx_comp_init(c);
+    tx_comp_param(c, TX_CP_ON, 1); tx_comp_param(c, TX_CP_THR, 0); tx_comp_param(c, TX_CP_MKUP, 0);
+    for (b = 0; b < nb; b++) {
+        if (b == jb[0]) tx_comp_param(c, TX_CP_MKUP, 127);
+        if (b == jb[1]) tx_comp_param(c, TX_CP_MKUP, 0);
+        for (i = 0; i < (int)NB; i++) a[i] = r[i] = (int32_t)lrint(8388608.0 * pow(10.0, -1.5) * sin(2.0 * M_PI * 220 * (double)(b * NB + i) / FS));
+        tx_comp_process(c, a, r, NB);
+        for (i = 0; i < (int)NB; i++) o[b * NB + i] = a[i];
+    }
+    for (i = (jb[0] + 40) * (int)NB; i < jb[1] * (int)NB - 2; i++) { double d = fabs(o[i + 2] - 2 * o[i + 1] + o[i]); if (d > hd) hd = d; }
+    for (k = 0; k < 2; k++)
+        for (i = jb[k] * (int)NB - 2; i < jb[k] * (int)NB + FS / 20; i++) { double d = fabs(o[i + 2] - 2 * o[i + 1] + o[i]); if (d > cl) cl = d; }
+    printf("COMPRESSOR MKUP 0 -> 127 -> 0 in one step (a 220 Hz sine): the click %.2f (re the held render's largest second difference)\n", cl / hd);
+    free(c); free(o);
+}
+
 int main(int argc, char **argv)
 {
     check = argc > 1 && !strcmp(argv[1], "--check");
@@ -336,6 +423,8 @@ int main(int argc, char **argv)
     lim_chord();
     lim_bass();
     comp_quiet();
+    comp_chord();
+    comp_mkup();
     free(fx);
     if (check) printf("tx-pristine: %s (%d over)\n", fails ? "FAIL" : "ok", fails);
     return check && fails ? 1 : 0;
