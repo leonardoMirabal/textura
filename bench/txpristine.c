@@ -35,7 +35,10 @@
  *             re the tones (dB; the gain riding the beats), the worst chord: at the defaults, and the median and the
  *             worst over THR 64 / 127 x RAT 1.5:1 / 4:1 / 20:1 x ATK 0 / 40 / 108 x REL 0 / 30 / 59. Reported
  *     mkup    MKUP 0 -> 127 -> 0 in one step (THR 0, a 220 Hz sine at -30 dBFS): the largest second difference within
- *             50 ms of a step re the held MKUP 127 render's largest (Frodhes' control-sweep click; 1 = none). Reported */
+ *             50 ms of a step re the held MKUP 127 render's largest (Frodhes' control-sweep click; 1 = none). Reported
+ *   REVERB PLATE: MOD 127 against MOD 0 (MIX 127, DECAY 64) on a chord's tail: the energy in 2 .. 12 kHz re the whole
+ *     (a grain from the modulated reads shows as more of it), the largest second difference re MOD 0's (Frodhes' d2: a
+ *     jumping read is a burst of it) and the tail's level. Reported */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -409,6 +412,48 @@ static void comp_mkup(void)
     free(c); free(o);
 }
 
+/* REVERB PLATE, MOD 0 against 127 (MIX 127, DECAY 64): a chord (196 247 294 392 Hz, 0.3 s, 5 ms edges), then its tail.
+ * Over the tail's 1 s from 0.5 s: the largest second difference, the energy in 2 .. 12 kHz re the whole (dB) and the
+ * whole's level.
+ * MOD 127 should sound the same tail, only moving: a grain (the modulated reads' jumps) shows as more 2 .. 12 kHz */
+static void rev_plate_mod1(unsigned mod, double *hf, double *lv, double *d2)
+{
+    static const int F[4] = {196, 247, 294, 392};
+    tx_fx_reverb_t *r = malloc(sizeof *r);
+    int nb = 2 * FS / (int)NB, b, i, k, f;
+    int32_t a[NB], c[NB];
+    double *o = malloc(sizeof(double) * nb * NB), tot = 0, h = 0;
+    const double *t;
+    tx_fx_reverb_init(r);
+    tx_fx_reverb_param(r, TX_RV_TYPE, TX_RVT_PLATE); tx_fx_reverb_param(r, TX_RV_MIX, 127);
+    tx_fx_reverb_param(r, TX_RV_DECAY, 64); tx_fx_reverb_param(r, TX_RV_MOD, mod);
+    for (b = 0; b < nb; b++) {
+        for (i = 0; i < (int)NB; i++) {
+            int n = b * NB + i, e = FS / 200, len = 3 * FS / 10;
+            double g = n >= len ? 0 : n < e ? 0.5 - 0.5 * cos(M_PI * n / e) : n > len - e ? 0.5 - 0.5 * cos(M_PI * (len - n) / e) : 1, s = 0;
+            for (k = 0; k < 4; k++) s += sin(2.0 * M_PI * F[k] * n / FS + k);
+            a[i] = c[i] = (int32_t)lrint(8388608.0 * 0.12 * g * s);
+        }
+        tx_fx_reverb_process(r, a, c, NB);
+        for (i = 0; i < (int)NB; i++) o[b * NB + i] = a[i];
+    }
+    t = o + FS / 2;
+    for (i = 0; i < FS; i++) tot += t[i] * t[i];
+    for (f = 2000; f <= 12000; f += 25) h += bin2(t, FS, f) * 25.0;
+    *hf = db(h / (tot * FS / 2.0));
+    *lv = tot;
+    for (*d2 = 0, i = 0; i < FS - 2; i++) { double d = fabs(t[i + 2] - 2 * t[i + 1] + t[i]); if (d > *d2) *d2 = d; }
+    free(r); free(o);
+}
+static void rev_plate_mod(void)
+{
+    double h0, h1, l0, l1, d0, d1;
+    rev_plate_mod1(0, &h0, &l0, &d0);
+    rev_plate_mod1(127, &h1, &l1, &d1);
+    printf("REVERB PLATE MOD 127 against MOD 0 (a chord's tail): the largest second difference %.2fx MOD 0's; 2 .. 12 kHz "
+           "%.1f dB re the whole (MOD 0 %.1f); the tail's level %+.2f dB\n", d1 / d0, h1, h0, db(l1 / l0));
+}
+
 int main(int argc, char **argv)
 {
     check = argc > 1 && !strcmp(argv[1], "--check");
@@ -425,6 +470,7 @@ int main(int argc, char **argv)
     comp_quiet();
     comp_chord();
     comp_mkup();
+    rev_plate_mod();
     free(fx);
     if (check) printf("tx-pristine: %s (%d over)\n", fails ? "FAIL" : "ok", fails);
     return check && fails ? 1 : 0;
