@@ -33,9 +33,15 @@
  *     reported
  *     chords  three chords (131 165 196, 98 123 147 196, 220 277 330 Hz; -14 dBFS a tone) held: the energy off the tones
  *             re the tones (dB; the gain riding the beats), the worst chord: at the defaults, and the median and the
- *             worst over THR 64 / 127 x RAT 1.5:1 / 4:1 / 20:1 x ATK 0 / 40 / 108 x REL 0 / 30 / 59. Reported
+ *             worst over THR 64 / 127 x RAT 1.5:1 / 4:1 / 20:1 x ATK 0 / 40 / 108 x REL 0 / 30 / 59; and at 4:1 ATK 40
+ *             REL 48 (THR -40 / -30 dB). Reported
  *     mkup    MKUP 0 -> 127 -> 0 in one step (THR 0, a 220 Hz sine at -30 dBFS): the largest second difference within
  *             50 ms of a step re the held MKUP 127 render's largest (Frodhes' control-sweep click; 1 = none). Reported
+ *     strike  a struck chord (-2.5 dBFS, down to -10.5 dB in ~120 ms, held): the largest sample re COMP off (never
+ *             over: judged) over THR -30 / -40 dB x 4:1 / 20:1 x ATK 40 / 100; the fatness (body - strike, on less off)
+ *             at -40 dB 20:1; the body's level re COMP off over THR (4:1, ATK 40). MKUP 0
+ *     sweep   THR -40 -> 0 dB under a held chord, in one step and swept: the gain's dip under its settled ends (a step:
+ *             judged under 0.2 dB) or under the gains held at the THR values passed (swept: reported), the statics
  *   REVERB PLATE: MOD 127 against MOD 0 (MIX 127, DECAY 64) on a chord's tail: the energy in 2 .. 12 kHz re the whole
  *     (a grain from the modulated reads shows as more of it), the largest second difference re MOD 0's (Frodhes' d2: a
  *     jumping read is a burst of it) and the tail's level. Reported
@@ -392,6 +398,10 @@ static void comp_chord(void)
     printf("COMPRESSOR chords (3, each tone -14 dBFS): the intermodulation re the tones at the defaults %.1f dB (GR %.1f); "
            "over the settings median %.1f, worst %.1f (THR %d RAT %d ATK %d REL %d, GR %.1f)\n",
            dv, g, 0.5 * (all[26] + all[27]), w, TH[wi / 27], RA[wi / 9 % 3], AT[wi / 3 % 3], RE[wi % 3], gw);
+    dv = comp_chords(127, 3, 40, 48, &g);
+    printf("COMPRESSOR chords at 4:1 ATK 40 REL 48: THR -40 dB %.1f dB (GR %.1f)", dv, g);
+    dv = comp_chords(96, 3, 40, 48, &g);
+    printf(", THR -30 dB %.1f dB (GR %.1f)\n", dv, g);
 }
 
 /* MKUP jumped 0 -> 127 -> 0 (THR 0: no reduction; a 220 Hz sine at -30 dBFS): the largest second difference out
@@ -416,6 +426,138 @@ static void comp_mkup(void)
         for (i = jb[k] * (int)NB - 2; i < jb[k] * (int)NB + FS / 20; i++) { double d = fabs(o[i + 2] - 2 * o[i + 1] + o[i]); if (d > cl) cl = d; }
     printf("COMPRESSOR MKUP 0 -> 127 -> 0 in one step (a 220 Hz sine): the click %.2f (re the held render's largest second difference)\n", cl / hd);
     free(c); free(o);
+}
+
+/* the compressor over x (Q23, both sides alike) into y, nb blocks; pv: ON THR ATK REL RAT MKUP; from block b2 THR
+ * goes to thr2, in one step (ramp 0) or by one a block (ramp 1) */
+static void comp_run(const double *x, double *y, int nb, const unsigned *pv, int b2, unsigned thr2, int ramp)
+{
+    tx_comp_t *c = malloc(sizeof *c);
+    int32_t a[NB], r[NB];
+    int b, i;
+    unsigned k, thr = pv[1];
+    tx_comp_init(c);
+    for (k = 0; k < TX_CP_NP; k++) tx_comp_param(c, k, pv[k]);
+    for (b = 0; b < nb; b++) {
+        if (b >= b2 && thr != thr2) { thr = ramp ? (thr2 > thr ? thr + 1 : thr - 1) : thr2; tx_comp_param(c, TX_CP_THR, thr); }
+        for (i = 0; i < (int)NB; i++) a[i] = r[i] = (int32_t)lrint(x[b * NB + i]);
+        tx_comp_process(c, a, r, NB);
+        for (i = 0; i < (int)NB; i++) y[b * NB + i] = a[i];
+    }
+    free(c);
+}
+static double rms_db(const double *x, int n) { double e = 0; int i; for (i = 0; i < n; i++) e += x[i] * x[i]; return db(e / n); }
+
+/* a struck chord (131 165 196 Hz, each tone 0.25 of full scale: -2.5 dBFS at its peak) after 0.1 s of silence: 2 ms
+ * on, then down to 0.3 of the strike (-10.5 dB) with a 120 ms time constant, held to 2 s. The strike: the first 50 ms;
+ * the body: 0.8 .. 1.8 s. Fatness: (body - strike) with COMP on less with it off (dB; up: the body brought up against
+ * the strike, Frodhes' measure); the body's level re COMP off (MKUP 0: what the make-up gives back); the largest
+ * sample re COMP off's (never over: judged) */
+#define CS_NB (2 * FS / (int)NB + 1)
+static double *cs_x;
+static void comp_strike1(const unsigned *pv, double *fat, double *body, double *pk)
+{
+    double *y = malloc(sizeof(double) * CS_NB * NB), px = 0, py = 0;
+    int i, n0 = FS / 10, n1 = n0 + FS / 20, n2 = n0 + 8 * FS / 10, n3 = n0 + 18 * FS / 10;
+    if (!cs_x) {
+        cs_x = malloc(sizeof(double) * CS_NB * NB);
+        for (i = 0; i < CS_NB * (int)NB; i++) {
+            double t = (double)(i - n0) / FS, e = t < 0 ? 0 : (t < 0.002 ? t / 0.002 : 1) * (0.3 + 0.7 * exp(-t / 0.12));
+            cs_x[i] = e < 1e-9 ? 0 : lrint(8388608.0 * 0.25 * e * (sin(2 * M_PI * 131 * t) + sin(2 * M_PI * 165 * t + 1) + sin(2 * M_PI * 196 * t + 2)));
+        }
+    }
+    comp_run(cs_x, y, CS_NB, pv, CS_NB, pv[1], 0);
+    for (i = 0; i < CS_NB * (int)NB; i++) { if (fabs(cs_x[i]) > px) px = fabs(cs_x[i]); if (fabs(y[i]) > py) py = fabs(y[i]); }
+    *fat = (rms_db(y + n2, n3 - n2) - rms_db(y + n0, n1 - n0)) - (rms_db(cs_x + n2, n3 - n2) - rms_db(cs_x + n0, n1 - n0));
+    *body = rms_db(y + n2, n3 - n2) - rms_db(cs_x + n2, n3 - n2);
+    *pk = 20.0 * log10(py / px);
+    free(y);
+}
+static void comp_strike(void)
+{
+    static const uint8_t TH[2] = {95, 127}, RA[2] = {3, 7}, AT[2] = {40, 100}, TB[6] = {56, 64, 80, 96, 112, 127};
+    double fat, body, pk, pw = -300;
+    int a, b, c, wa = 0, wb = 0, wc = 0;
+    for (a = 0; a < 2; a++) for (b = 0; b < 2; b++) for (c = 0; c < 2; c++) {
+        unsigned pv[TX_CP_NP] = {1, TH[a], AT[c], 59, RA[b], 0};
+        comp_strike1(pv, &fat, &body, &pk);
+        if (getenv("TXP_ALL")) printf("  comp strike THR %3d RAT %d ATK %3d: fatness %+.2f dB, body %+.2f dB, peak %+.2f dB\n", TH[a], RA[b], AT[c], fat, body, pk);
+        if (pk > pw) { pw = pk; wa = a; wb = b; wc = c; }
+    }
+    printf("COMPRESSOR struck chord (MKUP 0): the largest sample re COMP off %+.2f dB at worst (THR %d RAT %d ATK %d; "
+           "THR -30 / -40 dB x 4:1 / 20:1 x ATK 40 / 100)\n", pw, TH[wa], RA[wb], AT[wc]);
+    judge("compressor struck chord: a peak over COMP off (dB)", pw, 0.01, 1);
+    printf("COMPRESSOR fatness (body - strike, COMP on less off; THR -40 dB, 20:1, MKUP 0):");
+    for (c = 1; c >= 0; c--) {
+        unsigned pv[TX_CP_NP] = {1, 127, AT[c], 59, 7, 0};
+        comp_strike1(pv, &fat, &body, &pk);
+        printf(" ATK %d %+.2f dB (body %+.2f)%s", AT[c], fat, body, c ? "," : "\n");
+    }
+    printf("COMPRESSOR the body re COMP off over THR (4:1, ATK 40, MKUP 0):");
+    for (a = 0; a < 6; a++) {
+        unsigned pv[TX_CP_NP] = {1, TB[a], 40, 59, 3, 0};
+        comp_strike1(pv, &fat, &body, &pk);
+        printf(" %d %+.2f%s", TB[a], body, a < 5 ? "," : " dB\n");
+    }
+}
+
+/* THR swept under a held chord (131 165 196 Hz, 4:1, ATK 40, REL 59 / 127, MKUP 0): from -40 dB to 0 at 1.5 s, in one
+ * step or by one a block (0.74 s). The gain: 23 ms windows, out re in (dB). A step: never under both its settled ends
+ * (Frodhes' control sweep: the auto make-up dropping at once while the reduction smoothed away, a dip). Swept: never
+ * under the gains held at the THR values it passed (the statics, 1 s each). The dip: how far under (dB, 0: none; the
+ * step's judged; swept, the reduction's smoothed release lags its falling target: reported). The statics beside it
+ * (the curve itself: a chord far over THR -40 dB gets more of the auto make-up and the lift, fitted on the factory
+ * presets' levels, than THR 64 gives it, where both start) */
+static double comp_gain_held(const double *x, int nb, unsigned *pv)
+{
+    double *y = malloc(sizeof(double) * nb * NB), g;
+    comp_run(x, y, nb, pv, nb, pv[1], 0);
+    g = rms_db(y + (nb * (int)NB - 4096), 4096) - rms_db(x + (nb * (int)NB - 4096), 4096);
+    free(y);
+    return g;
+}
+static void comp_sweep(void)
+{
+    static const double LV[2] = {0.4, 0.2};                 /* -8 / -14 dBFS a tone */
+    int nb = 4 * FS / (int)NB, b2 = 3 * FS / 2 / (int)NB, i, w, k, v, nw = nb * (int)NB / 1024, ns = FS / (int)NB;
+    double *x = malloc(sizeof(double) * nb * NB), *y = malloc(sizeof(double) * nb * NB), dw = 0, st[128];
+    for (v = 0; v < 2; v++) {
+        double smin = 300, smax = -300;
+        for (i = 0; i < nb * (int)NB; i++) {
+            double t = (double)i / FS;
+            x[i] = lrint(8388608.0 * LV[v] * (sin(2 * M_PI * 131 * t) + sin(2 * M_PI * 165 * t + 1) + sin(2 * M_PI * 196 * t + 2)));
+        }
+        printf("COMPRESSOR THR -40 -> 0 dB under a held chord (%s dBFS a tone): the dip", v ? "-14" : "-8");
+        for (k = 0; k < 4; k++) {
+            unsigned pv[TX_CP_NP] = {1, 127, 40, k & 1 ? 127 : 59, 3, 0};
+            double lo = 300, d = 0;
+            for (i = 0; i < 128 && !k; i++) {                   /* (the statics: REL does not move them) */
+                pv[1] = (unsigned)i; st[i] = comp_gain_held(x, ns, pv);
+                if (st[i] < smin) smin = st[i];
+                if (st[i] > smax) smax = st[i];
+            }
+            pv[1] = 127;
+            comp_run(x, y, nb, pv, b2, 0, k >> 1);
+            if (!(k >> 1)) {                                  /* a step: under both settled ends */
+                double g0 = rms_db(y + (b2 * (int)NB - 4096), 4096) - rms_db(x + (b2 * (int)NB - 4096), 4096);
+                double g1 = rms_db(y + (nb * (int)NB - 4096), 4096) - rms_db(x + (nb * (int)NB - 4096), 4096);
+                for (w = b2 * (int)NB / 1024; w < nw; w++) { double g = rms_db(y + w * 1024, 1024) - rms_db(x + w * 1024, 1024); if (g < lo) lo = g; }
+                d = (g0 < g1 ? g0 : g1) - lo;
+            } else                                            /* swept: under the statics it passed */
+                for (w = b2 * (int)NB / 1024; w < nw; w++) {
+                    int bk = w * 1024 / (int)NB - b2, t = bk < 0 ? 127 : 127 - (bk < 127 ? bk : 127), u;
+                    double g = rms_db(y + w * 1024, 1024) - rms_db(x + w * 1024, 1024), m = 300;
+                    for (u = t; u <= 127; u++) if (st[u] < m) m = st[u];
+                    if (m - g > d) d = m - g;
+                }
+            d = d < 0 ? 0 : d;
+            if (!(k >> 1) && d > dw) dw = d;
+            printf(" %s REL %d %.2f dB%s", k >> 1 ? "swept" : "step", k & 1 ? 127 : 59, d, k < 3 ? "," : "");
+        }
+        printf("; the statics %+.2f .. %+.2f dB, THR 0 / 64 / 88 / 127: %+.2f / %+.2f / %+.2f / %+.2f\n", smin, smax, st[0], st[64], st[88], st[127]);
+    }
+    judge("compressor THR step: a dip (dB)", dw, 0.2, 1);
+    free(x); free(y);
 }
 
 /* REVERB PLATE, MOD 0 against 127 (MIX 127, DECAY 64): a chord (196 247 294 392 Hz, 0.3 s, 5 ms edges), then its tail.
@@ -586,6 +728,8 @@ int main(int argc, char **argv)
     comp_quiet();
     comp_chord();
     comp_mkup();
+    comp_strike();
+    comp_sweep();
     rev_plate_mod();
     rev_type();
     rev_quiet();
