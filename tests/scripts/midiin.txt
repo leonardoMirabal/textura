@@ -31,6 +31,7 @@
 2110 btn 7
 2115 btn 7
 2120 btn 7
+2125 btn 7
 2170 expect state page MIDI_IN
 2170 expect state lab0 LANE_1_CHANNEL
 2170 expect state card0 1

@@ -1,5 +1,5 @@
 # the power cycle, run 1 (FRODHES_FLASH kept: make fw-test): a scene saved into U05, the settings (CLOCK AUTO, the
-# last scene, CLK OUT, PRESETS CHANGE TEMPO, COLOR, SELECTED CH, the lanes' MIDI channels) saved 2 s after
+# last scene, CLK OUT, PRESETS CHANGE TEMPO, COLOR, SCALE, ROOT, SELECTED CH, the lanes' MIDI channels) saved 2 s after
 # their last change; run 2 (scenes_boot.txt) starts from that flash
 1700 btn 13
 1800 midi 0xB4 91 110
@@ -13,6 +13,10 @@
 2700 expect state scene U05_WATER
 2800 btn 7
 2815 btn 7
+2817 btn 7
+2818 expect state page SCALE
+2819 turn 2 2
+2819 turn 3 2
 2820 btn 7
 2825 btn 7
 2850 turn 2 3
@@ -34,6 +38,8 @@
 3045 turn 3 1
 3048 btn 8
 3050 expect state p425 1
+3050 expect state p43B 2
+3050 expect state p43C 2
 3050 expect state p43D 0
 3050 expect state p43F 8
 3050 expect state p441 0

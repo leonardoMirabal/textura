@@ -148,7 +148,7 @@ const HINT = { FX: "EFFECTS · HOLD: FILTER", SEL: "KEY MODE · HOLD: LANE", ENV
                SEQ: "SOUNDS", PLAY: "TAP · HOLD: RUN", REC: "ALL ON·OFF · TAP", "OCT−": "LANE", "OCT+": "LANE" };
 const HINT_ON = {                                    // what a button does on a given page (else HINT)
   LANDSCAPE: { HOME: "BACK" }, SOUND: { EDIT: "NEXT" }, EFFECTS: { FX: "REVERB" }, REVERB: { FX: "NEXT" }, GRAIN: { FX: "NEXT" }, FILTER: { FX: "DRIVE" }, DRIVE: { FX: "COMPRESSOR" }, COMPRESSOR: { FX: "NEXT" },
-  RHYTHM: { GLO: "GROOVE LANES" }, "GROOVE LANES": { GLO: "TEMPO" }, TEMPO: { GLO: "MIDI" }, MIDI: { GLO: "MIDI IN" },
+  RHYTHM: { GLO: "GROOVE LANES" }, "GROOVE LANES": { GLO: "SCALE" }, SCALE: { GLO: "TEMPO" }, TEMPO: { GLO: "MIDI" }, MIDI: { GLO: "MIDI IN" },
   "MIDI IN": { GLO: "DISPLAY" }, DISPLAY: { GLO: "RHYTHM" },
   LFO: { LFO: "NEXT" }, ENV: { ENV: "NEXT" },
 };

@@ -9,12 +9,15 @@
 1700 expect state bpm10 1390
 1700 expect state palette PEACH
 1700 expect preset
+1700 expect state p43B 2
+1700 expect state p43C 2
 1700 expect state p43D 0
 1700 expect state p43E 1
 1700 expect state p43F 8
 1700 expect state p441 0
 1800 btn 7
 1815 btn 7
+1817 btn 7
 1820 btn 7
 1825 btn 7
 1840 expect state card0 AUTO

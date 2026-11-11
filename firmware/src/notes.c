@@ -12,10 +12,14 @@
  *              No key changes the landscape (ALGORITHM does, on its page).
  *              LEDs: a lane's black keys blink while it plays (1.6 s rare .. 0.12 s busy), glow steadily while it
  *              plays muted, and glow when it is selected but stopped; the white keys show the selected lane's two bars.
- *   PLAY       the keys play the selected lane, pitched (OCT- / OCT+ the octave); the LEDs all lit (a light to play
- *              by), a held key dim.
+ *   PLAY       the keys play the selected lane, pitched (OCT- / OCT+ the octave), through SCALE; the LEDs all lit (a
+ *              light to play by; with a SCALE, its keys only, the others dark), a held key dim.
  * SEL tapped switches the mode; held, the keys and OCT work in the other mode while it is held (ui.c ui_sel): in PLAY,
  * SEL held + a black key selects that lane (OCT the previous / next one) and the keys play it again once SEL is let go.
+ *
+ * SCALE (GLO: SCALE, K1 SCALE K2 ROOT; settings): every note the keys and MIDI play is snapped to the nearest note of
+ * the scale over ROOT (a tie goes down; Frodhes' tempo.c scale_snap, Felucca's masks); CHROMATIC, the default: as
+ * played. Pitch only: the lane's sound is its own.
  *
  * MIDI notes (nt_midi): on SELECTED CH (MIDI IN: ALGORITHM; default 1) the selected lane, as before; on a lane's own
  * MIDI CH (MIDI IN: K1..K4; default lane n on channel n, the channel its CCs come on: params.c) that lane; two lanes on
@@ -43,7 +47,24 @@ static struct {
     uint32_t hold_t;
 } nt = {.hold_k = NT_SPAN};
 
-static int nt_black(uint32_t k) { uint32_t n = (TX_KEY_F3 + k) % 12u; return n == 1u || n == 3u || n == 6u || n == 8u || n == 10u; }
+static int nt_black(uint32_t k) { return 0x54Au >> (TX_KEY_F3 + k) % 12u & 1u; }   /* (C# D# F# G# A#) */
+
+/* ---- SCALE: the masks, bit i the note i semitones over ROOT */
+#define NT_NSCALE 12u
+static const uint16_t NT_SCALE[NT_NSCALE] = {0xFFF, 0xAB5, 0x5AD, 0x6AD, 0x5AB, 0xAD5, 0x6B5, 0x9AD, 0xAAD, 0x295, 0x4A9, 0x4E9};
+static const char *const N_SCALE[NT_NSCALE] = {"CHROMATIC", "MAJOR", "MINOR", "DORIAN", "PHRYGIAN", "LYDIAN", "MIXOLYDIAN",
+                                              "HARMONIC", "MELODIC", "MAJ PENTA", "MIN PENTA", "BLUES"};
+static uint8_t nt_scale, nt_root;               /* (settings, scenes.c) */
+static int nt_in_scale(int32_t n) { return NT_SCALE[nt_scale] >> (uint32_t)((n - nt_root + 120) % 12) & 1u; }
+static uint32_t nt_snap(int32_t n)              /* n (0 .. 127) onto the scale's nearest note, a tie down */
+{
+    int32_t i;
+    for (i = 0; i < 12; i++) {
+        if (nt_in_scale(n - i)) { n -= i; break; }
+        if (nt_in_scale(n + i)) { n += i; break; }
+    }
+    return (uint32_t)(n < 0 ? n + 12 : n > 127 ? n - 12 : n);
+}
 
 /* ---- MIDI notes: the channels (0 OFF, 1 .. 16; settings) and the notes held */
 static uint8_t nt_selch = 1u, nt_lch[SC_N] = {1u, 2u, 3u, 4u};
@@ -67,7 +88,7 @@ static void nt_midi(uint32_t ch, uint32_t n, uint32_t vel)   /* a note on (vel 0
         if (m >> k & 1u) {
             if (nt_mn == NT_MQ) nt_mq_off(0);   /* (full: the oldest let go) */
             nt_mq[nt_mn].ch = (uint8_t)ch; nt_mq[nt_mn].in = (uint8_t)n; nt_mq[nt_mn].lane = (uint8_t)k;
-            nt_mq[nt_mn].out = (uint8_t)n;
+            nt_mq[nt_mn].out = (uint8_t)nt_snap((int32_t)n);
             ln_key(k, nt_mq[nt_mn++].out, vel, 1);
         }
 }
@@ -128,7 +149,7 @@ static void nt_poll(void)
             int32_t n = (int32_t)(TX_KEY_F3 + k) + 12 * nt.oct;
             if (n < 0 || n > 127) continue;
             sc_play_ready(sc.sel);
-            nt.note[k] = (uint8_t)n; nt.lane[k] = sc.sel;
+            nt.note[k] = (uint8_t)nt_snap(n); nt.lane[k] = sc.sel;
             ln_key(sc.sel, nt.note[k], NT_VEL, 1);
             nt.playing |= 1u << k;
         }
@@ -145,8 +166,8 @@ static void nt_leds(uint32_t btn)
 {
     static struct { uint32_t lit, glow, btn; uint8_t done; } was;
     uint32_t lit = 0, glow = 0, k;
-    if (nt.mode == NT_PLAY) {                   /* every key lit, a held one dim */
-        lit = (1u << NT_SPAN) - 1u;
+    if (nt.mode == NT_PLAY) {                   /* every key lit (with a SCALE: its keys), a held one dim */
+        for (k = 0; k < NT_SPAN; k++) if (nt_in_scale((int32_t)(TX_KEY_F3 + k))) lit |= 1u << k;
         glow = nt.down; lit &= ~glow;
     } else {
         for (k = 0; k < sizeof NT_GROUP; k++) {   /* the lanes: their black keys */

@@ -1,0 +1,57 @@
+# SCALE (GLO: RHYTHM, GROOVE LANES, SCALE; notes.c): K1 SCALE (CHROMATIC, the default: as played), K2 ROOT, ALGORITHM
+# SCALE too; every note the keys and MIDI play snapped to the scale's nearest note over ROOT (a tie goes down); in
+# PLAY the scale's keys lit, the others dark; CC 72 / 73 on channel 5: SCALE / ROOT; a note held across a change of
+# scale is let go where it went
+1700 btn 13
+1750 btn 7
+1755 btn 7
+1760 btn 7
+1770 expect state page SCALE
+1770 expect state lab0 SCALE
+1770 expect state lab1 ROOT
+1770 expect state card0 CHROMATIC
+1770 expect state card1 C
+1800 btn 3
+1820 keys 0x2
+1840 expect state knote1 1:54
+1840 expect led 15 0
+1850 keys 0
+1860 expect led 15 1
+# MAJOR over C: F#3 between F and G, down to F3; F#3's light dark, G3's lit
+1900 turn 2 1
+1920 expect state card0 MAJOR
+1930 keys 0x2
+1940 expect state knote1 1:53
+1950 keys 0
+1960 expect led 15 0
+1960 expect led 16 1
+# ROOT D (D major): F#3 itself, F3 between E and F#: E3
+2000 turn 3 2
+2020 expect state card1 D
+2030 keys 0x3
+2040 expect state knote0 1:52
+2040 expect state knote1 1:54
+2050 keys 0
+2060 expect led 15 1
+2060 expect led 14 0
+# MIDI, channel 1 (the selected lane): C4 between B3 and C#4: B3; SCALE to CHROMATIC (CC 72) while held: its note off
+# still finds B3
+2100 midi 0x90 60 100
+2110 expect state mnotes 1:59
+2120 midi 0xB4 72 0
+2130 expect state p43B 0
+2140 midi 0x80 60 0
+2150 expect state mnotes -
+2160 midi 0x90 60 100
+2170 expect state mnotes 1:60
+2180 midi 0x80 60 0
+# CC 73: ROOT B; ALGORITHM: SCALE MIN PENTA
+2200 midi 0xB4 73 127
+2210 expect state p43C 11
+2220 turn 1 10
+2230 expect state card0 MIN_PENTA
+2230 expect state msg SCALE_MIN_PENTA
+2300 shot
+2400 expect state dropped 0
+2400 expect sound
+2500 end

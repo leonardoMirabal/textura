@@ -36,7 +36,8 @@
 4980 expect state p131 2
 5020 expect state grcyc0 4
 5020 expect state grcyc1 3
-# the page left (GLO: TEMPO, MIDI, MIDI IN, DISPLAY, RHYTHM) and found again (GLO: GROOVE LANES): still 4
+# the page left (GLO: SCALE, TEMPO, MIDI, MIDI IN, DISPLAY, RHYTHM) and found again (GLO: GROOVE LANES): still 4
+5030 btn 7
 5040 btn 7
 5050 btn 7
 5060 btn 7

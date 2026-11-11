@@ -27,6 +27,8 @@
  *                     DRIVE (a band: a high-pass, then a low-pass; both at their ends: off)
  *           56 .. 58  GROOVE: AMOUNT TYPE SHIFT (groove.c; not an effect: a scene keeps them whatever EFFECTS ON LOAD
  *                     says)
+ *           59 60     SCALE (CHROMATIC MAJOR MINOR ...: N_SCALE), ROOT (C .. B): the keys' and MIDI's notes (notes.c; in
+ *                     the settings, not a scene's)
  *           61 .. 65  MIDI IN: SELECTED CH (the selected lane's notes), LANE 1 .. 4 CHANNEL (each lane's notes and CCs;
  *                     0 OFF, 1 .. 16; notes.c; in the settings)
  *   5       LFO n (0..7): n x 16 + SHAPE RATE SYNC MODE PHASE WIDTH JITTER FADE RESTART LEVEL (tx_lfo_params order),
@@ -84,7 +86,7 @@ enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_ODRIVE0
                                                  * the retired lane FILTER's ids, 36 .. 41) */
 enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP0 = 26, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN, PG_TAP,
        PG_SCNTEMPO, PG_SCNFX, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR, PG_DRIVE0 = 48, PG_MF0 = 52, PG_N_ = 56,
-       PG_GRV0 = 56, PG_GTYPE, PG_GSHIFT, PG_SELCH = 61, PG_LCH0 };   /* (PL_ODRIVE0:
+       PG_GRV0 = 56, PG_GTYPE, PG_GSHIFT, PG_SCALE, PG_ROOT, PG_SELCH, PG_LCH0 };   /* (PL_ODRIVE0:
                                                  * the retired lane DRIVE's ids; pv_glob: the effects' values, 0 .. 55) */
 /* the GRAIN delay's ids: its params 0 .. 11 at 0 .. 11, SYNC 12 (the tempo's), its appended ones (MOD, MOD RATE,
  * INTERVALS) at 13 .. 15 */
@@ -95,7 +97,7 @@ typedef char pg_gd_fits[TX_GD_NP + 1 <= PG_REVERB0 - PG_GRAIN0 ? 1 : -1];
 
 /* how a value reads */
 enum { F_NUM, F_ENUM, F_ONOFF, F_SOUND, F_COUNT, F_ACTIVE, F_PAN, F_HZ_FL, F_MS_GD, F_MS_GS, F_MS_PD, F_SEMI,
-       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_THR, F_R10, F_GAIN, F_MIX, F_HZ_LO, F_HZ_HI, F_GRV, F_MCH };
+       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_THR, F_R10, F_GAIN, F_MIX, F_HZ_LO, F_HZ_HI, F_GRV, F_MCH, F_NOTE };
 static const char *const N_DRIVE[] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
 static const char *const N_REVERB[] = {"OFF", "ROOM", "HALL", "INFINITE", "DARK", "DRIFT", "SWELL", "PLATE"};
 static const char *const N_SHIFT[] = {"+OCT", "+5TH", "+OCT+5", "-OCT"};
@@ -196,6 +198,7 @@ static const p_gx_t PGX[] = {
     {PG_GRV0, "AMOUNT", 127, F_NUM, TX_GR_AMOUNT_DEF}, {PG_GTYPE, "TYPE", TX_GR_NTYPES - 1u, F_GRV, TX_GR_TYPE_DEF},
     {PG_GSHIFT, "SHIFT", 31, F_NUM, 0}, {PGX_LANE | PL_GPART, "PART", TX_GRP_N - 1, F_ENUM, 0},
     {PGX_LANE | PL_GCYC, "CYCLE", 8, F_GRV, 0},
+    {PG_SCALE, "SCALE", NT_NSCALE - 1u, F_ENUM, PGX_NODEF}, {PG_ROOT, "ROOT", 11, F_NOTE, PGX_NODEF},
     {PG_SELCH, "SELECTED CH", 16, F_MCH, PGX_NODEF}, {PG_LCH0, "LANE 1 CHANNEL", 16, F_MCH, PGX_NODEF},
     {PG_LCH0 + 1, "LANE 2 CHANNEL", 16, F_MCH, PGX_NODEF}, {PG_LCH0 + 2, "LANE 3 CHANNEL", 16, F_MCH, PGX_NODEF},
     {PG_LCH0 + 3, "LANE 4 CHANNEL", 16, F_MCH, PGX_NODEF},
@@ -402,6 +405,7 @@ static const char *const *p_names(uint32_t id)
     if (i == PG_DRIVE0 + TX_DR_TYPE) return N_DRIVE;
     if (i == PG_MF0 + TX_MF_SLOPE) return N_SLOPE;
     if (i == PG_GD(TX_GD_IVL)) return N_IVL;
+    if (i == PG_SCALE) return N_SCALE;
     return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : i == PG_CLOCK ? N_CLOCK : i == PG_OUT ? N_CLKOUT : i == PG_SCNFX ? N_SCNFX : i == PG_SCNTEMPO ? N_NOYES : i == PG_COLOR ? COLOR_NAME : N_SHIFT;
 }
 static int32_t p_get(uint32_t id)
@@ -421,6 +425,8 @@ static int32_t p_get(uint32_t id)
         case PG_SCNTEMPO: return (int32_t)tm_get(TG_SCNTEMPO);
         case PG_SCNFX: return scn_fx_mode;
         case PG_COLOR: return p_color;
+        case PG_SCALE: return nt_scale;
+        case PG_ROOT: return nt_root;
         case PG_SELCH: return nt_selch;
         }
         if (i >= PG_LCH0 && i < PG_LCH0 + SC_N) return nt_lch[i - PG_LCH0];
@@ -459,6 +465,8 @@ static void p_set(uint32_t id, int32_t v)
         case PG_SCNTEMPO: tempo_scene_flag((uint32_t)v); break;
         case PG_SCNFX: scn_fx_mode = (uint8_t)v; break;
         case PG_COLOR: color_apply((uint32_t)v); break;
+        case PG_SCALE: nt_scale = (uint8_t)v; break;
+        case PG_ROOT: nt_root = (uint8_t)v; break;
         case PG_SELCH: nt_selch = (uint8_t)v; break;
         default:
             if (i >= PG_LCH0) { nt_lch[i - PG_LCH0] = (uint8_t)v; break; } pv_glob[i] = (uint8_t)v;       /* (GROOVE's; STATUS, read only, never read from it) */
@@ -495,6 +503,7 @@ static const char *p_text(uint32_t id, char *t)
     if (P_MODS(P_SCOPE(id))) return mod_text(id, t);
     switch (f) {
     case F_ENUM: p_strcpy(t, p_names(id)[v], 10); return 0;
+    case F_NOTE: t[0] = "CCDDEFFGGAAB"[v]; t[1] = 0x54Au >> v & 1u ? '#' : 0; t[2] = 0; return 0;   /* (ROOT: C .. B) */
     case F_GRV:                                 /* GROOVE's TYPE (11 characters at most), a lane's CYCLE (AUTO, 2 .. 9) */
         if (P_SCOPE(id) == P_GLOBAL) tx_groove_name((unsigned)v, t); else if (v) p_fmt_int(t, v + 1); else p_strcpy(t, "AUTO", 5);
         return 0;
@@ -562,7 +571,7 @@ static uint32_t p_kind(uint32_t id)
 {
     uint32_t f = p_fmt(id);
     if (f == F_ONOFF || f == F_RUN) return PK_TOGGLE;
-    if (f == F_ENUM || f == F_DIV || f == F_GRV || f == F_SOUND || f == F_COUNT || f == F_ACTIVE || f == F_MCH) return PK_SELECT;
+    if (f == F_ENUM || f == F_DIV || f == F_GRV || f == F_SOUND || f == F_COUNT || f == F_ACTIVE || f == F_MCH || f == F_NOTE) return PK_SELECT;
     return PK_AMOUNT;
 }
 
@@ -601,7 +610,7 @@ static const p_cc_t P_CC_GLOBAL[] = {
     {118, PG_COMP0 + TX_CP_RATIO}, {119, PG_COMP0 + TX_CP_MKUP},
     {76, PG_DRIVE0 + TX_DR_AMOUNT}, {77, PG_DRIVE0 + TX_DR_TONE}, {78, PG_DRIVE0 + TX_DR_MIX}, {79, PG_DRIVE0 + TX_DR_TYPE},
     {75, PG_MF0 + TX_MF_LOW}, {74, PG_MF0 + TX_MF_HIGH}, {71, PG_MF0 + TX_MF_RESO}, {70, PG_MF0 + TX_MF_SLOPE},
-    {3, PG_BPM}, {9, PG_TAP}, {80, PG_RUN}, {84, PG_GRV0},
+    {3, PG_BPM}, {9, PG_TAP}, {80, PG_RUN}, {84, PG_GRV0}, {72, PG_SCALE}, {73, PG_ROOT},
 };
 /* a parameter's value <-> its place in the panel's order (the same map both ways): the identity, but the FILTER's
  * SLOPE, whose values are 12, 24, 18 dB (24 at 1: what scenes saved before 18 came), in steepness order 12, 18, 24 (a

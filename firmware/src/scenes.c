@@ -715,13 +715,13 @@ static void scn_pc(uint32_t p)                  /* MIDI program change (channel 
 
 /* ---- the settings: one small record, saved SET_SAVE_MS after its last change (the platform's split save) */
 typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, scn_tempo, out_off; uint16_t bpm10; uint8_t scn_fx, layout;
-                 uint8_t spare2[2], selch, lch[SC_N], spare; } tx_set_t;
+                 uint8_t scale, root, selch, lch[SC_N], spare; } tx_set_t;
                                                 /* (scn_tempo, out_off, palette, scn_fx, layout: once spare bytes, 0 = as
                                                  * before: off, USB, RED, SMART, the scenes before the presets. scn_fx: 0
                                                  * SMART, 1 ALWAYS, 2 NEVER: the KEEP and RECALL of before read as SMART
-                                                 * and ALWAYS. spare2 .. lch appended: the record of before, SET_OLD_SZ
-                                                 * bytes, still loads, with them at 0 = the defaults: the channels as
-                                                 * before (each stored XOR its default: SELECTED 1, lane n n)) */
+                                                 * and ALWAYS. scale .. lch appended: the record of before, SET_OLD_SZ
+                                                 * bytes, still loads, with them at 0 = the defaults: CHROMATIC, C, the
+                                                 * channels as before (each stored XOR its default: SELECTED 1, lane n n)) */
 #define SET_OLD_SZ 12u
 _Static_assert(sizeof(tx_set_t) == 20u && SET_OLD_SZ == 12u, "the settings: the old record, then the appended bytes");
 static uint8_t set_fx_of(uint32_t m) { return (uint8_t)(m == SCN_FX_ALWAYS ? 1u : m == SCN_FX_NEVER ? 2u : 0u); }
@@ -737,7 +737,7 @@ static void set_take(tx_set_t *s)
     s->clock = (uint8_t)tm.clock; s->in_usb = tm.in_usb; s->in_trs = tm.in_trs; s->bpm10 = (uint16_t)tempo_bpm10();
     s->scn_tempo = tm.scn_tempo; s->out_off = (uint8_t)!tm.out_usb; s->palette = p_color; s->scn_fx = set_fx_of(scn_fx_mode);
     s->layout = SET_LAYOUT;
-    s->selch = (uint8_t)(nt_selch ^ 1u);
+    s->scale = nt_scale; s->root = nt_root; s->selch = (uint8_t)(nt_selch ^ 1u);
     for (k = 0; k < SC_N; k++) s->lch[k] = (uint8_t)(nt_lch[k] ^ (k + 1u));
 }
 static void set_poll(void)
@@ -767,6 +767,7 @@ static void scn_init(void)
     scn_bank_load();
     memset(&s, 0, sizeof s);
     if ((!settings_load(&s, sizeof s) || !settings_load(&s, SET_OLD_SZ)) && s.ver == SET_VER) {
+        p_set(PID(P_GLOBAL, PG_SCALE), s.scale); p_set(PID(P_GLOBAL, PG_ROOT), s.root);
         p_set(PID(P_GLOBAL, PG_SELCH), s.selch ^ 1u);
         for (k = 0; k < SC_N; k++) p_set(PID(P_GLOBAL, PG_LCH0 + k), s.lch[k] ^ (k + 1u));   /* (p_set keeps them in range) */
         tempo_mode(s.clock); tempo_port(1, s.in_usb); tempo_port(2, s.in_trs);

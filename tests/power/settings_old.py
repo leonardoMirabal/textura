@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
-"""The power cycle's third run: the settings record cut to the 12 bytes of the firmwares before the MIDI IN
+"""The power cycle's third run: the settings record cut to the 12 bytes of the firmwares before SCALE and the MIDI IN
 channels (scenes.c SET_OLD_SZ), its length and CRC set to match, so the boot reads a record as an older firmware left it.
 Usage: settings_old.py FLASH_FILE"""
 import struct

@@ -1,5 +1,5 @@
 # the tempo: GLO = RHYTHM (K1 the BPM, K2 K3 the groove's AMOUNT and SHIFT, K4 the transport; again: GROOVE LANES,
-# TEMPO, MIDI, MIDI IN, DISPLAY); TEMPO's K1 a tenth; PLAY taps it (from the 3rd tap), held 600 ms the
+# SCALE, TEMPO, MIDI, MIDI IN, DISPLAY); TEMPO's K1 a tenth; PLAY taps it (from the 3rd tap), held 600 ms the
 # transport (that press's tap taken back); the grain delay's SYNC on the beat (halved until it fits the line); CC 3 the
 # BPM on channel 5; the MIDI page: CLOCK, each port's clock in, the clock out (USB, in
 # MASTER: 24 pulses a beat)
@@ -17,6 +17,7 @@
 1800 turn 2 10
 1820 expect state bpm10 1300
 1850 btn 7
+1855 btn 7
 1860 btn 7
 1870 expect state page TEMPO
 1870 expect state lab0 FINE
@@ -74,12 +75,13 @@
 5700 turn 4 -12
 5720 expect state card2 FREE
 5740 expect state gdsync 0
-# GLO: RHYTHM (PRESETS CHANGE TEMPO lives in the presets list's LOAD OPTIONS), again: GROOVE LANES, TEMPO, MIDI
+# GLO: RHYTHM (PRESETS CHANGE TEMPO lives in the presets list's LOAD OPTIONS), again: GROOVE LANES, SCALE, TEMPO, MIDI
 5800 btn 7
 5815 expect state p425 0
 5820 btn 7
 5825 expect state page GROOVE_LANES
 5830 btn 7
+5832 btn 7
 5835 btn 7
 5840 expect state page MIDI
 5840 expect state lab0 CLOCK

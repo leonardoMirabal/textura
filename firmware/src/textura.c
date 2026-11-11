@@ -139,9 +139,9 @@ static uint32_t tx_palette_index(const char *name)
 #include "scenes.c"
 #include "ui.c"
 
-/* ---- MIDI: notes on SELECTED CH (1) play the selected lane, on a lane's MIDI CH (lane n: n) that lane, pitched
- * (notes.c nt_midi); control changes reach the params table (a lane's on its MIDI CH, the effects on the mix on channel
- * 5: params.c); the clock and the transport go to tempo.c */
+/* ---- MIDI: notes on SELECTED CH (1) play the selected lane, on a lane's MIDI CH (lane n: n) that lane, pitched,
+ * through SCALE (notes.c nt_midi); control changes reach the params table (a lane's on its MIDI CH, the effects on the
+ * mix on channel 5: params.c); the clock and the transport go to tempo.c */
 #ifdef LN_BUS_TIMED
 /* the grain delay's measured room (lanes.c ln_bus), for a check on the FM-1: CC 116 on channel 16 asks, the reply is
  * CC 100 id / 101 - 102 value (14 bits, as Frodhes' CC 116 items) on channel 1: 20 the cap now, 21 the lowest cap,
