@@ -136,9 +136,9 @@
 3600 btn 2
 3605 expect state page COMPRESSOR_1/2
 3605 expect state lab0 THR
-3605 expect state lab1 RAT
-3605 expect state lab2 ATK
-3605 expect state lab3 MKUP
+3605 expect state lab1 RATIO
+3605 expect state lab2 ATTACK
+3605 expect state lab3 MAKEUP
 3605 expect state card0 -20_dB
 3605 expect state card1 1.5:1
 3605 expect state card2 8.5
