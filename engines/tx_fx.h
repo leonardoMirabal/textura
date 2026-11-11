@@ -2,13 +2,13 @@
 /* Textura effects (stage S3): instances, no globals (as the engines), integers only.
  *
  *   per lane: no insert (tx_fx_lane: the lane untouched; each lane's FILTER is retired, the mix has one).
- *   on the stereo mix: the DRIVE first (tx_fx_drive_mix: one DRIVE, a pair of instances for L and R with the same
- *   settings; tx_mix_t.pre, before the mix's compressor; AMOUNT 0 = the mix untouched), the FILTER after it (a band:
+ *   on the stereo mix, in the order the FX pages show (tx_engine.h TX_ST_*, as Frodhes): the compressor first
+ *   (tx_core_mix.c), then the DRIVE (tx_fx_drive_mix: one DRIVE, a pair of instances for L and R with the same
+ *   settings; tx_mix_t.pre, after the mix's compressor; AMOUNT 0 = the mix untouched), the FILTER after it (a band:
  *   LOW CUT, HIGH CUT; both at their ends = the mix untouched), then (tx_core_mix.c) the
- *   compressor and the CHAMBER, then, before the limiter, in series, the REVERB (a mono send of the mid, a stereo
- *   return) and the GRAIN DELAY (a delay whose repeats are grained), each with a dry / wet MIX (below): the delay
- *   takes what the reverb gives, its echoes repeat the reverberated sound (REVERB MIX 127 + GRAIN MIX 127: the
- *   reverb's echoes alone). The REVERB's TYPEs:
+ *   CHAMBER, then, before the limiter, in series, the GRAIN DELAY (a delay whose repeats are
+ *   grained) and the REVERB (a mono send of the mid, a stereo return), each with a dry / wet MIX (below): the reverb
+ *   takes what the delay gives (GRAIN MIX 127 + REVERB MIX 127: the grains' reverb alone):
  *     TYPE  OFF | ROOM (the CHAMBER's body modes + a short hall tail) | HALL | INFINITE | DARK | DRIFT | SWELL | PLATE
  *     (one TYPE runs at a time; their states share one memory union).
  *
@@ -104,7 +104,7 @@ void tx_fx_mfilter_param(tx_fx_mfilter_t *f, unsigned id, unsigned v);
 void tx_fx_mfilter_process(tx_fx_mfilter_t *f, int32_t *L, int32_t *R, unsigned n);   /* Q23, in place (in XIP) */
 uint32_t tx_fx_mfilter_us(const tx_fx_mfilter_t *f);   /* its FM-1 cost now, us a block (0: off) */
 
-/* ---- GRAIN DELAY (on the mix, after the reverb; tx_fx_grain.c): a delay whose repeats are grained */
+/* ---- GRAIN DELAY (on the mix, before the reverb; tx_fx_grain.c): a delay whose repeats are grained */
 enum { TX_GD_MIX, TX_GD_TIME, TX_GD_FEEDBACK, TX_GD_GRAINS, TX_GD_SIZE, TX_GD_SPRAY, TX_GD_PITCH, TX_GD_REVERSE,
        TX_GD_SPREAD, TX_GD_TONE, TX_GD_GRAIN, TX_GD_FREEZE, TX_GD_MOD, TX_GD_MODRATE, TX_GD_IVL, TX_GD_NP };   /* (append
                                                  * only) */
@@ -244,7 +244,7 @@ int tx_fx_reverb_quiet(const tx_fx_reverb_t *r);
 void tx_fx_reverb_relatch(tx_fx_reverb_t *r);   /* a whole sound loaded (a scene): PLATE's AUTO size from MIX at once */
 int tx_fx_reverb_frozen(const tx_fx_reverb_t *r);   /* holding its tail (SUSTAIN / FREEZE): never quiet */
 
-/* ---- the chain: TX_FX_LANES lane inserts, the mix's DRIVE, the reverb and the grain delay; the mix calls it through
+/* ---- the chain: TX_FX_LANES lane inserts, the mix's DRIVE, the grain delay and the reverb; the mix calls it through
  * tx_mix_t's hooks */
 #define TX_FX_LANES 4u
 #define TX_FX_RESERVE_US 880u     /* the effects' share of the block (CPU-BUDGET.md: 500 + the CHAMBER's, now a TYPE) */
@@ -271,7 +271,7 @@ TX_AUDIO_CODE void tx_fx_lane(void *fx, unsigned k, int32_t *x, unsigned n);    
                                                  * the lane untouched) */
 /* or on the core (0, 1) that renders the lane (the lanes on two cores): the same samples */
 TX_AUDIO_CODE void tx_fx_lane_run(void *fx, unsigned k, int32_t *x, unsigned n, unsigned core);
-/* the mix's first stage, DRIVE then FILTER: TX_DR_* the DRIVE on both sides, TX_FX_MF_ID + TX_MF_* the FILTER */
+/* the mix's stage after the compressor, DRIVE then FILTER: TX_DR_* the DRIVE on both sides, TX_FX_MF_ID + TX_MF_* the FILTER */
 #define TX_FX_MF_ID 16u
 void tx_fx_drive_set(tx_fx_t *fx, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_fx_drive_mix(void *fx, int32_t *L, int32_t *R, unsigned n);    /* tx_mix_t.pre: L, R in place, the

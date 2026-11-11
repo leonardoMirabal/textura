@@ -312,8 +312,9 @@ EMSCRIPTEN_KEEPALIVE const char *txw_max_sha(int i)
     return hex;
 }
 
-/* ---- EFFECTS (tx_fx.h): 0 DRIVE (the first effect on the mix), 1 FILTER (the mix's, right after the DRIVE: a band), 4 COMPRESSOR (on the mix, after it: tx_core_comp.h), 3 GRAIN DELAY (on the mix, after it), 2 REVERB (on
- * the mix, last; its TYPE ROOM is the CHAMBER's body + a short hall) */
+/* ---- EFFECTS (tx_fx.h), in the mix's order: 4 COMPRESSOR (the first effect on the mix: tx_core_comp.h), 0 DRIVE (after
+ * it), 1 FILTER (the mix's, right after the DRIVE: a band), 3 GRAIN DELAY (on the mix, after it), 2 REVERB (on the mix,
+ * last; its TYPE ROOM is the CHAMBER's body + a short hall) */
 static const tx_param_t *fx_list(int g, int *n)
 {
     if (g == 0) { *n = TX_DR_NP; return tx_fx_drive_params; }

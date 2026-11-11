@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura COMP core: the master bus compressor, the first effect on the mix (tx_core_mix.c: the lanes' mix -> COMP ->
- * GRAIN DELAY -> REVERB -> the output limiter). Its controls are Frodhes' COMPRESSOR's (COMP, THR, ATK, REL, RAT,
+ * DRIVE -> FILTER -> GRAIN DELAY -> REVERB -> the output limiter, as Frodhes). Its controls are Frodhes' COMPRESSOR's (COMP, THR, ATK, REL, RAT,
  * MKUP: the same ranges), on this detector:
  *
  * Stereo-linked: one gain for both sides, from the louder side's power (max |L| |R|, squared), averaged over each

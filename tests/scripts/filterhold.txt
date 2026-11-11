@@ -17,22 +17,22 @@
 2620 btn 8
 2630 expect state page FILTER
 2700 btn 2
-2710 expect state page DRIVE
+2710 expect state page GRAIN_1/4
 2800 btn 8
 2810 btn 2
 2820 expect state page EFFECTS
 2900 press 2
 3100 expect state page EFFECTS
 3150 release 2
-3160 expect state page REVERB_1/3
+3160 expect state page COMPRESSOR_1/2
 3200 turn 6 1
 3210 expect state brpr 1
 3220 press 2
 3230 expect state bropt 1
 3900 expect state bropt 1
-3900 expect state page REVERB_1/3
+3900 expect state page COMPRESSOR_1/2
 3910 release 2
 3920 expect state bropt 1
-3920 expect state page REVERB_1/3
+3920 expect state page COMPRESSOR_1/2
 4000 expect state dropped 0
 4100 end

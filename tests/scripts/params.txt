@@ -59,99 +59,104 @@
 2800 btn 6
 2820 expect state page SOUND_2/2
 2830 expect led 6 1
-# FX: EFFECTS, the front page (REVERB MIX, DELAY MIX, HIGH CUT, DRIVE); ALGORITHM there: the reverb's type
+# FX: EFFECTS, the front page (DRIVE, HIGH CUT, DELAY MIX, REVERB MIX: the chain's order); ALGORITHM there: the
+# reverb's type
 3300 btn 2
 3320 expect state page EFFECTS
-3320 expect state lab0 REVERB_MIX
-3320 expect state lab1 DELAY_MIX
-3320 expect state lab2 HIGH_CUT
-3320 expect state lab3 DRIVE
-3320 expect state card0 D100_W55
-3320 expect state card1 DRY
-# FX again: REVERB 1/3 (MIX: DRY, D100 W.. to 64, D.. W100 past it, WET); ALGORITHM: the type
+3320 expect state lab0 DRIVE
+3320 expect state lab1 HIGH_CUT
+3320 expect state lab2 DELAY_MIX
+3320 expect state lab3 REVERB_MIX
+3320 expect state card0 0
+3320 expect state card1 OFF
+3320 expect state card2 DRY
+3320 expect state card3 D100_W55
+# FX again: COMPRESSOR 1/2 (the first effect; Frodhes' four knobs; on by default); ALGORITHM: COMP off / on; CC 118 on
+# channel 5: RAT
 3340 btn 2
-3345 expect state page REVERB_1/3
-3345 expect state card1 D100_W55
-3350 turn 1 1
-3355 expect state msg REVERB_TYPE_ROOM
-3360 turn 1 -1
-3370 shot
-# FX three times more: GRAIN 1/4 (MIX: DRY..WET, off at DRY); ALGORITHM: FREEZE; 2/4 the animation (MOD, MOD RATE,
-# INTERVALS, GRAIN)
-3400 btn 2
-3405 btn 2
-3410 btn 2
-3420 expect state page GRAIN_1/4
-3420 expect state card0 DRY
-3420 expect state lab2 SYNC
-3420 expect state lab3 FEEDBACK
-3430 turn 1 1
-3435 expect state p40B 1
-3435 expect state msg FREEZE_ON
-3440 turn 1 -1
-3445 expect state p40B 0
-3450 turn 0 1
-3455 expect state page GRAIN_2/4
-3455 expect state lab0 MOD
-3455 expect state lab1 MOD_RATE
-3455 expect state lab2 INTERVALS
-3455 expect state card2 5TH+OCT
-3455 expect state lab3 GRAIN
-3460 turn 0 1
-3465 expect state lab3 PITCH
-3470 turn 5 7
-3475 expect state card3 +1_st
-3480 shot
-# FX twice: FILTER (the mix's, after the DRIVE in the chain: LOW CUT HIGH CUT RESONANCE SLOPE, off at the ends:
+3350 expect state page COMPRESSOR_1/2
+3350 expect state lab0 THR
+3350 expect state lab1 RATIO
+3350 expect state lab2 ATTACK
+3350 expect state lab3 MAKEUP
+3350 expect state card0 -20_dB
+3350 expect state card1 1.5:1
+3350 expect state card2 8.5
+3350 expect state card3 +2.6_dB
+3355 turn 1 -1
+3360 expect state msg COMP_OFF
+3365 turn 1 1
+3370 expect state msg COMP_ON
+3375 midi 0xB4 118 127
+3380 expect state card1 20:1
+3385 midi 0xB4 118 0
+3390 expect state card1 1.5:1
+3395 shot
+# FX twice: DRIVE (the mix's, one page, after the compressor): AMOUNT TONE MIX TYPE; K1: AMOUNT; ALGORITHM: its TYPE;
+# CC 79 on channel 5: TYPE
+3415 btn 2
+3420 btn 2
+3430 expect state page DRIVE
+3430 expect state lab0 AMOUNT
+3430 expect state lab1 TONE
+3430 expect state lab2 MIX
+3430 expect state lab3 TYPE
+3430 expect state card3 FDRV
+3430 expect state card2 WET
+3435 turn 2 30
+3440 expect state p430 30
+3445 turn 1 1
+3450 expect state p433 1
+3450 expect state msg DRIVE_TYPE_KHLON
+3450 expect state card3 KHLON
+3455 shot
+3460 turn 2 -30
+3465 expect state p430 0
+3470 midi 0xB4 79 127
+3475 expect state p433 4
+3480 midi 0xB4 79 0
+3485 expect state p433 0
+# FX again: FILTER (the mix's, right after the DRIVE: LOW CUT HIGH CUT RESONANCE SLOPE, off at the ends:
 # tests/scripts/masterfilter.txt)
-3500 btn 2
 3505 btn 2
-3510 expect state page FILTER
-3510 expect state lab0 LOW_CUT
-3510 expect state card0 OFF
-3510 expect state card1 OFF
-# FX again: DRIVE (the mix's, one page): AMOUNT TONE MIX TYPE; K1: AMOUNT; ALGORITHM: its TYPE; CC 79 on channel 5: TYPE
-3520 btn 2
-3525 expect state page DRIVE
-3525 expect state lab0 AMOUNT
-3525 expect state lab1 TONE
-3525 expect state lab2 MIX
-3525 expect state lab3 TYPE
-3525 expect state card3 FDRV
-3525 expect state card2 WET
-3530 turn 2 30
-3535 expect state p430 30
-3540 turn 1 1
-3545 expect state p433 1
-3545 expect state msg DRIVE_TYPE_KHLON
-3545 expect state card3 KHLON
-3550 shot
-3555 turn 2 -30
-3560 expect state p430 0
-3565 midi 0xB4 79 127
-3570 expect state p433 4
-3575 midi 0xB4 79 0
-3580 expect state p433 0
-# FX again: COMPRESSOR 1/2 (Frodhes' four knobs; on by default); ALGORITHM: COMP off / on; CC 118 on channel 5: RAT
-3600 btn 2
-3605 expect state page COMPRESSOR_1/2
-3605 expect state lab0 THR
-3605 expect state lab1 RATIO
-3605 expect state lab2 ATTACK
-3605 expect state lab3 MAKEUP
-3605 expect state card0 -20_dB
-3605 expect state card1 1.5:1
-3605 expect state card2 8.5
-3605 expect state card3 +2.6_dB
-3610 turn 1 -1
-3615 expect state msg COMP_OFF
-3620 turn 1 1
-3625 expect state msg COMP_ON
-3630 midi 0xB4 118 127
-3635 expect state card1 20:1
-3640 midi 0xB4 118 0
-3645 expect state card1 1.5:1
-3650 shot
+3515 expect state page FILTER
+3515 expect state lab0 LOW_CUT
+3515 expect state card0 OFF
+3515 expect state card1 OFF
+# FX again: GRAIN 1/4 (MIX: DRY..WET, off at DRY); ALGORITHM: FREEZE; 2/4 the animation (MOD, MOD RATE,
+# INTERVALS, GRAIN)
+3535 btn 2
+3545 expect state page GRAIN_1/4
+3545 expect state card0 DRY
+3545 expect state lab2 SYNC
+3545 expect state lab3 FEEDBACK
+3555 turn 1 1
+3560 expect state p40B 1
+3560 expect state msg FREEZE_ON
+3565 turn 1 -1
+3570 expect state p40B 0
+3575 turn 0 1
+3580 expect state page GRAIN_2/4
+3580 expect state lab0 MOD
+3580 expect state lab1 MOD_RATE
+3580 expect state lab2 INTERVALS
+3580 expect state card2 5TH+OCT
+3580 expect state lab3 GRAIN
+3585 turn 0 1
+3590 expect state lab3 PITCH
+3595 turn 5 7
+3600 expect state card3 +1_st
+3605 shot
+# FX twice more (from GRAIN 3/4): REVERB 1/3, on what the delay gives (MIX: DRY, D100 W.. to 64, D.. W100 past
+# it, WET); ALGORITHM: the type
+3625 btn 2
+3630 btn 2
+3645 expect state page REVERB_1/3
+3645 expect state card1 D100_W55
+3650 turn 1 1
+3655 expect state msg REVERB_TYPE_ROOM
+3660 turn 1 -1
+3670 shot
 # HOME: LANDSCAPE
 4400 btn 8
 4420 expect state page LANDSCAPE

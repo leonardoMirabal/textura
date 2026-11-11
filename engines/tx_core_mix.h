@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura MIX core: stage S3, four layers. Up to TX_MIX_SLOTS engine instances (each in its own state arena, the
  * caller's), each panned (constant power, unity at the centre: gains sqrt(2) sin / cos), summed into a stereo pair;
- * the pair's DRIVE (pre: tx_fx.h's, the first effect; AMOUNT 0: bypassed); the bus compressor (tx_core_comp.h: comp,
- * after the DRIVE; COMP off: bypassed); the CHAMBER (optional, mono) on the pair's mid, its added body and tail fed
- * back to both sides; then the bus effects (the grain delay, the reverb) and the output limiter, linked across the
- * two channels. Integer, Q23 in int32 like every mix here.
+ * the bus compressor (tx_core_comp.h: comp, the first effect, as Frodhes; COMP off: bypassed); the pair's DRIVE and
+ * FILTER (pre: tx_fx.h's; AMOUNT 0, the filter open: bypassed); the CHAMBER (optional, mono) on the pair's mid, its
+ * added body and tail fed back to both sides; then the bus effects (the grain delay, then the reverb on what it gives)
+ * and the output limiter, linked across the two channels (tx_engine.h TX_ST_*: the order the FX pages show). Integer, Q23 in int32 like every mix here.
  *
  *   for each block: tx_mix_begin(m, n); tx_mix_slot_render(m, k, n) for each slot (the caller may time each one);
  *                   tx_mix_end(m, L, R, n) -> L, R limited (|x| <= -1 dBFS); m->raw_peak = the pair's peak before it */
@@ -39,7 +39,7 @@ typedef struct {
     tx_chamber_t *ch;                    /* optional (the caller's, ~22 KB), used while ch_on */
     int ch_on;
     /* optional effects (tx_fx.h; 0 = none): ins on each slot's block before it is panned, pre on the stereo pair
-     * first (the DRIVE, before comp), bus on the stereo pair before the limiter, busq: the bus quiet; fx their state */
+     * after comp (the DRIVE, the FILTER), bus on the stereo pair before the limiter, busq: the bus quiet; fx their state */
     void (*ins)(void *fx, unsigned k, int32_t *x, unsigned n);
     void (*pre)(void *fx, int32_t *L, int32_t *R, unsigned n);
     void (*bus)(void *fx, int32_t *L, int32_t *R, unsigned n);
@@ -48,7 +48,7 @@ typedef struct {
                                                                    * the XIP twins, no job handed on; 0 = none) */
     void (*bus1)(void *fx, int32_t *L, int32_t *R, unsigned n);
     void *fx;
-    tx_comp_t comp;                      /* the bus compressor, after the pair's DRIVE (COMP off: bypassed) */
+    tx_comp_t comp;                      /* the bus compressor, the first effect (COMP off: bypassed) */
     tx_limit_t lim;
     int32_t raw_peak;                    /* the pair's peak before the limiter, this block */
     int32_t L[TX_BLOCK];

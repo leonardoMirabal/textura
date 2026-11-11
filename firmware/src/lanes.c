@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura lanes: the sound behind the panel. Four lanes, each an engine instance (engines/: the same code the bench
- * and the audition player run), each panned into a stereo pair, then the DRIVE, the FILTER, the
- * COMPRESSOR, the GRAIN DELAY, the REVERB and the output limiter (tx_core_mix.h, tx_fx.h): the audition player's chain (audition/tx_web.c).
+ * and the audition player run), each panned into a stereo pair, then the COMPRESSOR, the DRIVE, the FILTER, the
+ * GRAIN DELAY, the REVERB (the FX pages' order, left to right) and the output limiter (tx_core_mix.h, tx_fx.h): the audition player's chain (audition/tx_web.c).
  *
  *   main loop   ln_select (a lane's engine: prepared in the spare arena, here, never in the audio interrupt),
  *               ln_key, ln_param, ln_level, ln_pan, ln_fx, ln_gen_on, ln_gen_param, ln_gen_mute: queued (ln_q), the
@@ -180,11 +180,13 @@ static void ln_bus(void *u, int32_t *L, int32_t *R, unsigned n)
     tx_fx_t *fx = (tx_fx_t *)u;
     uint32_t t0 = LN_CLOCK(), t1;
     ln.pre_pk = LN_HOLD(ln.pre_pk, LN_CLOCK_US(t0 - ln.t_blk));
-    TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);   /* the REVERB first, the GRAIN DELAY on what it gives */
+    TX_STAGE(TX_ST_GRAIN);
+    TX_FAR(tx_fx_grain_end)(&fx->gd, L, R, n);         /* the GRAIN DELAY, then the REVERB on what it gives */
     t1 = LN_CLOCK();
-    ln.rev_pk = LN_HOLD(ln.rev_pk, LN_CLOCK_US(t1 - t0));
-    TX_FAR(tx_fx_grain_end)(&fx->gd, L, R, n);
+    TX_STAGE(TX_ST_REVERB);
+    TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);
     ln.t_bus = LN_CLOCK();
+    ln.rev_pk = LN_HOLD(ln.rev_pk, LN_CLOCK_US(ln.t_bus - t1));
 }
 #endif
 

@@ -1,5 +1,5 @@
 # the footer's line 2 on the LFO and ENV pages: where the button goes next and the learn gesture (held + a card turned),
-# both, the NEXT shortened to fit ("> LFO PHASE"); EFFECTS: its NEXT and FX held opens FILTER
+# both, the NEXT shortened to fit ("> LFO PHASE"); EFFECTS: its NEXT (no room for HOLD: FILTER beside COMPRESSOR)
 1700 btn 13
 3400 btn 5
 3500 expect state page LFO_1/3
@@ -12,5 +12,5 @@
 3800 expect state ft2 >_ENV_SHAPE_|_HOLD_+_TURN:_LEARN
 3900 btn 2
 4000 expect state page EFFECTS
-4000 expect state ft2 FX:_NEXT_>_REVERB_|_HOLD:_FILTER
+4000 expect state ft2 FX:_NEXT_>_COMPRESSOR
 4100 end

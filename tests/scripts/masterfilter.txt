@@ -1,4 +1,4 @@
-# the mix's FILTER (FX: EFFECTS, REVERB, DELAY, then FILTER): a band, LOW CUT (a high-pass) and HIGH CUT (a low-pass), OFF at their
+# the mix's FILTER (FX: EFFECTS, COMPRESSOR, DRIVE, then FILTER): a band, LOW CUT (a high-pass) and HIGH CUT (a low-pass), OFF at their
 # ends (the defaults: the chain untouched, mfon 0); RESONANCE; SLOPE 12 / 18 / 24 dB (also ALGORITHM); CC 75 74 71 70 on
 # channel 5; crossed edges still sound (a narrow band); LFO 1 > FLT HIGH CUT on the matrix; back at the ends the filter
 # stops (mfon 0); a scene stores it; EFFECTS ON LOAD at SMART leaves it once turned, ALWAYS sets it
@@ -9,10 +9,6 @@
 1908 btn 2
 1912 btn 2
 1916 btn 2
-1920 btn 2
-1924 btn 2
-1928 btn 2
-1932 btn 2
 1940 expect state page FILTER
 1940 expect state lab0 LOW_CUT
 1940 expect state lab1 HIGH_CUT

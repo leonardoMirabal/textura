@@ -21,8 +21,8 @@
  *                     did, then they stay, "FX: YOURS"; NEVER: they stay; in the settings. Set or kept, they glide)
  *           40 .. 43  MIDI: CLOCK (INT MASTER FOLLOW AUTO) CLK IN USB, CLK IN TRS, CLK OUT (OFF / USB: MASTER sends)
  *           44        DISPLAY: COLOR (the screen's palette: COLOR_NAME; in the settings)
- *           48 .. 51  DRIVE: AMOUNT TONE MIX TYPE (tx_fx_drive_params order): the mix's, its first effect (before the
- *                     COMPRESSOR)
+ *           48 .. 51  DRIVE: AMOUNT TONE MIX TYPE (tx_fx_drive_params order): the mix's, right after the COMPRESSOR
+ *                     (its first effect)
  *           52 .. 55  FILTER: LOW CUT HIGH CUT RESONANCE SLOPE (tx_fx_mfilter_params order): the mix's, right after the
  *                     DRIVE (a band: a high-pass, then a low-pass; both at their ends: off)
  *           56 .. 58  GROOVE: AMOUNT TYPE SHIFT (groove.c; not an effect: a scene keeps them whatever EFFECTS ON LOAD

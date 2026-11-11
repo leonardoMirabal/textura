@@ -128,4 +128,16 @@ int tx_param_find(const tx_engine_t *e, const char *name);   /* by name (case-in
 /* LEVEL 0..127 -> Q15 gain: (v / 100)^2, so 100 = unity, 127 = +4.2 dB, 0 = silent */
 static inline int32_t tx_level_q15(uint32_t v) { return (int32_t)((v * v * 26844u) >> 13); }
 
+/* the mix's effects in the order the sound goes through them (tx_core_mix.c, tx_fx.c): COMPRESSOR, DRIVE, FILTER,
+ * GRAIN DELAY, REVERB, as Frodhes. The FX pages and the EFFECTS front page follow this order left to right (ui.c); on
+ * the host each call marks its stage (TX_STAGE), and the host's state "chain" / "chainok" (tests/scripts/chain.txt)
+ * fails when the audio and the pages ever part. Nothing on the FM-1 */
+enum { TX_ST_COMP, TX_ST_DRIVE, TX_ST_FILTER, TX_ST_GRAIN, TX_ST_REVERB, TX_ST_N };
+#ifdef DINGHY_HOST
+extern uint8_t tx_st_seen[8], tx_st_n;          /* (tx_core_mix.c: the stages of the last block, in their order) */
+#define TX_STAGE(s) do { if (tx_st_n < 8u) tx_st_seen[tx_st_n++] = (uint8_t)(s); } while (0)
+#else
+#define TX_STAGE(s) do { } while (0)
+#endif
+
 #endif

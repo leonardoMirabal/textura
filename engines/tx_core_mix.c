@@ -1,7 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura MIX core: four layers (-> their inserts) -> pan -> stereo -> the DRIVE -> the compressor -> CHAMBER (mid
- * send) -> the bus effects (grain delay, reverb) -> linked limiter (tx_core_mix.h). */
+/* Textura MIX core: four layers (-> their inserts) -> pan -> stereo -> the compressor -> the DRIVE (and the FILTER)
+ * -> CHAMBER (mid send) -> the bus effects (grain delay, reverb) -> linked limiter (tx_core_mix.h). */
 #include "tx_core_mix.h"
+#ifdef DINGHY_HOST
+uint8_t tx_st_seen[8], tx_st_n;
+#endif
 
 void tx_mix_init(tx_mix_t *m)
 {
@@ -136,9 +139,14 @@ TX_AUDIO_CODE void tx_mix_run(tx_mix_t *m, unsigned n, unsigned c)
     int32_t pk = 0;
     void (*pre)(void *, int32_t *, int32_t *, unsigned) = c ? m->pre1 : m->pre;
     void (*bus)(void *, int32_t *, int32_t *, unsigned) = c ? m->bus1 : m->bus;
-    if (pre) pre(m->fx, m->L, m->R, n);                      /* the DRIVE, the first effect (off: returns at once) */
-    TX_FAR(tx_comp_process)(&m->comp, m->L, m->R, n);        /* the compressor, after it (off: returns at once; in XIP,
-                                                              * as the limiter: the bus runs on core 1, LN_PIPE) */
+#ifdef DINGHY_HOST
+    tx_st_n = 0;
+#endif
+    TX_STAGE(TX_ST_COMP);
+    TX_FAR(tx_comp_process)(&m->comp, m->L, m->R, n);        /* the compressor, the first effect, as Frodhes (off:
+                                                              * returns at once; in XIP, as the limiter: the bus runs on
+                                                              * core 1, LN_PIPE) */
+    if (pre) pre(m->fx, m->L, m->R, n);                      /* the DRIVE and the FILTER after it (off: at once) */
     if (m->ch && m->ch_on) {                                 /* the chamber on the mid: its added part to both sides */
         for (j = 0; j < n; j++) m->mid[j] = m->blk[j] = (m->L[j] >> 1) + (m->R[j] >> 1);
         TX_FAR(tx_chamber_process)(m->ch, m->mid, n);        /* (in XIP: the bus runs on core 1) */

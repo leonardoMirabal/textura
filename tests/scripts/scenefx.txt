@@ -5,8 +5,16 @@
 1800 expect state p426 1
 # the reverb: TYPE hall (ALGORITHM on REVERB), MIX 100 (CC 91 on channel 5); the DRIVE's TYPE (CC 79)
 1900 btn 7
+1902 btn 2
+1906 btn 2
 1910 btn 2
-1920 btn 2
+1914 btn 2
+1918 btn 2
+1922 btn 2
+1926 btn 2
+1930 btn 2
+1934 btn 2
+1938 btn 2
 1940 expect state page REVERB_1/3
 1950 turn 1 2
 1970 midi 0xB4 91 100
@@ -31,8 +39,16 @@
 3600 expect rms > -70
 # the reverb off (TYPE 0 by ALGORITHM), MIX 0; SMART: U01 loads, still off
 3700 btn 7
+3702 btn 2
+3706 btn 2
 3710 btn 2
-3720 btn 2
+3714 btn 2
+3718 btn 2
+3722 btn 2
+3726 btn 2
+3730 btn 2
+3734 btn 2
+3738 btn 2
 3740 turn 1 -5
 3750 midi 0xB4 91 0
 3760 expect state p410 0

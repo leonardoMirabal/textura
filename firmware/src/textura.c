@@ -337,6 +337,19 @@ static int host_state(const char *key, char *v, unsigned n)
         for (i = 0; i < nt_mn; i++) { char t[12]; snprintf(t, sizeof t, "%s%u:%u", i ? " " : "", nt_mq[i].lane + 1u, nt_mq[i].out); strncat(v, t, n - strlen(v) - 1u); }
         if (!v[0]) snprintf(v, n, "-");
     }
+    else if (!strcmp(key, "chain") || !strcmp(key, "fxsteps") || !strcmp(key, "chainok")) {   /* the effects as the
+                                                 * audio ran them in the last block (TX_STAGE), as FX steps through
+                                                 * them; "chainok" 1: the steps, and the front page's knobs, in the
+                                                 * audio's order */
+        static const char *const NM[TX_ST_N] = {"COMP", "DRIVE", "FILTER", "GRAIN", "REVERB"};
+        uint8_t pg[8], fr[4], *a = key[0] == 'f' ? pg : tx_st_seen;
+        unsigned np = ui_fx_order(pg, fr), na = key[0] == 'f' ? np : tx_st_n, i, ok = np == tx_st_n;
+        v[0] = 0;
+        for (i = 0; i < np && ok; i++) ok = pg[i] == tx_st_seen[i];
+        for (i = 1; i < 4u && ok; i++) ok = fr[i] > fr[i - 1];
+        if (key[5] == 'o') snprintf(v, n, "%u", ok);
+        else for (i = 0; i < na; i++) { if (i) p_cat(v, " ", n); p_cat(v, a[i] < TX_ST_N ? NM[a[i]] : "?", n); }
+    }
     else if (!strcmp(key, "ft2")) snprintf(v, n, "%s", ui_ft2);   /* the footer's line 2 on a group's page (ft_next) */
     else if (!strcmp(key, "msg")) snprintf(v, n, "%s", ui_msg_t && fm1_ms - ui_msg_t < MSG_MS ? ui_msg : "");
     else if (!strcmp(key, "dropped")) snprintf(v, n, "%u", ln.dropped);

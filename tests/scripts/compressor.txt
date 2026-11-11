@@ -1,4 +1,4 @@
-# the COMPRESSOR (Frodhes' page, the mix's, after its DRIVE): FX opens it, its last pages (EFFECTS, REVERB, DELAY, FILTER, DRIVE, COMPRESSOR); Storm's four lanes at HOW ACTIVE 64 with THR
+# the COMPRESSOR (Frodhes' page, the mix's first effect): FX's first pages after EFFECTS (EFFECTS, COMPRESSOR, DRIVE, FILTER, DELAY, REVERB); Storm's four lanes at HOW ACTIVE 64 with THR
 # at -40 dBFS (CC 115 on channel 5): the gain-reduction meter in the footer moves; SELECT: 2/2 COMP REL; ALGORITHM:
 # COMP off (the reduction gone, the footer's hint), on again; what the chain runs is what the panel says. The footer's
 # line 2 says where FX goes next while the meter shows (line 1), as on every effects page
@@ -13,15 +13,6 @@
 2300 midi 0xB4 115 127
 2400 btn 2
 2404 btn 2
-2408 btn 2
-2412 btn 2
-2416 btn 2
-2420 btn 2
-2424 btn 2
-2428 btn 2
-2432 btn 2
-2436 btn 2
-2440 btn 2
 2450 expect state page COMPRESSOR_1/2
 2450 expect state card0 -40_dB
 4500 expect state compred 1
@@ -40,7 +31,7 @@
 6350 expect state card0 OFF
 7000 expect state compred 0
 8000 shot
-8000 expect state ft2 FX:_NEXT_>_EFFECTS_|_HOLD:_FILTER
+8000 expect state ft2 FX:_NEXT_>_DRIVE_|_HOLD:_FILTER
 8100 turn 1 1
 8150 expect state card0 ON
 8150 expect sound

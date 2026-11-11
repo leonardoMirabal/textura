@@ -10,26 +10,28 @@
  *
  *   SELECT     the pages, in order (the first to the last, no wrap): LANDSCAPE (titled TEXTURA), the lane pages HOW
  *              MANY, HOW ACTIVE, PAN, ON / MUTE (each the four lanes as rows, Kn lane n's), SOUND 1..n (the selected
- *              lane's sound: its cards, four a page), EFFECTS (the front page: REVERB MIX, DELAY MIX, HIGH CUT, DRIVE),
- *              REVERB 1/3 .. 3/3, GRAIN 1/4 .. 4/4 (the grain delay: in series, it takes what the reverb gives;
- *              MIX on DRIVE, GRAIN, REVERB reads DRY, D100 W50 .. D100 W100 (64) .. D50 W100, WET), FILTER (the mix's, right after the DRIVE in the chain: LOW CUT
- *              HIGH CUT RESONANCE SLOPE, a band), DRIVE (the mix's first effect: AMOUNT TONE MIX TYPE), COMPRESSOR 1/2
- *              2/2 (Frodhes': THR RATIO ATTACK MAKEUP, then COMP REL; the footer its gain-reduction meter), LFO 1/3 .. 3/3,
+ *              lane's sound: its cards, four a page), then the mix's effects in the order the sound goes through them
+ *              (left to right, as Frodhes: FX_CHAIN; the front page's knobs too): EFFECTS (the front page: DRIVE, HIGH
+ *              CUT, DELAY MIX, REVERB MIX), COMPRESSOR 1/2 2/2 (the first effect; Frodhes': THR RATIO ATTACK MAKEUP,
+ *              then COMP REL; the footer its gain-reduction meter), DRIVE (AMOUNT TONE MIX TYPE), FILTER (right after
+ *              the DRIVE: LOW CUT HIGH CUT RESONANCE SLOPE, a band), GRAIN 1/4 .. 4/4 (the grain delay), REVERB 1/3 ..
+ *              3/3 (on what the delay gives: the echoes reverberate); MIX on DRIVE, GRAIN, REVERB reads DRY, D100 W50
+ *              .. D100 W100 (64) .. D50 W100, WET; LFO 1/3 .. 3/3,
  *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, RHYTHM (BPM, the groove's AMOUNT and SHIFT, the transport),
  *              GROOVE LANES (each lane's ROLE on its knob), SCALE (SCALE ROOT: the notes the keys and MIDI play),
  *              TEMPO (FINE, CLOCK, STATUS), MIDI (the clock), MIDI IN (each lane's channel), DISPLAY (COLOR). Each
  *              page titled by what it does, no fractions: pips at the right for its button's pages
  *   ALGORITHM  named on the footer's ALGORITHM line with its value. LANDSCAPE: picks a landscape (the footer names it:
  *              EDIT loads it, HOME keeps what plays; a turn never loads); SOUND: opens the sound browser; EFFECTS,
- *              REVERB: the reverb's type; DRIVE: its TYPE; FILTER: its SLOPE; COMPRESSOR: COMP (up on, down off);
+ *              REVERB: the reverb's type; COMPRESSOR: COMP (up on, down off); DRIVE: its TYPE; FILTER: its SLOPE;
  *              GRAIN: FREEZE (up on, down off); LFO: which (1..8); ENV: which (ENV 1, ENV 2, FOLLOW 1, FOLLOW 2);
  *              MATRIX: which slot (1..16); RHYTHM, GROOVE LANES: the groove's TYPE; SCALE: SCALE; MIDI IN: SELECTED CH
  *              (the channel whose notes play the selected lane)
  *   K1..K4     LANDSCAPE: the volumes of lanes 1..4 (a lane's sound: its SOUND page; HOW MANY, HOW ACTIVE: the white
  *              keys too); the lane pages, GROOVE LANES: lanes 1..4; else the cards
  *   HOME       LANDSCAPE; on LANDSCAPE: back to the last page left, however it was left (P7; the footer names it)
- *   EDIT       SOUND (again: its next page)        FX  on its release: EFFECTS (again: each page of REVERB, GRAIN,
- *              FILTER, DRIVE, COMPRESSOR, then round); held 600 ms, from any page: FILTER (the mix's filter at once;
+ *   EDIT       SOUND (again: its next page)        FX  on its release: EFFECTS (again: each page of COMPRESSOR,
+ *              DRIVE, FILTER, GRAIN, REVERB, then round); held 600 ms, from any page: FILTER (the mix's filter at once;
  *              HOME, then HOME again, comes back to it)
  *   GLO        RHYTHM (again: GROOVE LANES, SCALE, TEMPO, MIDI, MIDI IN, DISPLAY, then round)        LFO  the LFO pages; held + a card
  *              turned: mod learn (the selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP
@@ -72,18 +74,18 @@
 #define TX_BTN_TAP BTN_PLAY                     /* TAP TEMPO is the PLAY button, as in Frodhes (the user, 2026-10-25) */
 
 /* the pages: a group (SELECT walks through each group's sub-pages, then the next group) */
-enum { G_LAND, G_LANES, G_SOUND, G_FX, G_REVERB, G_GRAIN, G_MFILT, G_DRIVE, G_COMP, G_LFO, G_ENV, G_MATRIX, G_RHYTHM,
+enum { G_LAND, G_LANES, G_SOUND, G_FX, G_COMP, G_DRIVE, G_MFILT, G_GRAIN, G_REVERB, G_LFO, G_ENV, G_MATRIX, G_RHYTHM,
        G_GLANES, G_SCALE, G_TEMPO, G_MIDI, G_MIDIIN, G_DISPLAY, G_N };
 /* the groups' names for the host and the web panel (the screen titles each page by what it does: PG_T) */
-static const char *const G_TITLE[G_N] = {"LANDSCAPE", "LANES", "SOUND", "EFFECTS", "REVERB", "GRAIN", "FILTER", "DRIVE",
-                                         "COMPRESSOR", "LFO", "ENV", "MATRIX", "RHYTHM", "GROOVE LANES", "SCALE", "TEMPO",
+static const char *const G_TITLE[G_N] = {"LANDSCAPE", "LANES", "SOUND", "EFFECTS", "COMPRESSOR", "DRIVE", "FILTER",
+                                         "GRAIN", "REVERB", "LFO", "ENV", "MATRIX", "RHYTHM", "GROOVE LANES", "SCALE", "TEMPO",
                                          "MIDI", "MIDI IN", "DISPLAY"};
-static const uint8_t G_NSUB[G_N] = {1, 4, 0, 1, 3, 4, 1, 1, 2, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1};   /* (SOUND: as many as its cards
+static const uint8_t G_NSUB[G_N] = {1, 4, 0, 1, 2, 1, 1, 4, 3, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1};   /* (SOUND: as many as its cards
                                                  * need; ENV: a FOLLOW has one) */
 /* the pages' titles on the screen, by what they do, the groups' pages in order (SOUND: "SOUND"; a FOLLOW: "FOLLOW") */
-static const char *const PG_T[] = {"TEXTURA", "HOW MANY", "HOW ACTIVE", "PAN", "ON / MUTE", "EFFECTS", "REVERB",
-                                   "REVERB SPACE", "SHIMMER", "DELAY", "DELAY MOTION", "GRAINS", "GRAIN TONE", "FILTER",
-                                   "DRIVE", "COMPRESSOR", "COMP RELEASE", "LFO", "LFO PHASE", "LFO LEVEL", "ENV",
+static const char *const PG_T[] = {"TEXTURA", "HOW MANY", "HOW ACTIVE", "PAN", "ON / MUTE", "EFFECTS", "COMPRESSOR",
+                                   "COMP RELEASE", "DRIVE", "FILTER", "DELAY", "DELAY MOTION", "GRAINS", "GRAIN TONE",
+                                   "REVERB", "REVERB SPACE", "SHIMMER", "LFO", "LFO PHASE", "LFO LEVEL", "ENV",
                                    "ENV SHAPE", "MOD MATRIX", "RHYTHM", "GROOVE LANES", "SCALE", "TEMPO", "MIDI CLOCK",
                                    "MIDI IN", "DISPLAY"};
 /* the group buttons: each owns a run of groups (its LED lit there, it steps their pages, the title's pips count them):
@@ -94,7 +96,7 @@ static const uint8_t G_BTN[G_N] = {BTN_HOME, BTN_HOME, BTN_EDIT, BTN_FX, BTN_FX,
 #define LA P_LANE_ANY
 #define NOID 0xFFFFu
 /* the effects' pages: a parameter per knob (a global, or the selected LFO's, ENV's, slot's), from G_FX0 */
-static const uint8_t G_FX0[G_N] = {0, 0, 0, 13, 5, 1, 21, 0, 19, 8, 14, 11, 22, 0, 23, 12, 17, 24, 18};   /* (ENV: 14, 15; FOLLOW:
+static const uint8_t G_FX0[G_N] = {0, 0, 0, 13, 19, 0, 21, 1, 5, 8, 14, 11, 22, 0, 23, 12, 17, 24, 18};   /* (ENV: 14, 15; FOLLOW:
                                                  * 16) */
 #define LFO_ANY(p) PID(P_LFO, 0xF0u | (p))        /* the selected LFO's (ui_lfo) */
 #define ENV_ANY(p) PID(P_ENV, 0xF0u | (p))        /* the selected ENV's or FOLLOW's (ui_env) */
@@ -119,8 +121,8 @@ static const uint16_t FX_IDS[25][4] = {
     {MAT_ANY(MQ_SRC), MAT_ANY(MQ_TGT), MAT_ANY(MQ_DEPTH), MAT_ANY(MQ_SPREAD)},
     {PID(P_GLOBAL, PG_FINE), PID(P_GLOBAL, PG_CLOCK), PID(P_GLOBAL, PG_STATUS), NOID},   /* TEMPO: the fine tempo, what
                                                  * leads it */
-    {PID(P_GLOBAL, PG_REVERB0 + TX_RV_MIX), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_MIX), MFL(TX_MF_HIGH), DRV(TX_DR_AMOUNT)},   /*
-                                                 * EFFECTS: the front page, each effect's most used */
+    {DRV(TX_DR_AMOUNT), MFL(TX_MF_HIGH), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_MIX), PID(P_GLOBAL, PG_REVERB0 + TX_RV_MIX)},   /*
+                                                 * EFFECTS: the front page, each effect's most used, in the chain's order */
     {ENV_ANY(TX_EP_TRIGGER), ENV_ANY(TX_EP_ATTACK), ENV_ANY(TX_EP_DECAY), ENV_ANY(TX_EP_RELEASE)},
     {ENV_ANY(TX_EP_SUSTAIN), ENV_ANY(TX_EP_CURVE), ENV_ANY(TX_EP_VARY), ENV_ANY(TX_EP_LOOP)},
     {ENV_ANY(TX_FP_INPUT), ENV_ANY(TX_FP_ATTACK), ENV_ANY(TX_FP_RELEASE), ENV_ANY(TX_FP_GAIN)},
@@ -142,21 +144,40 @@ static const uint16_t FX_IDS[25][4] = {
 #define ALG_REVERB PID(P_GLOBAL, PG_REVERB0 + TX_RV_TYPE)
 #define ALG_COMP CMP(TX_CP_ON)
 #define ALG_GROOVE GRV(1)
-static const uint16_t G_ALG_[G_N] = {NOID, NOID, NOID, ALG_REVERB, ALG_REVERB, ALG_FREEZE, ALG_MFILT, ALG_DRIVE, ALG_COMP,
+static const uint16_t G_ALG_[G_N] = {NOID, NOID, NOID, ALG_REVERB, ALG_COMP, ALG_DRIVE, ALG_MFILT, ALG_FREEZE, ALG_REVERB,
                                      NOID, NOID, NOID, ALG_GROOVE, ALG_GROOVE, PID(P_GLOBAL, PG_SCALE), NOID, NOID,
                                      PID(P_GLOBAL, PG_SELCH), NOID};   /* what ALGORITHM turns on a
                                                  * page, named on the ALGORITHM line */
-static const char *const G_ALGN_[G_N] = {0, 0, 0, "REVERB TYPE", "REVERB TYPE", "FREEZE", "SLOPE", "DRIVE TYPE", "COMP", 0, 0,
+static const char *const G_ALGN_[G_N] = {0, 0, 0, "REVERB TYPE", "COMP", "DRIVE TYPE", "SLOPE", "FREEZE", "REVERB TYPE", 0, 0,
                                          0, "GROOVE TYPE", "GROOVE TYPE", "SCALE", 0, 0, "SELECTED CH", 0};
 #define G_ALG(g) G_ALG_[g]
 #define G_ALGN(g) G_ALGN_[g]
 enum { E_HEADER = 0, E_TITLE = 1, E_ROW0 = 2, E_FOOTER = 6, E_N = 7 };
 
 static uint8_t ui_g, ui_sub;                    /* the page: its group, its sub-page */
+#ifdef DINGHY_HOST
+/* the FX pages' effects (FX's steps) and the EFFECTS front page's knobs as TX_ST_* stages, left to right: the host's
+ * state "chainok" holds them against the order the audio runs the effects in (TX_STAGE, tx_engine.h) */
+static int ui_st_of(uint32_t id)                /* a global's effect */
+{
+    uint32_t i = P_IDX(id);
+    if (P_SCOPE(id) != P_GLOBAL) return -1;
+    return i < PG_REVERB0 ? TX_ST_GRAIN : i < PG_REVERB0 + TX_RV_NP ? TX_ST_REVERB : i >= PG_COMP0 && i < PG_COMP0 + TX_CP_NP
+           ? TX_ST_COMP : i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP ? TX_ST_DRIVE : i >= PG_MF0 && i < PG_MF0 + TX_MF_NP
+           ? TX_ST_FILTER : -1;
+}
+static unsigned ui_fx_order(uint8_t *pg, uint8_t *fr)   /* -> the steps' stages (one per group), the front page's */
+{
+    unsigned g, k, n = 0;
+    for (g = 0; g < G_N; g++) if (G_BTN[g] == BTN_FX && g != G_FX) pg[n++] = (uint8_t)ui_st_of(FX_IDS[G_FX0[g]][0]);
+    for (k = 0; k < 4u; k++) fr[k] = (uint8_t)ui_st_of(FX_IDS[G_FX0[G_FX]][k]);
+    return n;
+}
+#endif
 /* the cards' labels where a page mixes things (EFFECTS, RHYTHM: the effect's or the groove's name with it) */
 static const char *ui_lab(uint32_t id)
 {
-    if (ui_g == G_FX) { static const char *const L[4] = {"REVERB MIX", "DELAY MIX", "HIGH CUT", "DRIVE"}; uint32_t k; for (k = 0; k < 4u; k++) if (FX_IDS[13][k] == id) return L[k]; }
+    if (ui_g == G_FX) { static const char *const L[4] = {"DRIVE", "HIGH CUT", "DELAY MIX", "REVERB MIX"}; uint32_t k; for (k = 0; k < 4u; k++) if (FX_IDS[13][k] == id) return L[k]; }
     if (id == GRV(0)) return "GROOVE AMOUNT";
     if (id == GRV(2)) return "GROOVE SHIFT";
     return p_lab(id);
@@ -1796,7 +1817,7 @@ static void ui_input(uint32_t b, uint32_t rel)
                                                  * SOUND; again: its next page) */
     if (b >> BTN_FX & 1u) { ui_fx_t = fm1_ms; ui_fx_down = 1; }   /* FX: on the release (held TAP_HOLD_MS: FILTER) */
     if (ui_fx_down && fm1_ms - ui_fx_t >= TAP_HOLD_MS) { ui_fx_down = 0; ui_goto(G_MFILT, 0); }
-    for (i = 0; i < 2u; i++)                    /* FX (EFFECTS, REVERB, DELAY, FILTER, DRIVE, COMPRESSOR), GLO (RHYTHM,
+    for (i = 0; i < 2u; i++)                    /* FX (EFFECTS, COMPRESSOR, DRIVE, FILTER, DELAY, REVERB), GLO (RHYTHM,
                                                  * GROOVE LANES, SCALE, TEMPO, MIDI, MIDI IN, DISPLAY): every page in
                                                  * turn, wrapping */
         if (i ? b >> BTN_GLO & 1u : rel >> BTN_FX & ui_fx_down) { uint8_t g, s; ui_next(i ? BTN_GLO : BTN_FX, &g, &s); ui_goto(g, s); }
