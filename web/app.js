@@ -147,7 +147,8 @@ const KNOBS = [["MASTER", -1, 50, 22, "VOLUME"], ["SELECT", 0, 200, 22, "PAGES"]
 const HINT = { FX: "EFFECTS", SEL: "KEY MODE", ENV: "LEARN · AGAIN: ENV", LFO: "LEARN · AGAIN: LFO", EDIT: "SOUND", GLO: "RHYTHM", HOME: "LANDSCAPE", SAVE: "SCENE · HOLD: UNDO", ARP: "MATRIX",
                SEQ: "SOUNDS", PLAY: "TAP · HOLD: RUN", REC: "ALL ON·OFF · TAP", "OCT−": "LANE", "OCT+": "LANE" };
 const HINT_ON = {                                    // what a button does on a given page (else HINT)
-  LANDSCAPE: { HOME: "BACK" }, SOUND: { EDIT: "NEXT" }, DRIVE: { FX: "FILTER" }, FILTER: { FX: "COMPRESSOR" }, COMPRESSOR: { FX: "GRAIN" }, GRAIN: { FX: "REVERB" }, TEMPO: { GLO: "GROOVE" }, GROOVE: { GLO: "MIDI" }, MIDI: { GLO: "DISPLAY" },
+  LANDSCAPE: { HOME: "BACK" }, SOUND: { EDIT: "NEXT" }, EFFECTS: { FX: "REVERB" }, REVERB: { FX: "NEXT" }, GRAIN: { FX: "NEXT" }, FILTER: { FX: "DRIVE" }, DRIVE: { FX: "COMPRESSOR" }, COMPRESSOR: { FX: "NEXT" },
+  RHYTHM: { GLO: "GROOVE LANES" }, "GROOVE LANES": { GLO: "TEMPO" }, TEMPO: { GLO: "MIDI" }, MIDI: { GLO: "DISPLAY" }, DISPLAY: { GLO: "RHYTHM" },
   LFO: { LFO: "NEXT" }, ENV: { ENV: "NEXT" },
 };
 let shownPage = "";
