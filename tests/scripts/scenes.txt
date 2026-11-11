@@ -2,7 +2,7 @@
 # slice a pass; MIDI PC on channel 1 loads (0 .. 99 the factory presets F001 .. F100, 100 .. 115 the user's U01 .. U16);
 # SAVE held 700 ms undoes the last load (again: redo); PRESETS opens the presets browser. "expect
 # preset": what plays is the scene loaded last (its lanes and every record); in the save mode K2 picks a letter of
-# the name, K3 sets it; SCENE TEMPO (GLO, SELECT) on: a scene's tempo comes with it
+# the name, K3 sets it; PRESETS CHANGE TEMPO (the presets list's LOAD OPTIONS) YES: a scene's tempo comes with it
 1700 btn 13
 # a place of our own: reverb MIX (CC 91 on channel 5), lane 1 at 80 (CC 7), a card set, LFO 1 > L1 PAN, 100 BPM
 1800 midi 0xB4 91 100
@@ -69,34 +69,32 @@
 # an empty user scene: nothing happens
 6300 midi 0xC0 104 0
 6320 expect state msg NO_SCENE_THERE
-# PRESETS: the presets browser, on the scene loaded (USER: the scenes saved, U03 the only one); HOME: the categories;
-# HOME again: closed, U03 kept (presetbrowser.txt has the rest)
+# PRESETS: the presets list, on the scene loaded (USER: the scenes saved, U03 the only one); HOME: closed, U03 kept
+# (presetbrowser.txt has the rest)
 6400 turn 6 1
 6420 expect state brpr 1
-6420 expect state browser 2
 6420 expect state brfam USER
 6420 expect state brcur 0
 6500 btn 8
-6520 expect state browser 1
-6520 expect state brcur 10
-6600 btn 8
-6620 expect state browser 0
-6620 expect state msg PRESET_KEPT
+6520 expect state brpr 0
+6520 expect state browser 0
 7400 expect state scene U03_WATER
 7400 expect preset
 7500 shot
-# 120 BPM (CC 3 at 51), U03 again: SCENE TEMPO off, the tempo stays
+# 120 BPM (CC 3 at 51), U03 again: PRESETS CHANGE TEMPO NO, the tempo stays
 7600 midi 0xB4 3 51
 7620 expect state bpm10 1200
 7700 midi 0xC0 102 0
 8300 expect state scene U03_WATER
 8300 expect state bpm10 1200
 8300 expect preset
-# SCENE TEMPO on: U03's 100 BPM with it
-8400 btn 7
-8420 turn 0 1
-8440 turn 2 1
-8460 expect state card0 YES
+# PRESETS CHANGE TEMPO YES (PRESETS, FX: LOAD OPTIONS, K2): U03's 100 BPM with it
+8400 turn 6 1
+8405 btn 2
+8410 expect state bropt 1
+8415 turn 3 1
+8418 btn 8
+8420 expect state p425 1
 8500 midi 0xC0 102 0
 9100 expect state bpm10 1000
 9100 expect preset

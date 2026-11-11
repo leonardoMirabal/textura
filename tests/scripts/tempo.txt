@@ -1,9 +1,9 @@
 # the tempo: GLO = TEMPO (again: MIDI); K1 the BPM, K2 a tenth; PLAY taps it (from the 3rd tap), held 600 ms the
 # transport (that press's tap taken back); the grain delay's SYNC on the beat (halved until it fits the line); CC 3 the
-# BPM on channel 5; TEMPO's 2nd page: SCENE TEMPO; the MIDI page: CLOCK, each port's clock in, the clock out (USB, in
+# BPM on channel 5; the MIDI page: CLOCK, each port's clock in, the clock out (USB, in
 # MASTER: 24 pulses a beat)
 1700 btn 7
-1720 expect state page TEMPO_1/2
+1720 expect state page TEMPO
 1720 expect state lab0 BPM
 1720 expect state card0 120_BPM
 1720 expect state card1 120.0_BPM
@@ -59,12 +59,9 @@
 5700 turn 4 -12
 5720 expect state card2 FREE
 5740 expect state gdsync 0
-# GLO, SELECT: SCENE TEMPO (off: a scene keeps the tempo that plays); GLO: GROOVE, again: MIDI
+# GLO: GROOVE (TEMPO one page: PRESETS CHANGE TEMPO lives in the presets list's LOAD OPTIONS), again: MIDI
 5800 btn 7
-5810 turn 0 1
-5815 expect state page TEMPO_2/2
-5815 expect state lab0 PRESETS_CHANGE_TEMPO
-5815 expect state card0 NO
+5815 expect state p425 0
 5820 btn 7
 5825 expect state page GROOVE_1/2
 5830 btn 7

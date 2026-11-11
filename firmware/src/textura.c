@@ -276,7 +276,7 @@ static int host_preset_check(char *msg, unsigned n)   /* 0 if what plays is the 
             return 1;
         }
     for (i = 0; i < s->nrec; i++) {             /* every record holds (the cards: as set; the rest: a value not
-                                                 * recorded is its default; the tempo: with SCENE TEMPO on) */
+                                                 * recorded is its default; the tempo: with PRESETS CHANGE TEMPO YES) */
         int32_t v;
         if (P_SCOPE(s->r[i].id) == P_GLOBAL && P_IDX(s->r[i].id) == PG_FINE && !tm.scn_tempo) continue;
         if (!scn_ap_fx && scn_fx_id(s->r[i].id)) continue;   /* (the effects kept: as they were) */
@@ -352,9 +352,10 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "glides")) { for (i = scn_gl_n, k = 0; k < SC_N; k++) i += sc.gl_on[k]; snprintf(v, n, "%u", i); }   /* settings on their way */
     else if (!strcmp(key, "browser")) snprintf(v, n, "%u", ub.on ? ub.lv : 0u);   /* the sound browser: 0 shut, its level */
     else if (!strcmp(key, "brfam")) snprintf(v, n, "%s", !ub.pr ? LS[ub.f].name : ub.f < PR_NCAT ? pr_cat_name(ub.f) : "USER");   /* (the presets
-                                                 * browser: the category) */
+                                                 * list: the cursor's family) */
     else if (!strcmp(key, "brpr")) snprintf(v, n, "%u", ub.on && ub.pr);   /* the browser open is the presets one */
-    else if (!strcmp(key, "brcur")) snprintf(v, n, "%u", ub.cur);
+    else if (!strcmp(key, "brcur")) snprintf(v, n, "%u", ub.pr ? ub_pos() : ub.cur);   /* (the presets list: the place in its family) */
+    else if (!strcmp(key, "bropt")) snprintf(v, n, "%u", ub.on && ub.opt);   /* the presets list's LOAD OPTIONS shown */
     else if (!strcmp(key, "leds")) {            /* the buttons lit, by name ("HOME REC") */
         static const char *const BN[14] = {"OCT-", "OCT+", "FX", "SEL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY", "REC"};
         uint32_t b = ui_btn_leds();

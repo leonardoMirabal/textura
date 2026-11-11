@@ -79,12 +79,13 @@
 5700 expect state p434 0
 5700 expect state p435 127
 5700 expect preset
-# ALWAYS (GLO, SELECT: TEMPO 2/2, K2): U01 brings its band back; F001 the defaults (off)
-5800 btn 7
-5820 turn 0 1
-5840 expect state page TEMPO_2/2
-5860 turn 3 -1
-5880 expect state p426 0
+# ALWAYS (PRESETS, FX: LOAD OPTIONS, K1): U01 brings its band back; F001 the defaults (off)
+5800 turn 6 1
+5805 btn 2
+5810 expect state bropt 1
+5815 turn 2 -1
+5818 btn 8
+5820 expect state p426 0
 5900 midi 0xC0 100 0
 6500 expect state loading 0
 6500 expect state p434 30
@@ -99,7 +100,11 @@
 7600 expect state mfon 0
 7600 expect sound
 # back to SMART
-7700 turn 3 1
+7700 turn 6 1
+7705 btn 2
+7710 expect state bropt 1
+7715 turn 2 1
+7718 btn 8
 7720 expect state p426 1
 7800 expect state dropped 0
 7900 end

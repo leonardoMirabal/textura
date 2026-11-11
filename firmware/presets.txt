@@ -4,7 +4,7 @@
 #   = NAME                       a category (the presets after it, in this order: F001 .. F100)
 #   NAME  fxN | lane | lane | lane | lane
 #                                NAME 11 characters at most (A-Z 0-9 space - & ' .); fxN the effects (gen_presets.py
-#                                FX: 0 dry, 1 air, 2 space, 3 echo, 4 cave), applied with SCENE FX RECALL
+#                                FX: 0 dry, 1 air, 2 space, 3 echo, 4 cave), applied unless EFFECTS ON LOAD keeps the player's
 #   lane: C:sound  nN aN rR pN vN [m]   or  -   (no sound)
 #     C   the family: W Water, S Stones & sand, I Ice & glass, F Fire, D Wood, A Wind, T Storm, X Insects,
 #         B Songbirds, Y Wild birds; the sound by its name there

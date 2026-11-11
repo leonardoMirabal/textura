@@ -16,8 +16,8 @@
  * - the transport: PLAY held (ui.c) starts / stops it, START re-phases the beat; a clock's Start / Continue / Stop
  *   move it while that clock leads, and it goes on as it was when the clock goes;
  * - the grain delay's SYNC: its echo a division of the beat (halved until it fits the line: tm_gsync_half);
- * - SCENE TEMPO: a scene's load sets the tempo it was saved with (off: the tempo stays; scenes.c).
- * The settings record keeps CLOCK, the ports, CLK OUT, SCENE TEMPO and the BPM (scenes.c). */
+ * - PRESETS CHANGE TEMPO: a scene's load sets the tempo it was saved with (off: the tempo stays; scenes.c).
+ * The settings record keeps CLOCK, the ports, CLK OUT, PRESETS CHANGE TEMPO and the BPM (scenes.c). */
 
 static const uint16_t SYNC_UNITS[15] = {0, 12, 16, 24, 32, 36, 48, 64, 72, 96, 144, 192, 384, 768, 1536};
 static const char *const SYNC_NAMES[15] = {"FREE", "1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D",
@@ -31,7 +31,7 @@ static struct {
     uint32_t gsync_smp, gsync_sent;             /* its echo, samples; as sent to the chain (0xFFFFFFFF: never) */
     uint8_t gsync_half;                         /* halved to fit the line */
     uint8_t out_usb;                            /* CLK OUT: USB (MASTER sends the clock) */
-    uint8_t scn_tempo;                          /* SCENE TEMPO: a scene's load sets its tempo */
+    uint8_t scn_tempo;                          /* PRESETS CHANGE TEMPO: a load sets its tempo */
 } tm = {1200, CLK_AUTO, 1, 1, 0, 0, 0, 0xFFFFFFFFu, 0, 1, 0};
 static uint32_t tap_t[4], tap_n, beat_t0, beat_ms = 500;
 static uint32_t beat_k0;                     /* the pulse count (24 a beat) at beat_t0: the bars for the LFOs' lock */

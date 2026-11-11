@@ -23,9 +23,9 @@
  *   user      U01 .. U16, in a bank of two copies written alternately (Frodhes' presets.c scheme): the older copy
  *             erased, the records written, the header last; the valid copy with the higher sequence loads, so a save
  *             cut short never loses the bank. Only the names stay in RAM; a record is read when it loads.
- *   PRESETS   the presets browser (ui.c): the ten categories and USER (the saved user scenes), then their presets;
- *             a preset plays as the cursor rests on it (400 ms after the last detent), EDIT keeps it, HOME cancels
- *             (what played before the browser back)
+ *   PRESETS   the presets list (ui.c): one list of the factory presets by family, then USER (the saved user
+ *             scenes); turning moves the cursor, nothing loads; EDIT loads the one under it (the list stays), EDIT on
+ *             the one loaded with FX: YOURS loads it with its effects; HOME closes it, what plays kept
  *   SAVE      the save mode: PRESETS / K1 pick the user scene, K2 the name's letter and K3 its character (the name
  *             a used slot had, or the landscape's), SAVE again saves, HOME (or OCT-) cancels
  *   SAVE held 700 ms: undo the last load (again: redo)
@@ -143,9 +143,6 @@ static uint16_t scn_sv_step;                    /* sectors erased, then chunks w
 static uint32_t scn_sv_at, scn_sv_crc;
 /* browsing and the save mode */
 static uint8_t scn_cand = 0xFF, scn_save_mode, scn_save_slot;
-static uint8_t scn_pb_on, scn_pb_moved;         /* the presets browser open (ui.c); a preview of it loaded (the undo:
-                                                 * what played before the first one) */
-#define SCN_CAND_UNDO 0xFEu                     /* (scn_cand: the browser cancelled, what played before it back) */
 static char scn_nm[12];                         /* the save mode's name (11 characters), its letter, edited or not */
 static uint8_t scn_nm_pos, scn_nm_edit;
 static const char SCN_CHARS[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-&'.";
@@ -522,12 +519,9 @@ static int scn_load(uint32_t idx)               /* 0: loading */
     if (idx >= SCN_N || scn_busy()) return -1;
     if (idx < SCN_NF) scn_factory(t, idx);
     else if (!scn_meta[idx - SCN_NF].used || scn_read(idx - SCN_NF, t)) return -1;   /* (t: no load runs from it now) */
-    if (!scn_pb_moved) {                        /* (what played: the undo; the browser's later previews keep it) */
-        scn_capture(&scn_b[scn_u]);
-        scn_bidx[scn_u] = scn_cur;
-        scn_undo_ok = 1;
-    }
-    scn_pb_moved = scn_pb_on;
+    scn_capture(&scn_b[scn_u]);                 /* (what played: the undo) */
+    scn_bidx[scn_u] = scn_cur;
+    scn_undo_ok = 1;
     scn_apply(t, idx);
     ui_toast("LOADED", idx);                    /* (big, ~1.5 s: a load is never missed) */
     return 0;
@@ -688,22 +682,12 @@ static void scn_poll_cand(void)                 /* the scene PRESETS (a program 
     if (scn_cand != 0xFF && fm1_ms - scn_cand_t >= SCN_BROWSE_MS && !scn_busy()) {
         uint8_t c = scn_cand;
         scn_cand = 0xFF;
-        if (c == SCN_CAND_UNDO) scn_undo();
-        else if (scn_load(c)) ui_say("NO SCENE THERE");
+        if (scn_load(c)) ui_say("NO SCENE THERE");
     }
 }
-/* the presets browser (ui.c): its previews load at once (or after the load running), the last one asked wins; HOME
- * there puts back what played before the first preview (the undo it kept), EDIT keeps the one picked (its undo: what
- * played before the browser) */
-static void scn_pb_go(uint32_t idx) { scn_cand = (uint8_t)idx; scn_cand_t = fm1_ms - SCN_BROWSE_MS; scn_poll_cand(); }
-static void scn_pb_open(void) { scn_pb_on = 1; scn_pb_moved = 0; }
-static void scn_pb_close(int cancel)
-{
-    if (cancel && scn_pb_moved) scn_pb_go(SCN_CAND_UNDO);
-    else if (cancel) scn_cand = 0xFF;           /* (a preview not loaded yet: dropped) */
-    scn_pb_on = 0;
-    if (cancel || scn_cand == 0xFF) scn_pb_moved = 0;   /* (the pick still to load: it keeps the undo too) */
-}
+/* the presets list (ui.c): EDIT loads the preset under the cursor, at once (or after the load running), the last one
+ * asked wins; with its effects (whatever EFFECTS ON LOAD says) when fx: EDIT again on the one loaded */
+static void scn_pb_go(uint32_t idx, int fx) { scn_cand = (uint8_t)idx; scn_cand_t = fm1_ms - SCN_BROWSE_MS; scn_fx_force = (uint8_t)(fx != 0); scn_poll_cand(); }
 static uint32_t scn_user_n(void) { uint32_t i, n = 0; for (i = 0; i < SCN_NU; i++) n += scn_meta[i].used; return n; }
 static uint32_t scn_user_at(uint32_t j)         /* the j-th saved user scene's slot */
 {

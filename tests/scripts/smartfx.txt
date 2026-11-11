@@ -1,4 +1,4 @@
-# EFFECTS ON LOAD (in the settings): SMART (the default) a load sets the mix's effects (DRIVE, FILTER, COMPRESSOR,
+# EFFECTS ON LOAD (the presets list's LOAD OPTIONS): SMART (the default) a load sets the mix's effects (DRIVE, FILTER, COMPRESSOR,
 # GRAIN, REVERB) unless the player turned one since the last load that set them: then they stay ("FX: YOURS", fxmine
 # 1); ALWAYS a load sets them; NEVER they stay. Set, their amounts glide 500 ms from the load's start (no step: the
 # level falls smoothly, no window falls further than the sound does by itself)
@@ -27,19 +27,25 @@
 4300 expect state fxmine 1
 4300 expect state edited 0
 4300 expect preset
-# ALWAYS (GLO, SELECT: TEMPO 2/2, K2): F008 sets its effects although they were the player's
-4400 btn 7
-4420 turn 0 1
-4440 turn 3 -1
-4460 expect state p426 0
+# ALWAYS (PRESETS, FX: LOAD OPTIONS, K1): F008 sets its effects although they were the player's
+4400 turn 6 1
+4405 btn 2
+4410 expect state bropt 1
+4415 turn 2 -1
+4418 btn 8
+4420 expect state p426 0
 4500 midi 0xC0 7 0
 5300 expect state scene F008_ATTIC_RAIN
 5300 expect state p411 24
 5300 expect state fxmine 0
 5300 expect preset
 # NEVER: F001 leaves them (MIX 24, not its 16) although nobody turned them
-5400 turn 3 2
-5420 expect state p426 2
+5390 turn 6 1
+5395 btn 2
+5400 expect state bropt 1
+5405 turn 2 2
+5408 btn 8
+5410 expect state p426 2
 5500 midi 0xC0 0 0
 6300 expect state scene F001_DRIZZLE
 6300 expect state p411 24
@@ -67,7 +73,11 @@
 8900 expect state scene U02_WATER
 # ALWAYS: U01 from U02, only the MAKE-UP differs: the level falls ~12 dB over the glide (MAKE-UP 80 .. 0 in 500 ms
 # from the load: 42 half way), never in a step (no 2.9 ms window falls more than the sound's own ~2.6 dB)
-9000 turn 3 -2
+9000 turn 6 1
+9005 btn 2
+9010 expect state bropt 1
+9015 turn 2 -2
+9018 btn 8
 9020 expect state p426 0
 9300 expect drop < 3.5 400
 9300 expect rms > -20
@@ -80,7 +90,11 @@
 10100 expect state p41F 0
 10100 expect preset
 # back to SMART
-10200 turn 3 1
+10200 turn 6 1
+10205 btn 2
+10210 expect state bropt 1
+10215 turn 2 1
+10218 btn 8
 10220 expect state p426 1
 10300 expect state dropped 0
 10400 end

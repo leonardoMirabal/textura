@@ -13,7 +13,7 @@
  *              COMPRESSOR 1/2 2/2 (the mix's, after the DRIVE, Frodhes': THR RAT ATK MKUP, then COMP REL; the footer
  *              its gain-reduction meter), GRAIN 1/3 .. 3/3, REVERB 1/3 .. 3/3 (in series: the reverb takes what the
  *              grain delay gives; MIX on DRIVE, GRAIN, REVERB reads DRY..WET), LFO 1/3 .. 3/3,
- *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, TEMPO 1/2 2/2, GROOVE 1/2 2/2
+ *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, TEMPO, GROOVE 1/2 2/2
  *              (AMOUNT TYPE SHIFT and the selected lane's PART; its CYCLE), MIDI, DISPLAY (COLOR: the screen's palette)
  *   ALGORITHM  LANDSCAPE: picks a landscape (the footer names it: EDIT loads it, HOME keeps what plays; a turn never
  *              loads); SOUND: opens the sound browser; DRIVE: its
@@ -43,12 +43,13 @@
  *              or any other button: closed, what plays kept
  *   SAVE       the save mode (scenes.c: PRESETS / K1 the user scene, SAVE again saves, HOME cancels); held 700 ms:
  *              undo the last scene load
- *   PRESETS    the presets browser, over the rows like SOUNDS: level 1 the categories (and USER: the saved scenes),
- *              level 2 their presets, one list (past a category's last preset the next category's first, and back);
- *              PRESETS / ALGORITHM / K1 the cursor (level 2: the preset plays UB_PREVIEW_MS
- *              after the last detent, a smooth scene change), SELECT (level 2) the category, EDIT opens / picks, HOME
- *              back / cancel (what played before the browser back); SEQ: the sound browser instead; any other button:
- *              closed, what plays kept
+ *   PRESETS    the presets list, over the rows like SOUNDS: one list, each family's header then its presets, USER
+ *              (the saved scenes) last; it opens on the preset loaded, not moved. PRESETS / ALGORITHM / K1 move the
+ *              cursor, nothing loads; SELECT the next / previous family; EDIT loads the one under the cursor, the list
+ *              stays (on the one loaded with FX: YOURS: with its effects); the loaded one solid, the cursor an outline,
+ *              the title PRESETS: BROWSING off it; FX: LOAD OPTIONS (K1 EFFECTS ON LOAD, K2 PRESETS CHANGE TEMPO; FX
+ *              again: the list); HOME or any other button closes it, what plays kept; SEQ: the sound browser
+ *              instead; SAVE lit while it is open
  *   PLAY       (TX_BTN_TAP) a tap: TAP TEMPO (on the press); held 600 ms: the transport starts / stops (and that
  *              press's tap is taken back); its light: the beat
  * The cards' values are the params table's (params.c): the same ids MIDI reaches. */
@@ -66,7 +67,8 @@ enum { G_LAND, G_MIX, G_SOUND, G_DRIVE, G_MFILT, G_COMP, G_GRAIN, G_REVERB, G_LF
        G_MIDI, G_DISPLAY, G_N };
 static const char *const G_TITLE[G_N] = {"LANDSCAPE", "MIXER", "SOUND", "DRIVE", "FILTER", "COMPRESSOR", "GRAIN", "REVERB",
                                          "LFO", "ENV", "MATRIX", "TEMPO", "GROOVE", "MIDI", "DISPLAY"};
-static const uint8_t G_NSUB[G_N] = {1, 2, 0, 1, 1, 2, 4, 3, 3, 2, 1, 2, 2, 1, 1};   /* (SOUND: as many as its cards need; ENV:
+static const uint8_t G_NSUB[G_N] = {1, 2, 0, 1, 1, 2, 4, 3, 3, 2, 1, 1, 2, 1, 1};   /* (TEMPO: one page; its
+                                                 * settings for the presets' loads: the presets list's LOAD OPTIONS) */   /* (SOUND: as many as its cards need; ENV:
                                                          * a FOLLOW has one) */
 #define LA P_LANE_ANY
 #define NOID 0xFFFFu
@@ -94,7 +96,8 @@ static const uint16_t FX_IDS[24][4] = {
     {LFO_ANY(TX_LP_RESTART), LFO_ANY(TX_LP_LEVEL), LFO_ANY(ML_NOW), LFO_ANY(ML_ROUTES)},
     {MAT_ANY(MQ_SRC), MAT_ANY(MQ_TGT), MAT_ANY(MQ_DEPTH), MAT_ANY(MQ_SPREAD)},
     {PID(P_GLOBAL, PG_BPM), PID(P_GLOBAL, PG_FINE), PID(P_GLOBAL, PG_STATUS), PID(P_GLOBAL, PG_RUN)},
-    {PID(P_GLOBAL, PG_SCNTEMPO), PID(P_GLOBAL, PG_SCNFX), NOID, NOID},
+    {NOID, NOID, NOID, NOID},                   /* (TEMPO 2/2 once: PRESETS CHANGE TEMPO, EFFECTS ON LOAD; now LOAD
+                                                 * OPTIONS in the presets list) */
     {ENV_ANY(TX_EP_TRIGGER), ENV_ANY(TX_EP_ATTACK), ENV_ANY(TX_EP_DECAY), ENV_ANY(TX_EP_RELEASE)},
     {ENV_ANY(TX_EP_SUSTAIN), ENV_ANY(TX_EP_CURVE), ENV_ANY(TX_EP_VARY), ENV_ANY(TX_EP_LOOP)},
     {ENV_ANY(TX_FP_INPUT), ENV_ANY(TX_FP_ATTACK), ENV_ANY(TX_FP_RELEASE), ENV_ANY(TX_FP_GAIN)},
@@ -138,23 +141,48 @@ static uint32_t ui_toast_t;
 #define UB_ROWS 8u                              /* list rows shown: two in each row slot */
 static struct {
     uint8_t on, lv, f, cur, top, lane;          /* lv 1 families, 2 sounds; f the family shown at level 2 */
-    uint8_t pr;                                 /* the presets browser: f a category (UB_USER: the user scenes) */
+    uint8_t pr;                                 /* the presets list: cur a row of it, f the cursor's family (UB_USER:
+                                                 * the user scenes) */
+    uint8_t opt;                                /* the presets list's LOAD OPTIONS shown (FX) */
     uint8_t of;                                 /* the lane's sound when it opened (to put back: HOME) */
     int8_t oi;
     uint8_t pend;                               /* a preview waiting since t */
     uint32_t t;
 } ub;
-#define UB_USER PR_NCAT                         /* (the presets browser's last category: the scenes saved) */
+#define UB_USER PR_NCAT                         /* (the presets list's last family: the scenes saved) */
 static uint32_t ub_ncat(void) { return PR_NCAT + (scn_user_n() ? 1u : 0u); }
-static uint32_t ub_n(void)                      /* the list's length */
+static uint32_t ub_cat_n(uint32_t c) { return c < PR_NCAT ? pr_cat_n(c) : scn_user_n(); }   /* a family's presets */
+static uint32_t ub_n(void)                      /* the list's length (the presets list: its families' headers too) */
 {
     if (!ub.pr) return ub.lv == 1 ? LS_N : LS[ub.f].n;
-    return ub.lv == 1 ? ub_ncat() : ub.f < PR_NCAT ? pr_cat_n(ub.f) : scn_user_n();
+    return ub_ncat() + PR_N + scn_user_n();
 }
-static uint32_t ub_scene(uint32_t i)            /* the presets browser, level 2: row i's scene number */
+/* the presets list: a family's header row, its presets, the next family's header ...; USER (the scenes saved) last.
+ * Row i: 1 a preset (*v its scene number), 0 a family's header (*v the family) */
+static int ub_row(uint32_t i, uint32_t *v)
 {
-    return ub.f < PR_NCAT ? pr_cat_first(ub.f) + i : SCN_NF + scn_user_at(i);
+    uint32_t c, n;
+    for (c = 0; c < ub_ncat(); c++) {
+        if (!i) { *v = c; return 0; }
+        n = ub_cat_n(c);
+        if (--i < n) { *v = c < PR_NCAT ? pr_cat_first(c) + i : SCN_NF + scn_user_at(i); return 1; }
+        i -= n;
+    }
+    *v = 0;
+    return 0;
 }
+static uint32_t ub_head_of(uint32_t c)          /* family c's header row */
+{
+    uint32_t i, r = 0;
+    for (i = 0; i < c && i < ub_ncat(); i++) r += ub_cat_n(i) + 1u;
+    return r;
+}
+static uint32_t ub_pos(void)                    /* the cursor's place in its family (0: the first) */
+{
+    uint32_t h = ub_head_of(ub.f);
+    return ub.cur > h ? ub.cur - h - 1u : 0u;
+}
+static uint32_t ub_loaded(void) { return scn_busy() ? scn_ap_idx : scn_cur; }   /* (a load under way: the one coming) */
 
 
 /* ---- the tokens (Frodhes' MT_LOOKS[0] on the palette) */
@@ -438,11 +466,26 @@ static void draw_title(void)
     int32_t x;
     uint32_t n = ui_nsub(ui_g);
     cv_begin(240, TI_H, FC_BG);
+    if (ub.on && ub.pr) {                       /* the presets list: "PRESETS: BROWSING" off the preset loaded, "FOREST
+                                                 * 8/10" at the right (no room: "8/10"); LOAD OPTIONS */
+        char r[24], n[8];
+        uint32_t v;
+        int on = ub_row(ub.cur, &v) && v == ub_loaded();
+        x = aa_text(10, S_TOP(10), &AF_S, ub.opt ? "LOAD OPTIONS" : "PRESETS", UI_ACC, FC_BG);
+        if (!ub.opt && !on) x = aa_text(x, S_TOP(10), &AF_S, ": BROWSING", FC_VAL, FC_BG);
+        if (!ub.opt) {
+            ui_frac(n, ub_pos() + 1u, ub_cat_n(ub.f));
+            p_strcpy(r, ub.f < PR_NCAT ? pr_cat_name(ub.f) : "USER", 15); p_cat(r, " ", 23); p_cat(r, n, 23);
+            if (x + 8 + aa_text_w(&AF_S, r) > 230) p_strcpy(r, n, 23);
+            aa_text_r(230, S_TOP(10), &AF_S, r, FC_LAB, FC_BG);
+        }
+        cv_blit(0, TI_Y);
+        return;
+    }
     if (ub.on) {                                /* the browser: "L2 FAMILY 3/10", "L2 ICE & GLASS 2/10" */
         char l[4] = {'L', (char)('1' + ub.lane), 0}, nm[32];
-        x = ub.pr ? 10 : aa_text(10, S_TOP(10), &AF_S, l, UI_ACC, FC_BG) + 6;   /* ("PRESETS: CATEGORY", "RAIN 3/10") */
-        if (ub.lv == 1) p_strcpy(nm, ub.pr ? "PRESETS: CATEGORY" : "SOUNDS: FAMILY", 31);
-        else if (ub.pr) p_strcpy(nm, ub.f < PR_NCAT ? pr_cat_name(ub.f) : "USER", 31);
+        x = aa_text(10, S_TOP(10), &AF_S, l, UI_ACC, FC_BG) + 6;
+        if (ub.lv == 1) p_strcpy(nm, "SOUNDS: FAMILY", 31);
         else p_upper(nm, LS[ub.f].name, 31);
         ui_fit(nm, 230 - 40 - x);
         aa_text(x, S_TOP(10), &AF_S, nm, ub.lv == 1 ? UI_ACC : FC_VAL, FC_BG);
@@ -666,6 +709,69 @@ static uint32_t ui_look(uint32_t id)
  * name, at the right the family's count (level 1) or the other lanes with that sound (level 2); the cursor filled and
  * framed, as the selected card */
 #define UB_Y(j) ((int32_t)(RW_DY * 4u - (RW_DY - RW_H)) * (int32_t)(j) / (int32_t)UB_ROWS)
+/* the presets list's row slot k (two rows each, as the sound browser's): a family's header (its name in the accent, a
+ * line); a preset: its name, its number at the right; the one loaded solid (filled, an accent bar), the cursor an
+ * outline (2 px) */
+static void draw_pr_row(uint32_t k)
+{
+    int32_t h = k < 3u ? (int32_t)RW_DY : (int32_t)RW_H, y0 = (int32_t)RW_DY * (int32_t)k;
+    uint32_t r, n = ub_n(), q = ub_loaded();
+    cv_begin(RW_W, (uint32_t)h, C_BLACK);
+    for (r = 2u * k; r < 2u * k + 2u; r++) {
+        uint32_t i = ub.top + r, v;
+        int32_t ya = UB_Y(r) - y0, yb = UB_Y(r + 1u) - y0, yc = (ya + yb) / 2;
+        char nm[24], s[20];
+        int cur, on;
+        if (i >= n) continue;
+        if (!ub_row(i, &v)) {                   /* a family: its name, a line to the edge */
+            int32_t x = aa_text_ov(6, S_TOP(yc), &AF_S, v < PR_NCAT ? pr_cat_name(v) : "USER", UI_ACC) + 6;
+            if (x < (int32_t)RW_W - 6) cv_rect(x, yc, (int32_t)RW_W - 6 - x, 1, MT_DIMLINE);
+            continue;
+        }
+        cur = i == ub.cur; on = v == q;
+        scn_name_of(v, s);
+        { uint32_t c = v < SCN_NF ? 4u : 3u; p_strcpy(nm, s + c + 1u, 23); s[c] = 0; }
+        if (on) { cv_rect(0, ya, RW_W, yb - ya - 1, mt.fill); cv_rect(0, ya, 4, yb - ya - 1, UI_ACC); }
+        if (cur) {
+            cv_rect(0, ya, RW_W, 2, mt.frame); cv_rect(0, yb - 3, RW_W, 2, mt.frame);
+            cv_rect(0, ya, 2, yb - ya - 1, mt.frame); cv_rect(RW_W - 2, ya, 2, yb - ya - 1, mt.frame);
+        }
+        ui_fit(nm, (int32_t)RW_W - 18 - 44);
+        aa_text_ov(18, S_TOP(yc), &AF_S, nm, cur || on ? FC_VAL : FC_LAB);
+        aa_text_ovr((int32_t)RW_W - 8, S_TOP(yc), &AF_S, s, on ? FC_VAL : FC_DIM);
+    }
+    cv_blit(RW_X, RW_Y0 + RW_DY * k);
+}
+/* LOAD OPTIONS (FX in the presets list): K1 EFFECTS ON LOAD, K2 PRESETS CHANGE TEMPO, each a row of its choices (the
+ * chosen filled); what the effects' choice does; whether the effects now are the player's */
+static void draw_opt_row(uint32_t k)
+{
+    static const char *const DO[3][2] = {{"EVERY PRESET BRINGS", "ITS OWN EFFECTS"}, {"PRESETS BRING THEIR EFFECTS,", "UNTIL YOU TURN ONE: YOURS STAY"},
+                                         {"YOUR EFFECTS STAY,", "WHATEVER YOU LOAD"}};
+    uint32_t m = scn_fx_mode < 3u ? scn_fx_mode : SCN_FX_SMART;
+    cv_begin(RW_W, RW_H, C_BLACK);
+    if (k < 2u) {
+        uint32_t id = PID(P_GLOBAL, k ? PG_SCNTEMPO : PG_SCNFX), i, n = (uint32_t)p_hi(id) + 1u, c = (uint32_t)p_get(id);
+        int32_t x = 6;
+        char kk[3] = {'K', (char)('1' + k), 0};
+        aa_text_ov(6, S_TOP(9), &AF_S, p_lab(id), FC_LAB);
+        aa_text_ovr((int32_t)RW_W - 6, S_TOP(9), &AF_S, kk, mt.tag);
+        for (i = 0; i < n; i++) {               /* the choices, the chosen one filled and framed */
+            const char *s = p_names(id)[i];
+            int32_t w = aa_text_w(&AF_S, s) + 12;
+            if (i == c) { cv_rect(x, 19, w, 17, mt.fill); cv_rect(x, 19, w, 1, mt.frame); cv_rect(x, 35, w, 1, mt.frame); cv_rect(x, 19, 1, 17, mt.frame); cv_rect(x + w - 1, 19, 1, 17, mt.frame); }
+            aa_text_ov(x + 6, S_TOP(27), &AF_S, s, i == c ? FC_VAL : FC_DIM);
+            x += w + 6;
+        }
+    } else if (k == 2u) {
+        aa_text_ov(6, S_TOP(9), &AF_S, DO[m][0], FC_LAB);
+        aa_text_ov(6, S_TOP(27), &AF_S, DO[m][1], FC_LAB);
+    } else {
+        aa_text_ov(6, S_TOP(9), &AF_S, m != SCN_FX_SMART ? "A LOAD'S EFFECTS GLIDE," : scn_fx_mine ? "FX NOW: YOURS" : "FX NOW: THE PRESET'S", m != SCN_FX_SMART ? FC_DIM : FC_VAL);
+        aa_text_ov(6, S_TOP(27), &AF_S, "THEIR TAILS RING ON", FC_DIM);
+    }
+    cv_blit(RW_X, RW_Y0 + RW_DY * k);
+}
 static void draw_browser_row(uint32_t k)
 {
     int32_t h = k < 3u ? (int32_t)RW_DY : (int32_t)RW_H, y0 = (int32_t)RW_DY * (int32_t)k;
@@ -678,16 +784,7 @@ static void draw_browser_row(uint32_t k)
         int cur, mine;
         if (i >= n) continue;
         cur = i == ub.cur;
-        if (ub.pr && ub.lv == 1) {              /* a category: its count; the scene loaded's marked */
-            mine = scn_cur != 0xFF && (scn_cur < SCN_NF ? pr_cat_of(scn_cur) : UB_USER) == i;
-            p_strcpy(nm, i < PR_NCAT ? pr_cat_name(i) : "USER", 31); p_fmt_int(t, i < PR_NCAT ? pr_cat_n(i) : scn_user_n());
-        } else if (ub.pr) {                     /* a preset: its name, its number at the right ("F031", "U03") */
-            char s[20];
-            uint32_t q = ub_scene(i), c = q < SCN_NF ? 4u : 3u;
-            mine = q == scn_cur;
-            scn_name_of(q, s);
-            p_strcpy(nm, s + c + 1u, 31); s[c] = 0; p_strcpy(t, s, 11);
-        } else if (ub.lv == 1) { mine = sc.snd[ub.lane] >= 0 && sc.lf[ub.lane] == i; p_upper(nm, LS[i].name, 31); p_fmt_int(t, LS[i].n); }
+        if (ub.lv == 1) { mine = sc.snd[ub.lane] >= 0 && sc.lf[ub.lane] == i; p_upper(nm, LS[i].name, 31); p_fmt_int(t, LS[i].n); }
         else {
             mine = sc.snd[ub.lane] == (int)i && sc.lf[ub.lane] == ub.f;
             p_upper(nm, LS[ub.f].s[i].name, 31);
@@ -741,6 +838,7 @@ static void draw_row(uint32_t k)
     char l[32], v[24];
     uint32_t id;
     if (ui_toast_on() && (k == 1u || k == 2u)) { draw_toast(); return; }
+    if (ub.on && ub.pr) { if (ub.opt) draw_opt_row(k); else draw_pr_row(k); return; }
     if (ub.on) { draw_browser_row(k); return; }
     if (ui_g == G_LAND) { draw_strip(k); return; }
     if (ui_g == G_MIX) {
@@ -783,9 +881,22 @@ static void draw_footer(void)
         ft_c(23, "K2 K3: NAME  SAVE: YES  HOME: NO", FC_DIM);
     }
     else if (ui_msg_t && fm1_ms - ui_msg_t < MSG_MS) ft_c(15, ui_msg, FC_VAL);
+    else if (ub.on && ub.opt) { ft_c(7, "K1 K2: CHOOSE", FC_LAB); ft_two(22, "FX: PRESETS", "HOME: CLOSE", FC_DIM); }
+    else if (ub.on && ub.pr) {                  /* the presets list: what is loaded, what EDIT does */
+        char a[24], b[24], c[8];
+        uint32_t v, q = ub_loaded();
+        (void)ub_row(ub.cur, &v);
+        scn_name_of(v, b); b[v < SCN_NF ? 4 : 3] = 0; p_strcpy(c, b, 7);
+        p_strcpy(b, "EDIT: LOAD ", 23); p_cat(b, c, 23);
+        if (q < SCN_N) { scn_name_of(q, a); a[q < SCN_NF ? 4 : 3] = 0; p_strcpy(c, a, 7); p_strcpy(a, "LOADED ", 23); p_cat(a, c, 23); }
+        if (q >= SCN_N) ft_c(7, b, FC_LAB);
+        else if (v != q) ft_two(7, a, b, FC_LAB);
+        else if (ui_fx_yours()) ft_two(7, "FX: YOURS", "EDIT: ITS FX TOO", FC_LAB);
+        else ft_two(7, a, "EDIT: AGAIN", FC_LAB);
+        ft_two(22, "HOME: CLOSE", "FX: LOAD OPTIONS", FC_DIM);
+    }
     else if (ub.on) {                           /* the browser: what the controls do */
-        ft_c(7, ub.lv == 1 ? (ub.pr ? "PRESETS: MOVE   EDIT: OPEN" : "ALGORITHM: MOVE   EDIT: OPEN")
-                : ub.pr ? "PRESETS: PRESET   SELECT: CATEGORY" : "ALGORITHM: SOUND   SELECT: FAMILY", FC_LAB);
+        ft_c(7, ub.lv == 1 ? "ALGORITHM: MOVE   EDIT: OPEN" : "ALGORITHM: SOUND   SELECT: FAMILY", FC_LAB);
         ft_c(22, ub.lv == 1 ? "HOME: CANCEL" : "EDIT: PICK   HOME: BACK", FC_DIM);
     }
     else if (ui_g == G_LAND && sc.fam_pend == SC_FAM_PICKED) {   /* ALGORITHM picked a landscape: EDIT loads it */
@@ -880,7 +991,9 @@ static uint32_t ui_sig_of(uint32_t e)
     uint32_t h = 2166136261u, k;
     h = sig_mix(h, ui_g); h = sig_mix(h, ui_sub);
     if (ub.on && e != E_HEADER) {               /* the browser: the list, the lanes' sounds in it */
-        h = sig_mix(h, 0xB0u | ub.lv | (uint32_t)ub.pr << 4); h = sig_mix(h, scn_cur); h = sig_mix(h, ub.f); h = sig_mix(h, ub.cur); h = sig_mix(h, ub.top); h = sig_mix(h, ub.lane);
+        h = sig_mix(h, 0xB0u | ub.lv | (uint32_t)ub.pr << 4 | (uint32_t)ub.opt << 5); h = sig_mix(h, ub_loaded()); h = sig_mix(h, ub.f); h = sig_mix(h, ub.cur); h = sig_mix(h, ub.top); h = sig_mix(h, ub.lane);
+        h = sig_mix(h, scn_fx_mode); h = sig_mix(h, tm.scn_tempo); h = sig_mix(h, scn_fx_mine);
+        if (e == E_ROW0 + 1u || e == E_ROW0 + 2u) h = sig_mix(h, ui_toast_on() ? ui_toast_t : 0u);
         for (k = 0; k < SC_N; k++) { h = sig_mix(h, (uint32_t)sc.snd[k]); h = sig_mix(h, sc.lf[k]); }
         if (e == E_FOOTER) h = sig_mix(h, ui_msg_t && fm1_ms - ui_msg_t < MSG_MS ? ui_msg_t : 0u);
         return h;
@@ -1080,24 +1193,33 @@ static void ub_open(void)
     ub_at_lane();
     ui_all();
 }
-static void ub_close(void) { if (ub.on && ub.pr) scn_pb_close(0); ub.on = ub.pr = 0; ub.pend = 0; ui_all(); }   /* (what
-                                                 * plays stays) */
-static void ub_at_scene(void)                   /* the presets browser, level 2 at the scene loaded (none: the first) */
+static void ub_close(void) { ub.on = ub.pr = ub.opt = 0; ub.pend = 0; ui_all(); }   /* (what plays stays) */
+/* ---- the presets list's moves: the cursor walks the presets (a family's header passed over), its family kept in
+ * ub.f; the window shows a family's header when its first preset is at its top */
+static void ub_pr_view(void)
 {
-    uint32_t i, n;
-    ub.lv = 2; ub.top = 0; ub.pend = 0; ub.cur = 0;
-    ub.f = (uint8_t)(scn_cur == 0xFF ? 0u : scn_cur < SCN_NF ? pr_cat_of(scn_cur) : UB_USER);
-    if (ub.f >= ub_ncat()) ub.f = 0;
-    for (i = 0, n = ub_n(); i < n; i++) if (ub_scene(i) == scn_cur) ub.cur = (uint8_t)i;
+    uint32_t c, v;
+    for (c = 0; c + 1u < ub_ncat() && ub.cur >= ub_head_of(c + 1u); c++) {}
+    ub.f = (uint8_t)c;
     ub_view();
+    if (ub.cur == ub.top && ub.top && !ub_row(ub.top - 1u, &v)) ub.top--;
 }
-static void ub_move(int32_t d);
-static void ub_pr_open(int32_t d)               /* PRESETS: the presets browser, at the scene loaded, moved d */
+static void ub_pr_frame(void)                   /* (opened, a family jumped to: the window from the cursor's family's
+                                                 * header, the cursor in it; far down a family: the cursor mid-window) */
 {
-    ub.on = 1; ub.pr = 1;
-    scn_pb_open();
-    ub_at_scene();
-    ub_move(d);
+    uint32_t h, n = ub_n();
+    ub_pr_view();
+    h = ub_head_of(ub.f);
+    ub.top = (uint8_t)(ub.cur < h + UB_ROWS ? h : ub.cur - UB_ROWS / 2u);
+    if (n > UB_ROWS && ub.top > n - UB_ROWS) ub.top = (uint8_t)(n - UB_ROWS);
+}
+static void ub_pr_open(void)                    /* PRESETS: the list, the cursor on the preset loaded (none: the first),
+                                                 * not moved */
+{
+    uint32_t q = ub_loaded(), i, v, n;
+    ub.on = 1; ub.pr = 1; ub.opt = 0; ub.lv = 2; ub.pend = 0; ub.top = 0; ub.cur = 1;
+    for (i = 0, n = ub_n(); i < n; i++) if (ub_row(i, &v) && v == q) { ub.cur = (uint8_t)i; break; }
+    ub_pr_frame();
     ui_all();
 }
 static void ub_follow(void)                     /* another lane (OCT, a black key): the browser on it, its sound kept */
@@ -1106,42 +1228,50 @@ static void ub_follow(void)                     /* another lane (OCT, a black ke
     ub.lane = sc.sel; ub.of = sc.lf[ub.lane]; ub.oi = sc.snd[ub.lane];
     ub_at_lane();
 }
-static void ub_move(int32_t d)                  /* ALGORITHM, K1: the cursor (no wrap); level 2: the preview's wait;
-                                                 * the presets' level 2: one list, past a category's end the next one */
+static void ub_move(int32_t d)                  /* ALGORITHM, K1 (the presets: PRESETS too): the cursor (no wrap); the
+                                                 * sounds' level 2: the preview's wait; the presets: nothing loads */
 {
     int32_t n = (int32_t)ub_n(), c = (int32_t)ub.cur + d;
-    if (ub.pr && ub.lv == 2) {
-        while (c >= n && ub.f + 1u < ub_ncat()) { c -= n; ub.f++; ub.top = 0; n = (int32_t)ub_n(); }
-        while (c < 0 && ub.f > 0) { ub.f--; ub.top = 0; n = (int32_t)ub_n(); c += n; }
+    if (ub.pr) {
+        int32_t s = d > 0 ? 1 : -1, k = d > 0 ? d : -d, c2;
+        uint32_t v;
+        for (c = ub.cur; k > 0; k--) {          /* d presets on, the headers passed over */
+            for (c2 = c + s; c2 >= 0 && c2 < n && !ub_row((uint32_t)c2, &v); c2 += s) {}
+            if (c2 < 0 || c2 >= n) break;
+            c = c2;
+        }
+        ub.cur = (uint8_t)c;
+        ub_pr_view();
+        return;
     }
     ub.cur = (uint8_t)clampi(c, 0, n - 1);
     ub_view();
     if (ub.lv == 2) { ub.pend = 1; ub.t = fm1_ms; }
 }
-static void ub_family(int32_t d)                /* SELECT at level 2: the previous / next family (category), its first */
+static void ub_family(int32_t d)                /* SELECT at level 2: the previous / next family, its first */
 {
     int32_t f = clampi((int32_t)ub.f + d, 0, (int32_t)(ub.pr ? ub_ncat() : LS_N) - 1);
     if (f == ub.f) return;
+    if (ub.pr) { ub.cur = (uint8_t)(ub_head_of((uint32_t)f) + 1u); ub_pr_frame(); return; }
     ub.f = (uint8_t)f; ub.top = 0;
-    ub.cur = (uint8_t)(!ub.pr && sc.lf[ub.lane] == f && sc.snd[ub.lane] >= 0 ? sc.snd[ub.lane] : 0);
+    ub.cur = (uint8_t)(sc.lf[ub.lane] == f && sc.snd[ub.lane] >= 0 ? sc.snd[ub.lane] : 0);
     ub_view();
     ub.pend = 1; ub.t = fm1_ms;
 }
 static void ub_say(void) { char t[32]; p_upper(t, sc_sound_name(ub.lane), 31); ui_say(t); }
-static void ub_edit(void)                       /* EDIT: open the family / pick the sound */
+static void ub_edit(void)                       /* EDIT: open the family / pick the sound; the presets: load the one under
+                                                 * the cursor (the list stays; on the one loaded with FX: YOURS: with its
+                                                 * effects) */
 {
-    if (ub.lv == 1) {
-        uint32_t i, n;
-        ub.f = ub.cur; ub.lv = 2; ub.top = 0;
-        ub.cur = (uint8_t)(!ub.pr && sc.lf[ub.lane] == ub.f && sc.snd[ub.lane] >= 0 ? sc.snd[ub.lane] : 0);
-        for (i = 0, n = ub.pr ? ub_n() : 0u; i < n; i++) if (ub_scene(i) == scn_cur) ub.cur = (uint8_t)i;
-        ub_view();
+    if (ub.pr) {
+        uint32_t v;
+        if (ub_row(ub.cur, &v)) scn_pb_go(v, v == ub_loaded() && ui_fx_yours());
         return;
     }
-    if (ub.pr) {                                /* the preset picked: loaded (now, if its preview had not yet) */
-        uint32_t s = ub_scene(ub.cur);
-        if (ub.pend || s != scn_cur) scn_pb_go(s);
-        ub_close();
+    if (ub.lv == 1) {
+        ub.f = ub.cur; ub.lv = 2; ub.top = 0;
+        ub.cur = (uint8_t)(sc.lf[ub.lane] == ub.f && sc.snd[ub.lane] >= 0 ? sc.snd[ub.lane] : 0);
+        ub_view();
         return;
     }
     sc_sound_set(ub.lane, ub.f, ub.cur);        /* (a stopped lane: loaded stopped) */
@@ -1149,19 +1279,19 @@ static void ub_edit(void)                       /* EDIT: open the family / pick 
     ub_close();
     ub_say();
 }
-static void ub_home(void)                       /* HOME: back to the families; there: the sound it opened with, closed */
+static void ub_home(void)                       /* HOME: back to the families; there: the sound it opened with, closed;
+                                                 * the presets: closed, what plays kept */
 {
+    if (ub.pr) { ub_close(); return; }
     if (ub.lv == 2) { ub.lv = 1; ub.cur = ub.f; ub.top = 0; ub.pend = 0; ub_view(); return; }
-    if (ub.pr) { scn_pb_close(1); ub.pr = 0; ub_close(); ui_say("PRESET KEPT"); return; }   /* (what played before) */
     if (ub.oi >= 0) sc_sound_set(ub.lane, ub.of, (uint32_t)ub.oi);
     ub_close();
     ui_say("SOUND KEPT");
 }
 static void ub_poll(void)                       /* the preview: the cursor's sound on the lane, while it plays */
 {
-    if (!ub.on || !ub.pend || fm1_ms - ub.t < UB_PREVIEW_MS) return;
+    if (!ub.on || ub.pr || !ub.pend || fm1_ms - ub.t < UB_PREVIEW_MS) return;
     ub.pend = 0;
-    if (ub.pr) { if (ub.lv == 2) scn_pb_go(ub_scene(ub.cur)); return; }   /* (a preset: always, its lanes start) */
     if (ub.lv == 2 && sc.run[ub.lane]) { sc_sound_set(ub.lane, ub.f, ub.cur); scn_touch(); }
 }
 static void ui_lane_focus(uint32_t k)           /* a black key: lane k, shown on LANDSCAPE (the 4 lanes, as HOME): it
@@ -1399,10 +1529,23 @@ static void ui_input(uint32_t b, uint32_t rel)
     if (ub.on) {                                /* the browser takes ALGORITHM, K1, SELECT, EDIT, HOME (SEQ: closes the
                                                  * sound browser; the presets one: closed, the sound browser opens);
                                                  * any other button closes it, what plays kept; PRESETS: the presets
-                                                 * browser's cursor (the sound browser: closed, the presets one opens) */
-        uint32_t own = 1u << BTN_EDIT | 1u << BTN_HOME | 1u << BTN_SEQ | (ub.pr ? 0u : 1u << BTN_OCT_DOWN | 1u << BTN_OCT_UP);
+                                                 * list's cursor (the sound browser: closed, the presets list opens).
+                                                 * The presets list: FX its LOAD OPTIONS (again: the list), K1 K2 there
+                                                 * their choices */
+        uint32_t own = 1u << BTN_EDIT | 1u << BTN_HOME | 1u << BTN_SEQ | (ub.pr ? 1u << BTN_FX : 1u << BTN_OCT_DOWN | 1u << BTN_OCT_UP);
         if (b >> BTN_SEQ & 1u) { if (!ub.pr) b &= ~(1u << BTN_SEQ); ub_close(); }
         else if (b & ~own || (d[ENC_PRESETS] && !ub.pr)) ub_close();
+        else if (ub.opt || b >> BTN_FX & 1u) {  /* LOAD OPTIONS */
+            if (b >> BTN_FX & 1u) { ub.opt ^= 1u; ui_all(); }
+            else if (b >> BTN_HOME & 1u) ub_close();
+            else {
+                if (d[ENC_KNOB1]) { ui_turn(PID(P_GLOBAL, PG_SCNFX), d[ENC_KNOB1]); ui_all(); }
+                if (d[ENC_KNOB2]) { ui_turn(PID(P_GLOBAL, PG_SCNTEMPO), d[ENC_KNOB2]); ui_all(); }
+            }
+            b &= ~(1u << BTN_FX | 1u << BTN_EDIT | 1u << BTN_HOME);
+            d[ENC_PRESETS] = d[ENC_ALGORITHM] = d[ENC_SELECT] = 0;
+            for (i = 0; i < 4u; i++) d[ENC_KNOB1 + i] = 0;
+        }
         else {
             if (b >> BTN_EDIT & 1u) ub_edit();
             else if (b >> BTN_HOME & 1u) ub_home();
@@ -1417,7 +1560,7 @@ static void ui_input(uint32_t b, uint32_t rel)
         }
     }
     if (!ub.on && b >> BTN_SEQ & 1u) ub_open(); /* SEQ (SOUNDS): the browser, for the selected lane */
-    else if (!ub.on && d[ENC_PRESETS]) ub_pr_open(d[ENC_PRESETS]);   /* PRESETS: the presets browser */
+    else if (!ub.on && d[ENC_PRESETS]) ub_pr_open();   /* PRESETS: the presets list (its first detent opens it) */
     if (b >> BTN_HOME & 1u && ui_g == G_LAND && sc.fam_pend == SC_FAM_PICKED) {   /* (a landscape picked: kept as is) */
         sc.fam_want = sc.fam; sc.fam_pend = 0;
         ui_say("LANDSCAPE KEPT");
@@ -1488,6 +1631,8 @@ static uint32_t ui_btn_leds(void)
     else if (ui_g >= G_TEMPO) b |= 1u << BTN_GLO;   /* (TEMPO, GROOVE, MIDI, DISPLAY: GLO's pages) */
     if (ui_latched()) b |= 1u << (ui_lsrc >= MS_ENV1 ? BTN_ENV : BTN_LFO);   /* (learn latched) */
     if (ub.on && !ub.pr) b |= 1u << BTN_SEQ;    /* (the sound browser open) */
+    if (ub.on && ub.pr) b |= 1u << BTN_SAVE;    /* (the presets list open: SAVE stores what plays) */
+    if (ub.opt) b |= 1u << BTN_FX;              /* (its LOAD OPTIONS) */
     if (scn_save_mode || (scn_sv_on && fm1_ms >> 7 & 1u)) b |= 1u << BTN_SAVE;   /* (the save mode; saving: blinking) */
     if (tempo_beat_led()) b |= 1u << TX_BTN_TAP;
     if (nt.mode == NT_PLAY) b |= 1u << BTN_SEL;

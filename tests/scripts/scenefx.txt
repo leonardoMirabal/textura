@@ -1,4 +1,4 @@
-# EFFECTS ON LOAD (TEMPO 2/2, in the settings): at SMART (the default), once the player has turned an effect, a
+# EFFECTS ON LOAD (the presets list's LOAD OPTIONS): at SMART (the default), once the player has turned an effect, a
 # scene's load leaves the mix's effects (DRIVE, COMPRESSOR, GRAIN, REVERB) as they are, their tails ringing on; ALWAYS
 # it sets them (smartfx.txt: SMART untouched, NEVER, the glide). Scenes save them either way
 1700 btn 13
@@ -44,13 +44,14 @@
 4400 expect state loading 0
 4400 expect state p410 0
 4400 expect state p411 0
-# ALWAYS (GLO, SELECT: TEMPO 2/2, K2): U01 again brings its hall back, MIX 100; F001 sets its own (a touch of
+# ALWAYS (PRESETS, FX: LOAD OPTIONS, K1): U01 again brings its hall back, MIX 100; F001 sets its own (a touch of
 # hall: MIX 16), the DRIVE at its defaults
-4500 btn 7
-4520 turn 0 1
-4540 expect state page TEMPO_2/2
-4560 turn 3 -1
-4580 expect state p426 0
+4500 turn 6 1
+4505 btn 2
+4510 expect state bropt 1
+4515 turn 2 -1
+4518 btn 8
+4520 expect state p426 0
 4600 midi 0xC0 100 0
 5200 expect state loading 0
 5200 expect state p410 2
@@ -65,7 +66,11 @@
 5900 expect preset
 5900 expect sound
 # back to SMART
-6000 turn 3 1
+6000 turn 6 1
+6005 btn 2
+6010 expect state bropt 1
+6015 turn 2 1
+6018 btn 8
 6020 expect state p426 1
 6100 expect state dropped 0
 6200 end
