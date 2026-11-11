@@ -144,7 +144,7 @@ const KNOBS = [["MASTER", -1, 50, 22, "VOLUME"], ["SELECT", 0, 200, 22, "PAGES"]
                ["ALGORITHM", 1, 200, 152, "PICK·TYPE"], ["KNOB 1", 2, 685, 22, "CARD 1"], ["KNOB 2", 3, 800, 22, "CARD 2"],
                ["KNOB 3", 4, 915, 22, "CARD 3"], ["KNOB 4", 5, 1030, 22, "CARD 4"]];
 // the buttons' captions (the ones still to come are blank: envelopes and scenes)
-const HINT = { FX: "EFFECTS", SEL: "KEY MODE", ENV: "LEARN · AGAIN: ENV", LFO: "LEARN · AGAIN: LFO", EDIT: "SOUND", GLO: "RHYTHM", HOME: "LANDSCAPE", SAVE: "SCENE · HOLD: UNDO", ARP: "MATRIX",
+const HINT = { FX: "EFFECTS · HOLD: FILTER", SEL: "KEY MODE", ENV: "LEARN · AGAIN: ENV", LFO: "LEARN · AGAIN: LFO", EDIT: "SOUND", GLO: "RHYTHM", HOME: "LANDSCAPE", SAVE: "SCENE · HOLD: UNDO", ARP: "MATRIX",
                SEQ: "SOUNDS", PLAY: "TAP · HOLD: RUN", REC: "ALL ON·OFF · TAP", "OCT−": "LANE", "OCT+": "LANE" };
 const HINT_ON = {                                    // what a button does on a given page (else HINT)
   LANDSCAPE: { HOME: "BACK" }, SOUND: { EDIT: "NEXT" }, EFFECTS: { FX: "REVERB" }, REVERB: { FX: "NEXT" }, GRAIN: { FX: "NEXT" }, FILTER: { FX: "DRIVE" }, DRIVE: { FX: "COMPRESSOR" }, COMPRESSOR: { FX: "NEXT" },

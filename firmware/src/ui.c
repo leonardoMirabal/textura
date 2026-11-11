@@ -26,8 +26,9 @@
  *   K1..K4     LANDSCAPE: the volumes of lanes 1..4 (a lane's sound: its SOUND page; HOW MANY, HOW ACTIVE: the white
  *              keys too); the lane pages, GROOVE LANES: lanes 1..4; else the cards
  *   HOME       LANDSCAPE; on LANDSCAPE: back to the last page left, however it was left (P7; the footer names it)
- *   EDIT       SOUND (again: its next page)        FX  EFFECTS (again: each page of REVERB, GRAIN, FILTER, DRIVE,
- *              COMPRESSOR, then round)
+ *   EDIT       SOUND (again: its next page)        FX  on its release: EFFECTS (again: each page of REVERB, GRAIN,
+ *              FILTER, DRIVE, COMPRESSOR, then round); held 600 ms, from any page: FILTER (the mix's filter at once;
+ *              HOME, then HOME again, comes back to it)
  *   GLO        RHYTHM (again: GROOVE LANES, TEMPO, MIDI, DISPLAY, then round)        LFO  the LFO pages; held + a card
  *              turned: mod learn (the selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP
  *              MATRIX. Each group button lit on its own pages only; every group page's footer says where it goes next
@@ -1089,7 +1090,12 @@ static void draw_footer(void)
                 cv_rect(20, 20, 200, 4, CD_SEGDIM); cv_rect(20, 20, 200 * clampi(lv, 0, p_hi((uint32_t)mid)) / p_hi((uint32_t)mid), 4, mt.edge);
             }
         }
-        else { ui_next_text(t, G_BTN[ui_g]); ft_c(22, t, FC_DIM); }
+        else {                                  /* (the effects' pages: FX held opens FILTER) */
+            ui_next_text(t, G_BTN[ui_g]);
+            if (G_BTN[ui_g] == BTN_FX && ui_g != G_MFILT && aa_text_w(&AF_S, t) + aa_text_w(&AF_S, "HOLD: FILTER") + 9 <= 236)
+                ft_two(22, t, "HOLD: FILTER", FC_DIM);
+            else ft_c(22, t, FC_DIM);
+        }
         if (ui_g == G_ENV) {                    /* its value now: a bar */
             int32_t e = mod_ext[ui_env < TX_ENV_N ? ME_ENV1 + ui_env : ME_FOL1 + ui_env - TX_ENV_N];
             cv_rect(20, 14, 200, 3, CD_SEGDIM); cv_rect(20, 14, 200 * clampi(e, 0, 32767) / 32767, 3, mt.edge);
@@ -1669,6 +1675,8 @@ static void ui_rec(void)
     }
     ui_tap(tap);                                /* (the third: the tempo, bar 1 there; none while a clock leads) */
 }
+static uint32_t ui_fx_t;
+static uint8_t ui_fx_down;                      /* FX pressed, its release or its hold to come */
 static void ui_input(uint32_t b, uint32_t rel)
 {
     int32_t d[7];
@@ -1737,9 +1745,12 @@ static void ui_input(uint32_t b, uint32_t rel)
     }
     if (b >> BTN_EDIT & 1u) ui_goto(G_SOUND, ui_g == G_SOUND ? (ui_sub + 1u) % ui_nsub(G_SOUND) : 0u);   /* (the lane's
                                                  * SOUND; again: its next page) */
+    if (b >> BTN_FX & 1u) { ui_fx_t = fm1_ms; ui_fx_down = 1; }   /* FX: on the release (held TAP_HOLD_MS: FILTER) */
+    if (ui_fx_down && fm1_ms - ui_fx_t >= TAP_HOLD_MS) { ui_fx_down = 0; ui_goto(G_MFILT, 0); }
     for (i = 0; i < 2u; i++)                    /* FX (EFFECTS, REVERB, DELAY, FILTER, DRIVE, COMPRESSOR), GLO (RHYTHM,
                                                  * GROOVE LANES, TEMPO, MIDI, DISPLAY): every page in turn, wrapping */
-        if (b >> (i ? BTN_GLO : BTN_FX) & 1u) { uint8_t g, s; ui_next(i ? BTN_GLO : BTN_FX, &g, &s); ui_goto(g, s); }
+        if (i ? b >> BTN_GLO & 1u : rel >> BTN_FX & ui_fx_down) { uint8_t g, s; ui_next(i ? BTN_GLO : BTN_FX, &g, &s); ui_goto(g, s); }
+    if (rel >> BTN_FX & 1u) ui_fx_down = 0;
     if (b & ~(1u << BTN_LFO | 1u << BTN_ENV)) ui_latch_t = 0;   /* (another button: learn unlatched) */
     if (b >> BTN_ARP & 1u) ui_goto(G_MATRIX, 0);
     if ((b >> BTN_ENV & 1u && ui_lsrc < MS_ENV1) || (b >> BTN_LFO & 1u && ui_lsrc >= MS_ENV1)) ui_latch_t = 0;   /* (the

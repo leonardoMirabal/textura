@@ -4,7 +4,7 @@ firmware runs (the splash, then the LANDSCAPE page on the screen), ?selftest sta
 on-screen keys reach the firmware and its key LEDs come back (a black key selects its group's lane, LANDSCAPE stays,
 held it mutes the lane; a white key starts it), the knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
 tests/py/test_web_knobs.py), HOME goes home and back, EDIT to SOUND, FX through EFFECTS / REVERB / DELAY / FILTER / DRIVE / COMPRESSOR, GLO through RHYTHM /
-GROOVE LANES / TEMPO / MIDI, LFO to
+GROOVE LANES / TEMPO / MIDI, FX held to FILTER, LFO to
 LFO, ARP to MATRIX (the captions follow), SAVE saves a scene that a reload brings back, and the page fits a phone (390 px, no sideways scroll). Screenshots at desktop and phone width.
 
     make fw-web-check     (PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py)
@@ -180,6 +180,24 @@ def main():
         glo.click(delay=60)
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "MIDI", "GLO a fourth time: the MIDI page")
+        # FX held (a mouse held down 0.8 s): the FILTER page from here, and nothing more on its release
+        box = fx.bounding_box()
+        pg.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        pg.mouse.down()
+        pg.wait_for_timeout(800)
+        check(pg.evaluate(PAGE) == "FILTER", "FX held: the FILTER page")
+        pg.mouse.up()
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(PAGE) == "FILTER", "FX let go after its hold: still FILTER")
+        glo.click(delay=60)
+        pg.wait_for_timeout(300)
+        glo.click(delay=60)
+        pg.wait_for_timeout(300)
+        glo.click(delay=60)
+        pg.wait_for_timeout(300)
+        glo.click(delay=60)
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(PAGE) == "MIDI", "GLO four times from FILTER: the MIDI page again")
         # LFO: the LFO pages (the caption: the next one / learn); ARP: the MATRIX
         lfo, arp = pg.locator('button.b[data-name="LFO"]'), pg.locator('button.b[data-name="ARP"]')
         check(lfo.locator("small").inner_text() == "LEARN · AGAIN: LFO" and arp.locator("small").inner_text() == "MATRIX",
