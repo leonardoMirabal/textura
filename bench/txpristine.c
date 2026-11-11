@@ -27,7 +27,7 @@
  *   LIMITER (tx_core_limit, the pair interleaved as the mix runs it):
  *     chord   four sines (196 247 294 392 Hz) peaking 4 dB over the ceiling, 0.25 s on / 0.25 s off (5 ms edges):
  *             the energy above 5 kHz re the whole (dB; the chord has none: the gain's own steps and clicks), the
- *             largest output (never over -1 dBFS: judged)
+ *             largest output (never over -2 dBFS: judged)
  *     bass    a 55 Hz sine 2 dB over: H2..H9 re H1 (dB), reported
  *   COMPRESSOR (tx_core_comp at THR 127 (-40 dBFS), RAT 3 (4:1), MKUP 0): a 41 Hz sine at -30 dBFS: the worst of H2..H5 re H1,
  *     reported
@@ -281,7 +281,7 @@ static void lim_chord(void)
     tx_limit_t *l = malloc(sizeof *l);
     int n = 3 * FS, i, k, nb = n / (int)NB, b;
     int32_t *v = malloc(sizeof(int32_t) * 2 * NB);
-    double *o = malloc(sizeof(double) * nb * NB), pk = 0, a = 7476717.0 * pow(10.0, 4.0 / 20.0) / 4.0, hf = 0, tot = 0;
+    double *o = malloc(sizeof(double) * nb * NB), pk = 0, a = 6663308.0 * pow(10.0, 4.0 / 20.0) / 4.0, hf = 0, tot = 0;
     tx_limit_init(l); l->ch = 2;
     for (b = 0; b < nb; b++) {
         for (i = 0; i < (int)NB; i++) {
@@ -302,7 +302,7 @@ static void lim_chord(void)
     }
     printf("LIMITER chord (4 dB over, bursts): the energy above 5 kHz %.1f dB re the whole; the largest out %.3f dBFS\n",
            db(hf / tot), 20 * log10(pk / 8388608.0));
-    judge("limiter chord: over the ceiling (-1 dBFS)", pk, 7476717.0, 1);
+    judge("limiter chord: over the ceiling (-2 dBFS)", pk, 6663308.0, 1);
     free(l); free(v); free(o);
 }
 static void lim_bass(void)
@@ -313,7 +313,7 @@ static void lim_bass(void)
     double *o = malloc(sizeof(double) * nb * NB), h1, hw = -300;
     tx_limit_init(l); l->ch = 2;
     for (b = 0; b < nb; b++) {
-        for (i = 0; i < (int)NB; i++) v[2 * i] = v[2 * i + 1] = (int32_t)lrint(7476717.0 * pow(10.0, 0.1) * sin(2.0 * M_PI * 55 * (double)(b * NB + i) / FS));
+        for (i = 0; i < (int)NB; i++) v[2 * i] = v[2 * i + 1] = (int32_t)lrint(6663308.0 * pow(10.0, 0.1) * sin(2.0 * M_PI * 55 * (double)(b * NB + i) / FS));
         tx_limit_process(l, v, 2 * NB);
         for (i = 0; i < (int)NB; i++) o[b * NB + i] = v[2 * i];
     }

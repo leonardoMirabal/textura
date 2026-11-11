@@ -1,10 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura LIMIT core: the output stage's peak limiter (after the mix and the CHAMBER; never inside an engine).
  *
- * gain = min(env, T / |x|) per sample: an instant attack, so the output never passes the threshold T (-1 dBFS); the
+ * gain = min(env, T / |x|) per sample: an instant attack, so the output never passes the threshold T (-2 dBFS); the
  * envelope env recovers toward 1 with a ~25 ms time constant (release), so a loud crack ducks the mix briefly instead
  * of clipping it. Under the threshold and with env at 1 it costs one compare per sample; a 32-bit division runs only
- * on samples over it. Integer: x Q23 in int32 (the mix has 8 bits of headroom), gain Q16.
+ * on samples over it. Integer: x Q23 in int32 (the mix has 8 bits of headroom), gain Q16. T was -1 dBFS; -2 since
+ * 2026-11-11, as Frodhes' (its LIM_T): the FM-1's headphone jack clipped loud material just under -1 dBFS.
  *
  * The peaks between the samples too: a crack's edge can peak ~1.5 .. 3 dB above its samples once rebuilt (a converter,
  * the USB audio's 48 kHz resampler), so -1 dBFS samples came out at 0 dBFS, clipped. The limiter looks 8 frames ahead
@@ -31,7 +32,7 @@ typedef struct {
 } tx_limit_t;
 
 void tx_limit_init(tx_limit_t *l);
-/* in place over n samples of a Q23 mix (ch interleaved), 8 frames late: afterwards |x| <= T (7476717, -1 dBFS) and so
+/* in place over n samples of a Q23 mix (ch interleaved), 8 frames late: afterwards |x| <= T (6663308, -2 dBFS) and so
  * are the estimated half-sample points between */
 TX_AUDIO_CODE void tx_limit_process(tx_limit_t *l, int32_t *x, unsigned n);
 /* the deepest gain reduction since the last call, dB x 10 (0 = none), and reset */

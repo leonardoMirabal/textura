@@ -2,7 +2,7 @@
 /* Textura LIMIT core: the output peak limiter (tx_core_limit.h). */
 #include "tx_core_limit.h"
 
-#define T_Q23 7476717u             /* -1 dBFS */
+#define T_Q23 6663308u             /* -2 dBFS (the FM-1's headphone jack clipped under -1 dBFS: Frodhes' LIM_T) */
 #define G_Q23 (T_Q23 * 3u / 7u)    /* the estimate's gate: 0.43 T (< T / 2.13 / 1.0625, the taps' sum, the +0.5 dB) */
 #define PCLAMP (1 << 27)           /* (a pair's half sum, +24 dBFS: the products below stay in 32 bits) */
 
@@ -29,8 +29,8 @@ static uint32_t half(const int32_t *q, unsigned big)
 /* |x| above which a gain env under 1 passes T: T 2^16 / env, as T << 4 / ((env >> 12) + 1) (rounded down): env >> 12
  * takes 16 values, so a table (no division on the release) */
 static const uint32_t THR[16] = {
-    119627472u, 59813736u, 39875824u, 29906868u, 23925494u, 19937912u, 17089638u, 14953434u,
-    13291941u, 11962747u, 10875224u, 9968956u, 9202113u, 8544819u, 7975164u, 7476717u};
+    106612928u, 53306464u, 35537642u, 26653232u, 21322585u, 17768821u, 15230418u, 13326616u,
+    11845880u, 10661292u, 9692084u, 8884410u, 8200994u, 7615209u, 7107528u, 6663308u};
 #define THR_OF(e) ((e) >= 65536u ? T_Q23 : THR[(e) >> 12])
 
 /* the estimate's gate for samples entering now: an estimate counts only over thr, and thr can only fall by the
