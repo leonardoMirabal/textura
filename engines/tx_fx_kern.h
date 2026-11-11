@@ -209,12 +209,16 @@ typedef struct {
     int32_t bw, dl;                 /* the bandwidth and the left half's damping one-pole */
     int32_t g, g2, pdm, pbw;        /* decay, allpass 2's gain, the damping / bandwidth poles (Q15): g g2 pdm in
                                      * this order (pl_half's k[]) */
-    int32_t sz, szn, rr;            /* the size that runs, the step being made (szn, rr: its block), -1 at the start */
+    int32_t sz, szo, xw;            /* the size that runs (-1 at the start); a SIZE fade: the size it fades from, the
+                                     * fading site's new read's weight at this block's start (Q14) */
+    uint8_t xf, xk;                 /* a SIZE fade runs; the read site in its fade (0..21, one after the other) */
     int32_t cdec, cdamp;            /* the settings the gains were made for */
     int32_t ko;                     /* the output gain (Q12) */
     uint32_t fix;                   /* this block: a write ran into the guard (ring 1, input 2) */
     uint16_t d[PL_S_N];             /* the delays at this size */
     uint16_t tk[PL_S_N];            /* the reads: their segment's top - their delay */
+    uint16_t to[PL_S_N];            /* a SIZE fade: the reads in use (the old ones, each site's new one once faded) */
+    int16_t xt[HL_NC + 2u];         /* a SIZE fade: the fading site's blended reads (a block + the interpolation's next) */
     int32_t x[HL_NC];
     struct {                        /* the right half's arguments and state (its own lines: it may run on the other
                                      * core): its reads, the left half's end, its writes, its damping one-pole */
