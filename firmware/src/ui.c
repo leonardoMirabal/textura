@@ -226,6 +226,11 @@ static void mt_update(void)
 #define UI_SIG_MS 20u
 #define UI_SPLASH_MS 1600u
 
+static void cv_frame(int32_t x, int32_t y, int32_t w, int32_t h, int32_t s)   /* a frame s px thick, in the frame's colour */
+{
+    cv_rect(x, y, w, s, mt.frame); cv_rect(x, y + h - s, w, s, mt.frame);
+    cv_rect(x, y, s, h, mt.frame); cv_rect(x + w - s, y, s, h, mt.frame);
+}
 static void ui_mark(uint32_t e) { ui_dirty |= 1u << e; }
 static void ui_all(void) { ui_dirty |= (1u << E_N) - 1u; }
 static void ui_say(const char *s)
@@ -563,8 +568,7 @@ static void draw_strip(uint32_t k)
         x = aa_text_ov(6, base - AF_S.asc, &AF_S, "EMPTY", FC_DIM);
         aa_text_ov(ui_dot_ov(x, base - AF_S_CAP_H / 2, FC_DIM), base - AF_S.asc, &AF_S, "SEQ: PICK A SOUND", FC_DIM);
         if (sel) {
-            cv_rect(0, 0, RW_W, 2, mt.frame); cv_rect(0, RW_H - 2, RW_W, 2, mt.frame);
-            cv_rect(0, 0, 2, RW_H, mt.frame); cv_rect(RW_W - 2, 0, 2, RW_H, mt.frame);
+            cv_frame(0, 0, RW_W, RW_H, 2);
         }
         cv_blit(RW_X, RW_Y0 + RW_DY * k);
         return;
@@ -600,8 +604,7 @@ static void draw_strip(uint32_t k)
     aa_text_ovr(ST_KX, base - AF_S.asc, &AF_S, kk, mt.tag);
     aa_text_ov(6, base - (big ? AF_L.asc : AF_S.asc), big ? &AF_L : &AF_S, nm, lit ? FC_VAL : FC_LAB);
     if (sel) {
-        cv_rect(0, 0, RW_W, 2, mt.frame); cv_rect(0, RW_H - 2, RW_W, 2, mt.frame);
-        cv_rect(0, 0, 2, RW_H, mt.frame); cv_rect(RW_W - 2, 0, 2, RW_H, mt.frame);
+        cv_frame(0, 0, RW_W, RW_H, 2);
     }
     cv_blit(RW_X, RW_Y0 + RW_DY * k);
 }
@@ -686,8 +689,7 @@ static void draw_card(uint32_t k, const char *lab, const char *v, const char *un
     else aa_text_ovr(CD_VR, ltop, &AF_S, v, FC_VAL);
     if (unit) aa_text_ov(CD_VR + CD_UGAP, ltop, &AF_S, unit, filled && fw > CD_VR ? RGB(206, 206, 210) : mt.unit);
     if (hot) {
-        cv_rect(0, 0, RW_W, 1, mt.frame); cv_rect(0, RW_H - 1, RW_W, 1, mt.frame);
-        cv_rect(0, 0, 1, RW_H, mt.frame); cv_rect(RW_W - 1, 0, 1, RW_H, mt.frame);
+        cv_frame(0, 0, RW_W, RW_H, 1);
     }
     cv_blit(RW_X, RW_Y0 + RW_DY * k);
 }
@@ -733,8 +735,7 @@ static void draw_pr_row(uint32_t k)
         { uint32_t c = v < SCN_NF ? 4u : 3u; p_strcpy(nm, s + c + 1u, 23); s[c] = 0; }
         if (on) { cv_rect(0, ya, RW_W, yb - ya - 1, mt.fill); cv_rect(0, ya, 4, yb - ya - 1, UI_ACC); }
         if (cur) {
-            cv_rect(0, ya, RW_W, 2, mt.frame); cv_rect(0, yb - 3, RW_W, 2, mt.frame);
-            cv_rect(0, ya, 2, yb - ya - 1, mt.frame); cv_rect(RW_W - 2, ya, 2, yb - ya - 1, mt.frame);
+            cv_frame(0, ya, RW_W, yb - ya - 1, 2);
         }
         ui_fit(nm, (int32_t)RW_W - 18 - 44);
         aa_text_ov(18, S_TOP(yc), &AF_S, nm, cur || on ? FC_VAL : FC_LAB);
@@ -759,7 +760,7 @@ static void draw_opt_row(uint32_t k)
         for (i = 0; i < n; i++) {               /* the choices, the chosen one filled and framed */
             const char *s = p_names(id)[i];
             int32_t w = aa_text_w(&AF_S, s) + 12;
-            if (i == c) { cv_rect(x, 19, w, 17, mt.fill); cv_rect(x, 19, w, 1, mt.frame); cv_rect(x, 35, w, 1, mt.frame); cv_rect(x, 19, 1, 17, mt.frame); cv_rect(x + w - 1, 19, 1, 17, mt.frame); }
+            if (i == c) { cv_rect(x, 19, w, 17, mt.fill); cv_frame(x, 19, w, 17, 1); }
             aa_text_ov(x + 6, S_TOP(27), &AF_S, s, i == c ? FC_VAL : FC_DIM);
             x += w + 6;
         }
@@ -794,8 +795,7 @@ static void draw_browser_row(uint32_t k)
         }
         if (cur) {
             cv_rect(0, ya, RW_W, yb - ya - 1, mt.fill);
-            cv_rect(0, ya, RW_W, 1, mt.frame); cv_rect(0, yb - 2, RW_W, 1, mt.frame);
-            cv_rect(0, ya, 1, yb - ya - 1, mt.frame); cv_rect(RW_W - 1, ya, 1, yb - ya - 1, mt.frame);
+            cv_frame(0, ya, RW_W, yb - ya - 1, 1);
         }
         if (mine) cv_rect(6, yc - 3, 6, 6, UI_ACC);
         ui_fit(nm, (int32_t)RW_W - 18 - 40);
@@ -821,8 +821,7 @@ static void draw_toast(void)
     for (part = 0; part < 2; part++) {
         cv_begin(TO_W, TO_H / 2u, RGB(20, 20, 24));
         cv_oy = -part * (int32_t)(TO_H / 2u);
-        cv_rect(0, 0, TO_W, 2, mt.frame); cv_rect(0, TO_H - 2, TO_W, 2, mt.frame);
-        cv_rect(0, 0, 2, TO_H, mt.frame); cv_rect(TO_W - 2, 0, 2, TO_H, mt.frame);
+        cv_frame(0, 0, TO_W, TO_H, 2);
         x = aa_text_ov(12, S_TOP(20), &AF_S, ui_toast_hd, UI_ACC);
         cv_rect(x + 3, 19, 2, 2, FC_LAB);
         x = aa_text_ov(x + 9, S_TOP(20), &AF_S, ui_toast_fam, FC_LAB);
