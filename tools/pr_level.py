@@ -7,7 +7,8 @@ its events are).
 
 Each lane then gets the LEVEL that puts it at its place in the mix (presets.txt r: the foreground at TARGET LUFS, a
 midground 6 dB under it, a background 12, or the dB given): LEVEL is a square law (tx_level_q15: 40 log10(v / 100)
-dB), 127 at most (+4.2 dB), and a lane alone keeps its loudest 1 % of 50 ms peaks under PEAK_MAX (loudness.p99), so a preset whose source cannot reach its place
+dB), 127 at most (+4.2 dB), and a lane alone keeps its loudest 1 % of 50 ms peaks under PEAK_MAX (loudness.p99; a lane
+under the foreground lower still, peak_cap), so a preset whose source cannot reach its place
 (sparse, or all transients) comes down whole when that source is its foreground; another lane short of its
 place plays at its most.
 
@@ -32,7 +33,16 @@ HOST = ROOT / "build" / "fw" / "textura-host"
 T_LOADS = (1500, 1617, 1733)                    # ms: the PC (three loads: three seeds, tx_seed takes the time)
 T_FROM = 500                                    # ms after the load: the measurement
 SOLO = {}                                       # lane k alone: its host build (solo_hosts)
-PEAK_MAX = -2.0                                 # dBFS: a lane alone, its loudest 1 % of 50 ms peaks (the limiter: -2)
+PEAK_MAX = -3.5                                 # dBFS: a foreground lane alone, its loudest 1 % of 50 ms peaks (the
+                                                # limiter: -2; 1.5 dB under it, so the other lanes' peaks summed on
+                                                # top of its own seldom reach it: the fires, hail, ice)
+PEAK_PLACE = 0.5                                # a lane under the foreground: its peaks' cap down by half its place
+                                                # (a midground -3 dB, a background -6: sparks, icicles stay pops)
+
+
+def peak_cap(r):
+    """the cap on a lane's loudest 1 % of 50 ms peaks (dBFS) at its place r (dB under the foreground, <= 0)"""
+    return PEAK_MAX + PEAK_PLACE * max(r, -12)
 
 
 def solo_hosts(cats, od, cc):
@@ -128,7 +138,7 @@ def main():
                 if res[(i, k)][0] > -90}                                       # (alone, as at LEVEL 100)
         if l100:
             need = {k: a.t + p["lanes"][k]["r"] - l100[k] for k in l100}       # dB from LEVEL 100
-            cap = {k: min(db_of(127), db_of(p["lanes"][k]["v"]) + PEAK_MAX - res[(i, k)][3]) for k in l100}
+            cap = {k: min(db_of(127), db_of(p["lanes"][k]["v"]) + peak_cap(p["lanes"][k]["r"]) - res[(i, k)][3]) for k in l100}
             fg = [k for k in need if p["lanes"][k]["r"] == 0] or list(need)   # (the foreground sets the preset's
             over = max(0.0, max(need[k] - cap[k] for k in fg))                 # place; another lane short of its
             for k in need:                                                     # own just plays at its most)
