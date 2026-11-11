@@ -12,7 +12,7 @@
  *              MANY, HOW ACTIVE, PAN, ON / MUTE (each the four lanes as rows, Kn lane n's), SOUND 1..n (the selected
  *              lane's sound: its cards, four a page), EFFECTS (the front page: REVERB MIX, DELAY MIX, HIGH CUT, DRIVE),
  *              REVERB 1/3 .. 3/3, GRAIN 1/4 .. 4/4 (the grain delay: in series, it takes what the reverb gives;
- *              MIX on DRIVE, GRAIN, REVERB reads DRY..WET), FILTER (the mix's, right after the DRIVE in the chain: LOW CUT
+ *              MIX on DRIVE, GRAIN, REVERB reads DRY, D100 W50 .. D100 W100 (64) .. D50 W100, WET), FILTER (the mix's, right after the DRIVE in the chain: LOW CUT
  *              HIGH CUT RESONANCE SLOPE, a band), DRIVE (the mix's first effect: AMOUNT TONE MIX TYPE), COMPRESSOR 1/2
  *              2/2 (Frodhes': THR RATIO ATTACK MAKEUP, then COMP REL; the footer its gain-reduction meter), LFO 1/3 .. 3/3,
  *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, RHYTHM (BPM, the groove's AMOUNT and SHIFT, the transport),

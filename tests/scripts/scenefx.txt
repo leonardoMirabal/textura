@@ -41,7 +41,7 @@
 4400 expect state p410 0
 4400 expect state p411 0
 # ALWAYS (PRESETS, FX: LOAD OPTIONS, K1): U01 again brings its hall back, MIX 100; F001 sets its own (a touch of
-# hall: MIX 16), the DRIVE at its defaults
+# hall: MIX 13), the DRIVE at its defaults
 4500 turn 6 1
 4505 btn 2
 4510 expect state bropt 1
@@ -58,7 +58,7 @@
 5900 expect state loading 0
 5900 expect state p433 0
 5900 expect state p410 2
-5900 expect state p411 16
+5900 expect state p411 13
 5900 expect preset
 5900 expect sound
 # back to SMART

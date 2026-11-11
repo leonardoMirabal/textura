@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Textura DRIVE (the mix's: a pair of instances, L and R, one set of settings): Felucca's track drive (track_dist) as Frodhes runs it, its classic FDRV
  * (fx.c fx_drive_classic: the gain law to ~18x at the top, level-neutral make-up, TONE after it: a shelf at ~1.8 kHz,
- * 0 = the highs gone, 64 = flat, 127 = +6 dB; MIX dry / driven), as one instance. TONE glides over ~23 ms, MIX and
+ * 0 = the highs gone, 64 = flat, 127 = +6 dB; MIX dry / driven, tx_fx.h's law), as one instance. TONE glides over ~23 ms, MIX and
  * on / off over ~46 ms: no zipper, no click. AMOUNT 0 = off (after its glide out): the lane untouched.
  * Precision: the drive works at Q15 (Frodhes' scale); the dry share of MIX stays at the lane's Q23.
  *
@@ -32,7 +32,7 @@
 const tx_param_t tx_fx_drive_params[TX_DR_NP] = {
     {"AMOUNT", 127, 0, TX_TEXT("the drive: off (0) .. ~18x into a soft clip (level-neutral: it adds tone, not volume)")},
     {"TONE", 127, 64, TX_TEXT("after the drive: 0 the highs gone .. 64 flat .. 127 +6 dB above ~1.8 kHz")},
-    {"MIX", 127, 127, TX_TEXT("dry .. wet: the sound alone (0) .. the drive alone (127)")},
+    {"MIX", 127, 127, TX_TEXT("0 the sound alone; up to 64 the drive comes in, the sound stays whole; 64 both whole; above it the clean sound fades out, 127 the drive alone")},
     {"TYPE", TX_DRT_N - 1, 0, TX_TEXT("0 FDRV (the classic drive) | 1 KHLON (a clean-blend overdrive: AMOUNT its gain, TONE its treble) | 2 TSH8 (a mid-hump overdrive; one lane at a time) | 3 OHCD (a MOSFET overdrive) | 4 BHLUE (a two-stage soft overdrive); TONE: 64 the circuit's middle")},
 };
 
@@ -49,6 +49,13 @@ void tx_fx_drive_init(tx_fx_drive_t *d)
 void tx_fx_drive_param(tx_fx_drive_t *d, unsigned id, unsigned v)
 {
     if (id < TX_DR_NP) d->p[id] = (uint8_t)(v > tx_fx_drive_params[id].max ? tx_fx_drive_params[id].max : v);
+}
+/* MIX's blend at its place w (tx_fx.h): the dry x its gain + the driven x the wet's (Q23; the dry whole: exact). Not
+ * inlined (flash: one copy for the six blends; it runs only while MIX is under 127) */
+static __attribute__((noinline)) int32_t dr_blend(int32_t x, int32_t y, int32_t w)
+{
+    int32_t gd = tx_fx_mixd(w), gw = tx_fx_mixw(w);
+    return (gd == 32768 ? x : (int32_t)(((int64_t)x * gd) >> 15)) + (int32_t)(((int64_t)y * gw) >> 15);
 }
 TX_INLINE int32_t dr_cl(int32_t v) { v = v > -230000 ? v : -230000; return v < 230000 ? v : 230000; }
 
@@ -96,7 +103,7 @@ static inline __attribute__((always_inline)) void dr_settled(tx_fx_drive_t *d, i
             y = tlp + (int32_t)(((int64_t)(y - tlp) * tg) >> 12);
         }
         y *= 256;
-        x23[i] = full ? y : x23[i] + (int32_t)(((int64_t)(y - x23[i]) * w) >> 15);
+        x23[i] = full ? y : dr_blend(x23[i], y, w);
     }
     d->hp = hp; d->lp1 = lp1; d->lp2 = lp2; d->tlp = tlp;
 }
@@ -105,7 +112,7 @@ static inline __attribute__((always_inline)) void dr_settled(tx_fx_drive_t *d, i
 static void dr_classic(tx_fx_drive_t *d, int32_t *x23, unsigned n, int32_t amt)
 {
     int32_t a = amt ? amt : d->la, tv = d->p[TX_DR_TONE], mv = d->p[TX_DR_MIX], g, k, mk, b0;
-    int32_t wt = !amt ? 0 : mv >= 127 ? 32768 : mv * 258;      /* the wet share it goes to (AMOUNT 0: 0) */
+    int32_t wt = !amt ? 0 : TX_FX_MIXQ(mv);                   /* MIX's place it goes to (AMOUNT 0: 0) */
     int32_t tt = tv >= 64 ? 4096 + (((tv - 64) * 4161) >> 6) : tv * 64;   /* the shelf's gain: 0 .. 1 .. 2 (Q12) */
     int32_t gq, kq, mq, dgq = 0, dkq = 0, dmq = 0;            /* the ramp (Q8) while AMOUNT moves */
     unsigned i;
@@ -152,7 +159,7 @@ static void dr_classic(tx_fx_drive_t *d, int32_t *x23, unsigned n, int32_t amt)
         }
         if (d->w != wt) d->w += d->w < wt ? (wt - d->w > 16 ? 16 : wt - d->w) : -(d->w - wt > 16 ? 16 : d->w - wt);
         y *= 256;                                                /* Q15 -> Q23; the dry share at full precision */
-        x23[i] = d->w == 32768 ? y : x23[i] + (int32_t)(((int64_t)(y - x23[i]) * d->w) >> 15);
+        x23[i] = d->w == 32768 ? y : dr_blend(x23[i], y, d->w);
     }
     if (!wt && !d->w) d->on = 0;                                /* AMOUNT 0: glided out, off again */
 }
@@ -187,7 +194,7 @@ static int drv_run(tx_fx_drive_t *d, tx_drv_scr_t *w, int32_t *q, unsigned n, in
 TX_SHARE void dr_types(tx_fx_drive_t *d, tx_drv_scr_t *w, int32_t *x23, unsigned n, int sw)
 {
     int32_t amt = sw ? d->p[TX_DR_AMOUNT] : 0, mv = d->p[TX_DR_MIX], a, w0, w1, d4, *q = w->q;
-    int32_t wt = !amt ? 0 : mv >= 127 ? 32768 : (mv * 258 + 128) & ~255;   /* (multiples of 256: the ramp is exact) */
+    int32_t wt = !amt ? 0 : (TX_FX_MIXQ(mv) + 128) & ~255;   /* MIX's place (multiples of 256: the ramp is exact) */
     unsigned i;
     if (!d->on) {                                         /* off: the lane untouched; on: from rest, from dry */
         if (!wt) return;
@@ -209,7 +216,7 @@ TX_SHARE void dr_types(tx_fx_drive_t *d, tx_drv_scr_t *w, int32_t *x23, unsigned
         int32_t w = w0;
         d4 = (w1 - w0) / (int32_t)(n >> 2);
         for (i = 0; i < (n & ~1u); i++) {
-            x23[i] += (int32_t)(((int64_t)(q[i] * 256 - x23[i]) * w) >> 15);
+            x23[i] = dr_blend(x23[i], q[i] * 256, w);
             if ((i & 3u) == 3u) w += d4;
         }
     }

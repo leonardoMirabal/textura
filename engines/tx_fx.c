@@ -2,7 +2,7 @@
 /* Textura effects: the REVERB's framework and the chain (tx_fx.h). The framework is Frodhes' (rev_types.c and fx.c
  * fx_reverb / fx_predelay: our own) as an instance: the send (the mix's mid, whole), LOW CUT, the pre-delay, the
  * kernel (Textura: at the full rate, 44.1 kHz; Frodhes runs them at 22.05 kHz between a 2:1 down and a 1:2 up), the
- * return, then MIX as a true dry / wet (the dry x cos, the return x sin: tx_fx.h), a TYPE change's fade (5.8 ms) and the tail's end in exact silence. ROOM (Textura) is the CHAMBER (tx_core_chamber) run on
+ * return, then MIX as a true dry / wet (the dry and the return each x its gain: tx_fx.h), a TYPE change's fade (5.8 ms) and the tail's end in exact silence. ROOM (Textura) is the CHAMBER (tx_core_chamber) run on
  * the send at the full rate, so the CHAMBER is one of the reverb's TYPEs now: one room at a time, one memory union.
  * PLATE is Frodhes' plate kernel (tx_fx_plate.c). DRIFT and SWELL (Textura) run the infinite kernel too: DRIFT its wander a slow random walk (tx_fx_inf.c); SWELL the
  * tail held down while the send is loud and let in when it falls (the return's gain, below): the tail swells in after
@@ -11,7 +11,7 @@
 
 const tx_param_t tx_fx_reverb_params[TX_RV_NP] = {
     {"TYPE", TX_RVT_N - 1, 0, TX_TEXT("the space: 0 off (the tail rings out) | 1 room (the CHAMBER: body modes + a short tail) | 2 hall | 3 infinite (DECAY 120..126 sustain, 127 freeze) | 4 dark (the infinite tank, darker and still: a deep frozen bed) | 5 drift (the infinite tank, slowly bending in pitch at random) | 6 swell (the infinite tank, held down while you play, swelling in after) | 7 plate (a bright, dense plate)")},
-    {"MIX", 127, 40, TX_TEXT("dry .. wet: the sound alone (0) .. the reverb alone (127), equal power between")},
+    {"MIX", 127, 35, TX_TEXT("0 the sound alone; up to 64 the reverb comes in, the sound stays whole; 64 both whole; above it the sound fades out, 127 the reverb alone")},
     {"DECAY", 127, 64, TX_TEXT("hall: x0.5 .. x2 the time; infinite / dark / drift / swell: T60 4 .. 60 s, 120..126 sustain, 127 freeze; plate: T60 0.8 .. 6 s; room: the walls (127 = hard, long)")},
     {"TONE", 127, 64, TX_TEXT("the tail's top: 0 dark .. 64 as designed .. 127 bright; room: the body's resonance")},
     {"PREDELAY", 127, 0, TX_TEXT("before the reverb: 0 .. 80 ms")},
@@ -20,19 +20,6 @@ const tx_param_t tx_fx_reverb_params[TX_RV_NP] = {
     {"LOWCUT", 127, 0, TX_TEXT("a high-pass on the send: off (0), 20 .. 800 Hz")},
     {"SHIMMER", 127, 0, TX_TEXT("the tail shifted up and fed back into the reverb: none .. a rising, ringing halo")},
     {"SHIFT", 3, 0, TX_TEXT("the shimmer's interval: 0 an octave up | 1 a fifth up | 2 an octave and a fifth up | 3 an octave down")},
-};
-
-/* the equal-power law (tx_fx.h): round(32768 sin(pi i / 256)), i 0 .. 128 */
-const uint16_t tx_fx_eqp_tab[129] = {
-    0, 402, 804, 1206, 1608, 2009, 2411, 2811, 3212, 3612, 4011, 4410, 4808, 5205, 5602, 5998, 6393, 6787, 7180,
-    7571, 7962, 8351, 8740, 9127, 9512, 9896, 10279, 10660, 11039, 11417, 11793, 12167, 12540, 12910, 13279,
-    13646, 14010, 14373, 14733, 15091, 15447, 15800, 16151, 16500, 16846, 17190, 17531, 17869, 18205, 18538,
-    18868, 19195, 19520, 19841, 20160, 20475, 20788, 21097, 21403, 21706, 22006, 22302, 22595, 22884, 23170,
-    23453, 23732, 24008, 24279, 24548, 24812, 25073, 25330, 25583, 25833, 26078, 26320, 26557, 26791, 27020,
-    27246, 27467, 27684, 27897, 28106, 28311, 28511, 28707, 28899, 29086, 29269, 29448, 29622, 29792, 29957,
-    30118, 30274, 30425, 30572, 30715, 30853, 30986, 31114, 31238, 31357, 31471, 31581, 31686, 31786, 31881,
-    31972, 32058, 32138, 32214, 32286, 32352, 32413, 32470, 32522, 32568, 32610, 32647, 32679, 32706, 32729,
-    32746, 32758, 32766, 32768
 };
 
 #define RV_FADE 8u                  /* control blocks of a TYPE change's fade: 256 frames, 5.8 ms */
@@ -439,7 +426,7 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
             }
             if (cur && !v)
                 for (i = 0; i < HL_NC; i++) act |= om[i] | os[i];
-            b = sb / CTL;                               /* the dry x cos of MIX's place, the return x sin (the tail at
+            b = sb / CTL;                               /* the dry x its gain at MIX's place, the return x the wet's (the tail at
                                                          * half: MIX 127 as the old full send's); mid / side -> L, R */
             if (cur && (r->gw[b] || r->gw[b + 1u])) {
                 for (i = 0; i < HL_NC; i++) { int32_t a = om[i]; om[i] = a + os[i]; os[i] = a - os[i]; }
@@ -614,8 +601,8 @@ void tx_fx_mix_glide(int32_t *x, int32_t t, int32_t step, unsigned np, int32_t *
     unsigned k;
     for (k = 0; k <= np; k++) {
         if (k) *x += *x < t ? (t - *x > step ? step : t - *x) : -(*x - t > step ? step : *x - t);
-        if (gs) gs[k] = tx_fx_eqp(*x);
-        if (gc) gc[k] = tx_fx_eqp(32768 - *x);
+        if (gs) gs[k] = tx_fx_mixw(*x);
+        if (gc) gc[k] = tx_fx_mixd(*x);
     }
 }
 int tx_fx_bus_quiet(void *u) { return tx_fx_reverb_quiet(&((tx_fx_t *)u)->rev) && tx_fx_grain_quiet(&((tx_fx_t *)u)->gd); }

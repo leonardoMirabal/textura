@@ -25,23 +25,19 @@
 #include "tx_fx_drv.h"
 #include "tx_fx_gd_len.h"
 
-/* ---- MIX, dry / wet (the DRIVE, the GRAIN DELAY, the REVERB): 0 the dry alone .. 127 the wet alone. The GRAIN DELAY
- * and the REVERB crossfade at equal power (dry x cos, wet x sin of MIX's place): their wet parts are delayed (echoes,
- * a tail), so they add to the dry in power, and the sum holds its level through the middle (-3 dB each at 64): no
- * dip, no bump. The DRIVE's wet is the dry signal shaped, in phase with it: a straight crossfade (tx_fx_drive.c).
- * tx_fx_eqp(m) = sin(m pi / 2), m and the gain Q15 (0 .. 32768; 129 points, straight between them). */
-extern const uint16_t tx_fx_eqp_tab[129];
-TX_INLINE int32_t tx_fx_eqp(int32_t m)
-{
-    int32_t i, a;
-    if (m <= 0) return 0;
-    if (m >= 32768) return 32768;
-    i = m >> 8; a = tx_fx_eqp_tab[i];
-    return a + (((tx_fx_eqp_tab[i + 1] - a) * (m & 255)) >> 8);
-}
-#define TX_FX_MIXQ(v) ((v) >= 127 ? 32768 : (int32_t)(v) * 258)   /* MIX 0 .. 127 -> its place, Q15 */
+/* ---- MIX, dry / wet (the DRIVE, the GRAIN DELAY, the REVERB): 0 the dry alone, 64 the dry and the wet both whole,
+ * 127 the wet alone. From 0 to 64 the dry stays whole and the wet rises from nothing to whole; from 64 to 127 the wet
+ * stays whole and the dry falls from whole to nothing: one half of the knob moves one part only. The middle sums both
+ * at full level (a delayed wet, the echoes or a tail, adds ~+3 dB in power; the DRIVE's, in phase with the dry, up to
+ * +6 dB). MIX's place m (Q15: 0 .. 32768, 16384 at 64) glides; the gains (Q15): the wet min(1, 2 m), the dry
+ * min(1, 2 (1 - m)), straight lines: no zipper while it glides. */
+#define TX_FX_MIXQ(v) ((int32_t)(v) <= 64 ? (int32_t)(v) * 256 : (int32_t)(v) >= 127 ? 32768                          \
+                       : 16384 + ((int32_t)(v) - 64) * 16384 / 63)   /* MIX 0 .. 127 -> its place, Q15 */
+TX_INLINE int32_t tx_fx_mixw(int32_t m) { return m <= 0 ? 0 : m >= 16384 ? 32768 : 2 * m; }   /* the wet's gain */
+TX_INLINE int32_t tx_fx_mixd(int32_t m) { return tx_fx_mixw(32768 - m); }                      /* the dry's gain */
 /* MIX's gains along a block (in flash: TX_FAR from the RAM code): its place *x glides toward t, by step at most a
- * point; at each of the np + 1 points (the first: where it starts) the sin into gs, the cos into gc (0: not wanted) */
+ * point; at each of the np + 1 points (the first: where it starts) the wet's gain into gs, the dry's into gc (0: not
+ * wanted) */
 void tx_fx_mix_glide(int32_t *x, int32_t t, int32_t step, unsigned np, int32_t *gs, int32_t *gc);
 /* the blend, n samples in place: L, R = dry x d + wet (wl, wr; 0: none) x w x k, the gains (Q15) straight from d0, w0
  * to d1, w1 (in RAM on the FM-1) */

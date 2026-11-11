@@ -71,7 +71,7 @@
 10300 btn 6
 11300 expect state loading 0
 11300 expect state fxmine 0
-11300 expect state p411 16
+11300 expect state p411 13
 11300 expect preset
 # SEQ while it is open: the sound browser instead; PRESETS there: the presets list again; OCT: closed
 11400 btn 11

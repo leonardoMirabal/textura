@@ -9,11 +9,11 @@
 2400 expect state fxmine 0
 2400 expect state edited 0
 2400 expect state p410 2
-2400 expect state p411 16
-# SMART, the effects untouched: F008 brings its own (a hall, MIX 24)
+2400 expect state p411 13
+# SMART, the effects untouched: F008 brings its own (a hall, MIX 20)
 2500 midi 0xC0 7 0
 3300 expect state scene F008_ATTIC_RAIN
-3300 expect state p411 24
+3300 expect state p411 20
 3300 expect state fxmine 0
 3300 expect preset
 # the reverb's MIX turned (CC 91): the effects the player's, what plays edited; F001 keeps them (MIX 100)
@@ -36,10 +36,10 @@
 4420 expect state p426 0
 4500 midi 0xC0 7 0
 5300 expect state scene F008_ATTIC_RAIN
-5300 expect state p411 24
+5300 expect state p411 20
 5300 expect state fxmine 0
 5300 expect preset
-# NEVER: F001 leaves them (MIX 24, not its 16) although nobody turned them
+# NEVER: F001 leaves them (MIX 20, not its 13) although nobody turned them
 5390 turn 6 1
 5395 btn 2
 5400 expect state bropt 1
@@ -48,7 +48,7 @@
 5410 expect state p426 2
 5500 midi 0xC0 0 0
 6300 expect state scene F001_DRIZZLE
-6300 expect state p411 24
+6300 expect state p411 20
 6300 expect state fxmine 0
 6300 expect preset
 # the glide: one steady sound (F034's waterfall, dense; lanes 2 .. 4 down), the COMPRESSOR on with its threshold at

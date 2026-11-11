@@ -1368,9 +1368,9 @@ static void check_fx_grain_controls(tx_fx_t *fx)
     verdict("fx", "mod-sweep", jump <= 2.0 && zip <= 2.0 && wc <= 10.0, msg, 0);
     free(gs_chord);
 }
-/* MIX, dry / wet (tx_fx.h): the law at equal power; the GRAIN DELAY and the REVERB at MIX 0 (the dry alone, exactly),
- * 64 (the dry -3 dB) and 127 (no dry: nothing out before the first echo, or the pre-delay); both at 127 in series:
- * the echoes of the reverb alone (nothing out before the first echo) */
+/* MIX, dry / wet (tx_fx.h): the law (the dry whole to 64, the wet whole from 64); the GRAIN DELAY and the REVERB at
+ * MIX 0 (the dry alone, exactly), 64 (the dry whole) and 127 (no dry: nothing out before the first echo, or the
+ * pre-delay); both at 127 in series: the echoes of the reverb alone (nothing out before the first echo) */
 /* the HALL's HQ tank: its rings fill the memory the union gives them; an impulse's tail at MIX 127 decays at the time
  * asked (mid T60 from the energy 0.2 .. 0.7 s, within 0.6 .. 1.25 x the asked; the high end's below the mid's) and ends
  * in exact silence (the reverb stops running) */
@@ -1419,17 +1419,20 @@ static void check_fx_hq(tx_fx_t *fx)
 static void check_fx_drywet(tx_fx_t *fx)
 {
     int32_t L[TX_BLOCK], R[TX_BLOCK], x[TX_BLOCK];
-    double pw = 0, e;
     uint32_t b, j, rng, m, bad;
     char msg[200];
     unsigned t;
-    for (m = 0; m <= 32768u; m += 64u) {                /* cos^2 + sin^2 = 1 (to 0.1 %) */
-        double c = tx_fx_eqp(32768 - (int32_t)m) / 32768.0, s = tx_fx_eqp((int32_t)m) / 32768.0;
-        e = fabs(c * c + s * s - 1.0);
-        if (e > pw) pw = e;
+    bad = 0;                                            /* the law (tx_fx.h): 0 the dry alone, 64 both whole, 127 the
+                                                         * wet alone; one part whole at every MIX, the other moving
+                                                         * monotonically, the dry whole to 64, the wet from 64 */
+    for (m = 0; m <= 127u; m++) {
+        int32_t x = TX_FX_MIXQ(m), d = tx_fx_mixd(x), w = tx_fx_mixw(x), xp = m ? TX_FX_MIXQ(m - 1u) : 0;
+        if ((d != 32768 && w != 32768) || (m <= 64u && d != 32768) || (m >= 64u && w != 32768)) bad++;
+        if (m && (tx_fx_mixw(xp) > w || tx_fx_mixd(xp) < d || xp >= x)) bad++;
     }
-    snprintf(msg, sizeof msg, "the dry / wet law: cos^2 + sin^2 off 1 by %.3f %% at most (0.1 %% at most)", 100.0 * pw);
-    verdict("fx", "mix-law", pw <= 0.001, msg, 0);
+    if (tx_fx_mixw(TX_FX_MIXQ(0)) || tx_fx_mixd(TX_FX_MIXQ(127)) || TX_FX_MIXQ(64) != 16384) bad++;
+    snprintf(msg, sizeof msg, "the dry / wet law: %u MIX values off it (0: dry alone, 64: both whole, 127: wet alone)", bad);
+    verdict("fx", "mix-law", !bad, msg, 0);
     for (t = 0; t < 4u; t++) {                          /* 0 grain, 1 reverb, 2 both; MIX 0 / 64 / 127 each */
         static const unsigned MV[3] = {0, 64, 127};
         unsigned q;
@@ -1462,7 +1465,7 @@ static void check_fx_drywet(tx_fx_t *fx)
                          nd, ne);
                 verdict("fx", "mix-0", !nd && !bad, msg, 0);
             } else if (q == 1u) {
-                double g = 10.0 * log10(dout / din), want = t == 2u ? -6.12 : -3.06;   /* (cos of 64's place: -3.06 dB) */
+                double g = 10.0 * log10(dout / din), want = 0.0;   /* (64: the dry whole, the wet not yet in) */
                 snprintf(msg, sizeof msg, "%s at MIX 64: the dry %+.2f dB (%+.2f)", t == 0u ? "grain delay" : t == 1u ? "reverb" : "both",
                          g, want);
                 verdict("fx", "mix-64", fabs(g - want) < 0.05, msg, 0);

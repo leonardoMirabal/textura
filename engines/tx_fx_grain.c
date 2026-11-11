@@ -12,8 +12,8 @@
  *   the GRAINS: GRAINS voices (1 .. 30) staggered on one clock (each grain SIZE long, Hann windows: they add up to a
  *     constant), each started at TIME + a random SPRAY, at PITCH (semitone steps, -12 .. +12), reversed by chance
  *     (REVERSE), panned at random within SPREAD; read with linear interpolation (whole samples at rate 1: exact)
- *   out = the input x cos + (ECHO .. GRAINS by GRAIN) x sin of MIX's place (tx_fx_eqp: 0 the input alone .. 127 the
- *     delay alone, equal power: level through the middle); the feedback: that, its make-up, through TONE's low-pass,
+ *   out = the input x the dry's gain + (ECHO .. GRAINS by GRAIN) x the wet's (MIX, tx_fx.h: 0 the input alone, 64 both
+ *     whole, 127 the delay alone); the feedback: that, its make-up, through TONE's low-pass,
  *     a soft knee (above half scale only: the quiet repeats stay exact), FEEDBACK's gain and a DC block, into the line
  *   the make-up: the grains lose level on every pass (scattered by SPRAY and PITCH they add up in power, not in
  *     amplitude; SPREAD's places; the blend with the echo), so above FEEDBACK 64 the loop gets back what it lost: the
@@ -40,7 +40,7 @@
                                      * rms ~-20 dBFS at MIX 127) */
 
 const tx_param_t tx_fx_grain_params[TX_GD_NP] = {
-    {"MIX", 127, 0, TX_TEXT("dry .. wet: the sound alone (0, the delay off) .. the delay alone (127), equal power between")},
+    {"MIX", 127, 0, TX_TEXT("0 the sound alone (the delay off); up to 64 the echoes come in, the sound stays whole; 64 both whole; above it the sound fades out, 127 the echoes alone")},
     {"TIME", TX_GD_TIME_MAX, 70, TX_TEXT("the echo's time: 20 ms .. 1.66 s (127) .. 2.00 s (exponential); the grains read around it")},
     {"FEEDBACK", 127, 50, TX_TEXT("how long the repeats go on (each one grained again): none .. endless (110) .. running away into a held wall")},
     {"GRAINS", TX_GD_MAXG - 1u, 3, TX_TEXT("grain voices on the repeats: 1 .. 30 (fewer when the CPU is short)")},
@@ -579,7 +579,7 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
         e[j] = wl; sr[j] = wr;                          /* (the delay's out, for the blend below) */
     }
     }
-    TX_FAR(tx_fx_drywet)(L, R, e, sr, n, gc[0], gc[1], gs[0], gs[1], 2);   /* dry x cos + the delay x sin (Q22 -> Q23) */
+    TX_FAR(tx_fx_drywet)(L, R, e, sr, n, gc[0], gc[1], gs[0], gs[1], 2);   /* dry x its gain + the delay x the wet's (Q22 -> Q23) */
     gd_wrn(d, sl, n);
     if (dry) d->gct = 4096;                             /* the make-up: the echo's level over the loop's (held while the
                                                          * loop is too quiet to tell), its share by FEEDBACK */

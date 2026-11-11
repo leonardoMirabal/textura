@@ -14,7 +14,7 @@
 2600 shot
 # K2: lane 2's volume, edited: "*"
 2700 turn 3 -5
-2720 expect state vol1 105
+2720 expect state vol1 104
 2720 expect state edited 1
 2720 expect state head RAIN_F001_DRIZZLE*
 # an effect turned (CC 91): FX: YOURS

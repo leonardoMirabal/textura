@@ -66,12 +66,12 @@
 3320 expect state lab1 DELAY_MIX
 3320 expect state lab2 HIGH_CUT
 3320 expect state lab3 DRIVE
-3320 expect state card0 31%
+3320 expect state card0 D100_W55
 3320 expect state card1 DRY
-# FX again: REVERB 1/3 (MIX: DRY..WET, 40 = 31 % wet); ALGORITHM: the type
+# FX again: REVERB 1/3 (MIX: DRY, D100 W.. to 64, D.. W100 past it, WET); ALGORITHM: the type
 3340 btn 2
 3345 expect state page REVERB_1/3
-3345 expect state card1 31%
+3345 expect state card1 D100_W55
 3350 turn 1 1
 3355 expect state msg REVERB_TYPE_ROOM
 3360 turn 1 -1

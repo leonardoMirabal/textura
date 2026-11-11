@@ -21,13 +21,15 @@ FAM = "WSIFDATXBY"                     # the families' letters, in LS order
 ROLE = {"F": 0, "M": -6, "B": -12}
 NAME_OK = re.compile(r"^[A-Z0-9 \-&'.]{1,11}$")
 # the effects: reverb TYPE MIX DECAY TONE PREDELAY, grain delay MIX TIME FEEDBACK TONE GRAIN (scenes.c FX_ID; the
-# defaults: 0 40 64 64 0, 0 70 50 100 64). Small and mostly the same: a touch of air, never a designed effect
+# defaults: 0 35 64 64 0, 0 70 50 100 64). Small and mostly the same: a touch of air, never a designed effect. The MIX
+# values keep the dry / wet balance they had under the old equal-power crossfade (16 -> 13, 18 -> 14, 24 -> 20,
+# 32 -> 27, 40 -> 35: the same wet over dry, the dry now whole)
 FX = [
-    ("dry", [0, 40, 64, 64, 0, 0, 70, 50, 100, 64]),
-    ("air", [2, 16, 44, 52, 0, 0, 70, 50, 100, 64]),         # a hall, far back: outdoor air
-    ("space", [2, 24, 64, 56, 6, 0, 70, 50, 100, 64]),       # a little more: a room, a wood, a valley
-    ("echo", [2, 18, 50, 52, 0, 16, 92, 34, 64, 24]),        # air and a soft, dark echo: rock faces
-    ("cave", [2, 32, 96, 48, 12, 0, 70, 50, 100, 64]),       # a long, dark tail
+    ("dry", [0, 35, 64, 64, 0, 0, 70, 50, 100, 64]),
+    ("air", [2, 13, 44, 52, 0, 0, 70, 50, 100, 64]),         # a hall, far back: outdoor air
+    ("space", [2, 20, 64, 56, 6, 0, 70, 50, 100, 64]),       # a little more: a room, a wood, a valley
+    ("echo", [2, 14, 50, 52, 0, 13, 92, 34, 64, 24]),        # air and a soft, dark echo: rock faces
+    ("cave", [2, 27, 96, 48, 12, 0, 70, 50, 100, 64]),       # a long, dark tail
 ]
 
 

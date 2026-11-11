@@ -525,10 +525,17 @@ static const char *p_text(uint32_t id, char *t)
         else { char d[2] = {(char)('0' + g10 % 10), 0}; p_fmt_int(t + 1, g10 / 10); p_cat(t, ".", 15); p_cat(t, d, 15); }
         return "dB";
     }
-    case F_MIX:                                 /* dry / wet: "DRY" (0), "WET" (127), between the wet's share */
+    case F_MIX: {                               /* dry / wet (tx_fx.h): "DRY" (0), "WET" (127), between each part's
+                                                 * level: "D100 W50" (to 64 the wet rises), "D50 W100" (past it the
+                                                 * dry falls) */
+        int32_t m = TX_FX_MIXQ(v);
+        char d[8];
         if (!v) { p_strcpy(t, "DRY", 3); return 0; }
         if (v >= 127) { p_strcpy(t, "WET", 3); return 0; }
-        p_fmt_int(t, (v * 100 + 63) / 127); p_cat(t, "%", 15); return 0;
+        t[0] = 'D'; p_fmt_int(t + 1, (tx_fx_mixd(m) * 100 + 16384) >> 15);
+        p_cat(t, " W", 15); p_fmt_int(d, (tx_fx_mixw(m) * 100 + 16384) >> 15); p_cat(t, d, 15);
+        return 0;
+    }
     }
     p_fmt_int(t, v);
     return 0;
