@@ -327,6 +327,11 @@ TX_AUDIO_CODE void tx_plate_run(tx_plate_t *s, const int32_t *in, int32_t *mid, 
     else
         for (k = 0; k < PL_S_N; k++)
             t[k] = pl_ptr(s, PL_TOP[PL_SEG[k]], s->d[k], s->d[k]);
+    /* the modulated reads at dm / 256 samples: a site reads delay hi (P[i]) blended toward hi - 1 (P[i + 1]) by
+     * fm / 256, so hi = ceil(dm / 256) and fm = hi x 256 - dm: below (dm + 255) >> 8 and 255 - ((dm + 255) & 255)
+     * (Frodhes 3b015d55: hi = floor, fm = dm & 255 read hi - frac, the delay jumping 2 samples at each whole sample
+     * of the excursion, a grain under MOD) */
+    dm0 += 255u, dm1 += 255u;
     t[0] = pl_ptr(s, PL_O0, dm0 >> 8, (dm0 >> 8) - 1u);
     t[4] = pl_ptr(s, PL_O4, dm1 >> 8, (dm1 >> 8) - 1u);
     pl_cpy(b + PL_N, b);
@@ -339,9 +344,9 @@ TX_AUDIO_CODE void tx_plate_run(tx_plate_t *s, const int32_t *in, int32_t *mid, 
         int taken;
         for (k = 0; k < 4u; k++) s->jr.t[k] = t[4u + k], s->jr.o[k] = o[4u + k];
         s->jr.f = t[3];
-        s->jr.fm = (int32_t)(dm1 & 255u);
+        s->jr.fm = (int32_t)(255u - (dm1 & 255u));
         taken = rv_fork(c->par, pl_job, s);
-        act |= FR_FAR(pl_half)(xv, t[7], t, (int32_t)(dm0 & 255u), o, &s->dl, &s->g);
+        act |= FR_FAR(pl_half)(xv, t[7], t, (int32_t)(255u - (dm0 & 255u)), o, &s->dl, &s->g);
         rv_join(c->par, pl_job, s, taken);
         act |= s->jr.act;
     }
