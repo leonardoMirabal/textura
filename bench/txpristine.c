@@ -42,7 +42,9 @@
  *   REVERB TYPE change under a held chord (MIX 127): the largest second difference in the 200 ms after the change re
  *     the dry chord's (a step into the new TYPE's empty lines shows as a burst of it). Reported
  *   REVERB quiet: a 331 Hz sine of 8 / 32 / 128 Q15 steps held through HALL, PLATE, ROOM, INFINITE (MIX 127): the worst
- *     of H2..H6 re H1 in its second second (the tanks are linear: the harmonics are their rounding's). Reported */
+ *     of H2..H6 re H1 in its second second (the tanks are linear: the harmonics are their rounding's). Reported
+ *   REVERB SIZE steps under a held chord (MIX 127): SIZE stepped and back; the largest second difference within 50 ms
+ *     of a step re the 0.5 s before it (Frodhes' control click; 1 = none). Reported */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -524,6 +526,47 @@ static void rev_quiet(void)
     printf("\n");
 }
 
+/* REVERB SIZE steps under a held chord (MIX 127, the wet alone): SIZE 0 (AUTO: MIX's) -> 1 at 1.5 s, back at 3 s; the
+ * largest second difference within 50 ms of a step re the largest in the 0.5 s before it (Frodhes' control click;
+ * 1 = none): the worse of the two steps */
+static double rev_size1(unsigned ty, unsigned z0, unsigned z1)
+{
+    static const int F[4] = {196, 247, 294, 392};
+    tx_fx_reverb_t *r = malloc(sizeof *r);
+    int nb = 4 * FS / (int)NB, b, i, k, s, s1 = 3 * FS / 2 / (int)NB, s2 = 3 * FS / (int)NB;
+    int32_t x[NB], y[NB];
+    double *o = malloc(sizeof(double) * nb * NB), w = 0;
+    tx_fx_reverb_init(r);
+    tx_fx_reverb_param(r, TX_RV_TYPE, ty); tx_fx_reverb_param(r, TX_RV_MIX, 127); tx_fx_reverb_param(r, TX_RV_SIZE, z0);
+    for (b = 0; b < nb; b++) {
+        if (b == s1) tx_fx_reverb_param(r, TX_RV_SIZE, z1);
+        if (b == s2) tx_fx_reverb_param(r, TX_RV_SIZE, z0);
+        for (i = 0; i < (int)NB; i++) {
+            double v = 0;
+            for (k = 0; k < 4; k++) v += sin(2.0 * M_PI * F[k] * (double)(b * NB + i) / FS + k);
+            x[i] = y[i] = (int32_t)lrint(8388608.0 * 0.12 * v);
+        }
+        tx_fx_reverb_process(r, x, y, NB);
+        for (i = 0; i < (int)NB; i++) o[b * NB + i] = x[i];
+    }
+    for (s = 0; s < 2; s++) {
+        int e = (s ? s2 : s1) * (int)NB;
+        double d0 = 0, d1 = 0;
+        for (i = e - FS / 2; i < e - 2; i++) { double d = fabs(o[i + 2] - 2 * o[i + 1] + o[i]); if (d > d0) d0 = d; }
+        for (i = e - 2; i < e + FS / 20; i++) { double d = fabs(o[i + 2] - 2 * o[i + 1] + o[i]); if (d > d1) d1 = d; }
+        if (d1 / d0 > w) w = d1 / d0;
+    }
+    free(r); free(o);
+    return w;
+}
+static void rev_size(void)
+{
+    printf("REVERB SIZE steps under a held chord: the largest second difference within 50 ms of a step re before it: "
+           "HALL AUTO <-> 1 %.2f, HALL 40 <-> 41 %.2f, PLATE AUTO <-> 1 %.2f, PLATE 64 <-> 70 %.2f\n",
+           rev_size1(TX_RVT_HALL, 0, 1), rev_size1(TX_RVT_HALL, 40, 41), rev_size1(TX_RVT_PLATE, 0, 1),
+           rev_size1(TX_RVT_PLATE, 64, 70));
+}
+
 int main(int argc, char **argv)
 {
     check = argc > 1 && !strcmp(argv[1], "--check");
@@ -543,6 +586,7 @@ int main(int argc, char **argv)
     rev_plate_mod();
     rev_type();
     rev_quiet();
+    rev_size();
     free(fx);
     if (check) printf("tx-pristine: %s (%d over)\n", fails ? "FAIL" : "ok", fails);
     return check && fails ? 1 : 0;
