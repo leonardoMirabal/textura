@@ -9,7 +9,7 @@
  * Stage (UI-PLAN piece 7): the ten landscapes on four lanes (scape.c), the keys in LANDSCAPE and PLAY mode with their
  * LEDs (notes.c), the params table with its CC and NRPN (params.c), the tempo clock (tempo.c), the LFOs and the mod
  * matrix (mod.c), the scenes and the settings (scenes.c), the screen in Frodhes' look (ui.c); MIDI notes on channel 1
- * play the selected lane, program changes pick a scene.
+ * play the selected lane, on a lane's own channel that lane (notes.c), program changes pick a scene.
  *
  * Rules of the road (no FPU, no libgcc): integers only, no float, no 64-bit division. */
 #include <stdint.h>
@@ -139,8 +139,9 @@ static uint32_t tx_palette_index(const char *name)
 #include "scenes.c"
 #include "ui.c"
 
-/* ---- MIDI: notes on channel 1 play the selected lane, pitched; control changes reach the params table (a lane's on
- * channel 1 + lane, the effects on the mix on channel 5: params.c); the clock and the transport go to tempo.c */
+/* ---- MIDI: notes on SELECTED CH (1) play the selected lane, on a lane's MIDI CH (lane n: n) that lane, pitched
+ * (notes.c nt_midi); control changes reach the params table (a lane's on its MIDI CH, the effects on the mix on channel
+ * 5: params.c); the clock and the transport go to tempo.c */
 #ifdef LN_BUS_TIMED
 /* the grain delay's measured room (lanes.c ln_bus), for a check on the FM-1: CC 116 on channel 16 asks, the reply is
  * CC 100 id / 101 - 102 value (14 bits, as Frodhes' CC 116 items) on channel 1: 20 the cap now, 21 the lowest cap,
@@ -209,9 +210,8 @@ static void tx_midi_poll(void)
         if (t == 0xD0u) { mod_at(d1); continue; }
         if (t == 0xA0u) { mod_at(d2); continue; }
         if (t == 0xC0u && ch == 0u) { scn_pc(d1); continue; }   /* (program change: a scene, scenes.c) */
-        if (ch != 0u) continue;
-        if (t == 0x90u) ln_key(sc.sel, d1, d2 ? d2 : 0u, d2 != 0u);
-        else if (t == 0x80u) ln_key(sc.sel, d1, 0, 0);
+        if (t == 0x90u || t == 0x80u) nt_midi(ch, d1 & 127u, t == 0x90u ? d2 : 0u);   /* (notes.c: SELECTED CH, the
+                                                 * lanes' own) */
     }
 }
 
@@ -332,6 +332,11 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "oct")) snprintf(v, n, "%d", nt.oct);
     else if (sscanf(key, "knote%u%c", &k, &c) == 1 && k < TX_NKEYS) { if (nt.playing >> k & 1u) snprintf(v, n, "%u:%u", nt.lane[k] + 1u, nt.note[k]); else snprintf(v, n, "-"); }   /* key
                                                  * k's lane and note sounding ("2:60"; none: "-") */
+    else if (!strcmp(key, "mnotes")) {          /* the MIDI notes held: "lane:note" each ("2:62 3:62"; none: "-") */
+        v[0] = 0;
+        for (i = 0; i < nt_mn; i++) { char t[12]; snprintf(t, sizeof t, "%s%u:%u", i ? " " : "", nt_mq[i].lane + 1u, nt_mq[i].out); strncat(v, t, n - strlen(v) - 1u); }
+        if (!v[0]) snprintf(v, n, "-");
+    }
     else if (!strcmp(key, "msg")) snprintf(v, n, "%s", ui_msg_t && fm1_ms - ui_msg_t < MSG_MS ? ui_msg : "");
     else if (!strcmp(key, "dropped")) snprintf(v, n, "%u", ln.dropped);
     else if (!strcmp(key, "govus")) snprintf(v, n, "%u", ln_gov_us());            /* the governor: the pool's cost */

@@ -1,0 +1,12 @@
+# the power cycle, run 3: the settings record as a firmware before MIDI IN wrote it (settings_old.py: its
+# first 12 bytes): the old settings load (COLOR, the last scene, the tempo), the channels at their defaults
+1700 expect state palette PEACH
+1700 expect state scene U05_WATER
+1700 expect state bpm10 1390
+1700 expect state p43D 1
+1700 expect state p43E 1
+1700 expect state p43F 2
+1700 expect state p440 3
+1700 expect state p441 4
+1900 expect sound
+2000 end

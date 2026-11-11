@@ -17,6 +17,11 @@
  * SEL tapped switches the mode; held, the keys and OCT work in the other mode while it is held (ui.c ui_sel): in PLAY,
  * SEL held + a black key selects that lane (OCT the previous / next one) and the keys play it again once SEL is let go.
  *
+ * MIDI notes (nt_midi): on SELECTED CH (MIDI IN: ALGORITHM; default 1) the selected lane, as before; on a lane's own
+ * MIDI CH (MIDI IN: K1..K4; default lane n on channel n, the channel its CCs come on: params.c) that lane; two lanes on
+ * one channel both; SELECTED CH wins over a lane on the same channel (OFF: none). A note held keeps where it went, so
+ * its note off finds it whatever changed since.
+ *
  * Main loop only. */
 
 #define NT_VEL 100u                             /* the keys' velocity (keyvel.c later) */
@@ -39,6 +44,33 @@ static struct {
 } nt = {.hold_k = NT_SPAN};
 
 static int nt_black(uint32_t k) { uint32_t n = (TX_KEY_F3 + k) % 12u; return n == 1u || n == 3u || n == 6u || n == 8u || n == 10u; }
+
+/* ---- MIDI notes: the channels (0 OFF, 1 .. 16; settings) and the notes held */
+static uint8_t nt_selch = 1u, nt_lch[SC_N] = {1u, 2u, 3u, 4u};
+#define NT_MQ 24u
+static struct { uint8_t ch, in, lane, out; } nt_mq[NT_MQ];
+static uint32_t nt_mn;
+static uint32_t nt_ch_lanes(uint32_t ch)        /* the lanes on channel ch (0-based), a mask */
+{
+    uint32_t k, m = 0;
+    for (k = 0; k < SC_N; k++) if (nt_lch[k] == ch + 1u) m |= 1u << k;
+    return m;
+}
+static void nt_mq_off(uint32_t i) { ln_key(nt_mq[i].lane, nt_mq[i].out, 0, 0); nt_mq[i] = nt_mq[--nt_mn]; }
+static void nt_midi(uint32_t ch, uint32_t n, uint32_t vel)   /* a note on (vel 0: off) on channel ch (0-based) */
+{
+    uint32_t i, k, m;
+    for (i = 0; i < nt_mn;) if (nt_mq[i].ch == ch && nt_mq[i].in == n) nt_mq_off(i); else i++;
+    if (!vel) return;
+    m = ch + 1u == nt_selch ? 1u << sc.sel : nt_ch_lanes(ch);
+    for (k = 0; k < SC_N; k++)
+        if (m >> k & 1u) {
+            if (nt_mn == NT_MQ) nt_mq_off(0);   /* (full: the oldest let go) */
+            nt_mq[nt_mn].ch = (uint8_t)ch; nt_mq[nt_mn].in = (uint8_t)n; nt_mq[nt_mn].lane = (uint8_t)k;
+            nt_mq[nt_mn].out = (uint8_t)n;
+            ln_key(k, nt_mq[nt_mn++].out, vel, 1);
+        }
+}
 /* key k (< NT_SPAN) as the n-th black or the n-th white key */
 static uint32_t nt_index(uint32_t k)
 {

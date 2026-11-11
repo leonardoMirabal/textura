@@ -1,0 +1,74 @@
+# MIDI IN (notes.c nt_midi, params.c p_cc): notes on SELECTED CH (1) play the selected lane; a lane's own channel (lane n:
+# n, its CCs' channel too) plays that lane; a note off finds where its note went (the lane changed meanwhile); GLO's
+# MIDI IN page: K1..K4 each lane's channel (two lanes on one channel play and take its CCs together; OFF: none),
+# ALGORITHM SELECTED CH (OFF: channel 1 is lane 1's alone); every one an NRPN too (scope 4, 61 .. 65)
+1700 btn 13
+1800 midi 0x90 60 100
+1810 expect state mnotes 1:60
+1820 midi 0x91 62 100
+1830 expect state mnotes 1:60_2:62
+1840 midi 0x95 64 100
+1850 expect state mnotes 1:60_2:62
+1860 midi 0x80 60 0
+1870 midi 0x81 62 0
+1875 midi 0x85 64 0
+1880 expect state mnotes -
+# lane 3 selected: channel 1 plays it; lane 2 selected while the note is held: its off still finds lane 3
+1900 btn 1
+1910 btn 1
+1920 expect state sel 3
+1930 midi 0x90 60 100
+1940 expect state mnotes 3:60
+1950 btn 0
+1955 expect state sel 2
+1960 midi 0x80 60 0
+1970 expect state mnotes -
+# CC 7 on channel 3: lane 3's level
+2000 midi 0xB2 7 30
+2010 expect state p203 30
+2100 btn 7
+2105 btn 7
+2110 btn 7
+2115 btn 7
+2120 btn 7
+2170 expect state page MIDI_IN
+2170 expect state lab0 LANE_1_CHANNEL
+2170 expect state card0 1
+2170 expect state card3 4
+# K3: lane 3 on channel 2 with lane 2: both play its notes, both take its CCs; channel 3 nothing now
+2200 turn 4 -1
+2210 expect state card2 2
+2220 midi 0x91 62 100
+2230 expect state mnotes 2:62_3:62
+2240 midi 0x81 62 0
+2250 expect state mnotes -
+2260 midi 0xB1 7 90
+2270 expect state p103 90
+2270 expect state p203 90
+2280 midi 0xB2 7 10
+2290 expect state p203 90
+# ALGORITHM: SELECTED CH OFF: channel 1 is lane 1's own (lane 2 selected)
+2300 turn 1 -1
+2310 expect state p43D 0
+2310 expect state msg SELECTED_CH_OFF
+2320 midi 0x90 60 100
+2330 expect state mnotes 1:60
+2340 midi 0x80 60 0
+# K4: lane 4 OFF: channel 4 plays nothing
+2400 turn 5 -4
+2410 expect state card3 OFF
+2420 midi 0x93 60 100
+2430 expect state mnotes -
+2440 midi 0x83 60 0
+# NRPN on channel 5: LANE 4 CHANNEL (scope 4, index 65) to 16
+2500 midi 0xB4 99 4
+2505 midi 0xB4 98 65
+2510 midi 0xB4 6 127
+2520 expect state p441 16
+2550 midi 0x9F 60 100
+2560 expect state mnotes 4:60
+2570 midi 0x8F 60 0
+2600 shot
+2700 expect state dropped 0
+2700 expect sound
+2800 end

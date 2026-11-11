@@ -27,6 +27,8 @@
  *                     DRIVE (a band: a high-pass, then a low-pass; both at their ends: off)
  *           56 .. 58  GROOVE: AMOUNT TYPE SHIFT (groove.c; not an effect: a scene keeps them whatever EFFECTS ON LOAD
  *                     says)
+ *           61 .. 65  MIDI IN: SELECTED CH (the selected lane's notes), LANE 1 .. 4 CHANNEL (each lane's notes and CCs;
+ *                     0 OFF, 1 .. 16; notes.c; in the settings)
  *   5       LFO n (0..7): n x 16 + SHAPE RATE SYNC MODE PHASE WIDTH JITTER FADE RESTART LEVEL (tx_lfo_params order),
  *           10 NOW 11 ROUTES (read only)
  *   6       ENV n (0..1): n x 16 + TRIGGER ATTACK DECAY RELEASE SUSTAIN CURVE VARY LOOP (tx_env_params order);
@@ -35,9 +37,10 @@
  * The lane model's entries (SOUND .. PAN) are the landscape's (scape.c); the cards set the lane's engine (or its
  * hosted engine); the effects are kept here and sent to lanes.c's chain; the tempo's and the clock's are tempo.c's.
  *
- * MIDI: a lane listens on channel 1 + lane, the globals on channel 5 (P_CH_GLOBAL); the same CC numbers on each lane
- * channel (P_CC_LANE). Every parameter is also an NRPN on any of those channels: MSB 99 = the scope, LSB 98 = the
- * index, data entry 6 (7 bits, scaled onto the range; 38, the fine byte, is taken and ignored). Main loop only. */
+ * MIDI: a lane listens on its MIDI CH (LANE n CHANNEL, by default channel n; two lanes on one channel both; OFF: none),
+ * the globals on channel 5 (P_CH_GLOBAL); the same CC numbers on each lane channel (P_CC_LANE). Every parameter is also
+ * an NRPN on any of those channels: MSB 99 = the scope, LSB 98 = the index, data entry 6 (7 bits, scaled onto the range;
+ * 38, the fine byte, is taken and ignored). Main loop only. */
 #include "sound_cards.h"
 
 /* text helpers (the screen's, and the values' here) */
@@ -81,7 +84,7 @@ enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_ODRIVE0
                                                  * the retired lane FILTER's ids, 36 .. 41) */
 enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP0 = 26, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN, PG_TAP,
        PG_SCNTEMPO, PG_SCNFX, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR, PG_DRIVE0 = 48, PG_MF0 = 52, PG_N_ = 56,
-       PG_GRV0 = 56, PG_GTYPE, PG_GSHIFT };   /* (PL_ODRIVE0:
+       PG_GRV0 = 56, PG_GTYPE, PG_GSHIFT, PG_SELCH = 61, PG_LCH0 };   /* (PL_ODRIVE0:
                                                  * the retired lane DRIVE's ids; pv_glob: the effects' values, 0 .. 55) */
 /* the GRAIN delay's ids: its params 0 .. 11 at 0 .. 11, SYNC 12 (the tempo's), its appended ones (MOD, MOD RATE,
  * INTERVALS) at 13 .. 15 */
@@ -92,7 +95,7 @@ typedef char pg_gd_fits[TX_GD_NP + 1 <= PG_REVERB0 - PG_GRAIN0 ? 1 : -1];
 
 /* how a value reads */
 enum { F_NUM, F_ENUM, F_ONOFF, F_SOUND, F_COUNT, F_ACTIVE, F_PAN, F_HZ_FL, F_MS_GD, F_MS_GS, F_MS_PD, F_SEMI,
-       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_THR, F_R10, F_GAIN, F_MIX, F_HZ_LO, F_HZ_HI, F_GRV };
+       F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_THR, F_R10, F_GAIN, F_MIX, F_HZ_LO, F_HZ_HI, F_GRV, F_MCH };
 static const char *const N_DRIVE[] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
 static const char *const N_REVERB[] = {"OFF", "ROOM", "HALL", "INFINITE", "DARK", "DRIFT", "SWELL", "PLATE"};
 static const char *const N_SHIFT[] = {"+OCT", "+5TH", "+OCT+5", "-OCT"};
@@ -193,6 +196,9 @@ static const p_gx_t PGX[] = {
     {PG_GRV0, "AMOUNT", 127, F_NUM, TX_GR_AMOUNT_DEF}, {PG_GTYPE, "TYPE", TX_GR_NTYPES - 1u, F_GRV, TX_GR_TYPE_DEF},
     {PG_GSHIFT, "SHIFT", 31, F_NUM, 0}, {PGX_LANE | PL_GPART, "PART", TX_GRP_N - 1, F_ENUM, 0},
     {PGX_LANE | PL_GCYC, "CYCLE", 8, F_GRV, 0},
+    {PG_SELCH, "SELECTED CH", 16, F_MCH, PGX_NODEF}, {PG_LCH0, "LANE 1 CHANNEL", 16, F_MCH, PGX_NODEF},
+    {PG_LCH0 + 1, "LANE 2 CHANNEL", 16, F_MCH, PGX_NODEF}, {PG_LCH0 + 2, "LANE 3 CHANNEL", 16, F_MCH, PGX_NODEF},
+    {PG_LCH0 + 3, "LANE 4 CHANNEL", 16, F_MCH, PGX_NODEF},
 };
 static const p_gx_t *p_gx(uint32_t id)
 {
@@ -415,7 +421,9 @@ static int32_t p_get(uint32_t id)
         case PG_SCNTEMPO: return (int32_t)tm_get(TG_SCNTEMPO);
         case PG_SCNFX: return scn_fx_mode;
         case PG_COLOR: return p_color;
+        case PG_SELCH: return nt_selch;
         }
+        if (i >= PG_LCH0 && i < PG_LCH0 + SC_N) return nt_lch[i - PG_LCH0];
         return i <= PG_GSHIFT ? pv_glob[i] : 0;
     }
     if (s >= P_LANES) return 0;
@@ -451,7 +459,9 @@ static void p_set(uint32_t id, int32_t v)
         case PG_SCNTEMPO: tempo_scene_flag((uint32_t)v); break;
         case PG_SCNFX: scn_fx_mode = (uint8_t)v; break;
         case PG_COLOR: color_apply((uint32_t)v); break;
-        default: pv_glob[i] = (uint8_t)v;       /* (GROOVE's; STATUS, read only, never read from it) */
+        case PG_SELCH: nt_selch = (uint8_t)v; break;
+        default:
+            if (i >= PG_LCH0) { nt_lch[i - PG_LCH0] = (uint8_t)v; break; } pv_glob[i] = (uint8_t)v;       /* (GROOVE's; STATUS, read only, never read from it) */
         }
         return;
     }
@@ -515,6 +525,7 @@ static const char *p_text(uint32_t id, char *t)
     case F_MS_PD: p_fmt_int(t, (v * 80 + 63) / 127); return "ms";
     case F_SEMI: { int32_t st = (v - 64) * 12 / 63; if (st > 0) { t[0] = '+'; p_fmt_int(t + 1, st); } else p_fmt_int(t, st); return "st"; }
     case F_PLUS1: p_fmt_int(t, v + 1); return 0;
+    case F_MCH: if (v) p_fmt_int(t, v); else p_strcpy(t, "OFF", 3); return 0;   /* (a MIDI channel) */
     case F_THR: {                               /* "-20": 0 .. -40 dBFS (Frodhes' THR) */
         int32_t d = (v * 400 + 635) / 1270;
         if (d) { t[0] = '-'; p_fmt_int(t + 1, d); } else p_strcpy(t, "0", 1);
@@ -551,7 +562,7 @@ static uint32_t p_kind(uint32_t id)
 {
     uint32_t f = p_fmt(id);
     if (f == F_ONOFF || f == F_RUN) return PK_TOGGLE;
-    if (f == F_ENUM || f == F_DIV || f == F_GRV || f == F_SOUND || f == F_COUNT || f == F_ACTIVE) return PK_SELECT;
+    if (f == F_ENUM || f == F_DIV || f == F_GRV || f == F_SOUND || f == F_COUNT || f == F_ACTIVE || f == F_MCH) return PK_SELECT;
     return PK_AMOUNT;
 }
 
@@ -608,16 +619,15 @@ static int32_t p_scale7(uint32_t id, uint32_t v)
         return v <= 64u ? ((int32_t)v * 100 + 32) / 64 : 100 + (((int32_t)v - 64) * 100 + 31) / 63;
     return hi == 127 ? (int32_t)v : p_ord(id, ((int32_t)v * hi + 63) / 127);
 }
-static struct { uint8_t msb[5], lsb[5], on[5]; } p_nrpn;
+static struct { uint8_t msb[16], lsb[16], on[16]; } p_nrpn;
 static uint32_t p_touched;                      /* (the screen: a parameter MIDI changed, id + 1) */
 static void p_midi_set(uint32_t id, int32_t v) { if (p_valid(id)) { scn_touch_id(id); p_set(id, v); p_touched = id + 1u; } }
-/* a control change on channel ch (0-based): 1 if it was one of ours */
+/* a control change on channel ch (0-based): 1 if it was one of ours (channel 5 the globals', a lane's MIDI CH its own:
+ * notes.c nt_lch; the two lists share no number, so a lane on channel 5 works too) */
 static int p_cc(uint32_t ch, uint32_t cc, uint32_t v)
 {
-    uint32_t i, scope = ch < P_LANES ? ch : ch == P_CH_GLOBAL ? P_GLOBAL : 0xFFu;
-    const p_cc_t *t = scope == P_GLOBAL ? P_CC_GLOBAL : P_CC_LANE;
-    uint32_t n = scope == P_GLOBAL ? sizeof P_CC_GLOBAL / sizeof P_CC_GLOBAL[0] : sizeof P_CC_LANE / sizeof P_CC_LANE[0];
-    if (scope == 0xFFu) return 0;
+    uint32_t i, k, lanes = nt_ch_lanes(ch), glob = ch == P_CH_GLOBAL;
+    if (!lanes && !glob) return 0;
     if (cc == 99u) { p_nrpn.msb[ch] = (uint8_t)v; p_nrpn.on[ch] = 1; return 1; }
     if (cc == 98u) { p_nrpn.lsb[ch] = (uint8_t)v; p_nrpn.on[ch] = 1; return 1; }
     if (cc == 101u || cc == 100u) { p_nrpn.on[ch] = 0; return 1; }   /* (RPN: not ours) */
@@ -626,7 +636,13 @@ static int p_cc(uint32_t ch, uint32_t cc, uint32_t v)
         if (cc == 6u) p_midi_set(id, p_scale7(id, v));
         return 1;
     }
-    for (i = 0; i < n; i++) if (t[i].cc == cc) { uint32_t id = PID(scope, t[i].idx); p_midi_set(id, p_scale7(id, v)); return 1; }
+    for (i = 0; glob && i < sizeof P_CC_GLOBAL / sizeof P_CC_GLOBAL[0]; i++)
+        if (P_CC_GLOBAL[i].cc == cc) { uint32_t id = PID(P_GLOBAL, P_CC_GLOBAL[i].idx); p_midi_set(id, p_scale7(id, v)); return 1; }
+    for (i = 0; i < sizeof P_CC_LANE / sizeof P_CC_LANE[0]; i++)
+        if (P_CC_LANE[i].cc == cc) {
+            for (k = 0; k < P_LANES; k++) if (lanes >> k & 1u) { uint32_t id = PID(k, P_CC_LANE[i].idx); p_midi_set(id, p_scale7(id, v)); }
+            return lanes != 0u;
+        }
     return 0;
 }
 static void p_poll(void) { uint32_t k; for (k = 0; k < P_LANES; k++) (void)p_cards(k); }   /* (a lane's new sound: its cards) */

@@ -180,6 +180,7 @@ def main():
         glo.click(delay=60)
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "MIDI", "GLO a fourth time: the MIDI page")
+        check(glo.locator("small").inner_text() == "MIDI IN", "GLO's caption on MIDI: MIDI IN")
         # FX held (a mouse held down 0.8 s): the FILTER page from here, and nothing more on its release
         box = fx.bounding_box()
         pg.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
