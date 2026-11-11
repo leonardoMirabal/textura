@@ -65,7 +65,10 @@ still to be designed (**todo**).
   pid.codes test PID for in-house tests only, until Textura's own is granted). The update loader keeps 1209:0002.
   Our tools take a "Textura" port first and never a "Frodhes" one beside it (`tools/tx_ports.py`: `fm1_timing.py`,
   `hil_jack.py`); a "Frodhes" port may be Frodhes' own FM-1. Install with `tools/tx_install.py PACKAGE.fwsc`; a unit
-  still on the firmware named "Frodhes" takes `--port Frodhes` once.
+  still on the firmware named "Frodhes" takes `--port Frodhes` once. With two FM-1s connected, pin the unit by its USB
+  location: `tools/tx_install.py --info` lists every FM-1 with its location, then `--location 0x...` (every update
+  loader is named "Felucca Update"; the installer follows the pinned unit into its loader and refuses, exit 7, when it
+  cannot tell the units apart).
 
 ## 4. The change procedure
 
