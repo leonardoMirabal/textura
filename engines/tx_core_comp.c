@@ -7,13 +7,15 @@
 #define KNEE (120 * 13606 / 100)   /* 12 dB (power log2 Q12) */
 #define K_SA 119                   /* the slow envelope a control block (0.726 ms), Q16: attack 400 ms */
 #define K_SR 32                    /*                                                    release 1.5 s */
-#define HOLD 16u                   /* the fast envelope held after its last rise, control blocks (11.6 ms) */
+#define HOLD 32u                   /* the fast envelope held after its last rise, control blocks (23 ms) */
 #define GSH 7                      /* the reduction's release: 2^-7 a control block (~93 ms) */
-#define PDR 3                      /* the slowest adapted release: REL's speed / 2^3 */
+#define PDR 4                      /* the slowest adapted release: REL's speed / 2^4 */
 #define SAS 4                      /* a rise under +3.5 dB (power x 2.25) caught at ATK's speed / 16 ... */
 #define SAK 59                     /* ... when REL is fast (59 and under: 150 ms, quick enough to fall between beats) */
-#define PDT 7                      /* its drift back to REL's: 2^-7 a control block (~93 ms) */
+#define NRB 32u                    /* the programme gone: under the envelope by 3 dB for 32 control blocks (23 ms) */
+#define PDT 6                      /* then the release back to REL's: 2^-6 a control block (~46 ms) */
 #define T0 64                      /* the auto make-up and the body lift: none up to THR 64 (-20 dBFS), the factory one */
+#define T4 (-(T0 * 54424) / 127)  /* THR 64's threshold (power log2 Q12) */
 #define BETA 90                    /* the body lift: 0.35 of the steady reduction given back (Q8), from THR 88 */
 #define BSH 8                      /* the steady reduction's rise: 2^-8 a control block (~186 ms) */
 
@@ -42,9 +44,9 @@ static void cauto(tx_comp_t *c)
 }
 
 /* the gain computer: the reduction (power log2 Q12, >= 0) at level lp, over a soft knee */
-static int32_t gc(const tx_comp_t *c, int32_t lp)
+static int32_t gc(const tx_comp_t *c, int32_t lp, int32_t t)
 {
-    int32_t over = lp - c->t, x;
+    int32_t over = lp - t, x;
     if (over <= -KNEE / 2) return 0;
     if (over >= KNEE / 2) return (over >> 4) * c->s >> 8;
     x = over + KNEE / 2;                                      /* 0 .. KNEE: x^2 < 2^28 */
@@ -112,10 +114,12 @@ TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *L, int32_t *R, unsigne
         }
         if (m != CB) p = p / (int32_t)m * (int32_t)CB;
         if (!c->on) { c->ef = c->es = p; c->on = 1; c->hd = 0; c->gs = -1; c->kq = c->kr; c->mg = c->mk;
-            c->bs = 0; c->amg = c->amk << 4; c->bq = c->beta << 4; }   /* (from the bypass: no
+            c->bs = 0; c->amg = c->amk << 4; c->bq = c->beta << 4; c->nr = 0; c->g4 = -1; }   /* (from the bypass: no
                                                                                              * stale level) */
         {
             int32_t e0 = c->ef, h0 = c->hd, k = c->kq;
+            if (p >= c->ef >> 1) c->nr = 0;                   /* (the programme still at its top, within 3 dB) */
+            else if (c->nr <= NRB) c->nr++;
             if (p >= c->ef) {                                 /* attack (a small rise slower, REL fast), then held */
                 c->ef = env(c->ef, p, p - c->ef > c->ef + (c->ef >> 2) || c->p[TX_CP_REL] > SAK ? c->ka : (c->ka >> SAS) + 1, k);
                 c->hd = HOLD;
@@ -124,7 +128,7 @@ TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *L, int32_t *R, unsigne
             else c->ef = env(c->ef, p, c->ka, k);
             if (c->ef - e0 > e0 + (e0 >> 2)) k = c->kr;       /* a new strike (power x 2.25, +3.5 dB): REL's own */
             else if (!h0 && c->ef > e0) { k -= k >> 1; if (k < (c->kr >> PDR)) k = c->kr >> PDR; }   /* caught again */
-            else k += (c->kr - k) >> PDT;
+            else if (c->nr > NRB) k += (c->kr - k) >> PDT;   /* gone: REL back (held there while it stays) */
             c->kq = k < 1 ? 1 : k;
         }
         c->es = env(c->es, p, K_SA, K_SR);
@@ -133,7 +137,7 @@ TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *L, int32_t *R, unsigne
         if (c->p[TX_CP_ON]) {
             int32_t lp = -(int32_t)TX_FAR(tx_neglog2_q12)((uint32_t)det << 6);   /* power log2 re full scale, Q12
                                                          * (TX_FAR: the helper may stay in flash at -Os) */
-            int32_t g16 = gc(c, lp) << 4, a16 = c->amk << 4, b16 = c->beta << 4, gr, mx;
+            int32_t g16 = gc(c, lp, c->t) << 4, a16 = c->amk << 4, b16 = c->beta << 4, gr, mx;
             if (g16 >= c->gs) c->gs = g16;       /* more reduction at once, less through the one-pole */
             else c->gs += (g16 - c->gs) >> c->gsh;
             gr = c->gs >> 4;
@@ -147,12 +151,19 @@ TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *L, int32_t *R, unsigne
             else c->amg += (a16 - c->amg) >> c->gsh;
             mx = c->amg >> 4;
             if (mx > gr) mx = gr;                /* never past the reduction: no peak over the bypass */
+            {   /* past THR 64 never louder than THR 64 (its reduction, smoothed alike, followed at any THR): the
+                 * level falls or stays as THR goes down, however loud */
+                int32_t f16 = gc(c, lp, T4) << 4;
+                if (f16 >= c->g4) c->g4 = f16;
+                else c->g4 += (f16 - c->g4) >> c->gsh;
+                if (c->p[TX_CP_THR] > T0 && gr - mx < c->g4 >> 4) mx = gr - (c->g4 >> 4);
+            }
             {   /* MKUP glides: 1/8 of the way a control block (~6 ms), then exactly there (no click on a fast move) */
                 int32_t dm = (c->mk - c->mg) >> 3;
                 c->mg = dm ? c->mg + dm : c->mk;
             }
             gt = (int32_t)TX_FAR(tx_exp2)(((c->mg - gr + mx) / 2) * 16 + (14 << 16));   /* the amplitude: half the power log2 */
-        } else { c->gr = 0; c->gs = 0; gt = 16384; }
+        } else { c->gr = 0; c->gs = c->g4 = 0; gt = 16384; }
         g = g0 + ((gt - g0) >> 3);                            /* the glide: ~6 ms */
         if (g - gt < 8 && gt - g < 8) g = gt;
         c->g = g;

@@ -34,7 +34,8 @@
  *     chords  three chords (131 165 196, 98 123 147 196, 220 277 330 Hz; -14 dBFS a tone) held: the energy off the tones
  *             re the tones (dB; the gain riding the beats), the worst chord: at the defaults, and the median and the
  *             worst over THR 64 / 127 x RAT 1.5:1 / 4:1 / 20:1 x ATK 0 / 40 / 108 x REL 0 / 30 / 59; and at 4:1 ATK 40
- *             REL 48 (THR -40 / -30 dB). Reported
+ *             REL 48 (THR -40 / -30 dB); there and at the defaults also off a band of +-15 Hz round each tone (Frodhes'
+ *             measure, tools/dry_dist.py: the gain's slow drift inside the bands). Reported
  *     mkup    MKUP 0 -> 127 -> 0 in one step (THR 0, a 220 Hz sine at -30 dBFS): the largest second difference within
  *             50 ms of a step re the held MKUP 127 render's largest (Frodhes' control-sweep click; 1 = none). Reported
  *     strike  a struck chord (-2.5 dBFS, down to -10.5 dB in ~120 ms, held): the largest sample re COMP off (never
@@ -42,6 +43,7 @@
  *             at -40 dB 20:1; the body's level re COMP off over THR (4:1, ATK 40). MKUP 0
  *     sweep   THR -40 -> 0 dB under a held chord, in one step and swept: the gain's dip under its settled ends (a step:
  *             judged under 0.2 dB) or under the gains held at the THR values passed (swept: reported), the statics
+ *             and their largest rise as THR goes down (judged under 0.1 dB)
  *   REVERB PLATE: MOD 127 against MOD 0 (MIX 127, DECAY 64) on a chord's tail: the energy in 2 .. 12 kHz re the whole
  *     (a grain from the modulated reads shows as more of it), the largest second difference re MOD 0's (Frodhes' d2: a
  *     jumping read is a burst of it) and the tail's level. Reported
@@ -347,7 +349,8 @@ static void comp_quiet(void)
  * tones re the tones (dB), the worst of the three. At the defaults (THR 64 RAT 0 ATK 108 REL 59), and over THR 64 / 127
  * x RAT 0 / 3 / 7 x ATK 0 / 40 / 108 x REL 0 / 30 / 59: the median and the worst */
 static const int CHD[3][5] = {{3, 131, 165, 196}, {4, 98, 123, 147, 196}, {3, 220, 277, 330}};
-static double comp_chord_one(const int *F, unsigned thr, unsigned rat, unsigned atk, unsigned rel, double *grd)
+static double cc_band;                         /* the last chords' worst energy outside +-15 Hz of the tones re the tones (dB) */
+static double comp_chord_one(const int *F, unsigned thr, unsigned rat, unsigned atk, unsigned rel, double *grd, double *band)
 {
     tx_comp_t *c = malloc(sizeof *c);
     int nb = 3 * FS / (int)NB + 1, b, i, k, n0, nt = F[0];
@@ -370,15 +373,26 @@ static double comp_chord_one(const int *F, unsigned thr, unsigned rat, unsigned 
     for (i = 0; i < FS; i++) tot += t[i] * t[i];
     tot *= FS;
     for (k = 0; k < nt; k++) ton += 2.0 * bin2(t, FS, F[1 + k]);
+    {   /* Frodhes' measure (tools/dry_dist.py): off a band of +-15 Hz round each tone (the gain's slow drift inside it) */
+        double inb = 0;
+        int f;
+        for (k = 0; k < nt; k++) for (f = F[1 + k] - 15; f <= F[1 + k] + 15; f++) inb += 2.0 * bin2(t, FS, f);
+        *band = db((tot - inb) / ton);
+    }
     *grd = tx_comp_gr_db10(c) / 10.0;
     free(c); free(o);
     return db((tot - ton) / ton);
 }
 static double comp_chords(unsigned thr, unsigned rat, unsigned atk, unsigned rel, double *grd)
 {
-    double w = -300, g;
+    double w = -300, g, bd;
     int k;
-    for (k = 0; k < 3; k++) { double v = comp_chord_one(CHD[k], thr, rat, atk, rel, &g); if (v > w) { w = v; *grd = g; } }
+    cc_band = -300;
+    for (k = 0; k < 3; k++) {
+        double v = comp_chord_one(CHD[k], thr, rat, atk, rel, &g, &bd);
+        if (v > w) { w = v; *grd = g; }
+        if (bd > cc_band) cc_band = bd;
+    }
     return w;
 }
 static int dcmp(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
@@ -395,13 +409,13 @@ static void comp_chord(void)
     }
     qsort(all, 54, sizeof all[0], dcmp);
     dv = comp_chords(64, 0, 108, 59, &g);
-    printf("COMPRESSOR chords (3, each tone -14 dBFS): the intermodulation re the tones at the defaults %.1f dB (GR %.1f); "
-           "over the settings median %.1f, worst %.1f (THR %d RAT %d ATK %d REL %d, GR %.1f)\n",
-           dv, g, 0.5 * (all[26] + all[27]), w, TH[wi / 27], RA[wi / 9 % 3], AT[wi / 3 % 3], RE[wi % 3], gw);
+    printf("COMPRESSOR chords (3, each tone -14 dBFS): the intermodulation re the tones at the defaults %.1f dB (+-15 Hz: %.1f; "
+           "GR %.1f); over the settings median %.1f, worst %.1f (THR %d RAT %d ATK %d REL %d, GR %.1f)\n",
+           dv, cc_band, g, 0.5 * (all[26] + all[27]), w, TH[wi / 27], RA[wi / 9 % 3], AT[wi / 3 % 3], RE[wi % 3], gw);
     dv = comp_chords(127, 3, 40, 48, &g);
-    printf("COMPRESSOR chords at 4:1 ATK 40 REL 48: THR -40 dB %.1f dB (GR %.1f)", dv, g);
+    printf("COMPRESSOR chords at 4:1 ATK 40 REL 48: THR -40 dB %.1f dB (+-15 Hz: %.1f; GR %.1f)", dv, cc_band, g);
     dv = comp_chords(96, 3, 40, 48, &g);
-    printf(", THR -30 dB %.1f dB (GR %.1f)\n", dv, g);
+    printf(", THR -30 dB %.1f dB (+-15 Hz: %.1f; GR %.1f)\n", dv, cc_band, g);
 }
 
 /* MKUP jumped 0 -> 127 -> 0 (THR 0: no reduction; a 220 Hz sine at -30 dBFS): the largest second difference out
@@ -505,9 +519,9 @@ static void comp_strike(void)
  * step or by one a block (0.74 s). The gain: 23 ms windows, out re in (dB). A step: never under both its settled ends
  * (Frodhes' control sweep: the auto make-up dropping at once while the reduction smoothed away, a dip). Swept: never
  * under the gains held at the THR values it passed (the statics, 1 s each). The dip: how far under (dB, 0: none; the
- * step's judged; swept, the reduction's smoothed release lags its falling target: reported). The statics beside it
- * (the curve itself: a chord far over THR -40 dB gets more of the auto make-up and the lift, fitted on the factory
- * presets' levels, than THR 64 gives it, where both start) */
+ * step's judged; swept, the reduction's smoothed release lags its falling target: reported). The statics beside it,
+ * and their largest rise: THR going down never brings the level up (judged under 0.1 dB; past THR 64 the auto make-up
+ * and the lift give back at most down to THR 64's reduction) */
 static double comp_gain_held(const double *x, int nb, unsigned *pv)
 {
     double *y = malloc(sizeof(double) * nb * NB), g;
@@ -520,7 +534,7 @@ static void comp_sweep(void)
 {
     static const double LV[2] = {0.4, 0.2};                 /* -8 / -14 dBFS a tone */
     int nb = 4 * FS / (int)NB, b2 = 3 * FS / 2 / (int)NB, i, w, k, v, nw = nb * (int)NB / 1024, ns = FS / (int)NB;
-    double *x = malloc(sizeof(double) * nb * NB), *y = malloc(sizeof(double) * nb * NB), dw = 0, st[128];
+    double *x = malloc(sizeof(double) * nb * NB), *y = malloc(sizeof(double) * nb * NB), dw = 0, st[128], rw = 0;
     for (v = 0; v < 2; v++) {
         double smin = 300, smax = -300;
         for (i = 0; i < nb * (int)NB; i++) {
@@ -554,9 +568,16 @@ static void comp_sweep(void)
             if (!(k >> 1) && d > dw) dw = d;
             printf(" %s REL %d %.2f dB%s", k >> 1 ? "swept" : "step", k & 1 ? 127 : 59, d, k < 3 ? "," : "");
         }
-        printf("; the statics %+.2f .. %+.2f dB, THR 0 / 64 / 88 / 127: %+.2f / %+.2f / %+.2f / %+.2f\n", smin, smax, st[0], st[64], st[88], st[127]);
+        {   /* the statics' rise: THR going down never brings the level up (the largest rise over a lower level before) */
+            double lo = st[0], ru = 0;
+            for (i = 1; i < 128; i++) { if (st[i] - lo > ru) ru = st[i] - lo; if (st[i] < lo) lo = st[i]; }
+            if (ru > rw) rw = ru;
+            printf("; the statics %+.2f .. %+.2f dB, THR 0 / 64 / 88 / 127: %+.2f / %+.2f / %+.2f / %+.2f, the largest rise %.2f dB\n",
+                   smin, smax, st[0], st[64], st[88], st[127], ru);
+        }
     }
     judge("compressor THR step: a dip (dB)", dw, 0.2, 1);
+    judge("compressor statics: the level up as THR goes down (dB)", rw, 0.1, 1);
     free(x); free(y);
 }
 

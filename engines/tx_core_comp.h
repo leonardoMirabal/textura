@@ -12,16 +12,20 @@
  * MKUP glides (1/8 of the way a control block, then exactly there; after Frodhes' 8354082b): a jump 0 -> 127 was a
  * click of 3.2x the held render's largest second difference, 1.3 now (make tx-pristine).
  *
- * Clean on low notes and chords (after Frodhes' compressor, 2026-11-09/10): the fast envelope is held 16 control
- * blocks (11.6 ms, a cycle down to 86 Hz) after the last block that raised it, so it does not fall between a note's
- * waveform peaks; the reduction applied rises at once (ATK is the detector's) but falls through a one-pole of ~93 ms,
- * at most half REL's time constant (a fast REL stays fast). The release adapts to the playing: a released envelope
- * caught again by less than +3.5 dB (a chord's beats, a low note's cycle) halves its release speed, down to REL's / 8;
- * a new strike (+3.5 dB) gives REL back at once, else it drifts back over ~93 ms; with REL 59 and under (fast enough
- * to fall between beats) a rise under +3.5 dB is caught at ATK's speed / 16. A 41 Hz sine 10 dB over THR (4:1): H2..H5
- * -58.3 -> -87.8 dB re H1; held chords: the intermodulation re the tones at the defaults -39.4 -> -44.3 dB, the median
- * over the settings -30.1 -> -32.5 (make tx-pristine). The cost: the envelope sits nearer the tops, 0.6 .. 0.7 dB more
- * reduction on held chords and low notes.
+ * Clean on low notes and chords (after Frodhes' compressor, 2026-11-09/10): the fast envelope is held 32 control
+ * blocks (23 ms, a cycle down to 43 Hz, a chord's beat up to there) after the last block that raised it, so it does not
+ * fall between a note's waveform peaks; the reduction applied rises at once (ATK is the detector's) but falls through a
+ * one-pole of ~93 ms, at most half REL's time constant (a fast REL stays fast). The release adapts to the playing: a
+ * released envelope caught again by less than +3.5 dB (a chord's beats, a low note's cycle) halves its release speed,
+ * down to REL's / 16, and keeps it while the programme stays within 3 dB of the envelope (a held chord's slowly turning
+ * peaks: its gain stays still); a new strike (+3.5 dB) gives REL back at once, the programme 3 dB under for 23 ms over
+ * ~46 ms (an ending, a decay: the gain follows it down as before, within ~0.7 dB at 3 dB/s); with REL 59 and under
+ * (fast enough to fall between beats) a rise under +3.5 dB is caught at ATK's speed / 16. A 41 Hz sine 10 dB over THR
+ * (4:1): H2..H5 -58.3 -> -87.8 dB re H1. Held chords, the intermodulation re the tones (and off +-15 Hz round them,
+ * Frodhes' measure): at the defaults -39.4 -> -44.3 -> -50.7 dB (-64.6 -> -65.8), the median over the settings -30.1 ->
+ * -32.5 -> -39.6, the worst -20.0 -> -29.4; 4:1 ATK 40 REL 48 -36.4 -> -42.3 (-54.9 -> -64.0, Frodhes' gate -60)
+ * (make tx-pristine). The cost: the envelope sits nearer the tops, ~1.2 dB more reduction on held chords and low notes
+ * than at first (the factory presets' loudness under COMP: +0.01 .. +0.1 dB more lost).
  *
  * THR brings its own make-up and body (after Frodhes' compressor stage 2, 2026-11-10), above THR 64 (-20 dBFS, the
  * factory one: every factory scene renders as before). The auto make-up: the reduction per unit of slope over THR, times
@@ -33,6 +37,10 @@
  * The loudness lost re COMP off, the presets' mean over those settings: THR 80 / 96 / 112 / 127 1.25 / 2.55 / 4.44 /
  * 6.48 -> 0.45 / 0.58 / 0.66 / 0.69 dB (64: 0.44); the fatness (body - strike, on less off; THR -40 dB 20:1) -7.4 ->
  * +5.2 dB at ATK 100, +7.8 at ATK 40 (make tx-pristine).
+ * Never louder than THR 64: past it the make-up and the lift give back at most down to the reduction THR 64 would apply
+ * at that level (and RAT; smoothed as the reduction), so the level falls or stays as THR goes down, however loud the
+ * programme (fitted at the presets' level, they gave a held chord at -8 dBFS a tone 4.3 dB more at THR 127 than at 64:
+ * now the same; the presets lose +0.04 .. +0.1 dB more, the fatness at THR -40 dB 20:1 +3.4 dB at ATK 100, +6.8 at 40).
  *
  * Integers only, 32-bit products; the levels in "power log2" units (log2 of the power, Q12: 1 dB = 1360.6). */
 #ifndef TX_CORE_COMP_H
@@ -61,8 +69,11 @@ typedef struct {
     int32_t amk, amg;              /* the auto make-up (power log2 Q12, from THR RAT MKUP), as the gain uses it (x 16) */
     int32_t bs, bq;                /* the steady reduction the body lift gives back from (power log2 Q12 x 16); the
                                     * lift as the gain uses it (Q8 x 16) */
+    int32_t g4;                    /* the reduction THR 64 would apply here, smoothed as gs: past THR 64 the floor of
+                                    * the reduction less the make-up and the lift (power log2 Q12 x 16) */
     uint8_t hd, gsh, beta;         /* the fast envelope's hold left (control blocks); the smoothing's shift (from REL);
                                     * the body lift (Q8, from THR) */
+    uint8_t nr;                    /* control blocks the programme has stayed 3 dB under the fast envelope */
     uint8_t p[TX_CP_NP];           /* the controls */
     uint8_t on;                    /* the detector running (0: its envelopes restart from the next block) */
 } tx_comp_t;
