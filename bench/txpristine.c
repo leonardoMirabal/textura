@@ -40,7 +40,9 @@
  *     (a grain from the modulated reads shows as more of it), the largest second difference re MOD 0's (Frodhes' d2: a
  *     jumping read is a burst of it) and the tail's level. Reported
  *   REVERB TYPE change under a held chord (MIX 127): the largest second difference in the 200 ms after the change re
- *     the dry chord's (a step into the new TYPE's empty lines shows as a burst of it). Reported */
+ *     the dry chord's (a step into the new TYPE's empty lines shows as a burst of it). Reported
+ *   REVERB quiet: a 331 Hz sine of 8 / 32 / 128 Q15 steps held through HALL, PLATE, ROOM, INFINITE (MIX 127): the worst
+ *     of H2..H6 re H1 in its second second (the tanks are linear: the harmonics are their rounding's). Reported */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -492,6 +494,36 @@ static void rev_type(void)
            rev_type1(TX_RVT_INF, TX_RVT_ROOM));
 }
 
+/* REVERB quiet: a 331 Hz sine of a LSB (Q15 steps, the lines' own) held through the TYPE (MIX 127, the wet alone); the
+ * worst of H2..H6 re H1 in its second second (the tank is linear: harmonics are its rounding's) */
+static double rev_quiet1(unsigned ty, double a)
+{
+    tx_fx_reverb_t *r = malloc(sizeof *r);
+    int nb = 2 * FS / (int)NB + 1, b, i, k;
+    int32_t x[NB], y[NB];
+    double *o = malloc(sizeof(double) * nb * NB), h1, w = -200;
+    tx_fx_reverb_init(r);
+    tx_fx_reverb_param(r, TX_RV_TYPE, ty); tx_fx_reverb_param(r, TX_RV_MIX, 127);
+    for (b = 0; b < nb; b++) {
+        for (i = 0; i < (int)NB; i++) x[i] = y[i] = (int32_t)lrint(256.0 * a * sin(2.0 * M_PI * 331 * (double)(b * NB + i) / FS));
+        tx_fx_reverb_process(r, x, y, NB);
+        for (i = 0; i < (int)NB; i++) o[b * NB + i] = x[i];
+    }
+    h1 = bin2(o + FS, FS, 331);
+    for (k = 2; k <= 6; k++) { double d = db(bin2(o + FS, FS, 331 * k) / h1); if (d > w) w = d; }
+    free(r); free(o);
+    return w;
+}
+static void rev_quiet(void)
+{
+    static const unsigned T[4] = {TX_RVT_HALL, TX_RVT_PLATE, TX_RVT_ROOM, TX_RVT_INF};
+    static const char *const N[4] = {"HALL", "PLATE", "ROOM", "INFINITE"};
+    int t;
+    printf("REVERB quiet: a 331 Hz sine held (MIX 127), the worst of H2..H6 re H1 dB, per level (Q15 LSB): 8 / 32 / 128\n ");
+    for (t = 0; t < 4; t++) printf(" %s %.1f / %.1f / %.1f", N[t], rev_quiet1(T[t], 8), rev_quiet1(T[t], 32), rev_quiet1(T[t], 128));
+    printf("\n");
+}
+
 int main(int argc, char **argv)
 {
     check = argc > 1 && !strcmp(argv[1], "--check");
@@ -510,6 +542,7 @@ int main(int argc, char **argv)
     comp_mkup();
     rev_plate_mod();
     rev_type();
+    rev_quiet();
     free(fx);
     if (check) printf("tx-pristine: %s (%d over)\n", fails ? "FAIL" : "ok", fails);
     return check && fails ? 1 : 0;
