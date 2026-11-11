@@ -1,7 +1,8 @@
-# SCENE FX (TEMPO 2/2, in the settings): KEEP (the default) a scene's load leaves the mix's effects (DRIVE,
-# COMPRESSOR, GRAIN, REVERB) as they are, their tails ringing on; RECALL it sets them. Scenes save them either way
+# EFFECTS ON LOAD (TEMPO 2/2, in the settings): at SMART (the default), once the player has turned an effect, a
+# scene's load leaves the mix's effects (DRIVE, COMPRESSOR, GRAIN, REVERB) as they are, their tails ringing on; ALWAYS
+# it sets them (smartfx.txt: SMART untouched, NEVER, the glide). Scenes save them either way
 1700 btn 13
-1800 expect state p426 0
+1800 expect state p426 1
 # the reverb: TYPE hall (ALGORITHM on REVERB), MIX 100 (CC 91 on channel 5); the DRIVE's TYPE (CC 79)
 1900 btn 2
 1910 btn 2
@@ -20,7 +21,7 @@
 2100 btn 9
 2200 btn 9
 2800 expect state saving 0
-# KEEP: F003 loads, the effects stay (the reverb still a hall at MIX 100), what plays is F003's
+# SMART, turned: F003 loads, the effects stay (the reverb still a hall at MIX 100), what plays is F003's
 2900 midi 0xC0 2 0
 3500 expect state loading 0
 3500 expect state scene F003_GARDEN_RAIN
@@ -30,7 +31,7 @@
 3500 expect preset
 3500 expect sound
 3600 expect rms > -70
-# the reverb off (TYPE 0 by ALGORITHM), MIX 0; KEEP: U01 loads, still off
+# the reverb off (TYPE 0 by ALGORITHM), MIX 0; SMART: U01 loads, still off
 3700 btn 2
 3710 btn 2
 3720 btn 2
@@ -43,13 +44,13 @@
 4400 expect state loading 0
 4400 expect state p410 0
 4400 expect state p411 0
-# RECALL (GLO, SELECT: TEMPO 2/2, K2): U01 again brings its hall back, MIX 100; F001 sets its own (a touch of
+# ALWAYS (GLO, SELECT: TEMPO 2/2, K2): U01 again brings its hall back, MIX 100; F001 sets its own (a touch of
 # hall: MIX 16), the DRIVE at its defaults
 4500 btn 7
 4520 turn 0 1
 4540 expect state page TEMPO_2/2
-4560 turn 3 1
-4580 expect state p426 1
+4560 turn 3 -1
+4580 expect state p426 0
 4600 midi 0xC0 100 0
 5200 expect state loading 0
 5200 expect state p410 2
@@ -63,8 +64,8 @@
 5900 expect state p411 16
 5900 expect preset
 5900 expect sound
-# back to KEEP
-6000 turn 3 -1
-6020 expect state p426 0
+# back to SMART
+6000 turn 3 1
+6020 expect state p426 1
 6100 expect state dropped 0
 6200 end

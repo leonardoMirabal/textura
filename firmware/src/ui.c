@@ -1016,6 +1016,7 @@ static void ub_edit(void)                       /* EDIT: open the family / pick 
         return;
     }
     sc_sound_set(ub.lane, ub.f, ub.cur);        /* (a stopped lane: loaded stopped) */
+    scn_touch();
     ub_close();
     ub_say();
 }
@@ -1032,7 +1033,7 @@ static void ub_poll(void)                       /* the preview: the cursor's sou
     if (!ub.on || !ub.pend || fm1_ms - ub.t < UB_PREVIEW_MS) return;
     ub.pend = 0;
     if (ub.pr) { if (ub.lv == 2) scn_pb_go(ub_scene(ub.cur)); return; }   /* (a preset: always, its lanes start) */
-    if (ub.lv == 2 && sc.run[ub.lane]) sc_sound_set(ub.lane, ub.f, ub.cur);
+    if (ub.lv == 2 && sc.run[ub.lane]) { sc_sound_set(ub.lane, ub.f, ub.cur); scn_touch(); }
 }
 static void ui_lane_focus(uint32_t k)           /* a black key: lane k, shown on LANDSCAPE (the 4 lanes, as HOME): it
                                                  * stays there (HOME's way back kept), any other page goes to it */
@@ -1048,6 +1049,7 @@ static void ui_lane_mute(uint32_t k)            /* a black key held: lane k mute
     if (k >= SC_N) return;
     if (sc.snd[k] < 0) { ui_say("NO SOUND ON THIS LANE"); return; }
     sc_mute(k, !sc.mute[k]);
+    scn_touch();
     p_strcpy(t, "LANE ", 23); { char n[2] = {(char)('1' + k), 0}; p_cat(t, n, 23); }
     p_cat(t, sc.mute[k] ? " MUTED" : " ON", 23);
     ui_say(t);
@@ -1067,6 +1069,7 @@ static void ui_turn(uint32_t id, int32_t d)
     int32_t v = p_get(id);
     if (kd == PK_TOGGLE) v = d > 0;
     else v += d;
+    scn_touch_id(id);
     p_set(id, clampi(v, 0, p_hi(id)));
 }
 /* LFO held: mod learn. A card turned routes the selected LFO onto it, the turn its depth (ENV held: the selected ENV
@@ -1105,6 +1108,7 @@ static void ui_learn(uint32_t k, int32_t d)
     else id = ui_row_id(k);
     ui_lfo_learned = 1;
     s = id == NOID ? -1 : mod_learn(ui_lsrc, id, d);
+    if (s >= 0) scn_touch();
     if (s == -1) { ui_say("NOT A MOD TARGET"); return; }
     if (s == -2) { ui_say("MATRIX FULL"); return; }
     {                                           /* "LFO3 > L2 SIZE +24%" */
@@ -1143,6 +1147,7 @@ static void ui_knob(uint32_t k, int32_t d)
                                                 /* (latched: this turn's detents, until 800 ms after the last) */
     ui_hot(k);
     if (ui_g == G_MIX) {
+        scn_touch();
         d = ui_accel(k, 127, d);
         if (ui_sub == 0u) sc_volume(k, (uint32_t)clampi((int32_t)sc_vol_of(k) + d, 0, 127));
         else sc_pan(k, (uint32_t)clampi((int32_t)sc.pan[k] + d, 0, 127));
@@ -1154,6 +1159,7 @@ static void ui_knob(uint32_t k, int32_t d)
         return;
     }
     if (sc.snd[k] < 0) return;                  /* LANDSCAPE: lane k's volume (an empty lane: none) */
+    scn_touch();
     sc_volume(k, (uint32_t)clampi((int32_t)sc_vol_of(k) + ui_accel(k, 127, d), 0, 127));
     {
         char t[24], n[8];
@@ -1241,7 +1247,7 @@ static void ui_rec(void)
     int run = sc_any_run(), tap = fm1_ms - ui_rec_t < REC_TAP_MS && ui_rec_t, on = tap || !run;
     ui_rec_t = fm1_ms ? fm1_ms : 1u;
     if (!tap || ui_rec_stopped) {               /* (a series' first press; its second, the first having stopped) */
-        if (on != run) sc_all_toggle();
+        if (on != run) { sc_all_toggle(); scn_touch(); }
         (void)tempo_transport(on);              /* (0: a clock leads, it moves the transport) */
         ui_rec_stopped = (uint8_t)!on;
         ui_say(on ? "ALL PLAYING" : "ALL STOPPED");

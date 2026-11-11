@@ -1,0 +1,86 @@
+# EFFECTS ON LOAD (in the settings): SMART (the default) a load sets the mix's effects (DRIVE, FILTER, COMPRESSOR,
+# GRAIN, REVERB) unless the player turned one since the last load that set them: then they stay ("FX: YOURS", fxmine
+# 1); ALWAYS a load sets them; NEVER they stay. Set, their amounts glide 500 ms from the load's start (no step: the
+# level falls smoothly, no window falls further than the sound does by itself)
+1700 midi 0xC0 0 0
+2400 expect state loading 0
+2400 expect state scene F001_DRIZZLE
+2400 expect state p426 1
+2400 expect state fxmine 0
+2400 expect state edited 0
+2400 expect state p410 2
+2400 expect state p411 16
+# SMART, the effects untouched: F008 brings its own (a hall, MIX 24)
+2500 midi 0xC0 7 0
+3300 expect state scene F008_ATTIC_RAIN
+3300 expect state p411 24
+3300 expect state fxmine 0
+3300 expect preset
+# the reverb's MIX turned (CC 91): the effects the player's, what plays edited; F001 keeps them (MIX 100)
+3400 midi 0xB4 91 100
+3420 expect state fxmine 1
+3420 expect state edited 1
+3500 midi 0xC0 0 0
+4300 expect state scene F001_DRIZZLE
+4300 expect state p411 100
+4300 expect state p410 2
+4300 expect state fxmine 1
+4300 expect state edited 0
+4300 expect preset
+# ALWAYS (GLO, SELECT: TEMPO 2/2, K2): F008 sets its effects although they were the player's
+4400 btn 7
+4420 turn 0 1
+4440 turn 3 -1
+4460 expect state p426 0
+4500 midi 0xC0 7 0
+5300 expect state scene F008_ATTIC_RAIN
+5300 expect state p411 24
+5300 expect state fxmine 0
+5300 expect preset
+# NEVER: F001 leaves them (MIX 24, not its 16) although nobody turned them
+5400 turn 3 2
+5420 expect state p426 2
+5500 midi 0xC0 0 0
+6300 expect state scene F001_DRIZZLE
+6300 expect state p411 24
+6300 expect state fxmine 0
+6300 expect preset
+# the glide: one steady sound (F034's waterfall, dense; lanes 2 .. 4 down), the COMPRESSOR on with its threshold at
+# the top (no compression); U01 with MAKE-UP 0, U02 with MAKE-UP 80 (+15 dB), the lanes the same
+6400 midi 0xC0 33 0
+7100 midi 0xB0 21 127
+7100 midi 0xB0 22 127
+7100 midi 0xB1 7 0
+7100 midi 0xB2 7 0
+7100 midi 0xB3 7 0
+7200 midi 0xB4 95 127
+7210 midi 0xB4 115 0
+7220 midi 0xB4 119 0
+7300 btn 9
+7400 btn 9
+8000 expect state saving 0
+8100 midi 0xB4 119 80
+8200 btn 9
+8220 turn 2 1
+8300 btn 9
+8900 expect state saving 0
+8900 expect state scene U02_WATER
+# ALWAYS: U01 from U02, only the MAKE-UP differs: the level falls ~12 dB over the glide (MAKE-UP 80 .. 0 in 500 ms
+# from the load: 42 half way), never in a step (no 2.9 ms window falls more than the sound's own ~2.6 dB)
+9000 turn 3 -2
+9020 expect state p426 0
+9300 expect drop < 3.5 400
+9300 expect rms > -20
+9400 midi 0xC0 100 0
+9650 expect state p41F 42
+9650 expect state glides 5
+10100 expect drop < 3.5 700
+10100 expect rms < -24
+10100 expect state glides 0
+10100 expect state p41F 0
+10100 expect preset
+# back to SMART
+10200 turn 3 1
+10220 expect state p426 1
+10300 expect state dropped 0
+10400 end

@@ -109,7 +109,7 @@
 195200 btn 9
 195300 btn 9
 195900 expect state saving 0
-# all changed (AMOUNT 50, LOOSE 16, PART AUTO), then U01 loads: back (SCENE FX at KEEP: not an effect, it comes)
+# all changed (AMOUNT 50, LOOSE 16, PART AUTO), then U01 loads: back (not an effect: it comes whatever EFFECTS ON LOAD says)
 196000 midi 0xB4 84 50
 196020 turn 3 -1
 196040 turn 5 -2

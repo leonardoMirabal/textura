@@ -15,16 +15,18 @@
  *           16 .. 25  REVERB (tx_fx_reverb_params order)
  *           26 .. 31  COMPRESSOR: COMP THR ATK REL RAT MKUP (tx_comp_params order; Frodhes' COMPRESSOR's)
  *           32 .. 37  TEMPO: BPM (40 .. 240) FINE (BPM in tenths) STATUS (read only) TRANSPORT TAP (over 63: a tap)
- *                     SCENE TEMPO (a scene's load sets its tempo: on / off, in the settings)
- *           38        SCENE FX (KEEP: a scene's load leaves the DRIVE, COMPRESSOR, GRAIN and REVERB as they are, their
- *                     tails ringing on; RECALL: it sets them; in the settings, KEEP by default)
+ *                     PRESETS CHANGE TEMPO (a scene's load sets its tempo: NO / YES, in the settings)
+ *           38        EFFECTS ON LOAD (ALWAYS: a scene's load sets the DRIVE, FILTER, COMPRESSOR, GRAIN and REVERB;
+ *                     SMART, the default: it sets them unless the player has turned one since the last load that
+ *                     did, then they stay, "FX: YOURS"; NEVER: they stay; in the settings. Set or kept, they glide)
  *           40 .. 43  MIDI: CLOCK (INT MASTER FOLLOW AUTO) CLK IN USB, CLK IN TRS, CLK OUT (OFF / USB: MASTER sends)
  *           44        DISPLAY: COLOR (the screen's palette: COLOR_NAME; in the settings)
  *           48 .. 51  DRIVE: AMOUNT TONE MIX TYPE (tx_fx_drive_params order): the mix's, its first effect (before the
  *                     COMPRESSOR)
  *           52 .. 55  FILTER: LOW CUT HIGH CUT RESONANCE SLOPE (tx_fx_mfilter_params order): the mix's, right after the
  *                     DRIVE (a band: a high-pass, then a low-pass; both at their ends: off)
- *           56 .. 58  GROOVE: AMOUNT TYPE SHIFT (groove.c; not an effect: a scene keeps them whatever SCENE FX says)
+ *           56 .. 58  GROOVE: AMOUNT TYPE SHIFT (groove.c; not an effect: a scene keeps them whatever EFFECTS ON LOAD
+ *                     says)
  *   5       LFO n (0..7): n x 16 + SHAPE RATE SYNC MODE PHASE WIDTH JITTER FADE RESTART LEVEL (tx_lfo_params order),
  *           10 NOW 11 ROUTES (read only)
  *   6       ENV n (0..1): n x 16 + TRIGGER ATTACK DECAY RELEASE SUSTAIN CURVE VARY LOOP (tx_env_params order);
@@ -89,7 +91,8 @@ static const char *const N_DRIVE[] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
 static const char *const N_REVERB[] = {"OFF", "ROOM", "HALL", "INFINITE", "DARK", "DRIFT", "SWELL", "PLATE"};
 static const char *const N_SHIFT[] = {"+OCT", "+5TH", "+OCT+5", "-OCT"};
 static const char *const N_CLOCK[] = {"INT", "MASTER", "FOLLOW", "AUTO"};
-static const char *const N_SCNFX[] = {"KEEP", "RECALL"};   /* SCENE FX: a load keeps the mix's effects, or recalls them */
+static const char *const N_SCNFX[] = {"ALWAYS", "SMART", "NEVER"};   /* EFFECTS ON LOAD (scenes.c scn_apply) */
+static const char *const N_NOYES[] = {"NO", "YES"};   /* PRESETS CHANGE TEMPO */
 static const char *const N_CLKOUT[] = {"OFF", "USB"};   /* (TRS: the FM-1's jack is an input only) */
 static const char *const N_IVL[] = {"NONE", "OCTAVES", "5TH+OCT", "4TH+5TH", "MAJOR", "MINOR", "ALL", "UP"};   /* the
                                                  * GRAIN's INTERVALS */
@@ -162,8 +165,10 @@ static void tempo_status(char *t);
 enum { TG_GSYNC, TG_HALF, TG_CLOCK, TG_INUSB, TG_INTRS, TG_OUT, TG_SCNTEMPO };
 static void tempo_out(uint32_t on);
 static void tempo_scene_flag(uint32_t on);
-static uint8_t scn_fx_recall;                   /* SCENE FX: 0 KEEP (a load leaves the DRIVE, COMPRESSOR, GRAIN and
-                                                 * REVERB as they are, their tails ringing), 1 RECALL (scenes.c) */
+enum { SCN_FX_ALWAYS, SCN_FX_SMART, SCN_FX_NEVER };
+static uint8_t scn_fx_mode = SCN_FX_SMART;      /* EFFECTS ON LOAD: does a load set the DRIVE, FILTER, COMPRESSOR, GRAIN
+                                                 * and REVERB (scenes.c scn_apply) */
+static void scn_touch_id(uint32_t id);          /* (scenes.c: the player changed id: the scene edited, its FX theirs) */
 static uint32_t tm_get(uint32_t what);
 /* the globals that are not an effect's: the tempo's and the clock's (tempo.c holds their values) */
 /* and GROOVE's (groove.c: AMOUNT TYPE SHIFT, the values in pv_glob; a lane's PART and CYCLE, idx | PGX_LANE); def: a
@@ -176,8 +181,8 @@ static const p_gx_t PGX[] = {
     {PG_STATUS, "STATUS", 0, F_STATUS, PGX_NODEF}, {PG_RUN, "TRANSPORT", 1, F_RUN, PGX_NODEF},
     {PG_TAP, "TAP", 127, F_NUM, PGX_NODEF}, {PG_CLOCK, "CLOCK", 3, F_ENUM, PGX_NODEF},
     {PG_INUSB, "CLK IN USB", 1, F_ONOFF, PGX_NODEF}, {PG_INTRS, "CLK IN TRS", 1, F_ONOFF, PGX_NODEF},
-    {PG_OUT, "CLK OUT", 1, F_ENUM, PGX_NODEF}, {PG_SCNTEMPO, "SCENE TEMPO", 1, F_ONOFF, PGX_NODEF},
-    {PG_SCNFX, "SCENE FX", 1, F_ENUM, PGX_NODEF}, {PG_COLOR, "COLOR", COLOR_N - 1u, F_ENUM, PGX_NODEF},
+    {PG_OUT, "CLK OUT", 1, F_ENUM, PGX_NODEF}, {PG_SCNTEMPO, "PRESETS CHANGE TEMPO", 1, F_ENUM, PGX_NODEF},
+    {PG_SCNFX, "EFFECTS ON LOAD", 2, F_ENUM, PGX_NODEF}, {PG_COLOR, "COLOR", COLOR_N - 1u, F_ENUM, PGX_NODEF},
     {PG_GRV0, "AMOUNT", 127, F_NUM, TX_GR_AMOUNT_DEF}, {PG_GTYPE, "TYPE", TX_GR_NTYPES - 1u, F_GRV, TX_GR_TYPE_DEF},
     {PG_GSHIFT, "SHIFT", 31, F_NUM, 0}, {PGX_LANE | PL_GPART, "PART", TX_GRP_N - 1, F_ENUM, 0},
     {PGX_LANE | PL_GCYC, "CYCLE", 8, F_GRV, 0},
@@ -384,7 +389,7 @@ static const char *const *p_names(uint32_t id)
     if (i == PG_DRIVE0 + TX_DR_TYPE) return N_DRIVE;
     if (i == PG_MF0 + TX_MF_SLOPE) return N_SLOPE;
     if (i == PG_GD(TX_GD_IVL)) return N_IVL;
-    return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : i == PG_CLOCK ? N_CLOCK : i == PG_OUT ? N_CLKOUT : i == PG_SCNFX ? N_SCNFX : i == PG_COLOR ? COLOR_NAME : N_SHIFT;
+    return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : i == PG_CLOCK ? N_CLOCK : i == PG_OUT ? N_CLKOUT : i == PG_SCNFX ? N_SCNFX : i == PG_SCNTEMPO ? N_NOYES : i == PG_COLOR ? COLOR_NAME : N_SHIFT;
 }
 static int32_t p_get(uint32_t id)
 {
@@ -401,7 +406,7 @@ static int32_t p_get(uint32_t id)
         case PG_INTRS: return (int32_t)tm_get(TG_INTRS);
         case PG_OUT: return (int32_t)tm_get(TG_OUT);
         case PG_SCNTEMPO: return (int32_t)tm_get(TG_SCNTEMPO);
-        case PG_SCNFX: return scn_fx_recall;
+        case PG_SCNFX: return scn_fx_mode;
         case PG_COLOR: return p_color;
         }
         return i <= PG_GSHIFT ? pv_glob[i] : 0;
@@ -437,7 +442,7 @@ static void p_set(uint32_t id, int32_t v)
         case PG_INTRS: tempo_port(2, v); break;
         case PG_OUT: tempo_out((uint32_t)v); break;
         case PG_SCNTEMPO: tempo_scene_flag((uint32_t)v); break;
-        case PG_SCNFX: scn_fx_recall = (uint8_t)(v != 0); break;
+        case PG_SCNFX: scn_fx_mode = (uint8_t)v; break;
         case PG_COLOR: color_apply((uint32_t)v); break;
         default: pv_glob[i] = (uint8_t)v;       /* (GROOVE's; STATUS, read only, never read from it) */
         }
@@ -585,7 +590,7 @@ static int32_t p_scale7(uint32_t id, uint32_t v)
 }
 static struct { uint8_t msb[5], lsb[5], on[5]; } p_nrpn;
 static uint32_t p_touched;                      /* (the screen: a parameter MIDI changed, id + 1) */
-static void p_midi_set(uint32_t id, int32_t v) { if (p_valid(id)) { p_set(id, v); p_touched = id + 1u; } }
+static void p_midi_set(uint32_t id, int32_t v) { if (p_valid(id)) { scn_touch_id(id); p_set(id, v); p_touched = id + 1u; } }
 /* a control change on channel ch (0-based): 1 if it was one of ours */
 static int p_cc(uint32_t ch, uint32_t cc, uint32_t v)
 {

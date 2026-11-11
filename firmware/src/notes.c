@@ -63,6 +63,7 @@ static void nt_mode_set(uint32_t m)
 }
 static void nt_oct_step(int32_t d) { int32_t o = nt.oct + d; nt.oct = (int8_t)(o < -2 ? -2 : o > 2 ? 2 : o); }
 
+static void scn_touch(void);
 static void nt_landscape_key(uint32_t k)
 {
     uint32_t n;
@@ -73,6 +74,7 @@ static void nt_landscape_key(uint32_t k)
         return;
     }
     if (sc.snd[sc.sel] < 0) return;
+    scn_touch();                                /* (the scene edited: scenes.c) */
     if (n < LS_NCNT) sc_count(sc.sel, n);
     else if (n - LS_NCNT < LS_NACT) sc_step(sc.sel, sc_act_step(n - LS_NCNT));
 }

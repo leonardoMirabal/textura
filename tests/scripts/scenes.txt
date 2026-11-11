@@ -95,7 +95,7 @@
 8400 btn 7
 8420 turn 0 1
 8440 turn 2 1
-8460 expect state card0 ON
+8460 expect state card0 YES
 8500 midi 0xC0 102 0
 9100 expect state bpm10 1000
 9100 expect preset

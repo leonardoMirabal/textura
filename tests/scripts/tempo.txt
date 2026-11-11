@@ -63,8 +63,8 @@
 5800 btn 7
 5810 turn 0 1
 5815 expect state page TEMPO_2/2
-5815 expect state lab0 SCENE_TEMPO
-5815 expect state card0 OFF
+5815 expect state lab0 PRESETS_CHANGE_TEMPO
+5815 expect state card0 NO
 5820 btn 7
 5825 expect state page GROOVE_1/2
 5830 btn 7

@@ -25,5 +25,5 @@
 3020 turn 0 1
 3040 turn 2 1
 3060 expect state page TEMPO_2/2
-3060 expect state card0 ON
+3060 expect state card0 YES
 6000 end

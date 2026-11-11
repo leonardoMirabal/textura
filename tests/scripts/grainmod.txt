@@ -1,7 +1,7 @@
 # the GRAIN delay's animation (FX four times: DRIVE, FILTER, COMPRESSOR, GRAIN; page 2/4): MOD (0: the plain delay,
 # its defaults untouched), MOD RATE, INTERVALS (5TH+OCT by default); CC 81 82 83 on channel 5; MOD up: its amount glides
 # in (gdmod 32766 at 127), the time drifts (gdwow 1); MOD 0: back to the plain delay (gdmod 0, gdwow 0); GRAIN MOD on the
-# matrix; a scene stores it; SCENE FX KEEP leaves it, RECALL sets it
+# matrix; a scene stores it; EFFECTS ON LOAD at SMART leaves it once turned, ALWAYS sets it
 1700 btn 13
 1800 expect state run0 1
 1900 midi 0xB4 102 90
@@ -63,17 +63,17 @@
 5200 btn 9
 5800 expect state saving 0
 5900 midi 0xB4 81 0
-# KEEP (the default): U01 loads, MOD stays 0
+# SMART (the default), the effects turned: U01 loads, MOD stays 0
 6000 midi 0xC0 100 0
 6600 expect state loading 0
 6600 expect state p40D 0
 6600 expect preset
-# RECALL (GLO, SELECT: TEMPO 2/2, K2): U01 brings MOD 100 back; F001 the default (0)
+# ALWAYS (GLO, SELECT: TEMPO 2/2, K2): U01 brings MOD 100 back; F001 the default (0)
 6700 btn 7
 6720 turn 0 1
 6740 expect state page TEMPO_2/2
-6760 turn 3 1
-6780 expect state p426 1
+6760 turn 3 -1
+6780 expect state p426 0
 6800 midi 0xC0 100 0
 7400 expect state loading 0
 7400 expect state p40D 100
@@ -82,7 +82,7 @@
 8100 expect state loading 0
 8100 expect state p40D 0
 8100 expect preset
-8200 turn 3 -1
-8220 expect state p426 0
+8200 turn 3 1
+8220 expect state p426 1
 8300 expect state dropped 0
 8400 end

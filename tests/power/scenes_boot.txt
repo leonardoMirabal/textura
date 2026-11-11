@@ -16,6 +16,6 @@
 1865 btn 7
 1870 turn 0 1
 1880 expect state page TEMPO_2/2
-1880 expect state card0 ON
+1880 expect state card0 YES
 1900 expect sound
 2000 end

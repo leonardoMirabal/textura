@@ -7,15 +7,19 @@
  * envelopes, the followers, the matrix and the GROOVE (AMOUNT, TYPE, SHIFT, each lane's PART and CYCLE) the values
  * away from their defaults (scn_def_*). A load sets every one of those to its default first,
  * then the scene's records over them, so a record of an older firmware loads into a newer one (an id it lacks gets
- * its default; ids never change, params.c). The tempo is set only with SCENE TEMPO on (tempo.c), and the mix's
- * effects (DRIVE, FILTER, COMPRESSOR, GRAIN, REVERB) only with SCENE FX at RECALL (and by the boot's load): at KEEP, the
- * default, a load leaves them as they are and their tails ring on (a save always keeps them). A scene saved with
+ * its default; ids never change, params.c). The tempo is set only with PRESETS CHANGE TEMPO at YES (tempo.c). The
+ * mix's effects (DRIVE, FILTER, COMPRESSOR, GRAIN, REVERB) follow EFFECTS ON LOAD: ALWAYS a load sets them; SMART (the
+ * default) it sets them unless the player turned one since the last load that set them (scn_fx_mine: then they stay,
+ * the screen says FX: YOURS, and a load asked with its effects, scn_fx_force, still sets them); NEVER they stay. The
+ * boot's load sets them always. Set, their amounts glide SCN_GLIDE_MS like the cards (scn_put), so nothing steps and
+ * the delay's and the reverb's tails ring on (a save always keeps them). A scene saved with
  * a DRIVE on each lane (ids 32 .. 35 of a lane, retired) loads that onto the mix's one DRIVE: the lane with the most
  * AMOUNT gives its AMOUNT, TONE, MIX and TYPE (the first such lane on a tie; none above 0: the DRIVE stays off). A
  * lane's FILTER (ids 36 .. 41 of a lane, retired: the mix has one FILTER) and a matrix route onto it are skipped.
  *
  *   factory   F001 .. F100: the factory presets (presets.c: four lanes of any families, their levels balanced,
- *             a touch of reverb or echo that comes with SCENE FX RECALL), the modulation at its defaults
+ *             a touch of reverb or echo that comes with the load as EFFECTS ON LOAD says), the modulation at its
+ *             defaults
  *   user      U01 .. U16, in a bank of two copies written alternately (Frodhes' presets.c scheme): the older copy
  *             erased, the records written, the header last; the valid copy with the higher sequence loads, so a save
  *             cut short never loses the bank. Only the names stay in RAM; a record is read when it loads.
@@ -62,7 +66,7 @@
 #define SCN_GLIDE_TICK 10u
 #define SCN_CARDS_MS 24u                        /* a switched lane: its cards this long after its switch (its hosted
                                                  * engine in) */
-#define SCN_GL_N 48u                            /* (glides at once: 4 lanes' cards) */
+#define SCN_GL_N 80u                            /* (glides at once: 4 lanes' cards, the effects' amounts) */
 #define SCN_UNDO_MS 700u
 #define SET_SAVE_MS 2000u
 #define SET_VER 1u
@@ -123,7 +127,12 @@ static uint16_t scn_ap_i, scn_ap_d;            /* the next record; the next defa
 static uint32_t scn_ap_t;
 static uint8_t scn_ap_idx = 0xFF;
 static uint8_t scn_ap_drv;                      /* an older scene's lane whose DRIVE becomes the mix's (0xFF: none) */
-static uint8_t scn_ap_fx, scn_fx_boot;          /* this load sets the mix's effects (SCENE FX RECALL, the boot) */
+static uint8_t scn_ap_fx, scn_fx_boot;          /* this load sets the mix's effects (EFFECTS ON LOAD, the boot) */
+static uint8_t scn_fx_mine;                     /* the player turned an effect since the last load that set them
+                                                 * (SMART: the next load keeps them, FX: YOURS) */
+static uint8_t scn_fx_force;                    /* the next load sets the effects whatever EFFECTS ON LOAD says */
+static uint8_t scn_edited;                      /* the player changed what plays since the last load or save (the
+                                                 * header's "*") */
 static struct { uint16_t id, t0; int16_t from, to; } scn_gl[SCN_GL_N];   /* the glides (scn_put): t0, ms mod 2^16 */
 static uint8_t scn_gl_n;
 static uint8_t scn_ap_sw, scn_ap_cd;            /* this load's switched lanes (bit k); those whose cards are set */
@@ -281,14 +290,22 @@ static void scn_factory(scn_t *s, uint32_t i)
     for (k = 0; k < PR_FX_NP; k++) scn_add_nd(s, PID(P_GLOBAL, FX_ID[k]), PR_FX[fx][k]);
 }
 
-/* ---- the glides: a load sets a lane's numbers (its cards) over SCN_GLIDE_MS, from
- * what they are to the scene's, so a lane that goes on playing never steps; the choices (a TYPE, a SHAPE, a card of
- * under 16 values) and everything else are set at once */
+/* ---- the glides: a load sets a lane's numbers (its cards) and the effects' amounts over SCN_GLIDE_MS, from
+ * what they are to the scene's, so a lane that goes on playing never steps and an effect's tail rings on; the choices
+ * (a TYPE, a SHAPE, a card of under 16 values), the delay's TIME (its line glides there itself) and everything else
+ * are set at once */
+static int scn_fx_id(uint32_t id);
+static int scn_glides(uint32_t id)              /* an id a load glides to its value */
+{
+    if (p_fmt(id) == F_ENUM || p_hi(id) < 16) return 0;
+    if (P_SCOPE(id) < SC_N) return P_IDX(id) >= PL_CARD0;
+    return P_SCOPE(id) == P_GLOBAL && scn_fx_id(id) && P_IDX(id) != PG_GRAIN0 + TX_GD_TIME;
+}
 static void scn_put(uint32_t id, int32_t v)
 {
     uint32_t i;
     int32_t f;
-    if (P_SCOPE(id) >= SC_N || P_IDX(id) < PL_CARD0 || p_fmt(id) == F_ENUM || p_hi(id) < 16 || (f = p_get(id)) == v) {
+    if (!scn_glides(id) || (f = p_get(id)) == v) {
         p_set(id, v);
         return;
     }
@@ -381,23 +398,39 @@ static void scn_lanes(const scn_t *s)
     }
     if (sc.sel >= SC_N || sc.snd[sc.sel] < 0) sc.sel = 0;
 }
+static void scn_fx_early(const scn_t *s);
 static void scn_apply(const scn_t *s, uint32_t idx)
 {
     uint32_t i, best = 0;
     scn_ap = s; scn_ap_idx = (uint8_t)idx;
-    scn_ap_fx = (uint8_t)(scn_fx_recall || scn_fx_boot);
+    scn_ap_fx = (uint8_t)(scn_fx_boot || scn_fx_force || scn_fx_mode == SCN_FX_ALWAYS || (scn_fx_mode == SCN_FX_SMART && !scn_fx_mine));
+    if (scn_ap_fx) scn_fx_mine = 0;             /* (the effects the scene's again) */
+    scn_fx_force = 0;
     scn_ap_drv = 0xFF;                          /* (a lane DRIVE's records, retired: the most AMOUNT's go to the mix's) */
     for (i = 0; i < s->nrec; i++)
         if (P_SCOPE(s->r[i].id) < SC_N && P_IDX(s->r[i].id) == PL_ODRIVE0 + TX_DR_AMOUNT && s->r[i].v > (int32_t)best) {
             best = (uint32_t)s->r[i].v; scn_ap_drv = (uint8_t)P_SCOPE(s->r[i].id);
         }
     scn_ap_sw = scn_ap_cd = 0;
+    if (scn_ap_fx) scn_fx_early(s);
     scn_lanes(s);
     scn_ap_stage = 1; scn_ap_t = fm1_ms; scn_ap_i = 0; scn_ap_d = 0;
 }
 static int scn_busy(void) { return scn_ap_stage != 0; }
+/* the mix's effects, set as the load starts (not after its lanes' engines are in: they glide while the lanes switch,
+ * so the place changes as one): the defaults the scene has no record of, then its records */
+static void scn_fx_early(const scn_t *s)
+{
+    uint32_t i;
+    for (i = 0; i < SCN_DEF_N; i++) {
+        uint32_t id = scn_def_id(i);
+        if (P_SCOPE(id) == P_GLOBAL && scn_fx_id(id) && scn_rec_of(s, id) < 0) scn_put(id, scn_def_of(id));
+    }
+    for (i = 0; i < s->nrec; i++)
+        if (P_SCOPE(s->r[i].id) == P_GLOBAL && scn_fx_id(s->r[i].id) && p_valid(s->r[i].id)) scn_put(s->r[i].id, s->r[i].v);
+}
 /* the mix's effects: the DRIVE, its FILTER, the COMPRESSOR, the GRAIN delay (and its SYNC), the REVERB, and a retired lane DRIVE's
- * records. SCENE FX KEEP: a load leaves them as they are (their tails ring on); RECALL, or the boot's load: set */
+ * records. A load sets them or leaves them as they are (their tails ring on) as EFFECTS ON LOAD says (scn_apply) */
 static int scn_fx_id(uint32_t id)
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
@@ -405,6 +438,16 @@ static int scn_fx_id(uint32_t id)
     if (s != P_GLOBAL) return 0;
     return i < PG_COMP0 + TX_CP_NP || (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP) || (i >= PG_MF0 && i < PG_MF0 + TX_MF_NP);
 }
+/* the player changed id (a knob, MIDI, the web): the scene edited ("*"), unless it is a setting (the tempo, the clock,
+ * the screen: no scene keeps them); an effect: the effects theirs (SMART keeps them) */
+static void scn_touch_id(uint32_t id)
+{
+    const p_gx_t *g = p_gx(id);
+    if (g && g->def == PGX_NODEF) return;
+    scn_edited = 1;
+    if (scn_fx_id(id)) scn_fx_mine = 1;
+}
+static void scn_touch(void) { scn_edited = 1; }   /* (a lane's volume, sound, HOW MANY, mute ...) */
 /* a switched lane's cards, as soon as its fresh engine is in: set at once, before it is heard much (the others'
  * glide, stage 2) */
 static void scn_apply_cards(void)
@@ -437,13 +480,14 @@ static void scn_apply_poll(void)
     while (scn_ap_d < SCN_DEF_N && n < SCN_SLICE && ln.qw - ln.qr < LN_QN / 2u) {   /* the defaults the scene has no
                                                          * record of (theirs come next: no value set twice) */
         uint32_t id = scn_def_id(scn_ap_d++);
-        if (!scn_ap_fx && scn_fx_id(id)) continue;
+        if (scn_fx_id(id)) continue;            /* (the effects: set as the load started, or kept) */
         if (scn_rec_of(scn_ap, id) < 0) { scn_put(id, scn_def_of(id)); n++; }
     }
     while (scn_ap_d >= SCN_DEF_N && scn_ap_i < scn_ap->nrec && n < SCN_SLICE && ln.qw - ln.qr < LN_QN / 2u) {
         const scn_rec_t *r = &scn_ap->r[scn_ap_i++];
         uint32_t rs = P_SCOPE(r->id), ri = P_IDX(r->id);
-        if (!scn_ap_fx && scn_fx_id(r->id)) continue;
+        if (scn_fx_id(r->id) && (rs == P_GLOBAL || !scn_ap_fx)) continue;   /* (set as the load started, or kept;
+                                                 * a lane's DRIVE, retired: below) */
         if (rs == P_GLOBAL && ri == PG_FINE) { if (tm.scn_tempo) tempo_set10((uint32_t)(r->v + 400)); }
         else if (rs < SC_N && ri >= PL_ODRIVE0 && ri < PL_ODRIVE0 + TX_DR_NP) {   /* (a lane's DRIVE, retired) */
             if (rs == scn_ap_drv) p_set(PID(P_GLOBAL, PG_DRIVE0 + ri - PL_ODRIVE0), r->v);
@@ -461,6 +505,7 @@ static void scn_apply_poll(void)
                                                      * queue: the next pass) */
         scn_ap_stage = 0;
         scn_cur = scn_ap_idx;
+        scn_edited = 0;
         ui_all();
     }
 }
@@ -590,6 +635,7 @@ static void scn_save_poll(void)                 /* a step a pass: a sector erase
         scn_meta[scn_sv_slot].used = 1; scn_meta[scn_sv_slot].fam = scn_sv.fam;
         memcpy(scn_meta[scn_sv_slot].name, scn_sv.name, 12);
         scn_cur = (uint8_t)(SCN_NF + scn_sv_slot);
+        scn_edited = 0;
         p_strcpy(m, "SAVED ", 19);
         { char n[20]; scn_name_of(scn_cur, n); p_cat(m, n, 19); }
         ui_say(m);
@@ -687,7 +733,11 @@ static void scn_pc(uint32_t p)                  /* MIDI program change (channel 
 /* ---- the settings: one small record, saved SET_SAVE_MS after its last change (the platform's split save) */
 typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, scn_tempo, out_off; uint16_t bpm10; uint8_t scn_fx, layout; } tx_set_t;
                                                 /* (scn_tempo, out_off, palette, scn_fx, layout: once spare bytes, 0 = as
-                                                 * before: off, USB, RED, KEEP, the scenes before the presets) */
+                                                 * before: off, USB, RED, SMART, the scenes before the presets. scn_fx: 0
+                                                 * SMART, 1 ALWAYS, 2 NEVER: the KEEP and RECALL of before read as SMART
+                                                 * and ALWAYS) */
+static uint8_t set_fx_of(uint32_t m) { return (uint8_t)(m == SCN_FX_ALWAYS ? 1u : m == SCN_FX_NEVER ? 2u : 0u); }
+static uint8_t set_fx_mode(uint32_t b) { return (uint8_t)(b == 1u ? SCN_FX_ALWAYS : b == 2u ? SCN_FX_NEVER : SCN_FX_SMART); }
 static tx_set_t set_saved, set_now;
 static uint8_t set_dirty, set_saving;
 static uint32_t set_t;
@@ -696,7 +746,7 @@ static void set_take(tx_set_t *s)
     memset(s, 0, sizeof *s);
     s->ver = SET_VER; s->scene = (uint8_t)(scn_cur == 0xFF ? 0u : scn_cur + 1u);
     s->clock = (uint8_t)tm.clock; s->in_usb = tm.in_usb; s->in_trs = tm.in_trs; s->bpm10 = (uint16_t)tempo_bpm10();
-    s->scn_tempo = tm.scn_tempo; s->out_off = (uint8_t)!tm.out_usb; s->palette = p_color; s->scn_fx = scn_fx_recall;
+    s->scn_tempo = tm.scn_tempo; s->out_off = (uint8_t)!tm.out_usb; s->palette = p_color; s->scn_fx = set_fx_of(scn_fx_mode);
     s->layout = SET_LAYOUT;
 }
 static void set_poll(void)
@@ -726,7 +776,7 @@ static void scn_init(void)
     scn_bank_load();
     if (!settings_load(&s, sizeof s) && s.ver == SET_VER) {
         tempo_mode(s.clock); tempo_port(1, s.in_usb); tempo_port(2, s.in_trs);
-        tempo_scene_flag(s.scn_tempo); tempo_out(!s.out_off); color_apply(s.palette); scn_fx_recall = (uint8_t)(s.scn_fx != 0);
+        tempo_scene_flag(s.scn_tempo); tempo_out(!s.out_off); color_apply(s.palette); scn_fx_mode = set_fx_mode(s.scn_fx);
         if (s.bpm10 >= 400u && s.bpm10 <= 2400u) tempo_set10(s.bpm10);
         set_saved = s;                          /* (an old layout: saved again in the new one, set_poll) */
         scn_fx_boot = 1;                        /* (the boot's load: its effects too, nothing plays to keep) */

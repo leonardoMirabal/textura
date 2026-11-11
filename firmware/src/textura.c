@@ -265,6 +265,7 @@ static int host_preset_check(char *msg, unsigned n)   /* 0 if what plays is the 
     const scn_t *s = scn_ap;
     uint32_t k, i, j;
     if (scn_cur == 0xFF || !s || scn_busy()) { snprintf(msg, n, "%s", scn_busy() ? "a scene still loading" : "no scene loaded"); return scn_busy(); }
+    if (scn_gl_n) { snprintf(msg, n, "%u values still gliding", scn_gl_n); return 1; }
     scn_capture(&now);
     if (now.fam != s->fam) { snprintf(msg, n, "landscape %u, not %u", now.fam, s->fam); return 1; }
     for (k = 0; k < SC_N; k++)
@@ -278,7 +279,7 @@ static int host_preset_check(char *msg, unsigned n)   /* 0 if what plays is the 
                                                  * recorded is its default; the tempo: with SCENE TEMPO on) */
         int32_t v;
         if (P_SCOPE(s->r[i].id) == P_GLOBAL && P_IDX(s->r[i].id) == PG_FINE && !tm.scn_tempo) continue;
-        if (!scn_ap_fx && scn_fx_id(s->r[i].id)) continue;   /* (SCENE FX KEEP: the effects as they were) */
+        if (!scn_ap_fx && scn_fx_id(s->r[i].id)) continue;   /* (the effects kept: as they were) */
         for (j = 0; j < now.nrec && now.r[j].id != s->r[i].id; j++) {}
         v = j < now.nrec ? now.r[j].v : scn_def_of(s->r[i].id);
         if (v != s->r[i].v) { snprintf(msg, n, "id 0x%03X: %d, not %d", s->r[i].id, v, s->r[i].v); return 1; }
@@ -381,6 +382,8 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "gsync")) snprintf(v, n, "%u", tm.gsync_smp);          /* the grain delay's echo, samples */
     else if (!strcmp(key, "scene")) { char t[20]; if (scn_cur == 0xFF) snprintf(v, n, "-"); else { scn_name_of(scn_cur, t); snprintf(v, n, "%s", t); } }
     else if (!strcmp(key, "loading")) snprintf(v, n, "%u", scn_busy());
+    else if (!strcmp(key, "fxmine")) snprintf(v, n, "%u", scn_fx_mine);   /* the player turned an effect (SMART keeps them) */
+    else if (!strcmp(key, "edited")) snprintf(v, n, "%u", scn_edited);    /* what plays changed since the load (the "*") */
 #ifndef DINGHY_WEB                                      /* (the web has no tests/host.c sound) */
     else if (!strcmp(key, "clips") || !strcmp(key, "heard")) {   /* samples at full scale so far; something over -60 dBFS
                                                          * in the last 3 s (tests/host.c's sound; presets.txt) */
