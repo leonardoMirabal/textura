@@ -563,9 +563,11 @@ static double rev_size1(unsigned ty, unsigned z0, unsigned z1)
 static void rev_size(void)
 {
     printf("REVERB SIZE steps under a held chord: the largest second difference in the 1.2 s after a step re the held: "
-           "HALL AUTO <-> 1 %.2f, HALL 40 <-> 41 %.2f, PLATE AUTO <-> 1 %.2f, PLATE 64 <-> 70 %.2f\n",
+           "HALL AUTO <-> 1 %.2f, HALL 40 <-> 41 %.2f, PLATE AUTO <-> 1 %.2f, PLATE 64 <-> 70 %.2f, INFINITE 64 <-> 70 "
+           "%.2f, INFINITE 90 <-> 30 %.2f (no change: INFINITE 64 <-> 64 %.2f)\n",
            rev_size1(TX_RVT_HALL, 0, 1), rev_size1(TX_RVT_HALL, 40, 41), rev_size1(TX_RVT_PLATE, 0, 1),
-           rev_size1(TX_RVT_PLATE, 64, 70));
+           rev_size1(TX_RVT_PLATE, 64, 70), rev_size1(TX_RVT_INF, 64, 70), rev_size1(TX_RVT_INF, 90, 30),
+           rev_size1(TX_RVT_INF, 64, 64));
 }
 
 int main(int argc, char **argv)
