@@ -15,7 +15,8 @@
  *              grain delay gives; MIX on DRIVE, GRAIN, REVERB reads DRY..WET), LFO 1/3 .. 3/3,
  *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, TEMPO 1/2 2/2, GROOVE 1/2 2/2
  *              (AMOUNT TYPE SHIFT and the selected lane's PART; its CYCLE), MIDI, DISPLAY (COLOR: the screen's palette)
- *   ALGORITHM  LANDSCAPE: the landscape (loaded 300 ms after the last detent); SOUND: opens the sound browser; DRIVE: its
+ *   ALGORITHM  LANDSCAPE: picks a landscape (the footer names it: EDIT loads it, HOME keeps what plays; a turn never
+ *              loads); SOUND: opens the sound browser; DRIVE: its
  *              TYPE; FILTER: its SLOPE; COMPRESSOR: COMP (up on, down off); GRAIN: FREEZE (up on, down
  *              off); REVERB: its type; LFO: which (1..8); ENV:
  *              which (ENV 1, ENV 2, FOLLOW 1, FOLLOW 2); MATRIX: which slot (1..16); GROOVE: its TYPE
@@ -203,6 +204,13 @@ static void ui_say_n(const char *s, int32_t v)  /* "HOW MANY 4" */
     ui_say(t);
 }
 static void ft_c(int32_t yc, const char *s, uint16_t c) { aa_text_c(0, S_TOP(yc), 240, &AF_S, s, c, FC_BG); }
+static void ft_two(int32_t yc, const char *a, const char *b, uint16_t c)   /* "A . B", centred */
+{
+    int32_t x = (240 - aa_text_w(&AF_S, a) - 9 - aa_text_w(&AF_S, b)) / 2;
+    x = aa_text(x, S_TOP(yc), &AF_S, a, c, FC_BG);
+    cv_rect(x + 3, yc - 1, 2, 2, FC_DIM);
+    aa_text(x + 9, S_TOP(yc), &AF_S, b, c, FC_BG);
+}
 static void ft_big(int32_t yc, const char *s, uint16_t c) { aa_text_c(0, L_TOP(yc), 240, &AF_L, s, c, FC_BG); }
 /* a name cut to w px */
 static void ui_fit(char *s, int32_t w)
@@ -262,8 +270,8 @@ static void ui_env_name(char *l)                /* "ENV 2", "FOLLOW 1" */
     p_strcpy(l, ui_env < TX_ENV_N ? "ENV " : "FOLLOW ", 7);
     { char n[2] = {(char)('1' + (ui_env < TX_ENV_N ? ui_env : ui_env - TX_ENV_N)), 0}; p_cat(l, n, 11); }
 }
-/* ---- header: the landscape (the one ALGORITHM is turning to); on a lane's pages the lane and its sound; the key
- * mode at the right */
+/* ---- header: the preset that plays, its family first, "*" once edited (scn_edited); on a lane's pages the lane and
+ * its sound; LFO, ENV, MATRIX: which one; the key mode, the tempo and the battery at the right */
 /* ---- the battery (Frodhes' ui.c, cfabf632): the FM-1's PB1 divider on ADC ch3 (hal/fm1_adc.h), read from the main
  * loop every BATT_POLL_MS, smoothed over ~10 s, shown as 3 segments in the header with a hysteresis so it never
  * flickers between two; USB power: a bolt. PROVISIONAL thresholds: the stock firmware's (531 / 561 / 591) */
@@ -300,7 +308,7 @@ static void batt_poll(void)
     if (batt_seen == 0xFF) batt_lvl = (uint8_t)l;   /* the first reading: at once */
     else if (l > batt_lvl && r >= BATT_T[l - 1u] + BATT_HYST) batt_lvl = (uint8_t)l;
     else if (l < batt_lvl && r < BATT_T[batt_lvl - 1u] - BATT_HYST) batt_lvl = (uint8_t)l;
-    if (batt_shown() != batt_seen) { batt_seen = (uint8_t)batt_shown(); ui_mark(E_HEADER); }
+    if (batt_shown() != batt_seen) { batt_seen = (uint8_t)batt_shown(); ui_mark(E_HEADER); ui_mark(E_TITLE); }
 }
 /* the icon, 18 x 9 at (x, y): a body with a tip, three segments, or a bolt on USB power */
 static void batt_icon(int32_t x, int32_t y, uint16_t ink, uint16_t hi, uint16_t bg)
@@ -325,21 +333,43 @@ static void ui_bpm_text(char *b)                /* "120.0" */
     p_fmt_int(b, (int32_t)(t / 10u)); p_cat(b, d, 7);
 }
 
-static void draw_header(void)
+/* what plays: the preset's family and its name ("COAST", "F034 HARBOUR NIGHT"; a load under way: the one coming),
+ * 1; none loaded: "LANDSCAPE" and the landscape's name, 0 */
+static int ui_preset_of(char *fam, char *nm)
 {
-    char nm[32], m[12];
-    int32_t x = 230;
-    cv_begin(240, HD_H, FC_BG);
-    batt_icon(230 - 17, 6, FC_LAB, FC_VAL, FC_BG);   /* right to left: the battery, the tempo, PLAY / the octave */
+    uint32_t q = scn_busy() ? scn_ap_idx : scn_cur;
+    if (q >= SCN_N) { p_strcpy(fam, "LANDSCAPE", 15); p_upper(nm, LS[sc.fam].name, 20); return 0; }
+    p_strcpy(fam, q < SCN_NF ? pr_cat_name(pr_cat_of(q)) : "USER", 15);
+    scn_name_of(q, nm);
+    return 1;
+}
+/* right to left on the line's canvas: the battery, the tempo, PLAY / the octave; their left edge (before the canvas:
+ * the edge alone) */
+static int32_t ui_status_at(int draw)
+{
+    char m[12];
+    int32_t x = 230 - 17 - 6;
+    if (draw) batt_icon(230 - 17, 6, FC_LAB, FC_VAL, FC_BG);
     ui_bpm_text(m);
-    x = 230 - 17 - 6 - aa_text_w(&AF_S, m);
-    aa_text(x, S_TOP(10), &AF_S, m, FC_LAB, FC_BG);
+    x -= aa_text_w(&AF_S, m);
+    if (draw) aa_text(x, S_TOP(10), &AF_S, m, FC_LAB, FC_BG);
     x -= 6;
     if (nt.mode == NT_PLAY) {
         p_strcpy(m, "PLAY", 5);
         if (nt.oct) { char o[4] = {' ', nt.oct < 0 ? '-' : '+', (char)('0' + (nt.oct < 0 ? -nt.oct : nt.oct)), 0}; p_cat(m, o, 11); }
-        x -= aa_text_w(&AF_S, m); aa_text(x, S_TOP(10), &AF_S, m, UI_ACC, FC_BG); x -= 6;
+        x -= aa_text_w(&AF_S, m);
+        if (draw) aa_text(x, S_TOP(10), &AF_S, m, UI_ACC, FC_BG);
+        x -= 6;
     }
+    return x;
+}
+static int32_t ui_status(void) { return ui_status_at(0); }
+static void draw_header(void)
+{
+    char nm[32];
+    int32_t x = ui_g == G_LAND ? 230 : ui_status();   /* (the home page: its title line has them) */
+    cv_begin(240, HD_H, FC_BG);
+    if (ui_g != G_LAND) (void)ui_status_at(1);
     if (ui_g == G_LFO || ui_g == G_MATRIX || ui_g == G_ENV) {   /* "LFO 3  SMOOTH", "SLOT 4  LFO 1 > L2 SIZE", "ENV 1  KEY" */
         char l[12], t[24];
         int32_t xl;
@@ -361,10 +391,15 @@ static void draw_header(void)
         p_upper(nm, sc.snd[sc.sel] >= 0 ? sc_sound_name(sc.sel) : "-", 30);
         ui_fit(nm, x - xl - 4);
         aa_text(xl, S_TOP(10), &AF_S, nm, FC_VAL, FC_BG);
-    } else {
-        p_upper(nm, LS[sc.fam_want].name, 20);
-        ui_fit(nm, x - 14);
-        aa_text(10, S_TOP(10), &AF_S, nm, sc.fam_pend ? FC_VAL : FC_LAB, FC_BG);
+    } else {                                    /* the home page: "COAST . F034 HARBOUR NIGHT*" (none loaded:
+                                                 * "LANDSCAPE . WATER"); the others: "F034 HARBOUR NIGHT*" */
+        char fam[16];
+        int32_t xl = 10;
+        (void)ui_preset_of(fam, nm);
+        if (ui_g == G_LAND) { xl = aa_text(10, S_TOP(10), &AF_S, fam, FC_LAB, FC_BG) + 4; cv_rect(xl, 9, 2, 2, FC_LAB); xl += 6; }
+        ui_fit(nm, x - xl - 4 - (scn_edited ? aa_text_w(&AF_S, "*") : 0));
+        if (scn_edited) p_cat(nm, "*", 31);
+        aa_text(xl, S_TOP(10), &AF_S, nm, FC_VAL, FC_BG);
     }
     cv_blit(0, 0);
 }
@@ -373,6 +408,7 @@ static void ui_frac(char *t, uint32_t a, uint32_t b)   /* "a/b" */
     char n[4];
     p_fmt_int(t, (int32_t)a); p_cat(t, "/", 11); p_fmt_int(n, (int32_t)b); p_cat(t, n, 11);
 }
+static int ui_fx_yours(void) { return scn_fx_mine && scn_fx_mode == SCN_FX_SMART; }   /* (SMART: the next load keeps them) */
 static void draw_title(void)
 {
     char t[12];
@@ -395,6 +431,13 @@ static void draw_title(void)
     x = aa_text(10, S_TOP(10), &AF_S, ui_g == G_ENV && ui_env >= TX_ENV_N ? "FOLLOW" : ui_g == G_LAND ? "TEXTURA"
                 : G_TITLE[ui_g], UI_ACC, FC_BG);   /* (the home page shows TEXTURA, as Frodhes' main page FRODHES; its
                                                  * name stays LANDSCAPE for the host / web API) */
+    if (ui_g == G_LAND) {                       /* (no page count; the battery, the tempo, PLAY at the right, the
+                                                 * header holding the preset's name; FX: YOURS between, room kept) */
+        int32_t xr = ui_status_at(1);
+        if (ui_fx_yours() && x + 10 + aa_text_w(&AF_S, "FX: YOURS") < xr) aa_text(x + 10, S_TOP(10), &AF_S, "FX: YOURS", FC_VAL, FC_BG);
+        cv_blit(0, TI_Y);
+        return;
+    }
     if (ui_g == G_MIX) x = aa_text(x + 5, S_TOP(10), &AF_S, ui_sub ? "PAN" : "VOLUME", FC_VAL, FC_BG);   /* (not 1/2) */
     else if (n > 1u) { ui_frac(t, ui_sub + 1u, n); x = aa_text(x + 5, S_TOP(10), &AF_S, t, FC_VAL, FC_BG); }
     ui_frac(t, ui_g + 1u, G_N);
@@ -402,12 +445,16 @@ static void draw_title(void)
     cv_blit(0, TI_Y);
 }
 
-/* ---- LANDSCAPE (the home page, titled TEXTURA): a card per lane, as the other pages' K1..K4. Its fill: the lane's
- * volume (dimmer while stopped). Top: the K tag, then OFF (stopped) or HOW MANY (6 blocks) and HOW ACTIVE (8), the
- * volume and the blink dot; below: the sound, large when it fits. The selected lane: its tag in the accent, a frame */
+/* ---- LANDSCAPE (the home page, titled TEXTURA): a card per lane. Its fill: the lane's volume (dimmer while
+ * stopped). Top: LANE n, then OFF (stopped), MUTED, or MANY (HOW MANY, 6 blocks) and ACTIVE (HOW ACTIVE, 9), the blink
+ * dot at the right; below: the sound (large when every one fits), VOL and the volume, and Kn, the knob that turns it,
+ * at the right edge. The selected lane: LANE n in the accent, bold with ">", and a frame. An empty lane says how to
+ * fill it */
 #define ST_DOT_X 214
 #define ST_DOT_Y 6
 #define ST_DOT 8
+#define ST_BLK 4                                /* a meter block's pitch (3 px wide) */
+#define ST_KX ((int32_t)RW_W - 6)               /* Kn's right edge */
 static int ui_blink_on(uint32_t k) { uint32_t p = sc_blink_ms(k); return sc.run[k] && !sc.mute[k] && fm1_ms % p < p / 2u; }   /* (muted: still) */
 static void ui_blink_dot(uint32_t k, int on, int canvas)
 {
@@ -417,8 +464,10 @@ static void ui_blink_dot(uint32_t k, int on, int canvas)
     ui_blink_shown[k] = (uint8_t)on;
 }
 static void cd_edge(int32_t ex, const int16_t *bx, uint32_t nb);
-/* the sounds' names: all four in one size, large only when every one ends 4 px clear of the volume column (its
- * widest value, 127, right-aligned by the dot), so no name changes size with its volume */
+static int32_t ui_home_col(void) { return aa_text_w(&AF_S, "VOL 127") + 8 + aa_text_w(&AF_S, "K4"); }   /* the right
+                                                 * column's width, its widest */
+/* the sounds' names: all four in one size, large only when every one ends 6 px clear of the right column, so no name
+ * changes size with its volume */
 static int ui_home_big(void)
 {
     char nm[32];
@@ -426,52 +475,67 @@ static int ui_home_big(void)
     for (k = 0; k < SC_N; k++) {
         if (sc.snd[k] < 0) continue;
         p_upper(nm, sc_sound_name(k), 30);
-        if (!aa_covers(&AF_L, nm) || 6 + aa_text_w(&AF_L, nm) + 4 > ST_DOT_X - 6 - aa_text_w(&AF_S, "127")) return 0;
+        if (!aa_covers(&AF_L, nm) || 6 + aa_text_w(&AF_L, nm) + 6 > ST_KX - ui_home_col()) return 0;
     }
     return 1;
 }
+static int32_t ui_dot_ov(int32_t x, int32_t yc, uint16_t c) { cv_rect(x + 2, yc - 1, 2, 2, c); return x + 8; }   /* a
+                                                 * separating dot, mid-line */
 static void draw_strip(uint32_t k)
 {
-    char nm[32], t[8], kk[3] = {'K', (char)('1' + k), 0};
+    char nm[32], t[8], l[12], kk[3] = {'K', (char)('1' + k), 0};
     int sel = k == sc.sel, run = sc.run[k], mut = sc.mute[k], lit = run && !mut;   /* (muted: drawn as stopped, MUTED) */
     uint32_t i, c = sc_cnt_of(k), a = ui_lane_act(k), v = sc_vol_of(k);
-    const int32_t base = (int32_t)RW_H - 4;     /* the name's and the level's baseline, under the status line */
-    int32_t x, vw, fw;
+    const int32_t base = (int32_t)RW_H - 4;     /* the name's and the volume's baseline, under the status line */
+    int32_t x, vx, fw;
     int big;
+    uint16_t tag = sel ? UI_ACC : mt.tag;
+    p_strcpy(l, sel ? "LANE 1 >" : "LANE 1", 11); l[5] = (char)('1' + k);
     cv_begin(RW_W, RW_H, C_BLACK);
-    if (sc.snd[k] < 0) {
-        aa_text_ov(6, S_TOP(9), &AF_S, kk, mt.tag);
-        aa_text_ov(6, base - AF_S.asc, &AF_S, "-", FC_DIM);
+    if (sc.snd[k] < 0) {                        /* "LANE 4", "EMPTY . SEQ: PICK A SOUND" */
+        aa_text_ov(6, S_TOP(9), &AF_S, l, tag);
+        x = aa_text_ov(6, base - AF_S.asc, &AF_S, "EMPTY", FC_DIM);
+        aa_text_ov(ui_dot_ov(x, base - AF_S_CAP_H / 2, FC_DIM), base - AF_S.asc, &AF_S, "SEQ: PICK A SOUND", FC_DIM);
+        if (sel) {
+            cv_rect(0, 0, RW_W, 2, mt.frame); cv_rect(0, RW_H - 2, RW_W, 2, mt.frame);
+            cv_rect(0, 0, 2, RW_H, mt.frame); cv_rect(RW_W - 2, 0, 2, RW_H, mt.frame);
+        }
         cv_blit(RW_X, RW_Y0 + RW_DY * k);
         return;
     }
     fw = (int32_t)RW_W * (int32_t)v / 127;      /* the level: the card's fill (dimmer while the lane is off) */
     if (fw > 0) cv_rect(0, 0, fw, RW_H, lit ? mt.fill : cd_shade(mt.fill, 45));
     p_fmt_int(t, (int32_t)v);
-    vw = aa_text_w(&AF_S, t);
+    vx = ST_KX - aa_text_w(&AF_S, "K4") - 8;    /* the volume's right edge */
     big = ui_home_big();
     p_upper(nm, sc_sound_name(k), 30);
-    if (!big) ui_fit(nm, ST_DOT_X - 6 - aa_text_w(&AF_S, "127") - 4);
-    if (fw > 2 && lit) {                        /* the bright edge, clear of the name and the level */
-        int16_t bx[8] = {6, (int16_t)(6 + aa_text_w(big ? &AF_L : &AF_S, nm)), (int16_t)(base - (big ? AF_L_CAP_H : AF_S_CAP_H)),
-                         (int16_t)(base - 1), (int16_t)(ST_DOT_X - 6 - vw), (int16_t)(ST_DOT_X - 7),
-                         (int16_t)(S_TOP(9) + AF_S_CAP_Y), (int16_t)(S_TOP(9) + AF_S_CAP_Y + AF_S_CAP_H - 1)};
-        cd_edge(fw - 2, bx, 2);
+    if (!big) ui_fit(nm, ST_KX - ui_home_col() - 6 - 6);
+    if (fw > 2 && lit) {                        /* the bright edge, clear of the name, the right column, the status */
+        int16_t bx[12] = {6, (int16_t)(6 + aa_text_w(big ? &AF_L : &AF_S, nm)), (int16_t)(base - (big ? AF_L_CAP_H : AF_S_CAP_H)),
+                          (int16_t)(base - 1), (int16_t)(vx - aa_text_w(&AF_S, "VOL 127")), (int16_t)ST_KX,
+                          (int16_t)(base - AF_S_CAP_H), (int16_t)(base - 1),
+                          6, (int16_t)(ST_DOT_X + ST_DOT), 2, 13};
+        cd_edge(fw - 2, bx, 3);
     }
-    x = aa_text_ov(6, S_TOP(9), &AF_S, kk, sel ? UI_ACC : (fw > 40 ? RGB(170, 170, 176) : mt.tag)) + 8;
+    x = aa_text_ov(6, S_TOP(9), &AF_S, l, sel ? UI_ACC : (fw > 40 ? RGB(170, 170, 176) : mt.tag)) + 8;
     if (mut) aa_text_ov(x, S_TOP(9), &AF_S, run ? "MUTED" : "MUTED, OFF", UI_ACC);
     else if (!run) aa_text_ov(x, S_TOP(9), &AF_S, "OFF", fw > x + 30 ? RGB(206, 206, 210) : FC_LAB);
-    else {                                      /* HOW MANY (6) and HOW ACTIVE (9), on the status line */
-        for (i = 0; i < LS_NCNT - 1u; i++) cv_rect(x + 7 * (int32_t)i, 5, 5, 6, i < c ? mt.edge : CD_SEGOFF);
-        x += 7 * (int32_t)(LS_NCNT - 1u) + 8;
-        for (i = 0; i < LS_NACT; i++) cv_rect(x + 7 * (int32_t)i, 5, 5, 6, i < a ? FC_VAL : CD_SEGOFF);
+    else {                                      /* MANY (6 blocks) and ACTIVE (9), labelled, on the status line */
+        uint16_t lc = fw > x + 40 ? RGB(206, 206, 210) : FC_LAB;
+        x = aa_text_ov(x, S_TOP(9), &AF_S, "MANY", lc) + 3;
+        for (i = 0; i < LS_NCNT - 1u; i++) cv_rect(x + ST_BLK * (int32_t)i, 5, 3, 6, i < c ? mt.edge : CD_SEGOFF);
+        x += ST_BLK * (int32_t)(LS_NCNT - 1u) + 6;
+        x = aa_text_ov(x, S_TOP(9), &AF_S, "ACTIVE", lc) + 3;
+        for (i = 0; i < LS_NACT; i++) cv_rect(x + ST_BLK * (int32_t)i, 5, 3, 6, i < a ? FC_VAL : CD_SEGOFF);
     }
     ui_blink_dot(k, ui_blink_on(k), 1);
-    aa_text_ovr(ST_DOT_X - 6, S_TOP(9), &AF_S, t, lit ? FC_VAL : FC_LAB);   /* the level, by the dot */
+    aa_text_ovr(vx, base - AF_S.asc, &AF_S, t, lit ? FC_VAL : FC_LAB);   /* VOL 89, then K1 at the edge */
+    aa_text_ovr(vx - aa_text_w(&AF_S, t) - 4, base - AF_S.asc, &AF_S, "VOL", FC_LAB);
+    aa_text_ovr(ST_KX, base - AF_S.asc, &AF_S, kk, mt.tag);
     aa_text_ov(6, base - (big ? AF_L.asc : AF_S.asc), big ? &AF_L : &AF_S, nm, lit ? FC_VAL : FC_LAB);
     if (sel) {
-        cv_rect(0, 0, RW_W, 1, mt.frame); cv_rect(0, RW_H - 1, RW_W, 1, mt.frame);
-        cv_rect(0, 0, 1, RW_H, mt.frame); cv_rect(RW_W - 1, 0, 1, RW_H, mt.frame);
+        cv_rect(0, 0, RW_W, 2, mt.frame); cv_rect(0, RW_H - 2, RW_W, 2, mt.frame);
+        cv_rect(0, 0, 2, RW_H, mt.frame); cv_rect(RW_W - 2, 0, 2, RW_H, mt.frame);
     }
     cv_blit(RW_X, RW_Y0 + RW_DY * k);
 }
@@ -671,13 +735,15 @@ static void draw_footer(void)
                 : ub.pr ? "PRESETS: PRESET   SELECT: CATEGORY" : "ALGORITHM: SOUND   SELECT: FAMILY", FC_LAB);
         ft_c(22, ub.lv == 1 ? "HOME: CANCEL" : "EDIT: PICK   HOME: BACK", FC_DIM);
     }
-    else if (ui_g == G_LAND) {
+    else if (ui_g == G_LAND && sc.fam_pend == SC_FAM_PICKED) {   /* ALGORITHM picked a landscape: EDIT loads it */
         char t[32];
-        p_strcpy(t, nt.mode == NT_PLAY ? "PLAY: KEYS INTO LANE " : "LANE ", 24);
-        { char n[2] = {(char)('1' + sc.sel), 0}; p_cat(t, n, 31); }
-        if (sc.mute[sc.sel]) p_cat(t, " (MUTED)", 31);
-        ft_c(7, t, FC_LAB);
-        ft_c(22, "SOUND   MANY   ACTIVE   VOLUME", FC_DIM);
+        p_strcpy(t, "LANDSCAPE: ", 31); p_upper(t + 11, LS[sc.fam_want].name, 20);
+        ft_c(7, t, FC_VAL);
+        ft_c(22, "EDIT: LOAD   HOME: KEEP", FC_DIM);
+    }
+    else if (ui_g == G_LAND) {                  /* the buttons by what they open (their printed names do not say) */
+        ft_two(7, "SEQ: SOUNDS", "FX: EFFECTS", FC_LAB);
+        ft_two(22, "GLO: RHYTHM", "SELECT: MORE PAGES", FC_LAB);
     } else if (ui_g == G_MIX) ft_c(19, ui_sub == 0u ? "K1-K4: THE LANES' VOLUMES" : "K1-K4: THE LANES' PANS", FC_DIM);
     else if (ui_g == G_SOUND && sc.snd[sc.sel] < 0) ft_c(19, "NO SOUND ON THIS LANE", FC_DIM);
     else if (ui_g == G_COMP) {                  /* the gain-reduction meter (Frodhes' draw_meter), or how to start it */
@@ -777,11 +843,17 @@ static uint32_t ui_sig_of(uint32_t e)
         if (e == E_HEADER) { h = sig_mix(h, mod_lfo[ui_lfo].p[TX_LP_SHAPE]); h = sig_mix(h, mslot[ui_slot].src); h = sig_mix(h, mslot[ui_slot].tgt); }
         if (e == E_FOOTER) { int32_t lv; h = sig_mix(h, mod_cc_learn); if (ui_g == G_MATRIX && mslot[ui_slot].tgt) h = sig_mix(h, mod_live((uint32_t)mod_tgt_pid(mslot[ui_slot].tgt, mod_tgt_lanes(mslot[ui_slot].tgt) < 4u ? mod_tgt_lanes(mslot[ui_slot].tgt) : 0u), &lv) ? (uint32_t)lv : 0xFFFFu); }
     }
-    if (e == E_HEADER) { h = sig_mix(h, tempo_bpm10()); h = sig_mix(h, batt_shown()); h = sig_mix(h, sc.fam_want); h = sig_mix(h, sc.fam_pend); h = sig_mix(h, nt.mode); h = sig_mix(h, (uint32_t)nt.oct); }
-    else if (e == E_TITLE) h = sig_mix(h, ui_nsub(ui_g));
+    if (e == E_HEADER) {
+        h = sig_mix(h, tempo_bpm10()); h = sig_mix(h, batt_shown()); h = sig_mix(h, sc.fam); h = sig_mix(h, nt.mode); h = sig_mix(h, (uint32_t)nt.oct);
+        h = sig_mix(h, scn_busy() ? scn_ap_idx : scn_cur); h = sig_mix(h, scn_edited);
+    }
+    else if (e == E_TITLE) {
+        h = sig_mix(h, ui_nsub(ui_g)); h = sig_mix(h, ui_fx_yours());
+        if (ui_g == G_LAND) { h = sig_mix(h, tempo_bpm10()); h = sig_mix(h, batt_shown()); h = sig_mix(h, nt.mode); h = sig_mix(h, (uint32_t)nt.oct); }
+    }
     else if (e == E_FOOTER) {
         h = sig_mix(h, ui_msg_t && fm1_ms - ui_msg_t < MSG_MS ? ui_msg_t : 0u);
-        h = sig_mix(h, nt.mode); h = sig_mix(h, sc.sel); h = sig_mix(h, sc.mute[sc.sel]);
+        h = sig_mix(h, nt.mode); h = sig_mix(h, sc.sel); h = sig_mix(h, sc.mute[sc.sel]); h = sig_mix(h, sc.fam_pend); h = sig_mix(h, sc.fam_want);
         h = sig_mix(h, scn_save_mode ? scn_save_slot + 1u : 0u);
         if (ui_g == G_COMP) h = sig_mix(h, meter_poll());
         if (scn_save_mode) { uint32_t i; h = sig_mix(h, scn_nm_pos); for (i = 0; i < 11u; i++) h = sig_mix(h, (uint8_t)scn_nm[i]); }
@@ -1171,7 +1243,7 @@ static void ui_knob(uint32_t k, int32_t d)
 static void ui_algorithm(int32_t d)
 {
     uint32_t id = NOID;
-    if (ui_g == G_LAND) { sc_family_turn(d); return; }
+    if (ui_g == G_LAND) { sc_family_turn(d); return; }   /* (picked, not loaded: EDIT loads it, P4) */
     if (ui_g == G_SOUND) { ub_open(); return; }   /* (the first detent opens the sound browser; it does not move) */
     if (ui_g == G_ENV) {                        /* which ENV / FOLLOW */
         char t[12];
@@ -1289,6 +1361,19 @@ static void ui_input(uint32_t b, uint32_t rel)
     }
     if (!ub.on && b >> BTN_SEQ & 1u) ub_open(); /* SEQ (SOUNDS): the browser, for the selected lane */
     else if (!ub.on && d[ENC_PRESETS]) ub_pr_open(d[ENC_PRESETS]);   /* PRESETS: the presets browser */
+    if (b >> BTN_HOME & 1u && ui_g == G_LAND && sc.fam_pend == SC_FAM_PICKED) {   /* (a landscape picked: kept as is) */
+        sc.fam_want = sc.fam; sc.fam_pend = 0;
+        ui_say("LANDSCAPE KEPT");
+        b &= ~(1u << BTN_HOME);
+    }
+    if (b >> BTN_EDIT & 1u && ui_g == G_LAND && sc.fam_pend == SC_FAM_PICKED) {   /* EDIT: the landscape picked loads */
+        char t[32];
+        sc_family_go();
+        scn_cur = 0xFF; scn_edited = 0;         /* (no preset now: the header names the landscape) */
+        p_strcpy(t, "LANDSCAPE ", 31); p_upper(t + 10, LS[sc.fam].name, 20);
+        ui_say(t);
+        b &= ~(1u << BTN_EDIT);
+    }
     if (b >> BTN_HOME & 1u) {
         if (ui_g != G_LAND) {
             uint8_t g = ui_g, s = ui_sub;

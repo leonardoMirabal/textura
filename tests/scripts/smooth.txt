@@ -65,6 +65,7 @@
 8300 expect state dropped 0
 # the Wind landscape (ALGORITHM on LANDSCAPE: its start; the pans back to the middle), the four lanes dense: U01; each lane on the wind sound four on (another PRESET): U02
 8400 turn 1 -2
+8700 btn 6
 8800 midi 0xB0 10 64
 8800 midi 0xB1 10 64
 8800 midi 0xB2 10 64

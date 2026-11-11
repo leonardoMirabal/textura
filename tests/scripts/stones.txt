@@ -2,6 +2,7 @@
 # (TONE), CLUMPS (SPACING) / SPREAD, DIST; rockfall VOLUME, HEIGHT, GROUND, FRAG / DIST; ringing rocks STONE (MATERIAL),
 # TUNE, MALLET, SHAPE / DAMP, POS, VARY, DIST; gravel, marbles, sand, singing dune, minerals, stone friction their own
 1700 turn 1 1
+2000 btn 6
 2100 expect state landscape Stones_&_sand
 2100 btn 13
 2200 expect state run0 1

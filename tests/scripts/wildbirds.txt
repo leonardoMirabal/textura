@@ -1,6 +1,7 @@
 # the Wild birds landscape's SOUND cards (sound_cards.h, the approved study): SIZE, DEPTH, DIST, VARY (SPREAD) for
 # all ten; page 2 each bird's own: its tempo (SPACING), song length (EXTRA), variety (TONE), excitement (HARD)
 1700 turn 1 9
+2000 btn 6
 2100 expect state landscape Wild_birds
 2100 btn 13
 2200 expect state run0 1

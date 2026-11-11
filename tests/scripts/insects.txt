@@ -2,6 +2,7 @@
 # SIZE; the cicadas the source's own knobs by their names: SIZE, RING (TONE), DEPTH, DIST / BUZZ (HARD); katydid TEMP,
 # RASP (JITTER), CHORUS, DIST / SYNC, SIZE; grasshopper PEGS first; bees SWARM, SPEED, DIST, SPREAD. No general card
 1700 turn 1 7
+2000 btn 6
 2100 expect state landscape Insects
 2100 btn 13
 2200 expect state run0 1

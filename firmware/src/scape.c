@@ -24,7 +24,10 @@
 #define SC_HOLD_NOTE 60u                        /* the key a lane holds down (the source, a held classic engine) */
 #define SC_HOLD_VEL 100u
 #define SC_PRESS_MS 150u                        /* a one-shot engine's press, and its shortest gap */
-#define SC_FAM_MS 300u                          /* ALGORITHM: the landscape changes this long after the last detent */
+#define SC_FAM_MS 300u                          /* (once: the landscape changed this long after ALGORITHM's last detent) */
+#define SC_PICK_MS 5000u                        /* ALGORITHM's landscape, not loaded: forgotten this long after its last
+                                                 * detent */
+enum { SC_FAM_NONE, SC_FAM_LOAD, SC_FAM_PICKED };   /* sc.fam_pend */
 #define SC_GLIDE_MS 500u                        /* a scene's (a switch's) lane settings: from the old to the new */
 #define SC_GLIDE_TICK 10u                       /* (its steps) */
 #define SC_KC_STEP 3                            /* the key curve's slew: 3/16 dB a tick (19 dB/s: a key's change of
@@ -36,7 +39,7 @@ static const uint16_t SC_BLINK_MS[LS_NACT] = {1600, 1498, 1155, 776, 503, 333, 2
 
 static struct {
     uint8_t fam, sel;                           /* the landscape; the selected lane */
-    uint8_t fam_want, fam_pend;                 /* ALGORITHM's landscape, waiting for SC_FAM_MS */
+    uint8_t fam_want, fam_pend;                 /* ALGORITHM's landscape, picked (SC_FAM_PICKED: EDIT loads it) */
     uint32_t fam_t;
     const tx_engine_t *src;                     /* the SOURCE engine */
     int8_t id_preset, id_type, id_count;        /* its parameters */
@@ -423,13 +426,13 @@ static void sc_all_toggle(void)                 /* REC: all lanes stop (remember
     for (k = 0; k < SC_N; k++) if (sc.mem_cnt[k]) { mem = 1; sc_count(k, sc.mem_cnt[k]); sc_step(k, sc.mem_step[k]); }
     if (!mem) sc_start_landscape();
 }
-/* ALGORITHM: another landscape; what played goes on playing (the new landscape's start), quiet stays quiet.
- * The detents gather for SC_FAM_MS so a fast turn loads one landscape, not each it passes */
+/* ALGORITHM: another landscape, picked (a turn never loads: the screen names it, EDIT loads it, ui.c); loaded, what
+ * played goes on playing (the new landscape's start), quiet stays quiet */
 static void sc_family_turn(int32_t d)
 {
     int32_t f = (int32_t)sc.fam_want + d % (int32_t)LS_N + (int32_t)LS_N;
     sc.fam_want = (uint8_t)(f % (int32_t)LS_N);
-    sc.fam_pend = 1; sc.fam_t = fm1_ms;
+    sc.fam_pend = SC_FAM_PICKED; sc.fam_t = fm1_ms;
 }
 static void sc_family_go(void)
 {
@@ -458,7 +461,8 @@ static int gr_due(uint32_t k);                  /* groove.c: a press due, its ga
 static void sc_poll(void)
 {
     uint32_t k;
-    if (sc.fam_pend && fm1_ms - sc.fam_t >= SC_FAM_MS) sc_family_go();
+    if (sc.fam_pend == SC_FAM_LOAD && fm1_ms - sc.fam_t >= SC_FAM_MS) sc_family_go();
+    if (sc.fam_pend == SC_FAM_PICKED && fm1_ms - sc.fam_t >= SC_PICK_MS) { sc.fam_want = sc.fam; sc.fam_pend = 0; }
     for (k = 0; k < SC_N; k++) {
         if (sc.a_eng[k] != sc.eng[k] || sc.reswap[k] || sc.a_gate[k] != sc.mute[k]) sc_sync(k);   /* a switch (a mute) that had to wait */
         if (sc.q_rel[k] && (int32_t)(fm1_ms - sc.q_rel[k]) >= 0) { ln_key(k, SC_HOLD_NOTE, 0, 0); sc.q_rel[k] = 0; }

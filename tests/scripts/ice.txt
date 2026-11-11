@@ -1,6 +1,7 @@
 # the Ice & glass landscape's SOUND cards (sound_cards.h, the approved study): icicles SIZE, TEMP, AMOUNT, FIZZ /
 # CLUMPS, DIST; the lake ices THICK, COLD, FAR (their own crack distance), DIST; glass SIZE, RING, ENERGY, HEIGHT ...
 1700 turn 1 2
+2000 btn 6
 2100 expect state landscape Ice_&_glass
 2100 btn 13
 2200 expect state run0 1

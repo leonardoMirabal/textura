@@ -1,5 +1,6 @@
 # a landscape with classic engines: Storm (storm: held, its activity map; thunder: pressed at random gaps)
 1700 turn 1 6
+2000 btn 6
 2100 expect state landscape Storm
 2100 btn 13
 2200 expect state lane2 storm

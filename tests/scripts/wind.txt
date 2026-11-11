@@ -3,6 +3,7 @@
 # GUST, FOLIAGE, SKITTER, SCALE; the desert DRIFT, GUST, EXPOSED, WHOOSH. No
 # general card (EXTRA, SPACING, DEPTH do nothing on a wind)
 1700 turn 1 5
+2000 btn 6
 2100 expect state landscape Wind
 2100 btn 13
 2200 expect state run0 1

@@ -384,6 +384,8 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "loading")) snprintf(v, n, "%u", scn_busy());
     else if (!strcmp(key, "fxmine")) snprintf(v, n, "%u", scn_fx_mine);   /* the player turned an effect (SMART keeps them) */
     else if (!strcmp(key, "edited")) snprintf(v, n, "%u", scn_edited);    /* what plays changed since the load (the "*") */
+    else if (!strcmp(key, "head")) { char f[16], s[32]; (void)ui_preset_of(f, s); snprintf(v, n, "%s %s%s", f, s, scn_edited ? "*" : ""); }   /* the
+                                                 * home page's header: the family, the preset (its dot a space) */
 #ifndef DINGHY_WEB                                      /* (the web has no tests/host.c sound) */
     else if (!strcmp(key, "clips") || !strcmp(key, "heard")) {   /* samples at full scale so far; something over -60 dBFS
                                                          * in the last 3 s (tests/host.c's sound; presets.txt) */

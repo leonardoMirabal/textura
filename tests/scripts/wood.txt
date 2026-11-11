@@ -2,6 +2,7 @@
 # the green branch MOIST before PITCH; the trunk CREAK, PITCH, SIZE, DIST; the twigs underfoot SIZE, MOIST, WEIGHT,
 # DEPTH / DIST
 1700 turn 1 4
+2000 btn 6
 2100 expect state landscape Wood
 2100 btn 13
 2200 expect state run0 1

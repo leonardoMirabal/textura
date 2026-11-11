@@ -1,0 +1,39 @@
+# the home page (TEXTURA): the header names what plays, the preset's family and name, "*" once edited (none loaded:
+# LANDSCAPE and the landscape); the title has no page count, the tempo and the battery at its right, FX: YOURS once an
+# effect is turned (SMART keeps them); a card per lane: LANE n, MANY and ACTIVE labelled, VOL and its knob (Kn); the
+# selected lane red and framed; an empty lane says how to fill it; the footer names the buttons by what they open
+1700 midi 0xC0 0 0
+2500 expect state loading 0
+2500 expect state head RAIN_F001_DRIZZLE
+2500 expect state edited 0
+2500 expect state page LANDSCAPE
+2500 expect state leds OCT+_HOME_REC
+2600 shot
+# K2: lane 2's volume, edited: "*"
+2700 turn 3 -5
+2720 expect state vol1 105
+2720 expect state edited 1
+2720 expect state head RAIN_F001_DRIZZLE*
+# an effect turned (CC 91): FX: YOURS
+2800 midi 0xB4 91 60
+2820 expect state fxmine 1
+# OCT+ three times: lane 4, empty, selected
+2900 btn 1
+2910 btn 1
+2920 btn 1
+2940 expect state sel 4
+4500 shot
+# ALGORITHM picks a landscape: nothing loads, the footer names it; HOME keeps what plays
+4600 turn 1 1
+4620 expect state landscape Water
+4650 shot
+4700 btn 8
+4720 expect state msg LANDSCAPE_KEPT
+4720 expect state head RAIN_F001_DRIZZLE*
+# F001 again: the "*" goes, the effects stay the player's (SMART)
+4800 midi 0xC0 0 0
+5600 expect state loading 0
+5600 expect state edited 0
+5600 expect state fxmine 1
+5600 expect state p411 60
+5700 end

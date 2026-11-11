@@ -3,6 +3,7 @@
 # SIZE; the torch ROAR first; the flame (the candle) FLOW, DRAUGHT, SPUTTER, SLOPE / DIST. No general card (EXTRA,
 # SPACING, DEPTH do nothing on a fire)
 1700 turn 1 3
+2000 btn 6
 2100 expect state landscape Fire
 2100 btn 13
 2200 expect state run0 1
