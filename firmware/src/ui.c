@@ -125,6 +125,11 @@ static uint32_t ui_msg_t;
 static uint8_t ui_hot_card = 0xFF;
 static uint32_t ui_hot_t;
 static uint8_t ui_blink_shown[SC_N];
+/* the load toast: every load (PRESETS' EDIT, a program change, the boot, an undo, a landscape) names what comes, big,
+ * over the rows for TOAST_MS ("LOADED . COAST", "F034 HARBOUR NIGHT"); the header keeps the name after */
+#define TOAST_MS 1500u
+static char ui_toast_hd[12], ui_toast_fam[16], ui_toast_nm[24];
+static uint32_t ui_toast_t;
 /* the sound browser (SEQ, or ALGORITHM on SOUND): a list over the four rows, level 1 the families, level 2 a family's
  * sounds; the cursor's sound previewed on the lane UB_PREVIEW_MS after the last detent while the lane plays. The
  * presets browser (PRESETS, pr) is the same list: level 1 the categories (and USER: the scenes saved), level 2 a
@@ -185,6 +190,10 @@ static void mt_update(void)
 #define FT_Y 210u
 #define FT_H 30u
 #define MSG_MS 1500u
+#define TO_X 6
+#define TO_Y (RW_Y0 + RW_DY)                    /* (over rows 2 and 3) */
+#define TO_W RW_W
+#define TO_H (RW_DY + RW_H)
 #define HOT_MS 1000u
 #define UI_SIG_MS 20u
 #define UI_SPLASH_MS 1600u
@@ -196,6 +205,20 @@ static void ui_say(const char *s)
     p_strcpy(ui_msg, s, sizeof ui_msg - 1u);
     ui_msg_t = fm1_ms ? fm1_ms : 1u;
     ui_mark(E_FOOTER);
+}
+static int ui_toast_on(void) { return ui_toast_t && fm1_ms - ui_toast_t < TOAST_MS; }
+static void ui_toast_text(const char *hd, const char *fam, const char *nm)
+{
+    p_strcpy(ui_toast_hd, hd, 11); p_strcpy(ui_toast_fam, fam, 15); p_strcpy(ui_toast_nm, nm, 23);
+    ui_toast_t = fm1_ms ? fm1_ms : 1u;
+    ui_mark(E_ROW0 + 1u); ui_mark(E_ROW0 + 2u);
+}
+static void ui_toast(const char *hd, uint32_t idx)   /* scene idx (0xFF: the landscape that plays) */
+{
+    char f[16], s[24];
+    if (idx < SCN_N) { p_strcpy(f, idx < SCN_NF ? pr_cat_name(pr_cat_of(idx)) : "USER", 15); scn_name_of(idx, s); }
+    else { p_strcpy(f, "LANDSCAPE", 15); p_upper(s, LS[sc.fam].name, 20); }
+    ui_toast_text(hd, f, s);
 }
 static void ui_say_n(const char *s, int32_t v)  /* "HOW MANY 4" */
 {
@@ -684,10 +707,40 @@ static void draw_browser_row(uint32_t k)
     }
     cv_blit(RW_X, RW_Y0 + RW_DY * k);
 }
+/* the toast: a box over rows 2 and 3 (both rows draw it whole, in two strips: the canvas holds 64 rows), its head
+ * small in the accent with the family ("LOADED . COAST"), the name large when the large face has its letters and room */
+static void draw_toast(void)
+{
+    char h[32], code[8] = {0};
+    const char *nm = ui_toast_nm;
+    int32_t x, part;
+    int big = aa_covers(&AF_L, nm) && aa_text_w(&AF_L, nm) <= (int32_t)TO_W - 24;
+    if (!big && (nm[0] == 'F' || nm[0] == 'U') && (nm[3] == ' ' || nm[4] == ' ')) {   /* too long large: its number
+                                                 * ("F034") goes up by the family, the name alone large */
+        uint32_t c = nm[3] == ' ' ? 3u : 4u;
+        p_strcpy(code, nm, c); nm += c + 1u;
+        big = aa_covers(&AF_L, nm) && aa_text_w(&AF_L, nm) <= (int32_t)TO_W - 24;
+    }
+    for (part = 0; part < 2; part++) {
+        cv_begin(TO_W, TO_H / 2u, RGB(20, 20, 24));
+        cv_oy = -part * (int32_t)(TO_H / 2u);
+        cv_rect(0, 0, TO_W, 2, mt.frame); cv_rect(0, TO_H - 2, TO_W, 2, mt.frame);
+        cv_rect(0, 0, 2, TO_H, mt.frame); cv_rect(TO_W - 2, 0, 2, TO_H, mt.frame);
+        x = aa_text_ov(12, S_TOP(20), &AF_S, ui_toast_hd, UI_ACC);
+        cv_rect(x + 3, 19, 2, 2, FC_LAB);
+        x = aa_text_ov(x + 9, S_TOP(20), &AF_S, ui_toast_fam, FC_LAB);
+        if (code[0]) aa_text_ov(x + 8, S_TOP(20), &AF_S, code, FC_VAL);
+        if (big) aa_text_ov(12, L_TOP(52), &AF_L, nm, FC_VAL);
+        else { p_strcpy(h, nm, 31); ui_fit(h, (int32_t)TO_W - 24); aa_text_ov(12, S_TOP(52), &AF_S, h, FC_VAL); }
+        cv_oy = 0;
+        cv_blit(TO_X, TO_Y + (uint32_t)part * (TO_H / 2u));
+    }
+}
 static void draw_row(uint32_t k)
 {
     char l[32], v[24];
     uint32_t id;
+    if (ui_toast_on() && (k == 1u || k == 2u)) { draw_toast(); return; }
     if (ub.on) { draw_browser_row(k); return; }
     if (ui_g == G_LAND) { draw_strip(k); return; }
     if (ui_g == G_MIX) {
@@ -859,6 +912,7 @@ static uint32_t ui_sig_of(uint32_t e)
         if (scn_save_mode) { uint32_t i; h = sig_mix(h, scn_nm_pos); for (i = 0; i < 11u; i++) h = sig_mix(h, (uint8_t)scn_nm[i]); }
     } else if (e >= E_ROW0 && e < E_ROW0 + 4u) {
         k = e - E_ROW0;
+        if (k == 1u || k == 2u) h = sig_mix(h, ui_toast_on() ? ui_toast_t : 0u);
         h = sig_mix(h, ui_hot_card == k && ui_hot_t && fm1_ms - ui_hot_t < HOT_MS);
         if (ui_g <= G_MIX) {
             h = sig_mix(h, sc.lf[k]); h = sig_mix(h, (uint32_t)sc.snd[k]); h = sig_mix(h, sc.run[k]);
@@ -951,6 +1005,7 @@ static void ui_draw(void)
     if (ui_splash_on) {
         if (fm1_ms - ui_splash_t < UI_SPLASH_MS) return;
         ui_splash_on = 0; cleared = 0;
+        if (ui_toast_t) ui_toast_t = fm1_ms ? fm1_ms : 1u;   /* (the boot's load: shown once the splash is gone) */
         for (e = 0; e < E_N; e++) ui_sig[e] = 0;
         ui_all();
     }
@@ -970,7 +1025,9 @@ static void ui_draw(void)
     }
     if (ui_g == G_LAND && !ub.on && !(ui_dirty >> E_ROW0 & 0xFu))   /* the blink dots: a few pixels, at once */
         for (k = 0; k < SC_N; k++)
-            if (sc.snd[k] >= 0 && ui_blink_on(k) != ui_blink_shown[k]) ui_blink_dot(k, ui_blink_on(k), 0);
+            if (sc.snd[k] >= 0 && ui_blink_on(k) != ui_blink_shown[k] && !((k == 1u || k == 2u) && ui_toast_on()))   /* (not
+                                                 * under the toast) */
+                ui_blink_dot(k, ui_blink_on(k), 0);
     d = ui_dirty & ((1u << E_N) - 1u);
     if (!d || fm1_ms - ui_last_draw < 4u) return;
     e = d >> E_FOOTER & 1u ? E_FOOTER : d & 1u ? E_HEADER : d >> E_TITLE & 1u ? E_TITLE : 0xFF;
@@ -1372,6 +1429,7 @@ static void ui_input(uint32_t b, uint32_t rel)
         scn_cur = 0xFF; scn_edited = 0;         /* (no preset now: the header names the landscape) */
         p_strcpy(t, "LANDSCAPE ", 31); p_upper(t + 10, LS[sc.fam].name, 20);
         ui_say(t);
+        ui_toast("LOADED", 0xFF);
         b &= ~(1u << BTN_EDIT);
     }
     if (b >> BTN_HOME & 1u) {

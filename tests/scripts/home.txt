@@ -1,8 +1,11 @@
-# the home page (TEXTURA): the header names what plays, the preset's family and name, "*" once edited (none loaded:
+# the home page (TEXTURA): a load shows a toast (LOADED, the family, the name, ~1.5 s); the header names what plays, the preset's family and name, "*" once edited (none loaded:
 # LANDSCAPE and the landscape); the title has no page count, the tempo and the battery at its right, FX: YOURS once an
 # effect is turned (SMART keeps them); a card per lane: LANE n, MANY and ACTIVE labelled, VOL and its knob (Kn); the
 # selected lane red and framed; an empty lane says how to fill it; the footer names the buttons by what they open
 1700 midi 0xC0 0 0
+1800 expect state toasthd LOADED
+1800 expect state toast F001_DRIZZLE
+1800 shot
 2500 expect state loading 0
 2500 expect state head RAIN_F001_DRIZZLE
 2500 expect state edited 0

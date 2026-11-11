@@ -153,6 +153,7 @@ static uint32_t scn_cand_t, scn_save_t;
 
 static void ui_say(const char *s);              /* ui.c */
 static void ui_all(void);
+static void ui_toast(const char *hd, uint32_t idx);
 
 static void scn_name_of(uint32_t idx, char *s)  /* "F003 GARDEN RAIN", "U05 WATER", "U06 ----" (s: 20 bytes) */
 {
@@ -518,7 +519,6 @@ static int scn_read(uint32_t i, scn_t *s)       /* user scene i from the bank: 0
 static int scn_load(uint32_t idx)               /* 0: loading */
 {
     scn_t *t = &scn_b[scn_u ^ 1u];
-    char m[20];
     if (idx >= SCN_N || scn_busy()) return -1;
     if (idx < SCN_NF) scn_factory(t, idx);
     else if (!scn_meta[idx - SCN_NF].used || scn_read(idx - SCN_NF, t)) return -1;   /* (t: no load runs from it now) */
@@ -529,8 +529,7 @@ static int scn_load(uint32_t idx)               /* 0: loading */
     }
     scn_pb_moved = scn_pb_on;
     scn_apply(t, idx);
-    scn_name_of(idx, m);
-    ui_say(m);
+    ui_toast("LOADED", idx);                    /* (big, ~1.5 s: a load is never missed) */
     return 0;
 }
 static void scn_undo(void)                      /* the last load undone (again: redone) */
@@ -540,7 +539,7 @@ static void scn_undo(void)                      /* the last load undone (again: 
     scn_bidx[scn_u ^ 1u] = scn_cur;
     scn_apply(&scn_b[scn_u], scn_bidx[scn_u]);
     scn_u ^= 1u;
-    ui_say("UNDO");
+    ui_toast("UNDO: BACK", scn_bidx[scn_u ^ 1u]);
 }
 
 /* ---- the bank */

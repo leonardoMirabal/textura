@@ -47,7 +47,8 @@
 # SAVE held: undo, back to what played (U03)
 3600 press 9
 4400 release 9
-4420 expect state msg UNDO
+4420 expect state toasthd UNDO:_BACK
+4420 expect state toast U03_WATER
 4900 expect state scene U03_WATER
 4900 expect state landscape Water
 4900 expect state routes 1

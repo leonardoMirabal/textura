@@ -382,6 +382,8 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "gsync")) snprintf(v, n, "%u", tm.gsync_smp);          /* the grain delay's echo, samples */
     else if (!strcmp(key, "scene")) { char t[20]; if (scn_cur == 0xFF) snprintf(v, n, "-"); else { scn_name_of(scn_cur, t); snprintf(v, n, "%s", t); } }
     else if (!strcmp(key, "loading")) snprintf(v, n, "%u", scn_busy());
+    else if (!strcmp(key, "toast")) snprintf(v, n, "%s", ui_toast_on() ? ui_toast_nm : "");   /* the load toast's name, while shown */
+    else if (!strcmp(key, "toasthd")) snprintf(v, n, "%s", ui_toast_on() ? ui_toast_hd : "");
     else if (!strcmp(key, "fxmine")) snprintf(v, n, "%u", scn_fx_mine);   /* the player turned an effect (SMART keeps them) */
     else if (!strcmp(key, "edited")) snprintf(v, n, "%u", scn_edited);    /* what plays changed since the load (the "*") */
     else if (!strcmp(key, "head")) { char f[16], s[32]; (void)ui_preset_of(f, s); snprintf(v, n, "%s %s%s", f, s, scn_edited ? "*" : ""); }   /* the

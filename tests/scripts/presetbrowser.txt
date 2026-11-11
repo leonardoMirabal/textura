@@ -56,7 +56,8 @@
 11000 expect state scene F007_ROOF_RAIN
 11100 press 9
 11900 release 9
-11920 expect state msg UNDO
+11920 expect state toasthd UNDO:_BACK
+11920 expect state toast F006_STEADY_RAIN
 13000 expect state scene F006_STEADY_RAIN
 13000 expect preset
 # SEQ while it is open: the sound browser instead; PRESETS there: the presets browser again; another button: closed,

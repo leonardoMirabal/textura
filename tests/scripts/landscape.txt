@@ -120,6 +120,7 @@
 5700 turn 1 -1
 5900 btn 6
 5910 expect state msg LANDSCAPE_FIRE
+5910 expect state toast FIRE
 6000 expect state landscape Fire
 6000 shot
 6100 expect sound
