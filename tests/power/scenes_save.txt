@@ -13,12 +13,12 @@
 2700 expect state scene U05_WATER
 2800 btn 7
 2815 btn 7
+2816 btn 7
 2817 btn 7
 2818 expect state page SCALE
 2819 turn 2 2
 2819 turn 3 2
 2820 btn 7
-2825 btn 7
 2850 turn 2 3
 2870 expect state card0 AUTO
 2900 turn 5 -1

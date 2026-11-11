@@ -1,4 +1,4 @@
-# SCALE (GLO: RHYTHM, GROOVE LANES, SCALE; notes.c): K1 SCALE (CHROMATIC, the default: as played), K2 ROOT, ALGORITHM
+# SCALE (GLO: GROOVE 1/2 2/2, TEMPO, SCALE; notes.c): K1 SCALE (CHROMATIC, the default: as played), K2 ROOT, ALGORITHM
 # SCALE too; every note the keys and MIDI play snapped to the scale's nearest note over ROOT (a tie goes down); in
 # PLAY the scale's keys lit, the others dark; CC 72 / 73 on channel 5: SCALE / ROOT; a note held across a change of
 # scale is let go where it went
@@ -6,6 +6,7 @@
 1750 btn 7
 1755 btn 7
 1760 btn 7
+1765 btn 7
 1770 expect state page SCALE
 1770 expect state lab0 SCALE
 1770 expect state lab1 ROOT

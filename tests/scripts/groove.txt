@@ -1,5 +1,5 @@
-# GROOVE (groove.c): one AMOUNT / TYPE / SHIFT for the landscape (GLO: the RHYTHM page; K2 AMOUNT, K3 SHIFT, ALGORITHM
-# the TYPE by name; GLO again: GROOVE LANES, Kn lane n's role, its PART or its own CYCLE; CC 84 on channel 5 the
+# GROOVE (groove.c): one AMOUNT / TYPE / SHIFT for the landscape (GLO: GROOVE 1/2; K2 AMOUNT, K3 SHIFT, ALGORITHM
+# the TYPE by name; GLO again: GROOVE 2/2, Kn lane n's role, its PART or its own CYCLE; CC 84 on channel 5 the
 # AMOUNT); each lane's PART AUTO by its sound's weight (grw: 0 free, 3 most); the lanes' notes lean to the pulse
 # ("grfeel": FREE, LEANS, SNAPS from the notes near it against chance; never SNAPS: no beat); AMOUNT 0 or a free sound:
 # each multiplier exactly 4096, the lane as without it; it follows the tempo and a clock that leads; a scene keeps it
@@ -46,12 +46,12 @@
 2200 expect state grw1 0
 2200 expect state grpart0 1
 2200 expect state grpart1 4
-# the RHYTHM page (GLO): K2 the groove's AMOUNT, K3 its SHIFT; ALGORITHM the TYPE, by name
+# GROOVE 1/2 (GLO): K2 the groove's AMOUNT, K3 its SHIFT; ALGORITHM the TYPE, by name
 2300 btn 7
-2340 expect state page RHYTHM
-2340 expect state lab1 GROOVE_AMOUNT
+2340 expect state page GROOVE_1/2
+2340 expect state lab1 AMOUNT
 2340 expect state card1 35
-2340 expect state lab2 GROOVE_SHIFT
+2340 expect state lab2 SHIFT
 2340 expect state card2 0
 2400 turn 1 1
 2420 expect state msg GROOVE_TYPE_3:4
@@ -66,12 +66,12 @@
 2600 turn 1 1
 2620 expect state p439 1
 2640 shot
-# AMOUNT 127 (K2); lane 1's own cycle of 2 (GLO again: GROOVE LANES, K1 from AUTO to "2 PER 3 BEATS"): its notes lean
+# AMOUNT 127 (K2); lane 1's own cycle of 2 (GLO again: GROOVE 2/2, K1 from AUTO to "2 PER 3 BEATS"): its notes lean
 # to them, jittered, never a beat; the brook's multiplier stays 4096 exactly
 2700 turn 3 127
 2720 expect state p438 127
 2740 btn 7
-2760 expect state page GROOVE_LANES
+2760 expect state page GROOVE_2/2
 2780 turn 2 4
 2800 expect state p031 1
 2800 expect state p030 0
@@ -96,7 +96,7 @@
 130120 expect state bpm10 900
 135000 expect state grnear0 9
 195000 expect state grfeel0 LEANS
-# a scene keeps it: U01 saved with AMOUNT 127, 3:4, lane 1's cycle of 2, lane 2 OFFBEAT (GROOVE LANES, K2)
+# a scene keeps it: U01 saved with AMOUNT 127, 3:4, lane 1's cycle of 2, lane 2 OFFBEAT (GROOVE 2/2, K2)
 195100 btn 7
 195110 turn 3 2
 195120 expect state p130 2

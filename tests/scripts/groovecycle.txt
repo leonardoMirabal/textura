@@ -1,10 +1,10 @@
-# GROOVE LANES (GLO twice): Kn turns lane n's ROLE, one list over its PART and its CYCLE (FREE, AUTO, PULSE, OFFBEAT,
+# GROOVE 2/2 (GLO twice): Kn turns lane n's ROLE, one list over its PART and its CYCLE (FREE, AUTO, PULSE, OFFBEAT,
 # FILL, then 2 .. 9 pulses over the span), and it stays: in the stored PART / CYCLE (p030 / p031), in the lane's groove
 # (grcyc: the cycle the lane plays, 0 none), after a while, across the other lanes' and across leaving the page (the
 # user's report: "groove 2/2 page k1 cycle can't be changed, always is auto")
 1600 btn 7
 1620 btn 7
-1640 expect state page GROOVE_LANES
+1640 expect state page GROOVE_2/2
 1640 expect state p030 0
 1640 expect state p031 0
 1640 expect state grcyc0 0
@@ -36,16 +36,16 @@
 4980 expect state p131 2
 5020 expect state grcyc0 4
 5020 expect state grcyc1 3
-# the page left (GLO: SCALE, TEMPO, MIDI, MIDI IN, DISPLAY, RHYTHM) and found again (GLO: GROOVE LANES): still 4
+# the page left (GLO: TEMPO, SCALE, MIDI, MIDI IN, DISPLAY, GROOVE 1/2) and found again (GLO: GROOVE 2/2): still 4
 5030 btn 7
 5040 btn 7
 5050 btn 7
 5060 btn 7
 5080 btn 7
 5100 btn 7
-5110 expect state page RHYTHM
+5110 expect state page GROOVE_1/2
 5120 btn 7
-5140 expect state page GROOVE_LANES
+5140 expect state page GROOVE_2/2
 8000 expect state grcyc0 4
 # lanes 3 and 4, each its own: lane 3 to 5, lane 4 to 3; lane 1 keeps its 4
 8080 turn 4 7

@@ -3,8 +3,8 @@
 firmware runs (the splash, then the LANDSCAPE page on the screen), ?selftest starts the landscape and it sounds, the
 on-screen keys reach the firmware and its key LEDs come back (a black key selects its group's lane, LANDSCAPE stays,
 held it mutes the lane; a white key starts it), the knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
-tests/py/test_web_knobs.py), HOME goes home and back, EDIT to SOUND, FX through EFFECTS / REVERB / DELAY / FILTER / DRIVE / COMPRESSOR, GLO through RHYTHM /
-GROOVE LANES / SCALE / TEMPO / MIDI, FX held to FILTER, LFO to
+tests/py/test_web_knobs.py), HOME goes home and back, EDIT to SOUND, FX through EFFECTS / COMPRESSOR / DRIVE / FILTER / DELAY / REVERB, GLO through GROOVE /
+TEMPO / SCALE / MIDI, FX held to FILTER, LFO to
 LFO, ARP to MATRIX (the captions follow), SAVE saves a scene that a reload brings back, and the page fits a phone (390 px, no sideways scroll). Screenshots at desktop and phone width.
 
     make fw-web-check     (PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py)
@@ -129,7 +129,7 @@ def main():
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "LANDSCAPE", "HOME once more: LANDSCAPE")
         # EDIT: the lane's SOUND page (again: its next page); FX: EFFECTS, COMPRESSOR, DRIVE, FILTER, DELAY,
-        # REVERB (every page, the chain's order; the captions follow); GLO: RHYTHM, GROOVE LANES, TEMPO, MIDI
+        # REVERB (every page, the chain's order; the captions follow); GLO: GROOVE 1/2 2/2, TEMPO, SCALE, MIDI
         fx = pg.locator('button.b[data-name="FX"]')
         edit.click(delay=60)
         pg.wait_for_timeout(300)
@@ -167,22 +167,22 @@ def main():
         glo = pg.locator('button.b[data-name="GLO"]')
         glo.click(delay=60)
         pg.wait_for_timeout(300)
-        check(pg.evaluate(PAGE) == "RHYTHM", "GLO: the RHYTHM page")
-        check(glo.locator("small").inner_text() == "GROOVE LANES", "GLO's caption on RHYTHM: GROOVE LANES")
-        pg.screenshot(path=os.path.join(OUT, "desktop-rhythm.png"))
+        check(pg.evaluate(PAGE) == "GROOVE", "GLO: the GROOVE pages (every groove control)")
+        check(glo.locator("small").inner_text() == "NEXT", "GLO's caption on GROOVE: NEXT")
+        pg.screenshot(path=os.path.join(OUT, "desktop-groove.png"))
         glo.click(delay=60)
         pg.wait_for_timeout(300)
-        check(pg.evaluate(PAGE) == "GROOVE LANES", "GLO again: the GROOVE LANES page")
-        check(glo.locator("small").inner_text() == "SCALE", "GLO's caption on GROOVE LANES: SCALE")
+        check(pg.evaluate(PAGE) == "GROOVE", "GLO again: GROOVE 2/2, the lanes' roles")
         pg.screenshot(path=os.path.join(OUT, "desktop-groove-lanes.png"))
         glo.click(delay=60)
         pg.wait_for_timeout(300)
-        check(pg.evaluate(PAGE) == "SCALE", "GLO a third time: the SCALE page")
-        check(glo.locator("small").inner_text() == "TEMPO", "GLO's caption on SCALE: TEMPO")
-        pg.screenshot(path=os.path.join(OUT, "desktop-scale.png"))
+        check(pg.evaluate(PAGE) == "TEMPO", "GLO a third time: the TEMPO page")
+        check(glo.locator("small").inner_text() == "SCALE", "GLO's caption on TEMPO: SCALE")
         glo.click(delay=60)
         pg.wait_for_timeout(300)
-        check(pg.evaluate(PAGE) == "TEMPO", "GLO a fourth time: the TEMPO page")
+        check(pg.evaluate(PAGE) == "SCALE", "GLO a fourth time: the SCALE page")
+        check(glo.locator("small").inner_text() == "MIDI", "GLO's caption on SCALE: MIDI")
+        pg.screenshot(path=os.path.join(OUT, "desktop-scale.png"))
         glo.click(delay=60)
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "MIDI", "GLO a fifth time: the MIDI page")

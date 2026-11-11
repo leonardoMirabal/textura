@@ -1,14 +1,14 @@
-# GROOVE LANES (GLO, again): the four lanes' roles on one page, Kn lane n's, read by what they do: "AUTO: PULSE" (what
+# GROOVE 2/2 (GLO, again): the four lanes' roles on one page, Kn lane n's, read by what they do: "AUTO: PULSE" (what
 # AUTO gives the lane now), "5 PER 4 BEATS" (its own cycle over the TYPE's span); a sound the groove leaves alone (a
 # weight 0: water, wind) says so ("FLOWS FREE", dimmed) and its multiplier stays 4096 whatever its role; the roles are
 # the stored PART and CYCLE (pN30, pN31), so a scene saves and loads them as before. F034: waterfall, brook, wren, wind
 1700 midi 0xC0 33 0
 2500 expect state loading 0
 2600 btn 7
-2620 expect state page RHYTHM
+2620 expect state page GROOVE_1/2
 2620 expect led 7 1
 2700 btn 7
-2720 expect state page GROOVE_LANES
+2720 expect state page GROOVE_2/2
 2720 expect state leds OCT+_GLO_REC
 2720 expect state grw0 0
 2720 expect state grw2 3

@@ -2,7 +2,7 @@
 /* GROOVE: the landscape's discrete events lean toward one shared, slowly drifting pulse (engines/tx_groove.h), felt
  * rather than heard: never a beat, never a loop. Water and wind stay free.
  *
- *   the ensemble  AMOUNT, TYPE, SHIFT for the landscape (the RHYTHM page; the lanes' roles: GROOVE LANES; a scene
+ *   the ensemble  AMOUNT, TYPE, SHIFT for the landscape (GROOVE 1/2; the lanes' roles: GROOVE 2/2; a scene
  *                 keeps them; not an effect: EFFECTS ON LOAD leaves nothing of it); each lane plays a PART: AUTO gives the lanes whose sounds respond PULSE,
  *                 OFFBEAT, FILL, PULSE by their weight (the most first, then lane order), each lane's PART or CYCLE (2
  *                 .. 9 pulses over the span: polyrhythms) set by hand over it

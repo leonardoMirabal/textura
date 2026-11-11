@@ -3,9 +3,9 @@
 # list FX is its LOAD OPTIONS, held too
 1700 btn 13
 1750 btn 7
-1760 expect state page RHYTHM
+1760 expect state page GROOVE_1/2
 1800 press 2
-2300 expect state page RHYTHM
+2300 expect state page GROOVE_1/2
 2450 expect state page FILTER
 2450 expect state lab0 LOW_CUT
 2450 expect state lab3 SLOPE
