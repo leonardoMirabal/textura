@@ -585,8 +585,10 @@ static void check_noise_core(void)
 }
 
 /* ---- COMP: the bus compressor (Frodhes' controls). COMP off is bit-exact; a steady sine at -6 dBFS (power -9 dBFS)
- * is reduced as THR and RAT say (the 12 dB soft knee included): THR 127 (-40) 3:1 20.6 dB, THR 64 (-20.2) 2:1 5.6 dB,
- * THR 32 (-10.1) 20:1 2.0 dB (in the knee), and with MKUP 0 the output follows; the controls moved under a steady
+ * is reduced as THR and RAT say (the 12 dB soft knee included): THR 127 (-40) 3:1 20.6 dB, less the body lift's 0.35
+ * of its steady part: 13.7 dB, the auto make-up giving 7.6 of it back: the output 6.1 dB down; THR 64 (-20.2) 2:1
+ * 5.6 dB, THR 32 (-10.1) 20:1 2.0 dB (in the knee; neither lift nor auto make-up up to THR 64), and with MKUP 0 the
+ * output follows; the controls moved under a steady
  * level (COMP on, THR, RAT, MKUP, ATK, REL to their ends and back, COMP off; 100 ms each) never step the output (a
  * glide), and once off it is exact again */
 static void comp_sine(tx_comp_t *c, int32_t *pk)
@@ -603,7 +605,7 @@ static void comp_sine(tx_comp_t *c, int32_t *pk)
 static void check_comp(void)
 {
     static int32_t L[TX_BLOCK], R[TX_BLOCK], L0[TX_BLOCK], R0[TX_BLOCK];
-    static const struct { uint8_t thr, rat; int16_t gr10; } G[3] = {{127, 2, 206}, {64, 1, 56}, {32, 7, 20}};
+    static const struct { uint8_t thr, rat; int16_t gr10, out10; } G[3] = {{127, 2, 137, 61}, {64, 1, 56, 56}, {32, 7, 20, 20}};
     static const struct { uint8_t id, v; } MV[] = {
         {TX_CP_ON, 1}, {TX_CP_THR, 127}, {TX_CP_RATIO, 7}, {TX_CP_MKUP, 127}, {TX_CP_ATK, 0}, {TX_CP_REL, 0},
         {TX_CP_THR, 0}, {TX_CP_MKUP, 0}, {TX_CP_RATIO, 0}, {TX_CP_ATK, 127}, {TX_CP_REL, 127}, {TX_CP_THR, 100},
@@ -622,7 +624,7 @@ static void check_comp(void)
     }
     verdict("comp", "bypass", same, "COMP off: the samples untouched (bit-exact)", 0);
     for (k = 0; k < 3u; k++) {
-        int32_t want = (int32_t)(4194304.0 * pow(10.0, -G[k].gr10 / 200.0));
+        int32_t want = (int32_t)(4194304.0 * pow(10.0, -G[k].out10 / 200.0));
         tx_comp_init(&c);
         tx_comp_param(&c, TX_CP_ON, 1); tx_comp_param(&c, TX_CP_THR, G[k].thr); tx_comp_param(&c, TX_CP_RATIO, G[k].rat);
         tx_comp_param(&c, TX_CP_MKUP, 0);

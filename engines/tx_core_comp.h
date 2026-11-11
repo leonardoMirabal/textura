@@ -23,6 +23,17 @@
  * over the settings -30.1 -> -32.5 (make tx-pristine). The cost: the envelope sits nearer the tops, 0.6 .. 0.7 dB more
  * reduction on held chords and low notes.
  *
+ * THR brings its own make-up and body (after Frodhes' compressor stage 2, 2026-11-10), above THR 64 (-20 dBFS, the
+ * factory one: every factory scene renders as before). The auto make-up: the reduction per unit of slope over THR, times
+ * the slope (fitted on the factory presets: 20 of them x THR 64 .. 127 x RAT 2:1 4:1 20:1 x ATK 40 100, BS.1770
+ * loudness re COMP off at MKUP 0); MKUP a trim on top, the sum at most +24 dB. It gives back at most the reduction of
+ * the moment, so the gain never passes MKUP's (no peak over COMP off), and follows THR down at the reduction's own
+ * smoothing (a step of THR no dip). The body lift: under a steady reduction (followed up over ~186 ms, down at once)
+ * 0.35 of it given back, faded in over THR 64 .. 88: a strike gets the full ratio, the body after it a gentler one.
+ * The loudness lost re COMP off, the presets' mean over those settings: THR 80 / 96 / 112 / 127 1.25 / 2.55 / 4.44 /
+ * 6.48 -> 0.45 / 0.58 / 0.66 / 0.69 dB (64: 0.44); the fatness (body - strike, on less off; THR -40 dB 20:1) -7.4 ->
+ * +5.2 dB at ATK 100, +7.8 at ATK 40 (make tx-pristine).
+ *
  * Integers only, 32-bit products; the levels in "power log2" units (log2 of the power, Q12: 1 dB = 1360.6). */
 #ifndef TX_CORE_COMP_H
 #define TX_CORE_COMP_H
@@ -47,7 +58,11 @@ typedef struct {
     int32_t mg;                    /* the make-up the gain uses: glides to mk (power log2 Q12) */
     int32_t gs;                    /* the reduction applied: up at once, its release smoothed (power log2 Q12 x 16) */
     int32_t kq;                    /* the fast envelope's release in use (Q16; adapted to the playing, from kr) */
-    uint8_t hd, gsh;               /* the fast envelope's hold left (control blocks); the smoothing's shift (from REL) */
+    int32_t amk, amg;              /* the auto make-up (power log2 Q12, from THR RAT MKUP), as the gain uses it (x 16) */
+    int32_t bs, bq;                /* the steady reduction the body lift gives back from (power log2 Q12 x 16); the
+                                    * lift as the gain uses it (Q8 x 16) */
+    uint8_t hd, gsh, beta;         /* the fast envelope's hold left (control blocks); the smoothing's shift (from REL);
+                                    * the body lift (Q8, from THR) */
     uint8_t p[TX_CP_NP];           /* the controls */
     uint8_t on;                    /* the detector running (0: its envelopes restart from the next block) */
 } tx_comp_t;
