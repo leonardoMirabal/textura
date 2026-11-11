@@ -29,6 +29,9 @@ static const uint8_t HQ_RATE[HQ_NL] = {8, 11, 13, 9, 15, 10, 12, 17, 7, 14, 19, 
 #define HQ_INJ 32767                /* the send into each line (whole: the lines hot, their rounding low) */
 #define HQ_SHC 14220                /* the decay shelf's corner: 4 kHz (1 - e^(-2 pi 4000 / 44100), Q15) */
 #define HQ_QUIET 3                  /* a line's level (int16 steps) under which it rounds toward zero */
+#define HQ_DLIVE 4                  /* the send's peak (Q15 steps, this block) from which the diffusers round; under it
+                                     * (or none) they truncate their feed toward zero as before (at 2 .. 3 steps
+                                     * rounding was the worse grain) */
 #define HQ_OUT 1                    /* the outputs: the 16 lines' sum x 4 / 16 (the old HALL's level, near) */
 #define HQ_ERG 1                    /* the early reflections' level */
 
@@ -140,7 +143,8 @@ void tx_hq_run(tx_hall_t *hv, const int32_t *send, const int32_t *add, int32_t s
     tx_hq_t *h = (tx_hq_t *)(void *)hv;             /* (tx_hall_run's type: the caller's one call takes either) */
     int16_t *a = h->apb, vb[HL_NC][HQ_NL];
     uint32_t i, k;
-    int taken;
+    int32_t pk = 0;
+    int taken, ld;
     const int32_t *el = h->half[1].el, *er = h->half[1].er;
     sz = sz < 0 ? 0 : sz > 140 ? 140 : sz;
     if (h->sz != sz || h->damp != damp) {
@@ -152,6 +156,8 @@ void tx_hq_run(tx_hall_t *hv, const int32_t *send, const int32_t *add, int32_t s
     for (i = 0; i < HL_NC; i++) h->bx[i] = send[i] + (add ? add[i] : 0);   /* (the caller's DC blocker before: no RAM
                                                      * code called from here, either core) */
     for (i = 0; i < HL_NC; i++) h->er[(h->ew + i) & (HQ_ERN - 1u)] = (int16_t)hl_c16(h->bx[i]);
+    for (i = 0; i < HL_NC; i++) pk |= h->bx[i] ^ (h->bx[i] >> 31);
+    ld = pk >= HQ_DLIVE;
     taken = rv_fork(par, tx_hq_job, h);             /* lines 8..15 and the early reflections there (or here, after; all
                                                      * in flash: core 1 runs the same code from XIP) */
     for (k = 0; k < HQ_NAP; k++) {                  /* the input diffusion, each allpass's run split at its ring's end */
@@ -160,11 +166,19 @@ void tx_hq_run(tx_hall_t *hv, const int32_t *send, const int32_t *add, int32_t s
         while (j < HL_NC) {
             int16_t *q = a + d, *e;
             m = n - d < HL_NC - j ? n - d : HL_NC - j;
-            for (e = q + m; q < e; q++, x++) {
-                int32_t y = *q, v = *x + sh_tz(y * g, 14);
-                *q = (int16_t)hl_c16(v);
-                *x = y - ((v * g + 8192) >> 14);
-            }
+            if (ld)                                 /* (a live send: rounded half away from zero, an odd */
+                for (e = q + m; q < e; q++, x++) {  /* function: no even harmonic, no dead band) */
+                    int32_t y = *q, u = y * g, v = *x + ((u + 8192 + (u >> 31)) >> 14);
+                    *q = (int16_t)hl_c16(v);
+                    u = v * g;
+                    *x = y - ((u + 8192 + (u >> 31)) >> 14);
+                }
+            else                                    /* (quiet: the feed truncated toward zero, it dies to exact 0) */
+                for (e = q + m; q < e; q++, x++) {
+                    int32_t y = *q, v = *x + sh_tz(y * g, 14);
+                    *q = (int16_t)hl_c16(v);
+                    *x = y - ((v * g + 8192) >> 14);
+                }
             j += m;
             d = d + m >= n ? 0u : d + m;
         }
