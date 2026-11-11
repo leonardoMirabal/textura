@@ -180,11 +180,11 @@ static void ln_bus(void *u, int32_t *L, int32_t *R, unsigned n)
     tx_fx_t *fx = (tx_fx_t *)u;
     uint32_t t0 = LN_CLOCK(), t1;
     ln.pre_pk = LN_HOLD(ln.pre_pk, LN_CLOCK_US(t0 - ln.t_blk));
-    TX_FAR(tx_fx_grain_end)(&fx->gd, L, R, n);
+    TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);   /* the REVERB first, the GRAIN DELAY on what it gives */
     t1 = LN_CLOCK();
-    TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);
+    ln.rev_pk = LN_HOLD(ln.rev_pk, LN_CLOCK_US(t1 - t0));
+    TX_FAR(tx_fx_grain_end)(&fx->gd, L, R, n);
     ln.t_bus = LN_CLOCK();
-    ln.rev_pk = LN_HOLD(ln.rev_pk, LN_CLOCK_US(ln.t_bus - t1));
 }
 #endif
 

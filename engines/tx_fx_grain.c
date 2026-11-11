@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura GRAIN DELAY (on the mix, before the reverb): a delay whose repeats are grained. Our own code; the model is
+/* Textura GRAIN DELAY (on the mix, after the reverb: its echoes repeat the reverberated sound): a delay whose repeats are grained. Our own code; the model is
  * the one dm-GrainDelay (GPL-3.0) describes: an echo line, and grain voices on one clock reading the delayed signal,
  * each grain with its own start (SPRAY), pitch, direction and place, their sum fed back so every repeat is grained
  * again. Integers only; 32-bit products per sample (the wide ones split in two).

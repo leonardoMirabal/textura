@@ -420,8 +420,8 @@ function saveLayers() {
   try { localStorage.setItem("textura.layers", JSON.stringify({ mode: keyMode, layers: layers.map(l => ({ eng: l.eng, pan: l.pan, lo: l.lo, hi: l.hi })) })); } catch (e) { }
 }
 
-// ---- EFFECTS (tx_fx.h): on the mix DRIVE (group 0), FILTER (1: a band, after the drive), COMPRESSOR (4), GRAIN DELAY
-// (3), REVERB (2; TYPE ROOM is the old CHAMBER). The values are kept in this browser (textura.fx; a layer's own FILTER
+// ---- EFFECTS (tx_fx.h): on the mix DRIVE (group 0), FILTER (1: a band, after the drive), COMPRESSOR (4), REVERB (2;
+// TYPE ROOM is the old CHAMBER), GRAIN DELAY (3: on what the reverb gives). The values are kept in this browser (textura.fx; a layer's own FILTER
 // of before is dropped)
 const fxv = { rv: {}, gd: {}, cp: {}, dr: {}, fl: {} };
 function fxSave() { try { localStorage.setItem("textura.fx", JSON.stringify({ ...fxv, cmp: fxv.cp, cp: undefined })); } catch (e) { } }

@@ -1370,7 +1370,7 @@ static void check_fx_grain_controls(tx_fx_t *fx)
 }
 /* MIX, dry / wet (tx_fx.h): the law at equal power; the GRAIN DELAY and the REVERB at MIX 0 (the dry alone, exactly),
  * 64 (the dry -3 dB) and 127 (no dry: nothing out before the first echo, or the pre-delay); both at 127 in series:
- * the reverb of the echoes alone (nothing out before the first echo) */
+ * the echoes of the reverb alone (nothing out before the first echo) */
 /* the HALL's HQ tank: its rings fill the memory the union gives them; an impulse's tail at MIX 127 decays at the time
  * asked (mid T60 from the energy 0.2 .. 0.7 s, within 0.6 .. 1.25 x the asked; the high end's below the mid's) and ends
  * in exact silence (the reverb stops running) */
@@ -1468,12 +1468,13 @@ static void check_fx_drywet(tx_fx_t *fx)
                 verdict("fx", "mix-64", fabs(g - want) < 0.05, msg, 0);
             } else {
                 snprintf(msg, sizeof msg, "%s at MIX 127: %u nonzero samples before the first echo / pre-delay (the wet alone)",
-                         t == 0u ? "grain delay" : t == 1u ? "reverb" : "grain delay -> reverb", early);
+                         t == 0u ? "grain delay" : t == 1u ? "reverb" : "reverb -> grain delay", early);
                 verdict("fx", "mix-127", !early, msg, 0);
             }
         }
     }
-    {   /* in series at 127: the reverb takes the echoes, so its tail comes after the first echo (TIME 100: ~0.6 s) */
+    {   /* in series at 127: the delay takes the reverb's output alone, so nothing comes before the first echo (TIME
+         * 100: ~0.6 s; GRAIN 0: the echo alone) */
         uint32_t first = 0, fr = 0;
         tx_fx_init(fx);
         tx_fx_grain_param(&fx->gd, TX_GD_MIX, 127); tx_fx_grain_param(&fx->gd, TX_GD_TIME, 100); tx_fx_grain_param(&fx->gd, TX_GD_GRAIN, 0);
@@ -1485,8 +1486,8 @@ static void check_fx_drywet(tx_fx_t *fx)
             for (j = 0; j < TX_BLOCK && !first; j++) if (L[j] | R[j]) first = (b - 40u) * TX_BLOCK + j + 1u;
         }
         fr = TX_FX_GD_TIME[100];
-        snprintf(msg, sizeof msg, "grain delay -> reverb, both MIX 127, a 23 ms burst: the first sound out at %.1f ms, the "
-                 "echo's time %.1f ms (the reverb of the echoes alone)", (first - 1u) / 44.1, fr / 44.1);
+        snprintf(msg, sizeof msg, "reverb -> grain delay, both MIX 127, a 23 ms burst: the first sound out at %.1f ms, the "
+                 "echo's time %.1f ms (the echoes of the reverb alone)", (first - 1u) / 44.1, fr / 44.1);
         verdict("fx", "series", first && first - 1u >= fr - 64u, msg, 0);
     }
 }

@@ -590,15 +590,18 @@ TX_AUDIO_CODE int tx_fx_bus_begin(void *u, unsigned n)
 TX_AUDIO_CODE void tx_fx_bus_end(void *u, int32_t *L, int32_t *R, unsigned n)
 {
     tx_fx_t *fx = (tx_fx_t *)u;
-    TX_FAR(tx_fx_grain_end)(&fx->gd, L, R, n);         /* (in RAM on the FM-1: TX_RAM) */
-    TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);   /* (in XIP, its whole chain: the bus runs on core 1) */
+    TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);   /* the REVERB first (in XIP, its whole chain: the bus runs on
+                                                         * core 1), */
+    TX_FAR(tx_fx_grain_end)(&fx->gd, L, R, n);         /* then the GRAIN DELAY on what it gives (in RAM on the FM-1:
+                                                         * TX_RAM; its voices ran ahead from the line the last block
+                                                         * wrote, so the order changes no timing) */
 }
 TX_AUDIO_CODE void tx_fx_bus_end_c1(void *u, int32_t *L, int32_t *R, unsigned n)   /* (core 1: the twin; the reverb's
                                                          * hooks hand nothing on from there: the caller's) */
 {
     tx_fx_t *fx = (tx_fx_t *)u;
-    TX_C1(tx_fx_grain_end)(&fx->gd, L, R, n);
     TX_FAR(tx_fx_reverb_process)(&fx->rev, L, R, n);   /* (in XIP: its whole chain) */
+    TX_C1(tx_fx_grain_end)(&fx->gd, L, R, n);
 }
 TX_AUDIO_CODE void tx_fx_bus(void *u, int32_t *L, int32_t *R, unsigned n)
 {
