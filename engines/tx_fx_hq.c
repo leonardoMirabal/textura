@@ -32,6 +32,8 @@ static const uint8_t HQ_RATE[HQ_NL] = {8, 11, 13, 9, 15, 10, 12, 17, 7, 14, 19, 
 #define HQ_DLIVE 4                  /* the send's peak (Q15 steps, this block) from which the diffusers round; under it
                                      * (or none) they truncate their feed toward zero as before (at 2 .. 3 steps
                                      * rounding was the worse grain) */
+#define HQ_SZG 4                    /* the size's glide a control block (Q4: 1/4 step; SIZE AUTO <-> 1, 70 steps, in
+                                     * 0.2 s: a T60 stepped at once stepped every line's gain, a click on the tail) */
 #define HQ_OUT 1                    /* the outputs: the 16 lines' sum x 4 / 16 (the old HALL's level, near) */
 #define HQ_ERG 1                    /* the early reflections' level */
 
@@ -136,7 +138,7 @@ void tx_hq_job(void *a) { hq_half((tx_hq_t *)a, 1u); hq_er((tx_hq_t *)a); }   /*
                                                      * early reflections) */
 
 /* one control block: CTL frames of the send, HL_NC samples out (mid, side); sz the size step 0 .. 140: T60 12.8 s x
- * 2^((sz - 140) / 30), 0.5 .. 12.8 s (the old HALL's law: DECAY x0.5 .. x2) */
+ * 2^((sz - 140) / 30), 0.5 .. 12.8 s (the old HALL's law: DECAY x0.5 .. x2), glided to (HQ_SZG) */
 void tx_hq_run(tx_hall_t *hv, const int32_t *send, const int32_t *add, int32_t sz, int32_t damp, int32_t md, int32_t *om,
                int32_t *os, const tx_rv_par_t *par)
 {
@@ -146,9 +148,12 @@ void tx_hq_run(tx_hall_t *hv, const int32_t *send, const int32_t *add, int32_t s
     int32_t pk = 0;
     int taken, ld;
     const int32_t *el = h->half[1].el, *er = h->half[1].er;
-    sz = sz < 0 ? 0 : sz > 140 ? 140 : sz;
+    sz = (sz < 0 ? 0 : sz > 140 ? 140 : sz) * 16;   /* (Q4: the size glides HQ_SZG a control block, a whole step in
+                                                     * 4; a whole size the same gains as a step at once) */
+    if (h->sz >= 0 && h->sz != sz) sz = h->sz + (sz > h->sz ? (sz - h->sz > HQ_SZG ? HQ_SZG : sz - h->sz)
+                                                           : -(h->sz - sz > HQ_SZG ? HQ_SZG : h->sz - sz));
     if (h->sz != sz || h->damp != damp) {
-        int32_t t = (int32_t)((12800u * exp2_neg((uint32_t)(140 - sz) * 65536u / 30u)) >> 15);
+        int32_t t = (int32_t)((12800u * exp2_neg((uint32_t)(2240 - sz) * 4096u / 30u)) >> 15);
         hq_gains(h, t < 100 ? 100 : t, damp);
         h->sz = sz;
     }
