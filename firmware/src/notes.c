@@ -12,7 +12,10 @@
  *              No key changes the landscape (ALGORITHM does, on its page).
  *              LEDs: a lane's black keys blink while it plays (1.6 s rare .. 0.12 s busy), glow steadily while it
  *              plays muted, and glow when it is selected but stopped; the white keys show the selected lane's two bars.
- *   PLAY       the keys play the selected lane, pitched (OCT- / OCT+ the octave); the LEDs show the held keys.
+ *   PLAY       the keys play the selected lane, pitched (OCT- / OCT+ the octave); the LEDs all lit (a light to play
+ *              by), a held key dim.
+ * SEL tapped switches the mode; held, the keys and OCT work in the other mode while it is held (ui.c ui_sel): in PLAY,
+ * SEL held + a black key selects that lane (OCT the previous / next one) and the keys play it again once SEL is let go.
  *
  * Main loop only. */
 
@@ -31,6 +34,7 @@ static struct {
     uint8_t note[TX_NKEYS], lane[TX_NKEYS];     /* PLAY: what each held key sounds */
     uint32_t playing;                           /* PLAY: keys with a note on */
     uint8_t hold_k;                             /* LANDSCAPE: the black key held, for its mute (NT_SPAN: none) */
+    uint8_t sel_down, sel_used;                 /* SEL held (ui.c ui_sel); a key, a button used meanwhile */
     uint32_t hold_t;
 } nt = {.hold_k = NT_SPAN};
 
@@ -86,13 +90,14 @@ static void nt_poll(void)
     for (k = 0; k < TX_NKEYS; k++) {
         if (off >> k & 1u && nt.playing >> k & 1u) { ln_key(nt.lane[k], nt.note[k], 0, 0); nt.playing &= ~(1u << k); }
         if (!(on >> k & 1u)) continue;
+        nt.sel_used |= nt.sel_down;            /* (SEL held: a key used, its tap no switch) */
         if (nt.mode == NT_LANDSCAPE) nt_landscape_key(k);
         else {
             int32_t n = (int32_t)(TX_KEY_F3 + k) + 12 * nt.oct;
             if (n < 0 || n > 127) continue;
             sc_play_ready(sc.sel);
             nt.note[k] = (uint8_t)n; nt.lane[k] = sc.sel;
-            ln_key(sc.sel, (uint32_t)n, NT_VEL, 1);
+            ln_key(sc.sel, nt.note[k], NT_VEL, 1);
             nt.playing |= 1u << k;
         }
     }
@@ -108,8 +113,10 @@ static void nt_leds(uint32_t btn)
 {
     static struct { uint32_t lit, glow, btn; uint8_t done; } was;
     uint32_t lit = 0, glow = 0, k;
-    if (nt.mode == NT_PLAY) lit = nt.down;
-    else {
+    if (nt.mode == NT_PLAY) {                   /* every key lit, a held one dim */
+        lit = (1u << NT_SPAN) - 1u;
+        glow = nt.down; lit &= ~glow;
+    } else {
         for (k = 0; k < sizeof NT_GROUP; k++) {   /* the lanes: their black keys */
             uint32_t l = NT_GROUP[k], key = nt_key_of(1, k), p;
             if (l >= SC_N || key >= NT_SPAN) continue;

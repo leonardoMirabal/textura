@@ -1,0 +1,51 @@
+# PLAY mode and its lanes (notes.c, ui.c ui_sel): SEL tapped switches the key mode; in PLAY every key is lit (a light to
+# play by), a held key dim; SEL held: the other mode while it is held, so in PLAY SEL held + a black key selects that
+# lane (LANDSCAPE mode's groups) and the screen names it ("LANE 2: LAKE LAPPING"), SEL let go: the keys play that lane;
+# SEL held + OCT+: the next lane (the octave untouched); SEL held and let go with nothing used: a tap; in LANDSCAPE, SEL
+# held: the keys play while it is held
+1700 btn 13
+1750 btn 3
+1760 expect state mode PLAY
+1760 expect state msg KEYS:_PLAY
+1770 expect led 14 1
+1770 expect led 21 1
+1770 expect led 40 1
+1800 press 3
+1810 expect state mode LANDSCAPE
+1820 keys 0x100
+1840 keys 0
+1850 expect state sel 2
+1850 expect state msg LANE_2:_LAKE_LAPPING
+1900 release 3
+1910 expect state mode PLAY
+1910 expect state page LANDSCAPE
+1950 shot
+2000 keys 0x80
+2020 expect state knote7 2:60
+2020 expect led 21 0
+2020 expect led 22 1
+2050 keys 0
+2060 expect state knote7 -
+2100 press 3
+2120 btn 1
+2140 release 3
+2150 expect state sel 3
+2150 expect state mode PLAY
+2150 expect state oct 0
+2150 expect state msg LANE_3:_WATER_DROPS
+2200 btn 1
+2210 expect state oct 1
+2300 press 3
+2600 release 3
+2610 expect state mode LANDSCAPE
+2610 expect state msg KEYS:_LANDSCAPE
+2700 press 3
+2710 expect state mode PLAY
+2720 keys 0x80
+2740 expect state knote7 3:72
+2760 keys 0
+2780 release 3
+2790 expect state mode LANDSCAPE
+2900 expect state dropped 0
+2900 expect sound
+3000 end

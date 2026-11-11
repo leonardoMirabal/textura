@@ -330,6 +330,8 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "sel")) snprintf(v, n, "%u", sc.sel + 1u);
     else if (!strcmp(key, "mode")) snprintf(v, n, "%s", nt.mode == NT_PLAY ? "PLAY" : "LANDSCAPE");
     else if (!strcmp(key, "oct")) snprintf(v, n, "%d", nt.oct);
+    else if (sscanf(key, "knote%u%c", &k, &c) == 1 && k < TX_NKEYS) { if (nt.playing >> k & 1u) snprintf(v, n, "%u:%u", nt.lane[k] + 1u, nt.note[k]); else snprintf(v, n, "-"); }   /* key
+                                                 * k's lane and note sounding ("2:60"; none: "-") */
     else if (!strcmp(key, "msg")) snprintf(v, n, "%s", ui_msg_t && fm1_ms - ui_msg_t < MSG_MS ? ui_msg : "");
     else if (!strcmp(key, "dropped")) snprintf(v, n, "%u", ln.dropped);
     else if (!strcmp(key, "govus")) snprintf(v, n, "%u", ln_gov_us());            /* the governor: the pool's cost */

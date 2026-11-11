@@ -33,8 +33,10 @@
  *              turned: mod learn (the selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP
  *              MATRIX. Each group button lit on its own pages only; every group page's footer says where it goes next
  *   ENV        the ENV / FOLLOW pages; held + a card turned: mod learn from the selected ENV or FOLLOW
- *   SEL        key mode: LANDSCAPE / PLAY      OCT- OCT+  LANDSCAPE mode: the previous / next lane (a lane's page,
- *              SOUND, any of its pages, stays, for the new lane; any other goes to LANDSCAPE); PLAY mode: the octave
+ *   SEL        key mode: tapped, LANDSCAPE / PLAY; held, the other mode while it is held (ui_sel), so in PLAY SEL
+ *              held + a black key picks that lane ("LANE 2: RAIN"), OCT the previous / next one, and the keys play it
+ *              once SEL is let go      OCT- OCT+  LANDSCAPE mode: the previous / next lane (a lane's page, SOUND, any
+ *              of its pages, stays, for the new lane; any other goes to LANDSCAPE); PLAY mode: the octave
  *   black keys LANDSCAPE mode, by their groups: lanes 1..4, shown on LANDSCAPE (it stays, any other page goes to it;
  *              EDIT then opens the lane's SOUND); held 600 ms (notes.c NT_HOLD_MS): that lane muted / unmuted too (it
  *              plays on, only its output gated: back at once, a short ramp; its card dimmed, MUTED; a scene keeps it)
@@ -1466,13 +1468,20 @@ static void ub_poll(void)                       /* the preview: the cursor's sou
     ub.pend = 0;
     if (ub.lv == 2 && sc.run[ub.lane]) { sc_sound_set(ub.lane, ub.f, ub.cur); scn_touch(); }
 }
+static void ui_say_lane(void)                   /* "LANE 2: RAIN" (an empty lane: "LANE 2: EMPTY") */
+{
+    char t[32];
+    p_strcpy(t, "LANE 1: ", 8); t[5] = (char)('1' + sc.sel);
+    p_upper(t + 8, sc.snd[sc.sel] >= 0 ? sc_sound_name(sc.sel) : "EMPTY", 23);
+    ui_say(t);
+}
 static void ui_lane_focus(uint32_t k)           /* a black key: lane k, shown on LANDSCAPE (the 4 lanes, as HOME): it
                                                  * stays there (HOME's way back kept), any other page goes to it */
 {
     sc_select(k);
-    if (ub.on && !ub.pr) { ub_follow(); ui_say_n("LANE", sc.sel + 1); return; }   /* (the browser stays, on this lane) */
-    ui_goto(G_LAND, 0);
-    ui_say_n("LANE", sc.sel + 1);
+    if (ub.on && !ub.pr) ub_follow();           /* (the browser stays, on this lane) */
+    else ui_goto(G_LAND, 0);
+    ui_say_lane();
 }
 static void ui_lane_mute(uint32_t k)            /* a black key held: lane k muted / unmuted ("LANE 2 MUTED") */
 {
@@ -1491,7 +1500,7 @@ static void ui_lane_step(int32_t d)             /* OCT: the previous / next lane
     sc_select((uint32_t)clampi((int32_t)sc.sel + d, 0, (int32_t)SC_N - 1));
     if (ub.on) ub_follow();
     else if (ui_lane_page()) ui_goto(ui_g, ui_sub); else ui_goto(G_LAND, 0);
-    ui_say_n("LANE", sc.sel + 1);
+    ui_say_lane();
 }
 /* a parameter turned by d detents: an amount or a choice by d, a toggle on (up) / off (down) */
 static void ui_turn(uint32_t id, int32_t d)
@@ -1677,6 +1686,19 @@ static void ui_rec(void)
 }
 static uint32_t ui_fx_t;
 static uint8_t ui_fx_down;                      /* FX pressed, its release or its hold to come */
+static void ui_sel(uint32_t b, uint32_t rel)    /* SEL: a tap switches the key mode; held, the other mode while held
+                                                 * (a key or a button used meanwhile: back when let go) */
+{
+    if (b >> BTN_SEL & 1u) {
+        if (nt.mode == NT_PLAY) ui_say("SEL + BLACK KEY: LANE");   /* (held: how to pick a lane while playing) */
+        nt_mode_set(nt.mode ^ 1u); nt.sel_down = 1; nt.sel_used = 0; b &= ~(1u << BTN_SEL);
+    }
+    if (nt.sel_down && b) nt.sel_used = 1;
+    if (!(rel >> BTN_SEL & 1u) || !nt.sel_down) return;
+    nt.sel_down = 0;
+    if (nt.sel_used) nt_mode_set(nt.mode ^ 1u);
+    else ui_say(nt.mode == NT_PLAY ? "KEYS: PLAY" : "KEYS: LANDSCAPE");
+}
 static void ui_input(uint32_t b, uint32_t rel)
 {
     int32_t d[7];
@@ -1771,7 +1793,7 @@ static void ui_input(uint32_t b, uint32_t rel)
         }
     }
     ui_play(b >> TX_BTN_TAP & 1u, rel >> TX_BTN_TAP & 1u);
-    if (b >> BTN_SEL & 1u) { nt_mode_set(nt.mode == NT_PLAY ? NT_LANDSCAPE : NT_PLAY); ui_say(nt.mode == NT_PLAY ? "KEYS: PLAY" : "KEYS: LANDSCAPE"); }
+    ui_sel(b, rel);
     if (b >> BTN_OCT_DOWN & 1u) { if (nt.mode == NT_PLAY) nt_oct_step(-1); else ui_lane_step(-1); }
     if (b >> BTN_OCT_UP & 1u) { if (nt.mode == NT_PLAY) nt_oct_step(1); else ui_lane_step(1); }
     if (b >> BTN_REC & 1u && nt.mode == NT_LANDSCAPE) ui_rec();
