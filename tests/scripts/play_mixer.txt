@@ -23,6 +23,10 @@
 3500 shot
 3600 btn 8
 3620 expect state page LANDSCAPE
+# the LEDs: HOME lit on its page, GLO dark (it lights only on its own pages)
+3625 expect led 8 1
+3625 expect led 7 0
+3625 expect state leds OCT+_HOME
 3630 btn 8
 3640 expect state page MIXER_2/2
 3650 btn 8

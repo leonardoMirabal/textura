@@ -354,6 +354,12 @@ static int host_state(const char *key, char *v, unsigned n)
                                                  * browser: the category) */
     else if (!strcmp(key, "brpr")) snprintf(v, n, "%u", ub.on && ub.pr);   /* the browser open is the presets one */
     else if (!strcmp(key, "brcur")) snprintf(v, n, "%u", ub.cur);
+    else if (!strcmp(key, "leds")) {            /* the buttons lit, by name ("HOME REC") */
+        static const char *const BN[14] = {"OCT-", "OCT+", "FX", "SEL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY", "REC"};
+        uint32_t b = ui_btn_leds();
+        v[0] = 0;
+        for (i = 0; i < 14u; i++) if (b >> i & 1u) { if (v[0]) strncat(v, " ", n - strlen(v) - 1u); strncat(v, BN[i], n - strlen(v) - 1u); }
+    }
     else if (sscanf(key, "gate%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%d", (int)ln.mix.gc[k]);   /* the mix's gate now, Q15 */
     else if (sscanf(key, "alive%u%c", &k, &c) == 1 && k < SC_N) {   /* the lane's engine made events since this was read last */
         static uint32_t was[SC_N];

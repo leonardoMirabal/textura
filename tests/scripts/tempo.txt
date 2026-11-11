@@ -9,6 +9,8 @@
 1720 expect state card1 120.0_BPM
 1720 expect state card2 INT
 1720 expect state card3 STOP
+1720 expect led 7 1
+1720 expect led 8 0
 1800 turn 2 10
 1820 expect state bpm10 1300
 1900 turn 3 -5

@@ -1325,7 +1325,7 @@ static void ui_input(uint32_t b, uint32_t rel)
     if (d[ENC_ALGORITHM]) ui_algorithm(d[ENC_ALGORITHM]);
     for (i = 0; i < 4u; i++) if (d[ENC_KNOB1 + i]) ui_knob(i, d[ENC_KNOB1 + i]);
 }
-/* the buttons' LEDs: HOME, EDIT, FX or GLO on their pages, PLAY the beat, SEL in PLAY mode, REC while anything plays, OCT where it can
+/* the buttons' LEDs: HOME, EDIT, FX, LFO, ENV, ARP or GLO on their own pages only, PLAY the beat, SEL in PLAY mode, REC while anything plays, OCT where it can
  * still go */
 static uint32_t ui_btn_leds(void)
 {
@@ -1335,11 +1335,11 @@ static uint32_t ui_btn_leds(void)
     else if (ui_g <= G_REVERB) b |= 1u << BTN_FX;
     else if (ui_g == G_LFO) b |= 1u << BTN_LFO;
     else if (ui_g == G_ENV) b |= 1u << BTN_ENV;
+    else if (ui_g == G_MATRIX) b |= 1u << BTN_ARP;
+    else if (ui_g >= G_TEMPO) b |= 1u << BTN_GLO;   /* (TEMPO, GROOVE, MIDI, DISPLAY: GLO's pages) */
     if (ui_latched()) b |= 1u << (ui_lsrc >= MS_ENV1 ? BTN_ENV : BTN_LFO);   /* (learn latched) */
     if (ub.on && !ub.pr) b |= 1u << BTN_SEQ;    /* (the sound browser open) */
     if (scn_save_mode || (scn_sv_on && fm1_ms >> 7 & 1u)) b |= 1u << BTN_SAVE;   /* (the save mode; saving: blinking) */
-    else if (ui_g == G_MATRIX) b |= 1u << BTN_ARP;
-    else b |= 1u << BTN_GLO;
     if (tempo_beat_led()) b |= 1u << TX_BTN_TAP;
     if (nt.mode == NT_PLAY) b |= 1u << BTN_SEL;
     if (sc_any_run()) b |= 1u << BTN_REC;
