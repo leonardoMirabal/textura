@@ -8,7 +8,8 @@ location, a product name, MIDI ports and a running firmware or an update loader 
   - --port names the running firmware: the same unit followed into its loader (now one of two "Felucca Update"),
     the other untouched; without CoreMIDI's locations that wait refuses instead;
   - two units of one name: refused before anything is sent; --location on a non-FM-1: refused;
-  - --info lists every FM-1 with its location, USB name and identity.
+  - --info lists every FM-1 with its location, USB name and state, nothing sent; --query asks identities, never a
+    loader's unless --location names it.
 Needs Frodhes' tools/fm1_install.py (the staged tree or its git: skipped, and said so, without either)."""
 import importlib.util
 import io
@@ -191,7 +192,7 @@ def run(world, *args):
     out, err = io.StringIO(), io.StringIO()
     old, sys.stderr = sys.stderr, err
     try:
-        TI.load = (lambda path=None, location=None: _set(LOAD(path, location)))   # (each run its own module)
+        TI.load = (lambda *a, **k: _set(LOAD(*a, **k)))   # (each run its own module)
         rc = TI.main(list(args), backend=world, out=out, ask=lambda _p: True, path=PATH)
     finally:
         sys.stderr = old
@@ -253,11 +254,38 @@ w = World([(A, *running)])
 rc, txt = run(w, str(PKG), "--yes")
 check(rc == 0 and w.units[0].ident == "FM-1_959", f"one unit, no --location: installed as before (exit {rc})")
 
-w = World([(A, *running), (B, *loader), (0x30000000, "Frodhes FM-1", "Frodhes", "FM-1_957")])
+FR = (0x30000000, "Frodhes FM-1", "Frodhes", "FM-1_957")
+w = World([(A, *running), (B, *loader), FR])
 rc, txt = run(w, "--info")
-check(rc == 0 and "0x00100000" in txt and "FM-1_958" in txt and "0x20130000" in txt and "ota-FM-1_900" in txt
-      and "update loader" in txt and "0x30000000" in txt and not w.units[2].sent and "M6" not in txt,
-      "--info: every FM-1 with location, USB name, ports, identity (a Frodhes unit listed, not asked)")
+check(rc == 0 and "0x00100000" in txt and "[running]" in txt and "0x20130000" in txt and "[update loader]" in txt
+      and "0x30000000" in txt and "M6" not in txt and not any(u.sent for u in w.units),
+      "--info: every FM-1 with location, USB name, ports, state; nothing sent to any unit")
 print(txt, end="")
+
+w = World([(A, *running), (B, *loader), FR])
+rc, txt = run(w, "--info", "--query")
+a, b, f = w.units
+check(rc == 0 and "FM-1_958" in txt and a.sent and not b.sent and not f.sent and "only with --location" in txt,
+      "--info --query: the running unit asked; the loader and the Frodhes unit not")
+print(txt, end="")
+
+w = World([(A, *running), (B, *loader)])
+rc, txt = run(w, "--info", "--query", "--location", f"0x{B:08x}")
+a, b = w.units
+check(rc == 0 and "ota-FM-1_900" in txt and b.sent and not a.sent and "0x00100000" not in txt,
+      "--info --query --location B: that loader asked, nothing else")
+
+w = World([(A, *running), (B, *loader)], coremidi=False)
+rc, txt = run(w, "--info")
+check(rc == 0 and "Felucca Update  [update loader]" in txt and not any(u.sent for u in w.units),
+      "--info without CoreMIDI: the ports by name, nothing sent")
+
+w = World([(A, *running), (B, *loader)], coremidi=False)
+rc, txt = run(w, "--info", "--query")
+a, b = w.units
+check(rc == 0 and "FM-1_958" in txt and a.sent and not b.sent, "--info --query without CoreMIDI: the running unit only")
+
+rc, txt = run(World([(A, *running)]), str(PKG), "--query")
+check(rc == 2, "--query without --info: refused")
 PKG.unlink()
 sys.exit(1 if fails else 0)

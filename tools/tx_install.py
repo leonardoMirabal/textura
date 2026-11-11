@@ -5,7 +5,7 @@
 choice (tools/tx_ports.py) and the unit pinned by its USB location:
 
   tools/tx_install.py PACKAGE.fwsc [--port NAME] [--location 0xNNNNNNNN] [--yes] [--force]
-  tools/tx_install.py --info [--port NAME] [--location 0xNNNNNNNN]
+  tools/tx_install.py --info [--query] [--port NAME] [--location 0xNNNNNNNN]
 
 The FM-1 is looked for under "Textura" first, then the update loader's names (a unit left in update mode); a port
 named "Frodhes" is never probed unless --port names it, and never while a "Textura" port is present. A unit still on
@@ -19,7 +19,8 @@ and opened by index: two ports of one name told apart), else the location of the
 only the ports at that location, whatever they are called: --port names the running firmware, the loader is followed
 there under its own name. Without a location (no ioreg / CoreMIDI) a wait refuses when more than one port could be the
 unit (exit 7): nothing is written to a unit that cannot be told apart. --info lists every FM-1 on USB with its
-location, USB name, MIDI ports and identity.
+location, USB name, MIDI ports and state, from ioreg and CoreMIDI only (nothing sent); --query also asks each unit's
+identity, never a loader's unless --location names it (another session may be writing it).
 
 The installer is read from build/fm1/tree (staged by make fm1-app / fm1-bench), else from Frodhes' git (git archive
 into build/fm1/install: its checkout is never touched). Needs mido with python-rtmidi (.local/venv).
@@ -119,7 +120,7 @@ class RtLink:
                 pass
 
 
-def load(path=None, location=None):
+def load(path=None, location=None, query=False):
     """Frodhes' installer module, its port choice made Textura's and the unit pinned by its USB location"""
     spec = importlib.util.spec_from_file_location("fm1_install", path or installer_path())
     m = importlib.util.module_from_spec(spec)
@@ -128,6 +129,7 @@ def load(path=None, location=None):
     m.PORT_RE = re.compile(also, re.I)
     m.EXIT["ambiguous"] = AMBIGUOUS
     m.LOCATION = location
+    m.QUERY = query
     U = m.Updater
 
     class TxBackend(m.MidoBackend):
@@ -297,23 +299,40 @@ def load(path=None, location=None):
     orig_run = m.run
 
     def run(a, backend, out, ask):
-        return info(m, m.Updater(backend, a.port), out) if a.info else orig_run(a, backend, out, ask)
+        return info(m, m.Updater(backend, a.port), out, m.QUERY) if a.info else orig_run(a, backend, out, ask)
 
     m.run = run
     return m
 
 
-def info(m, up, out):
-    """every FM-1 on USB: its location, USB name, MIDI ports and identity (a Frodhes unit only when --port names
-    it); without the USB lists, the installer's own --info (one unit)"""
+LOADER = re.compile(r"update|ota-", re.I)       # an update loader's USB / port name ("Felucca Update")
+
+
+def info(m, up, out, query=False):
+    """every FM-1 on USB: its location, USB name, MIDI ports and state, read from ioreg and CoreMIDI only (nothing
+    sent). query: each unit's identity asked too, never a loader's unless --location names it (another session may
+    be writing it) and never a Frodhes unit's unless --port names it. Without the USB lists: the FM-1-like ports by
+    name (query: the first running one's identity)"""
     devs = up.usb()
     if devs is None or getattr(up.backend, "ports_at", None) is None:
-        dev = up.find()
-        if not dev:
+        names = up.candidates(False)
+        if not names:
             raise m.not_found(up)
-        dev.link.close()
-        mode = "update loader (update not finished)" if dev.id.loader else "running"
-        print(f"{dev.id.text}  [{mode}]  port: {dev.name}  (USB location unknown on this computer)", file=out)
+        for n in names:
+            print(f"port: {n}" + ("  [update loader]" if LOADER.search(n) else "")
+                  + "  (USB location unknown on this computer)", file=out)
+        if query:
+            run = [n for n in names if not LOADER.search(n)]
+            save = up.candidates
+            up.candidates = lambda only_port, _r=run: _r
+            try:
+                dev = up.find() if run else None
+            finally:
+                up.candidates = save
+            if dev:
+                dev.link.close()
+                print(f"{dev.id.text}  [{'update loader' if dev.id.loader else 'running'}]  port: {dev.name}",
+                      file=out)
         return 0
     units = [(n, l) for n, l in devs if tx_ports.fm1_usb(n)]
     if up.location is not None:
@@ -325,23 +344,30 @@ def info(m, up, out):
     for n, l in units:
         ports = up.at(l) or ([], [])
         names = list(dict.fromkeys(p for _, p in ports[0]))
-        if tx_ports.OLD in n.lower() and not up.named_frodhes():
-            ident = "identity not asked (a Frodhes unit: --port Frodhes)"
+        loader = bool(LOADER.search(n) or any(LOADER.search(p) for p in names))
+        state = "update loader" if loader else "running"
+        ident = ""
+        if not query:
+            pass
+        elif tx_ports.OLD in n.lower() and not up.named_frodhes():
+            ident = "  identity not asked (a Frodhes unit: --port Frodhes)"
+        elif loader and up.location != l:
+            ident = "  identity not asked (a loader: only with --location)"
         else:
             save = up.port
             up.port = None                     # (every unit, not the one --port names)
             try:
                 dev = up.find_at(l, None, False)
             except m.InstallError as e:
-                dev, ident = None, f"identity not asked ({e})"
+                dev, ident = None, f"  identity not asked ({e})"
             else:
-                ident = "no identity reply"
+                ident = "  no identity reply"
             finally:
                 up.port = save
             if dev:
                 dev.link.close()
-                ident = f"{dev.id.text}  [{'update loader' if dev.id.loader else 'running'}]"
-        print(f"0x{l:08x}  {n!r:22}  ports: {', '.join(names) or '-'}  {ident}", file=out)
+                state, ident = "update loader" if dev.id.loader else "running", f"  {dev.id.text}"
+        print(f"0x{l:08x}  {n!r:22}  ports: {', '.join(names) or '-'}  [{state}]{ident}", file=out)
     return 0
 
 
@@ -350,6 +376,7 @@ def main(argv=None, backend=None, out=sys.stdout, ask=None, path=None):
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("--location", type=tx_ports.parse_loc)
     ap.add_argument("--port")
+    ap.add_argument("--query", action="store_true")
     try:
         mine, rest = ap.parse_known_args(argv)
     except SystemExit:
@@ -359,7 +386,10 @@ def main(argv=None, backend=None, out=sys.stdout, ask=None, path=None):
     if "-h" in rest or "--help" in rest:
         print(__doc__, file=out)
         return 0
-    m = load(path, mine.location)
+    if mine.query and "--info" not in rest:
+        print("tx_install: --query goes with --info", file=sys.stderr)
+        return 2
+    m = load(path, mine.location, mine.query)
     if backend is None:
         try:
             backend = m.TxBackend()
