@@ -9,10 +9,10 @@ typedef struct {               /* proportional, see tools/gen_font.py */
     uint8_t first, last;
     const uint8_t *adv;        /* advance per glyph */
     const uint8_t *bw;         /* bitmap width per glyph (starts FONT_PAD left of the pen) */
-    const uint16_t *off;       /* byte offset of each glyph */
-    const uint8_t *data;
+    const uint16_t *off;       /* each glyph's first bit */
+    const uint8_t *data;       /* one bit a pixel, h rows of bw bits, MSB first (a set bit: alpha 15) */
 } felucca_font_t;
-#include "felucca_font.h"
+#include "felucca_font1.h"     /* (tools/gen_font1.py: felucca_font.h's Terminus, a bitmap font, at one bit a pixel) */
 
 #ifndef CV_MAX
 #define CV_MAX (240u * 124u)      /* the graph strip is 240 x 124 */
@@ -146,18 +146,13 @@ static int32_t cv_text(int32_t x, int32_t y, const felucca_font_t *f, const char
     for (a = 0; a < 16u; a++)
         ramp[a] = (uint16_t)(((r * a / 15u) << 11) | ((g * a / 15u) << 5) | (b * a / 15u));
     for (; *s; s++) {
-        uint32_t gi = glyph(f, (uint8_t)*s), gx, gy, w, bpr;
-        const uint8_t *gd;
+        uint32_t gi = glyph(f, (uint8_t)*s), gx, gy, w, bit;
         w = f->bw[gi];
-        bpr = (w + 1u) / 2u;
-        gd = f->data + f->off[gi];
+        bit = f->off[gi];
         for (gy = 0; gy < f->h; gy++)
-            for (gx = 0; gx < w; gx++) {
-                uint32_t v = gd[gy * bpr + gx / 2u];
-                v = (gx & 1u) ? (v & 15u) : (v >> 4);
-                if (v)
-                    cv_pset(x - f->pad + (int32_t)gx, y + (int32_t)gy, ramp[v]);
-            }
+            for (gx = 0; gx < w; gx++, bit++)
+                if ((f->data[bit >> 3] >> (7u - (bit & 7u))) & 1u)
+                    cv_pset(x - f->pad + (int32_t)gx, y + (int32_t)gy, ramp[15]);
         x += f->adv[gi];
     }
     return x;

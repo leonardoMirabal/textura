@@ -51,7 +51,7 @@ LOADER_NAME = b"usb_hid_ota.bin"
 CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-function"]
 FR_FILES = ["firmware/hal", "firmware/crt0.S", "firmware/app.ld", "firmware/loader", "firmware/src",
             "tools/fm1pkg_make.py", "tools/lz4blk.py", "tools/fm1_install.py"]
-TX_OVER = ["firmware/app.ld", "firmware/src/platform.c", "firmware/src/core1.h", "firmware/src/gfx.c", "firmware/gen/felucca_font.h", "firmware/hal/fm1_cc.h",
+TX_OVER = ["firmware/app.ld", "firmware/src/platform.c", "firmware/src/core1.h", "firmware/src/gfx.c", "firmware/gen/felucca_font.h", "firmware/gen/felucca_font1.h", "firmware/hal/fm1_cc.h",
            "firmware/hal/fm1_flash_map.h"]
 
 

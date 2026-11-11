@@ -168,7 +168,7 @@ $(FW)/lanes_test_pipe: tests/lanes_test.c firmware/src/lanes.c $(ENG_SRC) $(ENG_
 
 fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textura-host
 	@python3 -I tools/gen_landscapes.py --check || exit 1; \
-	python3 -I tools/gen_presets.py --check || exit 1; \
+	python3 -I tools/gen_presets.py --check || exit 1; python3 -I tools/gen_font1.py --check || exit 1; \
 	$(FW)/lanes_test || exit 1; \
 	$(FW)/lanes_test_par || exit 1; \
 	$(FW)/lanes_test_pipe || exit 1; \
@@ -219,6 +219,7 @@ fw-fonts:
 	git -C $(FRODHES) archive $(FW_FONT_REV) tools/gen_font.py tools/gen_aa_font.py tools/aa_raster.py tools/font_chars.py \
 	  assets/fonts/ter-u16n.bdf 'assets/fonts/InterTight[wght].ttf' | tar -x -C $(FW)/fonts
 	python3 -I $(FW)/fonts/tools/gen_font.py --full firmware/gen/felucca_font.h
+	python3 -I tools/gen_font1.py
 	.local/venv/bin/python -I tools/gen_aa_font_q.py $(FW)/fonts/tools $(AA_BITS) firmware/gen/aa_font.h \
 	  --preset inter-tight --full
 	.local/venv/bin/python -I tools/gen_aa_font_q.py $(FW)/fonts/tools $(AA_BITS) firmware/gen/aa_font_v24.h \
