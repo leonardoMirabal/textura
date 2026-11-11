@@ -10,6 +10,7 @@
 
 #define HL_MOD 8
 #define HL_KD(d) (32767 - (d) * 180)
+#define HL_DLIVE 4                  /* the send's peak (this block) from which the input allpasses round (HQ_DLIVE) */
 #define HL_LOUD 32
 #define HL_OUT 1
 #define HL_LFO 1153115u             /* 0.37 Hz a control block: 0.37 x 32 / 44100 x 2^32 */
@@ -42,14 +43,24 @@ static void hall_gains(tx_hall_t *h, int32_t s)
     }
     h->sz = (int16_t)(s + 1);
 }
-TX_INLINE void hall_ap(int16_t *q, int32_t g, int32_t *x, uint32_t n)
+/* an input allpass over n samples; ld (a live send): its feed rounded half away from zero (an odd function: no even
+ * harmonic, no dead band), else truncated toward zero (no input, no growth: it dies to exact 0) */
+TX_INLINE void hall_ap(int16_t *q, int32_t g, int32_t *x, uint32_t n, int ld)
 {
     int16_t *e = q + n;
-    for (; q < e; q++, x++) {
-        int32_t y = *q, v = *x + sh_tz(y * g, 14);
-        *q = (int16_t)hl_c16(v);
-        *x = y - ((v * g + 8192) >> 14);
-    }
+    if (ld)
+        for (; q < e; q++, x++) {
+            int32_t y = *q, u = y * g, v = *x + ((u + 8192 + (u >> 31)) >> 14);
+            *q = (int16_t)hl_c16(v);
+            u = v * g;
+            *x = y - ((u + 8192 + (u >> 31)) >> 14);
+        }
+    else
+        for (; q < e; q++, x++) {
+            int32_t y = *q, v = *x + sh_tz(y * g, 14);
+            *q = (int16_t)hl_c16(v);
+            *x = y - ((v * g + 8192) >> 14);
+        }
 }
 /* a line's end: the modulated read (linear, f / 256 past b), the damping one-pole, the gain */
 TX_INLINE void hall_end(const int16_t *b, int32_t f, int16_t *y, uint32_t n, int32_t g, int lo, int32_t *lp, int32_t *le,
@@ -114,6 +125,7 @@ TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t 
     int16_t *a = h->ap, *o;
     const int16_t *y, *z;
     uint32_t i, k, s, m, d, w = h->w;
+    int32_t pk = 0;
     int taken;
     if (h->sz != size + 1) TX_FAR(hall_gains)(h, size);   /* (a SIZE change: in XIP) */
     h->ph += HL_LFO;
@@ -121,9 +133,10 @@ TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t 
     taken = rv_fork(par, tx_hall_job, h);           /* the line ends: 4..7 there (or here, after), 0..3 here */
     tx_rev_down(send, &h->hp, &h->he, h->bx);
     if (add) for (i = 0; i < HL_NC; i++) h->bx[i] += add[i];   /* (Textura: the shimmer, into the lines' input) */
+    for (i = 0; i < HL_NC; i++) pk |= h->bx[i] ^ (h->bx[i] >> 31);
     for (k = 0; k < HL_NAP; k++) {
         d = h->d[k];
-        HL_RUNS(d, HL_AP[k], m, s, hall_ap(a + d, HL_APG[k], h->bx + s, m));
+        HL_RUNS(d, HL_AP[k], m, s, hall_ap(a + d, HL_APG[k], h->bx + s, m, pk >= HL_DLIVE));
         h->d[k] = (uint16_t)d;
         a += HL_AP[k];
     }
