@@ -135,6 +135,8 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
  * call. */
 #define HOST_FL_CHECK 1
 #include "store.h"
+_Static_assert(FL_JEDEC_OK(0x856014u) && FL_JEDEC_OK(0xB36014u) && !FL_JEDEC_OK(0u) && !FL_JEDEC_OK(0xFFFFFFu),
+               "the FM-1's storage takes both flash parts: the P25Q80H and the newer units' UC25HQ80");
 static uint32_t host_fails, host_fl_calls;
 static int host_fl_check(const char *what, uint32_t at, uint32_t n)
 {
