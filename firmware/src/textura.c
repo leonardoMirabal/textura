@@ -337,6 +337,7 @@ static int host_state(const char *key, char *v, unsigned n)
         for (i = 0; i < nt_mn; i++) { char t[12]; snprintf(t, sizeof t, "%s%u:%u", i ? " " : "", nt_mq[i].lane + 1u, nt_mq[i].out); strncat(v, t, n - strlen(v) - 1u); }
         if (!v[0]) snprintf(v, n, "-");
     }
+    else if (!strcmp(key, "ft2")) snprintf(v, n, "%s", ui_ft2);   /* the footer's line 2 on a group's page (ft_next) */
     else if (!strcmp(key, "msg")) snprintf(v, n, "%s", ui_msg_t && fm1_ms - ui_msg_t < MSG_MS ? ui_msg : "");
     else if (!strcmp(key, "dropped")) snprintf(v, n, "%u", ln.dropped);
     else if (!strcmp(key, "govus")) snprintf(v, n, "%u", ln_gov_us());            /* the governor: the pool's cost */

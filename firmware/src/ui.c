@@ -1023,6 +1023,29 @@ static void ft_alg(int32_t yc, const char *what, const char *val)
     x = aa_text(x, S_TOP(yc), &AF_S, what, FC_LAB, FC_BG) + 6;
     aa_text(x, S_TOP(yc), &AF_S, v, FC_VAL, FC_BG);
 }
+/* the footer's line 2 on a group's page: where its button goes next, beside the page's hold gesture when it fits (the
+ * effects: FX held opens FILTER; LFO, ENV: held + a card turned learns a route), else the gesture's short form */
+#ifdef DINGHY_HOST
+static char ui_ft2[48];                         /* (the host's state "ft2": the last line 2 ft_next wrote, "A | B") */
+#endif
+static void ft_next(char *t)
+{
+    int lfo = ui_g == G_LFO || ui_g == G_ENV, i;
+    const char *h = lfo ? (ui_g == G_LFO ? "HOLD LFO + TURN: LEARN" : "HOLD ENV + TURN: LEARN")
+                  : G_BTN[ui_g] == BTN_FX && ui_g != G_MFILT ? "HOLD: FILTER" : 0;
+    ui_next_text(t, G_BTN[ui_g]);
+    for (i = 0; lfo && i < 3 && aa_text_w(&AF_S, t) + aa_text_w(&AF_S, h) + 9 > 236; i++) {
+        if (i == 0) h = "HOLD + TURN: LEARN";       /* (too wide: the hint drops the button, then the NEXT its */
+        else { while (*t && *t != (i == 1 ? ' ' : '>')) t++; if (i == 1 && *t) t++; }   /* button's name, then
+                                                 * "NEXT ": "> LFO PHASE") */
+    }
+    if (h && aa_text_w(&AF_S, t) + aa_text_w(&AF_S, h) + 9 <= 236) ft_two(22, t, h, FC_DIM);
+    else { if (lfo) t = (char *)h; h = 0; ft_c(22, t, FC_DIM); }   /* (still too wide: LFO, ENV the gesture alone, as
+                                                 * before the NEXT line; the effects their NEXT) */
+#ifdef DINGHY_HOST
+    p_strcpy(ui_ft2, t, 47); if (h) { p_cat(ui_ft2, " | ", 47); p_cat(ui_ft2, h, 47); }
+#endif
+}
 /* the footer: line 1 what ALGORITHM does here (or the page's hint), line 2 where the page's button goes next */
 static void draw_footer(void)
 {
@@ -1073,8 +1096,12 @@ static void draw_footer(void)
             if (aa_text_w(&AF_S, t) + aa_text_w(&AF_S, "GLO: RHYTHM") + 9 <= 236) ft_two(22, "GLO: RHYTHM", t, FC_LAB);
             else ft_c(22, t, FC_LAB);
         }
-    } else if (ui_g == G_COMP && pv_glob[PG_COMP0 + TX_CP_ON]) { draw_meter(); return; }   /* (the gain-reduction meter,
-                                                 * Frodhes' draw_meter) */
+    } else if (ui_g == G_COMP && pv_glob[PG_COMP0 + TX_CP_ON]) {   /* the gain-reduction meter (Frodhes' draw_meter) on
+                                                 * line 1, where FX goes next on line 2 as on every effects page */
+        char t[32];
+        draw_meter();
+        ft_next(t);
+    }
     else {
         char t[32], v[24];
         uint32_t id = G_ALG(ui_g);
@@ -1099,12 +1126,7 @@ static void draw_footer(void)
                 cv_rect(20, 20, 200, 4, CD_SEGDIM); cv_rect(20, 20, 200 * clampi(lv, 0, p_hi((uint32_t)mid)) / p_hi((uint32_t)mid), 4, mt.edge);
             }
         }
-        else {                                  /* (the effects' pages: FX held opens FILTER) */
-            ui_next_text(t, G_BTN[ui_g]);
-            if (G_BTN[ui_g] == BTN_FX && ui_g != G_MFILT && aa_text_w(&AF_S, t) + aa_text_w(&AF_S, "HOLD: FILTER") + 9 <= 236)
-                ft_two(22, t, "HOLD: FILTER", FC_DIM);
-            else ft_c(22, t, FC_DIM);
-        }
+        else ft_next(t);                        /* (where the button goes next, and the page's hold gesture) */
         if (ui_g == G_ENV) {                    /* its value now: a bar */
             int32_t e = mod_ext[ui_env < TX_ENV_N ? ME_ENV1 + ui_env : ME_FOL1 + ui_env - TX_ENV_N];
             cv_rect(20, 14, 200, 3, CD_SEGDIM); cv_rect(20, 14, 200 * clampi(e, 0, 32767) / 32767, 3, mt.edge);
@@ -1113,12 +1135,13 @@ static void draw_footer(void)
     cv_blit(0, FT_Y);
 }
 
-/* ---- the compressor's gain reduction, as a hardware meter reads (Frodhes' draw_meter): a full-width bar filled from
- * the right (1 .. 30 dB on the scale GR_DB10, its 15 steps evenly apart), a peak that holds for a second, the reading
- * in dB; it rises at once and falls at 15 dB/s, like a meter's needle (meter_poll, each signature pass) */
+/* ---- the compressor's gain reduction, as a hardware meter reads (Frodhes' draw_meter): a bar on the footer's line 1
+ * filled from the right (1 .. 30 dB on the scale GR_DB10, its 15 steps evenly apart), a peak that holds for a second,
+ * the reading in dB; it rises at once and falls at 15 dB/s, like a meter's needle (meter_poll, each signature pass) */
 #define GR_SEGS 15u
 #define GR_X 6
-#define GR_W 228
+#define GR_W 228                                /* (the scale's width) */
+#define GR_W1 160                               /* the bar drawn: line 1 beside the reading (line 2: where FX goes) */
 static const int16_t GR_DB10[GR_SEGS] = {10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 180, 200, 240, 270, 300};
 static int32_t gr_db10;
 static uint8_t gr_peak;
@@ -1136,16 +1159,13 @@ static int32_t gr_px(int32_t db10)              /* a reduction's place on the ba
 static void draw_meter(void)
 {
     char t[12] = "-";
-    int32_t db10 = gr_db10, fw = gr_px(db10), pk = gr_peak ? gr_px(GR_DB10[gr_peak - 1u]) : 0;
-    cv_begin(240, FT_H, FC_BG);
-    cv_rect(GR_X, 3, GR_W, 9, mt.track);
-    cv_rect(GR_X + GR_W - fw, 3, fw, 9, mt.fill);
-    cv_rect(GR_X + GR_W - (fw > 2 ? fw : 2), 3, 2, 9, mt.edge);   /* the fill's edge (at 0: the bar's right end) */
-    if (pk > fw) cv_rect(GR_X + GR_W - pk, 3, 2, 9, FC_VAL);    /* the peak */
+    int32_t db10 = gr_db10, fw = gr_px(db10) * GR_W1 / GR_W, pk = gr_peak ? gr_px(GR_DB10[gr_peak - 1u]) * GR_W1 / GR_W : 0;
+    cv_rect(GR_X, 3, GR_W1, 9, mt.track);
+    cv_rect(GR_X + GR_W1 - fw, 3, fw, 9, mt.fill);
+    cv_rect(GR_X + GR_W1 - (fw > 2 ? fw : 2), 3, 2, 9, mt.edge);   /* the fill's edge (at 0: the bar's right end) */
+    if (pk > fw) cv_rect(GR_X + GR_W1 - pk, 3, 2, 9, FC_VAL);   /* the peak */
     p_fmt_dec(t + 1, db10); p_cat(t, " dB", 11);
-    aa_text(10, S_TOP(21), &AF_S, "GAIN REDUCTION", FC_LAB, FC_BG);
-    aa_text_r(230, S_TOP(21), &AF_S, db10 ? t : "0.0 dB", db10 ? FC_VAL : FC_DIM, FC_BG);
-    cv_blit(0, FT_Y);
+    aa_text_r(234, S_TOP(7), &AF_S, db10 ? t : "0.0 dB", db10 ? FC_VAL : FC_DIM, FC_BG);
 }
 static uint32_t meter_poll(void)                /* ~30 Hz on the COMPRESSOR page: the meter's state (a signature) */
 {
