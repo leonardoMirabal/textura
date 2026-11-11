@@ -1,5 +1,5 @@
 # the mix's FILTER (FX: EFFECTS, REVERB, DELAY, then FILTER): a band, LOW CUT (a high-pass) and HIGH CUT (a low-pass), OFF at their
-# ends (the defaults: the chain untouched, mfon 0); RESONANCE; SLOPE 12 / 24 dB (also ALGORITHM); CC 75 74 71 70 on
+# ends (the defaults: the chain untouched, mfon 0); RESONANCE; SLOPE 12 / 18 / 24 dB (also ALGORITHM); CC 75 74 71 70 on
 # channel 5; crossed edges still sound (a narrow band); LFO 1 > FLT HIGH CUT on the matrix; back at the ends the filter
 # stops (mfon 0); a scene stores it; EFFECTS ON LOAD at SMART leaves it once turned, ALWAYS sets it
 1700 btn 13
@@ -34,13 +34,25 @@
 2200 expect sound
 2200 expect rms > -70
 2250 shot
-# ALGORITHM: SLOPE 24 dB; CC 71: RESONANCE; CC 70: SLOPE back to 12 dB
+# ALGORITHM: SLOPE 18 dB, then 24 dB (steepness order; the values: 0 12, 1 24, 2 18 dB); CC 71: RESONANCE; CC 70: SLOPE
+# 18 dB at 64, 24 dB at 127, back to 12 dB at 0
 2300 turn 1 1
-2320 expect state p437 1
-2320 expect state msg SLOPE_24_dB
-2320 expect state card3 24_dB
+2320 expect state p437 2
+2320 expect state msg SLOPE_18_dB
+2320 expect state card3 18_dB
+2340 turn 1 1
+2360 expect state p437 1
+2360 expect state msg SLOPE_24_dB
+2360 expect state card3 24_dB
+2380 turn 1 1
+2390 expect state p437 1
 2400 midi 0xB4 71 64
 2420 expect state p436 64
+2440 midi 0xB4 70 64
+2450 expect state p437 2
+2460 expect sound
+2470 midi 0xB4 70 127
+2480 expect state p437 1
 2500 midi 0xB4 70 0
 2520 expect state p437 0
 # crossed (CC 75: LOW CUT 127, CC 74: HIGH CUT 0): a narrow band at the middle, it still sounds

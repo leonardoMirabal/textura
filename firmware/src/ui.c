@@ -778,7 +778,7 @@ static void draw_lane_row(uint32_t k)
     ui_mix_label(k, l);
     if (id == NOID) { draw_card(k, l, sc.mute[k] ? "MUTED" : "ON", 0, !sc.mute[k], 1, LK_LED); return; }
     if (mod_live(id, &lv)) ui_card_live = lv;
-    { const char *u = p_text(id, v); draw_card(k, l, v, u, p_get(id), p_hi(id), ui_look(id)); }
+    { const char *u = p_text(id, v); draw_card(k, l, v, u, p_ord(id, p_get(id)), p_hi(id), ui_look(id)); }
 }
 /* ---- GROOVE LANES: lane n's ROLE on Kn, one list over its PART and CYCLE (stored as they were: scenes and MIDI
  * unchanged): FREE, AUTO, PULSE, OFFBEAT, FILL, then its own cycle of 2 .. 9 pulses over the TYPE's span */
@@ -995,7 +995,7 @@ static void draw_row(uint32_t k)
     if (id == NOID) { cv_begin(RW_W, RW_H, C_BLACK); cv_blit(RW_X, RW_Y0 + RW_DY * k); return; }
     {
         const char *u = p_text(id, v);
-        int32_t lv, val = p_get(id), hi = p_hi(id);
+        int32_t lv, val = p_ord(id, p_get(id)), hi = p_hi(id);
         uint32_t look = ui_look(id);
         if (P_SCOPE(id) == P_LFO && P_IDX(id) % 16u == ML_NOW) { look = LK_MID; hi = 64; }   /* (NOW: from the middle) */
         if (mod_live(id, &lv)) ui_card_live = lv;
@@ -1496,11 +1496,11 @@ static void ui_lane_step(int32_t d)             /* OCT: the previous / next lane
 static void ui_turn(uint32_t id, int32_t d)
 {
     uint32_t kd = p_kind(id);
-    int32_t v = p_get(id);
+    int32_t v = p_ord(id, p_get(id));                  /* (in the panel's order: SLOPE 12, 18, 24) */
     if (kd == PK_TOGGLE) v = d > 0;
     else v += d;
     scn_touch_id(id);
-    p_set(id, clampi(v, 0, p_hi(id)));
+    p_set(id, p_ord(id, clampi(v, 0, p_hi(id))));
 }
 /* LFO held: mod learn. A card turned routes the selected LFO onto it, the turn its depth (ENV held: the selected ENV
  * or FOLLOW). The web panel (a mouse cannot hold LFO and turn a knob): a click on LFO (ENV) away from its pages

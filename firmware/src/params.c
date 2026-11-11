@@ -96,7 +96,8 @@ static const char *const N_NOYES[] = {"NO", "YES"};   /* PRESETS CHANGE TEMPO */
 static const char *const N_CLKOUT[] = {"OFF", "USB"};   /* (TRS: the FM-1's jack is an input only) */
 static const char *const N_IVL[] = {"NONE", "OCTAVES", "5TH+OCT", "4TH+5TH", "MAJOR", "MINOR", "ALL", "UP"};   /* the
                                                  * GRAIN's INTERVALS */
-static const char *const N_SLOPE[] = {"12 dB", "24 dB"};   /* the mix's FILTER: its edges' steepness */
+static const char *const N_SLOPE[] = {"12 dB", "24 dB", "18 dB"};   /* the mix's FILTER: its edges' steepness (by
+                                                 * value: 24 dB kept at 1, scenes saved it so; p_ord) */
 static const char *const N_RATIO[] = {"1.5:1", "2:1", "3:1", "4:1", "6:1", "8:1", "10:1", "20:1"};   /* (Frodhes') */
 static const char *const N_GPART[] = {"AUTO", "PULSE", "OFFBEAT", "FILL", "FREE"};   /* GROOVE: a lane's PART */
 
@@ -587,13 +588,21 @@ static const p_cc_t P_CC_GLOBAL[] = {
     {75, PG_MF0 + TX_MF_LOW}, {74, PG_MF0 + TX_MF_HIGH}, {71, PG_MF0 + TX_MF_RESO}, {70, PG_MF0 + TX_MF_SLOPE},
     {3, PG_BPM}, {9, PG_TAP}, {80, PG_RUN}, {84, PG_GRV0},
 };
-/* a 7-bit value onto a parameter's range (0 .. hi): 127 always reaches hi */
+/* a parameter's value <-> its place in the panel's order (the same map both ways): the identity, but the FILTER's
+ * SLOPE, whose values are 12, 24, 18 dB (24 at 1: what scenes saved before 18 came), in steepness order 12, 18, 24 (a
+ * knob, ALGORITHM, its segments, CC 70) */
+static int32_t p_ord(uint32_t id, int32_t v)
+{
+    if (P_SCOPE(id) != P_GLOBAL || P_IDX(id) != PG_MF0 + TX_MF_SLOPE || !v) return v;
+    return v == TX_MF_S24 ? TX_MF_S18 : TX_MF_S24;    /* (1 <-> 2) */
+}
+/* a 7-bit value onto a parameter's range (0 .. hi): 127 always reaches hi (in its panel order: p_ord) */
 static int32_t p_scale7(uint32_t id, uint32_t v)
 {
     int32_t hi = p_hi(id);
     if (P_SCOPE(id) == P_MAT && P_IDX(id) < 64u && P_IDX(id) % 4u == 2u)   /* a slot's DEPTH: 64 = 0 % */
         return v <= 64u ? ((int32_t)v * 100 + 32) / 64 : 100 + (((int32_t)v - 64) * 100 + 31) / 63;
-    return hi == 127 ? (int32_t)v : ((int32_t)v * hi + 63) / 127;
+    return hi == 127 ? (int32_t)v : p_ord(id, ((int32_t)v * hi + 63) / 127);
 }
 static struct { uint8_t msb[5], lsb[5], on[5]; } p_nrpn;
 static uint32_t p_touched;                      /* (the screen: a parameter MIDI changed, id + 1) */

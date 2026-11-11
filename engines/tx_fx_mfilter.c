@@ -2,15 +2,17 @@
 /* Textura FILTER (the mix's, right after the DRIVE): a high-pass then a low-pass in series on the stereo pair, the two
  * cutoffs the edges of a band. LOW CUT (the high-pass) and HIGH CUT (the low-pass), 30 Hz .. 16 kHz (log, the filter
  * tables' laws: TX_FX_FL_G); each edge is off at its end (LOW CUT 0, HIGH CUT 127): the defaults, the mix untouched.
- * RESONANCE is shared and gentle (Q 0.707 .. ~4 at both edges); SLOPE 12 or 24 dB an octave (24: a second stage at
- * each edge, Q 0.707, so the resonance peaks once).
+ * RESONANCE is shared and gentle (Q 0.707 .. ~4 at both edges); SLOPE 12, 18 or 24 dB an octave (24: a second stage
+ * at each edge, Q 0.707; 18: a one-pole stage at each edge, 6 dB; either way the resonance peaks once). SLOPE's values
+ * keep 24 dB at 1 (what scenes saved before 18 dB came) and add 18 dB at 2: the panel steps them in steepness order
+ * (params.c p_ord).
  *
  * Crossed edges (LOW CUT above HIGH CUT): the band collapses to its narrowest, both edges at the middle of the two
  * knobs (in octaves): a narrow, quieter band there (-6 dB at its peak, 12 dB; -12 dB, 24 dB), never silence and never
- * a jump as the knobs pass each other.
+ * a jump as the knobs pass each other (18 dB: ~-9 dB).
  *
  * Each edge is a TPT state-variable stage (the two integrators trapezoidal, solved at once), stable at any setting. The cutoffs glide (one pole, ~6 ms, coefficients every 32 samples:
- * no zipper, the matrix's steps smoothed); an edge turning on or off, and the 24 dB stage, cross-fade in 46 ms with
+ * no zipper, the matrix's steps smoothed); an edge turning on or off, and the 24 dB and 18 dB stages, cross-fade in 46 ms with
  * the signal before them (no click); a stage that starts again starts from rest. Each integrator steps one LSB toward 0
  * every 32 samples (far under the noise floor), so the rounding's dead band (a low cutoff's DC held) cannot outlast the sound: silence
  * in ends in exact zeros out. Precision: Q21 inside (the mix's Q23
@@ -23,7 +25,7 @@ const tx_param_t tx_fx_mfilter_params[TX_MF_NP] = {
     {"LOW CUT", 127, 0, TX_TEXT("the band's low edge, a high-pass: off (0) .. 30 Hz .. 16 kHz (log)")},
     {"HIGH CUT", 127, 127, TX_TEXT("the band's high edge, a low-pass: 30 Hz .. 16 kHz (log) .. off (127); below LOW CUT: a narrow band between the two")},
     {"RESONANCE", 127, 0, TX_TEXT("a peak at both edges, gentle: Q 0.707 .. ~4")},
-    {"SLOPE", 1, 0, TX_TEXT("the edges' steepness: 0 12 dB / octave | 1 24 dB / octave")},
+    {"SLOPE", TX_MF_SN - 1, 0, TX_TEXT("the edges' steepness: 0 12 dB / octave | 1 24 dB / octave | 2 18 dB / octave")},
 };
 
 #define MF_SUB 32u                  /* the coefficients' step, samples */
@@ -43,7 +45,8 @@ void tx_fx_mfilter_param(tx_fx_mfilter_t *f, unsigned id, unsigned v)
 uint32_t tx_fx_mfilter_us(const tx_fx_mfilter_t *f)
 {
     uint32_t e = (f->p[TX_MF_LOW] > 0 || f->w[0]) + (f->p[TX_MF_HIGH] < 127 || f->w[1]);
-    return e * (f->p[TX_MF_SLOPE] || f->w2 ? 2u * TX_FX_US_MF_STAGE : TX_FX_US_MF_STAGE);
+    return e * (TX_FX_US_MF_STAGE + (f->p[TX_MF_SLOPE] == TX_MF_S24 || f->w2 ? TX_FX_US_MF_STAGE : 0u)
+                + (f->p[TX_MF_SLOPE] == TX_MF_S18 || f->w3 ? TX_FX_US_MF_POLE : 0u));
 }
 
 static int32_t mf_recip27(uint32_t den)                     /* 2^43 / den (den Q16) = 1 / den in Q27, 32-bit only */
@@ -100,6 +103,28 @@ static void mf_run(int32_t *L, int32_t *R, unsigned n, int32_t (*s)[2], const mf
     else mf_body(L, R, n, s, c, 0, 0, w0, 0);
 }
 
+/* the 18 dB one-pole stage (TPT: G = g / (1 + g), Q24), n samples of both sides in place (Q23), its share w0 ..
+ * w0 + n dw against its input; s its states (Q21), each stepped one LSB toward 0 a run as the SVF's */
+TX_INLINE int32_t mf_pole(int32_t v, int32_t *s, int32_t G, const int hp)
+{
+    int32_t d = (int32_t)(((int64_t)(v - *s) * G + (1 << 23)) >> 24), y = d + *s;   /* (rounded: no DC creep) */
+    *s = y + d;
+    return hp ? v - y : y;
+}
+static void mf_run1(int32_t *L, int32_t *R, unsigned n, int32_t *s, int32_t G, int hp, int32_t w0, int32_t dw)
+{
+    int32_t l = s[0], r = s[1], w = w0;
+    unsigned j;
+    for (j = 0; j < n; j++) {
+        int32_t xl = L[j], xr = R[j], yl = mf_pole(mf_in(xl), &l, G, hp) * 4, yr = mf_pole(mf_in(xr), &r, G, hp) * 4;
+        if (dw || w != 32768) { w += dw; yl = xl + mq15(yl - xl, w); yr = xr + mq15(yr - xr, w); }
+        L[j] = yl; R[j] = yr;
+    }
+    l = mf_cl(l); r = mf_cl(r);
+    l -= (l > 0) - (l < 0); r -= (r > 0) - (r < 0);
+    s[0] = l; s[1] = r;
+}
+
 static int32_t mf_g(int32_t pos)                            /* g at a position 0 .. 65535 (Q24) */
 {
     uint32_t i = (uint32_t)pos >> 8;
@@ -110,10 +135,13 @@ static int32_t mf_g(int32_t pos)                            /* g at a position 0
 void tx_fx_mfilter_process(tx_fx_mfilter_t *f, int32_t *L, int32_t *R, unsigned n)
 {
     int32_t tgt[2], k = (int32_t)TX_FX_FL_K[(f->p[TX_MF_RESO] * 66u) >> 7];   /* (Q 0.707 .. ~4) */
-    int act[2], s24 = f->p[TX_MF_SLOPE] != 0;
+    int act[2], s24 = f->p[TX_MF_SLOPE] == TX_MF_S24, s18 = f->p[TX_MF_SLOPE] == TX_MF_S18;
     unsigned sb, e;
     act[0] = f->p[TX_MF_LOW] > 0; act[1] = f->p[TX_MF_HIGH] < 127;
-    if (!act[0] && !act[1] && !f->w[0] && !f->w[1]) { f->w2 = s24 ? 32768 : 0; return; }   /* (off: untouched) */
+    if (!act[0] && !act[1] && !f->w[0] && !f->w[1]) {  /* (off: untouched) */
+        f->w2 = s24 ? 32768 : 0; f->w3 = s18 ? 32768 : 0;
+        return;
+    }
     tgt[0] = f->p[TX_MF_LOW] * 516; tgt[1] = f->p[TX_MF_HIGH] * 516;
     if (tgt[0] > tgt[1]) tgt[0] = tgt[1] = (tgt[0] + tgt[1]) >> 1;   /* crossed: the narrowest band, at the middle */
     for (e = 0; e < 2u; e++)
@@ -121,24 +149,35 @@ void tx_fx_mfilter_process(tx_fx_mfilter_t *f, int32_t *L, int32_t *R, unsigned 
             f->pos[e] = tgt[e];
             tx_fx_memset(f->s[e], 0, sizeof f->s[e]);
             tx_fx_memset(f->s2[e], 0, sizeof f->s2[e]);
+            f->s3[e][0] = f->s3[e][1] = 0;
         }
     if (s24 && !f->w2) tx_fx_memset(f->s2, 0, sizeof f->s2);   /* (the 24 dB stages from rest) */
+    if (s18 && !f->w3) tx_fx_memset(f->s3, 0, sizeof f->s3);   /* (the 18 dB stages from rest) */
     for (sb = 0; sb < n; sb += MF_SUB) {
         unsigned len = sb + MF_SUB < n ? MF_SUB : n - sb;
         int32_t w2 = f->w2, w21 = s24 ? (w2 < 32768 - MF_FADE ? w2 + MF_FADE : 32768) : (w2 > MF_FADE ? w2 - MF_FADE : 0);
+        int32_t w3 = f->w3, w31 = s18 ? (w3 < 32768 - MF_FADE ? w3 + MF_FADE : 32768) : (w3 > MF_FADE ? w3 - MF_FADE : 0);
         for (e = 0; e < 2u; e++) {
             int32_t w = f->w[e], w1 = act[e] ? (w < 32768 - MF_FADE ? w + MF_FADE : 32768) : (w > MF_FADE ? w - MF_FADE : 0);
             mf_coef_t c, c2;
+            int32_t g;
             if (!w && !w1) continue;
             f->pos[e] += (tgt[e] - f->pos[e]) >> 3;
-            { int32_t g = mf_g(f->pos[e]); mf_coef(&c, g, k); if (w2 || w21) mf_coef(&c2, g, MF_K0); }
+            g = mf_g(f->pos[e]);
+            mf_coef(&c, g, k);
+            if (w2 || w21) mf_coef(&c2, g, MF_K0);
             mf_run(L + sb, R + sb, len, f->s[e], &c, e == 0u, w, (w1 - w) / (int32_t)MF_SUB);
             if (w2 || w21) {                                /* 24 dB: the second stage (its share x the edge's) */
                 int32_t v0 = (int32_t)(((int64_t)w2 * w) >> 15), v1 = (int32_t)(((int64_t)w21 * w1) >> 15);
                 mf_run(L + sb, R + sb, len, f->s2[e], &c2, e == 0u, v0, (v1 - v0) / (int32_t)MF_SUB);
             }
+            if (w3 || w31) {                                /* 18 dB: the one-pole stage (its share x the edge's) */
+                int32_t v0 = (int32_t)(((int64_t)w3 * w) >> 15), v1 = (int32_t)(((int64_t)w31 * w1) >> 15);
+                int32_t G = (int32_t)(((int64_t)g * mf_recip27(65536u + ((uint32_t)g >> 8))) >> 27);   /* (Q24) */
+                mf_run1(L + sb, R + sb, len, f->s3[e], G, e == 0u, v0, (v1 - v0) / (int32_t)MF_SUB);
+            }
             f->w[e] = w1;
         }
-        f->w2 = w21;
+        f->w2 = w21; f->w3 = w31;
     }
 }

@@ -249,7 +249,7 @@ static double fx_cost(int kind, unsigned type, unsigned decay)
                          tx_fx_reverb_param(&fx.rev, TX_RV_PREDELAY, 40); tx_fx_reverb_param(&fx.rev, TX_RV_LOWCUT, 30);
                          if (decay == 1) tx_fx_reverb_param(&fx.rev, TX_RV_DECAY, 64), tx_fx_reverb_param(&fx.rev, TX_RV_SHIMMER, 127); }
         if (kind == 4) { tx_fx_mfilter_param(&fx.mf, TX_MF_HIGH, 70);
-                         if (type) { tx_fx_mfilter_param(&fx.mf, TX_MF_LOW, 30); tx_fx_mfilter_param(&fx.mf, TX_MF_SLOPE, 1);
+                         if (type) { tx_fx_mfilter_param(&fx.mf, TX_MF_LOW, 30); tx_fx_mfilter_param(&fx.mf, TX_MF_SLOPE, type);
                                      tx_fx_mfilter_param(&fx.mf, TX_MF_RESO, 64); } }
         if (kind == 3) { fx.reserve_us = 100000u;                       /* (no cap: the cost of every grain asked) */
                          tx_fx_grain_param(&fx.gd, TX_GD_MIX, 100); tx_fx_grain_param(&fx.gd, TX_GD_GRAINS, type - 1u);
@@ -510,11 +510,13 @@ int main(int argc, char **argv)
             }
         }
         {
-            double m1 = fx_cost(4, 0, 0), m2 = fx_cost(4, 1, 0);
-            tx_fx_mfilter_t mf;
-            tx_fx_mfilter_init(&mf); mf.p[TX_MF_LOW] = 30; mf.p[TX_MF_HIGH] = 70; mf.p[TX_MF_SLOPE] = 1;
-            printf("   FILTER (the mix's, after the DRIVE; the pair): one edge 12 dB / both 24 dB  %5.0f / %5.0f us  (%4.1f %%)  "
-                   "counted: %u / %u us\n", m1, m2, 100 * m2 / BLOCK_US, TX_FX_US_MF_STAGE, (unsigned)tx_fx_mfilter_us(&mf));
+            double m1 = fx_cost(4, 0, 0), m2 = fx_cost(4, TX_MF_S24, 0), m3 = fx_cost(4, TX_MF_S18, 0);
+            tx_fx_mfilter_t mf, m18;
+            tx_fx_mfilter_init(&mf); mf.p[TX_MF_LOW] = 30; mf.p[TX_MF_HIGH] = 70; mf.p[TX_MF_SLOPE] = TX_MF_S24;
+            m18 = mf; m18.p[TX_MF_SLOPE] = TX_MF_S18;
+            printf("   FILTER (the mix's, after the DRIVE; the pair): one edge 12 dB / both 24 dB / both 18 dB  %5.0f / %5.0f / "
+                   "%5.0f us  (%4.1f %%)  counted: %u / %u / %u us\n", m1, m2, m3, 100 * m2 / BLOCK_US, TX_FX_US_MF_STAGE,
+                   (unsigned)tx_fx_mfilter_us(&mf), (unsigned)tx_fx_mfilter_us(&m18));
         }
         for (t = TX_RVT_ROOM; t < TX_RVT_N; t++) {
             rv[t] = fx_cost(2, t, 64);

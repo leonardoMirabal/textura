@@ -1730,20 +1730,33 @@ static void check_mfilter(void)
     uint32_t b, j, rng = 99u, bad = 0, nz = 0;
     double pass = mf_gain(30, 100, 0, 0, 1000), lo12 = mf_gain(30, 100, 0, 0, 60), hi12 = mf_gain(30, 100, 0, 0, 14000);
     double lo24 = mf_gain(30, 100, 0, 1, 60), hi24 = mf_gain(30, 100, 0, 1, 14000), x12 = mf_gain(127, 0, 0, 0, 0), xm;
+    double lo18 = mf_gain(30, 100, 0, TX_MF_S18, 60), hi18 = mf_gain(30, 100, 0, TX_MF_S18, 14000);
+    double pass18 = mf_gain(30, 100, 0, TX_MF_S18, 1000), pk18 = -999, pk12 = -999;
     {   /* crossed: the peak at the middle of the knobs (63.5: ~700 Hz) */
         double best = -999; uint32_t hz;
         for (hz = 300; hz <= 1600; hz += 50) { double g = mf_gain(127, 0, 0, 0, hz); if (g > best) best = g; }
         xm = best; (void)x12;
+        for (hz = 2000; hz <= 8000; hz += 250) {        /* RESONANCE 127 at HIGH CUT 100: 18 dB peaks as 12 dB does */
+            double g = mf_gain(0, 100, 127, 0, hz), h = mf_gain(0, 100, 127, TX_MF_S18, hz);
+            if (g > pk12) pk12 = g;
+            if (h > pk18) pk18 = h;
+        }
     }
     snprintf(msg, sizeof msg, "LOW CUT 30 (~140 Hz) HIGH CUT 100 (~4 kHz): 1 kHz %.1f dB; 60 Hz %.1f / %.1f dB, 14 kHz %.1f / "
              "%.1f dB (12 / 24 dB); crossed (127 / 0): its peak %.1f dB", pass, lo12, lo24, hi12, hi24, xm);
     verdict("fx", "mfilter band", pass > -1.0 && pass < 0.5 && lo12 < -9 && lo24 < lo12 - 8 && hi12 < -12 && hi24 < hi12 - 8
             && xm < -4 && xm > -9, msg, 0);
+    snprintf(msg, sizeof msg, "18 dB (the 12 dB stage + a one-pole): 1 kHz %.1f dB; 60 Hz %.1f, 14 kHz %.1f dB (between 12 "
+             "and 24 dB, 3 dB from each at least); RESONANCE 127's peak %.1f dB (12 dB: %.1f)", pass18, lo18, hi18, pk18, pk12);
+    verdict("fx", "mfilter 18", pass18 > -1.5 && pass18 < 0.5 && lo18 < lo12 - 3 && lo18 > lo24 + 3 && hi18 < hi12 - 3
+            && hi18 > hi24 + 3 && pk18 > 3.0 && pk18 < pk12 + 0.5, msg, 0);
     /* on, then back to the ends: after the fade, every sample the input again; a click check on the way */
     tx_fx_mfilter_init(&f);
     for (b = 0; b < 400u; b++) {
         if (b == 20u) { tx_fx_mfilter_param(&f, TX_MF_LOW, 40); tx_fx_mfilter_param(&f, TX_MF_HIGH, 70); }
         if (b == 120u) tx_fx_mfilter_param(&f, TX_MF_SLOPE, 1);
+        if (b == 150u) tx_fx_mfilter_param(&f, TX_MF_SLOPE, TX_MF_S18);   /* (24 -> 18 -> 12: the stages cross-fade) */
+        if (b == 175u) tx_fx_mfilter_param(&f, TX_MF_SLOPE, 0);
         if (b == 200u) { tx_fx_mfilter_param(&f, TX_MF_LOW, 0); tx_fx_mfilter_param(&f, TX_MF_HIGH, 127); }
         for (j = 0; j < TX_BLOCK; j++) {
             x[j] = L[j] = tx_sin_q15((b * TX_BLOCK + j) * 9739155u) * 128; R[j] = -L[j];   /* 100 Hz */
@@ -1754,7 +1767,7 @@ static void check_mfilter(void)
         for (j = 1; j < TX_BLOCK; j++) { int32_t d = L[j] - L[j - 1]; d = d < 0 ? -d : d; if (d > step) step = d; }
         if (b >= 260u) for (j = 0; j < TX_BLOCK; j++) bad += L[j] != x[j] || R[j] != -x[j];
     }
-    snprintf(msg, sizeof msg, "on, 24 dB, then back to the ends: %u samples changed after the fade; the largest step %.2f x "
+    snprintf(msg, sizeof msg, "on, 24, 18, 12 dB, then back to the ends: %u samples changed after the fade; the largest step %.2f x "
              "the input's", bad, (double)step / istep);
     verdict("fx", "mfilter bypass", !bad && step < istep * 2, msg, 0);
     /* stability: loud noise, RESONANCE 127, 24 dB, the cutoffs jumping every block (crossing too); then zeros */
@@ -1763,6 +1776,7 @@ static void check_mfilter(void)
     for (b = 0; b < 2000u; b++) {
         rng = rng * 1664525u + 1013904223u;
         tx_fx_mfilter_param(&f, TX_MF_LOW, (rng >> 8) & 127u); tx_fx_mfilter_param(&f, TX_MF_HIGH, (rng >> 16) & 127u);
+        if (b == 600u) tx_fx_mfilter_param(&f, TX_MF_SLOPE, TX_MF_S18);   /* (18 dB from here) */
         for (j = 0; j < TX_BLOCK; j++) {
             rng = rng * 1664525u + 1013904223u;
             L[j] = b < 1200u ? (int32_t)(rng >> 4) - (1 << 27) : 0;   /* +-16 full scale, then silence */
@@ -1776,7 +1790,7 @@ static void check_mfilter(void)
             if (b >= 1800u) nz += L[j] != 0 || R[j] != 0;
         }
     }
-    snprintf(msg, sizeof msg, "+-16 FS noise, RESONANCE 127, 24 dB, the cutoffs jumping each block: peak %.1f FS; silence "
+    snprintf(msg, sizeof msg, "+-16 FS noise, RESONANCE 127, 24 then 18 dB, the cutoffs jumping each block: peak %.1f FS; silence "
              "after: %u nonzero samples in its last 200 blocks", pk / 8388608.0, nz);
     verdict("fx", "mfilter stable", pk < (1 << 30) && !nz, msg, 0);
 }
@@ -1923,7 +1937,7 @@ static void check_fx(FILE *update)
                     tx_fx_drive_param(&fx->drive[0], TX_DR_TYPE, k);
                     tx_fx_drive_param(&fx->drive[0], TX_DR_AMOUNT, 127);
                     tx_fx_mfilter_param(&fx->mf, TX_MF_LOW, 20u * k); tx_fx_mfilter_param(&fx->mf, TX_MF_HIGH, 127u - 20u * k);
-                    tx_fx_mfilter_param(&fx->mf, TX_MF_RESO, 127); tx_fx_mfilter_param(&fx->mf, TX_MF_SLOPE, k & 1u);
+                    tx_fx_mfilter_param(&fx->mf, TX_MF_RESO, 127); tx_fx_mfilter_param(&fx->mf, TX_MF_SLOPE, k % 3u);
                 } else {
                     tx_fx_reverb_param(&fx->rev, TX_RV_TYPE, k - TX_DRT_N + 1u);
                     tx_fx_reverb_param(&fx->rev, TX_RV_MIX, 127);

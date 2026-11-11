@@ -87,13 +87,17 @@ uint32_t tx_fx_drive_us(const tx_fx_drive_t *d);  /* its FM-1 cost now, us a blo
 enum { TX_MF_LOW, TX_MF_HIGH, TX_MF_RESO, TX_MF_SLOPE, TX_MF_NP };   /* (append only) */
 extern const tx_param_t tx_fx_mfilter_params[TX_MF_NP];
 #define TX_FX_US_MF_STAGE 140u     /* an edge's stage on the pair, FM-1 us a block (make tx-budget section 4) */
+#define TX_FX_US_MF_POLE 36u       /* an edge's one-pole stage (SLOPE 18 dB) on the pair (make tx-budget section 4: ~28) */
+enum { TX_MF_S12, TX_MF_S24, TX_MF_S18, TX_MF_SN };   /* SLOPE's values (24 kept at 1: what scenes saved) */
 typedef struct {
     uint8_t p[TX_MF_NP];
     int32_t pos[2];                /* the edges' places, gliding (0 .. 65535: 30 Hz .. 16 kHz): LOW CUT, HIGH CUT */
     int32_t w[2];                  /* each edge's share (Q15: 0 off .. 32768 on; 46 ms fades) */
     int32_t w2;                    /* the 24 dB stages' share */
+    int32_t w3;                    /* the 18 dB one-pole stages' share */
     int32_t s[2][2][2];            /* the stages' integrators: [edge][side][s1, s2] */
     int32_t s2[2][2][2];           /* the 24 dB stages' */
+    int32_t s3[2][2];              /* the 18 dB one-pole stages': [edge][side] */
 } tx_fx_mfilter_t;
 void tx_fx_mfilter_init(tx_fx_mfilter_t *f);
 void tx_fx_mfilter_param(tx_fx_mfilter_t *f, unsigned id, unsigned v);
