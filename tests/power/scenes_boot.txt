@@ -10,6 +10,7 @@
 1700 expect state palette PEACH
 1700 expect preset
 1800 btn 7
+1815 btn 7
 1820 btn 7
 1825 btn 7
 1840 expect state card0 AUTO

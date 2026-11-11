@@ -80,7 +80,7 @@
 3850 expect state brfam Water
 3900 btn 2
 3920 expect state browser 0
-3920 expect state page DRIVE
+3920 expect state page EFFECTS
 # a stopped lane: no preview; EDIT loads it stopped (lane 4: cave drips -> Wind, wind)
 4000 btn 8
 4020 btn 1

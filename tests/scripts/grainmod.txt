@@ -1,4 +1,4 @@
-# the GRAIN delay's animation (FX four times: DRIVE, FILTER, COMPRESSOR, GRAIN; page 2/4): MOD (0: the plain delay,
+# the GRAIN delay's animation (FX: EFFECTS, REVERB's three, then the DELAY's; page 2/4): MOD (0: the plain delay,
 # its defaults untouched), MOD RATE, INTERVALS (5TH+OCT by default); CC 81 82 83 on channel 5; MOD up: its amount glides
 # in (gdmod 32766 at 127), the time drifts (gdwow 1); MOD 0: back to the plain delay (gdmod 0, gdwow 0); GRAIN MOD on the
 # matrix; a scene stores it; EFFECTS ON LOAD at SMART leaves it once turned, ALWAYS sets it
@@ -6,9 +6,10 @@
 1800 expect state run0 1
 1900 midi 0xB4 102 90
 1950 btn 2
-1960 btn 2
-1970 btn 2
-1980 btn 2
+1954 btn 2
+1958 btn 2
+1962 btn 2
+1966 btn 2
 2000 expect state page GRAIN_1/4
 2020 turn 0 1
 2040 expect state page GRAIN_2/4

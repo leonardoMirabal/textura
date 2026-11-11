@@ -1,4 +1,4 @@
-# a lane's LEVEL (CC 7, MIXER VOLUME) is its output's gain (tx_mix_level), ramped over one block: it acts at once on
+# a lane's LEVEL (CC 7, the home page's VOL) is its output's gain (tx_mix_level), ramped over one block: it acts at once on
 # every engine, never waiting for the engine's voices to renew (a water or bird engine's used to: BROOK at LEVEL 0
 # sounded on ~16 s)
 1700 btn 13
@@ -41,7 +41,7 @@
 7000 expect rms < -90
 7700 midi 0xB0 7 100
 7800 expect rms > -40
-# MIXER VOLUME 64: the lane's LEVEL as set (64^2 / 100^2 of unity: -7.8 dB)
+# VOL 64: the lane's LEVEL as set (64^2 / 100^2 of unity: -7.8 dB)
 7900 midi 0xB0 7 64
 7960 expect state vol0 64
 8000 end

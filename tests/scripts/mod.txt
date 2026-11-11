@@ -48,14 +48,13 @@
 3000 expect state p004 64
 3050 expect sound
 3100 shot
-# mod learn on MIXER 1/2: LFO held, K1 (L1 LEVEL) turned 12: a second route; the page stays
+# mod learn on the home page (the lanes' volumes): LFO held, K1 (L1 LEVEL) turned 12: a second route; the page stays
 3200 btn 8
-3220 turn 0 1
-3240 expect state page MIXER_1/2
+3240 expect state page LANDSCAPE
 3300 press 5
 3350 turn 2 12
 3400 release 5
-3420 expect state page MIXER_1/2
+3420 expect state page LANDSCAPE
 3420 expect state msg LFO1_>_L1_LEVEL_+12%
 3420 expect state routes 2
 3420 expect state vol0 100

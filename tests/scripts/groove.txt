@@ -1,5 +1,5 @@
-# GROOVE (groove.c): one AMOUNT / TYPE / SHIFT for the landscape (GLO twice: the GROOVE page; K1 AMOUNT, K2 TYPE by
-# name, K3 SHIFT, K4 the selected lane's PART; ALGORITHM the TYPE; page 2/2 the lane's CYCLE; CC 84 on channel 5 the
+# GROOVE (groove.c): one AMOUNT / TYPE / SHIFT for the landscape (GLO: the RHYTHM page; K2 AMOUNT, K3 SHIFT, ALGORITHM
+# the TYPE by name; GLO again: GROOVE LANES, Kn lane n's role, its PART or its own CYCLE; CC 84 on channel 5 the
 # AMOUNT); each lane's PART AUTO by its sound's weight (grw: 0 free, 3 most); the lanes' notes lean to the pulse
 # ("grfeel": FREE, LEANS, SNAPS from the notes near it against chance; never SNAPS: no beat); AMOUNT 0 or a free sound:
 # each multiplier exactly 4096, the lane as without it; it follows the tempo and a clock that leads; a scene keeps it
@@ -46,41 +46,35 @@
 2200 expect state grw1 0
 2200 expect state grpart0 1
 2200 expect state grpart1 4
-# the GROOVE page (GLO: TEMPO, again: GROOVE); the TYPE by name; ALGORITHM turns it too
+# the RHYTHM page (GLO): K2 the groove's AMOUNT, K3 its SHIFT; ALGORITHM the TYPE, by name
 2300 btn 7
-2320 btn 7
-2340 expect state page GROOVE_1/2
-2340 expect state lab0 AMOUNT
-2340 expect state card0 35
-2340 expect state lab1 TYPE
-2340 expect state card1 LOOSE_16
-2340 expect state lab2 SHIFT
+2340 expect state page RHYTHM
+2340 expect state lab1 GROOVE_AMOUNT
+2340 expect state card1 35
+2340 expect state lab2 GROOVE_SHIFT
 2340 expect state card2 0
-2340 expect state lab3 PART
-2340 expect state card3 AUTO
-2400 turn 3 1
-2420 expect state card1 3:4
+2400 turn 1 1
+2420 expect state msg GROOVE_TYPE_3:4
 2440 turn 1 1
-2460 expect state card1 4:3
-2460 expect state msg GROOVE_4:3
+2460 expect state msg GROOVE_TYPE_4:3
 2480 turn 1 -1
 2500 expect state p439 1
-2520 turn 3 300
-2540 expect state card1 E(18,19)
-2560 turn 3 -300
-2580 expect state card1 LOOSE_16
-2600 turn 3 1
-2620 expect state card1 3:4
+2520 turn 1 300
+2540 expect state msg GROOVE_TYPE_E(18,19)
+2560 turn 1 -300
+2580 expect state msg GROOVE_TYPE_LOOSE_16
+2600 turn 1 1
+2620 expect state p439 1
 2640 shot
-# AMOUNT 127 (K1); lane 1's CYCLE 2 (page 2/2: two pulses a span): its notes lean to them, jittered, never a beat; the
-# brook's multiplier stays 4096 exactly
-2700 turn 2 127
+# AMOUNT 127 (K2); lane 1's own cycle of 2 (GLO again: GROOVE LANES, K1 from AUTO to "2 PER 3 BEATS"): its notes lean
+# to them, jittered, never a beat; the brook's multiplier stays 4096 exactly
+2700 turn 3 127
 2720 expect state p438 127
-2740 turn 0 1
-2760 expect state page GROOVE_2/2
-2760 expect state lab0 CYCLE
-2780 turn 2 1
-2800 expect state card0 2
+2740 btn 7
+2760 expect state page GROOVE_LANES
+2780 turn 2 4
+2800 expect state p031 1
+2800 expect state p030 0
 2800 expect state grcyc0 2
 2820 turn 0 -1
 # the counts afresh once the depth has glided in (grnear: the share near the pulse so far, %; by chance ~4 %)
@@ -91,7 +85,7 @@
 65000 expect sound
 # AMOUNT 0 (CC 84): after the depth's glide every lane's multiplier is 4096 exactly; the notes fall by chance
 65100 midi 0xB4 84 0
-65120 expect state card0 0
+65120 expect state card1 0
 70000 expect state grm0 4096
 70000 expect state grm1 4096
 70000 expect state grnear0 6
@@ -102,27 +96,28 @@
 130120 expect state bpm10 900
 135000 expect state grnear0 9
 195000 expect state grfeel0 LEANS
-# a scene keeps it: U01 saved with AMOUNT 127, 3:4, lane 1 OFFBEAT, CYCLE 2 (K4: PART)
-195100 turn 5 2
-195120 expect state card3 OFFBEAT
-195120 expect state grpart0 2
+# a scene keeps it: U01 saved with AMOUNT 127, 3:4, lane 1's cycle of 2, lane 2 OFFBEAT (GROOVE LANES, K2)
+195100 btn 7
+195110 turn 3 2
+195120 expect state p130 2
 195200 btn 9
 195300 btn 9
 195900 expect state saving 0
-# all changed (AMOUNT 50, LOOSE 16, PART AUTO), then U01 loads: back (not an effect: it comes whatever EFFECTS ON LOAD says)
+# all changed (AMOUNT 50, LOOSE 16, lane 2 AUTO), then U01 loads: back (not an effect: it comes whatever EFFECTS ON LOAD says)
 196000 midi 0xB4 84 50
-196020 turn 3 -1
-196040 turn 5 -2
+196020 turn 1 -1
+196040 turn 3 -2
 196060 expect state p438 50
 196060 expect state p439 0
-196060 expect state p030 0
+196060 expect state p130 0
 196100 midi 0xC0 100 0
 196700 expect state loading 0
 196700 expect preset
 196700 expect state p438 127
 196700 expect state p439 1
-196700 expect state p030 2
+196700 expect state p030 0
 196700 expect state p031 1
+196700 expect state p130 2
 # a factory scene (F001: no GROOVE records): the defaults (35, LOOSE 16, AUTO)
 196800 midi 0xC0 0 0
 197400 expect state loading 0
@@ -131,6 +126,7 @@
 197400 expect state p439 0
 197400 expect state p030 0
 197400 expect state p031 0
+197400 expect state p130 0
 # U01 again (the cricket leaning to its two pulses)
 197500 midi 0xC0 100 0
 198000 expect state loading 0

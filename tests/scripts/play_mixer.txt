@@ -1,4 +1,4 @@
-# SEL: PLAY mode (the keys into the selected lane, pitched; OCT = octave; LEDs = held keys); HOME, SELECT: MIXER; SELECT: pans; HOME toggles LANDSCAPE / the page it came from
+# SEL: PLAY mode (the keys into the selected lane, pitched; OCT = octave; LEDs = held keys); HOME: the lanes' volumes (K1-K4); SELECT: the lane pages (PAN the 3rd); HOME toggles LANDSCAPE / the last page left
 1700 btn 3
 1720 expect state mode PLAY
 1800 keys 0x80
@@ -11,13 +11,14 @@
 2700 btn 3
 2720 expect state mode LANDSCAPE
 2800 btn 8
-2810 turn 0 1
-2820 expect state page MIXER_1/2
+2820 expect state page LANDSCAPE
 2900 turn 2 -20
 2920 expect state vol0 80
 3000 shot
 3100 turn 0 1
-3120 expect state page MIXER_2/2
+3105 turn 0 1
+3110 turn 0 1
+3120 expect state page LANES_3/4
 3200 turn 3 20
 3220 expect state pan1 84
 3500 shot
@@ -28,12 +29,12 @@
 3625 expect led 7 0
 3625 expect state leds OCT+_HOME
 3630 btn 8
-3640 expect state page MIXER_2/2
+3640 expect state page LANES_3/4
 3650 btn 8
 3660 expect state page LANDSCAPE
 3670 turn 0 1
 3672 turn 0 -1
 3674 btn 8
-3680 expect state page LANDSCAPE
+3680 expect state page LANES_1/4
 3700 expect sound
 3700 end

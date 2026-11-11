@@ -1,0 +1,67 @@
+# GROOVE LANES (GLO, again): the four lanes' roles on one page, Kn lane n's, read by what they do: "AUTO: PULSE" (what
+# AUTO gives the lane now), "5 PER 4 BEATS" (its own cycle over the TYPE's span); a sound the groove leaves alone (a
+# weight 0: water, wind) says so ("FLOWS FREE", dimmed) and its multiplier stays 4096 whatever its role; the roles are
+# the stored PART and CYCLE (pN30, pN31), so a scene saves and loads them as before. F034: waterfall, brook, wren, wind
+1700 midi 0xC0 33 0
+2500 expect state loading 0
+2600 btn 7
+2620 expect state page RHYTHM
+2620 expect led 7 1
+2700 btn 7
+2720 expect state page GROOVE_LANES
+2720 expect state leds OCT+_GLO_REC
+2720 expect state grw0 0
+2720 expect state grw2 3
+2720 expect state role0 AUTO_FLOWS_FREE
+2720 expect state role2 AUTO:_PULSE
+2720 expect state edited 0
+2750 shot
+# K3: the wren to 5 pulses over LOOSE 16's 4 beats (AUTO and seven on); the scene edited
+2800 turn 4 7
+2820 expect state role2 5_PER_4_BEATS
+2820 expect state p230 0
+2820 expect state p231 4
+2820 expect state grcyc2 5
+2820 expect state edited 1
+# K1: the waterfall to 3 pulses, K2 the brook OFFBEAT, K4 the wind FREE: free sounds all, their multipliers 4096
+2900 turn 2 5
+2920 turn 3 2
+2940 turn 5 -1
+2960 expect state role0 3_PER_4_BEATS_FLOWS_FREE
+2960 expect state role1 OFFBEAT_FLOWS_FREE
+2960 expect state role3 FREE_FLOWS_FREE
+2960 expect state p031 2
+2960 expect state p130 2
+2960 expect state p330 4
+3000 shot
+6000 expect state grm0 4096
+6000 expect state grm1 4096
+6000 expect state grm3 4096
+6000 expect sound
+# saved as U01; all back to AUTO; U01 loads them again (not an effect: whatever EFFECTS ON LOAD says)
+6100 btn 9
+6200 btn 9
+6800 expect state saving 0
+6900 turn 2 -5
+6910 turn 3 -2
+6920 turn 4 -7
+6930 turn 5 1
+6950 expect state p031 0
+6950 expect state p130 0
+6950 expect state p231 0
+6950 expect state p330 0
+7000 midi 0xC0 100 0
+7600 expect state loading 0
+7600 expect preset
+7600 expect state p031 2
+7600 expect state p130 2
+7600 expect state p231 4
+7600 expect state p330 4
+7600 expect state role2 5_PER_4_BEATS
+# F034 again: a factory scene, every lane AUTO
+7700 midi 0xC0 33 0
+8400 expect state loading 0
+8400 expect state p231 0
+8400 expect state p330 0
+8400 expect state role2 AUTO:_PULSE
+8500 end

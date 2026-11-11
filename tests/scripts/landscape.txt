@@ -44,12 +44,12 @@
 # K4: lane 4's volume
 4000 turn 5 -10
 4020 expect state vol3 90
-# OCT- on LANDSCAPE: lane 3, LANDSCAPE stays; OCT+ from MIXER (not a lane's page): lane 4, LANDSCAPE
+# OCT- on LANDSCAPE: lane 3, LANDSCAPE stays; OCT+ from HOW MANY (not a lane's page): lane 4, LANDSCAPE
 4100 btn 0
 4120 expect state sel 3
 4120 expect state page LANDSCAPE
 4130 turn 0 1
-4135 expect state page MIXER_1/2
+4135 expect state page LANES_1/4
 4138 btn 1
 4140 expect state sel 4
 4140 expect state page LANDSCAPE
@@ -64,13 +64,15 @@
 4160 expect state sel 3
 4160 expect state page SOUND_1/2
 4160 shot
-# a black key on a lane's page (SOUND): lane 2, on LANDSCAPE (left that way: HOME has no way back, LANDSCAPE stays)
+# a black key on a lane's page (SOUND): lane 2, on LANDSCAPE (left that way: HOME still goes back to the SOUND page, P7)
 4170 keys 0x400
 4171 keys 0
 4172 expect state sel 2
 4172 expect state page LANDSCAPE
 4175 btn 8
-4177 expect state page LANDSCAPE
+4177 expect state page SOUND_1/2
+4178 btn 8
+4179 expect state page LANDSCAPE
 # lane 3 again (F#4, key 13), its SOUND page
 4180 keys 0x2000
 4181 keys 0

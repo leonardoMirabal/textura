@@ -8,25 +8,29 @@
  * An element is drawn again when what it shows changes: each pass (every UI_SIG_MS) works out a signature of each
  * element's content and marks the ones that differ.
  *
- *   SELECT     the pages, in order (the first to the last, no wrap): LANDSCAPE, MIXER VOLUME, MIXER PAN (the lanes' levels, pans), SOUND 1..n (the selected lane's sound:
- *              its cards, four a page), DRIVE (the mix's, its first effect: AMOUNT TONE MIX TYPE), FILTER (the mix's, right after the DRIVE: LOW CUT HIGH CUT RESONANCE SLOPE, a band),
- *              COMPRESSOR 1/2 2/2 (the mix's, after the DRIVE, Frodhes': THR RAT ATK MKUP, then COMP REL; the footer
- *              its gain-reduction meter), GRAIN 1/3 .. 3/3, REVERB 1/3 .. 3/3 (in series: the reverb takes what the
- *              grain delay gives; MIX on DRIVE, GRAIN, REVERB reads DRY..WET), LFO 1/3 .. 3/3,
- *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, TEMPO, GROOVE 1/2 2/2
- *              (AMOUNT TYPE SHIFT and the selected lane's PART; its CYCLE), MIDI, DISPLAY (COLOR: the screen's palette)
- *   ALGORITHM  LANDSCAPE: picks a landscape (the footer names it: EDIT loads it, HOME keeps what plays; a turn never
- *              loads); SOUND: opens the sound browser; DRIVE: its
- *              TYPE; FILTER: its SLOPE; COMPRESSOR: COMP (up on, down off); GRAIN: FREEZE (up on, down
- *              off); REVERB: its type; LFO: which (1..8); ENV:
- *              which (ENV 1, ENV 2, FOLLOW 1, FOLLOW 2); MATRIX: which slot (1..16); GROOVE: its TYPE
+ *   SELECT     the pages, in order (the first to the last, no wrap): LANDSCAPE (titled TEXTURA), the lane pages HOW
+ *              MANY, HOW ACTIVE, PAN, ON / MUTE (each the four lanes as rows, Kn lane n's), SOUND 1..n (the selected
+ *              lane's sound: its cards, four a page), EFFECTS (the front page: REVERB MIX, DELAY MIX, HIGH CUT, DRIVE),
+ *              REVERB 1/3 .. 3/3, GRAIN 1/4 .. 4/4 (the grain delay: in series, the reverb takes what it gives; MIX
+ *              on DRIVE, GRAIN, REVERB reads DRY..WET), FILTER (the mix's, right after the DRIVE in the chain: LOW CUT
+ *              HIGH CUT RESONANCE SLOPE, a band), DRIVE (the mix's first effect: AMOUNT TONE MIX TYPE), COMPRESSOR 1/2
+ *              2/2 (Frodhes': THR RAT ATK MKUP, then COMP REL; the footer its gain-reduction meter), LFO 1/3 .. 3/3,
+ *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, RHYTHM (BPM, the groove's AMOUNT and SHIFT, the transport),
+ *              GROOVE LANES (each lane's ROLE on its knob), TEMPO (FINE, CLOCK, STATUS), MIDI, DISPLAY (COLOR). Each
+ *              page titled by what it does, no fractions: pips at the right for its button's pages
+ *   ALGORITHM  named on the footer's ALGORITHM line with its value. LANDSCAPE: picks a landscape (the footer names it:
+ *              EDIT loads it, HOME keeps what plays; a turn never loads); SOUND: opens the sound browser; EFFECTS,
+ *              REVERB: the reverb's type; DRIVE: its TYPE; FILTER: its SLOPE; COMPRESSOR: COMP (up on, down off);
+ *              GRAIN: FREEZE (up on, down off); LFO: which (1..8); ENV: which (ENV 1, ENV 2, FOLLOW 1, FOLLOW 2);
+ *              MATRIX: which slot (1..16); RHYTHM, GROOVE LANES: the groove's TYPE
  *   K1..K4     LANDSCAPE: the volumes of lanes 1..4 (a lane's sound: its SOUND page; HOW MANY, HOW ACTIVE: the white
- *              keys); MIXER: lanes 1..4; else the cards
- *   HOME       LANDSCAPE, remembering the page it came from; on LANDSCAPE: back to that page (none remembered,
- *              or it was left another way: LANDSCAPE stays)
- *   EDIT       SOUND (again: its next page)        FX  DRIVE (again: FILTER, COMPRESSOR, GRAIN, REVERB)
- *   GLO        TEMPO (again: GROOVE, MIDI, DISPLAY)        LFO  the LFO pages; held + a card turned: mod learn (the
- *              selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP  MATRIX
+ *              keys too); the lane pages, GROOVE LANES: lanes 1..4; else the cards
+ *   HOME       LANDSCAPE; on LANDSCAPE: back to the last page left, however it was left (P7; the footer names it)
+ *   EDIT       SOUND (again: its next page)        FX  EFFECTS (again: each page of REVERB, GRAIN, FILTER, DRIVE,
+ *              COMPRESSOR, then round)
+ *   GLO        RHYTHM (again: GROOVE LANES, TEMPO, MIDI, DISPLAY, then round)        LFO  the LFO pages; held + a card
+ *              turned: mod learn (the selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP
+ *              MATRIX. Each group button lit on its own pages only; every group page's footer says where it goes next
  *   ENV        the ENV / FOLLOW pages; held + a card turned: mod learn from the selected ENV or FOLLOW
  *   SEL        key mode: LANDSCAPE / PLAY      OCT- OCT+  LANDSCAPE mode: the previous / next lane (a lane's page,
  *              SOUND, any of its pages, stays, for the new lane; any other goes to LANDSCAPE); PLAY mode: the octave
@@ -63,17 +67,29 @@
 #define TX_BTN_TAP BTN_PLAY                     /* TAP TEMPO is the PLAY button, as in Frodhes (the user, 2026-10-25) */
 
 /* the pages: a group (SELECT walks through each group's sub-pages, then the next group) */
-enum { G_LAND, G_MIX, G_SOUND, G_DRIVE, G_MFILT, G_COMP, G_GRAIN, G_REVERB, G_LFO, G_ENV, G_MATRIX, G_TEMPO, G_GROOVE,
-       G_MIDI, G_DISPLAY, G_N };
-static const char *const G_TITLE[G_N] = {"LANDSCAPE", "MIXER", "SOUND", "DRIVE", "FILTER", "COMPRESSOR", "GRAIN", "REVERB",
-                                         "LFO", "ENV", "MATRIX", "TEMPO", "GROOVE", "MIDI", "DISPLAY"};
-static const uint8_t G_NSUB[G_N] = {1, 2, 0, 1, 1, 2, 4, 3, 3, 2, 1, 1, 2, 1, 1};   /* (TEMPO: one page; its
-                                                 * settings for the presets' loads: the presets list's LOAD OPTIONS) */   /* (SOUND: as many as its cards need; ENV:
-                                                         * a FOLLOW has one) */
+enum { G_LAND, G_LANES, G_SOUND, G_FX, G_REVERB, G_GRAIN, G_MFILT, G_DRIVE, G_COMP, G_LFO, G_ENV, G_MATRIX, G_RHYTHM,
+       G_GLANES, G_TEMPO, G_MIDI, G_DISPLAY, G_N };
+/* the groups' names for the host and the web panel (the screen titles each page by what it does: PG_T) */
+static const char *const G_TITLE[G_N] = {"LANDSCAPE", "LANES", "SOUND", "EFFECTS", "REVERB", "GRAIN", "FILTER", "DRIVE",
+                                         "COMPRESSOR", "LFO", "ENV", "MATRIX", "RHYTHM", "GROOVE LANES", "TEMPO", "MIDI",
+                                         "DISPLAY"};
+static const uint8_t G_NSUB[G_N] = {1, 4, 0, 1, 3, 4, 1, 1, 2, 3, 2, 1, 1, 1, 1, 1, 1};   /* (SOUND: as many as its cards
+                                                 * need; ENV: a FOLLOW has one) */
+/* the pages' titles on the screen, by what they do, the groups' pages in order (SOUND: "SOUND"; a FOLLOW: "FOLLOW") */
+static const char *const PG_T[] = {"TEXTURA", "HOW MANY", "HOW ACTIVE", "PAN", "ON / MUTE", "EFFECTS", "REVERB",
+                                   "REVERB SPACE", "SHIMMER", "DELAY", "DELAY MOTION", "GRAINS", "GRAIN TONE", "FILTER",
+                                   "DRIVE", "COMPRESSOR", "COMP RELEASE", "LFO", "LFO PHASE", "LFO LEVEL", "ENV",
+                                   "ENV SHAPE", "MOD MATRIX", "RHYTHM", "GROOVE LANES", "TEMPO", "MIDI CLOCK", "DISPLAY"};
+/* the group buttons: each owns a run of groups (its LED lit there, it steps their pages, the title's pips count them):
+ * HOME the home page and the lane pages (SELECT's), EDIT SOUND, FX the effects, LFO, ENV, ARP the matrix, GLO the
+ * rhythm and the setup */
+static const uint8_t G_BTN[G_N] = {BTN_HOME, BTN_HOME, BTN_EDIT, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_LFO,
+                                   BTN_ENV, BTN_ARP, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO};
 #define LA P_LANE_ANY
 #define NOID 0xFFFFu
 /* the effects' pages: a parameter per knob (a global, or the selected LFO's, ENV's, slot's), from G_FX0 */
-static const uint8_t G_FX0[G_N] = {0, 0, 0, 0, 21, 19, 1, 5, 8, 14, 11, 12, 22, 17, 18};   /* (ENV: 14, 15; FOLLOW: 16) */
+static const uint8_t G_FX0[G_N] = {0, 0, 0, 13, 5, 1, 21, 0, 19, 8, 14, 11, 22, 0, 12, 17, 18};   /* (ENV: 14, 15; FOLLOW:
+                                                 * 16) */
 #define LFO_ANY(p) PID(P_LFO, 0xF0u | (p))        /* the selected LFO's (ui_lfo) */
 #define ENV_ANY(p) PID(P_ENV, 0xF0u | (p))        /* the selected ENV's or FOLLOW's (ui_env) */
 #define MAT_ANY(q) PID(P_MAT, 0xF0u | (q))        /* the selected slot's (ui_slot) */
@@ -82,7 +98,7 @@ static const uint8_t G_FX0[G_N] = {0, 0, 0, 0, 21, 19, 1, 5, 8, 14, 11, 12, 22, 
 #define MFL(p) PID(P_GLOBAL, PG_MF0 + (p))
 #define GDL(p) PID(P_GLOBAL, PG_GD(p))
 #define GRV(i) PID(P_GLOBAL, PG_GRV0 + (i))
-static const uint16_t FX_IDS[24][4] = {
+static const uint16_t FX_IDS[23][4] = {
     {DRV(TX_DR_AMOUNT), DRV(TX_DR_TONE), DRV(TX_DR_MIX), DRV(TX_DR_TYPE)},   /* DRIVE: the mix's */
     {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_MIX), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_TIME), PID(P_GLOBAL, PG_GSYNC), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_FEEDBACK)},
     {GDL(TX_GD_MOD), GDL(TX_GD_MODRATE), GDL(TX_GD_IVL), GDL(TX_GD_GRAIN)},   /* GRAIN 2/4: the animation, the grains' share */
@@ -95,9 +111,10 @@ static const uint16_t FX_IDS[24][4] = {
     {LFO_ANY(TX_LP_PHASE), LFO_ANY(TX_LP_WIDTH), LFO_ANY(TX_LP_JITTER), LFO_ANY(TX_LP_FADE)},
     {LFO_ANY(TX_LP_RESTART), LFO_ANY(TX_LP_LEVEL), LFO_ANY(ML_NOW), LFO_ANY(ML_ROUTES)},
     {MAT_ANY(MQ_SRC), MAT_ANY(MQ_TGT), MAT_ANY(MQ_DEPTH), MAT_ANY(MQ_SPREAD)},
-    {PID(P_GLOBAL, PG_BPM), PID(P_GLOBAL, PG_FINE), PID(P_GLOBAL, PG_STATUS), PID(P_GLOBAL, PG_RUN)},
-    {NOID, NOID, NOID, NOID},                   /* (TEMPO 2/2 once: PRESETS CHANGE TEMPO, EFFECTS ON LOAD; now LOAD
-                                                 * OPTIONS in the presets list) */
+    {PID(P_GLOBAL, PG_FINE), PID(P_GLOBAL, PG_CLOCK), PID(P_GLOBAL, PG_STATUS), NOID},   /* TEMPO: the fine tempo, what
+                                                 * leads it */
+    {PID(P_GLOBAL, PG_REVERB0 + TX_RV_MIX), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_MIX), MFL(TX_MF_HIGH), DRV(TX_DR_AMOUNT)},   /*
+                                                 * EFFECTS: the front page, each effect's most used */
     {ENV_ANY(TX_EP_TRIGGER), ENV_ANY(TX_EP_ATTACK), ENV_ANY(TX_EP_DECAY), ENV_ANY(TX_EP_RELEASE)},
     {ENV_ANY(TX_EP_SUSTAIN), ENV_ANY(TX_EP_CURVE), ENV_ANY(TX_EP_VARY), ENV_ANY(TX_EP_LOOP)},
     {ENV_ANY(TX_FP_INPUT), ENV_ANY(TX_FP_ATTACK), ENV_ANY(TX_FP_RELEASE), ENV_ANY(TX_FP_GAIN)},
@@ -106,8 +123,8 @@ static const uint16_t FX_IDS[24][4] = {
     {CMP(TX_CP_THR), CMP(TX_CP_RATIO), CMP(TX_CP_ATK), CMP(TX_CP_MKUP)},   /* COMPRESSOR: Frodhes' four knobs */
     {CMP(TX_CP_ON), CMP(TX_CP_REL), NOID, NOID},
     {MFL(TX_MF_LOW), MFL(TX_MF_HIGH), MFL(TX_MF_RESO), MFL(TX_MF_SLOPE)},   /* FILTER: the mix's, after the DRIVE */
-    {GRV(0), GRV(1), GRV(2), PID(LA, PL_GPART)},   /* GROOVE: AMOUNT TYPE SHIFT, the selected lane's PART */
-    {PID(LA, PL_GCYC), NOID, NOID, NOID},       /* GROOVE 2/2: the selected lane's CYCLE */
+    {PID(P_GLOBAL, PG_BPM), GRV(0), GRV(2), PID(P_GLOBAL, PG_RUN)},   /* RHYTHM: the tempo, the groove's AMOUNT and
+                                                 * SHIFT, the transport */
 };
 /* what ALGORITHM turns on an effect's page */
 #define ALG_DRIVE DRV(TX_DR_TYPE)
@@ -116,13 +133,29 @@ static const uint16_t FX_IDS[24][4] = {
 #define ALG_REVERB PID(P_GLOBAL, PG_REVERB0 + TX_RV_TYPE)
 #define ALG_COMP CMP(TX_CP_ON)
 #define ALG_GROOVE GRV(1)
+static const uint16_t G_ALG_[G_N] = {NOID, NOID, NOID, ALG_REVERB, ALG_REVERB, ALG_FREEZE, ALG_MFILT, ALG_DRIVE, ALG_COMP,
+                                     NOID, NOID, NOID, ALG_GROOVE, ALG_GROOVE, NOID, NOID, NOID};   /* what ALGORITHM turns on a
+                                                 * page, named on the ALGORITHM line */
+static const char *const G_ALGN_[G_N] = {0, 0, 0, "REVERB TYPE", "REVERB TYPE", "FREEZE", "SLOPE", "DRIVE TYPE", "COMP", 0, 0,
+                                         0, "GROOVE TYPE", "GROOVE TYPE", 0, 0, 0};
+#define G_ALG(g) G_ALG_[g]
+#define G_ALGN(g) G_ALGN_[g]
 enum { E_HEADER = 0, E_TITLE = 1, E_ROW0 = 2, E_FOOTER = 6, E_N = 7 };
 
 static uint8_t ui_g, ui_sub;                    /* the page: its group, its sub-page */
+/* the cards' labels where a page mixes things (EFFECTS, RHYTHM: the effect's or the groove's name with it) */
+static const char *ui_lab(uint32_t id)
+{
+    if (ui_g == G_FX) { static const char *const L[4] = {"REVERB MIX", "DELAY MIX", "HIGH CUT", "DRIVE"}; uint32_t k; for (k = 0; k < 4u; k++) if (FX_IDS[13][k] == id) return L[k]; }
+    if (id == GRV(0)) return "GROOVE AMOUNT";
+    if (id == GRV(2)) return "GROOVE SHIFT";
+    return p_lab(id);
+}
 static uint8_t ui_lfo, ui_slot;                 /* the LFO and the matrix slot ALGORITHM picked */
 static uint8_t ui_env;                          /* ENV 1, ENV 2, FOLLOW 1, FOLLOW 2 (0..3), ALGORITHM's on ENV */
 #define UI_NENV (TX_ENV_N + TX_FOL_N)
 static uint32_t ui_dirty, ui_last_draw, ui_sig[E_N], ui_sig_t;
+static uint8_t ui_back_g = 0xFF, ui_back_sub;  /* HOME's way back from the home page: the last other page (0xFF: none) */
 static char ui_msg[32];
 static uint32_t ui_msg_t;
 static uint8_t ui_hot_card = 0xFF;
@@ -290,8 +323,7 @@ static uint32_t ui_nsub(uint32_t g)             /* a group's sub-pages */
     if (g == G_ENV && ui_env >= TX_ENV_N) return 1u;   /* (a FOLLOW: one page) */
     return G_NSUB[g];
 }
-static int ui_lane_page(void) { return ui_g == G_SOUND || ui_g == G_GROOVE; }   /* (the selected lane's pages; GROOVE:
-                                                 * its PART, CYCLE) */
+static int ui_lane_page(void) { return ui_g == G_SOUND; }   /* (the selected lane's pages) */
 static uint32_t ui_id_lane(uint32_t id)         /* a page's id made concrete: the selected lane, LFO, slot */
 {
     if (P_SCOPE(id) == LA) return PID(sc.sel, P_IDX(id));
@@ -308,7 +340,9 @@ static uint32_t ui_row_id(uint32_t k)
         uint32_t i = ui_sub * 4u + k;
         return sc.snd[sc.sel] >= 0 && i < p_cards(sc.sel)->n ? PID(sc.sel, PL_CARD0 + i) : NOID;
     }
-    if (ui_g < G_DRIVE) return NOID;
+    if (ui_g == G_LANES) return ui_sub < 3u && sc.snd[k] >= 0 ? PID(k, ui_sub == 2u ? PL_PAN : PL_COUNT + ui_sub) : NOID;   /* (HOW MANY, HOW
+                                                 * ACTIVE, PAN: lane k's; ON / MUTE: drawn, turned here) */
+    if (ui_g < G_FX || ui_g == G_GLANES) return NOID;
     {
         uint32_t id = FX_IDS[G_FX0[ui_g] + (ui_g == G_ENV && ui_env >= TX_ENV_N ? 2u : ui_sub)][k];
         return id == NOID ? NOID : ui_id_lane(id);
@@ -464,6 +498,39 @@ static void ui_frac(char *t, uint32_t a, uint32_t b)   /* "a/b" */
     char n[4];
     p_fmt_int(t, (int32_t)a); p_cat(t, "/", 11); p_fmt_int(n, (int32_t)b); p_cat(t, n, 11);
 }
+/* a page's title (PG_T), the page a group button goes to from here (its own pages: the next, wrapping within the
+ * groups it owns; else its first) and its name, the title's pips (the button's pages, this one lit) */
+static const char *ui_title_of(uint32_t g, uint32_t sub)
+{
+    uint32_t i, n = 0;
+    if (g == G_SOUND) return "SOUND";
+    if (g == G_ENV && ui_env >= TX_ENV_N) return "FOLLOW";
+    for (i = 0; i < g; i++) n += G_NSUB[i];
+    return PG_T[n + sub];
+}
+static void ui_next(uint32_t btn, uint8_t *g, uint8_t *s)
+{
+    uint32_t f = 0;
+    while (G_BTN[f] != btn) f++;
+    if (G_BTN[ui_g] != btn) { *g = (uint8_t)f; *s = 0; return; }
+    *g = ui_g; *s = (uint8_t)(ui_sub + 1u);
+    if (*s < ui_nsub(ui_g)) return;
+    *s = 0;
+    *g = (uint8_t)(ui_g + 1u < G_N && G_BTN[ui_g + 1u] == btn ? ui_g + 1u : f);
+}
+static void ui_next_text(char *t, uint32_t btn)   /* "FX: NEXT > FILTER" */
+{
+    uint8_t g, s;
+    ui_next(btn, &g, &s);
+    p_strcpy(t, btn == BTN_FX ? "FX" : btn == BTN_GLO ? "GLO" : btn == BTN_EDIT ? "EDIT" : btn == BTN_LFO ? "LFO" : "ENV", 5);
+    p_cat(t, ": NEXT > ", 31); p_cat(t, ui_title_of(g, s), 31);
+}
+static uint32_t ui_pips(uint32_t *at)           /* the pages of this page's button, *at this one */
+{
+    uint32_t g, n = 0;
+    for (g = 0; g < G_N; g++) if (G_BTN[g] == G_BTN[ui_g]) { if (g == ui_g) *at = n + ui_sub; n += ui_nsub(g); }
+    return n;
+}
 static int ui_fx_yours(void) { return scn_fx_mine && scn_fx_mode == SCN_FX_SMART; }   /* (SMART: the next load keeps them) */
 static void draw_title(void)
 {
@@ -499,9 +566,9 @@ static void draw_title(void)
         cv_blit(0, TI_Y);
         return;
     }
-    x = aa_text(10, S_TOP(10), &AF_S, ui_g == G_ENV && ui_env >= TX_ENV_N ? "FOLLOW" : ui_g == G_LAND ? "TEXTURA"
-                : G_TITLE[ui_g], UI_ACC, FC_BG);   /* (the home page shows TEXTURA, as Frodhes' main page FRODHES; its
-                                                 * name stays LANDSCAPE for the host / web API) */
+    x = aa_text(10, S_TOP(10), &AF_S, ui_title_of(ui_g, ui_sub), UI_ACC, FC_BG);   /* (the home page shows TEXTURA, as
+                                                 * Frodhes' main page FRODHES; its name stays LANDSCAPE for the host /
+                                                 * web API) */
     if (ui_g == G_LAND) {                       /* (no page count; the battery, the tempo, PLAY at the right, the
                                                  * header holding the preset's name; FX: YOURS between, room kept) */
         int32_t xr = ui_status_at(1);
@@ -509,10 +576,12 @@ static void draw_title(void)
         cv_blit(0, TI_Y);
         return;
     }
-    if (ui_g == G_MIX) x = aa_text(x + 5, S_TOP(10), &AF_S, ui_sub ? "PAN" : "VOLUME", FC_VAL, FC_BG);   /* (not 1/2) */
-    else if (n > 1u) { ui_frac(t, ui_sub + 1u, n); x = aa_text(x + 5, S_TOP(10), &AF_S, t, FC_VAL, FC_BG); }
-    ui_frac(t, ui_g + 1u, G_N);
-    aa_text_r(230, S_TOP(10), &AF_S, t, FC_LAB, FC_BG);
+    {                                           /* no fractions: the button's pages as pips at the right, this one lit */
+        uint32_t at = 0, i;
+        n = ui_pips(&at);
+        for (i = 0; n > 1u && i < n; i++) cv_rect(230 - 8 * (int32_t)(n - i) + 3, 8, 5, 5, i == at ? UI_ACC : CD_PIPOFF);
+    }
+    (void)x;
     cv_blit(0, TI_Y);
 }
 
@@ -698,6 +767,86 @@ static void ui_mix_label(uint32_t k, char *l)   /* "1 RAIN ON WATER" */
     l[0] = (char)('1' + k); l[1] = ' ';
     p_upper(l + 2, sc_sound_name(k), 28);
 }
+static uint32_t ui_look(uint32_t id);
+/* ---- the lane pages (HOW MANY, HOW ACTIVE, PAN, ON / MUTE): a card per lane, Kn lane n's; an empty lane says so */
+static void draw_lane_row(uint32_t k)
+{
+    char l[32], v[24];
+    uint32_t id = ui_row_id(k);
+    int32_t lv;
+    if (sc.snd[k] < 0) { p_strcpy(l, "1 EMPTY", 31); l[0] = (char)('1' + k); draw_card(k, l, "-", 0, 0, 0, LK_TEXT); return; }
+    ui_mix_label(k, l);
+    if (id == NOID) { draw_card(k, l, sc.mute[k] ? "MUTED" : "ON", 0, !sc.mute[k], 1, LK_LED); return; }
+    if (mod_live(id, &lv)) ui_card_live = lv;
+    { const char *u = p_text(id, v); draw_card(k, l, v, u, p_get(id), p_hi(id), ui_look(id)); }
+}
+/* ---- GROOVE LANES: lane n's ROLE on Kn, one list over its PART and CYCLE (stored as they were: scenes and MIDI
+ * unchanged): FREE, AUTO, PULSE, OFFBEAT, FILL, then its own cycle of 2 .. 9 pulses over the TYPE's span */
+#define ROLE_N 13u
+static uint32_t ui_role(uint32_t k)
+{
+    uint32_t p = gr_set[0][k], c = gr_set[1][k];
+    return p == TX_GRP_FREE ? 0u : c ? 4u + c : p + 1u;
+}
+static void ui_role_set(uint32_t k, uint32_t r)
+{
+    scn_touch_id(PID(k, PL_GPART));
+    p_set(PID(k, PL_GPART), r == 0u ? TX_GRP_FREE : r <= 4u ? (int32_t)r - 1 : TX_GRP_AUTO);
+    p_set(PID(k, PL_GCYC), r > 4u ? (int32_t)r - 4 : 0);
+}
+/* lane k's role as the row reads it ("FREE", "AUTO: PULSE", "OFFBEAT", "5 PER 4 BEATS"); its slots into pos, w */
+static unsigned ui_role_text(uint32_t k, char *r, uint8_t *pos, uint8_t *w)
+{
+    char n[4];
+    unsigned beats = 4, ns = tx_groove_slots(&gr_lane[k], gr_type, pos, w, 32u, &beats);
+    uint32_t role = ui_role(k), part = gr_lane[k].part;
+    if (role == 0u) p_strcpy(r, "FREE", 23);
+    else if (role >= 5u) { p_fmt_int(r, (int32_t)role - 3); p_cat(r, " PER ", 23); p_fmt_int(n, (int32_t)beats); p_cat(r, n, 23); p_cat(r, " BEATS", 23); }
+    else { p_strcpy(r, role == 1u ? "AUTO" : N_GPART[role - 1u], 23); if (role == 1u && gr_wl(k) && part && part < TX_GRP_FREE) { p_cat(r, ": ", 23); p_cat(r, N_GPART[part], 23); } }
+    return ns | beats << 8;
+}
+/* a row: the lane and its sound, the role by what it does ("AUTO: PULSE", "5 PER 4 BEATS") and Kn; under them what it
+ * means ("ON THE BEAT"; a sound the groove leaves alone: "WIND . FLOWS FREE", the row dimmed) and the lane's pulse:
+ * its slots over the span (the strong ones larger), the beats as ticks */
+static void draw_groove_row(uint32_t k)
+{
+    static const char *const MEAN[5] = {"NO PULSE", "ON THE BEAT", "BETWEEN BEATS", "IN THE GAPS", "OWN CYCLE"};
+    char l[32], r[24], kk[3] = {'K', (char)('1' + k), 0};
+    uint8_t pos[32], w[32];
+    unsigned beats, ns, j;
+    uint32_t role = ui_role(k), part = gr_lane[k].part, x;
+    int fr = !gr_wl(k), hot = ui_hot_card == k && ui_hot_t && fm1_ms - ui_hot_t < HOT_MS;
+    const int32_t X0 = 124, W = 96;
+    cv_begin(RW_W, RW_H, C_BLACK);
+    if (sc.snd[k] < 0) { p_strcpy(l, "1 EMPTY", 31); l[0] = (char)('1' + k); aa_text_ov(6, S_TOP(9), &AF_S, l, FC_DIM); cv_blit(RW_X, RW_Y0 + RW_DY * k); return; }
+    ns = ui_role_text(k, r, pos, w);
+    beats = ns >> 8; ns &= 255u;
+    x = (uint32_t)aa_text_ovr(ST_KX, S_TOP(9), &AF_S, kk, mt.tag);
+    x = (uint32_t)aa_text_ovr((int32_t)RW_W - 6 - aa_text_w(&AF_S, "K4") - 8, S_TOP(9), &AF_S, r, fr ? FC_DIM : FC_VAL);
+    (void)x;
+    ui_mix_label(k, l);
+    ui_fit(l, (int32_t)RW_W - 6 - aa_text_w(&AF_S, "K4") - 8 - aa_text_w(&AF_S, r) - 12);
+    aa_text_ov(6, S_TOP(9), &AF_S, l, fr ? FC_DIM : FC_LAB);
+    if (fr) {                                   /* "WIND . FLOWS FREE", a flat line */
+        int32_t e;
+        p_upper(l, LS[sc.lf[k]].name, 20);
+        e = aa_text_ov(6, S_TOP(27), &AF_S, l, FC_DIM);
+        e = aa_text_ov(ui_dot_ov(e, 27, FC_DIM), S_TOP(27), &AF_S, "FLOWS FREE", FC_DIM);
+        if (e + 6 < X0) cv_rect(X0, 27, W, 1, CD_SEGDIM);
+    } else {
+        aa_text_ov(6, S_TOP(27), &AF_S, MEAN[role >= 5u ? 4u : role == 0u || !part || part >= TX_GRP_FREE ? 0u : part], FC_DIM);
+        for (j = 0; j < beats && j < 16u; j++) cv_rect(X0 + W * (int32_t)j / (int32_t)beats, 30, 1, 5, CD_SEGDIM);
+        if (!ns) cv_rect(X0, 27, W, 1, CD_SEGDIM);
+        for (j = 0; j < ns; j++) {
+            int32_t s = w[j] >= 28u ? 5 : w[j] >= 8u ? 3 : 0, px = X0 + W * (int32_t)pos[j] / 256;
+            if (s) cv_rect(px, 27 - s / 2, s, s, s == 5 ? mt.edge : FC_LAB);
+        }
+    }
+    if (hot) {
+        cv_frame(0, 0, RW_W, RW_H, 1);
+    }
+    cv_blit(RW_X, RW_Y0 + RW_DY * k);
+}
 static uint32_t ui_look(uint32_t id)
 {
     uint32_t f = p_fmt(id), kd = p_kind(id);
@@ -834,19 +983,14 @@ static void draw_toast(void)
 }
 static void draw_row(uint32_t k)
 {
-    char l[32], v[24];
+    char v[24];
     uint32_t id;
     if (ui_toast_on() && (k == 1u || k == 2u)) { draw_toast(); return; }
     if (ub.on && ub.pr) { if (ub.opt) draw_opt_row(k); else draw_pr_row(k); return; }
     if (ub.on) { draw_browser_row(k); return; }
     if (ui_g == G_LAND) { draw_strip(k); return; }
-    if (ui_g == G_MIX) {
-        ui_mix_label(k, l);
-        { int32_t lv; if (mod_live(PID(k, ui_sub ? PL_PAN : PL_LEVEL), &lv)) ui_card_live = lv; }
-        if (ui_sub == 0u) { p_fmt_int(v, (int32_t)sc_vol_of(k)); draw_card(k, l, v, 0, (int32_t)sc_vol_of(k), 127, LK_FILL); }
-        else { ui_pan_text(sc.pan[k], v); draw_card(k, l, v, 0, sc.pan[k], 127, LK_MID); }
-        return;
-    }
+    if (ui_g == G_LANES) { draw_lane_row(k); return; }
+    if (ui_g == G_GLANES) { draw_groove_row(k); return; }
     id = ui_row_id(k);
     if (id == NOID) { cv_begin(RW_W, RW_H, C_BLACK); cv_blit(RW_X, RW_Y0 + RW_DY * k); return; }
     {
@@ -855,18 +999,25 @@ static void draw_row(uint32_t k)
         uint32_t look = ui_look(id);
         if (P_SCOPE(id) == P_LFO && P_IDX(id) % 16u == ML_NOW) { look = LK_MID; hi = 64; }   /* (NOW: from the middle) */
         if (mod_live(id, &lv)) ui_card_live = lv;
-        draw_card(k, p_lab(id), v, u, val, hi, look);
+        draw_card(k, ui_lab(id), v, u, val, hi, look);
     }
 }
 
 static void draw_meter(void);
+/* the ALGORITHM line: the encoder named as a knob, what it turns and its value ("ALGORITHM  GROOVE TYPE  LOOSE 16") */
+static void ft_alg(int32_t yc, const char *what, const char *val)
+{
+    char v[24];
+    int32_t wa = aa_text_w(&AF_S, "ALGORITHM") + 6 + aa_text_w(&AF_S, what) + 6, x;
+    p_strcpy(v, val, 23); ui_fit(v, 236 - wa);
+    x = (240 - wa - aa_text_w(&AF_S, v)) / 2;
+    x = aa_text(x, S_TOP(yc), &AF_S, "ALGORITHM", FC_DIM, FC_BG) + 6;
+    x = aa_text(x, S_TOP(yc), &AF_S, what, FC_LAB, FC_BG) + 6;
+    aa_text(x, S_TOP(yc), &AF_S, v, FC_VAL, FC_BG);
+}
+/* the footer: line 1 what ALGORITHM does here (or the page's hint), line 2 where the page's button goes next */
 static void draw_footer(void)
 {
-    static const char *const HINT[G_N] = {"", "", "ALGORITHM: THE SOUND",
-                                          "ALGORITHM: THE DRIVE'S TYPE", "ALGORITHM: SLOPE 12 / 24 DB", "ALGORITHM: COMP ON / OFF", "ALGORITHM: FREEZE",
-                                          "ALGORITHM: THE REVERB'S TYPE",
-                                          "ALGORITHM: WHICH LFO", "ALGORITHM: ENV 1 2, FOLLOW 1 2", "ALGORITHM: WHICH SLOT",
-                                          "PLAY: TAP, HOLD: START / STOP", "ALGORITHM: TYPE  OCT: THE LANE", "CLOCK OUT: IN MASTER", "THE SCREEN'S COLOUR, KEPT"};
     cv_begin(240, FT_H, FC_BG);
     if (scn_save_mode) {                   /* the save mode: where to, the name (its letter underlined) */
         char t[32], m[20];
@@ -904,30 +1055,48 @@ static void draw_footer(void)
         ft_c(7, t, FC_VAL);
         ft_c(22, "EDIT: LOAD   HOME: KEEP", FC_DIM);
     }
-    else if (ui_g == G_LAND) {                  /* the buttons by what they open (their printed names do not say) */
+    else if (ui_g == G_LAND) {                  /* the buttons by what they open (their printed names do not say); HOME's
+                                                 * way back named once there is one */
+        char t[40];
         ft_two(7, "SEQ: SOUNDS", "FX: EFFECTS", FC_LAB);
-        ft_two(22, "GLO: RHYTHM", "SELECT: MORE PAGES", FC_LAB);
-    } else if (ui_g == G_MIX) ft_c(19, ui_sub == 0u ? "K1-K4: THE LANES' VOLUMES" : "K1-K4: THE LANES' PANS", FC_DIM);
-    else if (ui_g == G_SOUND && sc.snd[sc.sel] < 0) ft_c(19, "NO SOUND ON THIS LANE", FC_DIM);
-    else if (ui_g == G_COMP) {                  /* the gain-reduction meter (Frodhes' draw_meter), or how to start it */
-        if (pv_glob[PG_COMP0 + TX_CP_ON]) { draw_meter(); return; }
-        ft_c(19, "ALGORITHM: COMP ON", FC_DIM);
-    }
-    else if (ui_g == G_LFO) { ft_c(7, HINT[ui_g], FC_DIM); ft_c(22, "HOLD LFO + TURN A CARD: LEARN", FC_DIM); }
-    else if (ui_g == G_ENV) {                   /* the hint, the learn, and its value now: a bar */
-        int32_t v = mod_ext[ui_env < TX_ENV_N ? ME_ENV1 + ui_env : ME_FOL1 + ui_env - TX_ENV_N];
-        ft_c(7, HINT[ui_g], FC_DIM); ft_c(22, "HOLD ENV + TURN A CARD: LEARN", FC_DIM);
-        cv_rect(20, 14, 200, 3, CD_SEGDIM); cv_rect(20, 14, 200 * clampi(v, 0, 32767) / 32767, 3, mt.edge);
-    }
-    else if (ui_g == G_MATRIX && mslot[ui_slot].src && mslot[ui_slot].tgt) {   /* the slot's target now: a bar */
-        int32_t lv, id = (int32_t)mod_tgt_pid(mslot[ui_slot].tgt, mod_tgt_lanes(mslot[ui_slot].tgt) < 4u ? mod_tgt_lanes(mslot[ui_slot].tgt) : 0u);
-        ft_c(7, mod_cc_learn ? "SEND A CC: MOD CC" : HINT[ui_g], FC_DIM);
-        if (mod_live((uint32_t)id, &lv) && p_hi((uint32_t)id) > 0) {
-            int32_t w = 200 * clampi(lv, 0, p_hi((uint32_t)id)) / p_hi((uint32_t)id);
-            cv_rect(20, 20, 200, 4, CD_SEGDIM); cv_rect(20, 20, w, 4, mt.edge);
+        if (ui_back_g == 0xFF) ft_two(22, "GLO: RHYTHM", "SELECT: LANE PAGES", FC_LAB);
+        else {
+            p_strcpy(t, "HOME: BACK TO ", 39); p_cat(t, ui_title_of(ui_back_g, ui_back_sub), 39);
+            if (aa_text_w(&AF_S, t) + aa_text_w(&AF_S, "GLO: RHYTHM") + 9 <= 236) ft_two(22, "GLO: RHYTHM", t, FC_LAB);
+            else ft_c(22, t, FC_LAB);
+        }
+    } else if (ui_g == G_COMP && pv_glob[PG_COMP0 + TX_CP_ON]) { draw_meter(); return; }   /* (the gain-reduction meter,
+                                                 * Frodhes' draw_meter) */
+    else {
+        char t[32], v[24];
+        uint32_t id = G_ALG(ui_g);
+        if (id != NOID) { (void)p_text(id, v); ft_alg(7, G_ALGN(ui_g), v); }
+        else if (ui_g == G_LANES) ft_c(7, "K1-K4: LANES 1-4", FC_LAB);
+        else if (ui_g == G_SOUND) ft_c(7, sc.snd[sc.sel] < 0 ? "NO SOUND ON THIS LANE" : "ALGORITHM: PICK A SOUND", FC_LAB);
+        else if (ui_g == G_LFO) { p_strcpy(v, "LFO 1", 23); v[4] = (char)('1' + ui_lfo); ft_alg(7, "WHICH LFO", v); }
+        else if (ui_g == G_ENV) { ui_env_name(v); ft_alg(7, "WHICH ONE", v); }
+        else if (ui_g == G_MATRIX) {
+            if (mod_cc_learn) ft_c(7, "SEND A CC: MOD CC", FC_LAB);
+            else { p_strcpy(v, "SLOT ", 23); p_fmt_int(v + 5, ui_slot + 1); ft_alg(7, "WHICH SLOT", v); }
+        }
+        else ft_c(7, ui_g == G_TEMPO ? "PLAY: TAP, HOLD: START / STOP" : ui_g == G_MIDI ? "CLOCK OUT: IN MASTER" : "THE SCREEN'S COLOUR, KEPT", FC_LAB);
+        if (ui_g == G_LANES) {                  /* (SELECT walks them) */
+            p_strcpy(t, "SELECT: NEXT > ", 31); p_cat(t, ui_title_of(ui_sub < 3u ? G_LANES : G_SOUND, ui_sub < 3u ? ui_sub + 1u : 0u), 31);
+            ft_c(22, t, FC_DIM);
+        }
+        else if (ui_g == G_SOUND) ft_c(22, "OCT - / +: OTHER LANE", FC_DIM);
+        else if (ui_g == G_MATRIX) {            /* the slot's target now: a bar */
+            int32_t lv, mid = mslot[ui_slot].src && mslot[ui_slot].tgt ? (int32_t)mod_tgt_pid(mslot[ui_slot].tgt, mod_tgt_lanes(mslot[ui_slot].tgt) < 4u ? mod_tgt_lanes(mslot[ui_slot].tgt) : 0u) : -1;
+            if (mid >= 0 && mod_live((uint32_t)mid, &lv) && p_hi((uint32_t)mid) > 0) {
+                cv_rect(20, 20, 200, 4, CD_SEGDIM); cv_rect(20, 20, 200 * clampi(lv, 0, p_hi((uint32_t)mid)) / p_hi((uint32_t)mid), 4, mt.edge);
+            }
+        }
+        else { ui_next_text(t, G_BTN[ui_g]); ft_c(22, t, FC_DIM); }
+        if (ui_g == G_ENV) {                    /* its value now: a bar */
+            int32_t e = mod_ext[ui_env < TX_ENV_N ? ME_ENV1 + ui_env : ME_FOL1 + ui_env - TX_ENV_N];
+            cv_rect(20, 14, 200, 3, CD_SEGDIM); cv_rect(20, 14, 200 * clampi(e, 0, 32767) / 32767, 3, mt.edge);
         }
     }
-    else ft_c(19, HINT[ui_g], FC_DIM);
     cv_blit(0, FT_Y);
 }
 
@@ -1020,17 +1189,21 @@ static uint32_t ui_sig_of(uint32_t e)
         h = sig_mix(h, ui_msg_t && fm1_ms - ui_msg_t < MSG_MS ? ui_msg_t : 0u);
         h = sig_mix(h, nt.mode); h = sig_mix(h, sc.sel); h = sig_mix(h, sc.mute[sc.sel]); h = sig_mix(h, sc.fam_pend); h = sig_mix(h, sc.fam_want);
         h = sig_mix(h, scn_save_mode ? scn_save_slot + 1u : 0u);
+        h = sig_mix(h, ui_back_g); h = sig_mix(h, ui_back_sub); h = sig_mix(h, ui_lfo); h = sig_mix(h, ui_slot);
+        if (G_ALG(ui_g) != NOID) h = sig_mix(h, (uint32_t)p_get(G_ALG(ui_g)));
         if (ui_g == G_COMP) h = sig_mix(h, meter_poll());
         if (scn_save_mode) { uint32_t i; h = sig_mix(h, scn_nm_pos); for (i = 0; i < 11u; i++) h = sig_mix(h, (uint8_t)scn_nm[i]); }
     } else if (e >= E_ROW0 && e < E_ROW0 + 4u) {
         k = e - E_ROW0;
         if (k == 1u || k == 2u) h = sig_mix(h, ui_toast_on() ? ui_toast_t : 0u);
         h = sig_mix(h, ui_hot_card == k && ui_hot_t && fm1_ms - ui_hot_t < HOT_MS);
-        if (ui_g <= G_MIX) {
+        if (ui_g <= G_LANES || ui_g == G_GLANES) {
             h = sig_mix(h, sc.lf[k]); h = sig_mix(h, (uint32_t)sc.snd[k]); h = sig_mix(h, sc.run[k]);
             h = sig_mix(h, sc_vol_of(k)); h = sig_mix(h, sc.pan[k]); h = sig_mix(h, sc.mute[k]);
-            if (ui_g == G_MIX) { int32_t lv; h = sig_mix(h, mod_live(PID(k, ui_sub ? PL_PAN : PL_LEVEL), &lv) ? (uint32_t)lv / 4u + 1u : 0u); }
-            if (ui_g == G_LAND) { h = sig_mix(h, sc_cnt_of(k)); h = sig_mix(h, ui_lane_act(k)); h = sig_mix(h, k == sc.sel); }
+            h = sig_mix(h, sc_cnt_of(k)); h = sig_mix(h, ui_lane_act(k));
+            if (ui_g == G_LANES) { int32_t lv; uint32_t id = ui_row_id(k); h = sig_mix(h, id != NOID && mod_live(id, &lv) ? (uint32_t)lv / 4u + 1u : 0u); }
+            if (ui_g == G_LAND) h = sig_mix(h, k == sc.sel);
+            if (ui_g == G_GLANES) { h = sig_mix(h, gr_set[0][k] | gr_set[1][k] << 4); h = sig_mix(h, gr_lane[k].part | gr_lane[k].wl << 4); h = sig_mix(h, gr_type); }
         } else {
             uint32_t id = ui_row_id(k);
             h = sig_mix(h, id);
@@ -1153,10 +1326,9 @@ static void ui_draw(void)
 }
 
 /* ---- input */
-static uint8_t ui_back_g = 0xFF, ui_back_sub;  /* HOME's way back: the page it left for LANDSCAPE (0xFF: none) */
 static void ui_goto(uint32_t g, uint32_t sub)
 {
-    if (g != G_LAND) ui_back_g = 0xFF;          /* (LANDSCAPE left: the way back is gone) */
+    if (ui_g != G_LAND) { ui_back_g = ui_g; ui_back_sub = ui_sub; }   /* (HOME's way back: the last page left, however) */
     ui_g = (uint8_t)(g < G_N ? g : G_LAND);
     ui_sub = (uint8_t)(sub < ui_nsub(ui_g) ? sub : ui_nsub(ui_g) - 1u);
     ui_hot_card = 0xFF;
@@ -1361,8 +1533,7 @@ static void ui_learn(uint32_t k, int32_t d)
 {
     uint32_t id = NOID;
     int s;
-    if (ui_g == G_MIX) id = PID(k, ui_sub ? PL_PAN : PL_LEVEL);
-    else if (ui_g == G_LAND) id = PID(k, PL_LEVEL);   /* (LANDSCAPE: lane k's volume) */
+    if (ui_g == G_LAND) id = PID(k, PL_LEVEL);   /* (LANDSCAPE: lane k's volume) */
     else id = ui_row_id(k);
     ui_lfo_learned = 1;
     s = id == NOID ? -1 : mod_learn(ui_lsrc, id, d);
@@ -1404,13 +1575,9 @@ static void ui_knob(uint32_t k, int32_t d)
     if (ui_latched()) { ui_learn(k, d); ui_latch_t = fm1_ms - (LATCH_MS - 800u); if (!ui_latch_t) ui_latch_t = 1u; return; }
                                                 /* (latched: this turn's detents, until 800 ms after the last) */
     ui_hot(k);
-    if (ui_g == G_MIX) {
-        scn_touch();
-        d = ui_accel(k, 127, d);
-        if (ui_sub == 0u) sc_volume(k, (uint32_t)clampi((int32_t)sc_vol_of(k) + d, 0, 127));
-        else sc_pan(k, (uint32_t)clampi((int32_t)sc.pan[k] + d, 0, 127));
-        return;
-    }
+    if (ui_g == G_LANES && ui_sub == 3u) { if (sc.snd[k] >= 0 && sc.mute[k] != (d < 0)) ui_lane_mute(k); return; }   /* (ON
+                                                 * / MUTE: up on, down muted) */
+    if (ui_g == G_GLANES) { if (sc.snd[k] >= 0) ui_role_set(k, (uint32_t)clampi((int32_t)ui_role(k) + d, 0, ROLE_N - 1)); return; }
     if (ui_g != G_LAND) {
         uint32_t id = ui_row_id(k);
         if (id != NOID) ui_turn(id, ui_accel(k, p_kind(id) == PK_AMOUNT ? p_hi(id) : 0, d));
@@ -1428,7 +1595,7 @@ static void ui_knob(uint32_t k, int32_t d)
 }
 static void ui_algorithm(int32_t d)
 {
-    uint32_t id = NOID;
+    uint32_t id;
     if (ui_g == G_LAND) { sc_family_turn(d); return; }   /* (picked, not loaded: EDIT loads it, P4) */
     if (ui_g == G_SOUND) { ub_open(); return; }   /* (the first detent opens the sound browser; it does not move) */
     if (ui_g == G_ENV) {                        /* which ENV / FOLLOW */
@@ -1448,19 +1615,14 @@ static void ui_algorithm(int32_t d)
         ui_all();
         return;
     }
-    if (ui_g == G_DRIVE) id = ALG_DRIVE;
-    else if (ui_g == G_MFILT) id = ALG_MFILT;
-    else if (ui_g == G_COMP) id = ALG_COMP;
-    else if (ui_g == G_GRAIN) id = ALG_FREEZE;
-    else if (ui_g == G_REVERB) id = ALG_REVERB;
-    else if (ui_g == G_GROOVE) id = ALG_GROOVE;
+    id = G_ALG(ui_g);
     if (id == NOID) return;
     ui_turn(id, d);
     ui_hot_card = 0xFF;
     ui_hot_id(id);
     {                                           /* "FREEZE ON", "REVERB HALL" */
         char t[32], v[24];
-        p_strcpy(t, ui_g == G_GRAIN ? "FREEZE" : ui_g == G_COMP ? "COMP" : G_TITLE[ui_g], 12); p_cat(t, " ", 31);
+        p_strcpy(t, G_ALGN(ui_g), 12); p_cat(t, " ", 31);
         (void)p_text(id, v); p_cat(t, v, 31);
         ui_say(t);
     }
@@ -1574,20 +1736,15 @@ static void ui_input(uint32_t b, uint32_t rel)
         ui_toast("LOADED", 0xFF);
         b &= ~(1u << BTN_EDIT);
     }
-    if (b >> BTN_HOME & 1u) {
-        if (ui_g != G_LAND) {
-            uint8_t g = ui_g, s = ui_sub;
-            ui_goto(G_LAND, 0);
-            ui_back_g = g;
-            ui_back_sub = s;
-        } else if (ui_back_g != 0xFF) ui_goto(ui_back_g, ui_back_sub);
+    if (b >> BTN_HOME & 1u) {                   /* HOME: the home page; there: back to the last page (P7) */
+        if (ui_g != G_LAND) ui_goto(G_LAND, 0);
+        else if (ui_back_g != 0xFF) ui_goto(ui_back_g, ui_back_sub);
     }
     if (b >> BTN_EDIT & 1u) ui_goto(G_SOUND, ui_g == G_SOUND ? (ui_sub + 1u) % ui_nsub(G_SOUND) : 0u);   /* (the lane's
                                                  * SOUND; again: its next page) */
-    if (b >> BTN_FX & 1u) ui_goto(ui_g == G_DRIVE ? G_MFILT : ui_g == G_MFILT ? G_COMP : ui_g == G_COMP ? G_GRAIN
-                                  : ui_g == G_GRAIN ? G_REVERB : G_DRIVE, 0);   /* (the mix's, in its order: DRIVE,
-                                                 * FILTER, COMPRESSOR, GRAIN, REVERB) */
-    if (b >> BTN_GLO & 1u) ui_goto(ui_g == G_TEMPO ? G_GROOVE : ui_g == G_GROOVE ? G_MIDI : ui_g == G_MIDI ? G_DISPLAY : G_TEMPO, 0);
+    for (i = 0; i < 2u; i++)                    /* FX (EFFECTS, REVERB, DELAY, FILTER, DRIVE, COMPRESSOR), GLO (RHYTHM,
+                                                 * GROOVE LANES, TEMPO, MIDI, DISPLAY): every page in turn, wrapping */
+        if (b >> (i ? BTN_GLO : BTN_FX) & 1u) { uint8_t g, s; ui_next(i ? BTN_GLO : BTN_FX, &g, &s); ui_goto(g, s); }
     if (b & ~(1u << BTN_LFO | 1u << BTN_ENV)) ui_latch_t = 0;   /* (another button: learn unlatched) */
     if (b >> BTN_ARP & 1u) ui_goto(G_MATRIX, 0);
     if ((b >> BTN_ENV & 1u && ui_lsrc < MS_ENV1) || (b >> BTN_LFO & 1u && ui_lsrc >= MS_ENV1)) ui_latch_t = 0;   /* (the
@@ -1616,18 +1773,12 @@ static void ui_input(uint32_t b, uint32_t rel)
     if (d[ENC_ALGORITHM]) ui_algorithm(d[ENC_ALGORITHM]);
     for (i = 0; i < 4u; i++) if (d[ENC_KNOB1 + i]) ui_knob(i, d[ENC_KNOB1 + i]);
 }
-/* the buttons' LEDs: HOME, EDIT, FX, LFO, ENV, ARP or GLO on their own pages only, PLAY the beat, SEL in PLAY mode, REC while anything plays, OCT where it can
+/* the buttons' LEDs: HOME (the home page), EDIT, FX, LFO, ENV, ARP or GLO on their own pages only, PLAY the beat, SEL in PLAY mode, REC while anything plays, OCT where it can
  * still go */
 static uint32_t ui_btn_leds(void)
 {
     uint32_t b = 0;
-    if (ui_g <= G_MIX) b |= 1u << BTN_HOME;
-    else if (ui_g == G_SOUND) b |= 1u << BTN_EDIT;
-    else if (ui_g <= G_REVERB) b |= 1u << BTN_FX;
-    else if (ui_g == G_LFO) b |= 1u << BTN_LFO;
-    else if (ui_g == G_ENV) b |= 1u << BTN_ENV;
-    else if (ui_g == G_MATRIX) b |= 1u << BTN_ARP;
-    else if (ui_g >= G_TEMPO) b |= 1u << BTN_GLO;   /* (TEMPO, GROOVE, MIDI, DISPLAY: GLO's pages) */
+    if (ui_g != G_LANES) b |= 1u << G_BTN[ui_g];   /* (the lane pages: SELECT's, no button's) */
     if (ui_latched()) b |= 1u << (ui_lsrc >= MS_ENV1 ? BTN_ENV : BTN_LFO);   /* (learn latched) */
     if (ub.on && !ub.pr) b |= 1u << BTN_SEQ;    /* (the sound browser open) */
     if (ub.on && ub.pr) b |= 1u << BTN_SAVE;    /* (the presets list open: SAVE stores what plays) */

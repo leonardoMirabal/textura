@@ -414,6 +414,9 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "gdmod")) snprintf(v, n, "%d", (int)ln.fx.gd.mg);   /* the GRAIN's MOD, gliding (Q15) */
     else if (sscanf(key, "grpart%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", gr_lane[k].part);   /* GROOVE: the
                                                  * lane's part now (1 PULSE 2 OFFBEAT 3 FILL 4 FREE) */
+    else if (sscanf(key, "role%u%c", &k, &c) == 1 && k < SC_N) { uint8_t ps[32], w[32]; char r[24]; (void)ui_role_text(k, r, ps, w); snprintf(v, n, "%s%s", r, gr_wl(k) ? "" : " FLOWS FREE"); }   /* GROOVE
+                                                 * LANES: the lane's row ("AUTO: PULSE", "5 PER 4 BEATS"; a free sound:
+                                                 * " FLOWS FREE" after) */
     else if (sscanf(key, "grcyc%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", gr_lane[k].cycle);
     else if (sscanf(key, "grw%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", gr_lane[k].wl);   /* its sound's weight */
     else if (sscanf(key, "grm%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%d", (int)gr_m[k]);   /* its multiplier, Q12 */
@@ -434,7 +437,7 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "gdwow")) snprintf(v, n, "%d", (int)(ln.fx.gd.wq1 != 0));   /* its time drifting now */
     else if (!strcmp(key, "compred")) snprintf(v, n, "%d", tx_comp_gr_db10(&ln.mix.comp) >= 10);   /* the COMPRESSOR
                                                          * reducing 1 dB or more now (its meter's reading) */
-    else if (sscanf(key, "lab%u%c", &k, &c) == 1 && k < 4u) snprintf(v, n, "%s", ui_row_id(k) != NOID ? p_lab(ui_row_id(k)) : "-");
+    else if (sscanf(key, "lab%u%c", &k, &c) == 1 && k < 4u) snprintf(v, n, "%s", ui_row_id(k) != NOID ? ui_lab(ui_row_id(k)) : "-");
     else if (sscanf(key, "card%u%c", &k, &c) == 1 && k < 4u) {   /* the value as the card writes it */
         char t[24];
         const char *u;
