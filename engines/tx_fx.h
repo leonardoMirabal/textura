@@ -210,6 +210,7 @@ typedef struct {
     uint32_t rng;                                /* DRIFT: its walks' random numbers (never reseeded) */
     int32_t swe, swr;                            /* SWELL: the send's level (its envelope), the return's root gain (Q15) */
     int32_t pz;                                  /* PLATE's AUTO size: MIX latched while it rings (-1: take MIX now) */
+    int32_t xin;                                 /* a TYPE's start: its send faded in (Q15, 128 a sample: 5.8 ms) */
     int32_t xd, xw;                              /* MIX's place for the dry (TYPE OFF: 0, the dry whole) and for the
                                                   * wet, gliding (Q15) */
     int32_t gw[TX_BLOCK / CTL + 1u];             /* the wet's gain at each control block's edge, this block (Q15) */

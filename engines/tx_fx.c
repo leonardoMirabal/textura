@@ -167,7 +167,7 @@ static void rev_begin(tx_fx_reverb_t *r, uint32_t t)
     tx_fx_memset(r->m, 0, sizeof r->m); tx_fx_memset(r->s, 0, sizeof r->s); r->hp = r->he = 0;
     tx_fx_memset(r->sh, 0, sizeof r->sh); tx_fx_memset(r->shb, 0, sizeof r->shb); r->shlp = r->shlp2 = 0;
     r->shm = r->shp = 0; r->shn = r->shq = 0; r->shd = 32768;
-    r->cur = (uint8_t)kern(t);
+    r->cur = (uint8_t)kern(t); r->xin = 0;
     if (r->cur == TX_RVT_HALL) tx_hq_start(&r->u.hq.q, r->u.hq.mem, HQ_HALL_WORDS);
     else if (r->cur == TX_RVT_INF) tx_inf_start(&r->u.i);
     else if (r->cur == TX_RVT_PLATE) tx_plate_start(&r->u.p), r->pz = -1;
@@ -191,6 +191,7 @@ void tx_fx_reverb_init(tx_fx_reverb_t *r)
     r->rng = 0x6C078965u;
     r->swr = 32768;
     r->pz = -1;
+    r->xin = 32768;
 }
 void tx_fx_reverb_relatch(tx_fx_reverb_t *r) { *(volatile int32_t *)&r->pz = -1; }
 void tx_fx_reverb_param(tx_fx_reverb_t *r, unsigned id, unsigned v)
@@ -321,7 +322,8 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
     TX_FAR(tx_fx_mix_glide)(&r->xd, dt, 512, nb, 0, gd);       /* MIX glides: 512 a control block, 46 ms end to */
     TX_FAR(tx_fx_mix_glide)(&r->xw, mt, 512, nb, r->gw, 0);    /* end (in flash) */
     if (tgt == TX_RVT_DARK) damp += 60;                         /* DARK: TONE's damping 60 steps darker */
-    if (r->body_run && tgt == TX_RVT_ROOM && r->cur == TX_RVT_ROOM && send && !r->fade && n == TX_BLOCK && !r->rn) {
+    if (r->body_run && tgt == TX_RVT_ROOM && r->cur == TX_RVT_ROOM && send && !r->fade && r->xin == 32768 && n == TX_BLOCK
+        && !r->rn) {
         /* ROOM on two cores: every control block's send first (as below: the loop then takes them from sv), the body
          * handed over, the tail here; no TYPE change and a send (no fade, no early end): the same samples */
         for (sb = 0; sb < n; sb += CTL) {
@@ -368,6 +370,11 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
         }
         if (lcv || r->lc) TX_FAR(rev_locut)(r, in, lcv);
         if (pd || r->pd_on) TX_FAR(predelay)(r, in, pd);
+        if (r->xin < 32768)                                     /* a TYPE's start: its send fades in (no step into */
+            for (j = 0; j < CTL; j++) {                         /* its empty lines) */
+                r->xin = r->xin + 128 < 32768 ? r->xin + 128 : 32768;
+                in[j] = (int32_t)(((int64_t)in[j] * r->xin) >> 15);
+            }
         if (r->off != off) r->off += r->off < off ? 1 : -1;
         if (r->damp != damp) r->damp += r->damp < damp ? (damp - r->damp > 2 ? 2 : damp - r->damp)
                                                        : -(r->damp - damp > 2 ? 2 : r->damp - damp);
@@ -423,10 +430,10 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
                 for (i = 0; i < HL_NC; i++) act |= r->sh[i];
             }
             if (cur && (r->fade || (v && !send))) {             /* a fade: the TYPE's out x (fade / 8) ..; OFF: watched */
-                int32_t g = (int32_t)r->fade << 12;
-                for (i = 0; i < HL_NC; i++, g -= 128) {
+                int32_t g = (int32_t)r->fade << 12;             /* (the step first: the last sample at 0) */
+                for (i = 0; i < HL_NC; i++) {
                     act |= om[i] | os[i];
-                    if (r->fade) { om[i] = mul15(om[i], g); os[i] = mul15(os[i], g); }
+                    if (r->fade) { g -= 128; om[i] = mul15(om[i], g); os[i] = mul15(os[i], g); }
                 }
                 if (r->fade) act = 1;
             }
