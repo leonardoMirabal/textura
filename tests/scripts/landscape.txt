@@ -44,11 +44,14 @@
 # K4: lane 4's volume
 4000 turn 5 -10
 4020 expect state vol3 90
-# OCT- on LANDSCAPE: lane 3, LANDSCAPE stays; OCT+ from HOW MANY (not a lane's page): lane 4, LANDSCAPE
+# OCT- on LANDSCAPE: lane 3, LANDSCAPE stays; OCT+ from HOW MANY (SELECT: past the SOUND pages; not a lane's page): lane 4, LANDSCAPE
 4100 btn 0
 4120 expect state sel 3
 4120 expect state page LANDSCAPE
 4130 turn 0 1
+4131 expect state page SOUND_1/2
+4132 turn 0 1
+4133 turn 0 1
 4135 expect state page LANES_1/4
 4138 btn 1
 4140 expect state sel 4

@@ -1,9 +1,14 @@
-# the lane pages (SELECT from the home page): HOW MANY, HOW ACTIVE, PAN, ON / MUTE, each the four lanes as rows, Kn
+# the lane pages (SELECT from the home page, past the selected lane's SOUND pages: the source first, then the mixer): HOW MANY, HOW ACTIVE, PAN, ON / MUTE, each the four lanes as rows, Kn
 # lane n's (no lane to pick first); the home page is the lanes' volumes (MIXER VOLUME is gone); no button lights for
 # them; HOME: the home page, HOME again back to the page left (P7), its footer naming it. F034: waterfall, brook, wren,
 # wind
 1700 midi 0xC0 33 0
 2500 expect state loading 0
+2560 turn 0 1
+2570 expect state page SOUND_1/2
+2575 expect state leds OCT+_EDIT_REC
+2580 turn 0 1
+2590 expect state page SOUND_2/2
 2600 turn 0 1
 2620 expect state page LANES_1/4
 2620 expect state lab1 HOW_MANY
@@ -39,12 +44,12 @@
 3110 expect state mute1 1
 3110 expect state mute0 0
 3150 shot
-# SELECT on: the selected lane's SOUND; HOME: home, HOME again: back to SOUND; HOME, SELECT back to ON / MUTE
+# SELECT on: the effects (EFFECTS, the front page); HOME: home, HOME again: back to EFFECTS
 3200 turn 0 1
-3220 expect state page SOUND_1/2
+3220 expect state page EFFECTS
 3300 btn 8
 3320 expect state page LANDSCAPE
 3400 btn 8
-3420 expect state page SOUND_1/2
+3420 expect state page EFFECTS
 3500 btn 8
 3600 end

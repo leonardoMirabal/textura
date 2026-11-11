@@ -8,9 +8,10 @@
  * An element is drawn again when what it shows changes: each pass (every UI_SIG_MS) works out a signature of each
  * element's content and marks the ones that differ.
  *
- *   SELECT     the pages, in order (the first to the last, no wrap): LANDSCAPE (titled TEXTURA), the lane pages HOW
- *              MANY, HOW ACTIVE, PAN, ON / MUTE (each the four lanes as rows, Kn lane n's), SOUND 1..n (the selected
- *              lane's sound: its cards, four a page), then the mix's effects in the order the sound goes through them
+ *   SELECT     the pages, in order (the first to the last, no wrap; the sound's way, the source first): LANDSCAPE
+ *              (titled TEXTURA), SOUND 1..n (the selected lane's sound: its cards, four a page), the lane pages HOW
+ *              MANY, HOW ACTIVE, PAN, ON / MUTE (the mixer: each the four lanes as rows, Kn lane n's), then the mix's
+ *              effects in the order the sound goes through them
  *              (left to right, as Frodhes: FX_CHAIN; the front page's knobs too): EFFECTS (the front page: DRIVE, HIGH
  *              CUT, DELAY MIX, REVERB MIX), COMPRESSOR 1/2 2/2 (the first effect; Frodhes': THR RATIO ATTACK MAKEUP,
  *              then COMP REL; the footer its gain-reduction meter), DRIVE (AMOUNT TONE MIX TYPE), FILTER (right after
@@ -74,15 +75,16 @@
 
 #define TX_BTN_TAP BTN_PLAY                     /* TAP TEMPO is the PLAY button, as in Frodhes (the user, 2026-10-25) */
 
-/* the pages: a group (SELECT walks through each group's sub-pages, then the next group) */
-enum { G_LAND, G_LANES, G_SOUND, G_FX, G_COMP, G_DRIVE, G_MFILT, G_GRAIN, G_REVERB, G_LFO, G_ENV, G_MATRIX, G_GROOVE,
+/* the pages: a group (SELECT walks through each group's sub-pages, then the next group), in the sound's order: the
+ * source (SOUND), the mixer (the lane pages), the effects (FX_CHAIN) */
+enum { G_LAND, G_SOUND, G_LANES, G_FX, G_COMP, G_DRIVE, G_MFILT, G_GRAIN, G_REVERB, G_LFO, G_ENV, G_MATRIX, G_GROOVE,
        G_TEMPO, G_SCALE, G_MIDI, G_MIDIIN, G_DISPLAY, G_N };
 #define UI_GLANES (ui_g == G_GROOVE && ui_sub == 1u)   /* GROOVE 2/2: the lanes' roles, a row each */
 /* the groups' names for the host and the web panel (the screen titles each page by what it does: PG_T) */
-static const char *const G_TITLE[G_N] = {"LANDSCAPE", "LANES", "SOUND", "EFFECTS", "COMPRESSOR", "DRIVE", "FILTER",
+static const char *const G_TITLE[G_N] = {"LANDSCAPE", "SOUND", "LANES", "EFFECTS", "COMPRESSOR", "DRIVE", "FILTER",
                                          "GRAIN", "REVERB", "LFO", "ENV", "MATRIX", "GROOVE", "TEMPO", "SCALE", "MIDI",
                                          "MIDI IN", "DISPLAY"};
-static const uint8_t G_NSUB[G_N] = {1, 4, 0, 1, 2, 1, 1, 4, 3, 3, 2, 1, 2, 1, 1, 1, 1, 1};   /* (SOUND: as many as its cards
+static const uint8_t G_NSUB[G_N] = {1, 0, 4, 1, 2, 1, 1, 4, 3, 3, 2, 1, 2, 1, 1, 1, 1, 1};   /* (SOUND: as many as its cards
                                                  * need; ENV: a FOLLOW has one) */
 /* the pages' titles on the screen, by what they do, the groups' pages in order (SOUND: "SOUND"; a FOLLOW: "FOLLOW") */
 static const char *const PG_T[] = {"TEXTURA", "HOW MANY", "HOW ACTIVE", "PAN", "ON / MUTE", "EFFECTS", "COMPRESSOR",
@@ -93,7 +95,7 @@ static const char *const PG_T[] = {"TEXTURA", "HOW MANY", "HOW ACTIVE", "PAN", "
 /* the group buttons: each owns a run of groups (its LED lit there, it steps their pages, the title's pips count them):
  * HOME the home page and the lane pages (SELECT's), EDIT SOUND, FX the effects, LFO, ENV, ARP the matrix, GLO the
  * groove, the tempo and the setup */
-static const uint8_t G_BTN[G_N] = {BTN_HOME, BTN_HOME, BTN_EDIT, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_LFO,
+static const uint8_t G_BTN[G_N] = {BTN_HOME, BTN_EDIT, BTN_HOME, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_LFO,
                                    BTN_ENV, BTN_ARP, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO};
 #define LA P_LANE_ANY
 #define NOID 0xFFFFu
@@ -1112,7 +1114,7 @@ static void draw_footer(void)
                                                  * way back named once there is one */
         char t[40];
         ft_two(7, "SEQ: SOUNDS", "FX: EFFECTS", FC_LAB);
-        if (ui_back_g == 0xFF) ft_two(22, "GLO: GROOVE", "SELECT: LANE PAGES", FC_LAB);
+        if (ui_back_g == 0xFF) ft_two(22, "GLO: GROOVE", "SELECT: SOUND, LANES", FC_LAB);
         else {
             p_strcpy(t, "HOME: BACK TO ", 39); p_cat(t, ui_title_of(ui_back_g, ui_back_sub), 39);
             if (aa_text_w(&AF_S, t) + aa_text_w(&AF_S, "GLO: GROOVE") + 9 <= 236) ft_two(22, "GLO: GROOVE", t, FC_LAB);
@@ -1138,7 +1140,7 @@ static void draw_footer(void)
         }
         else ft_c(7, ui_g == G_TEMPO ? "PLAY: TAP, HOLD: START / STOP" : ui_g == G_MIDI ? "CLOCK OUT: IN MASTER" : "THE SCREEN'S COLOUR, KEPT", FC_LAB);
         if (ui_g == G_LANES) {                  /* (SELECT walks them) */
-            p_strcpy(t, "SELECT: NEXT > ", 31); p_cat(t, ui_title_of(ui_sub < 3u ? G_LANES : G_SOUND, ui_sub < 3u ? ui_sub + 1u : 0u), 31);
+            p_strcpy(t, "SELECT: NEXT > ", 31); p_cat(t, ui_title_of(ui_sub < 3u ? G_LANES : G_FX, ui_sub < 3u ? ui_sub + 1u : 0u), 31);
             ft_c(22, t, FC_DIM);
         }
         else if (ui_g == G_SOUND) ft_c(22, "OCT - / +: OTHER LANE", FC_DIM);
@@ -1249,7 +1251,7 @@ static uint32_t ui_sig_of(uint32_t e)
         k = e - E_ROW0;
         if (k == 1u || k == 2u) h = sig_mix(h, ui_toast_on() ? ui_toast_t : 0u);
         h = sig_mix(h, ui_hot_card == k && ui_hot_t && fm1_ms - ui_hot_t < HOT_MS);
-        if (ui_g <= G_LANES || UI_GLANES) {
+        if (ui_g == G_LAND || ui_g == G_LANES || UI_GLANES) {
             h = sig_mix(h, sc.lf[k]); h = sig_mix(h, (uint32_t)sc.snd[k]); h = sig_mix(h, sc.run[k]);
             h = sig_mix(h, sc_vol_of(k)); h = sig_mix(h, sc.pan[k]); h = sig_mix(h, sc.mute[k]);
             h = sig_mix(h, sc_cnt_of(k)); h = sig_mix(h, ui_lane_act(k));
