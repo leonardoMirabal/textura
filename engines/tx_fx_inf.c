@@ -119,9 +119,38 @@ static inline void ri_end(const int16_t *b, int32_t *y, uint32_t n, int32_t a, i
 
 static void ri_gains(tx_inf_t *s, int32_t d, int dark)      /* DECAY 0..119: T60 4 .. 60 s (4 x 15^(d / 119)) */
 {
-    uint32_t inv = exp2_neg((uint32_t)(131072 + d * 2151)) - RI_LOSS, k, q = dark ? 3776u : RI_GQ;
-    for (k = 0; k < RI_NL; k++)                            /* (a pass's time: the half-rate length) */
-        s->g[k] = (int16_t)(exp2_neg((((uint32_t)(s->len[k] / RV_X) * inv) >> 8) * q >> 14) >> 1);
+    uint32_t inv = exp2_neg((uint32_t)(131072 + d * 2151)) - RI_LOSS, k, q = dark ? 3776u : RI_GQ, l;
+    for (k = 0; k < RI_NL; k++) {                          /* (a pass's time: the half-rate length) */
+        l = s->len[k];                                     /* (a SIZE fade: the length between, as it fades) */
+        if (s->xf && k == s->xk) l = (uint32_t)((int32_t)s->lo[k] + ((((int32_t)l - (int32_t)s->lo[k]) * s->xw) >> 14));
+        s->g[k] = (int16_t)(exp2_neg((((l / RV_X) * inv) >> 8) * q >> 14) >> 1);
+    }
+}
+
+/* a SIZE fade's reads (Frodhes' BUGHUNT #19: the lengths glided one sample a tank block, a bend of the ringing tail
+ * and a click at every step): the line in its fade reads its RI_NB + 1 rows from the new read (row dn) and the old
+ * (dol), the new weighted w + j RI_XS (Q14) at row j, into t (its column, ri_end's stride). One line after the other,
+ * 4096 samples each (8 x 93 ms = 0.74 s): all 8 at once (Frodhes') blended the loop's every pass, its level dipping
+ * up to 12 dB under a held chord; a line at a time stays inside the old glide's swing. Linear: a line whose length
+ * does not change reads exactly as before. In runs that do not wrap */
+#define RI_XS 4
+_Static_assert(16384 % (RI_NB * RI_XS) == 0, "a SIZE fade ends on a tank block");
+static void ri_xrows(int16_t *t, const int16_t *r, uint32_t dn, uint32_t dol, int32_t w)
+{
+    uint32_t n = RI_NB + 1u, m;
+    while (n) {
+        const int16_t *pn = r + dn * RI_NL, *po = r + dol * RI_NL;
+        m = RI_N - dn < RI_N - dol ? RI_N - dn : RI_N - dol;
+        if (m > n) m = n;
+        n -= m, dn += m, dol += m;
+        if (dn == RI_N) dn = 0;
+        if (dol == RI_N) dol = 0;
+        do {
+            int32_t a = *po;
+            *t = (int16_t)(a + (((*pn - a) * w) >> 14));
+            po += RI_NL, pn += RI_NL, t += RI_NL, w += RI_XS;
+        } while (--m);
+    }
 }
 
 static int32_t ri_input(tx_inf_t *s, const int32_t *in, uint32_t o)
@@ -184,6 +213,15 @@ static void ri_half(tx_inf_t *s, uint32_t hf)
         if (f >= RI_NB) continue;
         d = s->ew + f + RI_N - s->mI[k] - 1u;
         d = d >= RI_N ? d - RI_N : d;
+        if (s->xf && k == s->xk && s->lo[k] != s->len[k]) {   /* its SIZE fade (a full ring: f 0): the blended rows */
+            uint32_t e = d + RI_N + (uint32_t)s->len[k] - s->lo[k];
+            ri_xrows(s->xt + k, s->ring + k, d, e >= 2u * RI_N ? e - 2u * RI_N : e >= RI_N ? e - RI_N : e, s->xw);
+            d = 0;
+            RI_RUNS(d, RI_NB + 1u, m, s0, f, ri_end(s->xt + d * RI_NL + k, s->hy[hf].y[s0] + j, m, s->ma[k],
+                                                    s->eb0[k], s->eck[k], &s->hs[hf].yp[j], &s->hs[hf].op[j],
+                                                    &s->hs[hf].oe[j], (s->mlo >> k) & 1u));
+            continue;
+        }
         RI_RUNS(d, RI_N, m, s0, f, ri_end(s->ring + d * RI_NL + k, s->hy[hf].y[s0] + j, m, s->ma[k], s->eb0[k],
                                           s->eck[k], &s->hs[hf].yp[j], &s->hs[hf].op[j], &s->hs[hf].oe[j],
                                           (s->mlo >> k) & 1u));
@@ -207,11 +245,18 @@ static void ri_tank(tx_inf_t *s, int32_t *mo, int32_t *so, const tx_rev_ctl_t *c
         for (k = 0; k < RI_NL; k++) s->tlen[k] = (uint16_t)((RI_LEN[k] * (uint32_t)(127 + c->size)) / 254u);
         s->gsz = c->size;
     }
-    for (k = 0; k < RI_NL; k++)
-        if (s->len[k] != s->tlen[k]) {
-            s->len[k] = !s->len[k] ? s->tlen[k] : s->len[k] < s->tlen[k] ? s->len[k] + 1u : s->len[k] - 1u;
-            ch = 1;
+    if (s->xf) ch = 1;                                     /* (a SIZE fade: the gains follow the lengths between) */
+    else {                                                 /* one fade at a time: a new SIZE waits for its end */
+        for (k = 0; k < RI_NL; k++) ch |= s->len[k] != s->tlen[k];
+        if (ch) {
+            if (!s->len[0] || !s->full || !tx_inf_active(s))   /* (a start, a tank silent: at once) */
+                for (k = 0; k < RI_NL; k++) s->len[k] = s->tlen[k];
+            else {                                         /* the reads cross-fade from the old lengths to the new, */
+                s->xf = 1, s->xk = 0, s->xw = 0;           /* one line after the other */
+                s->lo[0] = s->len[0], s->len[0] = s->tlen[0];
+            }
         }
+    }
     if (ch || s->gdec != dec || s->gdk != c->dark) { ri_gains(s, dec, c->dark); s->gdec = dec; s->gdk = (uint8_t)c->dark; }
     ct = c->freeze ? 0 : c->damp * RI_KD;
     s->c = s->c < ct ? (ct - s->c > 64 ? s->c + 64 : ct) : (s->c - ct > 64 ? s->c - 64 : ct);
@@ -302,6 +347,13 @@ static void ri_tank(tx_inf_t *s, int32_t *mo, int32_t *so, const tx_rev_ctl_t *c
     act = ri_mix(&s->hy[0].y[0][0], &s->hy[1].y[0][0], s->x, s->ring + w * RI_NL, mo, so, &s->te, &ab);
     if (!w) { uint32_t i; for (i = 0; i < RI_NL; i++) s->ring[RI_N * RI_NL + i] = s->ring[i]; }   /* (not memcpy: bytes) */
     w += RI_NB;
+    if (s->xf && (s->xw += RI_NB * RI_XS) >= 16384) {     /* a line faded: the next; the end: the new lengths' own
+                                                 * gains next block */
+        uint32_t k1 = s->xk + 1u;
+        s->xw = 0;
+        if (k1 == RI_NL) s->xf = 0, s->gdec = -1000;
+        else s->xk = (uint8_t)k1, s->lo[k1] = s->len[k1], s->len[k1] = s->tlen[k1];
+    }
     s->w = w >= RI_N ? 0u : w;
     if (!s->full && (s->age += RI_NB) > RI_N + RI_NB) s->full = 1;
     s->quiet = act ? 0u : s->quiet < 0x40000000u ? s->quiet + RI_NB : s->quiet;

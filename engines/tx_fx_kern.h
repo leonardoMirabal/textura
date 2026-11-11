@@ -178,6 +178,9 @@ typedef struct {
     uint8_t wg;                     /* the reads on their walk (DRIFT, or gliding back onto the sine after it) */
     uint16_t mI[RI_NL];
     uint16_t len[RI_NL], tlen[RI_NL];
+    uint16_t lo[RI_NL];             /* a SIZE fade: the length the line in its fade fades from (to len) */
+    int32_t xw;                     /* a SIZE fade: the fading line's new read's weight at this tank block's start (Q14) */
+    uint8_t xf, xk;                 /* a SIZE fade runs; the line in its fade (0..7, one after the other) */
     int16_t g[RI_NL];
     uint16_t apd[RI_NDIF + RI_NLAP];
     int32_t eb0[RI_NL], eck[RI_NL];              /* (the line ends' gains and poles, where they start: the block's, */
@@ -188,6 +191,8 @@ typedef struct {
     int32_t m[RI_NB], s[RI_NB];
     struct { int32_t y[RI_NB][RI_NL / 2u]; } TX_LINE hy[2];   /* their ends, a tank block */
     int16_t ap[RI_APSUM];
+    int16_t xt[(RI_NB + 1u) * RI_NL];            /* a SIZE fade: each line's blended rows (line k in column k: the two
+                                                  * halves write their own columns) */
     int16_t ring[(RI_N + 1u) * RI_NL];
 } tx_inf_t;
 void tx_inf_start(tx_inf_t *s);
