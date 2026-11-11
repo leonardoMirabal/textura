@@ -38,7 +38,9 @@
  *             50 ms of a step re the held MKUP 127 render's largest (Frodhes' control-sweep click; 1 = none). Reported
  *   REVERB PLATE: MOD 127 against MOD 0 (MIX 127, DECAY 64) on a chord's tail: the energy in 2 .. 12 kHz re the whole
  *     (a grain from the modulated reads shows as more of it), the largest second difference re MOD 0's (Frodhes' d2: a
- *     jumping read is a burst of it) and the tail's level. Reported */
+ *     jumping read is a burst of it) and the tail's level. Reported
+ *   REVERB TYPE change under a held chord (MIX 127): the largest second difference in the 200 ms after the change re
+ *     the dry chord's (a step into the new TYPE's empty lines shows as a burst of it). Reported */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -454,6 +456,42 @@ static void rev_plate_mod(void)
            "%.1f dB re the whole (MOD 0 %.1f); the tail's level %+.2f dB\n", d1 / d0, h1, h0, db(l1 / l0));
 }
 
+/* REVERB TYPE changes under a held chord (MIX 127: the wet alone): 1 s of the first TYPE, then the second; the
+ * largest second difference out in the 200 ms after the change (the old TYPE fading out, the new one starting) re the
+ * dry chord's largest (a step into the new TYPE's empty lines shows as a burst of it) */
+static double rev_type1(unsigned a, unsigned b2)
+{
+    static const int F[4] = {196, 247, 294, 392};
+    tx_fx_reverb_t *r = malloc(sizeof *r);
+    int nb = 3 * FS / (int)NB, b, i, k, sw = FS / (int)NB;
+    int32_t x[NB], y[NB];
+    double *o = malloc(sizeof(double) * nb * NB), *dr = malloc(sizeof(double) * nb * NB), d0 = 0, d1 = 0;
+    tx_fx_reverb_init(r);
+    tx_fx_reverb_param(r, TX_RV_TYPE, a); tx_fx_reverb_param(r, TX_RV_MIX, 127);
+    for (b = 0; b < nb; b++) {
+        if (b == sw) tx_fx_reverb_param(r, TX_RV_TYPE, b2);
+        for (i = 0; i < (int)NB; i++) {
+            double s = 0;
+            for (k = 0; k < 4; k++) s += sin(2.0 * M_PI * F[k] * (double)(b * NB + i) / FS + k);
+            x[i] = y[i] = (int32_t)lrint(8388608.0 * 0.12 * s);
+            dr[b * NB + i] = x[i];
+        }
+        tx_fx_reverb_process(r, x, y, NB);
+        for (i = 0; i < (int)NB; i++) o[b * NB + i] = x[i];
+    }
+    for (i = sw * NB - 2; i < sw * (int)NB + FS / 5; i++) { double d = fabs(o[i + 2] - 2 * o[i + 1] + o[i]); if (d > d0) d0 = d; }
+    for (i = 0; i < FS; i++) { double d = fabs(dr[i + 2] - 2 * dr[i + 1] + dr[i]); if (d > d1) d1 = d; }
+    free(r); free(o); free(dr);
+    return d0 / d1;
+}
+static void rev_type(void)
+{
+    printf("REVERB TYPE change under a held chord: the largest second difference after it re the dry chord's: "
+           "PLATE -> INFINITE %.2f, HALL -> PLATE %.2f, OFF -> HALL %.2f, INFINITE -> ROOM %.2f\n",
+           rev_type1(TX_RVT_PLATE, TX_RVT_INF), rev_type1(TX_RVT_HALL, TX_RVT_PLATE), rev_type1(TX_RVT_OFF, TX_RVT_HALL),
+           rev_type1(TX_RVT_INF, TX_RVT_ROOM));
+}
+
 int main(int argc, char **argv)
 {
     check = argc > 1 && !strcmp(argv[1], "--check");
@@ -471,6 +509,7 @@ int main(int argc, char **argv)
     comp_chord();
     comp_mkup();
     rev_plate_mod();
+    rev_type();
     free(fx);
     if (check) printf("tx-pristine: %s (%d over)\n", fails ? "FAIL" : "ok", fails);
     return check && fails ? 1 : 0;
