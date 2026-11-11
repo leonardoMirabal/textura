@@ -14,7 +14,7 @@
  *              REVERB 1/3 .. 3/3, GRAIN 1/4 .. 4/4 (the grain delay: in series, the reverb takes what it gives; MIX
  *              on DRIVE, GRAIN, REVERB reads DRY..WET), FILTER (the mix's, right after the DRIVE in the chain: LOW CUT
  *              HIGH CUT RESONANCE SLOPE, a band), DRIVE (the mix's first effect: AMOUNT TONE MIX TYPE), COMPRESSOR 1/2
- *              2/2 (Frodhes': THR RAT ATK MKUP, then COMP REL; the footer its gain-reduction meter), LFO 1/3 .. 3/3,
+ *              2/2 (Frodhes': THR RATIO ATTACK MAKEUP, then COMP REL; the footer its gain-reduction meter), LFO 1/3 .. 3/3,
  *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, RHYTHM (BPM, the groove's AMOUNT and SHIFT, the transport),
  *              GROOVE LANES (each lane's ROLE on its knob), TEMPO (FINE, CLOCK, STATUS), MIDI, DISPLAY (COLOR). Each
  *              page titled by what it does, no fractions: pips at the right for its button's pages

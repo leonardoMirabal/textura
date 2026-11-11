@@ -548,7 +548,7 @@ static void ln_render(uint32_t n, int gv)
 #endif
 }
 
-/* one block (n <= TX_BLOCK frames): L, R Q23, limited to -1 dBFS */
+/* one block (n <= TX_BLOCK frames): L, R Q23, limited to -2 dBFS */
 static void ln_block(int32_t *L, int32_t *R, uint32_t n)
 {
     uint32_t k;

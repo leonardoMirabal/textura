@@ -18,7 +18,7 @@
 #define FELUCCA_ID "FM-1_9TX"                   /* the package identity: a placeholder until stage 8 decides it */
 #endif
 #define APP_OUT_SHIFT 8u                        /* the codec at full scale (as Frodhes): +6 dB on the jack over
-                                                 * Dinghy's -6 dBFS ceiling; the output limiter holds -1 dBFS */
+                                                 * Dinghy's -6 dBFS ceiling; the output limiter holds -2 dBFS */
 #define APP_OUT_WRITTEN 1                       /* app_audio writes every sample of out */
 #ifdef DINGHY_HOST
 static void kv_host_vkey(uint32_t k, uint32_t raw) { (void)k; (void)raw; }   /* (tests/host.c "vkey": no key velocity scan yet) */

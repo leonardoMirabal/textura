@@ -53,7 +53,7 @@ def measure(x):
 
 def p99(x):
     """the 99th percentile of the 50 ms blocks' peaks, dBFS: the loudest 1 % (a rare pop may pass it; the limiter is
-    at -1 dBFS)"""
+    at -2 dBFS)"""
     n = int(0.05 * FS)
     b = np.abs(x[:len(x) // n * n]).max(axis=1).reshape(-1, n).max(axis=1)
     return float(20 * np.log10(max(np.percentile(b, 99), 1e-10))) if len(b) else -99.0

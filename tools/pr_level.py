@@ -32,7 +32,7 @@ HOST = ROOT / "build" / "fw" / "textura-host"
 T_LOADS = (1500, 1617, 1733)                    # ms: the PC (three loads: three seeds, tx_seed takes the time)
 T_FROM = 500                                    # ms after the load: the measurement
 SOLO = {}                                       # lane k alone: its host build (solo_hosts)
-PEAK_MAX = -2.0                                 # dBFS: a lane alone, its loudest 1 % of 50 ms peaks (the limiter: -1)
+PEAK_MAX = -2.0                                 # dBFS: a lane alone, its loudest 1 % of 50 ms peaks (the limiter: -2)
 
 
 def solo_hosts(cats, od, cc):
