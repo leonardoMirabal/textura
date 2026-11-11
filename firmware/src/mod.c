@@ -596,7 +596,7 @@ static const char *mod_text(uint32_t id, char *t)
             }
         }
         if (ms >= 10000u) { p_fmt_int(t, (int32_t)((ms + 500u) / 1000u)); return "s"; }
-        if (ms >= 1000u) { p_fmt_int(t, (int32_t)(ms / 1000u)); p_cat(t, ".", 15); { char d[2] = {(char)('0' + ms / 100u % 10u), 0}; p_cat(t, d, 15); } return "s"; }
+        if (ms >= 1000u) { p_fmt_dec(t, (int32_t)(ms / 100u)); return "s"; }
         p_fmt_int(t, (int32_t)ms); return "ms";
     }
     if (P_SCOPE(id) == P_LFO) {
@@ -609,9 +609,9 @@ static const char *mod_text(uint32_t id, char *t)
         case TX_LP_RATE: {                      /* Hz, or the period in s / min */
             uint32_t ms = tx_lfo_period_ms(v);
             if (l->p[TX_LP_SYNC]) { p_strcpy(t, N_LSYNC[l->p[TX_LP_SYNC]], 10); return 0; }
-            if (ms >= 120000u) { p_fmt_int(t, (int32_t)(ms / 60000u)); p_cat(t, ".", 15); { char d[2] = {(char)('0' + ms / 6000u % 10u), 0}; p_cat(t, d, 15); } return "min"; }
+            if (ms >= 120000u) { p_fmt_dec(t, (int32_t)(ms / 6000u)); return "min"; }
             if (ms >= 10000u) { p_fmt_int(t, (int32_t)((ms + 500u) / 1000u)); return "s"; }
-            if (ms >= 1000u) { p_fmt_int(t, (int32_t)(ms / 1000u)); p_cat(t, ".", 15); { char d[2] = {(char)('0' + ms / 100u % 10u), 0}; p_cat(t, d, 15); } return "s"; }
+            if (ms >= 1000u) { p_fmt_dec(t, (int32_t)(ms / 100u)); return "s"; }
             {
                 uint32_t c = 100000u / ms;      /* centi-Hz */
                 p_fmt_int(t, (int32_t)(c / 100u));
@@ -621,7 +621,7 @@ static const char *mod_text(uint32_t id, char *t)
         }
         case TX_LP_PHASE: p_fmt_int(t, (int32_t)(v * 360u / 128u)); return "deg";
         case TX_LP_JITTER: p_fmt_int(t, (int32_t)((v * 50u + 63u) / 127u)); return "%";
-        case TX_LP_FADE: p_fmt_int(t, (int32_t)(v * 10u / 127u)); p_cat(t, ".", 15); { char d[2] = {(char)('0' + v * 100u / 127u % 10u), 0}; p_cat(t, d, 15); } return "s";
+        case TX_LP_FADE: p_fmt_dec(t, (int32_t)(v * 100u / 127u)); return "s";
         case TX_LP_LEVEL: case TX_LP_WIDTH: p_fmt_int(t, (int32_t)((v * 100u + 63u) / 127u)); return "%";
         case ML_NOW: { int32_t pc = l->out * 100 / 32767; if (pc > 0) { t[0] = '+'; p_fmt_int(t + 1, pc); } else p_fmt_int(t, pc); return "%"; }
         }

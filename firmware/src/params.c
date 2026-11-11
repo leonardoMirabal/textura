@@ -51,6 +51,12 @@ static void p_fmt_int(char *s, int32_t v)
     while (i) s[n++] = t[--i];
     s[n] = 0;
 }
+static void p_fmt_dec(char *s, int32_t v10)     /* tenths, 0 or more: "12.5" from 125 */
+{
+    p_fmt_int(s, v10 / 10);
+    while (*s) s++;
+    s[0] = '.'; s[1] = (char)('0' + v10 % 10); s[2] = 0;
+}
 static void p_upper(char *d, const char *s, uint32_t max)   /* the screen writes in capitals */
 {
     uint32_t i = 0;
@@ -494,7 +500,7 @@ static const char *p_text(uint32_t id, char *t)
     hz:
     case F_HZ_FL: {                             /* 30 Hz .. 16 kHz, log */
         uint32_t hz = (30u * tx_exp2((int32_t)(16 << 16) + v * 593700 / 127)) >> 16;
-        if (hz >= 1000u) { p_fmt_int(t, (int32_t)(hz / 1000u)); p_cat(t, ".", 15); { char d[2] = {(char)('0' + hz / 100u % 10u), 0}; p_cat(t, d, 15); } return "kHz"; }
+        if (hz >= 1000u) { p_fmt_dec(t, (int32_t)(hz / 100u)); return "kHz"; }
         p_fmt_int(t, (int32_t)hz); return "Hz";
     }
     case F_MS_GD:                               /* (SYNC set: the division instead) */
@@ -502,7 +508,7 @@ static const char *p_text(uint32_t id, char *t)
         p_fmt_int(t, (int32_t)((TX_FX_GD_TIME[v] * 10u + 220u) / 441u)); return "ms";
     case F_DIV: p_strcpy(t, tempo_div_name((uint32_t)v), 10); return 0;
     case F_BPM: p_fmt_int(t, v + 40); return "BPM";
-    case F_BPM10: { char d[2] = {(char)('0' + (v + 400) % 10), 0}; p_fmt_int(t, (v + 400) / 10); p_cat(t, ".", 15); p_cat(t, d, 15); return "BPM"; }
+    case F_BPM10: p_fmt_dec(t, v + 400); return "BPM";
     case F_STATUS: tempo_status(t); return 0;
     case F_RUN: p_strcpy(t, v ? "RUN" : "STOP", 4); return 0;
     case F_MS_GS: p_fmt_int(t, (int32_t)(((0xFFFFFFFFu / TX_FX_GD_SIZE[v]) * 10u + 220u) / 441u)); return "ms";
@@ -515,15 +521,13 @@ static const char *p_text(uint32_t id, char *t)
         return "dB";
     }
     case F_R10: {                               /* the panel's 0.0 .. 10.0 (Frodhes' ATK, REL) */
-        int32_t r = (v * 100 + 63) / 127;
-        char d[2] = {(char)('0' + r % 10), 0};
-        p_fmt_int(t, r / 10); p_cat(t, ".", 15); p_cat(t, d, 15); return 0;
+        p_fmt_dec(t, (v * 100 + 63) / 127); return 0;
     }
     case F_GAIN: {                              /* "+2.6", from 10 dB on whole dB: "+12" (Frodhes' MKUP: 0 .. +24 dB) */
         int32_t g10 = (v * 240 + 63) / 127;
         t[0] = '+';
         if (g10 >= 100) p_fmt_int(t + 1, (g10 + 5) / 10);
-        else { char d[2] = {(char)('0' + g10 % 10), 0}; p_fmt_int(t + 1, g10 / 10); p_cat(t, ".", 15); p_cat(t, d, 15); }
+        else p_fmt_dec(t + 1, g10);
         return "dB";
     }
     case F_MIX: {                               /* dry / wet (tx_fx.h): "DRY" (0), "WET" (127), between each part's

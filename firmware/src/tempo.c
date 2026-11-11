@@ -302,11 +302,9 @@ static void tempo_gsync(uint32_t g) { tm.gsync = (uint8_t)(g > 14u ? 14u : g); t
 static void tempo_status(char *t)
 {
     uint32_t b = tempo_bpm10();
-    char n[8], d[2] = {0, 0};
     if (clk_follows()) {
         p_strcpy(t, clk_src == 2 ? "TRS " : "USB ", 4);
-        p_fmt_int(n, (int32_t)(b / 10u)); p_cat(t, n, 15); p_cat(t, ".", 15);
-        d[0] = (char)('0' + b % 10u); p_cat(t, d, 15);
+        p_fmt_dec(t + 4, (int32_t)b);
         return;
     }
     p_strcpy(t, tm.clock == CLK_INT ? "INT" : tm.clock == CLK_MASTER ? "MASTER" : tm.clock == CLK_FOLLOW ? "WAITING" : "INT", 8);

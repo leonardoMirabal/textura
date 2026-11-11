@@ -418,9 +418,7 @@ static void batt_icon(int32_t x, int32_t y, uint16_t ink, uint16_t hi, uint16_t 
 }
 static void ui_bpm_text(char *b)                /* "120.0" */
 {
-    uint32_t t = tempo_bpm10();
-    char d[3] = {'.', (char)('0' + t % 10u), 0};
-    p_fmt_int(b, (int32_t)(t / 10u)); p_cat(b, d, 7);
+    p_fmt_dec(b, (int32_t)tempo_bpm10());
 }
 
 /* what plays: the preset's family and its name ("COAST", "F034 HARBOUR NIGHT"; a load under way: the one coming),
@@ -1122,17 +1120,14 @@ static int32_t gr_px(int32_t db10)              /* a reduction's place on the ba
 }
 static void draw_meter(void)
 {
-    char t[12];
-    uint32_t n = 0;
+    char t[12] = "-";
     int32_t db10 = gr_db10, fw = gr_px(db10), pk = gr_peak ? gr_px(GR_DB10[gr_peak - 1u]) : 0;
     cv_begin(240, FT_H, FC_BG);
     cv_rect(GR_X, 3, GR_W, 9, mt.track);
     cv_rect(GR_X + GR_W - fw, 3, fw, 9, mt.fill);
     cv_rect(GR_X + GR_W - (fw > 2 ? fw : 2), 3, 2, 9, mt.edge);   /* the fill's edge (at 0: the bar's right end) */
     if (pk > fw) cv_rect(GR_X + GR_W - pk, 3, 2, 9, FC_VAL);    /* the peak */
-    t[n++] = '-'; p_fmt_int(t + n, db10 / 10);
-    while (t[n]) n++;
-    t[n++] = '.'; t[n++] = (char)('0' + db10 % 10); t[n++] = ' '; t[n++] = 'd'; t[n++] = 'B'; t[n] = 0;
+    p_fmt_dec(t + 1, db10); p_cat(t, " dB", 11);
     aa_text(10, S_TOP(21), &AF_S, "GAIN REDUCTION", FC_LAB, FC_BG);
     aa_text_r(230, S_TOP(21), &AF_S, db10 ? t : "0.0 dB", db10 ? FC_VAL : FC_DIM, FC_BG);
     cv_blit(0, FT_Y);
