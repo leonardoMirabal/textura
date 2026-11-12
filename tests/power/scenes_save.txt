@@ -1,5 +1,5 @@
 # the power cycle, run 1 (FRODHES_FLASH kept: make fw-test): a scene saved into U05, the settings (CLOCK AUTO, the
-# last scene, CLK OUT, PRESETS CHANGE TEMPO, COLOR, SCALE, ROOT, SELECTED CH, the lanes' MIDI channels) saved 2 s after
+# last scene, CLK OUT, PRESETS CHANGE TEMPO, COLOR, SCALE (MODE, SCALE, ROOT, TRANSP), SELECTED CH, the lanes' MIDI channels) saved 2 s after
 # their last change; run 2 (scenes_boot.txt) starts from that flash
 1700 btn 13
 1800 midi 0xB4 91 110
@@ -18,7 +18,12 @@
 2818 expect state page SCALE
 2819 turn 2 2
 2819 turn 3 2
-2820 btn 7
+2819 turn 4 2
+2819 turn 5 3
+2821 expect state card0 DEGREE
+2821 expect state card1 DORIAN
+2821 expect state card3 +3
+2823 btn 7
 2850 turn 2 3
 2870 expect state card0 AUTO
 2900 turn 5 -1

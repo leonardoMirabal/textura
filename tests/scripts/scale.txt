@@ -1,58 +1,88 @@
-# SCALE (GLO: GROOVE 1/2 2/2, TEMPO, SCALE; notes.c): K1 SCALE (CHROMATIC, the default: as played), K2 ROOT, ALGORITHM
-# SCALE too; every note the keys and MIDI play snapped to the scale's nearest note over ROOT (a tie goes down); in
-# PLAY the scale's keys lit, the others dark; CC 72 / 73 on channel 5: SCALE / ROOT; a note held across a change of
-# scale is let go where it went
+# SCALE (GLO: GROOVE 1/2 2/2, TEMPO, SCALE; notes.c), Frodhes' page: K1 MODE (OFF, the default: as played; SNAP: a key
+# out of the scale plays its nearest note over ROOT, a tie down; DEGREE: the white keys walk the scale from C4 = ROOT,
+# the black keys silent), K2 SCALE (Frodhes' list; ALGORITHM too), K3 ROOT, K4 TRANSP (+-24); in PLAY the keys whose
+# own note (TRANSP applied) is in the scale lit, the others dark; MIDI notes play as sent; CC on channel 5: 68 MODE,
+# 72 SCALE, 73 ROOT, 69 TRANSP
 1700 btn 13
 1750 btn 7
 1755 btn 7
 1760 btn 7
 1765 btn 7
 1770 expect state page SCALE
-1770 expect state lab0 SCALE
-1770 expect state lab1 ROOT
-1770 expect state card0 CHROMATIC
-1770 expect state card1 C
+1770 expect state lab0 MODE
+1770 expect state lab1 SCALE
+1770 expect state lab2 ROOT
+1770 expect state lab3 TRANSP
+1770 expect state card0 OFF
+1770 expect state card1 MAJOR
+1770 expect state card2 C
+1770 expect state card3 0
 1800 btn 3
 1820 keys 0x2
 1840 expect state knote1 1:54
 1840 expect led 15 0
 1850 keys 0
 1860 expect led 15 1
-# MAJOR over C: F#3 between F and G, down to F3; F#3's light dark, G3's lit
+# SNAP, MAJOR over C: F#3 between F and G, down to F3; F#3's light dark, G3's lit
 1900 turn 2 1
-1920 expect state card0 MAJOR
+1920 expect state card0 SNAP
 1930 keys 0x2
 1940 expect state knote1 1:53
 1950 keys 0
 1960 expect led 15 0
 1960 expect led 16 1
 # ROOT D (D major): F#3 itself, F3 between E and F#: E3
-2000 turn 3 2
-2020 expect state card1 D
+2000 turn 4 2
+2020 expect state card2 D
 2030 keys 0x3
 2040 expect state knote0 1:52
 2040 expect state knote1 1:54
 2050 keys 0
 2060 expect led 15 1
 2060 expect led 14 0
-# MIDI, channel 1 (the selected lane): C4 between B3 and C#4: B3; SCALE to CHROMATIC (CC 72) while held: its note off
-# still finds B3
-2100 midi 0x90 60 100
-2110 expect state mnotes 1:59
-2120 midi 0xB4 72 0
-2130 expect state p43B 0
-2140 midi 0x80 60 0
-2150 expect state mnotes -
-2160 midi 0x90 60 100
-2170 expect state mnotes 1:60
-2180 midi 0x80 60 0
-# CC 73: ROOT B; ALGORITHM: SCALE MIN PENTA
-2200 midi 0xB4 73 127
-2210 expect state p43C 11
-2220 turn 1 10
-2230 expect state card0 MIN_PENTA
-2230 expect state msg SCALE_MIN_PENTA
-2300 shot
-2400 expect state dropped 0
-2400 expect sound
-2500 end
+# TRANSP +2: F3 plays G3 (in D major); F#3 plays G#3, between G and A: G3; the lights by the keys' notes + 2: F3 lit
+# (G), F#3 dark (G#)
+2100 turn 5 2
+2110 expect state card3 +2
+2120 keys 0x3
+2130 expect state knote0 1:55
+2130 expect state knote1 1:55
+2140 keys 0
+2150 expect led 14 1
+2150 expect led 15 0
+2160 turn 5 -2
+2170 expect state card3 0
+# DEGREE (D major): F3 is C4's degree 3 an octave down: G3; G3 degree 4: A3; F#3 (black) silent
+2200 turn 2 1
+2210 expect state card0 DEGREE
+2220 keys 0x7
+2230 expect state knote0 1:55
+2230 expect state knote1 -
+2230 expect state knote2 1:57
+2240 keys 0
+# MIDI, channel 1 (the selected lane): D#4, out of D major, plays as sent
+2300 midi 0x90 63 100
+2310 expect state mnotes 1:63
+2320 midi 0x80 63 0
+2330 expect state mnotes -
+# a key held across a change of MODE is let go where it went
+2400 keys 0x1
+2410 expect state knote0 1:55
+2420 midi 0xB4 68 0
+2430 expect state p442 0
+2440 keys 0
+2450 expect state knote0 -
+# CC 73: ROOT B; CC 69: TRANSP +24; CC 72: SCALE BLUES; ALGORITHM: SCALE MPENTA
+2500 midi 0xB4 73 127
+2510 expect state p43C 11
+2520 midi 0xB4 69 127
+2530 expect state p443 48
+2540 midi 0xB4 72 127
+2550 expect state p43B 10
+2560 turn 1 -1
+2570 expect state card1 MPENTA
+2570 expect state msg SCALE_MPENTA
+2600 shot
+2700 expect state dropped 0
+2700 expect sound
+2800 end

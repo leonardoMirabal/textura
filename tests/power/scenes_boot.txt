@@ -15,6 +15,8 @@
 1700 expect state p43E 1
 1700 expect state p43F 8
 1700 expect state p441 0
+1700 expect state p442 2
+1700 expect state p443 27
 1800 btn 7
 1815 btn 7
 1817 btn 7

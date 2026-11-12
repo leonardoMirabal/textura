@@ -715,15 +715,23 @@ static void scn_pc(uint32_t p)                  /* MIDI program change (channel 
 
 /* ---- the settings: one small record, saved SET_SAVE_MS after its last change (the platform's split save) */
 typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, scn_tempo, out_off; uint16_t bpm10; uint8_t scn_fx, layout;
-                 uint8_t scale, root, selch, lch[SC_N], spare; } tx_set_t;
+                 uint8_t scale, root, selch, lch[SC_N], spare, scm, scf, sct, spare2; } tx_set_t;
                                                 /* (scn_tempo, out_off, palette, scn_fx, layout: once spare bytes, 0 = as
                                                  * before: off, USB, RED, SMART, the scenes before the presets. scn_fx: 0
                                                  * SMART, 1 ALWAYS, 2 NEVER: the KEEP and RECALL of before read as SMART
                                                  * and ALWAYS. scale .. lch appended: the record of before, SET_OLD_SZ
                                                  * bytes, still loads, with them at 0 = the defaults: CHROMATIC, C, the
-                                                 * channels as before (each stored XOR its default: SELECTED 1, lane n n)) */
+                                                 * channels as before (each stored XOR its default: SELECTED 1, lane n n).
+                                                 * scm .. appended (Frodhes' SCALE page): MODE + 1 (0: a record of before,
+                                                 * SET_MID_SZ bytes: MODE and SCALE from its scale, CHROMATIC = OFF, the
+                                                 * others SNAP), SCALE (Frodhes' list), TRANSP + 24; scale then keeps the
+                                                 * old list's number (OFF: 0), for a firmware of before) */
 #define SET_OLD_SZ 12u
-_Static_assert(sizeof(tx_set_t) == 20u && SET_OLD_SZ == 12u, "the settings: the old record, then the appended bytes");
+#define SET_MID_SZ 20u
+_Static_assert(sizeof(tx_set_t) == 24u && SET_OLD_SZ == 12u && SET_MID_SZ == 20u, "the settings: the old records, then the appended bytes");
+/* the old SCALE list's numbers (CHROMATIC MAJOR MINOR DORIAN PHRYGIAN LYDIAN MIXOLYDIAN HARMONIC MELODIC MAJ PENTA MIN
+ * PENTA BLUES) <-> Frodhes' (MAJOR MINOR DORIAN MIXO LYDIAN PHRYG HARMON MELODIC PENTA MPENTA BLUES) */
+static const uint8_t SET_SC_OLD[NT_NSCALE] = {1, 2, 3, 6, 5, 4, 7, 8, 9, 10, 11};   /* (Frodhes' n: the old number) */
 static uint8_t set_fx_of(uint32_t m) { return (uint8_t)(m == SCN_FX_ALWAYS ? 1u : m == SCN_FX_NEVER ? 2u : 0u); }
 static uint8_t set_fx_mode(uint32_t b) { return (uint8_t)(b == 1u ? SCN_FX_ALWAYS : b == 2u ? SCN_FX_NEVER : SCN_FX_SMART); }
 static tx_set_t set_saved, set_now;
@@ -737,7 +745,9 @@ static void set_take(tx_set_t *s)
     s->clock = (uint8_t)tm.clock; s->in_usb = tm.in_usb; s->in_trs = tm.in_trs; s->bpm10 = (uint16_t)tempo_bpm10();
     s->scn_tempo = tm.scn_tempo; s->out_off = (uint8_t)!tm.out_usb; s->palette = p_color; s->scn_fx = set_fx_of(scn_fx_mode);
     s->layout = SET_LAYOUT;
-    s->scale = nt_scale; s->root = nt_root; s->selch = (uint8_t)(nt_selch ^ 1u);
+    s->scale = (uint8_t)(nt_scmode == NT_OFF ? 0u : SET_SC_OLD[nt_scale]); s->root = nt_root;
+    s->scm = (uint8_t)(nt_scmode + 1u); s->scf = nt_scale; s->sct = (uint8_t)(nt_trans + 24);
+    s->selch = (uint8_t)(nt_selch ^ 1u);
     for (k = 0; k < SC_N; k++) s->lch[k] = (uint8_t)(nt_lch[k] ^ (k + 1u));
 }
 static void set_poll(void)
@@ -766,8 +776,18 @@ static void scn_init(void)
     }
     scn_bank_load();
     memset(&s, 0, sizeof s);
-    if ((!settings_load(&s, sizeof s) || !settings_load(&s, SET_OLD_SZ)) && s.ver == SET_VER) {
-        p_set(PID(P_GLOBAL, PG_SCALE), s.scale); p_set(PID(P_GLOBAL, PG_ROOT), s.root);
+    if ((!settings_load(&s, sizeof s) || !settings_load(&s, SET_MID_SZ) || !settings_load(&s, SET_OLD_SZ))
+        && s.ver == SET_VER) {
+        if (s.scm) {                            /* (Frodhes' SCALE page saved it) */
+            p_set(PID(P_GLOBAL, PG_SCMODE), s.scm - 1u); p_set(PID(P_GLOBAL, PG_SCALE), s.scf);
+            p_set(PID(P_GLOBAL, PG_TRANS), s.sct);
+        } else {                                /* (a record of before: its old list's number) */
+            for (k = 0; k < NT_NSCALE && SET_SC_OLD[k] != s.scale; k++) {}
+            p_set(PID(P_GLOBAL, PG_SCMODE), k < NT_NSCALE ? NT_SNAP : NT_OFF);
+            p_set(PID(P_GLOBAL, PG_SCALE), k < NT_NSCALE ? k : 0u);
+            p_set(PID(P_GLOBAL, PG_TRANS), 24);
+        }
+        p_set(PID(P_GLOBAL, PG_ROOT), s.root);
         p_set(PID(P_GLOBAL, PG_SELCH), s.selch ^ 1u);
         for (k = 0; k < SC_N; k++) p_set(PID(P_GLOBAL, PG_LCH0 + k), s.lch[k] ^ (k + 1u));   /* (p_set keeps them in range) */
         tempo_mode(s.clock); tempo_port(1, s.in_usb); tempo_port(2, s.in_trs);

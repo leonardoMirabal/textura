@@ -10,5 +10,7 @@
 1700 expect state p43F 2
 1700 expect state p440 3
 1700 expect state p441 4
+1700 expect state p442 0
+1700 expect state p443 24
 1900 expect sound
 2000 end

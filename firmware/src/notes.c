@@ -13,13 +13,16 @@
  *              LEDs: a lane's black keys blink while it plays (1.6 s rare .. 0.12 s busy), glow steadily while it
  *              plays muted, and glow when it is selected but stopped; the white keys show the selected lane's two bars.
  *   PLAY       the keys play the selected lane, pitched (OCT- / OCT+ the octave), through SCALE; the LEDs all lit (a
- *              light to play by; with a SCALE, its keys only, the others dark), a held key dim.
+ *              light to play by; with a SCALE on, its keys only, the others dark), a held key dim.
  * SEL tapped switches the mode; held, the keys and OCT work in the other mode while it is held (ui.c ui_sel): in PLAY,
  * SEL held + a black key selects that lane (OCT the previous / next one) and the keys play it again once SEL is let go.
  *
- * SCALE (GLO: SCALE, K1 SCALE K2 ROOT; settings): every note the keys and MIDI play is snapped to the nearest note of
- * the scale over ROOT (a tie goes down; Frodhes' tempo.c scale_snap, Felucca's masks); CHROMATIC, the default: as
- * played. Pitch only: the lane's sound is its own.
+ * SCALE (GLO: SCALE, K1 MODE K2 SCALE K3 ROOT K4 TRANSP; settings), as Frodhes' (tempo.c, its SCALE page; Felucca's
+ * masks): MODE OFF (the default: as played), SNAP (every key plays: one out of the scale plays the scale's nearest note
+ * over ROOT, a tie going down), DEGREE (the white keys walk the scale from C4 = its root, the black keys are silent);
+ * TRANSP +-24 semitones. MODE and TRANSP act on the FM-1's own keys: MIDI notes play as sent (Frodhes' rule). The keys'
+ * lights: those whose own note (TRANSP applied) is in the scale, SNAP and DEGREE alike (Frodhes' DISPLAY LEDS SCALE).
+ * Pitch only: the lane's sound is its own.
  *
  * MIDI notes (nt_midi): on SELECTED CH (MIDI IN: ALGORITHM; default 1) the selected lane, as before; on a lane's own
  * MIDI CH (MIDI IN: K1..K4; default lane n on channel n, the channel its CCs come on: params.c) that lane; two lanes on
@@ -49,21 +52,39 @@ static struct {
 
 static int nt_black(uint32_t k) { return 0x54Au >> (TX_KEY_F3 + k) % 12u & 1u; }   /* (C# D# F# G# A#) */
 
-/* ---- SCALE: the masks, bit i the note i semitones over ROOT */
-#define NT_NSCALE 12u
-static const uint16_t NT_SCALE[NT_NSCALE] = {0xFFF, 0xAB5, 0x5AD, 0x6AD, 0x5AB, 0xAD5, 0x6B5, 0x9AD, 0xAAD, 0x295, 0x4A9, 0x4E9};
-static const char *const N_SCALE[NT_NSCALE] = {"CHROMATIC", "MAJOR", "MINOR", "DORIAN", "PHRYGIAN", "LYDIAN", "MIXOLYDIAN",
-                                              "HARMONIC", "MELODIC", "MAJ PENTA", "MIN PENTA", "BLUES"};
-static uint8_t nt_scale, nt_root;               /* (settings, scenes.c) */
+/* ---- SCALE: Frodhes' list, names and masks (bit i the note i semitones over ROOT) */
+#define NT_NSCALE 11u
+enum { NT_OFF, NT_SNAP, NT_DEGREE };
+static const uint16_t NT_SCALE[NT_NSCALE] = {0xAB5, 0x5AD, 0x6AD, 0x6B5, 0xAD5, 0x5AB, 0x9AD, 0xAAD, 0x295, 0x4A9, 0x4E9};
+static const char *const N_SCALE[NT_NSCALE] = {"MAJOR", "MINOR", "DORIAN", "MIXO", "LYDIAN", "PHRYG", "HARMON", "MELODIC",
+                                              "PENTA", "MPENTA", "BLUES"};
+static const char *const N_SCMODE[3] = {"OFF", "SNAP", "DEGREE"};
+static uint8_t nt_scmode, nt_scale, nt_root;    /* (settings, scenes.c) */
+static int8_t nt_trans;                         /* TRANSP: -24 .. +24 */
 static int nt_in_scale(int32_t n) { return NT_SCALE[nt_scale] >> (uint32_t)((n - nt_root + 120) % 12) & 1u; }
-static uint32_t nt_snap(int32_t n)              /* n (0 .. 127) onto the scale's nearest note, a tie down */
+static int nt_key_in(uint32_t k)                /* key k's own note (TRANSP applied) is in the scale; no scale: every key */
 {
-    int32_t i;
-    for (i = 0; i < 12; i++) {
-        if (nt_in_scale(n - i)) { n -= i; break; }
-        if (nt_in_scale(n + i)) { n += i; break; }
+    return nt_scmode == NT_OFF || nt_in_scale((int32_t)(TX_KEY_F3 + k) + nt_trans);
+}
+/* the note key k plays (255: silent), the octave (oct) and TRANSP applied: Frodhes' scale_key_note */
+static uint32_t nt_key_note(uint32_t k, int32_t oct)
+{
+    int32_t key = (int32_t)(TX_KEY_F3 + k), n = key + 12 * oct + nt_trans, i;
+    if (nt_scmode == NT_SNAP)                   /* the scale's nearest note, a tie down */
+        for (i = 0; i < 12; i++) {
+            if (nt_in_scale(n - i)) { n -= i; break; }
+            if (nt_in_scale(n + i)) { n += i; break; }
+        }
+    else if (nt_scmode == NT_DEGREE) {          /* the white keys walk the scale's degrees from C4, the black silent */
+        static const int8_t DEG[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
+        int32_t offs[12], cnt = 0, d, o, deg = DEG[key % 12];
+        if (deg < 0) return 255u;
+        for (i = 0; i < 12; i++) if (NT_SCALE[nt_scale] >> i & 1u) offs[cnt++] = i;
+        d = (key / 12 - 5) * 7 + deg;           /* (the white key's index from C4) */
+        o = d >= 0 ? d / cnt : -((-d + cnt - 1) / cnt);
+        n = 60 + nt_root + 12 * o + offs[d - o * cnt] + 12 * oct + nt_trans;
     }
-    return (uint32_t)(n < 0 ? n + 12 : n > 127 ? n - 12 : n);
+    return n < 0 || n > 127 ? 255u : (uint32_t)n;
 }
 
 /* ---- MIDI notes: the channels (0 OFF, 1 .. 16; settings) and the notes held */
@@ -88,7 +109,7 @@ static void nt_midi(uint32_t ch, uint32_t n, uint32_t vel)   /* a note on (vel 0
         if (m >> k & 1u) {
             if (nt_mn == NT_MQ) nt_mq_off(0);   /* (full: the oldest let go) */
             nt_mq[nt_mn].ch = (uint8_t)ch; nt_mq[nt_mn].in = (uint8_t)n; nt_mq[nt_mn].lane = (uint8_t)k;
-            nt_mq[nt_mn].out = (uint8_t)nt_snap((int32_t)n);
+            nt_mq[nt_mn].out = (uint8_t)n;   /* (as sent: SCALE is the keys', Frodhes' rule) */
             ln_key(k, nt_mq[nt_mn++].out, vel, 1);
         }
 }
@@ -146,10 +167,10 @@ static void nt_poll(void)
         nt.sel_used |= nt.sel_down;            /* (SEL held: a key used, its tap no switch) */
         if (nt.mode == NT_LANDSCAPE) nt_landscape_key(k);
         else {
-            int32_t n = (int32_t)(TX_KEY_F3 + k) + 12 * nt.oct;
-            if (n < 0 || n > 127) continue;
+            uint32_t n = nt_key_note(k, nt.oct);
+            if (n > 127u) continue;
             sc_play_ready(sc.sel);
-            nt.note[k] = (uint8_t)nt_snap(n); nt.lane[k] = sc.sel;
+            nt.note[k] = (uint8_t)n; nt.lane[k] = sc.sel;
             ln_key(sc.sel, nt.note[k], NT_VEL, 1);
             nt.playing |= 1u << k;
         }
@@ -167,7 +188,7 @@ static void nt_leds(uint32_t btn)
     static struct { uint32_t lit, glow, btn; uint8_t done; } was;
     uint32_t lit = 0, glow = 0, k;
     if (nt.mode == NT_PLAY) {                   /* every key lit (with a SCALE: its keys), a held one dim */
-        for (k = 0; k < NT_SPAN; k++) if (nt_in_scale((int32_t)(TX_KEY_F3 + k))) lit |= 1u << k;
+        for (k = 0; k < NT_SPAN; k++) if (nt_key_in(k)) lit |= 1u << k;
         glow = nt.down; lit &= ~glow;
     } else {
         for (k = 0; k < sizeof NT_GROUP; k++) {   /* the lanes: their black keys */

@@ -179,9 +179,11 @@ fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textu
 	if FRODHES_FLASH=$(FW)/power.flash $(FW)/textura-host $(FW)/power1 tests/power/scenes_save.txt > $(FW)/power1.log 2>&1 && \
 	   FRODHES_FLASH=$(FW)/power.flash $(FW)/textura-host $(FW)/power2 tests/power/scenes_boot.txt > $(FW)/power2.log 2>&1 && \
 	   cp $(FW)/power.flash $(FW)/power_old.flash && python3 -I tests/power/settings_old.py $(FW)/power_old.flash && \
-	   FRODHES_FLASH=$(FW)/power_old.flash $(FW)/textura-host $(FW)/power3 tests/power/scenes_old.txt > $(FW)/power3.log 2>&1; \
-	then echo "ok    host power cycle (tests/power: a scene and the settings across a restart; an older settings record)"; \
-	else echo "FAIL  host power cycle ($(FW)/power1.log, power2.log, power3.log)"; fail=1; fi; \
+	   FRODHES_FLASH=$(FW)/power_old.flash $(FW)/textura-host $(FW)/power3 tests/power/scenes_old.txt > $(FW)/power3.log 2>&1 && \
+	   cp $(FW)/power.flash $(FW)/power_mid.flash && python3 -I tests/power/settings_old.py $(FW)/power_mid.flash 20 && \
+	   FRODHES_FLASH=$(FW)/power_mid.flash $(FW)/textura-host $(FW)/power4 tests/power/scenes_mid.txt > $(FW)/power4.log 2>&1; \
+	then echo "ok    host power cycle (tests/power: a scene and the settings across a restart; older settings records)"; \
+	else echo "FAIL  host power cycle ($(FW)/power1.log, power2.log, power3.log, power4.log)"; fail=1; fi; \
 	python3 -I tests/clock_check.py > $(FW)/clock.log 2>&1 && echo "ok    clock (tests/clock_check.py)" || { echo "FAIL  clock ($(FW)/clock.log)"; fail=1; }; \
 	python3 -I tests/ports_check.py > $(FW)/ports.log 2>&1 && echo "ok    ports (tests/ports_check.py: Textura first, never Frodhes beside it)" || { echo "FAIL  ports ($(FW)/ports.log)"; fail=1; }; \
 	python3 -I tests/install_check.py > $(FW)/install.log 2>&1 && echo "ok    install (tests/install_check.py: two FM-1s, one unit by its USB location)" || { echo "FAIL  install ($(FW)/install.log)"; fail=1; }; \

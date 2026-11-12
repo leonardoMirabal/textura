@@ -20,7 +20,7 @@
  *              .. D100 W100 (64) .. D50 W100, WET; LFO 1/3 .. 3/3,
  *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, GROOVE 1/2 2/2 (every groove control together: TYPE AMOUNT
  *              SHIFT, then each lane's ROLE on its knob, its PART or own CYCLE), TEMPO (BPM FINE, the transport, what
- *              leads it), SCALE (SCALE ROOT: the notes the keys and MIDI play), MIDI (the clock), MIDI IN (each
+ *              leads it), SCALE (MODE SCALE ROOT TRANSP, as Frodhes': the keys' notes), MIDI (the clock), MIDI IN (each
  *              lane's channel), DISPLAY (COLOR). Each
  *              page titled by what it does, no fractions: pips at the right for its button's pages
  *   ALGORITHM  named on the footer's ALGORITHM line with its value. LANDSCAPE: picks a landscape (the footer names it:
@@ -140,7 +140,8 @@ static const uint16_t FX_IDS[25][4] = {
     {MFL(TX_MF_LOW), MFL(TX_MF_HIGH), MFL(TX_MF_RESO), MFL(TX_MF_SLOPE)},   /* FILTER: the mix's, after the DRIVE */
     {GRV(1), GRV(0), GRV(2), NOID},   /* GROOVE 1/2: the groove's TYPE (ALGORITHM too), AMOUNT, SHIFT; 2/2 the lanes'
                                                  * roles (draw_groove_row) */
-    {PID(P_GLOBAL, PG_SCALE), PID(P_GLOBAL, PG_ROOT), NOID, NOID},   /* SCALE: the keys' and MIDI's notes (notes.c) */
+    {PID(P_GLOBAL, PG_SCMODE), PID(P_GLOBAL, PG_SCALE), PID(P_GLOBAL, PG_ROOT), PID(P_GLOBAL, PG_TRANS)},   /* SCALE: the
+                                                 * keys' notes (notes.c), Frodhes' page */
     {PID(P_GLOBAL, PG_LCH0), PID(P_GLOBAL, PG_LCH0 + 1), PID(P_GLOBAL, PG_LCH0 + 2), PID(P_GLOBAL, PG_LCH0 + 3)},   /* MIDI
                                                  * IN: each lane's channel */
 };
