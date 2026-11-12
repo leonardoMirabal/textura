@@ -234,7 +234,7 @@ static int p_quick_param(const tx_engine_t *e, const char *name)   /* a paramete
 {
     const ls_quick_t *q = sc_quick(e);
     uint32_t i;
-    for (i = 0; q && i < q->np; i++) if (sc_eq(q->p[i].name, name)) return 1;
+    for (i = 0; q && i < q->np; i++) if (sc_eq(LS_QP_NAME[q->p0 + i], name)) return 1;
     return 0;
 }
 static void p_cards_resolve(uint32_t k)
@@ -248,10 +248,11 @@ static void p_cards_resolve(uint32_t k)
     if (e != sc.src) {                          /* a classic engine: its own parameters, less its activity map's */
         const scd_sound_t *d = 0;
         for (i = 0; i < SCD_N; i++) if (sc.snd[k] >= 0 && sc_eq(SCD[i].sound, sc_sound_name(k))) d = &SCD[i];
+        const scd_card_t *cl = d ? scd_cards(d) : 0;
         for (i = 0; d && i < d->n; i++) {      /* listed: those cards, in that order (as the engine has them) */
-            int id = tx_param_find(e, scd_par(&d->c[i]));
+            int id = tx_param_find(e, scd_par(&cl[i]));
             if (id < 0 || p_quick_param(e, e->params[id].name)) continue;
-            c->lab[c->n] = d->c[i].lab; c->kind[c->n] = CK_SRC; c->id[c->n] = (uint8_t)id;
+            c->lab[c->n] = cl[i].lab; c->kind[c->n] = CK_SRC; c->id[c->n] = (uint8_t)id;
             c->hi[c->n] = e->params[id].max; c->def[c->n] = e->params[id].def; c->n++;
         }
         for (i = 0; !d && i < e->n_params && c->n < SCD_MAX; i++) {
@@ -267,12 +268,13 @@ static void p_cards_resolve(uint32_t k)
         if (d->hosted) c->hosted = tx_engine_find(d->hosted);
         if (c->hosted != c->live) { d = &SC_SRC_DEFAULT; c->hosted = 0; }   /* (the source plays it another way: its own
                                                                       * general cards) */
+        const scd_card_t *cl = scd_cards(d);
         for (i = 0; i < d->n; i++) {
-            uint8_t kd = scd_kind(&d->c[i]);
+            uint8_t kd = scd_kind(&cl[i]);
             const tx_engine_t *t = kd & CK_HOST ? c->hosted : e;
-            int id = t ? tx_param_find(t, scd_par(&d->c[i])) : -1;
+            int id = t ? tx_param_find(t, scd_par(&cl[i])) : -1;
             if (id < 0) continue;               /* (a parameter this build's engine has not got) */
-            c->lab[c->n] = d->c[i].lab; c->kind[c->n] = kd; c->id[c->n] = (uint8_t)id;
+            c->lab[c->n] = cl[i].lab; c->kind[c->n] = kd; c->id[c->n] = (uint8_t)id;
             c->hi[c->n] = t->params[id].max; c->def[c->n] = t->params[id].def;
             if (kd & CK_INV) c->def[c->n] = (uint8_t)(c->hi[c->n] - c->def[c->n]);
             c->n++;

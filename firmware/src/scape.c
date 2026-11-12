@@ -120,7 +120,7 @@ static const ls_quick_t *sc_quick(const tx_engine_t *e)
     return 0;
 }
 static int sc_is_src(uint32_t k) { return sc.eng[k] && sc.eng[k] == sc.src; }
-static int sc_oneshot(uint32_t k) { return !sc_is_src(k) && sc.q[k] && sc.q[k]->every_ms && sc.q[k]->hold != 1u; }
+static int sc_oneshot(uint32_t k) { return !sc_is_src(k) && sc.q[k] && sc.q[k]->every_s && sc.q[k]->hold != 1u; }
 static int sc_turned(uint32_t k) { return !sc_is_src(k) && sc.q[k] && sc.q[k]->hold == 1u; }   /* held, turned over at gaps */
 static void sc_keys(uint32_t k, int on)         /* the key a held engine holds (60), or its chord (each at velocity 1:
                                                  * the wind chimes' tubes hung, not struck) */
@@ -220,7 +220,7 @@ static void sc_sync(uint32_t k)
         sc_glide(k);                            /* (the fresh engine's own settings at once; the lane's level, trim,
                                                  * pan: its output's, the ring under it hears them too, so they glide) */
         for (i = 0; i < 3u; i++) {              /* the classic engine's QUICK parameters */
-            sc.q_id[k][i] = (int8_t)(sc.q[k] && i < sc.q[k]->np ? tx_param_find(sc.eng[k], sc.q[k]->p[i].name) : -1);
+            sc.q_id[k][i] = (int8_t)(sc.q[k] && i < sc.q[k]->np ? tx_param_find(sc.eng[k], LS_QP_NAME[sc.q[k]->p0 + i]) : -1);
             sc.q_cur[k][i] = -(1 << 30);
         }
     }
@@ -271,7 +271,7 @@ static void sc_quick_tick(uint32_t k, int jump)
     uint32_t x = sc_quick_pos(k), i;
     if (!q || sc.a_eng[k] != sc.eng[k]) return;
     for (i = 0; i < q->np; i++) {
-        int32_t t = q->p[i].lo * 256 + (int32_t)(((q->p[i].hi - q->p[i].lo) * (int32_t)x) >> 8);   /* Q8 */
+        int32_t t = LS_QP_LH[q->p0 + i][0] * 256 + (int32_t)(((LS_QP_LH[q->p0 + i][1] - LS_QP_LH[q->p0 + i][0]) * (int32_t)x) >> 8);   /* Q8 */
         int32_t now = sc.q_cur[k][i], nx, d;
         if (now == -(1 << 30) || jump) now = t;
         d = t - now;
@@ -287,8 +287,8 @@ static uint32_t sc_quick_gap(uint32_t k)
 {
     const ls_quick_t *q = sc.q[k];
     uint32_t x = sc_quick_pos(k), mean, nl, b, ra, rb, r;
-    b = (q->every_ms * (tx_exp2(q->every_oct_q16 + (16 << 16)) >> 4)) >> 12;   /* C6's gap, ms */
-    ra = 10000000u / (q->every_ms ? q->every_ms : 1u); rb = 10000000u / (b ? b : 1u);   /* presses per 10^4 s */
+    b = (LS_EVERY_MS(q) * (tx_exp2(q->every_oct_q16 + (16 << 16)) >> 4)) >> 12;   /* C6's gap, ms */
+    ra = 10000000u / (q->every_s ? LS_EVERY_MS(q) : 1u); rb = 10000000u / (b ? b : 1u);   /* presses per 10^4 s */
     r = ra + (uint32_t)(((int32_t)(rb - ra) * (int32_t)(tx_lin_pow(x) >> 4)) >> 12);
     mean = 10000000u / (r ? r : 1u);                         /* ms */
     nl = (tx_neglog2_q12(tx_rand(&sc.rng)) * 2839u) >> 12;           /* -ln u, Q12 */

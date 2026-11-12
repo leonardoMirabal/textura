@@ -76,14 +76,17 @@
 enum { CK_SRC = 0, CK_HOST = 1, CK_INV = 2 };
 /* A card: its label and its parameter's name; a card of the hosted engine (CK_HOST) or turned around (CK_INV) has its
  * kind as the name's first character (H, INV: "\001", "\002"), so a card is two pointers (scd_kind, scd_par). A sound's
- * cards are a list of their own (CL: a compound literal, as long as the sound has cards), not SCD_MAX slots. */
+ * cards are a list of their own (CL: a compound literal, as long as the sound has cards), not SCD_MAX slots; a sound
+ * whose cards are the sound's above, in that order, has SAME (the list once: scd_cards). */
 #define H "\001"
 #define INV "\002"
 typedef struct { const char *lab, *par; } scd_card_t;
 typedef struct { const char *sound, *hosted; uint8_t n; const scd_card_t *c; } scd_sound_t;
 #define CL (const scd_card_t[])
+#define SAME 0                                  /* the cards of the sound above (scd_cards): one list for both */
 static inline uint8_t scd_kind(const scd_card_t *c) { return (uint8_t)c->par[0] < 4u ? (uint8_t)c->par[0] : CK_SRC; }
 static inline const char *scd_par(const scd_card_t *c) { return c->par + (scd_kind(c) != CK_SRC); }
+static inline const scd_card_t *scd_cards(const scd_sound_t *d) { while (!d->c) d--; return d->c; }   /* (SAME: the one above's) */
 
 #define DIST_CARD {"DIST", INV "PROXIMITY"}
 static const scd_sound_t SCD[] = {
@@ -107,8 +110,7 @@ static const scd_sound_t SCD[] = {
                                 {"SURFACE", H "NEAR"}, {"SPREAD", H "SPREAD"}, {"GURGLE", H "EDDY"}}},
     {"waves on sand", "surf", 6, CL {{"HEIGHT", H "HEIGHT"}, {"PERIOD", "EXTRA"}, {"DIST", H "DIST"},
                                   {"BACKWSH", H "BACKWASH"}, {"CHOP", H "CHOP"}, {"FLOOR", H "FLOOR"}}},
-    {"waves on shingle", "surf", 6, CL {{"HEIGHT", H "HEIGHT"}, {"PERIOD", "EXTRA"}, {"DIST", H "DIST"},
-                                     {"BACKWSH", H "BACKWASH"}, {"CHOP", H "CHOP"}, {"FLOOR", H "FLOOR"}}},
+    {"waves on shingle", "surf", 6, SAME},
     {"lake lapping", "surf", 5, CL {{"FACE", H "FACE"}, {"HEIGHT", H "HEIGHT"}, {"PERIOD", "EXTRA"},
                                  {"DIST", H "DIST"}, {"CHOP", H "CHOP"}}},
     /* Storm */
@@ -126,11 +128,11 @@ static const scd_sound_t SCD[] = {
 #define W_TREES {W_GUST, W_FOLIAGE, W_SCALE, W_EXPOSED, W_WHOOSH, W_EDGE, DIST_CARD}
 #define W_OPEN {W_GUST, W_EXPOSED, W_SCALE, W_WHOOSH, W_FOLIAGE, W_EDGE, DIST_CARD}
     {"wind", "wind", 7, CL W_TREES},
-    {"wind in pines", "wind", 7, CL W_TREES},
-    {"leafy trees", "wind", 7, CL W_TREES},
+    {"wind in pines", "wind", 7, SAME},
+    {"leafy trees", "wind", 7, SAME},
     {"breeze in grass", "wind", 6, CL {W_GUST, W_SCALE, W_FOLIAGE, W_WHOOSH, W_EXPOSED, DIST_CARD}},
     {"open moor", "wind", 7, CL W_OPEN},
-    {"ridge gale", "wind", 7, CL W_OPEN},
+    {"ridge gale", "wind", 7, SAME},
     {"sea wind", "wind", 6, CL {W_GUST, W_EXPOSED, W_WHOOSH, W_SCALE, W_FOLIAGE, DIST_CARD}},
     {"gusty autumn", "wind", 7, CL {W_GUST, W_FOLIAGE, {"SKITTER", H "SKITTER"}, W_SCALE, W_EXPOSED, W_WHOOSH,
                                  DIST_CARD}},
@@ -146,10 +148,10 @@ static const scd_sound_t SCD[] = {
 #define F_OPEN {F_SIZE, F_MOIST, F_DRAUGHT, F_WOOD, F_ROAR, F_BURSTY, DIST_CARD}
 #define F_LIGHT {F_MOIST, F_SIZE, F_DRAUGHT, F_WOOD, F_ROAR, F_BURSTY, DIST_CARD}
     {"campfire", "fire", 7, CL F_OPEN},
-    {"bonfire", "fire", 7, CL F_OPEN},
-    {"pine fire", "fire", 7, CL F_OPEN},
+    {"bonfire", "fire", 7, SAME},
+    {"pine fire", "fire", 7, SAME},
     {"kindling", "fire", 7, CL F_LIGHT},
-    {"leaves, paper", "fire", 7, CL F_LIGHT},
+    {"leaves, paper", "fire", 7, SAME},
     {"fireplace", "fire", 7, CL {F_SIZE, F_MOIST, F_ROAR, F_WOOD, F_DRAUGHT, F_BURSTY, DIST_CARD}},
     {"embers", "fire", 5, CL {F_MOIST, F_WOOD, F_BURSTY, DIST_CARD, F_SIZE}},
     {"torch", "fire", 6, CL {F_ROAR, F_DRAUGHT, F_SIZE, F_MOIST, F_WOOD, DIST_CARD}},
@@ -167,30 +169,30 @@ static const scd_sound_t SCD[] = {
 #define C_DEPTH {"DEPTH", "DEPTH"}
 #define B_CARDS {{"SWARM", H "SWARM"}, {"SPEED", H "SPEED"}, DIST_CARD, {"SPREAD", H "SPREAD"}}
     {"field cricket", "crickets", 5, CL {I_TEMP, I_CHORUS, I_SYNC, DIST_CARD, I_SIZE}},
-    {"tree cricket", "crickets", 5, CL {I_TEMP, I_CHORUS, I_SYNC, DIST_CARD, I_SIZE}},
+    {"tree cricket", "crickets", 5, SAME},
     {"mole cricket", "crickets", 5, CL {I_TEMP, I_CHORUS, DIST_CARD, I_SYNC, I_SIZE}},
     {"cicada", 0, 5, CL C_CARDS(C_SIZE, C_RING, C_DEPTH, DIST_CARD)},
-    {"small cicada", 0, 5, CL C_CARDS(C_SIZE, C_RING, C_DEPTH, DIST_CARD)},
+    {"small cicada", 0, 5, SAME},
     {"cicada chorus", 0, 5, CL C_CARDS(C_DEPTH, C_SIZE, C_RING, DIST_CARD)},
     {"katydid", "katydids", 6, CL {I_TEMP, I_RASP, I_CHORUS, DIST_CARD, I_SYNC, I_SIZE}},
     {"grasshopper", "katydids", 7, CL {{"PEGS", H "PEGS"}, I_TEMP, I_RASP, DIST_CARD, I_CHORUS, I_SYNC, I_SIZE}},
     {"honeybee", "bees", 4, CL B_CARDS},
-    {"bumblebee", "bees", 4, CL B_CARDS},
+    {"bumblebee", "bees", 4, SAME},
     /* Songbirds */
 #define SB_PAGE1 {"SIZE", "SIZE"}, {"DEPTH", "DEPTH"}, DIST_CARD, {"VARY", "SPREAD"}
 #define SB_SING {"TEMPO", "SPACING"}, {"SONG", "EXTRA"}, {"VARIETY", "TONE"}, {"EXCITE", "HARD"}
     {"songbird", 0, 8, CL {SB_PAGE1, SB_SING}},
-    {"blackbird", 0, 8, CL {SB_PAGE1, SB_SING}},
-    {"song thrush", 0, 8, CL {SB_PAGE1, SB_SING}},
-    {"nightingale", 0, 8, CL {SB_PAGE1, SB_SING}},
-    {"robin", 0, 8, CL {SB_PAGE1, SB_SING}},
-    {"wren", 0, 8, CL {SB_PAGE1, SB_SING}},
-    {"hermit thrush", 0, 8, CL {SB_PAGE1, SB_SING}},
-    {"skylark", 0, 8, CL {SB_PAGE1, SB_SING}},
-    {"wood thrush", 0, 8, CL {SB_PAGE1, SB_SING}},
-    {"reed warbler", 0, 8, CL {SB_PAGE1, SB_SING}},
+    {"blackbird", 0, 8, SAME},
+    {"song thrush", 0, 8, SAME},
+    {"nightingale", 0, 8, SAME},
+    {"robin", 0, 8, SAME},
+    {"wren", 0, 8, SAME},
+    {"hermit thrush", 0, 8, SAME},
+    {"skylark", 0, 8, SAME},
+    {"wood thrush", 0, 8, SAME},
+    {"reed warbler", 0, 8, SAME},
     /* Wild birds */
-    {"chirper", 0, 8, CL {SB_PAGE1, SB_SING}},
+    {"chirper", 0, 8, SAME},
     {"crow", 0, 7, CL {SB_PAGE1, {"TEMPO", "SPACING"}, {"SERIES", "EXTRA"}, {"EXCITE", "HARD"}}},
     {"gull", 0, 8, CL {SB_PAGE1,
                     {"TEMPO", "SPACING"}, {"CALLS", "EXTRA"}, {"LONGCALL", "TONE"}, {"EXCITE", "HARD"}}},
@@ -226,9 +228,9 @@ static const scd_sound_t SCD[] = {
     {"icicles", "ice", 6, CL {G_H(SIZE), G_H(TEMP), G_H(AMOUNT), G_H(FIZZ), G_CLUMPS, DIST_CARD}},
     {"ice in a glass", "ice", 4, CL {G_H(SIZE), G_H(FIZZ), G_CLUMPS, DIST_CARD}},
     {"frost tinkling", "ice", 3, CL {G_H(TEMP), G_CLUMPS, DIST_CARD}},
-    {"snow underfoot", "ice", 3, CL {G_H(TEMP), G_CLUMPS, DIST_CARD}},
+    {"snow underfoot", "ice", 3, SAME},
     {"lake ice", "lakeice", 4, CL G_LAKE},
-    {"frozen lake booming", "lakeice", 4, CL G_LAKE},
+    {"frozen lake booming", "lakeice", 4, SAME},
     {"thin ice underfoot", "lakeice", 2, CL {G_H(THICK), DIST_CARD}},
     {"glass pane", "glass", 6, CL {G_H(SIZE), G_H(RING), G_H(ENERGY), G_H(HEIGHT), G_H(BOUNCE), DIST_CARD}},
     {"bottles", "glass", 4, CL {G_H(SIZE), G_H(RING), G_CLUMPS, DIST_CARD}},
@@ -237,9 +239,9 @@ static const scd_sound_t SCD[] = {
 #define WD_H(n) {#n, H #n}
 #define WD_TREE {WD_H(SIZE), WD_H(CREAK), WD_H(PITCH), WD_H(MOIST), DIST_CARD}
     {"spruce", "wood", 5, CL WD_TREE},
-    {"pine", "wood", 5, CL WD_TREE},
-    {"maple", "wood", 5, CL WD_TREE},
-    {"oak", "wood", 5, CL WD_TREE},
+    {"pine", "wood", 5, SAME},
+    {"maple", "wood", 5, SAME},
+    {"oak", "wood", 5, SAME},
     {"green branch", "wood", 5, CL {WD_H(SIZE), WD_H(CREAK), WD_H(MOIST), WD_H(PITCH), DIST_CARD}},
     {"tree trunk", "wood", 4, CL {WD_H(CREAK), WD_H(PITCH), WD_H(SIZE), DIST_CARD}},
     {"twigs underfoot", "wood", 5, CL {WD_H(SIZE), WD_H(MOIST), WD_H(WEIGHT), {"DEPTH", H "LITTER"}, DIST_CARD}},
@@ -247,8 +249,8 @@ static const scd_sound_t SCD[] = {
 #define HAIL_CARDS {{"STONES", H "DROPS"}, {"AREA", H "AREA"}, {"INSIDE", H "INSIDE"}, \
                     {"RAIN", H "RAIN"}, {"BOUNCE", H "BOUNCE"}, DIST_CARD}
     {"hail on a roof", "rainsurf", 6, CL HAIL_CARDS},
-    {"hail on a car", "rainsurf", 6, CL HAIL_CARDS},
-    {"hail in leaves", "rainsurf", 6, CL HAIL_CARDS},
+    {"hail on a car", "rainsurf", 6, SAME},
+    {"hail in leaves", "rainsurf", 6, SAME},
     {"sleet on a window", "rainsurf", 5, CL {{"STONES", H "DROPS"}, {"AREA", H "AREA"},
                                           {"INSIDE", H "INSIDE"}, DIST_CARD, {"RAIN", H "RAIN"}}},
 };
@@ -260,4 +262,5 @@ static const scd_sound_t SC_SRC_DEFAULT = {"", 0, 8, CL {{"SIZE", "SIZE"}, {"SPR
 #undef H
 #undef INV
 #undef CL
+#undef SAME
 #endif

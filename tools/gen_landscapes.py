@@ -113,9 +113,10 @@ def generate():
     out += ["/* a classic engine's activity map: each parameter from its value at C4 (lo) to C6 (hi), linear in the step;",
             " * a one-shot engine's presses: the mean gap at C4 (ms) and log2(gap at C6 / gap at C4) in Q16 (0 ms: held);",
             " * hold: 0 a 150 ms press, 1 held and turned over again at those gaps, 2 .. 255 a press (a call) of hold x 100 ms;",
-            " * lin: 1 + its measured curve in LS_LIN (0: none); chord: 1 + the keys it holds in LS_CHORD (0: key 60) */",
-            "typedef struct { const char *name; int16_t lo, hi; } ls_qp_t;",
-            "typedef struct { const char *eng; uint8_t np, lin, hold, chord; ls_qp_t p[3]; uint32_t every_ms; int32_t every_oct_q16; } ls_quick_t;",
+            " * lin: 1 + its measured curve in LS_LIN (0: none); chord: 1 + the keys it holds in LS_CHORD (0: key 60);",
+            " * its parameters: LS_QP_NAME / LS_QP_LH from p0, np of them; every_s: the gap at C4 in whole seconds */",
+            "typedef struct { const char *eng; int32_t every_oct_q16; uint8_t np, lin, hold, chord, p0, every_s; } ls_quick_t;",
+            "#define LS_EVERY_MS(q) ((uint32_t)(q)->every_s * 1000u)",
             "#define LS_CHORD_N 5u",
             f"#define LS_NCHORD {max(1, len(chords))}u",
             "static const uint8_t LS_CHORD[LS_NCHORD][LS_CHORD_N] = {   /* semitones over key 60 */",
@@ -125,17 +126,25 @@ def generate():
             "static const uint8_t LS_LIN[LS_NLIN][17] = {   /* the place (0 .. 127) at the keys' 0, 8 .. 120, 127 (tx_lin_tab) */"]
     for t in lins or [[0] * 17]:
         out.append("    {" + ", ".join(str(int(v)) for v in t) + "},")
-    out += ["};", f"#define LS_NQUICK {len(qk)}u", "static const ls_quick_t LS_QUICK[LS_NQUICK] = {"]
+    qps = [pp for q in qk.values() for pp in q.get("p", [])]
+    assert all(0 <= int(lo) <= 255 and 0 <= int(hi) <= 255 for _, lo, hi in qps) and len(qps) < 256
+    out += ["};", f"#define LS_NQP {max(1, len(qps))}u",
+            "static const char *const LS_QP_NAME[LS_NQP] = {" + (", ".join(c_str(n) for n, _, _ in qps) or "0") + "};",
+            "static const uint8_t LS_QP_LH[LS_NQP][2] = {   /* each parameter's value at C4 (lo) and C6 (hi) */",
+            "    " + (", ".join(f"{{{int(lo)}, {int(hi)}}}" for _, lo, hi in qps) or "{0, 0}") + ",", "};"]
+    out += [f"#define LS_NQUICK {len(qk)}u", "static const ls_quick_t LS_QUICK[LS_NQUICK] = {"]
+    p0 = 0
     for eng, q in qk.items():
         ps = q.get("p", [])
-        pt = ", ".join(f"{{{c_str(n)}, {int(lo)}, {int(hi)}}}" for n, lo, hi in ps) or "{0, 0, 0}"
         ev = q.get("every")
         ems, oct_ = (round(ev[0] * 1000), round(math.log2(ev[1] / ev[0]) * 65536)) if ev else (0, 0)
+        assert ems % 1000 == 0 and ems // 1000 <= 255, eng
         li = 1 + lins.index(q["lin"]) if q.get("lin") else 0
         ch = 1 + chords.index(q["chord"]) if q.get("chord") else 0
         hold = 1 if q.get("turn") else round(q["press"] * 10) if q.get("press") else 0
         assert hold == 0 or 1 <= hold <= 255 and (hold == 1) == bool(q.get("turn")), eng
-        out.append(f"    {{{c_str(eng)}, {len(ps)}, {li}, {hold}, {ch}, {{{pt}}}, {ems}u, {oct_}}},")
+        out.append(f"    {{{c_str(eng)}, {oct_}, {len(ps)}, {li}, {hold}, {ch}, {p0 if ps else 0}, {ems // 1000}}},")
+        p0 += len(ps)
     out += ["};", "", "#endif", ""]
     return "\n".join(out)
 

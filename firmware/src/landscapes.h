@@ -46,9 +46,10 @@ static const uint8_t LS_COUNT_N[LS_NCNT] = {0, 1, 2, 4, 10, 19, 32};   /* the co
 /* a classic engine's activity map: each parameter from its value at C4 (lo) to C6 (hi), linear in the step;
  * a one-shot engine's presses: the mean gap at C4 (ms) and log2(gap at C6 / gap at C4) in Q16 (0 ms: held);
  * hold: 0 a 150 ms press, 1 held and turned over again at those gaps, 2 .. 255 a press (a call) of hold x 100 ms;
- * lin: 1 + its measured curve in LS_LIN (0: none); chord: 1 + the keys it holds in LS_CHORD (0: key 60) */
-typedef struct { const char *name; int16_t lo, hi; } ls_qp_t;
-typedef struct { const char *eng; uint8_t np, lin, hold, chord; ls_qp_t p[3]; uint32_t every_ms; int32_t every_oct_q16; } ls_quick_t;
+ * lin: 1 + its measured curve in LS_LIN (0: none); chord: 1 + the keys it holds in LS_CHORD (0: key 60);
+ * its parameters: LS_QP_NAME / LS_QP_LH from p0, np of them; every_s: the gap at C4 in whole seconds */
+typedef struct { const char *eng; int32_t every_oct_q16; uint8_t np, lin, hold, chord, p0, every_s; } ls_quick_t;
+#define LS_EVERY_MS(q) ((uint32_t)(q)->every_s * 1000u)
 #define LS_CHORD_N 5u
 #define LS_NCHORD 1u
 static const uint8_t LS_CHORD[LS_NCHORD][LS_CHORD_N] = {   /* semitones over key 60 */
@@ -64,42 +65,47 @@ static const uint8_t LS_LIN[LS_NLIN][17] = {   /* the place (0 .. 127) at the ke
     {0, 12, 19, 28, 37, 44, 54, 61, 68, 76, 86, 92, 99, 107, 116, 122, 127},
     {0, 26, 32, 37, 43, 49, 55, 59, 63, 67, 70, 76, 83, 90, 99, 111, 127},
 };
+#define LS_NQP 47u
+static const char *const LS_QP_NAME[LS_NQP] = {"RATE", "RATE", "SPUTTER", "FLOW", "RATE", "BURST", "AMOUNT", "RATE", "SEEDS", "SPEED", "PRESSURE", "SPEED", "DIST", "ENERGY", "SWARM", "FLOW", "WIND", "GUST", "ORIFICE", "RATE", "WIND", "GUST", "RATE", "AREA", "VOLUME", "CRASH", "RATE", "AREA", "FLOW", "ROAR", "HEIGHT", "CHOP", "INTENSITY", "COUNT", "ACTIVITY", "CHORUS", "COUNT", "ACTIVITY", "RATE", "MOIST", "SIZE", "ROAR", "DENSITY", "ENERGY", "LOAD", "CREAK", "AMOUNT"};
+static const uint8_t LS_QP_LH[LS_NQP][2] = {   /* each parameter's value at C4 (lo) and C6 (hi) */
+    {10, 120}, {20, 127}, {40, 127}, {5, 60}, {4, 105}, {20, 80}, {20, 120}, {30, 110}, {10, 127}, {20, 110}, {30, 100}, {20, 115}, {110, 25}, {40, 100}, {0, 127}, {40, 127}, {20, 127}, {20, 80}, {25, 110}, {0, 110}, {10, 127}, {30, 90}, {10, 127}, {30, 100}, {30, 110}, {40, 127}, {10, 127}, {60, 120}, {10, 127}, {0, 90}, {10, 127}, {30, 90}, {0, 127}, {1, 32}, {0, 127}, {0, 127}, {1, 16}, {0, 127}, {10, 120}, {20, 120}, {20, 100}, {30, 120}, {14, 127}, {60, 127}, {110, 15}, {15, 70}, {20, 127},
+};
 #define LS_NQUICK 34u
 static const ls_quick_t LS_QUICK[LS_NQUICK] = {
-    {"test", 1, 0, 0, 0, {{"RATE", 10, 120}}, 0u, 0},
-    {"drip", 1, 0, 0, 0, {{"RATE", 20, 127}}, 0u, 0},
-    {"candle", 2, 0, 0, 0, {{"SPUTTER", 40, 127}, {"FLOW", 5, 60}}, 0u, 0},
-    {"sparks", 2, 0, 0, 0, {{"RATE", 4, 105}, {"BURST", 20, 80}}, 0u, 0},
-    {"gravel", 2, 0, 0, 0, {{"AMOUNT", 20, 120}, {"RATE", 30, 110}}, 0u, 0},
-    {"rainstick", 1, 1, 1, 0, {{"SEEDS", 10, 127}}, 8000u, -158272},
-    {"mineral", 2, 0, 0, 0, {{"SPEED", 20, 110}, {"PRESSURE", 30, 100}}, 0u, 0},
-    {"pebble", 1, 0, 0, 0, {{"SPEED", 20, 115}}, 0u, 0},
-    {"thunder", 2, 0, 0, 0, {{"DIST", 110, 25}, {"ENERGY", 40, 100}}, 40000u, -152170},
-    {"bees", 1, 0, 0, 0, {{"SWARM", 0, 127}}, 0u, 0},
-    {"sandsong", 1, 0, 0, 0, {{"FLOW", 40, 127}}, 0u, 0},
-    {"aeolian", 2, 0, 0, 0, {{"WIND", 20, 127}, {"GUST", 20, 80}}, 0u, 0},
-    {"sand", 1, 0, 0, 0, {{"ORIFICE", 25, 110}}, 0u, 0},
-    {"lakeice", 1, 0, 0, 0, {{"RATE", 0, 110}}, 0u, 0},
-    {"spring", 0, 2, 0, 0, {{0, 0, 0}}, 20000u, -414314},
-    {"chimes", 2, 3, 0, 1, {{"WIND", 10, 127}, {"GUST", 30, 90}}, 0u, 0},
-    {"rainsurf", 2, 0, 0, 0, {{"RATE", 10, 127}, {"AREA", 30, 100}}, 0u, 0},
-    {"rockfall", 1, 0, 0, 0, {{"VOLUME", 30, 110}}, 120000u, -283242},
-    {"plate", 1, 4, 0, 0, {{"CRASH", 40, 127}}, 20000u, -382501},
-    {"rainwater", 2, 0, 0, 0, {{"RATE", 10, 127}, {"AREA", 60, 120}}, 0u, 0},
-    {"stream", 2, 0, 0, 0, {{"FLOW", 10, 127}, {"ROAR", 0, 90}}, 0u, 0},
-    {"surf", 2, 0, 0, 0, {{"HEIGHT", 10, 127}, {"CHOP", 30, 90}}, 0u, 0},
-    {"storm", 1, 0, 0, 0, {{"INTENSITY", 0, 127}}, 0u, 0},
-    {"crickets", 2, 0, 0, 0, {{"COUNT", 1, 32}, {"ACTIVITY", 0, 127}}, 0u, 0},
-    {"cicadas", 1, 5, 40, 0, {{"CHORUS", 0, 127}}, 15000u, -304340},
-    {"katydids", 2, 0, 0, 0, {{"COUNT", 1, 16}, {"ACTIVITY", 0, 127}}, 0u, 0},
-    {"crumple", 1, 6, 0, 0, {{"RATE", 10, 120}}, 0u, 0},
-    {"fire", 3, 0, 0, 0, {{"MOIST", 20, 120}, {"SIZE", 20, 100}, {"ROAR", 30, 120}}, 0u, 0},
-    {"stonedrum", 0, 0, 0, 0, {{0, 0, 0}}, 12000u, -435412},
-    {"stonecloud", 1, 7, 0, 0, {{"DENSITY", 14, 127}}, 0u, 0},
-    {"minerals", 0, 0, 0, 0, {{0, 0, 0}}, 10000u, -397076},
-    {"glass", 1, 0, 0, 0, {{"ENERGY", 60, 127}}, 40000u, -283242},
-    {"wood", 2, 0, 0, 0, {{"LOAD", 110, 15}, {"CREAK", 15, 70}}, 30000u, -256042},
-    {"ice", 1, 0, 0, 0, {{"AMOUNT", 20, 127}}, 30000u, -283242},
+    {"test", 0, 1, 0, 0, 0, 0, 0},
+    {"drip", 0, 1, 0, 0, 0, 1, 0},
+    {"candle", 0, 2, 0, 0, 0, 2, 0},
+    {"sparks", 0, 2, 0, 0, 0, 4, 0},
+    {"gravel", 0, 2, 0, 0, 0, 6, 0},
+    {"rainstick", -158272, 1, 1, 1, 0, 8, 8},
+    {"mineral", 0, 2, 0, 0, 0, 9, 0},
+    {"pebble", 0, 1, 0, 0, 0, 11, 0},
+    {"thunder", -152170, 2, 0, 0, 0, 12, 40},
+    {"bees", 0, 1, 0, 0, 0, 14, 0},
+    {"sandsong", 0, 1, 0, 0, 0, 15, 0},
+    {"aeolian", 0, 2, 0, 0, 0, 16, 0},
+    {"sand", 0, 1, 0, 0, 0, 18, 0},
+    {"lakeice", 0, 1, 0, 0, 0, 19, 0},
+    {"spring", -414314, 0, 2, 0, 0, 0, 20},
+    {"chimes", 0, 2, 3, 0, 1, 20, 0},
+    {"rainsurf", 0, 2, 0, 0, 0, 22, 0},
+    {"rockfall", -283242, 1, 0, 0, 0, 24, 120},
+    {"plate", -382501, 1, 4, 0, 0, 25, 20},
+    {"rainwater", 0, 2, 0, 0, 0, 26, 0},
+    {"stream", 0, 2, 0, 0, 0, 28, 0},
+    {"surf", 0, 2, 0, 0, 0, 30, 0},
+    {"storm", 0, 1, 0, 0, 0, 32, 0},
+    {"crickets", 0, 2, 0, 0, 0, 33, 0},
+    {"cicadas", -304340, 1, 5, 40, 0, 35, 15},
+    {"katydids", 0, 2, 0, 0, 0, 36, 0},
+    {"crumple", 0, 1, 6, 0, 0, 38, 0},
+    {"fire", 0, 3, 0, 0, 0, 39, 0},
+    {"stonedrum", -435412, 0, 0, 0, 0, 0, 12},
+    {"stonecloud", 0, 1, 7, 0, 0, 42, 0},
+    {"minerals", -397076, 0, 0, 0, 0, 0, 10},
+    {"glass", -283242, 1, 0, 0, 0, 43, 40},
+    {"wood", -256042, 2, 0, 0, 0, 44, 30},
+    {"ice", -283242, 1, 0, 0, 0, 46, 30},
 };
 
 #endif
