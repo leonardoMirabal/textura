@@ -49,6 +49,8 @@
 #                      jobs and core 0 meanwhile, calls and host time a block, each function's place in the FM-1
 #                      image (RAM / XIP; make fm1-app first) -> build/fw/c1map.txt; the eleventh run: a landscape
 #                      with the mix's DRIVE on (FDRV, then OHCD: its R on core 1)
+#   make fw-c1hot      firmware/c1_hot.txt again (tools/c1hot.py: the audio's hot functions in the order fm1-app places
+#                      them at .text's start, for the flash cache the two cores share; fw-c1map and fm1-app first)
 #   make fw-web        the firmware in a web browser -> build/web/ (web/build.sh, Emscripten from .local/emsdk;
 #                      REL=X.Y.Z stamps a version); make fw-web-serve serves it at http://localhost:8001
 #   make fw-web-check  the web panel in headless Chromium at desktop and phone width (tests/web_check.py)
@@ -78,7 +80,7 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-timing fw-c1map
+PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-timing fw-c1map fw-c1hot
 .PHONY: $(PHONY_FM1) fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-pristine tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
@@ -193,6 +195,13 @@ $(FW)/textura-c1prof: $(FW_DEPS) $(ENG_SRC) $(ENG_HDR) tests/c1prof.c tests/c1pr
 	@mkdir -p $(FW)
 	$(CC) $(CFLAGS_FW) -include tests/c1prof.h -finstrument-functions-after-inlining -o $@ firmware/src/textura.c \
 	  $(ENG_SRC) -x c tests/c1prof.c -lm
+
+# the hot code's order for the FM-1's flash cache (tools/c1hot.py from fw-c1map's profiles and fm1-app's map):
+# firmware/c1_hot.txt again (after an engine is added or renamed: fm1-app fails on a stale name)
+fw-c1hot:
+	@[ -f $(FW)/c1prof10.txt ] && [ -f $(FM1)/textura-app.map ] || { echo "fw-c1hot: make fw-c1map and fm1-app first"; exit 1; }
+	python3 -I tools/c1hot.py $(FW)/textura-c1prof $(FM1)/textura-app.elf $(FM1)/textura-app.map \
+	  $(foreach n,0 1 2 3 4 5 6 7 8 9 10,$(FW)/c1prof$(n).txt) > firmware/c1_hot.txt && echo "fw-c1hot: firmware/c1_hot.txt"
 
 fw-c1map: $(FW)/textura-c1prof
 	@$(HEAVY) sh -c 'for n in 0 1 2 3 4 5 6 7 8 9; do printf "1500 midi 0xC0 $$n 0\n21500 end\n" > $(FW)/c1map$$n.txt; done; \

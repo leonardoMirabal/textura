@@ -23,10 +23,11 @@ MEMORY
 }
 SECTIONS
 {
-    /* the audio hot path first, at a fixed address: the FM-1 runs code from flash through a cache, and where the
-     * Rhodes and effects loops (inlined into app_audio) and rh_hermite land changes their time by up to 150 us
-     * (measured 2026-10-17 when the bar engine grew); pinned here, adding an engine no longer moves them */
-    .text : { KEEP(*(.text.crt0)) . = ALIGN(32); KEEP(*(.text.app_audio)) *(.text.rh_hermite) *(.text*) *(.rodata*)
+    /* the audio hot path first, at a fixed address: the FM-1 runs code from flash through a 32 KB cache the two
+     * cores share, and where the hot code lands decides which of it evicts which (Frodhes measured up to 150 us, and
+     * ~700 us a block of its core 1's work, from layout alone). Textura: firmware/c1_hot.txt's functions in its
+     * order (tools/c1hot.py; tools/fm1_bench.py writes them at the marker), so adding code elsewhere moves none */
+    .text : { KEEP(*(.text.crt0)) . = ALIGN(32); KEEP(*(.text.app_audio)) /* C1_HOT */ *(.text*) *(.rodata*)
               . = ALIGN(4); _etext = .; } > XIP
     .ram_text : { _rt_start = .; KEEP(*(.ram_text*)) . = ALIGN(4); _rt_end = .; } > RAMTEXT AT > XIP
     _rt_load = LOADADDR(.ram_text);

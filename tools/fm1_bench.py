@@ -114,6 +114,30 @@ def stage(frodhes, rev, app=False):
         shutil.copy2(OUT / "gen" / "fm1_cfg.h", TREE / "bench" / "fm1_cfg.h")
 
 
+HOT_MARK = "/* C1_HOT */"
+HOT_FILE = ROOT / "firmware" / "c1_hot.txt"
+
+
+def hot_names():
+    """firmware/c1_hot.txt's functions, in order (tools/c1hot.py writes it: make fw-c1hot)"""
+    return [n for n in (ln.split("#")[0].strip() for ln in HOT_FILE.read_text().splitlines()) if n]
+
+
+def hot_check(mapf, names):
+    """every hot name placed, in one block at .text's start, in the list's order (a stale name: the build fails)"""
+    at = {}
+    for m in re.finditer(r"^ \.text\.([A-Za-z_0-9.]+)\s*\n?\s*(0x[0-9a-f]+)\s+(0x[0-9a-f]+)", mapf.read_text(), re.M):
+        at.setdefault(m.group(1), (int(m.group(2), 16), int(m.group(3), 16)))
+    gone = [n for n in names if n not in at]
+    if gone:
+        raise SystemExit(f"fm1_bench: c1_hot.txt: {len(gone)} name(s) not in the image (stale: make fw-c1hot): {gone[:6]}")
+    a = [at[n][0] for n in names]
+    end = max(x + at[n][1] for n, x in zip(names, a))
+    if a != sorted(a) or min(a) > APP_XIP + 0x100:
+        raise SystemExit("fm1_bench: c1_hot.txt: the hot code is not placed in order at .text's start")
+    print(f"  hot    {len(names)} functions at {min(a):#x} .. {end:#x} ({end - min(a)} B, firmware/c1_hot.txt)")
+
+
 def measure_report(o, out):
     """the measuring link (--app): sections and objects; True when the app does not fit app.ld (or --measure)"""
     sec = {}
@@ -249,7 +273,10 @@ def main():
     ap.add_argument("--no-stage", action="store_true", help="reuse build/fm1/tree")
     ap.add_argument("--app", action="store_true", help="the real app (firmware/src/textura.c), not the bench")
     ap.add_argument("--measure", action="store_true", help="with --app: the measuring link's report only, no image")
-    ap.add_argument("--define", action="append", default=[], help="the bench only: -D NAME for bench/txfm1.c")
+    ap.add_argument("--define", action="append", default=[], help="-D NAME for bench/txfm1.c (with --app: for "
+                    "firmware/src/textura.c, e.g. TX_NO_C1_YIELD)")
+    ap.add_argument("--no-hot", action="store_true", help="with --app: no hot-code layout (firmware/c1_hot.txt not "
+                    "placed: the link's own order, as before it; an A/B on the device)")
     ap.add_argument("--no-twins", action="store_true", help="no core-1 twins (TX_NO_TWINS: core 1 runs the TX_RAM code "
                     "from RAM too, as before them; an A/B of their cost on the device)")
     a = ap.parse_args()
@@ -263,6 +290,13 @@ def main():
         raise SystemExit("fm1_bench: no build/fm1/gen/fm1_cfg.h (make fm1-gen)")
     if not a.no_stage:
         stage(Path(a.frodhes), a.rev, a.app)
+    hot = hot_names() if a.app and not a.no_hot else []
+    if not a.no_stage:                         # the hot code at .text's start, in c1_hot.txt's order (app.ld's marker)
+        ldp = TREE / "firmware" / "app.ld"
+        ld = ldp.read_text()
+        if ld.count(HOT_MARK) != 1:
+            raise SystemExit(f"fm1_bench: app.ld has no {HOT_MARK} (the hot code's place)")
+        ldp.write_text(ld.replace(HOT_MARK, "".join(f" *(.text.{n})" for n in hot)))
     if a.app:                                  # the measuring link's map: the same sections, room for all of them
         ld = (TREE / "firmware" / "app.ld").read_text()
         big, k = re.subn(r"(XIP\s+\(rx\)\s*:\s*ORIGIN\s*=\s*0x02000120,\s*LENGTH\s*=\s*)0x8DFBC", r"\g<1>16M", ld)
@@ -288,6 +322,7 @@ def main():
              f"{cc} -c firmware/crt0.S -o o/crt0.o", f"{cc} -c firmware/hal/fm1_vec.S -o o/fm1_vec.o",
              f"{cc} -c firmware/hal/fm1_isr.S -o o/fm1_isr.o",
              (f'{cc} {cf} {inc} -DFELUCCA_ID=\\"{a.id}\\" -DFELUCCA_USB_PID={USB_PID:#06x} -DAPP_VER=\\"dev\\" '
+              + "".join(f"-D{d} " for d in a.define) +
               "-c firmware/src/textura.c -o o/textura.o"
               if a.app else
               f'{cc} {cf} {inc} -DFM1_PROF_TICK -DFELUCCA_ID=\\"{a.id}\\" -DFELUCCA_USB_PID={USB_PID:#06x} -DAPP_VER=\\"bench\\" '
@@ -335,6 +370,8 @@ def main():
 
     if not a.no_twins:
         twin_check(TREE / "o" / f"{name}.map", ramfn)
+    if hot:
+        hot_check(TREE / "o" / f"{name}.map", hot)
     sys.path.insert(0, str(TREE / "tools"))
     import fm1pkg_make  # noqa: E402
     import lz4blk  # noqa: E402
