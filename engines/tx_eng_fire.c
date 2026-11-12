@@ -116,7 +116,8 @@ static const kind_t KINDS[NKIND] = {
 #define NB 4u                      /* the crackle bank: two pairs (green / dry) */
 #define NEV 64u
 #define RANGE_L2 40795             /* 3 decades of energy: log2(10^3) Q12 (E33: 2-3; the recordings spread 5-7.6 dB) */
-#define HERO_BLK 3u                /* new heroes per block at most (their set-up is the cost) */
+#define HERO_BLK 6u                /* new heroes per block at most (their set-up is the cost; 3 until the FM-1's second
+                                    * core and cache layout gave the room) */
 #define HERO_L2 12000              /* the top ~44 % of the truncated law ring on their own (2.9 octaves of 10) */
 #define A_REF 21000                /* the largest crackle's amplitude, Q15 (calibrated by render) */
 #define DRY 96                     /* the dry click: Q15 x 96 -> Q23 (0.37 of the impulse; by the recordings' flat HF) */
@@ -201,7 +202,8 @@ static void set_param(fire_t *s, unsigned id, unsigned v)
             r = (uint32_t)(((uint64_t)r * tx_exp2(s->k->rate * 256 + (16 << 16))) >> 16);
             if (r > (64u << 8)) r = 64u << 8;                /* at most 64 /s a log (CPU: the densest kinds) */
         }
-        s->rcap = r > (32u << 8) ? r : 32u << 8;           /* (the CPU: SIZE and gusts: to 32 /s, or MOIST's) */
+        s->rcap = r > (64u << 8) ? r : 64u << 8;           /* (the CPU: SIZE and gusts: to 64 /s, or MOIST's; 32 /s
+                                                             * until the second core's room) */
         r = (uint32_t)(((uint64_t)r * (uint32_t)(s->szg ? s->szg : 32768)) >> 15);   /* (SIZE) */
         if (r > s->rcap) r = s->rcap;
         s->rate = r;

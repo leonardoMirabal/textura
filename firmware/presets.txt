@@ -102,7 +102,7 @@ NIGHT RAIN   fx1 | X:field cricket n1 a1 rF p64 v92 | W:eaves dripping n1 a0 rM 
 NIGHT FIRE   fx1 | X:field cricket n2 a2 rF p64 v81 | F:embers n1 a1 rM p36 v98 | A:breeze in grass n1 a1 rB p92 v50 | Y:nightjar n1 a0 r-14 p24 v43
 
 = FIRE
-CAMPFIRE     fx1 | F:campfire n1 a3 rF p64 v115 | F:sparks n1 a0 rM p44 v126 | X:field cricket n1 a1 rM p88 v33 | A:breeze in grass n1 a1 rB p30 v67
+CAMPFIRE     fx1 | F:campfire n1 a3 r-2 p64 v97 | F:sparks n1 a0 r-10 p44 v101 | X:field cricket n1 a1 rM p88 v33 | A:breeze in grass n1 a1 rB p30 v67
 BONFIRE      fx1 | F:bonfire n1 a3 rF p64 v120 | F:sparks n1 a1 rM p44 v86 | X:field cricket n1 a0 rB p88 v22 | A:wind n1 a2 rB p30 v55
 PINE FIRE    fx1 | F:pine fire n1 a3 rF p64 v120 | F:sparks n1 a1 rM p44 v88 | X:tree cricket n1 a0 rB p88 v28 | A:wind in pines n1 a2 rB p30 v56
 FOREST FIRE  fx1 | F:bonfire n2 a3 rF p64 v119 | F:sparks n1 a2 rM p44 v65 | F:pine fire n1 a2 rM p88 v65 | A:ridge gale n1 a2 rB p30 v58
