@@ -1,0 +1,26 @@
+# HOME held 600 ms (ui.c): the setup, MIDI CLOCK, from any page; the tap's move comes first (HOME is home at once, as
+# before); GLO goes on through the setup (MIDI IN, DISPLAY); HOME, HOME again: back to MIDI CLOCK; a tap alone stays
+# home
+1700 btn 6
+1710 expect state page SOUND_1/2
+1800 press 8
+1820 expect state page LANDSCAPE
+2300 expect state page LANDSCAPE
+2450 expect state page MIDI
+2450 expect led 7 1
+2500 release 8
+2510 expect state page MIDI
+2520 shot
+2600 btn 7
+2610 expect state page MIDI_IN
+2700 btn 7
+2710 expect state page DISPLAY
+2800 btn 8
+2810 expect state page LANDSCAPE
+2820 btn 8
+2830 expect state page DISPLAY
+2900 btn 6
+2910 btn 8
+2920 expect state page LANDSCAPE
+3700 expect state page LANDSCAPE
+3800 end

@@ -214,6 +214,12 @@ int32_t tx_groove_dist(const tx_groove_lane_t *l, unsigned type, unsigned shift,
     for (j = 0; j < x.n; j++) if (gr_w(&x, j) * 4u >= wm * 3u && gr_dist(&x, p, j) < best) best = gr_dist(&x, p, j);
     return (int32_t)best;
 }
+GR_SMALL int32_t tx_groove_place(const tx_groove_lane_t *l, unsigned type, unsigned shift, uint32_t tick)
+{
+    gr_ctx_t x;
+    if (!gr_ctx(l, type, &x)) return -1;
+    return (int32_t)(gr_place(l, &x, shift, tick) * 256u / x.S);
+}
 GR_SMALL unsigned tx_groove_slots(const tx_groove_lane_t *l, unsigned type, uint8_t *pos, uint8_t *w, unsigned max, unsigned *beats)
 {
     gr_ctx_t x;

@@ -360,6 +360,7 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (sscanf(key, "lane%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%s", ln_engine(k) ? ln_engine(k)->name : "-");
     else if (sscanf(key, "snd%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%s", sc_sound_name(k));
     else if (sscanf(key, "cnt%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc_cnt_of(k));
+    else if (sscanf(key, "gcur%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%d", (int)gr_cursor(k));   /* (GROOVE 2/2: the sweep cursor) */
     else if (sscanf(key, "act%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", ui_lane_act(k));
     else if (sscanf(key, "run%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.run[k]);
     else if (sscanf(key, "vol%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc_vol_of(k));
@@ -372,7 +373,7 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (sscanf(key, "sel%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.nsel[k]);   /* the lane's switches so far */
     else if (!strcmp(key, "glides")) { for (i = scn_gl_n, k = 0; k < SC_N; k++) i += sc.gl_on[k]; snprintf(v, n, "%u", i); }   /* settings on their way */
     else if (!strcmp(key, "browser")) snprintf(v, n, "%u", ub.on ? ub.lv : 0u);   /* the sound browser: 0 shut, its level */
-    else if (!strcmp(key, "brfam")) snprintf(v, n, "%s", !ub.pr ? LS[ub.f].name : ub.f < PR_NCAT ? pr_cat_name(ub.f) : "USER");   /* (the presets
+    else if (!strcmp(key, "brfam")) snprintf(v, n, "%s", !ub.pr ? LS[ub.f].name : ub_cat_name(ub.f));   /* (the presets
                                                  * list: the cursor's family) */
     else if (!strcmp(key, "brpr")) snprintf(v, n, "%u", ub.on && ub.pr);   /* the browser open is the presets one */
     else if (!strcmp(key, "brcur")) snprintf(v, n, "%u", ub.pr ? ub_pos() : ub.cur);   /* (the presets list: the place in its family) */

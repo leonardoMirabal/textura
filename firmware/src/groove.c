@@ -37,6 +37,11 @@ static const uint32_t GR_SW[LS_N] = {
     0x0FFFFFu,      /* Songbirds: 3 */
     0x0FFFFFu,      /* Wild birds: 3 */
 };
+static int32_t gr_cursor(uint32_t k)            /* lane k's place in the span now (0 .. 255; -1: no pulse): the UI's
+                                                 * sweep cursor */
+{
+    return tx_groove_place(&gr_lane[k & 3u], gr_type, gr_shift, mpos >> 8);
+}
 static uint32_t gr_wl(uint32_t k)               /* lane k's sound's weight */
 {
     if (sc.snd[k] < 0) return 0;

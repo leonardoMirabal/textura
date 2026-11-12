@@ -1,0 +1,32 @@
+# the landscapes as presets' starting points: the presets list ends in LANDSCAPES, each landscape's own start (what
+# ALGORITHM + EDIT on TEXTURA load); EDIT loads one, the list staying open (no preset now: the header and the list's
+# footer name the landscape, "LOADED L04"); EDIT on a preset after it loads the preset as before
+1700 midi 0xC0 0 0
+2600 expect state scene F001_DRIZZLE
+2600 expect state loading 0
+2700 turn 6 1
+2720 expect state brpr 1
+2720 expect state brfam RAIN
+# SELECT to the last family: LANDSCAPES; PRESETS 3: Fire (L04)
+2800 turn 0 20
+2820 expect state brfam LANDSCAPES
+2820 expect state brcur 0
+2900 turn 6 3
+2920 expect state brcur 3
+2950 shot
+# EDIT: Fire loads (no preset), its toast; the list stays open, Fire's row the one loaded
+3000 btn 6
+3020 expect state brpr 1
+3020 expect state scene -
+3020 expect state landscape Fire
+3020 expect state toasthd LOADED
+3500 shot
+# SELECT back a family, EDIT: a preset loads again (ICE & WINTER's first)
+3600 turn 0 -1
+3620 expect state brfam ICE_&_WINTER
+3700 btn 6
+4700 expect state loading 0
+4700 expect state scene F091_FROST
+4800 btn 8
+4820 expect state brpr 0
+4900 end

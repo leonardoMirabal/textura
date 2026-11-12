@@ -52,6 +52,9 @@ int32_t tx_groove_mul(tx_groove_lane_t *l, unsigned type, unsigned amount, unsig
 /* how far tick is from the lane's pulse: its nearest heavy slot (3/4 of the part's heaviest weight or more), ticks;
  * the tests: how close events fall (0x7FFFFFFF: no pulse, a FREE part) */
 int32_t tx_groove_dist(const tx_groove_lane_t *l, unsigned type, unsigned shift, uint32_t tick);
+/* where lane l is in the span now (0 .. 255, as tx_groove_slots' pos: SHIFT and its drift in it), -1: no pulse (the
+ * UI's sweep cursor) */
+int32_t tx_groove_place(const tx_groove_lane_t *l, unsigned type, unsigned shift, uint32_t tick);
 /* the lane's slots, for a picture: each one's place over the span (0 .. 255) and weight (0 .. 40) into pos, w (max
  * of them); *beats the TYPE's span in beats. Returns how many (0: no pulse, a FREE part) */
 unsigned tx_groove_slots(const tx_groove_lane_t *l, unsigned type, uint8_t *pos, uint8_t *w, unsigned max, unsigned *beats);

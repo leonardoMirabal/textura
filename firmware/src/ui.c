@@ -31,7 +31,8 @@
  *              (the channel whose notes play the selected lane)
  *   K1..K4     LANDSCAPE: the volumes of lanes 1..4 (a lane's sound: its SOUND page; HOW MANY, HOW ACTIVE: the white
  *              keys too); the lane pages, GROOVE 2/2: lanes 1..4; else the cards
- *   HOME       LANDSCAPE; on LANDSCAPE: back to the last page left, however it was left (P7; the footer names it)
+ *   HOME       LANDSCAPE; on LANDSCAPE: back to the last page left, however it was left (P7; the footer names it);
+ *              held 600 ms: the setup, MIDI CLOCK (GLO on: MIDI IN, DISPLAY)
  *   EDIT       SOUND (again: its next page)        FX  on its release: EFFECTS (again: each page of COMPRESSOR,
  *              DRIVE, FILTER, GRAIN, REVERB, then round); held 600 ms, from any page: FILTER (the mix's filter at once;
  *              HOME, then HOME again, comes back to it)
@@ -57,7 +58,8 @@
  *   SAVE       the save mode (scenes.c: PRESETS / K1 the user scene, SAVE again saves, HOME cancels); held 700 ms:
  *              undo the last scene load
  *   PRESETS    the presets list, over the rows like SOUNDS: one list, each family's header then its presets, USER
- *              (the saved scenes) last; it opens on the preset loaded, not moved. PRESETS / ALGORITHM / K1 move the
+ *              (the saved scenes), LANDSCAPES last (each landscape's start, L01..L10: a starting point, as ALGORITHM +
+ *              EDIT on TEXTURA); it opens on the preset loaded, not moved. PRESETS / ALGORITHM / K1 move the
  *              cursor, nothing loads; SELECT the next / previous family; EDIT loads the one under the cursor, the list
  *              stays (on the one loaded with FX: YOURS: with its effects); the loaded one solid, the cursor an outline,
  *              the title PRESETS: BROWSING off it; FX: LOAD OPTIONS (K1 EFFECTS ON LOAD, K2 PRESETS CHANGE TEMPO; FX
@@ -216,27 +218,39 @@ static struct {
     uint8_t pend;                               /* a preview waiting since t */
     uint32_t t;
 } ub;
-#define UB_USER PR_NCAT                         /* (the presets list's last family: the scenes saved) */
-static uint32_t ub_ncat(void) { return PR_NCAT + (scn_user_n() ? 1u : 0u); }
-static uint32_t ub_cat_n(uint32_t c) { return c < PR_NCAT ? pr_cat_n(c) : scn_user_n(); }   /* a family's presets */
+#define UB_USER PR_NCAT                         /* (the presets list's family after the factory's: the scenes saved) */
+#define UB_LS0 0x100u                           /* (a row's *v from here: a landscape, UB_LS0 + its family) */
+static uint32_t ub_ncat(void) { return PR_NCAT + (scn_user_n() ? 1u : 0u) + 1u; }   /* (+ LANDSCAPES, the last) */
+static int ub_is_ls(uint32_t c) { return c + 1u == ub_ncat(); }
+static uint32_t ub_cat_n(uint32_t c) { return c < PR_NCAT ? pr_cat_n(c) : ub_is_ls(c) ? LS_N : scn_user_n(); }   /* a
+                                                 * family's presets */
+static const char *ub_cat_name(uint32_t c) { return c < PR_NCAT ? pr_cat_name(c) : ub_is_ls(c) ? "LANDSCAPES" : "USER"; }
 static uint32_t ub_n(void)                      /* the list's length (the presets list: its families' headers too) */
 {
     if (!ub.pr) return ub.lv == 1 ? LS_N : LS[ub.f].n;
-    return ub_ncat() + PR_N + scn_user_n();
+    return ub_ncat() + PR_N + scn_user_n() + LS_N;
 }
-/* the presets list: a family's header row, its presets, the next family's header ...; USER (the scenes saved) last.
- * Row i: 1 a preset (*v its scene number), 0 a family's header (*v the family) */
+/* the presets list: a family's header row, its presets, the next family's header ...; USER (the scenes saved), then
+ * LANDSCAPES (each landscape's own start: a preset's starting point, as ALGORITHM + EDIT on TEXTURA) last. Row i: 1 a
+ * preset (*v its scene number; a landscape: UB_LS0 + its family), 0 a family's header (*v the family) */
 static int ub_row(uint32_t i, uint32_t *v)
 {
     uint32_t c, n;
     for (c = 0; c < ub_ncat(); c++) {
         if (!i) { *v = c; return 0; }
         n = ub_cat_n(c);
-        if (--i < n) { *v = c < PR_NCAT ? pr_cat_first(c) + i : SCN_NF + scn_user_at(i); return 1; }
+        if (--i < n) { *v = c < PR_NCAT ? pr_cat_first(c) + i : ub_is_ls(c) ? UB_LS0 + i : SCN_NF + scn_user_at(i); return 1; }
         i -= n;
     }
     *v = 0;
     return 0;
+}
+static void ub_name(uint32_t v, char *s)        /* a row's "F034 HARBOUR NIGHT", "U02 MINE", "L03 FIRE" (20 bytes) */
+{
+    if (v < UB_LS0) { scn_name_of(v, s); return; }
+    v -= UB_LS0;
+    s[0] = 'L'; s[1] = (char)('0' + (v + 1u) / 10u); s[2] = (char)('0' + (v + 1u) % 10u); s[3] = ' ';
+    p_upper(s + 4, LS[v].name, 15);
 }
 static uint32_t ub_head_of(uint32_t c)          /* family c's header row */
 {
@@ -249,7 +263,10 @@ static uint32_t ub_pos(void)                    /* the cursor's place in its fam
     uint32_t h = ub_head_of(ub.f);
     return ub.cur > h ? ub.cur - h - 1u : 0u;
 }
-static uint32_t ub_loaded(void) { return scn_busy() ? scn_ap_idx : scn_cur; }   /* (a load under way: the one coming) */
+static uint32_t ub_loaded(void)                 /* (a load under way: the one coming; no preset: the landscape) */
+{
+    return scn_busy() ? scn_ap_idx : scn_cur < SCN_N ? scn_cur : UB_LS0 + sc.fam;
+}
 
 
 /* ---- the tokens (Frodhes' MT_LOOKS[0] on the palette) */
@@ -579,7 +596,7 @@ static void draw_title(void)
         if (!ub.opt && !on) x = aa_text(x, S_TOP(10), &AF_S, ": BROWSING", FC_VAL, FC_BG);
         if (!ub.opt) {
             ui_frac(n, ub_pos() + 1u, ub_cat_n(ub.f));
-            p_strcpy(r, ub.f < PR_NCAT ? pr_cat_name(ub.f) : "USER", 15); p_cat(r, " ", 23); p_cat(r, n, 23);
+            p_strcpy(r, ub_cat_name(ub.f), 15); p_cat(r, " ", 23); p_cat(r, n, 23);
             if (x + 8 + aa_text_w(&AF_S, r) > 230) p_strcpy(r, n, 23);
             aa_text_r(230, S_TOP(10), &AF_S, r, FC_LAB, FC_BG);
         }
@@ -839,7 +856,7 @@ static unsigned ui_role_text(uint32_t k, char *r, uint8_t *pos, uint8_t *w)
 }
 /* a row: the lane and its sound, the role by what it does ("AUTO: PULSE", "5 PER 4 BEATS") and Kn; under them what it
  * means ("ON THE BEAT"; a sound the groove leaves alone: "WIND . FLOWS FREE", the row dimmed) and the lane's pulse:
- * its slots over the span (the strong ones larger), the beats as ticks */
+ * its slots over the span (the strong ones larger), the beats as ticks, a cursor sweeping it with the song position */
 static void draw_groove_row(uint32_t k)
 {
     static const char *const MEAN[5] = {"NO PULSE", "ON THE BEAT", "BETWEEN BEATS", "IN THE GAPS", "OWN CYCLE"};
@@ -847,6 +864,7 @@ static void draw_groove_row(uint32_t k)
     uint8_t pos[32], w[32];
     unsigned beats, ns, j;
     uint32_t role = ui_role(k), part = gr_lane[k].part, x;
+    int32_t c;
     int fr = !gr_wl(k), hot = ui_hot_card == k && ui_hot_t && fm1_ms - ui_hot_t < HOT_MS;
     const int32_t X0 = 124, W = 96;
     cv_begin(RW_W, RW_H, C_BLACK);
@@ -869,6 +887,8 @@ static void draw_groove_row(uint32_t k)
         aa_text_ov(6, S_TOP(27), &AF_S, MEAN[role >= 5u ? 4u : role == 0u || !part || part >= TX_GRP_FREE ? 0u : part], FC_DIM);
         for (j = 0; j < beats && j < 16u; j++) cv_rect(X0 + W * (int32_t)j / (int32_t)beats, 30, 1, 5, CD_SEGDIM);
         if (!ns) cv_rect(X0, 27, W, 1, CD_SEGDIM);
+        else if ((c = gr_cursor(k)) >= 0) cv_rect(X0 + W * c / 256, 21, 1, 13, UI_ACC);   /* the sweep cursor: where the
+                                                 * lane is in the span (its SHIFT in it), with the song position */
         for (j = 0; j < ns; j++) {
             int32_t s = w[j] >= 28u ? 5 : w[j] >= 8u ? 3 : 0, px = X0 + W * (int32_t)pos[j] / 256;
             if (s) cv_rect(px, 27 - s / 2, s, s, s == 5 ? mt.edge : FC_LAB);
@@ -907,12 +927,12 @@ static void draw_pr_row(uint32_t k)
         int cur, on;
         if (i >= n) continue;
         if (!ub_row(i, &v)) {                   /* a family: its name, a line to the edge */
-            int32_t x = aa_text_ov(6, S_TOP(yc), &AF_S, v < PR_NCAT ? pr_cat_name(v) : "USER", UI_ACC) + 6;
+            int32_t x = aa_text_ov(6, S_TOP(yc), &AF_S, ub_cat_name(v), UI_ACC) + 6;
             if (x < (int32_t)RW_W - 6) cv_rect(x, yc, (int32_t)RW_W - 6 - x, 1, MT_DIMLINE);
             continue;
         }
         cur = i == ub.cur; on = v == q;
-        scn_name_of(v, s);
+        ub_name(v, s);
         { uint32_t c = v < SCN_NF ? 4u : 3u; p_strcpy(nm, s + c + 1u, 23); s[c] = 0; }
         if (on) { cv_rect(0, ya, RW_W, yb - ya - 1, mt.fill); cv_rect(0, ya, 4, yb - ya - 1, UI_ACC); }
         if (cur) {
@@ -1091,10 +1111,10 @@ static void draw_footer(void)
         char a[24], b[24], c[8];
         uint32_t v, q = ub_loaded();
         (void)ub_row(ub.cur, &v);
-        scn_name_of(v, b); b[v < SCN_NF ? 4 : 3] = 0; p_strcpy(c, b, 7);
+        ub_name(v, b); b[v < SCN_NF ? 4 : 3] = 0; p_strcpy(c, b, 7);
         p_strcpy(b, "EDIT: LOAD ", 23); p_cat(b, c, 23);
-        if (q < SCN_N) { scn_name_of(q, a); a[q < SCN_NF ? 4 : 3] = 0; p_strcpy(c, a, 7); p_strcpy(a, "LOADED ", 23); p_cat(a, c, 23); }
-        if (q >= SCN_N) ft_c(7, b, FC_LAB);
+        if (q < SCN_N || q >= UB_LS0) { ub_name(q, a); a[q < SCN_NF ? 4 : 3] = 0; p_strcpy(c, a, 7); p_strcpy(a, "LOADED ", 23); p_cat(a, c, 23); }
+        if (q >= SCN_N && q < UB_LS0) ft_c(7, b, FC_LAB);
         else if (v != q) ft_two(7, a, b, FC_LAB);
         else if (ui_fx_yours()) ft_two(7, "FX: YOURS", "EDIT: ITS FX TOO", FC_LAB);
         else ft_two(7, a, "EDIT: AGAIN", FC_LAB);
@@ -1257,7 +1277,8 @@ static uint32_t ui_sig_of(uint32_t e)
             h = sig_mix(h, sc_cnt_of(k)); h = sig_mix(h, ui_lane_act(k));
             if (ui_g == G_LANES) { int32_t lv; uint32_t id = ui_row_id(k); h = sig_mix(h, id != NOID && mod_live(id, &lv) ? (uint32_t)lv / 4u + 1u : 0u); }
             if (ui_g == G_LAND) h = sig_mix(h, k == sc.sel);
-            if (UI_GLANES) { h = sig_mix(h, gr_set[0][k] | gr_set[1][k] << 4); h = sig_mix(h, gr_lane[k].part | gr_lane[k].wl << 4); h = sig_mix(h, gr_type); }
+            if (UI_GLANES) { h = sig_mix(h, gr_set[0][k] | gr_set[1][k] << 4); h = sig_mix(h, gr_lane[k].part | gr_lane[k].wl << 4); h = sig_mix(h, gr_type);
+                h = sig_mix(h, (uint32_t)(gr_cursor(k) + 1) >> 1); }   /* (the sweep cursor: every 2nd step, ~2 px) */
         } else {
             uint32_t id = ui_row_id(k);
             h = sig_mix(h, id);
@@ -1483,6 +1504,17 @@ static void ub_family(int32_t d)                /* SELECT at level 2: the previo
     ub_view();
     ub.pend = 1; ub.t = fm1_ms;
 }
+static void ui_land_go(uint32_t f)              /* landscape f loads (TEXTURA's ALGORITHM + EDIT, or the presets list's
+                                                 * LANDSCAPES): no preset now, the header names the landscape */
+{
+    char t[32];
+    sc.fam_want = (uint8_t)f;
+    sc_family_go();
+    scn_cur = 0xFF; scn_edited = 0;
+    p_strcpy(t, "LANDSCAPE ", 31); p_upper(t + 10, LS[sc.fam].name, 20);
+    ui_say(t);
+    ui_toast("LOADED", 0xFF);
+}
 static void ub_say(void) { char t[32]; p_upper(t, sc_sound_name(ub.lane), 31); ui_say(t); }
 static void ub_edit(void)                       /* EDIT: open the family / pick the sound; the presets: load the one under
                                                  * the cursor (the list stays; on the one loaded with FX: YOURS: with its
@@ -1490,7 +1522,7 @@ static void ub_edit(void)                       /* EDIT: open the family / pick 
 {
     if (ub.pr) {
         uint32_t v;
-        if (ub_row(ub.cur, &v)) scn_pb_go(v, v == ub_loaded() && ui_fx_yours());
+        if (ub_row(ub.cur, &v)) { if (v >= UB_LS0) ui_land_go(v - UB_LS0); else scn_pb_go(v, v == ub_loaded() && ui_fx_yours()); }
         return;
     }
     if (ub.lv == 1) {
@@ -1735,8 +1767,8 @@ static void ui_rec(void)
     }
     ui_tap(tap);                                /* (the third: the tempo, bar 1 there; none while a clock leads) */
 }
-static uint32_t ui_fx_t;
-static uint8_t ui_fx_down;                      /* FX pressed, its release or its hold to come */
+static uint32_t ui_fx_t, ui_home_t;
+static uint8_t ui_fx_down, ui_home_down;        /* FX, HOME pressed, their release or their hold to come */
 static void ui_sel(uint32_t b, uint32_t rel)    /* SEL: a tap switches the key mode; held, the other mode while held
                                                  * (a key or a button used meanwhile: back when let go) */
 {
@@ -1804,18 +1836,17 @@ static void ui_input(uint32_t b, uint32_t rel)
         b &= ~(1u << BTN_HOME);
     }
     if (b >> BTN_EDIT & 1u && ui_g == G_LAND && sc.fam_pend == SC_FAM_PICKED) {   /* EDIT: the landscape picked loads */
-        char t[32];
-        sc_family_go();
-        scn_cur = 0xFF; scn_edited = 0;         /* (no preset now: the header names the landscape) */
-        p_strcpy(t, "LANDSCAPE ", 31); p_upper(t + 10, LS[sc.fam].name, 20);
-        ui_say(t);
-        ui_toast("LOADED", 0xFF);
+        ui_land_go(sc.fam_want);
         b &= ~(1u << BTN_EDIT);
     }
     if (b >> BTN_HOME & 1u) {                   /* HOME: the home page; there: back to the last page (P7) */
         if (ui_g != G_LAND) ui_goto(G_LAND, 0);
         else if (ui_back_g != 0xFF) ui_goto(ui_back_g, ui_back_sub);
+        ui_home_t = fm1_ms; ui_home_down = 1;
     }
+    if (ui_home_down && fm1_ms - ui_home_t >= TAP_HOLD_MS) { ui_home_down = 0; ui_goto(G_MIDI, 0); }   /* held: the setup
+                                                 * (MIDI CLOCK; GLO on: MIDI IN, DISPLAY); the tap's move stays first */
+    if (rel >> BTN_HOME & 1u) ui_home_down = 0;
     if (b >> BTN_EDIT & 1u) ui_goto(G_SOUND, ui_g == G_SOUND ? (ui_sub + 1u) % ui_nsub(G_SOUND) : 0u);   /* (the lane's
                                                  * SOUND; again: its next page) */
     if (b >> BTN_FX & 1u) { ui_fx_t = fm1_ms; ui_fx_down = 1; }   /* FX: on the release (held TAP_HOLD_MS: FILTER) */
