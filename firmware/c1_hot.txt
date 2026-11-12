@@ -5,119 +5,119 @@
 # time a block first (host profile, the mean over 11 landscapes); 4 the reverbs' and the grain delay's other
 # code (the TYPE the player picks: one runs at a time), as their objects have it.
 # 1 the mix end: 28 functions, 18078 B
-hq_half                                  #   620 B,    620 B so far,   6.572 us a block
-tx_hq_run                                #  1976 B,   2596 B so far,   2.097 us a block
-tx_mix_add                               #   482 B,   3078 B so far,   1.946 us a block
-tx_limit_process                         #   998 B,   4076 B so far,   0.788 us a block
-tx_fx_reverb_process                     #  4180 B,   8256 B so far,   0.416 us a block
-tx_comp_process                          #  1052 B,   9308 B so far,   0.402 us a block
-tx_rev_down                              #    90 B,   9398 B so far,   0.244 us a block
-tx_mix_run                               #   304 B,   9702 B so far,   0.186 us a block
-tx_fx_drive_run                          #  2426 B,  12128 B so far,   0.050 us a block
-tx_fx_drive_mix_us                       #    34 B,  12162 B so far,   0.043 us a block
-tx_fx_bus_end_c1                         #    42 B,  12204 B so far,   0.032 us a block
-tx_fx_bus_begin                          #    22 B,  12226 B so far,   0.031 us a block
-oh_aa1                                   #   358 B,  12584 B so far,   0.031 us a block
-tx_mix_out                               #    24 B,  12608 B so far,   0.030 us a block
-predelay                                 #   246 B,  12854 B so far,   0.029 us a block
-oh_s2r                                   #   598 B,  13452 B so far,   0.029 us a block
-oh_s12                                   #   190 B,  13642 B so far,   0.028 us a block
-oh_out                                   #   142 B,  13784 B so far,   0.027 us a block
-tx_mix_begin                             #    26 B,  13810 B so far,   0.025 us a block
-drive_mix                                #   204 B,  14014 B so far,   0.025 us a block
-tx_fx_drive_mix_c1                       #    16 B,  14030 B so far,   0.020 us a block
-tx_fx_drive_us                           #    88 B,  14118 B so far,   0.019 us a block
-tx_fx_gd_cap                             #   252 B,  14370 B so far,   0.010 us a block
-tx_fx_mfilter_process                    #  1274 B,  15644 B so far,   0.010 us a block
-tx_fx_grain_end_c1                       #  2258 B,  17902 B so far,   0.010 us a block
+hq_half                                  #   620 B,    620 B so far,   6.880 us a block
+tx_hq_run                                #  1976 B,   2596 B so far,   2.194 us a block
+tx_mix_add                               #   482 B,   3078 B so far,   2.037 us a block
+tx_limit_process                         #   998 B,   4076 B so far,   0.824 us a block
+tx_fx_reverb_process                     #  4180 B,   8256 B so far,   0.440 us a block
+tx_comp_process                          #  1052 B,   9308 B so far,   0.420 us a block
+tx_rev_down                              #    90 B,   9398 B so far,   0.256 us a block
+tx_mix_run                               #   304 B,   9702 B so far,   0.195 us a block
+tx_fx_drive_run                          #  2426 B,  12128 B so far,   0.052 us a block
+tx_fx_drive_mix_us                       #    34 B,  12162 B so far,   0.046 us a block
+tx_fx_bus_end_c1                         #    42 B,  12204 B so far,   0.034 us a block
+tx_fx_bus_begin                          #    22 B,  12226 B so far,   0.033 us a block
+oh_aa1                                   #   358 B,  12584 B so far,   0.032 us a block
+tx_mix_out                               #    24 B,  12608 B so far,   0.031 us a block
+predelay                                 #   246 B,  12854 B so far,   0.031 us a block
+oh_s2r                                   #   598 B,  13452 B so far,   0.030 us a block
+oh_s12                                   #   190 B,  13642 B so far,   0.029 us a block
+oh_out                                   #   142 B,  13784 B so far,   0.028 us a block
+tx_mix_begin                             #    26 B,  13810 B so far,   0.027 us a block
+drive_mix                                #   204 B,  14014 B so far,   0.026 us a block
+tx_fx_drive_mix_c1                       #    16 B,  14030 B so far,   0.021 us a block
+tx_fx_drive_us                           #    88 B,  14118 B so far,   0.020 us a block
+tx_fx_grain_end_c1                       #  2258 B,  16376 B so far,   0.011 us a block
+tx_fx_mfilter_process                    #  1274 B,  17650 B so far,   0.011 us a block
+tx_fx_gd_cap                             #   252 B,  17902 B so far,   0.010 us a block
 tx_fx_mfilter_us                         #    66 B,  17968 B so far,   0.010 us a block
 dr_blend                                 #    76 B,  18044 B so far,   0.003 us a block
 tx_fx_drive_prep                         #    34 B,  18078 B so far,   0.001 us a block
 # 2 the firmware's audio side: 4 functions, 544 B
-ln_krun                                  #    54 B,  18132 B so far,   0.077 us a block
-ln_par_job                               #   106 B,  18238 B so far,   0.058 us a block
-ln_ring_lane                             #   320 B,  18558 B so far,   0.048 us a block
-ln_pipe_job                              #    64 B,  18622 B so far,   0.020 us a block
+ln_krun                                  #    54 B,  18132 B so far,   0.081 us a block
+ln_par_job                               #   106 B,  18238 B so far,   0.061 us a block
+ln_ring_lane                             #   320 B,  18558 B so far,   0.051 us a block
+ln_pipe_job                              #    64 B,  18622 B so far,   0.022 us a block
 # 3 the engines: 78 functions, 79606 B
-tx_wind_block                            #  5716 B,  24338 B so far,   2.952 us a block
-tx_svf_bank_add_g                        #  2156 B,  26494 B so far,   1.724 us a block
-hosted_out                               #   792 B,  27286 B so far,   1.188 us a block
-drip_render                              #  5158 B,  32444 B so far,   0.878 us a block
-rain_render                              #  5020 B,  37464 B so far,   0.700 us a block
-src_render                               # 13170 B,  50634 B so far,   0.602 us a block
-wind_render                              #   338 B,  50972 B so far,   0.314 us a block
-tx_source_hosted                         #    28 B,  51000 B so far,   0.212 us a block
-life_block                               #   526 B,  51526 B so far,   0.189 us a block
-surf_render                              #  6122 B,  57648 B so far,   0.172 us a block
-tx_life_step                             #   580 B,  58228 B so far,   0.154 us a block
-tx_bird_render                           #  2150 B,  60378 B so far,   0.126 us a block
-tx_gen_block                             #  2394 B,  62772 B so far,   0.091 us a block
-tx_lfo_block                             #  1174 B,  63946 B so far,   0.091 us a block
-host_apply                               #  1320 B,  65266 B so far,   0.090 us a block
-gr_ctx                                   #   228 B,  65494 B so far,   0.089 us a block
-tx_groove_mul                            #   476 B,  65970 B so far,   0.081 us a block
-src_stats                                #    78 B,  66048 B so far,   0.079 us a block
-count_q8                                 #   222 B,  66270 B so far,   0.073 us a block
-fire_render                              #  4906 B,  71176 B so far,   0.044 us a block
-src_param                                #  2254 B,  73430 B so far,   0.037 us a block
-drip_stats                               #    70 B,  73500 B so far,   0.033 us a block
-tx_pool_count                            #    24 B,  73524 B so far,   0.032 us a block
-thunder_render                           #  2510 B,  76034 B so far,   0.031 us a block
-gr_pop                                   #    28 B,  76062 B so far,   0.029 us a block
-rates                                    #  1946 B,  78008 B so far,   0.027 us a block
-tx_bubble_render                         #   302 B,  78310 B so far,   0.022 us a block
-at                                       #   368 B,  78678 B so far,   0.022 us a block
-flash_out                                #   256 B,  78934 B so far,   0.021 us a block
-tx_env_block                             #   410 B,  79344 B so far,   0.021 us a block
-tx_fol_block                             #    96 B,  79440 B so far,   0.020 us a block
-tx_fol_level_q15                         #   122 B,  79562 B so far,   0.020 us a block
-flash_ramp                               #   304 B,  79866 B so far,   0.019 us a block
-wind_stats                               #    42 B,  79908 B so far,   0.018 us a block
-tx_ireso_add                             #   242 B,  80150 B so far,   0.018 us a block
-tx_cloud_block                           #   552 B,  80702 B so far,   0.018 us a block
-pre_amount                               #   284 B,  80986 B so far,   0.016 us a block
-gr_get                                   #   266 B,  81252 B so far,   0.016 us a block
-tx_clu_next                              #   504 B,  81756 B so far,   0.015 us a block
-clu_cfg_row                              #   314 B,  82070 B so far,   0.014 us a block
-tx_clu_block                             #   784 B,  82854 B so far,   0.013 us a block
+tx_wind_block                            #  5716 B,  24338 B so far,   3.088 us a block
+tx_svf_bank_add_g                        #  2156 B,  26494 B so far,   1.796 us a block
+hosted_out                               #   792 B,  27286 B so far,   1.245 us a block
+drip_render                              #  5158 B,  32444 B so far,   0.924 us a block
+rain_render                              #  5020 B,  37464 B so far,   0.731 us a block
+src_render                               # 13170 B,  50634 B so far,   0.637 us a block
+wind_render                              #   338 B,  50972 B so far,   0.329 us a block
+tx_source_hosted                         #    28 B,  51000 B so far,   0.223 us a block
+life_block                               #   526 B,  51526 B so far,   0.196 us a block
+surf_render                              #  6122 B,  57648 B so far,   0.179 us a block
+tx_life_step                             #   580 B,  58228 B so far,   0.163 us a block
+tx_bird_render                           #  2150 B,  60378 B so far,   0.131 us a block
+tx_gen_block                             #  2394 B,  62772 B so far,   0.098 us a block
+host_apply                               #  1320 B,  64092 B so far,   0.096 us a block
+tx_lfo_block                             #  1174 B,  65266 B so far,   0.096 us a block
+gr_ctx                                   #   228 B,  65494 B so far,   0.091 us a block
+tx_groove_mul                            #   476 B,  65970 B so far,   0.084 us a block
+src_stats                                #    78 B,  66048 B so far,   0.083 us a block
+count_q8                                 #   222 B,  66270 B so far,   0.077 us a block
+fire_render                              #  4906 B,  71176 B so far,   0.048 us a block
+src_param                                #  2254 B,  73430 B so far,   0.041 us a block
+drip_stats                               #    70 B,  73500 B so far,   0.034 us a block
+tx_pool_count                            #    24 B,  73524 B so far,   0.034 us a block
+thunder_render                           #  2510 B,  76034 B so far,   0.033 us a block
+gr_pop                                   #    28 B,  76062 B so far,   0.030 us a block
+rates                                    #  1946 B,  78008 B so far,   0.028 us a block
+tx_bubble_render                         #   302 B,  78310 B so far,   0.023 us a block
+at                                       #   368 B,  78678 B so far,   0.023 us a block
+flash_out                                #   256 B,  78934 B so far,   0.022 us a block
+tx_env_block                             #   410 B,  79344 B so far,   0.022 us a block
+tx_fol_block                             #    96 B,  79440 B so far,   0.021 us a block
+tx_fol_level_q15                         #   122 B,  79562 B so far,   0.021 us a block
+flash_ramp                               #   304 B,  79866 B so far,   0.020 us a block
+tx_ireso_add                             #   242 B,  80108 B so far,   0.020 us a block
+wind_stats                               #    42 B,  80150 B so far,   0.019 us a block
+tx_cloud_block                           #   552 B,  80702 B so far,   0.019 us a block
+pre_amount                               #   284 B,  80986 B so far,   0.017 us a block
+tx_clu_next                              #   504 B,  81490 B so far,   0.016 us a block
+gr_get                                   #   266 B,  81756 B so far,   0.016 us a block
+clu_cfg_row                              #   314 B,  82070 B so far,   0.015 us a block
+tx_clu_block                             #   784 B,  82854 B so far,   0.014 us a block
 tx_cloud_idle                            #    28 B,  82882 B so far,   0.013 us a block
 tx_cloud_held                            #    22 B,  82904 B so far,   0.011 us a block
-tx_bubbles_render                        #    76 B,  82980 B so far,   0.010 us a block
+tx_bubbles_render                        #    76 B,  82980 B so far,   0.011 us a block
 tx_cloud_exp_q8                          #   160 B,  83140 B so far,   0.010 us a block
 wood_render                              #  5696 B,  88836 B so far,   0.009 us a block
-set_param                                #   250 B,  89086 B so far,   0.008 us a block
+set_param                                #   250 B,  89086 B so far,   0.009 us a block
 tx_flash_add                             #  1952 B,  91038 B so far,   0.008 us a block
-tx_pulses_add                            #   124 B,  91162 B so far,   0.007 us a block
-tx_gr_render                             #   674 B,  91836 B so far,   0.007 us a block
+tx_gr_render                             #   674 B,  91712 B so far,   0.008 us a block
+tx_pulses_add                            #   124 B,  91836 B so far,   0.008 us a block
 peak_of                                  #   296 B,  92132 B so far,   0.007 us a block
 rain_stats                               #    40 B,  92172 B so far,   0.007 us a block
-surf_stats                               #    70 B,  92242 B so far,   0.005 us a block
-tx_wind_quiet                            #   108 B,  92350 B so far,   0.005 us a block
-tx_bird_overlap                          #    52 B,  92402 B so far,   0.005 us a block
+tx_wind_quiet                            #   108 B,  92280 B so far,   0.005 us a block
+tx_bird_overlap                          #    52 B,  92332 B so far,   0.005 us a block
+surf_stats                               #    70 B,  92402 B so far,   0.005 us a block
 tx_ireso_coefs                           #   274 B,  92676 B so far,   0.005 us a block
 drip_param                               #   108 B,  92784 B so far,   0.004 us a block
-stream_stats                             #    64 B,  92848 B so far,   0.003 us a block
-rain_param                               #    62 B,  92910 B so far,   0.003 us a block
-lake_env                                 #   332 B,  93242 B so far,   0.003 us a block
-drop                                     #  1932 B,  95174 B so far,   0.003 us a block
+stream_stats                             #    64 B,  92848 B so far,   0.004 us a block
+drop                                     #  1932 B,  94780 B so far,   0.004 us a block
+rain_param                               #    62 B,  94842 B so far,   0.004 us a block
+lake_env                                 #   332 B,  95174 B so far,   0.003 us a block
 tx_noise_add                             #   272 B,  95446 B so far,   0.003 us a block
-bubble                                   #   180 B,  95626 B so far,   0.002 us a block
+bubble                                   #   180 B,  95626 B so far,   0.003 us a block
 tx_cloud_rate                            #    20 B,  95646 B so far,   0.002 us a block
 fire_stats                               #    86 B,  95732 B so far,   0.002 us a block
 host_heroes                              #    84 B,  95816 B so far,   0.002 us a block
 wood_stats                               #    72 B,  95888 B so far,   0.002 us a block
-tx_noise_roar_add                        #   178 B,  96066 B so far,   0.001 us a block
+tx_noise_roar_add                        #   178 B,  96066 B so far,   0.002 us a block
 tx_modal_run                             #   276 B,  96342 B so far,   0.001 us a block
 ev_dist                                  #   470 B,  96812 B so far,   0.001 us a block
 tx_bird_stop                             #    26 B,  96838 B so far,   0.001 us a block
 thunder_stats                            #    68 B,  96906 B so far,   0.001 us a block
 tx_gauss_q12                             #    62 B,  96968 B so far,   0.001 us a block
-tx_clu_spawn                             #   704 B,  97672 B so far,   0.001 us a block
-tx_svf_gin_noise                         #    90 B,  97762 B so far,   0.001 us a block
-tx_bubble_start                          #   214 B,  97976 B so far,   0.000 us a block
+tx_svf_gin_noise                         #    90 B,  97058 B so far,   0.001 us a block
+tx_clu_spawn                             #   704 B,  97762 B so far,   0.001 us a block
+tx_bubble_start                          #   214 B,  97976 B so far,   0.001 us a block
 tx_pool_take                             #   142 B,  98118 B so far,   0.000 us a block
 tx_bubble_inc                            #   110 B,  98228 B so far,   0.000 us a block
-# 4 the other reverb TYPEs, the grain delay: 34 functions, 15410 B
+# 4 the other reverb TYPEs, the grain delay: 38 functions, 17132 B
 setup                                    #   824 B,  99052 B so far
 tx_chamber_init                          #    74 B,  99126 B so far
 tx_chamber_param                         #    76 B,  99202 B so far
@@ -135,20 +135,24 @@ tx_inf_active                            #    12 B, 102808 B so far
 ri_half                                  #   996 B, 103804 B so far
 tx_inf_run                               #  2974 B, 106778 B so far
 ri_job                                   #     6 B, 106784 B so far
-tx_plate_start                           #   194 B, 106978 B so far
-tx_plate_active                          #    18 B, 106996 B so far
-pl_in                                    #   306 B, 107302 B so far
-pl_scale                                 #    80 B, 107382 B so far
-pl_half                                  #   478 B, 107860 B so far
-pl_job                                   #    68 B, 107928 B so far
-pl_taps                                  #    80 B, 108008 B so far
-pl_taps_ms                               #   172 B, 108180 B so far
-tx_plate_run                             #  2476 B, 110656 B so far
-gd_run                                   #   326 B, 110982 B so far
-gd_echo                                  #   408 B, 111390 B so far
-gd_win1                                  #   128 B, 111518 B so far
-gd_seg                                   #   498 B, 112016 B so far
-gd_voices                                #  1238 B, 113254 B so far
-tx_fx_grain_voices_c1                    #   174 B, 113428 B so far
-tx_fx_grain_voices_a_c1                  #   116 B, 113544 B so far
-tx_fx_grain_voices_b_c1                  #    94 B, 113638 B so far
+tx_plate_start                           #   222 B, 107006 B so far
+tx_plate_active                          #    18 B, 107024 B so far
+pl_in                                    #   306 B, 107330 B so far
+pl_scale                                 #   272 B, 107602 B so far
+pl_half                                  #   478 B, 108080 B so far
+pl_job                                   #    68 B, 108148 B so far
+pl_taps                                  #    80 B, 108228 B so far
+pl_taps_ms                               #   172 B, 108400 B so far
+tx_plate_run                             #  2740 B, 111140 B so far
+gd_run                                   #   326 B, 111466 B so far
+gd_echo                                  #   408 B, 111874 B so far
+gd_win1                                  #   128 B, 112002 B so far
+gd_seg                                   #   498 B, 112500 B so far
+gd_voices                                #  1238 B, 113738 B so far
+tx_fx_grain_voices_c1                    #   174 B, 113912 B so far
+tx_fx_grain_voices_a_c1                  #   116 B, 114028 B so far
+tx_fx_grain_voices_b_c1                  #    94 B, 114122 B so far
+pl_sh                                    #   156 B, 114278 B so far
+pl_rsh                                   #   118 B, 114396 B so far
+pl_settle                                #   504 B, 114900 B so far
+pl_reads                                 #   460 B, 115360 B so far

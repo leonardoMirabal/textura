@@ -205,7 +205,7 @@ void tx_inf_run(tx_inf_t *s, const int32_t *in, int32_t *mid, int32_t *side, con
 #define PL_N 32768u                                    /* the tank's ring (int16) */
 #define PL_IN 2048u                                    /* the input allpasses' ring */
 #define PL_G (HL_NC + 1u)                              /* the guard: a block's samples + the interpolation's next */
-enum { PL_S_N = 22 };
+enum { PL_S_N = 22, PL_NB = 32, PL_WN = 8 };
 typedef struct {
     int16_t ring[PL_N + PL_G + 1u];                  /* (+ 1: whole words for pl_cpy) */
     int32_t id[PL_IN + PL_G + 1u];                   /* (int32, 4x the send x 1.5: the diffusion keeps its steps) */
@@ -226,6 +226,11 @@ typedef struct {
                                      * the tank's writes' OR of magnitudes last block */
     uint32_t qc, sc;                /* samples since the lines last reached 4096 (the step up after a whole ring);
                                      * blocks until a step down may come */
+    uint16_t sb[8][PL_NB];          /* the steps the ring still owes (tx_fx_plate.c pl_scale): each segment's ages
+                                     * (ascending) */
+    int8_t so[8][PL_NB];            /* the steps owed from there on (+1 up, -1 down a step) */
+    uint8_t sbn[8], sw, sxk;        /* the ages a segment; any owed; the segment of the SIZE fade's read settled */
+    uint32_t sl[PL_S_N + 1u], sh[PL_S_N + 1u];   /* each read site's settled ages (and the fade's new read's) */
     uint32_t fix;                   /* this block: a write ran into the guard (ring 1, input 2) */
     uint16_t d[PL_S_N];             /* the delays at this size */
     uint16_t tk[PL_S_N];            /* the reads: their segment's top - their delay */

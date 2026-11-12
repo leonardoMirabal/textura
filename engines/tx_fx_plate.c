@@ -149,7 +149,8 @@ void tx_plate_start(tx_plate_t *s)
     for (i = 0; i < HL_NC; i++)
         s->zi[i] = 0;
     s->bw = s->dl = s->jr.dr = 0;
-    s->lx = 0, s->qc = 0, s->sc = 0, s->gp = PL_HOT, s->pk = 0;
+    s->lx = 0, s->qc = 0, s->sc = 0, s->gp = PL_HOT, s->pk = 0, s->sw = 0;
+    for (k = 0; k < 8u; k++) s->sbn[k] = 0;
     s->cdec = s->cdamp = -1;
     s->sz = -1;
     s->xf = 0;                                          /* (no SIZE fade: the union may hold another TYPE's state) */
@@ -374,24 +375,143 @@ static __attribute__((noinline)) void pl_taps_ms(const int16_t *const *t, int32_
     }
 }
 
-/* the tank's level step, two int16 a word: the ring (with its guard) and the damping states halved (down: each half
- * shifted with its own sign), or doubled (up: every value under 4096 for a whole ring, so none passes the int16 range;
- * the low half's carry into the high cleared) */
-typedef uint32_t __attribute__((may_alias)) pl_w32;
-_Static_assert(!(offsetof(tx_plate_t, ring) & 3u) && !((PL_N + PL_G + 1u) & 1u), "pl_scale: the ring in whole words");
-static __attribute__((noinline)) void pl_scale(tx_plate_t *s, int down)
+/* the tank's level step, lazy (one pass over the whole ring was ~115k instructions in one call, all in one audio
+ * interrupt on the FM-1): the damping states at once, the ring's content as the reads reach it, the same integers as
+ * the whole ring scaled at the step. Each segment keeps what its content still owes, by age (at this call's start;
+ * all HL_NC older a call): sb / so, ascending ages and the steps owed from there on (+1 up, -1 down a step; 0 below
+ * the first). A step adds its own from age 1 on (new writes are younger: its call's overwrite age 0 .. -31); the read
+ * sites settle what they are about to read in the ring (pl_reads, pl_settle), so a sample is shifted once whatever
+ * the steps since it was written (-2: two steps down; an up and a down: none, (2 v) >> 1 = v); what passes PL_LM
+ * unread goes (the next segment's writes overwrite it). The work: the reads' samples while what they reach still
+ * owes, the first blocks after a step all of a block's reads (22 x 256), the content once (~23k samples a step),
+ * each half its own segments' on its core. Down: >> 1 a step (toward -inf, as the old pass: both halves of a word
+ * with their own sign); up: x 2 (every value under 4096 for a whole ring: none passes the int16 range; an up comes
+ * after a ring with no step: nothing owed then). (The tests: every render as with the whole-ring pass, bit for bit) */
+static const uint16_t PL_LM[8] = {PL_LM0, PL_LM1, PL_LM2, PL_LM3, PL_LM4, PL_LM5, PL_LM6, PL_LM7};
+static void pl_sh(int16_t *q, uint32_t n, int32_t c)   /* n samples: >> -c, or x 2 (4 a pass: the loop's cost) */
 {
-    pl_w32 *b = (pl_w32 *)s->ring;
-    uint32_t i;
-    if (down) {
-        for (i = 0; i < (PL_N + PL_G + 1u) / 2u; i++) {
-            uint32_t v = b[i];
-            b[i] = (((uint32_t)((int32_t)v >> 1)) & 0x7FFF7FFFu) | (v & 0x80008000u);
-        }
-        s->dl >>= 1, s->jr.dr >>= 1;
+    if (c < 0) {
+        c = -c;
+        for (; n >= 4u; n -= 4u, q += 4)
+            q[0] = (int16_t)(q[0] >> c), q[1] = (int16_t)(q[1] >> c), q[2] = (int16_t)(q[2] >> c),
+            q[3] = (int16_t)(q[3] >> c);
+        for (; n; n--, q++) *q = (int16_t)(*q >> c);
     } else {
-        for (i = 0; i < (PL_N + PL_G + 1u) / 2u; i++) b[i] = (b[i] << 1) & 0xFFFEFFFFu;
-        s->dl *= 2, s->jr.dr *= 2;
+        for (; n >= 4u; n -= 4u, q += 4)
+            q[0] = (int16_t)(q[0] * 2), q[1] = (int16_t)(q[1] * 2), q[2] = (int16_t)(q[2] * 2),
+            q[3] = (int16_t)(q[3] * 2);
+        for (; n; n--, q++) *q = (int16_t)(*q * 2);
+    }
+}
+static void pl_rsh(tx_plate_t *s, uint32_t k, uint32_t lo, uint32_t hi, int32_t c)   /* ages lo .. hi of segment k */
+{
+    uint32_t at = (s->w + PL_TOP[k] - hi) & PL_M, n = hi - lo + 1u;   /* (upward in the ring) */
+    if (at + n > PL_N) pl_sh(s->ring + at, PL_N - at, c), n -= PL_N - at, at = 0;
+    pl_sh(s->ring + at, n, c);
+    if (at <= PL_G) pl_sh(s->ring + PL_N + at, (at + n > PL_G + 1u ? PL_G + 1u : at + n) - at, c);   /* (and the
+                                                         * guard's copy: a half may settle after it is made) */
+}
+/* segment k: what m windows of ages (wl .. wh, ascending, apart) owe, settled: shifted in the ring, then owing
+ * nothing in the list (one pass over it; its entries anew where what is owed changes) */
+#define PL_EMIT(x, v) do { if ((v) != last) nb[j] = (uint16_t)(x), no[j++] = (int8_t)(v), last = (v); } while (0)
+static void pl_settle(tx_plate_t *s, uint32_t k, const uint32_t *wl, const uint32_t *wh, uint32_t m)
+{
+    uint16_t *b = s->sb[k], nb[PL_NB + 2u * PL_WN];
+    int8_t *o = s->so[k], no[PL_NB + 2u * PL_WN];
+    uint32_t n = s->sbn[k], i = 0, j = 0, q, any = 0;
+    int32_t cur = 0, last = 0;
+    for (q = 0; q < m; q++) {
+        uint32_t lo = wl[q], hi = wh[q], a = lo, e;
+        for (; i < n && b[i] < lo; i++) {
+            cur = o[i];
+            PL_EMIT(b[i], cur);
+        }
+        for (;;) {                                      /* (the owing pieces in lo .. hi) */
+            if (i < n && b[i] == a) cur = o[i++];
+            e = i < n && b[i] <= hi ? b[i] - 1u : hi;
+            if (cur) pl_rsh(s, k, a, e, cur), any = 1;
+            if (e == hi) break;
+            a = e + 1u;
+        }
+        if (i < n && b[i] == hi + 1u) cur = o[i++];
+        PL_EMIT(lo, 0);
+        if (hi + 1u < PL_LM[k]) PL_EMIT(hi + 1u, cur);
+    }
+    if (!any) return;                                   /* (nothing owed there: the list as it was) */
+    for (; i < n; i++) PL_EMIT(b[i], o[i]);
+    if (j > PL_NB) {                                   /* (no room: the rest of it now; not reached) */
+        for (i = 0; i < j; i++)
+            if (no[i]) pl_rsh(s, k, nb[i], i + 1u < j ? nb[i + 1u] - 1u : PL_LM[k] - 1u, no[i]);
+        j = 0;
+    }
+    for (i = 0; i < j; i++) b[i] = nb[i], o[i] = no[i];
+    s->sbn[k] = (uint8_t)j;
+}
+static void pl_scale(tx_plate_t *s, int down)      /* the step: its states now, the ring as the reads reach it */
+{
+    uint32_t k, i;
+    int8_t c = (int8_t)(down ? -1 : 1);
+    if (down) s->dl >>= 1, s->jr.dr >>= 1;
+    else s->dl *= 2, s->jr.dr *= 2;
+    for (k = 0; k < 8u; k++) {                      /* (every bound is older than 1) */
+        uint32_t n = s->sbn[k];
+        if (n == PL_NB) { uint32_t lo = 1u, hi = PL_LM[k] - 1u; pl_settle(s, k, &lo, &hi, 1u); n = s->sbn[k]; }   /* (no room:
+                                                         * not reached) */
+        for (i = n; i; i--) s->sb[k][i] = s->sb[k][i - 1u], s->so[k][i] = (int8_t)(s->so[k][i - 1u] + c);
+        s->sb[k][0] = 1, s->so[k][0] = c, s->sbn[k] = (uint8_t)(n + 1u);
+    }
+    for (k = 0; k <= PL_S_N; k++) s->sl[k] = 1, s->sh[k] = 0;   /* (none settled: sl > sh) */
+    s->sw = 1;
+}
+static void pl_age(tx_plate_t *s)                  /* a call later: all HL_NC older */
+{
+    uint32_t k, i, on = 0;
+    for (k = 0; k < 8u; k++) {
+        uint32_t n = s->sbn[k];
+        for (i = 0; i < n; i++)
+            if ((s->sb[k][i] += HL_NC) >= PL_LM[k]) { n = i; break; }
+        s->sbn[k] = (uint8_t)n;
+        on |= n;
+    }
+    for (k = 0; k <= PL_S_N; k++) s->sl[k] += HL_NC, s->sh[k] += HL_NC;
+    s->sw = (uint8_t)(on != 0);
+}
+/* the read sites settled before they are read (a block + the next each: ages a .. a - HL_NC), and those of their
+ * next calls to the 256-frame block's end (w: PL_SWH calls a block; a site settles once a block, the settling's own
+ * cost once; a step within the block owes them again: those samples twice in that block; 4 or 2 calls ahead cost more
+ * at the 99th percentile, the same at worst), each segment's at once; a site's settled ages kept (sl .. sh, all HL_NC
+ * older a call; a step: none), so a call whose reads are all settled does nothing more (p: a SIZE fade's new read, in
+ * segment x; x 8: none; the zeros are not the ring's) */
+#define PL_SWH 8u
+static const uint8_t PL_SS[8][6] = {{0, 99}, {1, 12, 15, 16, 99}, {2, 13, 17, 99}, {3, 14, 18, 99}, {4, 99},
+                                    {5, 8, 9, 19, 99}, {6, 10, 20, 99}, {7, 11, 21, 99}};   /* (each segment's sites) */
+static __attribute__((noinline)) void pl_reads(tx_plate_t *s, const int16_t *const *t, const int16_t *p, uint32_t x)
+{
+    uint32_t k, i, a, h = HL_NC * (PL_SWH - ((s->w / HL_NC) & (PL_SWH - 1u)));
+    for (k = 0; k < 8u; k++) {
+        uint32_t wl[PL_WN], wh[PL_WN], m = 0, q, c;
+        if (!s->sbn[k]) continue;
+        for (i = 0; i < 6u; i++) {                      /* (each window in age order, joined where they meet) */
+            const int16_t *r;
+            if ((c = PL_SS[k][i]) >= PL_S_N) {
+                if (x != k) break;
+                c = PL_S_N, i = 5u;
+            }
+            r = c < PL_S_N ? t[c] : p;
+            if ((uintptr_t)r < (uintptr_t)s->ring || (uintptr_t)r >= (uintptr_t)(s->ring + PL_N + PL_G))
+                continue;                               /* (the zeros) */
+            a = (s->w + PL_TOP[k] - (uint32_t)(r - s->ring)) & PL_M;   /* (sample m's age: a - m) */
+            if (a < s->sb[k][0] || (s->sl[c] + HL_NC <= a && a <= s->sh[c] && (c < PL_S_N || s->sxk == k)))
+                continue;                               /* (nothing owed, or settled already) */
+            for (q = m; q && wh[q - 1u] >= a; q--) wl[q] = wl[q - 1u], wh[q] = wh[q - 1u];
+            s->sl[c] = wl[q] = a > h ? a - h : 0u, s->sh[c] = wh[q] = a, m++;
+        }
+        if (!m) continue;
+        for (i = 1, q = 0; i < m; i++)
+            if (wl[i] <= wh[q] + 1u) { if (wh[i] > wh[q]) wh[q] = wh[i]; }
+            else q++, wl[q] = wl[i], wh[q] = wh[i];
+        pl_settle(s, k, wl, wh, q + 1u);
+        if (x == k) s->sxk = (uint8_t)k;
     }
 }
 
@@ -406,7 +526,7 @@ TX_AUDIO_CODE void tx_plate_run(tx_plate_t *s, const int32_t *in, int32_t *mid, 
 {
     int16_t *b = s->ring, *o[8];
     int32_t *ib = s->id, *oi[4];
-    const int16_t *t[PL_S_N];
+    const int16_t *t[PL_S_N], *xp = 0;
     const int32_t *ti[4];
     uint32_t k, w, ex, dm0, dm1, d0, d4;
     int32_t act;
@@ -467,17 +587,22 @@ TX_AUDIO_CODE void tx_plate_run(tx_plate_t *s, const int32_t *in, int32_t *mid, 
     dm0 += 255u, dm1 += 255u;
     t[0] = pl_ptr(s, PL_O0, dm0 >> 8, (dm0 >> 8) - 1u);
     t[4] = pl_ptr(s, PL_O4, dm1 >> 8, (dm1 >> 8) - 1u);
+    if (s->xf) {                                        /* a SIZE fade: the fading site's new read */
+        uint32_t xk = s->xk;
+        xp = b + ((w + s->tk[xk]) & PL_M);
+        if (!(xk & 3u) && xk < 8u) {                    /* (0 / 4: modulated, the excursion on the new delay too) */
+            uint32_t dm = xk ? dm1 : dm0, dc = xk ? d4 : d0;
+            xp = b + ((w + PL_TOP[xk] - ((dm >> 8) - dc + s->d[xk])) & PL_M);
+        }
+    }
+    if (s->sw) pl_reads(s, t, xp, s->xf ? PL_SEG[s->xk] : 8u);   /* (a step owed: the reads' samples settled first) */
     pl_cpy(b + PL_N, b);
     if (s->xf) {                                        /* a SIZE fade: the one site in its fade, its old read (t)
                                                          * and its new blended (a segment before the halves write:
                                                          * every delay > a block) */
-        uint32_t xk = s->xk, n = HL_NC;
+        uint32_t xk = s->xk, n = !(xk & 3u) && xk < 8u ? HL_NC + 1u : HL_NC;
         int32_t xa, xb, xa1, xb1;
-        const int16_t *p = b + ((w + s->tk[xk]) & PL_M);
-        if (!(xk & 3u) && xk < 8u) {                    /* (0 / 4: modulated, the excursion on the new delay too) */
-            uint32_t dm = xk ? dm1 : dm0, dc = xk ? d4 : d0;
-            p = b + ((w + PL_TOP[xk] - ((dm >> 8) - dc + s->d[xk])) & PL_M), n = HL_NC + 1u;
-        }
+        const int16_t *p = xp;
         pl_xw(s->xw, &xa, &xb);
         pl_xw(s->xw + (int32_t)HL_NC * PL_XS, &xa1, &xb1);   /* (the next block's: 16384 at the site's end) */
         pl_xblend(s->xt, t[xk], p, n, xa, xb, xa1, xb1);
@@ -504,6 +629,7 @@ TX_AUDIO_CODE void tx_plate_run(tx_plate_t *s, const int32_t *in, int32_t *mid, 
     if (s->fix & 1u) pl_cpy(b, b + PL_N);            /* (the guard past the wrapped write: the front's own copy) */
     if (s->fix & 2u) pl_cpy32(ib, ib + PL_IN);
     s->w = w + HL_NC;
+    if (s->sw) pl_age(s);
     if (s->xf && (s->xw += (int32_t)HL_NC * PL_XS) >= 16384) {   /* a site faded: the next; the end: the gains anew */
         s->to[s->xk] = s->tk[s->xk], s->xw = 0;
         if (++s->xk == PL_S_N) s->xf = 0, s->cdec = -1;
