@@ -98,6 +98,11 @@ _Static_assert(PL_IO3 + PL_GAP <= PL_IN && PL_IL1 >= HL_NC, "the input allpasses
  * SIZE step to +5 dB at 115 (pl_ctl): HALL's level at the same MIX (HALL grows with MIX's size, a plate thins out as its
  * tank grows) */
 #define PL_OUT 2340
+#define PL_LOUD 12                                     /* a half's reads (4, summed) from which its products round
+                                                        * (HQ's HQ_QUIET: 3 a line) */
+#define PL_ABS(v) ((v) < 0 ? -(v) : (v))
+#define PL_RQ(m, c) (((m) + c##0 + (((m) >> 31) & c##1)) >> 15)   /* (m + c0 + (m < 0 ? c1 : 0)) / 2^15: c 0, 32767
+                                                 * toward zero; 0, 0 floor; 16384, -1 half away from zero */
 #define PL_LIM 262143                                  /* |mid|, |side| <= 2^18 (the framework's exact return) */
 _Static_assert(14 * 32768 * 2 * PL_OUT <= 2147483647, "the output product");
 /* the read sites: 0..7 the segments' own delays (0 / 4: the modulated ones, without the excursion), 8..21 the taps */
@@ -276,34 +281,39 @@ static __attribute__((noinline)) int32_t pl_in(const int16_t *const *r, int16_t 
     return act;
 }
 
-/* one half of the tank, one block, its segments' reads r[] and writes o[]. Truncated toward zero: the two decay
- * products, the damping one-pole (a plain shift there held a dark one-pole at up to -18 for ever: a DC loop) and the
- * allpasses' stored values, so without input the loop's content can only shrink; the allpasses' outputs use plain
- * shifts. a = x + g f (f = the other half's end); the modulated allpass (read q, the interpolation fm, gain -0.7,
- * write wm) into delay 1 (w1); delay 1's end (r1), damped (lp), x g, through allpass 2 (read r2, gain g2, write w2)
- * into delay 2 (w3). Returns the OR of the writes */
+/* one half of the tank, one block, its segments' reads r[] and writes o[]. Quiet (its reads under PL_LOUD at the
+ * block's start): truncated toward zero, the two decay products, the damping one-pole (a plain shift there held a
+ * dark one-pole at up to -18 for ever: a DC loop) and the allpasses' stored values, so without input the loop's
+ * content can only shrink; the allpasses' outputs use plain shifts. Loud (Textura, as HALL's line ends): every
+ * product rounded half away from zero (an odd function: no bias, no even harmonic; truncation's signal-locked error
+ * went round the loop and ate the low end of a quiet note's tail, 3.6 dB of it in its first second at -60 dBFS). The
+ * modulated read's interpolation rounds. a = x + g f (f = the other half's end); the modulated allpass (read q, the
+ * interpolation fm, gain -0.7, write wm) into delay 1 (w1); delay 1's end (r1), damped (lp), x g, through allpass 2
+ * (read r2, gain g2, write w2) into delay 2 (w3). Returns the OR of the writes */
 static FR_RAM __attribute__((noinline)) int32_t pl_half(const int32_t *x, const int16_t *f, const int16_t *const *r,
                                                  int32_t fm, int16_t *const *o, int32_t *lp, const int32_t *k)
 {
     const int16_t *q = r[0], *r1 = r[1], *r2 = r[2];
     int16_t *wm = o[0], *w1 = o[1], *w2 = o[2], *w3 = o[3];
     uint32_t i;
-    int32_t g = k[0], g2 = k[1], p = k[2], l = *lp, act = 0;
+    int32_t g = k[0], g2 = k[1], p = k[2], l = *lp, act = 0, a0 = 0, a1 = 32767, b0 = 0, b1 = 0;
+    if (PL_ABS(f[0]) + PL_ABS(q[0]) + PL_ABS(r1[0]) + PL_ABS(r2[0]) >= PL_LOUD)   /* loud: every product rounded */
+        a0 = b0 = 16384, a1 = b1 = -1;
     for (i = 0; i < HL_NC; i++) {
-        int32_t a = x[i] + sh_tz(f[i] * g, 15), q0 = q[i];
-        int32_t d = q0 + (((q[i + 1] - q0) * fm) >> 8), v = hl_c16(a + sh_tz(d * 22938, 15));
+        int32_t a = x[i] + PL_RQ(f[i] * g, a), q0 = q[i];
+        int32_t d = q0 + (((q[i + 1] - q0) * fm + 128) >> 8), v = hl_c16(a + PL_RQ(d * 22938, a));
         wm[i] = (int16_t)v;
-        v = hl_c16(d - ((v * 22938) >> 15));
+        v = hl_c16(d - PL_RQ(v * 22938, b));
         w1[i] = (int16_t)v;
         act |= v;
     }
     for (i = 0; i < HL_NC; i++) {
         int32_t u = r1[i], d = r2[i], v;
-        l = u + sh_tz((l - u) * p, 15);
-        u = sh_tz(l * g, 15);
-        v = hl_c16(u - sh_tz(d * g2, 15));
+        l = u + PL_RQ((l - u) * p, a);
+        u = PL_RQ(l * g, a);
+        v = hl_c16(u - PL_RQ(d * g2, a));
         w2[i] = (int16_t)v;
-        v = hl_c16(d + ((v * g2) >> 15));
+        v = hl_c16(d + PL_RQ(v * g2, b));
         w3[i] = (int16_t)v;
         act |= v;
     }
@@ -311,7 +321,7 @@ static FR_RAM __attribute__((noinline)) int32_t pl_half(const int32_t *x, const 
     return act;
 }
 
-/* the 7 taps of a side (+ + - + - - -), one block: the left into mid[]; then the right, and mid / side */
+/* the 7 taps of a side (+ + - + - - -), one block: the left into mid[]; then the right, and mid / side (rounded) */
 static __attribute__((noinline)) void pl_taps(const int16_t *const *t, int32_t *o)
 {
     const int16_t *a0 = t[0], *a1 = t[1], *a2 = t[2], *a3 = t[3], *a4 = t[4], *a5 = t[5], *a6 = t[6];
@@ -325,7 +335,7 @@ static __attribute__((noinline)) void pl_taps_ms(const int16_t *const *t, int32_
     uint32_t i;
     for (i = 0; i < HL_NC; i++) {
         int32_t r = a0[i] + a1[i] - a2[i] + a3[i] - a4[i] - a5[i] - a6[i], l = mid[i];
-        int32_t m = ((l + r) * k) >> 12, d = ((l - r) * k) >> 12;
+        int32_t m = ((l + r) * k + 2048) >> 12, d = ((l - r) * k + 2048) >> 12;
         m = m > -PL_LIM ? m : -PL_LIM, d = d > -PL_LIM ? d : -PL_LIM;     /* (smax / smin) */
         mid[i] = m < PL_LIM ? m : PL_LIM;
         side[i] = d < PL_LIM ? d : PL_LIM;

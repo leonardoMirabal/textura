@@ -193,8 +193,8 @@ static int32_t ri_mix(const int32_t *y, const int32_t *z, const int32_t *xp, int
         o[6] = (int16_t)hl_c16(y7 + q);
         o[7] = (int16_t)hl_c16(y0 + q);
         A -= B;
-        *mo++ = u >> (RI_HOT + 1u);
-        *so++ = A >> (RI_HOT + 1u);
+        *mo++ = (u + 4) >> (RI_HOT + 1u);         /* (rounded: the tank 8x the output's step) */
+        *so++ = (A + 4) >> (RI_HOT + 1u);
         ab += u ^ (u >> 31);
         act |= u | A;
     }

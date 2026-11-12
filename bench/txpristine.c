@@ -51,6 +51,9 @@
  *     the dry chord's (a step into the new TYPE's empty lines shows as a burst of it). Reported
  *   REVERB quiet: a 331 Hz sine of 8 / 32 / 128 Q15 steps held through HALL, PLATE, ROOM, INFINITE (MIX 127): the worst
  *     of H2..H6 re H1 in its second second (the tanks are linear: the harmonics are their rounding's). Reported
+ *   REVERB quiet tail: a chord at -40 / -60 dBFS a tone against the same at -30 through HALL, PLATE, ROOM, INFINITE
+ *     (MIX 127): the quiet tail scaled up less the loud, re the loud, over the tail's first second (the rounding's
+ *     grain on a quiet note), and the -60 tail's level at its end re the loud. Reported
  *   REVERB SIZE steps under a held chord (MIX 127): SIZE stepped and back; the largest second difference in the 1.2 s
  *     after a step re the held tail before and after (Frodhes' control click; 1 = none). Reported */
 #include <math.h>
@@ -689,6 +692,60 @@ static void rev_quiet(void)
     printf("\n");
 }
 
+/* REVERB quiet tail: a chord (196 247 294 392 Hz, 0.3 s, 5 ms edges, each tone -30 dBFS) and the same chord
+ * q dB down through the TYPE (MIX 127, the wet alone, its defaults); the quiet render scaled back up, less the loud:
+ * the tanks are linear, so what differs is their rounding at the low level (the grain a quiet note's tail carries).
+ * Over the tail's first second (from 0.1 s after the chord): the difference re the loud tail (dB); and the quiet
+ * tail's level re the loud in that second's last 0.25 s (a rounding that eats the low end decays it faster) */
+static double rev_tail1(unsigned ty, double q, double *lv)
+{
+    static const int F[4] = {196, 247, 294, 392};
+    double *o[2], w, g = pow(10.0, -q / 20.0);
+    int nb = 3 * FS / 2 / (int)NB, b, i, k, v, t0 = 4 * FS / 10, wn = FS / 4;
+    for (v = 0; v < 2; v++) {
+        tx_fx_reverb_t *r = malloc(sizeof *r);
+        int32_t x[NB], y[NB];
+        o[v] = malloc(sizeof(double) * nb * NB);
+        tx_fx_reverb_init(r);
+        tx_fx_reverb_param(r, TX_RV_TYPE, ty); tx_fx_reverb_param(r, TX_RV_MIX, 127);
+        for (b = 0; b < nb; b++) {
+            for (i = 0; i < (int)NB; i++) {
+                int n = b * NB + i, e = FS / 200, len = 3 * FS / 10;
+                double a = n >= len ? 0 : n < e ? 0.5 - 0.5 * cos(M_PI * n / e) : n > len - e ? 0.5 - 0.5 * cos(M_PI * (len - n) / e) : 1, s = 0;
+                for (k = 0; k < 4; k++) s += sin(2.0 * M_PI * F[k] * n / FS + k);
+                x[i] = y[i] = (int32_t)lrint(8388608.0 * 0.0316 * (v ? g : 1.0) * a * s);
+            }
+            tx_fx_reverb_process(r, x, y, NB);
+            for (i = 0; i < (int)NB; i++) o[v][b * NB + i] = v ? x[i] / g : x[i];
+        }
+        free(r);
+    }
+    {
+        double e = 0, l = 0;
+        for (k = t0; k < t0 + 4 * wn; k++) { double d = o[1][k] - o[0][k]; e += d * d; l += o[0][k] * o[0][k]; }
+        w = db(e / l);
+        for (e = l = 0, k = t0 + 3 * wn; k < t0 + 4 * wn; k++) { e += o[1][k] * o[1][k]; l += o[0][k] * o[0][k]; }
+        *lv = l > 0 ? db(e / l) : 1;               /* (1: the loud tail has ended there) */
+    }
+    free(o[0]); free(o[1]);
+    return w;
+}
+static void rev_tail(void)
+{
+    static const unsigned T[4] = {TX_RVT_HALL, TX_RVT_PLATE, TX_RVT_ROOM, TX_RVT_INF};
+    static const char *const N[4] = {"HALL", "PLATE", "ROOM", "INFINITE"};
+    int t;
+    printf("REVERB quiet tail: a chord, each tone -40 / -60 dBFS, re the same at -30 (under INFINITE's input limiter): "
+           "the tails' difference over the first second, dB (the -60's level at its end):");
+    for (t = 0; t < 4; t++) {
+        double a, b, l2;
+        a = rev_tail1(T[t], 10, &l2); b = rev_tail1(T[t], 30, &l2);
+        if (l2 > 0) printf(" %s %.1f / %.1f (ended)", N[t], a, b);
+        else printf(" %s %.1f / %.1f (%+.1f)", N[t], a, b, l2);
+    }
+    printf("\n");
+}
+
 /* REVERB SIZE steps under a held chord (MIX 127, the wet alone): SIZE z0 -> z1 at 1.5 s, back at 3 s; the largest
  * second difference in the 1.2 s after a step (a glide's or a fade's whole span) re the largest of the held tail in
  * the 0.5 s before it and the 0.3 s after that span (Frodhes' control click; 1 = none): the worse of the two steps */
@@ -754,6 +811,7 @@ int main(int argc, char **argv)
     rev_plate_mod();
     rev_type();
     rev_quiet();
+    rev_tail();
     rev_size();
     free(fx);
     if (check) printf("tx-pristine: %s (%d over)\n", fails ? "FAIL" : "ok", fails);

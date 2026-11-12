@@ -1851,6 +1851,34 @@ static void check_fx(FILE *update)
         verdict("fx", "determinism", bl && !strcmp(bl, hex), msg,
                 !bl ? " (no baseline: make tx-baseline)" : strcmp(bl, hex) ? " != baseline (a change moved the sound)" : " = baseline");
     }
+    /* PLATE's loud rounding (its products round half away from zero above PL_LOUD) never holds a tail: at its
+     * longest (DECAY 127, SIZE 127), bright and dark, still and moving, a burst's tail ends in exact zeros */
+    {
+        static const unsigned TO[4][2] = {{127, 0}, {0, 0}, {127, 127}, {64, 64}};   /* TONE, MOD */
+        unsigned k, worst = 0, never = 0;
+        for (k = 0; k < 4u; k++) {
+            tx_fx_reverb_t *r = malloc(sizeof *r);
+            uint32_t nb = 60u * 44100u / TX_BLOCK, end = 0, rng = 7u;
+            tx_fx_reverb_init(r);
+            tx_fx_reverb_param(r, TX_RV_TYPE, TX_RVT_PLATE); tx_fx_reverb_param(r, TX_RV_MIX, 127);
+            tx_fx_reverb_param(r, TX_RV_DECAY, 127); tx_fx_reverb_param(r, TX_RV_SIZE, 127);
+            tx_fx_reverb_param(r, TX_RV_TONE, TO[k][0]); tx_fx_reverb_param(r, TX_RV_MOD, TO[k][1]);
+            for (b = 0; b < nb; b++) {
+                unsigned z = 1;
+                for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = b < 90u ? fx_in(b * TX_BLOCK + j, &rng) : 0;
+                tx_fx_reverb_process(r, L, R, TX_BLOCK);
+                for (j = 0; j < TX_BLOCK; j++) z &= !L[j] && !R[j];
+                if (!z) end = 0;
+                else if (!end) end = b;
+                if (end && b > end + 344u) break;
+            }
+            if (!end) never++;
+            else if (end > worst) worst = end;
+            free(r);
+        }
+        snprintf(msg, sizeof msg, "plate, DECAY 127 SIZE 127, TONE 0 / 64 / 127, MOD 0 / 64 / 127: every tail ends in exact zeros, the last after %.1f s", worst * 256.0 / 44100.0);
+        verdict("fx", "plate tail", !never, msg, never ? " (one never ended within 60 s)" : 0);
+    }
     /* FREEZE (DECAY 127) for 3 minutes: the held level stays within 1.5 dB, never silent, bounded */
     for (t = TX_RVT_INF; t <= TX_RVT_SWELL; t++) {
         double rms[18] = {0}, lo = 1e30, hi = 0;
