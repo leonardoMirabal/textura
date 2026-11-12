@@ -206,7 +206,8 @@ void tx_inf_run(tx_inf_t *s, const int32_t *in, int32_t *mid, int32_t *side, con
 enum { PL_S_N = 22 };
 typedef struct {
     int16_t ring[PL_N + PL_G + 1u];                  /* (+ 1: whole words for pl_cpy) */
-    int16_t id[PL_IN + PL_G + 1u];
+    int32_t id[PL_IN + PL_G + 1u];                   /* (int32, 4x the send x 1.5: the diffusion keeps its steps) */
+    int32_t zi[HL_NC];              /* what an input allpass's read older than the start sees */
     int16_t zero[2u * HL_NC];       /* what a read of content older than the start sees */
     uint32_t w, e;                  /* the rings' write index (one a sample), samples since the start (to PL_WARM) */
     uint32_t ph;                    /* the LFO */
@@ -219,6 +220,10 @@ typedef struct {
     uint8_t xf, xk;                 /* a SIZE fade runs; the read site in its fade (0..21, one after the other) */
     int32_t cdec, cdamp;            /* the settings the gains were made for */
     int32_t ko;                     /* the output gain (Q12) */
+    int32_t lx, gp, pk;             /* the tank's level: its exponent (PL_HOT >> lx), the send's gain last block (Q12),
+                                     * the tank's writes' OR of magnitudes last block */
+    uint32_t qc, sc;                /* samples since the lines last reached 4096 (the step up after a whole ring);
+                                     * blocks until a step down may come */
     uint32_t fix;                   /* this block: a write ran into the guard (ring 1, input 2) */
     uint16_t d[PL_S_N];             /* the delays at this size */
     uint16_t tk[PL_S_N];            /* the reads: their segment's top - their delay */
@@ -229,7 +234,7 @@ typedef struct {
                                      * core): its reads, the left half's end, its writes, its damping one-pole */
         const int16_t *t[4], *f;
         int16_t *o[4];
-        int32_t fm, dr, act;
+        int32_t fm, dr, act, pk;
     } TX_LINE jr;
 } tx_plate_t;
 void tx_plate_start(tx_plate_t *s);

@@ -12,7 +12,8 @@
  *
  * Memory: the tank's 8 lines share one ring of PL_N int16 (each line its own segment, all moving with one write
  * index: a line writes at w + its top and reads w + its top - its delay; PL_GAP samples between segments keep a
- * block's 16 writes out of a neighbour's reads); the 4 input allpasses share a small one the same way (PL_IN).
+ * block's 16 writes out of a neighbour's reads); the 4 input allpasses share a small one the same way (PL_IN; int32 at
+ * 4x the lines' old level, Textura: the diffusion's own rounding 12 dB down).
  * Every read is at least one block (16 samples) back, so a block runs stage by stage, each stage over its 16 samples,
  * with plain pointers: the rings carry PL_G guard samples after their end, a copy of their first PL_G (made at the
  * start of each block: a read sees only older blocks' writes), and a write that runs past the end lands in the guard
@@ -52,6 +53,7 @@
  * state in tx_fx_kern.h for the TYPEs' union; tx_tx_rev_ctl_t; tx_fx_sine), the 1 Hz LFO's step as an integer, the
  * guard copies by memcpy. At the full rate (Textura): the lengths and the swing x 2, the decay from the same times,
  * the damping and bandwidth one-poles as at the half rate (rv_pole). */
+#include <stddef.h>
 #include "tx_fx_kern.h"
 
 #ifndef FR_RAM
@@ -94,10 +96,22 @@ _Static_assert(PL_O7 + PL_GAP <= PL_N, "the plate's 8 segments must fit its ring
 _Static_assert(PL_IO3 + PL_GAP <= PL_IN && PL_IL1 >= HL_NC, "the input allpasses must fit their ring");
 #define PL_WARM (PL_LM1 + HL_NC)                        /* from here on no read is older than the start */
 #define PL_LFO 3116529u                                /* 1 Hz, per control block: CTL / FS x 2^32 */
-/* the output: the taps' 0.6 / 2 x 1.9 (Q12; / 1.5 for the lines' 1.5x level, pl_in) at SIZE <= 40, rising 0.067 dB a
- * SIZE step to +5 dB at 115 (pl_ctl): HALL's level at the same MIX (HALL grows with MIX's size, a plate thins out as its
- * tank grows) */
+/* the output: the taps' 0.6 / 2 x 1.9 (Q12; / 1.5 / 4 for the lines' level, pl_in, PL_HOT) at SIZE <= 40, rising
+ * 0.067 dB a SIZE step to +5 dB at 115 (pl_ctl): HALL's level at the same MIX (HALL grows with MIX's size, a plate
+ * thins out as its tank grows) */
 #define PL_OUT 2340
+/* the tank's level (Textura): the lines run PL_HOT (Q12) x the old 1.5x, 4x, while their content is quiet, so a
+ * quiet note's tail keeps 12 dB more of the int16 lines' steps; a loud send moves the whole tank down by 6 dB steps
+ * (exponent lx: the ring and the damping states halved, the send's gain halved, the output's doubled: the same
+ * sound, the content's scale exact at every step but the halving's half step), and back up once the lines have
+ * stayed under 4096 for a whole ring. lx 2 is the old level; lx 3, 4 hold sends the old lines clipped at (hl_c16
+ * under a -0.4 dBFS chord). The step down on a block whose tank writes reach 16384 (their magnitudes' OR), up after
+ * a whole ring of writes under 4096; the send's peak also held under PL_XIN in the lines at once, gliding back over
+ * the next block */
+#define PL_HOT 16384
+#define PL_XIN 20000
+#define PL_EMAX 4
+#define PL_SCN 8u                                      /* (8 calls: a step down at most once a 256-frame block) */
 #define PL_LOUD 12                                     /* a half's reads (4, summed) from which its products round
                                                         * (HQ's HQ_QUIET: 3 a line) */
 #define PL_ABS(v) ((v) < 0 ? -(v) : (v))
@@ -132,7 +146,10 @@ void tx_plate_start(tx_plate_t *s)
     for (k = 0; k < 4u; k++)
         for (i = PL_ITOP[k] - PL_G; i < PL_ITOP[k]; i++)
             s->id[i] = 0;
+    for (i = 0; i < HL_NC; i++)
+        s->zi[i] = 0;
     s->bw = s->dl = s->jr.dr = 0;
+    s->lx = 0, s->qc = 0, s->sc = 0, s->gp = PL_HOT, s->pk = 0;
     s->cdec = s->cdamp = -1;
     s->sz = -1;
     s->xf = 0;                                          /* (no SIZE fade: the union may hold another TYPE's state) */
@@ -194,7 +211,8 @@ static void pl_ctl(tx_plate_t *s, const tx_rev_ctl_t *c)
         e = e * (1270u + (uint32_t)sz) / 1270u;         /* (a bigger tank damps less a second: + 10 % at 127) */
         s->g = (int32_t)exp2_neg(e);
         s->g2 = clampi(s->g + 4915, 8192, 16384);
-        s->ko = (int32_t)((4u * PL_OUT / 3u * exp2_neg(65536u - (uint32_t)clampi((sz - 40) * 729, 0, 54427))) >> 15);
+        s->ko = (int32_t)((((PL_OUT * 16384u / 3u + PL_HOT / 2u) / PL_HOT)
+                           * exp2_neg(65536u - (uint32_t)clampi((sz - 40) * 729, 0, 54427))) >> 15);
         s->cdec = c->decay;
     }
     if (c->damp != s->cdamp) {
@@ -243,6 +261,11 @@ static inline int16_t *pl_wptr(tx_plate_t *s, int16_t *b, uint32_t n, uint32_t a
     if (at > n - HL_NC) s->fix |= bit;
     return b + at;
 }
+static void pl_cpy32(int32_t *d, const int32_t *q)  /* PL_G + 1 int32 */
+{
+    uint32_t i;
+    for (i = 0; i < PL_G + 1u; i++) d[i] = q[i];
+}
 static void pl_cpy(int16_t *d, const int16_t *q)     /* PL_G + 1 int16 (both 4-byte aligned) */
 {
     uint32_t i;
@@ -252,16 +275,19 @@ static void pl_cpy(int16_t *d, const int16_t *q)     /* PL_G + 1 int16 (both 4-b
 /* the input, one block: the bandwidth one-pole (toward its input: it ends at 0), then the 4 allpasses in a row, each
  * v = x - g d into its write, y = d + g v (plain shifts: with g > 0 and no input the stored value changes sign every
  * pass and never grows, so it dies out). Returns the OR of the input */
-#define PL_AP(k, g) d = r##k[i], v = hl_c16(y - ((d * (g)) >> 15)), o##k[i] = (int16_t)v, y = d + ((v * (g)) >> 15)
-static __attribute__((noinline)) int32_t pl_in(const int16_t *const *r, int16_t *const *o, const int32_t *in,
-                                               int32_t *x, int32_t *bw, int32_t pb)
+/* (g 3 / 4, 5 / 8: n x 3 >> 2, n x 5 >> 3; the input under 2^19 (its clamp, x 6), the stages' gains bound every value
+ * under 2^25: no clamp) */
+#define PL_AP(k, n, sh) d = r##k[i], v = y - ((d * (n)) >> (sh)), o##k[i] = v, y = d + ((v * (n)) >> (sh))
+static __attribute__((noinline)) int32_t pl_in(const int32_t *const *r, int32_t *const *o, const int32_t *in,
+                                               int32_t *x, int32_t *bw, int32_t pb, int32_t *pk)
 {
-    const int16_t *r0 = r[0], *r1 = r[1], *r2 = r[2], *r3 = r[3];
-    int16_t *o0 = o[0], *o1 = o[1], *o2 = o[2], *o3 = o[3];
+    const int32_t *r0 = r[0], *r1 = r[1], *r2 = r[2], *r3 = r[3];
+    int32_t *o0 = o[0], *o1 = o[1], *o2 = o[2], *o3 = o[3];
     uint32_t i;
-    int32_t b = *bw, act = 0;
+    int32_t b = *bw, act = 0, pi = 0;
     for (i = 0; i < HL_NC; i++) {
-        int32_t y, d, v, u = in[i] + (in[i] >> 1);  /* the lines 1.5x hot: 3.5 dB less rounding noise */
+        int32_t y, d, v, u = clampi(in[i], -87381, 87381) * 6;   /* the lines 1.5x hot (3.5 dB less rounding
+                                                 * noise), x 4 here: the diffusion's own steps (Textura: int32) */
         int32_t e = b - u;
         if ((uint32_t)(e + 74240) <= 148480u) b = u + sh_tz(e * pb, 15);   /* (pb <= 28916) */
         else {                                  /* (a send over ~1.7x full scale: (b - u) pb past 2^31; Frodhes' 0.9.6
@@ -271,13 +297,15 @@ static __attribute__((noinline)) int32_t pl_in(const int16_t *const *r, int16_t 
         }
         act |= u;
         y = b;
-        PL_AP(0, 24576);
-        PL_AP(1, 24576);
-        PL_AP(2, 20480);
-        PL_AP(3, 20480);
+        PL_AP(0, 3, 2);
+        PL_AP(1, 3, 2);
+        PL_AP(2, 5, 3);
+        PL_AP(3, 5, 3);
         x[i] = y;
+        y ^= y >> 31, pi = y > pi ? y : pi;
     }
     *bw = b;
+    *pk = pi;
     return act;
 }
 
@@ -291,34 +319,36 @@ static __attribute__((noinline)) int32_t pl_in(const int16_t *const *r, int16_t 
  * interpolation fm, gain -0.7, write wm) into delay 1 (w1); delay 1's end (r1), damped (lp), x g, through allpass 2
  * (read r2, gain g2, write w2) into delay 2 (w3). Returns the OR of the writes */
 static FR_RAM __attribute__((noinline)) int32_t pl_half(const int32_t *x, const int16_t *f, const int16_t *const *r,
-                                                 int32_t fm, int16_t *const *o, int32_t *lp, const int32_t *k)
+                                                 int32_t fm, int16_t *const *o, int32_t *lp, const int32_t *k,
+                                                 int32_t *pk)
 {
     const int16_t *q = r[0], *r1 = r[1], *r2 = r[2];
     int16_t *wm = o[0], *w1 = o[1], *w2 = o[2], *w3 = o[3];
     uint32_t i;
-    int32_t g = k[0], g2 = k[1], p = k[2], l = *lp, act = 0, a0 = 0, a1 = 32767, b0 = 0, b1 = 0;
+    int32_t g = k[0], g2 = k[1], p = k[2], l = *lp, m = 0, a0 = 0, a1 = 32767, b0 = 0, b1 = 0;
     if (PL_ABS(f[0]) + PL_ABS(q[0]) + PL_ABS(r1[0]) + PL_ABS(r2[0]) >= PL_LOUD)   /* loud: every product rounded */
         a0 = b0 = 16384, a1 = b1 = -1;
     for (i = 0; i < HL_NC; i++) {
         int32_t a = x[i] + PL_RQ(f[i] * g, a), q0 = q[i];
         int32_t d = q0 + (((q[i + 1] - q0) * fm + 128) >> 8), v = hl_c16(a + PL_RQ(d * 22938, a));
-        wm[i] = (int16_t)v;
+        wm[i] = (int16_t)v; m |= v ^ (v >> 31);
         v = hl_c16(d - PL_RQ(v * 22938, b));
         w1[i] = (int16_t)v;
-        act |= v;
+        m |= v ^ (v >> 31);
     }
     for (i = 0; i < HL_NC; i++) {
         int32_t u = r1[i], d = r2[i], v;
         l = u + PL_RQ((l - u) * p, a);
         u = PL_RQ(l * g, a);
         v = hl_c16(u - PL_RQ(d * g2, a));
-        w2[i] = (int16_t)v;
+        w2[i] = (int16_t)v; m |= v ^ (v >> 31);
         v = hl_c16(d + PL_RQ(v * g2, b));
         w3[i] = (int16_t)v;
-        act |= v;
+        m |= v ^ (v >> 31);
     }
     *lp = l;
-    return act;
+    *pk = m;
+    return m;                                         /* (m: 0 only when every write was 0) */
 }
 
 /* the 7 taps of a side (+ + - + - - -), one block: the left into mid[]; then the right, and mid / side (rounded) */
@@ -329,30 +359,55 @@ static __attribute__((noinline)) void pl_taps(const int16_t *const *t, int32_t *
     for (i = 0; i < HL_NC; i++)
         o[i] = a0[i] + a1[i] - a2[i] + a3[i] - a4[i] - a5[i] - a6[i];
 }
-static __attribute__((noinline)) void pl_taps_ms(const int16_t *const *t, int32_t *mid, int32_t *side, int32_t k)
+static __attribute__((noinline)) void pl_taps_ms(const int16_t *const *t, int32_t *mid, int32_t *side, int32_t k,
+                                                 int32_t sh)
 {
     const int16_t *a0 = t[0], *a1 = t[1], *a2 = t[2], *a3 = t[3], *a4 = t[4], *a5 = t[5], *a6 = t[6];
+    int32_t rh = 1 << (sh - 1);
     uint32_t i;
     for (i = 0; i < HL_NC; i++) {
         int32_t r = a0[i] + a1[i] - a2[i] + a3[i] - a4[i] - a5[i] - a6[i], l = mid[i];
-        int32_t m = ((l + r) * k + 2048) >> 12, d = ((l - r) * k + 2048) >> 12;
+        int32_t m = ((l + r) * k + rh) >> sh, d = ((l - r) * k + rh) >> sh;
         m = m > -PL_LIM ? m : -PL_LIM, d = d > -PL_LIM ? d : -PL_LIM;     /* (smax / smin) */
         mid[i] = m < PL_LIM ? m : PL_LIM;
         side[i] = d < PL_LIM ? d : PL_LIM;
     }
 }
 
+/* the tank's level step, two int16 a word: the ring (with its guard) and the damping states halved (down: each half
+ * shifted with its own sign), or doubled (up: every value under 4096 for a whole ring, so none passes the int16 range;
+ * the low half's carry into the high cleared) */
+typedef uint32_t __attribute__((may_alias)) pl_w32;
+_Static_assert(!(offsetof(tx_plate_t, ring) & 3u) && !((PL_N + PL_G + 1u) & 1u), "pl_scale: the ring in whole words");
+static __attribute__((noinline)) void pl_scale(tx_plate_t *s, int down)
+{
+    pl_w32 *b = (pl_w32 *)s->ring;
+    uint32_t i;
+    if (down) {
+        for (i = 0; i < (PL_N + PL_G + 1u) / 2u; i++) {
+            uint32_t v = b[i];
+            b[i] = (((uint32_t)((int32_t)v >> 1)) & 0x7FFF7FFFu) | (v & 0x80008000u);
+        }
+        s->dl >>= 1, s->jr.dr >>= 1;
+    } else {
+        for (i = 0; i < (PL_N + PL_G + 1u) / 2u; i++) b[i] = (b[i] << 1) & 0xFFFEFFFFu;
+        s->dl *= 2, s->jr.dr *= 2;
+    }
+}
+
 static void pl_job(void *a)                          /* the right half (on the other core, or here) */
 {
     tx_plate_t *s = (tx_plate_t *)a;
-    s->jr.act = FR_FAR(pl_half)(s->x, s->jr.f, s->jr.t, s->jr.fm, s->jr.o, &s->jr.dr, &s->g);
+    s->jr.act = FR_FAR(pl_half)(s->x, s->jr.f, s->jr.t, s->jr.fm, s->jr.o, &s->jr.dr, &s->g, &s->jr.pk);
 }
 
 TX_AUDIO_CODE void tx_plate_run(tx_plate_t *s, const int32_t *in, int32_t *mid, int32_t *side,
                                                     const tx_rev_ctl_t *c)
 {
-    int16_t *b = s->ring, *ib = s->id, *o[8];
+    int16_t *b = s->ring, *o[8];
+    int32_t *ib = s->id, *oi[4];
     const int16_t *t[PL_S_N];
+    const int32_t *ti[4];
     uint32_t k, w, ex, dm0, dm1, d0, d4;
     int32_t act;
     const uint16_t *rk;
@@ -369,12 +424,35 @@ TX_AUDIO_CODE void tx_plate_run(tx_plate_t *s, const int32_t *in, int32_t *mid, 
     w = s->w;
     s->fix = 0;
     /* the bandwidth one-pole and the input allpasses (their ring: the guard is the front's copy) */
-    pl_cpy(ib + PL_IN, ib);
+    pl_cpy32(ib + PL_IN, ib);
     for (k = 0; k < 4u; k++) {
-        t[k] = s->e + HL_NC <= PL_IL[k] ? s->zero : ib + ((w + PL_ITOP[k] - PL_IL[k]) & (PL_IN - 1u));
-        o[k] = pl_wptr(s, ib, PL_IN, w + PL_ITOP[k], 2u);
+        uint32_t at = (w + PL_ITOP[k]) & (PL_IN - 1u);
+        ti[k] = s->e + HL_NC <= PL_IL[k] ? s->zi : ib + ((w + PL_ITOP[k] - PL_IL[k]) & (PL_IN - 1u));
+        if (at > PL_IN - HL_NC) s->fix |= 2u;
+        oi[k] = ib + at;
     }
-    act = pl_in(t, o, in, s->x, &s->bw, s->pbw);
+    {   /* the tank's level: a step down (loud writes last block) or up (quiet for a whole ring), then the send's gain
+         * on this block's diffused send: its peak held under PL_XIN in the lines, gliding from last block's */
+        int32_t pi, gn, big, *x = s->x;
+        uint32_t i;
+        act = pl_in(ti, oi, in, x, &s->bw, s->pbw, &pi);
+        if (s->sc) s->sc--;                             /* (a step down at most every PL_SCN calls: its cost) */
+        if (s->pk >= 16384 && s->lx < PL_EMAX && !s->sc)
+            pl_scale(s, 1), s->lx++, s->gp >>= 1, s->qc = 0, s->sc = PL_SCN;
+        else if (s->pk >= 4096 || !s->lx) s->qc = 0;
+        else if ((s->qc += HL_NC) >= PL_N + PL_G + 1u) pl_scale(s, 0), s->lx--, s->gp <<= 1, s->qc = 0;
+        gn = PL_HOT >> s->lx;
+        if ((big = pi > 131071)) pi = 131071;
+        if (pi && (((pi >> 2) * gn) >> 12) > PL_XIN) gn = (int32_t)(((uint32_t)PL_XIN << 14) / (uint32_t)pi);
+        if (!big && gn == s->gp)                        /* (the usual block: one gain, nothing to clamp) */
+            for (i = 0; i < HL_NC; i++) x[i] = (x[i] * gn + 8192) >> 14;
+        else
+            for (i = 0; i < HL_NC; i++) {
+                int32_t a = x[i] > 131071 ? 131071 : x[i] < -131071 ? -131071 : x[i];
+                x[i] = (a * (s->gp + ((gn - s->gp) * (int32_t)(i + 1u)) / (int32_t)HL_NC) + 8192) >> 14;
+            }
+        s->gp = gn;
+    }
     /* the tank: every read site's pointer (the zeros while it reads before the start), the guard copy, the halves */
     if (s->e >= PL_WARM)
         for (k = 0; k < PL_S_N; k++)
@@ -416,14 +494,15 @@ TX_AUDIO_CODE void tx_plate_run(tx_plate_t *s, const int32_t *in, int32_t *mid, 
         s->jr.f = t[3];
         s->jr.fm = (int32_t)(255u - (dm1 & 255u));
         taken = rv_fork(c->par, pl_job, s);
-        act |= FR_FAR(pl_half)(xv, t[7], t, (int32_t)(255u - (dm0 & 255u)), o, &s->dl, &s->g);
+        act |= FR_FAR(pl_half)(xv, t[7], t, (int32_t)(255u - (dm0 & 255u)), o, &s->dl, &s->g, &s->pk);
         rv_join(c->par, pl_job, s, taken);
         act |= s->jr.act;
+        s->pk |= s->jr.pk;
     }
     pl_taps(t + 8, mid);
-    pl_taps_ms(t + 15, mid, side, s->ko);
+    pl_taps_ms(t + 15, mid, side, s->ko, 12 - s->lx);
     if (s->fix & 1u) pl_cpy(b, b + PL_N);            /* (the guard past the wrapped write: the front's own copy) */
-    if (s->fix & 2u) pl_cpy(ib, ib + PL_IN);
+    if (s->fix & 2u) pl_cpy32(ib, ib + PL_IN);
     s->w = w + HL_NC;
     if (s->xf && (s->xw += (int32_t)HL_NC * PL_XS) >= 16384) {   /* a site faded: the next; the end: the gains anew */
         s->to[s->xk] = s->tk[s->xk], s->xw = 0;

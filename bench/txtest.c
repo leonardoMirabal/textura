@@ -1879,6 +1879,51 @@ static void check_fx(FILE *update)
         snprintf(msg, sizeof msg, "plate, DECAY 127 SIZE 127, TONE 0 / 64 / 127, MOD 0 / 64 / 127: every tail ends in exact zeros, the last after %.1f s", worst * 256.0 / 44100.0);
         verdict("fx", "plate tail", !never, msg, never ? " (one never ended within 60 s)" : 0);
     }
+    /* PLATE's tank level: a loud chord (6 tones, their sum's peak -0.4 dBFS: the old lines clipped under it) held 2 s
+     * at its longest and brightest, then its tail: the tank steps down and back up, never reaches the int16 rails, and
+     * sounds the same as the chord 24 dB lower (the residue re 16 x the quiet one's wet) */
+    {
+        static const double FQ[6] = {110.0, 164.8, 220.0, 277.2, 329.6, 440.0};
+        tx_fx_reverb_t *r = malloc(sizeof *r);
+        uint32_t nb = 5u * 44100u / TX_BLOCK, i, rail = 0, q;
+        int32_t rpk = 0, lxm = 0, *ow = malloc(sizeof(int32_t) * 2u * nb * TX_BLOCK);
+        double sr = 0, sd = 0;
+        for (q = 0; q < 2u && r && ow; q++) {
+            double ph = 0;
+            tx_fx_reverb_init(r);
+            tx_fx_reverb_param(r, TX_RV_TYPE, TX_RVT_PLATE); tx_fx_reverb_param(r, TX_RV_MIX, 127);
+            tx_fx_reverb_param(r, TX_RV_DECAY, 127); tx_fx_reverb_param(r, TX_RV_SIZE, 127);
+            tx_fx_reverb_param(r, TX_RV_TONE, 127);
+            for (b = 0; b < nb; b++) {
+                for (j = 0; j < TX_BLOCK; j++) {
+                    double v = 0;
+                    unsigned k;
+                    for (k = 0; k < 6u; k++) v += sin(2 * M_PI * FQ[k] * ph);
+                    ph += 1.0 / 44100.0;
+                    L[j] = R[j] = b * TX_BLOCK < 2u * 44100u ? (int32_t)(v / 6.0 * 0.955 * 8388607.0 / (q ? 16.0 : 1.0)) : 0;
+                }
+                tx_fx_reverb_process(r, L, R, TX_BLOCK);
+                for (j = 0; j < TX_BLOCK; j++) ow[(q * nb + b) * TX_BLOCK + j] = L[j];
+                if (q) continue;
+                if (r->u.p.lx > lxm) lxm = r->u.p.lx;
+                for (i = 0; i < PL_N; i++) {
+                    int32_t a = r->u.p.ring[i] < 0 ? -r->u.p.ring[i] : r->u.p.ring[i];
+                    if (a > rpk) rpk = a;
+                    rail += a >= 32767;
+                }
+            }
+        }
+        if (r && ow)
+            for (i = 0; i < nb * TX_BLOCK; i++) {
+                double d = ow[i] - 16.0 * ow[nb * TX_BLOCK + i];
+                sr += (double)ow[i] * ow[i], sd += d * d;
+            }
+        snprintf(msg, sizeof msg, "plate, a loud chord (-0.4 dBFS, DECAY 127 SIZE 127 TONE 127) and its tail: the tank down %d steps, "
+                 "its peak %d of 32767, %u samples at the rails; the wet re the chord 24 dB lower's: residue %.1f dB",
+                 (int)lxm, (int)rpk, (unsigned)rail, 10 * log10(sd / (sr + 1e-9) + 1e-12));
+        verdict("fx", "plate loud", r && ow && rpk < 32767 && lxm > 0 && sd < sr * 1e-4, msg, 0);
+        free(r); free(ow);
+    }
     /* FREEZE (DECAY 127) for 3 minutes: the held level stays within 1.5 dB, never silent, bounded */
     for (t = TX_RVT_INF; t <= TX_RVT_SWELL; t++) {
         double rms[18] = {0}, lo = 1e30, hi = 0;
