@@ -459,8 +459,10 @@ int main(int argc, char **argv)
     for (i = 0; i < np; i++) {
         preset_cost_t *p = &P[i];
         double hero = (p->p16.mean - p->p2.mean) / 14.0;
-        const char *flag = p->worst6 > pool4p ? "OVER: a block over the whole pool" : p->p16.worst > pool4p ? "OVER at P16"
-                         : p->worst6 > pool4p / 2 ? "over half the pool" : "ok";
+        const char *flag = p->worst6 > pool4d ? "OVER: a block over the whole pool" : p->p16.worst > pool4d ? "OVER at P16"
+                         : p->worst6 > pool4d / 2 ? "over half the pool" : "ok";   /* (the device pool: the FM-1's
+                                                 * busy interrupt measured 2.1-2.3 ms of the 4200 target, two cores and the
+                                                 * cache layout, 2026-11-12: the host's +-30 % sits inside that room) */
         printf("   %-14s %7.0f %7.0f %7.0f %-15s | %5.0f %5.0f %5.0f %5.0f %5.0f | %5.0f / %5.0f | %6.1f | %s\n", p->name,
                p->def.mean, p->worst6, p->worst8_6, p->worst_by, p->in[0].worst8, p->in[1].worst8, p->in[2].worst8,
                p->in[3].worst8, p->in[4].worst8, p->p2.worst, p->p16.worst, hero, flag);
@@ -471,8 +473,8 @@ int main(int argc, char **argv)
     }
     if (csv) fclose(csv);
     printf("   per hero = (mean at PARTICLES 16 - at 2) / 14 at ACTIVITY 127: what one hero more costs (host noise: +-5 us)\n"
-           "   sanity (a limit, not the rule): no block of a lane alone over the planned pool, at its default or at PARTICLES"
-           " 16; flagged above half of it\n\n");
+           "   sanity (a limit, not the rule): no block of a lane alone over the device pool, at its default or at PARTICLES"
+           " 16; flagged above half of it (%.0f us)\n\n", pool4d / 2);
 
     printf("3. mixes (4 lanes; typical = the means at the lane's ACTIVITY, worst = every lane at its w8 at once)\n");
     for (k = 0; k < sizeof MIXES / sizeof MIXES[0]; k++) {

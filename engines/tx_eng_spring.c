@@ -32,7 +32,7 @@ static const tx_param_t PARAMS[NP] = {
     {"LENGTH", 127, 100, TX_TEXT("echo period T_D at C4: 20 .. 80 ms (log) (wire length, turns; keys: a semitone each)")},
     {"RADIUS", 127, 64, TX_TEXT("transition frequency F_C: 1.5 .. 5 kHz (log) (thick wire on a narrow helix = higher, brighter)")},
     {"DECAY", 127, 112, TX_TEXT("loop gain per echo: 0.5 .. 0.96 (short splash .. long rattle)")},
-    {"CHIRP", 127, 84, TX_TEXT("dispersion: 10 .. 40 allpass sections at fs/4 (a click .. a long descending chirp per echo)")},
+    {"CHIRP", 127, 84, TX_TEXT("dispersion: 10 .. 60 allpass sections at fs/4 (a click .. a long descending chirp per echo)")},
 };
 
 #define NV 3u
@@ -64,7 +64,8 @@ static void set_param(spring_t *s, unsigned id, unsigned v)
     case P_LENGTH: s->td_l2 = 935968 + (int32_t)(v * 1032u); break;       /* log2(20000 us) + v x 2 oct / 127 */
     case P_RADIUS: s->fc = tx_knob_exp(v, 1500u, 113808); break;          /* 1.5 .. 5 kHz (1.74 oct) */
     case P_DECAY: s->g = 16384u + v * 118u; break;                       /* 0.5 .. 0.96, Q15 */
-    case P_CHIRP: s->m = 10u + (v * 30u) / 127u; break;     /* (40 at most: the CPU rule) */
+    case P_CHIRP: s->m = v <= 84u ? 10u + (v * 30u) / 127u : 29u + ((v - 84u) * 31u) / 43u; break;   /* (to 84, the
+                                                 * default, as before; above it on to 60, once over the CPU rule) */
     default: break;
     }
 }

@@ -41,7 +41,6 @@ static unsigned st_place(unsigned u)
 
 extern const tx_engine_t tx_eng_rainwater;
 extern const tx_engine_t tx_eng_rainsurf;
-void tx_rainsurf_lite(void *st, unsigned on);
 
 enum { P_INTENS, P_SURFACE, P_AGE, P_DIST, P_PASSING, P_RAIN, P_WIND, P_FLASH, P_INSIDE, NP };
 
@@ -132,7 +131,6 @@ static void rain_setup(storm_t *s)
         s->rain = e;
         e->init(s->arena, s->seed);
         e->param(s->arena, TX_PID_PARTICLES, RAIN_P);
-        if (e == &tx_eng_rainsurf) tx_rainsurf_lite(s->arena, 1);   /* (CPU: the lite surface under the wind) */
         s->rain_on = 0;
     }
     s->rid = (int8_t)tx_param_find(e, "RATE"); s->rate0 = rate; s->rsent = 0xFF;

@@ -62,7 +62,9 @@ static const tx_param_t PARAMS[NP] = {
 #define FADE 4u
 #define FAR_SH 12                  /* the far callers' pulse level: FIELD x LEVEL x 4.9 >> FAR_SH (Q15; by render: the
                                     * FIELD at its old loudness) */
-#define NFAR 3u                    /* far callers (CPU: at the top they trill all the time) */
+#define NFAR 6u                    /* far callers (3 until the FM-1's second core and cache layout gave the room; the
+                                    * chorus's power as with 3: FAR_G) */
+#define FAR_G 28                   /* their gain: 39 x sqrt(3 / NFAR) (the FIELD's level as with 3 callers) */
 
 typedef struct {
     uint16_t f0;                   /* carrier, Hz */
@@ -414,7 +416,7 @@ TX_AUDIO_CODE static void crickets_render_raw(void *st, int32_t *mix, unsigned n
     }
     {   /* FIELD: the distant chorus, 8 far callers chirping at their own rates (each call a chirp of the species'
          * pulses, pure: the harmonics lost on the way) */
-        int32_t g = held_any ? (int32_t)(((int64_t)s->p[P_FIELD] * s->level * 39) >> (FAR_SH + 3)) : 0;
+        int32_t g = held_any ? (int32_t)(((int64_t)s->p[P_FIELD] * s->level * FAR_G) >> (FAR_SH + 3)) : 0;
         for (i = 0; i < NFAR; i++) {
             uint32_t ph = s->vph[i];
             s->vph[i] += s->vinc[i] + (s->vinc[i] >> 4) * (i & 3);   /* spread +-10 % (ours) */

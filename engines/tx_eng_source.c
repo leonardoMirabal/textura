@@ -95,9 +95,10 @@ static const tx_param_t PARAMS[NP] = {
 #define NM 32u                      /* members (callers) */
 #define NPEND 40u
 #define EVMAX 24u                   /* explicit heroes started per block */
-#define ST_HEROES 5u                /* the stone cloud's heroes at most: its pieces' modes cost ~58 us a hero on the
-                                     * FM-1, and 6 at SPACING 0 reached ~910 us in a block (over half the pool); the
-                                     * rest ring as grains */
+#define ST_HEROES 8u                /* the stone cloud's heroes at most: its pieces' modes cost ~58 us a hero on the
+                                     * FM-1 (6 at SPACING 0 reached ~910 us in a block: 5 until the second core and
+                                     * the cache layout's room, the device pool's half now the rule); the rest ring as
+                                     * grains */
 #define EV_BLK 28u                  /* rain: explicit events a block at most, on average (3400 /s; clumped rain's children
                                      * count too): above, each is kept at random and stands for the ones thinned out */
 #define EV_HARD 14u                 /* rain: explicit events in one block at most (a clumped burst's): the rest are carried
@@ -507,7 +508,8 @@ static int32_t act_idx(const src_t *s) { return s->i_eff; }   /* (ACTIVITY is th
  * SPREAD at ACTIVITY 36, 64, 100, 127: a trickle under the drops .. a brook .. a river with its roar */
 #define WATER_ON (36 << 8)
 #define WATER_OFF ((8u * sizeof(voice_t) + 63u) & ~63u)   /* the stream's state, after the drops' 8 heroes */
-#define WATER_HEROES 8u             /* the stream's bubble heroes at most (CPU: its 16 cost ~500 us at the top) */
+#define WATER_HEROES 16u            /* the stream's bubble heroes at most (its 16 cost ~500 us at the top: 8 until the
+                                     * second core and the cache layout's room) */
 static const int32_t WATER_AT[4] = { 36 << 8, 64 << 8, 100 << 8, 127 << 8 };
 static const int32_t WATER_G[4] = { -360, -100, -100, -150 };
 static const int32_t WATER_C[HOST_NC][4] = { {0, 30, 100, 127}, {0, 0, 40, 80}, {20, 30, 45, 60}, {80, 64, 55, 50},
@@ -1542,7 +1544,7 @@ static uint32_t host_rate(src_t *s)
 
 /* heroes at most while an event engine's presses come fast (the dear top corner only: the defaults never reach it) */
 static const struct { const char *eng; uint16_t r_q8; uint8_t max; } HOT[] = {
-    {"ice", 512, 3},                /* (icicles over 2 presses /s: at ACTIVITY or COUNT 127 with SPACING 0, 6 heroes
+    {"ice", 512, 4},                /* (4: 3 until the device pool's half became the rule; icicles over 2 presses /s: at ACTIVITY or COUNT 127 with SPACING 0, 6 heroes
                                      * reached w8 ~900-2100 us on the FM-1 est., 3 ~660-730; the defaults press ~0.5 /s) */
 };
 static unsigned host_hot(const host_t *hd, uint32_t r_q8)
