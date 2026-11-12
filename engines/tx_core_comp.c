@@ -12,6 +12,9 @@
 #define PDR 4                      /* the slowest adapted release: REL's speed / 2^4 */
 #define SAS 4                      /* a rise under +3.5 dB (power x 2.25) caught at ATK's speed / 16 ... */
 #define SAK 59                     /* ... when REL is fast (59 and under: 150 ms, quick enough to fall between beats) */
+#define HKS 1                      /* held: the adapted release at REL's speed / 2 or slower (a chord's beats caught again) */
+#define HSH 11                     /* then the net reduction averaged over all of it, at most 2^11 control blocks (1.5 s) */
+#define HUP (340 * 16)             /* ... never more than 0.25 dB from the reduction of the moment (power log2 Q12 x 16) */
 #define NRB 32u                    /* the programme gone: under the envelope by 3 dB for 32 control blocks (23 ms) */
 #define PDT 6                      /* then the release back to REL's: 2^-6 a control block (~46 ms) */
 #define T0 64                      /* the auto make-up and the body lift: none up to THR 64 (-20 dBFS), the factory one */
@@ -114,8 +117,8 @@ TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *L, int32_t *R, unsigne
         }
         if (m != CB) p = p / (int32_t)m * (int32_t)CB;
         if (!c->on) { c->ef = c->es = p; c->on = 1; c->hd = 0; c->gs = -1; c->kq = c->kr; c->mg = c->mk;
-            c->bs = 0; c->amg = c->amk << 4; c->bq = c->beta << 4; c->nr = 0; c->g4 = -1; }   /* (from the bypass: no
-                                                                                             * stale level) */
+            c->bs = 0; c->amg = c->amk << 4; c->bq = c->beta << 4; c->nr = 0; c->g4 = -1;
+            c->hx = 0; }                                    /* (from the bypass: no stale level) */
         {
             int32_t e0 = c->ef, h0 = c->hd, k = c->kq;
             if (p >= c->ef >> 1) c->nr = 0;                   /* (the programme still at its top, within 3 dB) */
@@ -158,12 +161,35 @@ TX_AUDIO_CODE void tx_comp_process(tx_comp_t *c, int32_t *L, int32_t *R, unsigne
                 else c->g4 += (f16 - c->g4) >> c->gsh;
                 if (c->p[TX_CP_THR] > T0 && gr - mx < c->g4 >> 4) mx = gr - (c->g4 >> 4);
             }
+            {   /* held (the release adapted to a held chord's beats): the net reduction (less the make-up and the
+                 * lift) averaged since the hold began, over 1.5 s at most, within 0.25 dB of the reduction of the
+                 * moment: the gain no longer rides the chord's slowly turning peaks; a strike gives REL back and the
+                 * reduction of the moment at once, a decay is followed within 0.25 dB of before; after the hold the
+                 * average falls back to it at the reduction's own smoothing, still within 0.25 dB (more reduction:
+                 * at once) */
+                int32_t n16 = (gr - mx) << 4;
+                if (c->kq <= c->kr >> HKS) {
+                    if (c->hx != 1) { c->gh = n16; c->hn = 0; c->hs = 0; c->hx = 1; }   /* (the average from here) */
+                    else {
+                        c->gh += (n16 - c->gh) >> c->hs;
+                        if (++c->hn >= (2u << c->hs) && c->hs < HSH) c->hs++;   /* (a running mean: 1/2, 1/4 ...) */
+                    }
+                    if (c->gh > n16 + HUP) c->gh = n16 + HUP;
+                    else if (c->gh < n16 - HUP) c->gh = n16 - HUP;
+                    if (c->gh < 0) c->gh = 0;
+                } else if (c->hx && n16 < c->gh - 16) {
+                    c->gh += (n16 - c->gh) >> c->gsh;
+                    if (c->gh > n16 + HUP) c->gh = n16 + HUP;
+                    c->hx = 2;
+                } else { c->gh = n16; c->hx = 0; }
+                mx = gr - (c->gh >> 4);
+            }
             {   /* MKUP glides: 1/8 of the way a control block (~6 ms), then exactly there (no click on a fast move) */
                 int32_t dm = (c->mk - c->mg) >> 3;
                 c->mg = dm ? c->mg + dm : c->mk;
             }
             gt = (int32_t)TX_FAR(tx_exp2)(((c->mg - gr + mx) / 2) * 16 + (14 << 16));   /* the amplitude: half the power log2 */
-        } else { c->gr = 0; c->gs = c->g4 = 0; gt = 16384; }
+        } else { c->gr = 0; c->gs = c->g4 = 0; c->hx = 0; gt = 16384; }
         g = g0 + ((gt - g0) >> 3);                            /* the glide: ~6 ms */
         if (g - gt < 8 && gt - g < 8) g = gt;
         c->g = g;

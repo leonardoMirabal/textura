@@ -26,6 +26,17 @@
  * -32.5 -> -39.6, the worst -20.0 -> -29.4; 4:1 ATK 40 REL 48 -36.4 -> -42.3 (-54.9 -> -64.0, Frodhes' gate -60)
  * (make tx-pristine). The cost: the envelope sits nearer the tops, ~1.2 dB more reduction on held chords and low notes
  * than at first (the factory presets' loudness under COMP: +0.01 .. +0.1 dB more lost).
+ * Held, the reduction averaged (2026-11-12): while the release stays adapted (REL's speed / 2 or slower: a held chord's
+ * beats caught again) the net reduction the gain applies is the running mean of it since the hold began (over 1.5 s at
+ * most), kept within 0.25 dB of the reduction of the moment. The detector still follows the chord's peaks, which turn
+ * slowly as its tones drift against each other (a cycle of ~1 s on 98 123 147 196 Hz, ~1 dB on the envelope); the gain
+ * no longer rides them. A strike gives REL back and with it the reduction of the moment; a decay or a swell is followed
+ * within 0.25 dB of before (a chord at -8 dBFS a tone fading at 3 .. 80 dB/s or swelling at 3 .. 20 dB/s, every RAT,
+ * ATK and REL tried); after the hold the gain falls back to the reduction at its own smoothing, still within 0.25 dB.
+ * Held chords, the intermodulation re the tones: 4:1 ATK 40 REL 48 -42.3 -> -58.8 dB (+-15 Hz -64.0 -> -72.0); the
+ * defaults -50.7 -> -53.5 (-65.8 -> -70.9); the median over the settings -39.6 -> -53.3, the worst -29.4 -> -35.1. The
+ * fatness at THR -40 dB 20:1 +3.39 / +6.77 -> +3.22 / +6.81 dB (ATK 100 / 40), the statics' largest rise 0 dB, the
+ * factory presets' loudness under COMP (20 of them x 15 settings) within 0.02 dB of before on the mean.
  *
  * THR brings its own make-up and body (after Frodhes' compressor stage 2, 2026-11-10), above THR 64 (-20 dBFS, the
  * factory one: every factory scene renders as before). The auto make-up: the reduction per unit of slope over THR, times
@@ -71,6 +82,9 @@ typedef struct {
                                     * lift as the gain uses it (Q8 x 16) */
     int32_t g4;                    /* the reduction THR 64 would apply here, smoothed as gs: past THR 64 the floor of
                                     * the reduction less the make-up and the lift (power log2 Q12 x 16) */
+    int32_t gh;                    /* the net reduction the gain uses: held, averaged (power log2 Q12 x 16) */
+    uint16_t hn;                   /* control blocks into the average (held) */
+    uint8_t hs, hx;                /* the average's shift now; held (1), falling back after it (2), neither (0) */
     uint8_t hd, gsh, beta;         /* the fast envelope's hold left (control blocks); the smoothing's shift (from REL);
                                     * the body lift (Q8, from THR) */
     uint8_t nr;                    /* control blocks the programme has stayed 3 dB under the fast envelope */
