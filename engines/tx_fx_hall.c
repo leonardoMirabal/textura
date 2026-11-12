@@ -5,19 +5,23 @@
  * as one instance (its state in tx_hall_t instead of statics). Textura runs it at the full rate (44.1 kHz): its
  * lengths x 2, its gains from the same times, its damping one-pole as at the half rate (rv_weight), no 2:1 down and
  * no 1:2 up; and every one of its 8 lines both damped and read modulated (the design: 4 damped, 4 modulated). Integers
- * only. */
+ * only. Now ROOM's tail (the HALL TYPE is the HQ tank), its lines int32 at 2^HL_HS x their old level (the same full
+ * scale: a -60 dBFS chord's tail no longer runs on the lines' rounding), each line's end x its gain, then damped. */
 #include "tx_fx_kern.h"
 
 #define HL_MOD 8
+#define HL_MAX (32767 << HL_HS)
+TX_INLINE int32_t hl_c(int32_t v) { return v < -HL_MAX ? -HL_MAX : v > HL_MAX ? HL_MAX : v; }
 #define HL_KD(d) (32767 - (d) * 180)
-#define HL_DLIVE 4                  /* the send's peak (this block) from which the input allpasses round (HQ_DLIVE) */
-#define HL_LOUD 32
+#define HL_DLIVE 4                  /* the send's peak (this block, Q15 steps) from which the input allpasses round (HQ_DLIVE) */
+#define HL_LOUD 4                   /* a line's two reads (its own steps) from which its gain rounds; under it toward zero
+                                     * (it ends) */
 #define HL_OUT 1
 #define HL_LFO 1153115u             /* 0.37 Hz a control block: 0.37 x 32 / 44100 x 2^32 */
 static const uint16_t HL_LEN[HL_NL] = {467 * RV_X, 509 * RV_X, 547 * RV_X, 593 * RV_X, 631 * RV_X, 673 * RV_X, 709 * RV_X,
                                         743 * RV_X};
 static const uint16_t HL_AP[HL_NAP] = {131 * RV_X, 307 * RV_X};
-static const int16_t HL_APG[HL_NAP] = {11469, 10240};
+static const int16_t HL_APG[HL_NAP] = {2867, 2560};   /* 0.7, 0.625 (Q12: the hot lines' products in 32 bits) */
 
 /* the input (shared by every kernel): HL_IN, the DC blocker (its corner as at the half rate: 2^-6 a sample) */
 TX_AUDIO_CODE void tx_rev_down(const int32_t *in, int32_t *php, int32_t *phe, int32_t *out)
@@ -45,39 +49,40 @@ static void hall_gains(tx_hall_t *h, int32_t s)
 }
 /* an input allpass over n samples; ld (a live send): its feed rounded half away from zero (an odd function: no even
  * harmonic, no dead band), else truncated toward zero (no input, no growth: it dies to exact 0) */
-TX_INLINE void hall_ap(int16_t *q, int32_t g, int32_t *x, uint32_t n, int ld)
+TX_INLINE void hall_ap(int32_t *q, int32_t g, int32_t *x, uint32_t n, int ld)
 {
-    int16_t *e = q + n;
+    int32_t *e = q + n;
     if (ld)
         for (; q < e; q++, x++) {
-            int32_t y = *q, u = y * g, v = *x + ((u + 8192 + (u >> 31)) >> 14);
-            *q = (int16_t)hl_c16(v);
+            int32_t y = *q, u = y * g, v = *x + ((u + 2048 + (u >> 31)) >> 12);
+            *q = hl_c(v);
             u = v * g;
-            *x = y - ((u + 8192 + (u >> 31)) >> 14);
+            *x = y - ((u + 2048 + (u >> 31)) >> 12);
         }
     else
         for (; q < e; q++, x++) {
-            int32_t y = *q, v = *x + sh_tz(y * g, 14);
-            *q = (int16_t)hl_c16(v);
-            *x = y - ((v * g + 8192) >> 14);
+            int32_t y = *q, v = *x + sh_tz(y * g, 12);
+            *q = hl_c(v);
+            *x = y - ((v * g + 2048) >> 12);
         }
 }
-/* a line's end: the modulated read (linear, f / 256 past b), the damping one-pole, the gain */
-TX_INLINE void hall_end(const int16_t *b, int32_t f, int16_t *y, uint32_t n, int32_t g, int lo, int32_t *lp, int32_t *le,
+/* a line's end: the modulated read (linear, f / 256 past b), the gain, the damping one-pole (its weight Q13, the
+ * remainder carried: its product in 32 bits at the hot lines' level) */
+TX_INLINE void hall_end(const int32_t *b, int32_t f, int32_t *y, uint32_t n, int32_t g, int lo, int32_t *lp, int32_t *le,
                         int32_t kd)
 {
     int32_t l = *lp, r = *le, e, p = *b, q, x;
     if (lo)
         do {
             b += HL_NL; q = *b; x = p + (((q - p) * f + 128) >> 8); p = q;
-            e = (x - l) * kd + r, r = e & 32767, l += e >> 15;
-            *y = (int16_t)sh_tz(l * g, 14); y += HL_NL / 2u;
+            e = (sh_tz(x * g, 14) - l) * kd + r, r = e & 8191, l += e >> 13;
+            *y = l; y += HL_NL / 2u;
         } while (--n);
     else
         do {
             b += HL_NL; q = *b; x = p + (((q - p) * f + 128) >> 8); p = q;
-            e = (x - l) * kd + r, r = e & 32767, l += e >> 15;
-            *y = (int16_t)((l * g + 8192) >> 14); y += HL_NL / 2u;
+            e = (((x * g + 8192) >> 14) - l) * kd + r, r = e & 8191, l += e >> 13;
+            *y = l; y += HL_NL / 2u;
         } while (--n);
     *lp = l;
     *le = r;
@@ -102,7 +107,7 @@ static void hall_half(tx_hall_t *h, uint32_t hf)
     int32_t kd = h->jkd, md = h->jmd;
     for (j = 0; j < HL_NL / 2u; j++) {
         uint32_t k = hf * (HL_NL / 2u) + j, len = HL_LEN[k], r;
-        const int16_t *b = h->comb + k;
+        const int32_t *b = h->comb + k;
         int32_t g = h->g[k], f, lo;
         d = w + HL_N - len;
         r = (uint32_t)(((md + 2) << 8) + ((tx_fx_sine(h->ph * (1u + (k & 1u)) + k * 0x2C000000u) * md) >> 7)) * RV_X;
@@ -122,21 +127,22 @@ void tx_hall_job(void *a) { hall_half((tx_hall_t *)a, 1u); }   /* (the other cor
 TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t *add, int32_t size, int32_t damp, int32_t md,
                                int32_t *ol, int32_t *or, const tx_rv_par_t *par)
 {
-    int16_t *a = h->ap, *o;
-    const int16_t *y, *z;
+    int32_t *a = h->ap, *o;
+    const int32_t *y, *z;
     uint32_t i, k, s, m, d, w = h->w;
     int32_t pk = 0;
     int taken;
     if (h->sz != size + 1) TX_FAR(hall_gains)(h, size);   /* (a SIZE change: in XIP) */
     h->ph += HL_LFO;
-    h->jw = w; h->jkd = rv_weight(HL_KD(damp)); h->jmd = md;
+    h->jw = w; h->jkd = (rv_weight(HL_KD(damp)) + 2) >> 2; h->jmd = md;
     taken = rv_fork(par, tx_hall_job, h);           /* the line ends: 4..7 there (or here, after), 0..3 here */
     tx_rev_down(send, &h->hp, &h->he, h->bx);
-    if (add) for (i = 0; i < HL_NC; i++) h->bx[i] += add[i];   /* (Textura: the shimmer, into the lines' input) */
+    for (i = 0; i < HL_NC; i++)                     /* (the lines' level; Textura: the shimmer, into their input) */
+        h->bx[i] = (h->bx[i] + (add ? add[i] : 0)) * (1 << HL_HS);
     for (i = 0; i < HL_NC; i++) pk |= h->bx[i] ^ (h->bx[i] >> 31);
     for (k = 0; k < HL_NAP; k++) {
         d = h->d[k];
-        HL_RUNS(d, HL_AP[k], m, s, hall_ap(a + d, HL_APG[k], h->bx + s, m, pk >= HL_DLIVE));
+        HL_RUNS(d, HL_AP[k], m, s, hall_ap(a + d, HL_APG[k], h->bx + s, m, pk >= (HL_DLIVE << HL_HS)));
         h->d[k] = (uint16_t)d;
         a += HL_AP[k];
     }
@@ -149,14 +155,14 @@ TX_AUDIO_CODE void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t 
         int32_t u = y3 + y4, r = y1 + y2 + y5 + y6, l = y0 + u - y7, t = r + u + y7, c = x - (y0 + t);
         ol[i] = (l + r) * HL_OUT;
         or[i] = (l - r) * HL_OUT;
-        o[0] = (int16_t)hl_c16(t + x);
-        o[1] = (int16_t)hl_c16(2 * (y2 + y3 + y5) + y1 + c);
-        o[2] = (int16_t)hl_c16(2 * (y3 + y4 + y6) + y2 + c);
-        o[3] = (int16_t)hl_c16(2 * (y4 + y5 + y7) + y3 + c);
-        o[4] = (int16_t)hl_c16(2 * (y5 + y6 + y1) + y4 + c);
-        o[5] = (int16_t)hl_c16(2 * (y6 + y7 + y2) + y5 + c);
-        o[6] = (int16_t)hl_c16(2 * (y7 + y1 + y3) + y6 + c);
-        o[7] = (int16_t)hl_c16(2 * (y1 + y2 + y4) + y7 + c - 2 * x);
+        o[0] = hl_c(t + x);
+        o[1] = hl_c(2 * (y2 + y3 + y5) + y1 + c);
+        o[2] = hl_c(2 * (y3 + y4 + y6) + y2 + c);
+        o[3] = hl_c(2 * (y4 + y5 + y7) + y3 + c);
+        o[4] = hl_c(2 * (y5 + y6 + y1) + y4 + c);
+        o[5] = hl_c(2 * (y6 + y7 + y2) + y5 + c);
+        o[6] = hl_c(2 * (y7 + y1 + y3) + y6 + c);
+        o[7] = hl_c(2 * (y1 + y2 + y4) + y7 + c - 2 * x);
     }
     if (!w) for (i = 0; i < HL_NL; i++) h->comb[HL_N * HL_NL + i] = h->comb[i];
     w += HL_NC;

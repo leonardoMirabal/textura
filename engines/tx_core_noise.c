@@ -231,46 +231,6 @@ TX_AUDIO_CODE void tx_svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, c
 {
     svf_bank_add_g(r, f, q, gin_q8, g_q11, nr, in, out, n);
 }
-/* svf_bank_add_g for 4 modes, each mode's state in its own variables (no arrays, no mode loop): the same steps in
- * the same order, sample for sample (the CHAMBER's body) */
-static void svf_bank4(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8, const int32_t *g_q11,
-                      const int32_t *in, int32_t *out, unsigned n)
-{
-    int32_t silent = 0;
-    unsigned j, k;
-    for (j = 0; j < n; j++) silent |= in[j];
-    silent = !silent;
-    if (silent && tx_svf_bank_quiet(r, 4u)) return;
-    for (k = 0; k < 4u; k += 2u) {                           /* two modes at a time over the block (their sum into
-                                                              * out: the same total, the modes' order aside) */
-        int32_t lo0 = r[k].low, bd0 = r[k].band, ef0 = r[k].ef, f0 = f[k], g0 = g_q11[k];
-        int32_t lo1 = r[k + 1u].low, bd1 = r[k + 1u].band, ef1 = r[k + 1u].ef, f1 = f[k + 1u], g1 = g_q11[k + 1u];
-        int32_t gi0 = gin_q8 ? gin_q8[k] : 256, gi1 = gin_q8 ? gin_q8[k + 1u] : 256;
-        if (q >= 512)                                        /* Q <= 32 */
-            for (j = 0; j < n; j++) {
-                int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
-                int32_t x = ((v >> 8) * q) >> 14, y = 0;
-                SVF_LOW(0); SVF_LOW(1);
-                out[j] += y;
-            }
-        else                                                 /* high Q: the damping's remainder carried */
-            for (j = 0; j < n; j++) {
-                int32_t v = in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j];
-                int32_t x = ((v >> 8) * q) >> 14, y = 0;
-                SVF_HIGH(0); SVF_HIGH(1);
-                out[j] += y;
-            }
-        SVF_OUT(k, 0); SVF_OUT(k + 1u, 1);
-    }
-}
-/* the CHAMBER's body: 4 modes unrolled (in XIP on the FM-1, as the CHAMBER: the bus runs on core 1, lanes.c LN_PIPE) */
-void tx_svf_bank_add_g_ch(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
-                          const int32_t *g_q11, unsigned nr, const int32_t *in, int32_t *out, unsigned n)
-{
-    if (nr == 4u) svf_bank4(r, f, q, gin_q8, g_q11, in, out, n);
-    else tx_svf_bank_add_g(r, f, q, gin_q8, g_q11, nr, in, out, n);
-}
-
 TX_AUDIO_CODE void tx_svf_bank_add(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *g_q11, unsigned nr,
                                    const int32_t *in, int32_t *out, unsigned n)
 {

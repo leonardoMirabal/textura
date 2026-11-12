@@ -267,12 +267,11 @@ static void rv_body(const tx_fx_reverb_t *r, int32_t *L, int32_t *R, const int32
 }
 static void room_flush(tx_fx_reverb_t *r, int32_t *L, int32_t *R)
 {
-    int32_t keep[TX_BLOCK], *x = r->u.rm.rm + r->r0;
+    int32_t keep[TX_BLOCK];
+    const int32_t *x = tx_chamber_wet(&r->u.rm.c, r->u.rm.rm + r->r0, r->rn);
     uint32_t j, n = r->rn;
-    for (j = 0; j < n; j++) keep[j] = x[j];
-    tx_chamber_process(&r->u.rm.c, x, n);
     for (j = 0; j < n; j++) {
-        int32_t w = x[j] - keep[j], f = r->rf[(r->r0 + j) / CTL];
+        int32_t w = x ? x[j] : 0, f = r->rf[(r->r0 + j) / CTL];
         if (f) w = (int32_t)(((int64_t)w * ((f * 32 - (int32_t)(j & (CTL - 1u))) * 128)) >> 15);
         keep[j] = w;
     }
@@ -283,11 +282,9 @@ static void room_flush(tx_fx_reverb_t *r, int32_t *L, int32_t *R)
 /* ROOM on two cores: the body over the gathered run (as room_flush, no fade), its wet part into rw */
 TX_AUDIO_CODE void tx_fx_reverb_body(tx_fx_reverb_t *r)
 {
-    int32_t *x = r->u.rm.rm + r->r0;
+    const int32_t *x = tx_chamber_wet(&r->u.rm.c, r->u.rm.rm + r->r0, r->rn);
     uint32_t j, n = r->rn;
-    for (j = 0; j < n; j++) r->u.rm.rw[j] = x[j];
-    tx_chamber_process(&r->u.rm.c, x, n);
-    for (j = 0; j < n; j++) r->u.rm.rw[j] = x[j] - r->u.rm.rw[j];
+    for (j = 0; j < n; j++) r->u.rm.rw[j] = x ? x[j] : 0;
 }
 
 TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *R, unsigned n)
@@ -410,7 +407,9 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
                 TX_FAR(tx_plate_run)(&r->u.p, r->x, om, os, &c);
             }
             if (cur && (r->p[TX_RV_SHIMMER] || shon)) {         /* the shimmer for the next control block */
-                shimmer(r, om, ipk > SH_LIVE);
+                int32_t hm[HL_NC];                              /* (ROOM's tail at 2^HL_HS: the mid at Q15) */
+                if (cur == TX_RVT_ROOM) for (i = 0; i < HL_NC; i++) hm[i] = sh_tz(om[i], HL_HS);
+                shimmer(r, cur == TX_RVT_ROOM ? hm : om, ipk > SH_LIVE);
                 shon = r->p[TX_RV_SHIMMER] != 0;
                 if (!shon) for (i = 0; i < HL_NC; i++) shon |= r->sh[i] != 0;   /* (its last feed still to go in) */
                 if (!r->p[TX_RV_SHIMMER]) { for (i = 0; i < HL_NC; i++) r->sh[i] = 0; shon = 0; }
@@ -430,7 +429,7 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
                                                          * half: MIX 127 as the old full send's); mid / side -> L, R */
             if (cur && (r->gw[b] || r->gw[b + 1u])) {
                 for (i = 0; i < HL_NC; i++) { int32_t a = om[i]; om[i] = a + os[i]; os[i] = a - os[i]; }
-                tx_fx_drywet(L + sb, R + sb, om, os, CTL, gd[b], gd[b + 1u], r->gw[b] >> 1, r->gw[b + 1u] >> 1, 256);
+                tx_fx_drywet(L + sb, R + sb, om, os, CTL, gd[b], gd[b + 1u], r->gw[b] >> 1, r->gw[b + 1u] >> 1, cur == TX_RVT_ROOM ? 256 >> HL_HS : 256);
             } else tx_fx_drywet(L + sb, R + sb, 0, 0, CTL, gd[b], gd[b + 1u], 0, 0, 0);
             done = b + 1u;
         }

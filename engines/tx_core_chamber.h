@@ -3,8 +3,8 @@
  * space". Two parts, both from the room's physics:
  *
  *   body   the enclosure's lowest axial modes: a box L x L/1.26 x L/1.59 has f = c / 2L x {1, 1.26, 1.59, 2}
- *          (c 343 m/s; 2: the second mode along L). Each a band-pass (shared SVF bank) with Q = pi f T60 / 6.91 (the
- *          room's decay), driven at unit noise power.
+ *          (c 343 m/s; 2: the second mode along L). Each a band-pass (the shared SVF bank's steps, its states at
+ *          16x the bank's resolution) with Q = pi f T60 / 6.91 (the room's decay), driven at unit noise power.
  *   tail   a short diffuse reverberation: an 8-line feedback delay network (Hadamard matrix, int16 lines), line lengths
  *          ~ 4.5 ms per metre of room (the mean free path scale), per-line gains for Sabine's
  *          T60 = 0.161 V / (S a) = 0.0268 L / a for a cube-like room of side L and mean absorption a (clamped 30 ms ..
@@ -47,6 +47,9 @@ typedef struct {
 void tx_chamber_init(tx_chamber_t *c);
 void tx_chamber_param(tx_chamber_t *c, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_chamber_process(tx_chamber_t *c, int32_t *buf, unsigned n);   /* in place, Q23 */
+/* the same step, its wet part (body + tail, Q23) alone: the chamber's n samples (its own buffer, valid to its next call),
+ * or 0 (idle: silent in, silent state) */
+TX_AUDIO_CODE const int32_t *tx_chamber_wet(tx_chamber_t *c, const int32_t *buf, unsigned n);
 static inline int tx_chamber_quiet(const tx_chamber_t *c) { return !c->active; }
 
 #endif

@@ -92,13 +92,15 @@ TX_INLINE void rv_join(const tx_rv_par_t *p, void (*fn)(void *), void *a, int ta
 #define HL_IN 10320                 /* the send's level into the int16 lines (4x Felucca's: 12 dB less rounding) */
 void tx_rev_down(const int32_t *in, int32_t *php, int32_t *phe, int32_t *out);
 
-/* HALL (tx_fx_hall.c: Felucca's hall, as Frodhes runs it) */
+/* ROOM's tail (tx_fx_hall.c: Felucca's hall, as Frodhes ran it as its HALL): int32 lines at 2^HL_HS x the old int16
+ * lines' level (their full scale too: 32767 << HL_HS), its outputs at that scale (the framework takes them down) */
 #define HL_NL 8u
+#define HL_HS 3
 #define HL_NAP 2u
 #define HL_N 1536u
 typedef struct {
-    int16_t comb[(HL_N + 1u) * HL_NL];   /* the 8 lines' ring: row t = their samples written at t; row HL_N repeats 0 */
-    int16_t ap[(131u + 307u) * RV_X];
+    int32_t comb[(HL_N + 1u) * HL_NL];   /* the 8 lines' ring: row t = their samples written at t; row HL_N repeats 0 */
+    int32_t ap[(131u + 307u) * RV_X];
     uint16_t w, d[HL_NAP];
     int32_t hp, he;
     int16_t g[HL_NL], sz;
@@ -107,8 +109,8 @@ typedef struct {
     uint32_t jw;                                 /* (the block's write row, kd, md: the other half's arguments) */
     int32_t jkd, jmd;
     struct {                                     /* lines 0..3, 4..7: their damping one-poles, their ends a block */
-        int32_t lp[HL_NL / 2u], le[HL_NL / 2u];
-        int16_t y[HL_NC][HL_NL / 2u];
+        int32_t lp[HL_NL / 2u], le[HL_NL / 2u];  /* (after the gain: the line's end at its gain, then damped) */
+        int32_t y[HL_NC][HL_NL / 2u];
     } TX_LINE half[2];
 } tx_hall_t;
 void tx_hall_start(tx_hall_t *h);

@@ -23,6 +23,58 @@ static uint32_t isqrt_u(uint32_t x)
     return r;
 }
 
+/* the body: 4 band-pass modes, the shared SVF bank's steps (tx_core_noise.h: Chamberlin, unit noise power in), their
+ * states at 64x its Q15 (Q21): at the bank's steps a quiet note's modes rang on their rounding (a -60 dBFS chord's body
+ * was as much error as signal). Every product in 32 bits (f < 4000: the modes under 1715 Hz; |band| <= 2^23):
+ *   lo    f x band at band's Q17 (rounded: no bias for the low-pass to integrate), one product
+ *   d     the damping q band / 2^14 as band's two parts, its remainder carried at every Q (a high Q's damping is
+ *         under a step: without it a quiet mode rings on)
+ *   drive the send's Q15 x q gin / 2^11 (< 2^15: q gin < 2^26 from the bank's own laws), one product
+ *   band  f x h as h's two parts summed before the one shift (a second floor was a bias, as lo's)
+ *   out   band at Q17 x its gain, one product
+ * Two modes at a time (their two chains side by side). */
+#define BS 6
+#define BMAX (1 << (17 + BS))      /* the bands saturate at +-4.0, as the bank's */
+#define BZT 64                     /* under this (Q21: 1 / 16 of the bank's own 16 steps) with a silent input: a mode at
+                                    * exact zero */
+#define M14(c, v) (((((v) >> 8) * (c)) + (((((v) & 255) * (c))) >> 8)) >> 6)
+#define BODY_STEP(k)                                                                                         \
+    do {                                                                                                     \
+        int32_t d, h;                                                                                        \
+        lo##k += (((bd##k + 8) >> 4) * f##k) >> 10;                                                          \
+        {   int32_t a_ = q * (bd##k >> 8), e_ = ((a_ & 63) << 8) + q * (bd##k & 255) + ef##k;                 \
+            d = (a_ >> 6) + (e_ >> 14); ef##k = e_ & 16383; }                                                \
+        h = ((vs * g##k) >> (11 - BS)) - lo##k - d;                                                          \
+        bd##k += M14(f##k, h);                                                                               \
+        bd##k = bd##k > BMAX ? BMAX : bd##k < -BMAX ? -BMAX : bd##k;                                          \
+        y += ((bd##k >> 4) * o##k) >> (BS - 1);                                                              \
+    } while (0)
+static void body4(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin, const int32_t *g, const int32_t *in,
+                  int32_t *out, unsigned n)
+{
+    unsigned j, k;
+    int32_t silent = 0;
+    for (j = 0; j < n; j++) silent |= in[j];
+    silent = !silent;
+    if (silent && tx_svf_bank_quiet(r, 4u)) return;
+    for (k = 0; k < 4u; k += 2u) {                           /* two modes at a time (their two chains side by side) */
+        int32_t lo0 = r[k].low, bd0 = r[k].band, ef0 = r[k].ef, f0 = f[k], o0 = g[k], g0 = (q * gin[k] + 1024) >> 11;
+        int32_t lo1 = r[k + 1u].low, bd1 = r[k + 1u].band, ef1 = r[k + 1u].ef, f1 = f[k + 1u], o1 = g[k + 1u];
+        int32_t g1 = (q * gin[k + 1u] + 1024) >> 11;
+        for (j = 0; j < n; j++) {
+            int32_t vs = (in[j] > (1 << 24) ? (1 << 24) : in[j] < -(1 << 24) ? -(1 << 24) : in[j]) >> 8, y = 0;
+            BODY_STEP(0); BODY_STEP(1);
+            out[j] += y;
+        }
+#define BODY_OUT(m, k)                                                                                       \
+        if (silent && ((bd##k > -BZT && bd##k < BZT && lo##k > -BZT && lo##k < BZT)                           \
+                       || (bd##k == r[m].band && lo##k == r[m].low))) lo##k = bd##k = 0;                      \
+        if (!lo##k && !bd##k) ef##k = 0;                                                                     \
+        r[m].low = lo##k; r[m].band = bd##k; r[m].ef = ef##k;
+        BODY_OUT(k, 0) BODY_OUT(k + 1u, 1)
+    }
+}
+
 #define LIM (1 << 22)              /* lines saturate at +-4.0 (Q20) */
 #define MUL15(a, b) ((((a) >> 15) * (b)) + ((((a) & 0x7FFF) * (b)) >> 15))   /* a x b / 2^15, |a| < 2^24, 0 <= b < 2^15 */
 
@@ -100,20 +152,20 @@ void tx_chamber_param(tx_chamber_t *c, unsigned id, unsigned v)
     else setup(c);
 }
 
-TX_AUDIO_CODE void tx_chamber_process(tx_chamber_t *c, int32_t *buf, unsigned n)
+TX_AUDIO_CODE const int32_t *tx_chamber_wet(tx_chamber_t *c, const int32_t *buf, unsigned n)
 {
     int32_t *t = c->tmp, any = 0, damp = c->damp, tm = c->tail_mix;
     unsigned j, k;
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) any |= buf[j];
-    if (!any && !c->active) return;                          /* silent in, silent state: nothing to do */
+    if (!any && !c->active) return 0;                        /* silent in, silent state: nothing to do */
     c->active = 1;
     /* body (on the dry input) */
     for (j = 0; j < n; j++) t[j] = 0;
     if (c->body_mix) {
         int32_t g[TX_CH_MODES];
         for (k = 0; k < TX_CH_MODES; k++) g[k] = (c->bg[k] * (c->body_mix >> 4)) >> 11;   /* Q11 */
-        tx_svf_bank_add_g_ch(c->body, c->bf, c->bq, c->bgin, g, TX_CH_MODES, buf, t, n);
+        body4(c->body, c->bf, c->bq, c->bgin, g, buf, t, n);
     }
     /* tail: input -> allpass -> into every line (alternate signs); lines -> low-pass -> gain -> Hadamard (Q20) */
     if (tm) {
@@ -156,7 +208,7 @@ TX_AUDIO_CODE void tx_chamber_process(tx_chamber_t *c, int32_t *buf, unsigned n)
             t[j] += ((o >> 7) * tq) >> 2;                    /* Q20 sum x tail mix -> Q23 (|o| < 2^25: < 2^31) */
         }
     }
-    for (j = 0; j < n; j++) buf[j] += t[j] > (1 << 25) ? (1 << 25) : t[j] < -(1 << 25) ? -(1 << 25) : t[j];   /* wet <= 4 FS */
+    for (j = 0; j < n; j++) t[j] = t[j] > (1 << 25) ? (1 << 25) : t[j] < -(1 << 25) ? -(1 << 25) : t[j];   /* wet <= 4 FS */
     /* silence: the input silent for 2 T60 + the longest line (the tail is then under -120 dB: truncation toward zero
      * has emptied the lines) and the body rung out -> clear, idle. (The output alone cannot tell: it is one
      * projection of the 8 lines and can read zero while they still ring.) */
@@ -171,4 +223,11 @@ TX_AUDIO_CODE void tx_chamber_process(tx_chamber_t *c, int32_t *buf, unsigned n)
         }
     } else
         c->quiet_blocks = 0;
+    return t;
+}
+TX_AUDIO_CODE void tx_chamber_process(tx_chamber_t *c, int32_t *buf, unsigned n)
+{
+    const int32_t *w = tx_chamber_wet(c, buf, n);
+    unsigned j;
+    if (w) for (j = 0; j < (n > TX_BLOCK ? TX_BLOCK : n); j++) buf[j] += w[j];
 }
