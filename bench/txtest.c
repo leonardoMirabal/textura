@@ -1283,6 +1283,64 @@ static void gs_sweep(tx_fx_t *fx, unsigned pid, int mix64, double *zip, double *
             *jump = fabs(sw.lv[w] - sw.lv[w - 1]) - js;
     }
 }
+/* the grain delay's level and overlap (the unit, 0.2.1: the delay faint at high GRAINS, never a cloud): noise in, MIX
+ * 127, GRAIN 127, FEEDBACK 0; the wet's level re the input at GRAINS 1 .. 30, scattered (SPRAY 20) and as copies of
+ * one read (SPRAY 0): flat (it fell 1 / sqrt(N), -12 dB from 2 to 30). And the cap under GRAINS (4 of 30): the four
+ * spread over the turn (copies: their windows sum flat, no 2.9 ms window 12 dB under the mean; bunched, most were) */
+static void check_fx_grain_level(tx_fx_t *fx)
+{
+    static const unsigned GN[] = {1, 2, 3, 4, 8, 15, 30};
+    double lv[2][7], lo = 1e9, hi = -1e9;
+    unsigned sp, i, b, j, holes = 0, nw = 0;
+    char msg[400];
+    for (sp = 0; sp < 3u; sp++)
+        for (i = 0; i < (sp < 2u ? 7u : 1u); i++) {
+            tx_fx_grain_t *d = &fx->gd;
+            int32_t L[TX_BLOCK], R[TX_BLOCK];
+            uint32_t rng = 1u;
+            double acc = 0, ain = 0, mean = 0, win[64];
+            unsigned nwin = 0;
+            tx_fx_grain_init(d);
+            tx_fx_grain_param(d, TX_GD_MIX, 127); tx_fx_grain_param(d, TX_GD_GRAIN, 127);
+            tx_fx_grain_param(d, TX_GD_FEEDBACK, 0); tx_fx_grain_param(d, TX_GD_SPRAY, sp == 1u ? 20u : 0u);
+            tx_fx_grain_param(d, TX_GD_GRAINS, (sp < 2u ? GN[i] : 30u) - 1u);
+            for (b = 0; b < 800u; b++) {
+                d->cap = (uint8_t)(sp == 2u ? 4u : TX_GD_MAXG);
+                for (j = 0; j < TX_BLOCK; j++) {
+                    rng = rng * 1664525u + 1013904223u;
+                    L[j] = R[j] = ((int32_t)(rng >> 8) - 8388608) / 4;
+                    if (b >= 400u) ain += (double)L[j] * L[j];
+                }
+                tx_fx_grain_process(d, L, R, TX_BLOCK);
+                if (b < 400u) continue;
+                for (j = 0; j < TX_BLOCK; j++) {
+                    double v = ((double)L[j] * L[j] + (double)R[j] * R[j]) / 2;
+                    acc += v;
+                }
+                if (b < 432u)                              /* (2.9 ms halves: 2 windows a block, 32 blocks) */
+                    for (j = 0; j < 2u; j++) {
+                        double w = 0;
+                        unsigned k;
+                        for (k = 0; k < TX_BLOCK / 2u; k++) w += (double)L[j * TX_BLOCK / 2u + k] * L[j * TX_BLOCK / 2u + k];
+                        win[nwin++] = w;
+                    }
+            }
+            if (sp < 2u) {
+                lv[sp][i] = 10 * log10(acc / ain);
+                if (lv[sp][i] < lo) lo = lv[sp][i];
+                if (lv[sp][i] > hi) hi = lv[sp][i];
+            } else {
+                for (j = 0; j < nwin; j++) mean += win[j] / nwin;
+                for (j = 0; j < nwin; j++) holes += win[j] < mean / 16.0;
+                nw = nwin;
+            }
+        }
+    snprintf(msg, sizeof msg, "grain delay level re the input, GRAINS 1 2 3 4 8 15 30: scattered %.1f %.1f %.1f %.1f %.1f %.1f %.1f, "
+             "copies %.1f %.1f %.1f %.1f %.1f %.1f %.1f dB (%.1f dB apart); cap 4 of 30: %u of %u windows 12 dB under the mean",
+             lv[1][0], lv[1][1], lv[1][2], lv[1][3], lv[1][4], lv[1][5], lv[1][6], lv[0][0], lv[0][1], lv[0][2], lv[0][3],
+             lv[0][4], lv[0][5], lv[0][6], hi - lo, holes, nw);
+    verdict("fx", "grain level", hi - lo < 1.5 && lo > -6 && holes == 0, msg, 0);
+}
 static void check_fx_grain_controls(tx_fx_t *fx)
 {
     static const int notes[5] = {48, 64, 67, 69, 72};
@@ -2180,6 +2238,7 @@ static void check_fx(FILE *update)
         snprintf(msg, sizeof msg, "grain delay, 16 pitched grains asked with INFINITE on: at most %u sounding (cap %u)", maxact, fx->gd.cap);
         verdict("fx", "cap", maxact <= fx->gd.cap && fx->gd.cap < 16u && maxact > 0, msg, 0);
         check_fx_grain_controls(fx);
+        check_fx_grain_level(fx);
         check_fx_drywet(fx);
         check_fx_hq(fx);
     }

@@ -132,7 +132,7 @@ typedef struct {
     uint32_t tap, tap0, tx;                      /* the echo's delay, the old one, the crossfade (0 = none) */
     int32_t lp, dcy, lpe, dce;                   /* the feedback: its low-pass, its DC block, their remainders */
     int32_t wg;                                  /* the write's gain (Q15: FREEZE fades it to 0) */
-    int32_t gn;                                  /* the grains' level (Q15, glides: 2 / sounding) */
+    int32_t gn, gnt;                             /* the grains' level (Q15, glides) and its target (begin: gd_level) */
     uint8_t cap;                                 /* grains allowed to start now (the chain's dynamic cap) */
     uint8_t act;                                 /* grains sounding in the last block (on average) */
     uint8_t on;                                  /* running (MIX up, or its fade out) */

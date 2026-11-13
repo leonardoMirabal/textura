@@ -352,6 +352,23 @@ static void gd_anim(tx_fx_grain_t *d, unsigned n, uint32_t tgt)
     d->wvel = (x * d->wm * 2 - d->wq0) / (int32_t)(n ? n : 1u);
     d->wq1 = d->wq0 + d->wvel * (int32_t)n;             /* (exactly where the block's read ends) */
 }
+/* the grains' level (Q15) for N sounding: their Hann windows, evenly spaced, sum to N / 2, their squares to 3 N / 8;
+ * copies of one read (SPRAY near 0, unison, forward, MOD 0) add in amplitude (2 / N: the echo exactly), scattered
+ * ones in power (sqrt(8 / 3N)); between, by how far SPRAY spreads the reads (coherent c, Q8: 1 at SPRAY 0, 0 from
+ * 20 ms on). So the delay keeps its level at every GRAINS and every cap: a sparse repeat and a dense cloud alike
+ * (it fell 1 / sqrt(N): -12 dB from 2 grains to 30) */
+static int32_t gd_level(const tx_fx_grain_t *d, uint32_t N)
+{
+    uint32_t reach = (uint32_t)d->p[TX_GD_SPRAY] * 174u, c, D, r, b;
+    if (!N) return 0;
+    c = d->p[TX_GD_PITCH] != 64u || d->p[TX_GD_REVERSE] || d->p[TX_GD_MOD] || reach || N < 2u ? 0u : 256u;
+    D = (256u - c) * (3u * N * 8192u) + c * (N * N * 16384u);   /* (N / 4 .. N^2 / 4, Q16 after the >> 8) */
+    D >>= 8;
+    for (r = 0, b = 1u << 30; b; b >>= 2)               /* r = sqrt(D) (Q8) */
+        if (D >= r + b) { D -= r + b; r = (r >> 1) + b; } else r >>= 1;
+    r = 8388608u / (r ? r : 1u);
+    return (int32_t)(r > 65536u ? 65536u : r);
+}
 /* A block in three steps (tx_fx_grain_process runs them in turn): begin (MIX on: the line's start), the voices (the
  * echo's run and the grains: they read only the line as the blocks before left it, never this block's input, so
  * they may run before the input is there, on another core: tx_fx_bus_begin), the end (the blend with the input, the
@@ -375,6 +392,8 @@ TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
         for (k = 0; k < 4u; k++) d->dt[k] = d->da[k] = d->du[k] = 0;
     }
     gd_anim(d, n, tgt);
+    k = d->p[TX_GD_GRAINS] + 1u;
+    d->gnt = gd_level(d, d->cap < k ? d->cap : k);
     d->ahead = !(d->zrun >= TX_GD_N && wgt && !d->tx);
     return d->ahead;
 }
@@ -409,7 +428,7 @@ static unsigned gd_spawns(const tx_gd_grain_t *g, uint32_t T, uint32_t inc, unsi
 TX_AUDIO_CODE void tx_fx_grain_split(tx_fx_grain_t *d, unsigned n)
 {
     uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, inc = d->ginc;
-    uint32_t step = 0xFFFFFFFFu / G + 1u, k, K = (G + 1u) / 2u, r = d->rng, c = 0;
+    uint32_t step = 0xFFFFFFFFu / (cap ? cap : 1u) + 1u, k, K = (G + 1u) / 2u, r = d->rng, c = 0;
     if (n > TX_BLOCK) n = TX_BLOCK;
     gd_tap(d);
     for (k = 0; k < K; k++)
@@ -421,7 +440,8 @@ TX_AUDIO_CODE void tx_fx_grain_split(tx_fx_grain_t *d, unsigned n)
 TX_RAM static unsigned gd_voices(tx_fx_grain_t *d, unsigned k0, unsigned k1, unsigned n, int32_t *sl, int32_t *sr, uint32_t *rs)
 {
     uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, inc = d->ginc;
-    uint32_t len = d->glen, step = 0xFFFFFFFFu / G + 1u, k, j;
+    uint32_t len = d->glen, step = 0xFFFFFFFFu / (cap ? cap : 1u) + 1u, k, j;   /* (spaced by those that may
+                                                         * sound: a cap under GRAINS bunched them, a gap each turn) */
     unsigned act = 0;
     if (sl) for (j = 0; j < n; j++) sl[j] = sr[j] = 0;
     for (k = k0; k < k1; k++)                           /* (past GRAINS: a sounding grain finishes its window) */
@@ -497,7 +517,7 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
                                                          * TIME + half of SPRAY's reach; 0 none) */
     int32_t ta = TX_FX_GD_TONE[d->p[TX_GD_TONE]], wgt = d->p[TX_GD_FREEZE] ? 0 : 32768;
     uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, j, w0;
-    int32_t gnt = cap ? (int32_t)(65536u / (cap < 2u ? 2u : cap)) : 0;   /* the grains' level: 2 / sounding (Q15) */
+    int32_t gnt = d->gnt;                               /* the grains' level (begin: gd_level) */
     int32_t *e = d->we, *sl = d->wl, *sr = d->wr;
     int32_t gs[2], gc[2];                               /* MIX: the wet / dry gains at the block's edges (Q15) */
     int32_t fq, dfq;                                    /* FEEDBACK's gain along the block (Q8 of Q15), its step */
