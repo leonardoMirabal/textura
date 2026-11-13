@@ -1283,6 +1283,56 @@ static void gs_sweep(tx_fx_t *fx, unsigned pid, int mix64, double *zip, double *
             *jump = fabs(sw.lv[w] - sw.lv[w - 1]) - js;
     }
 }
+/* the grain delay's loop (the unit, 0.2.1: "a delay for the first second, then the highs and the level vanish, even
+ * at high FEEDBACK"): a 20 ms noise burst, MIX 127, TIME 70 (229 ms), TONE at its default; the wet's level and its
+ * brightness (the first difference's power over the signal's) per second, 1..2 s against 9..10 s. FEEDBACK 110 (1.0
+ * a pass): the level and the brightness hold, the echo alone (GRAIN 0) and grained (GRAIN 64 and 127, 4 and 30
+ * grains: each pass grained again); FEEDBACK 104 (-0.28 dB a pass): the echo falls as its table says, the grains
+ * about so (a pass is TIME + the SPRAY they add) */
+static void check_fx_grain_loop(tx_fx_t *fx)
+{
+    static const struct { uint8_t fb, gr, gn; } C[] = {{110, 0, 4}, {110, 64, 4}, {110, 127, 4}, {110, 127, 30},
+                                                      {104, 0, 4}, {104, 127, 4}, {104, 127, 30}};
+    double dl[7], db[7];
+    unsigned c, b, j, ok = 1;
+    char msg[600];
+    int n = 0;
+    for (c = 0; c < 7u; c++) {
+        tx_fx_grain_t *d = &fx->gd;
+        int32_t L[TX_BLOCK], R[TX_BLOCK], prev = 0;
+        uint32_t rng = 3u;
+        double e[2] = {0, 0}, h[2] = {0, 0};
+        tx_fx_grain_init(d);
+        tx_fx_grain_param(d, TX_GD_MIX, 127); tx_fx_grain_param(d, TX_GD_FEEDBACK, C[c].fb);
+        tx_fx_grain_param(d, TX_GD_GRAIN, C[c].gr); tx_fx_grain_param(d, TX_GD_GRAINS, C[c].gn - 1u);
+        for (b = 0; b < 1723u; b++) {                   /* 10 s */
+            for (j = 0; j < TX_BLOCK; j++) {
+                uint32_t i = b * TX_BLOCK + j;
+                rng = rng * 1664525u + 1013904223u;
+                L[j] = R[j] = i >= 4410u && i < 5292u ? ((int32_t)(rng >> 8) - 8388608) / 20 : 0;
+            }
+            d->cap = TX_GD_MAXG;
+            tx_fx_grain_process(d, L, R, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) {
+                int k = b >= 172u && b < 344u ? 0 : b >= 1550u ? 1 : -1;
+                double x = L[j], dx = (double)L[j] - prev;
+                prev = L[j];
+                if (k >= 0) { e[k] += x * x; h[k] += dx * dx; }
+            }
+        }
+        dl[c] = 10 * log10((e[1] + 1) / (e[0] + 1));
+        db[c] = 10 * log10(((h[1] + 1) / (e[1] + 1)) / ((h[0] + 1) / (e[0] + 1)));
+        if (db[c] < -4 || db[c] > 4) ok = 0;
+        if (C[c].fb == 110 && (dl[c] < -6 || dl[c] > 4)) ok = 0;
+        if (C[c].fb == 104 && !C[c].gr && (dl[c] < -11.5 || dl[c] > -8)) ok = 0;
+        if (C[c].fb == 104 && C[c].gr && (dl[c] < -15 || dl[c] > -4)) ok = 0;
+    }
+    for (c = 0; c < 7u; c++)
+        n += snprintf(msg + n, sizeof msg - (size_t)n, "%sFB %u GRAIN %u x%u %+.1f / %+.1f", c ? ", " : "", C[c].fb, C[c].gr,
+                      C[c].gn, dl[c], db[c]);
+    snprintf(msg + n, sizeof msg - (size_t)n, " dB (level / brightness, 9 s on re 1 s)");
+    verdict("fx", "grain loop", ok, msg, 0);
+}
 /* the grain delay's level and overlap (the unit, 0.2.1: the delay faint at high GRAINS, never a cloud): noise in, MIX
  * 127, GRAIN 127, FEEDBACK 0; the wet's level re the input at GRAINS 1 .. 30, scattered (SPRAY 20) and as copies of
  * one read (SPRAY 0): flat (it fell 1 / sqrt(N), -12 dB from 2 to 30). And the cap under GRAINS (4 of 30): the four
@@ -1378,9 +1428,10 @@ static void check_fx_grain_controls(tx_fx_t *fx)
     verdict("fx", "grains-sweep", zip <= 2.0, msg, 0);
     gs_sweep(fx, TX_GD_TIME, 1, &zip, &jump);
     /* (the step is the echo's comb on the chord, moving: by TIME's top alone it was 1.07 .. 1.74 dB for tops of
-     * 1.40 .. 1.66 s, so 2 dB at most) */
-    snprintf(msg, sizeof msg, "grain delay, TIME swept 0 .. 127 .. 0: a level step %.2f dB past the statics' (2 at most), zipper %.2f", jump, zip);
-    verdict("fx", "time-sweep", jump <= 2.0 && zip <= 2.0, msg, 0);
+     * 1.40 .. 1.66 s, so 2 dB at most; with the loop lossless (G-delayloop: the GRAIN blend equal-power, the grains'
+     * mid whole) the repeats keep their level, the comb is deeper: 2.10, so 2.5 at most; the zipper is unchanged) */
+    snprintf(msg, sizeof msg, "grain delay, TIME swept 0 .. 127 .. 0: a level step %.2f dB past the statics' (2.5 at most), zipper %.2f", jump, zip);
+    verdict("fx", "time-sweep", jump <= 2.5 && zip <= 2.0, msg, 0);
     for (t = 0; t < 2u; t++) {                              /* GRAIN 0 -> 127 and back at 2 s */
         unsigned a = t ? 127u : 0u, b = t ? 0u : 127u;
         double ref;
@@ -2239,6 +2290,7 @@ static void check_fx(FILE *update)
         verdict("fx", "cap", maxact <= fx->gd.cap && fx->gd.cap < 16u && maxact > 0, msg, 0);
         check_fx_grain_controls(fx);
         check_fx_grain_level(fx);
+        check_fx_grain_loop(fx);
         check_fx_drywet(fx);
         check_fx_hq(fx);
     }

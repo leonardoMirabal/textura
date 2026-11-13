@@ -9,16 +9,18 @@
  *   far below at -70)
  *   the ECHO: one tap at TIME (20 ms .. 1.66 s at 127, on to 2.00 s; a new TIME crossfades from the old tap in 23 ms: the
  *     echo moves without a level step)
- *   the GRAINS: GRAINS voices (1 .. 30) staggered on one clock (each grain SIZE long, Hann windows: they add up to a
- *     constant), each started at TIME + a random SPRAY, at PITCH (semitone steps, -12 .. +12), reversed by chance
- *     (REVERSE), panned at random within SPREAD; read with linear interpolation (whole samples at rate 1: exact)
+ *   the GRAINS: GRAINS voices (1 .. 30; those the cap lets sound) staggered on one clock (each grain SIZE long, Hann
+ *     windows: they add up to a constant), each started at TIME + a random SPRAY, at PITCH (semitone steps,
+ *     -12 .. +12), reversed by chance (REVERSE), panned at random within SPREAD; read with linear interpolation (whole samples at rate 1: exact)
  *   out = the input x the dry's gain + (ECHO .. GRAINS by GRAIN) x the wet's (MIX, tx_fx.h: 0 the input alone, 64 both
- *     whole, 127 the delay alone); the feedback: that, its make-up, through TONE's low-pass,
+ *     whole, 127 the delay alone); the feedback: that (its mid, as below), through TONE's low-pass,
  *     a soft knee (above half scale only: the quiet repeats stay exact), FEEDBACK's gain and a DC block, into the line
- *   the make-up: the grains lose level on every pass (scattered by SPRAY and PITCH they add up in power, not in
- *     amplitude; SPREAD's places; the blend with the echo), so above FEEDBACK 64 the loop gets back what it lost: the
- *     echo's level over the loop's, both smoothed over ~1.5 s, +0.3 .. +15.6 dB (none under -100 dBFS), in fully from
- *     FEEDBACK 96; GRAIN 0 (the echo alone) needs none. FEEDBACK (TX_FX_GD_FB): to 64 as before (x 258), then a
+ *   the loop keeps what each pass grains again, its level and its top, but for FEEDBACK and TONE: the grains' level
+ *     as they add (gd_level: in power when scattered, in amplitude as copies, and in amplitude below a crossover
+ *     set by how far their reads spread: gd_lowlevel), their mid x sqrt 2 (their places' equal power undone), the
+ *     GRAIN blend equal-power (linear for copies), TONE 127 open, the DC block at 15 Hz (no build-up under the
+ *     crossover). (A measured make-up did this before, +0.3 .. +15.6 dB over ~1.5 s: it lagged, and the bottom ran
+ *     away under it; off now.) FEEDBACK (TX_FX_GD_FB): to 64 as before (x 258), then a
  *     pass's gain rises to 1 at 110
  *     (the repeats go on at every GRAIN, SPRAY, SPREAD) and past it to +2.5 dB a pass at 127: the delay runs away into
  *     a wall held at a -14.6 dBFS peak (the loop as heard, before its make-up; a peak that falls back over ~3 s: 6 dB
@@ -49,7 +51,7 @@ const tx_param_t tx_fx_grain_params[TX_GD_NP] = {
     {"PITCH", 127, 64, TX_TEXT("the grains' pitch: -12 .. +12 semitones (64 = as played)")},
     {"REVERSE", 127, 0, TX_TEXT("the chance a grain plays backwards: never .. always")},
     {"SPREAD", 127, 64, TX_TEXT("each grain's place: all in the middle .. anywhere left to right")},
-    {"TONE", 127, 100, TX_TEXT("the repeats' top: dark (400 Hz) .. open (16 kHz)")},
+    {"TONE", 127, 127, TX_TEXT("the repeats' top: dark (400 Hz) .. 16 kHz (126) .. open (127: the repeats keep their top)")},
     {"GRAIN", 127, 64, TX_TEXT("the clean echo (0) .. the grains (127)")},
     {"FREEZE", 1, 0, TX_TEXT("hold the line: the last 2.55 s go round, the grains keep playing them")},
     {"MOD", 127, 0, TX_TEXT("the animation: none (the plain delay) .. an evolving cloud: the time drifts (a slow wow), the grains' SIZE, start, direction and place vary and drift, more of them leave unison for INTERVALS")},
@@ -85,6 +87,7 @@ void tx_fx_grain_init(tx_fx_grain_t *d)
     d->cap = TX_GD_MAXG;
     d->gc = d->gct = d->gcr = d->hot = 4096;
     d->fbl = -1;
+    d->bwg = -1;
 }
 void tx_fx_grain_sync(tx_fx_grain_t *d, unsigned samples)
 {
@@ -357,6 +360,25 @@ static void gd_anim(tx_fx_grain_t *d, unsigned n, uint32_t tgt)
  * ones in power (sqrt(8 / 3N)); between, by how far SPRAY spreads the reads (coherent c, Q8: 1 at SPRAY 0, 0 from
  * 20 ms on). So the delay keeps its level at every GRAINS and every cap: a sparse repeat and a dense cloud alike
  * (it fell 1 / sqrt(N): -12 dB from 2 grains to 30) */
+static int32_t gd_level(const tx_fx_grain_t *d, uint32_t N);
+/* the same below the crossover: scattered grains still read alike far below 1 / their reads' spread (SPRAY's reach,
+ * and PITCH's drift between grains over a window), so there they add in amplitude: 2 / N (the power law let them
+ * gain up to +13 dB a pass at 3 Hz (30 grains, SPRAY 20) or 50 Hz (SPRAY 2): at high FEEDBACK the bottom ran away,
+ * the knee and the make-up pressed the rest down, the repeats went dull and faint after a second). The crossover a
+ * one-pole near 1 / (pi spread); reversed grains read no alike: none */
+static void gd_lowlevel(tx_fx_grain_t *d, uint32_t N)
+{
+    uint32_t p = d->p[TX_GD_PITCH], dp = p > 64u ? p - 64u : 64u - p;
+    uint32_t R = d->p[TX_GD_SPRAY] ? (uint32_t)d->p[TX_GD_SPRAY] * 174u
+                                   : (d->glen < 0x100000u ? d->glen : 0x100000u) * dp * 6u / 100u;
+    if (N < 2u || d->p[TX_GD_REVERSE]) { d->gnlt = d->gnt; d->xk = 32768; return; }   /* (one grain: no other to add to) */
+    d->gnlt = (int32_t)(65536u / N > 65536u ? 65536u : 65536u / N);
+#ifndef GD_XM
+#define GD_XM 6u
+#endif
+    d->xk = R ? (int32_t)(65536u * GD_XM / R > 32768u ? 32768u : 65536u * GD_XM / R) : 32768;
+    if (d->xk < 3) d->xk = 3;
+}
 static int32_t gd_level(const tx_fx_grain_t *d, uint32_t N)
 {
     uint32_t reach = (uint32_t)d->p[TX_GD_SPRAY] * 174u, c, D, r, b;
@@ -390,10 +412,14 @@ TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
         for (k = 0; k < TX_GD_MAXG; k++) d->g[k].on = 0;
         d->mg = d->wm = d->wq1 = 0;
         for (k = 0; k < 4u; k++) d->dt[k] = d->da[k] = d->du[k] = 0;
+        for (k = 0; k < 2u; k++) d->xl[k] = d->xle[k] = 0;
+        d->bwg = -1;
     }
     gd_anim(d, n, tgt);
     k = d->p[TX_GD_GRAINS] + 1u;
     d->gnt = gd_level(d, d->cap < k ? d->cap : k);
+    d->blin = !d->p[TX_GD_SPRAY] && d->p[TX_GD_PITCH] == 64u && !d->p[TX_GD_REVERSE] && !d->p[TX_GD_MOD];
+    gd_lowlevel(d, d->cap < k ? d->cap : k);
     d->ahead = !(d->zrun >= TX_GD_N && wgt && !d->tx);
     return d->ahead;
 }
@@ -510,13 +536,17 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_voices_b(tx_fx_grain_t *d, unsigned n)
 TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n)
 {
     int32_t mv = d->p[TX_GD_MIX], mixt = TX_FX_MIXQ(mv), gb = d->p[TX_GD_GRAIN] * 258, fbk = TX_FX_GD_FB[d->p[TX_GD_FEEDBACK]];
-    int32_t pf = d->p[TX_GD_FEEDBACK], cw = pf <= 64 ? 0 : pf >= 96 ? 4096 : (pf - 64) * 128;   /* the make-up's share, Q12 */
+    int32_t cw = 0;                                     /* the make-up's share (Q12): none now. It made up the loss the
+                                                         * grains' 2 / N law, their places and the linear GRAIN blend
+                                                         * left in the loop; those are exact now (gd_level, the
+                                                         * crossover, the mid x sqrt 2, the equal-power blend), and its
+                                                         * +0.3 dB a pass would only grow the repeats */
     uint32_t ae = 0, ar = 0, af = 0, al = 0;            /* (the block's echo, the grains' reference and the loop, |x| / 4
                                                          * summed; the loop as heard, its peak, for the wall) */
     uint32_t rb = 0;                                    /* (the reference: the line where the grains read on average,
                                                          * TIME + half of SPRAY's reach; 0 none) */
-    int32_t ta = TX_FX_GD_TONE[d->p[TX_GD_TONE]], wgt = d->p[TX_GD_FREEZE] ? 0 : 32768;
-    uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, j, w0;
+    int32_t ta = d->p[TX_GD_TONE] >= 127u ? 32768 : TX_FX_GD_TONE[d->p[TX_GD_TONE]], wgt = d->p[TX_GD_FREEZE] ? 0 : 32768;
+    uint32_t j, w0;
     int32_t gnt = d->gnt;                               /* the grains' level (begin: gd_level) */
     int32_t *e = d->we, *sl = d->wl, *sr = d->wr;
     int32_t gs[2], gc[2];                               /* MIX: the wet / dry gains at the block's edges (Q15) */
@@ -560,18 +590,42 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
     {
     uint32_t wj = w0, fj = d->fill;                     /* (the write index and the fill, sample by sample) */
     for (j = 0; j < n; j++) {
-        int32_t x = (L[j] >> 2) + (R[j] >> 2), wl, wr, f;   /* the mid, Q22 */
+        int32_t x = (L[j] >> 2) + (R[j] >> 2), wl, wr, f, fm;   /* the mid, Q22 */
         if (d->gn != gnt) d->gn += d->gn < gnt ? (gnt - d->gn > 8 ? 8 : gnt - d->gn) : -(d->gn - gnt > 8 ? 8 : d->gn - gnt);
-        if (dry) wl = wr = e[j];                        /* (GRAIN 0: the echo alone, exactly) */
+        if (d->gnl != d->gnlt) d->gnl += d->gnl < d->gnlt ? (d->gnlt - d->gnl > 8 ? 8 : d->gnlt - d->gnl)
+                                                          : -(d->gnl - d->gnlt > 8 ? 8 : d->gnl - d->gnlt);
+        if (dry) wl = wr = fm = e[j];                   /* (GRAIN 0: the echo alone, exactly) */
         else {
-            int32_t gl = mq15(sl[j], d->gn), gr = mq15(sr[j], d->gn);
+            int32_t gl = mq15(sl[j], d->gn), gr = mq15(sr[j], d->gn), lo;   /* (gd_level's; below the crossover,
+                                                         * on the mid, 2 / N: the difference added to both sides) */
+            if (d->gnl != d->gn) {
+                d->xl[0] = op15(d->xl[0], (sl[j] >> 1) + (sr[j] >> 1), d->xk, &d->xle[0]);
+                d->xl[1] = op15(d->xl[1], d->xl[0], d->xk, &d->xle[1]);
+                lo = mq15z(d->xl[1], d->gnl - d->gn);
+                gl += lo; gr += lo;
+            }
             if (d->gbl != gb) d->gbl += d->gbl < gb ? (gb - d->gbl > 16 ? 16 : gb - d->gbl) : -(d->gbl - gb > 16 ? 16 : d->gbl - gb);
             wl = e[j] + mq15(gl - e[j], d->gbl);       /* the echo .. the grains (GRAIN glides: 46 ms end to end) */
             wr = e[j] + mq15(gr - e[j], d->gbl);
+            gl = mq15z((gl >> 1) + (gr >> 1), 46341);   /* (the loop: the grains' mid x sqrt 2, their places' equal
+                                                         * power undone: a centred grain is 0.71 a side, its mid lost
+                                                         * 3 dB a pass; SPREAD reaches +-11 degrees, 0.03 dB) */
+            if (d->blin) fm = e[j] + mq15(gl - e[j], d->gbl);   /* (copies: the echo's own level) */
+            else {                                      /* (apart: they add in power, the blend's equal-power,
+                                                         * sin(pi b / 2), its Taylor terms to b^5: 0.04 dB; made
+                                                         * again only as GRAIN glides) */
+                if (d->bwg != d->gbl) {
+                    int32_t b1 = d->gbl, b0 = 32768 - b1, q1 = (b1 * b1) >> 15, q0 = (b0 * b0) >> 15;
+                    b1 = (b1 * (51472 - ((21168 * q1) >> 15) + ((2611 * ((q1 * q1) >> 15)) >> 15))) >> 15;
+                    b0 = (b0 * (51472 - ((21168 * q0) >> 15) + ((2611 * ((q0 * q0) >> 15)) >> 15))) >> 15;
+                    d->bw1 = b1 > 32768 ? 32768 : b1; d->bw0 = b0 > 32768 ? 32768 : b0; d->bwg = d->gbl;
+                }
+                fm = mq15z(e[j], d->bw0) + mq15z(gl, d->bw1);   /* (toward 0: no -1 kept alive) */
+            }
         }
-        f = (wl >> 1) + (wr >> 1);                      /* the feedback: its make-up, TONE, the soft knee, FEEDBACK,
+        f = fm;                                         /* the feedback: its make-up, TONE, the soft knee, FEEDBACK,
                                                          * the DC block */
-        if (!dry) {
+        if (cw && !dry) {                               /* (the make-up's measures: none now) */
             ae += (uint32_t)(e[j] < 0 ? -e[j] : e[j]) >> 2; af += (uint32_t)(f < 0 ? -f : f) >> 2;
             if (rb && !(j & 3u)) { int32_t r = gd_rd(d, gd_idx(wj, rb)); ar += (uint32_t)(r < 0 ? -r : r); }
         }
@@ -584,7 +638,8 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
         else if (f < -GD_KNEE) f = -GD_KNEE - tx_fx_softclip((-f - GD_KNEE) >> 6) * 64;
         if (dfq) { fq += dfq; fbk = fq >> 8; }
         f = mq15z(f, fbk);
-        d->dcy = op15(d->dcy, f, 8, &d->dce);
+        d->dcy = op15(d->dcy, f, 70, &d->dce);         /* (15 Hz: what the grains' crossover leaves under it
+                                                         * never builds up pass on pass) */
         f -= d->dcy;
         if (d->wg != wgt) d->wg += d->wg < wgt ? (wgt - d->wg > 74 ? 74 : wgt - d->wg) : -(d->wg - wgt > 74 ? 74 : d->wg - wgt);
         x += f;
@@ -601,7 +656,7 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
     }
     TX_FAR(tx_fx_drywet)(L, R, e, sr, n, gc[0], gc[1], gs[0], gs[1], 2);   /* dry x its gain + the delay x the wet's (Q22 -> Q23) */
     gd_wrn(d, sl, n);
-    if (dry) d->gct = 4096;                             /* the make-up: the echo's level over the loop's (held while the
+    if (dry || !cw) d->gct = 4096;                      /* the make-up: the echo's level over the loop's (held while the
                                                          * loop is too quiet to tell), its share by FEEDBACK */
     else {
         uint32_t a, b;

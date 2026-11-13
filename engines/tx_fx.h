@@ -133,6 +133,10 @@ typedef struct {
     int32_t lp, dcy, lpe, dce;                   /* the feedback: its low-pass, its DC block, their remainders */
     int32_t wg;                                  /* the write's gain (Q15: FREEZE fades it to 0) */
     int32_t gn, gnt;                             /* the grains' level (Q15, glides) and its target (begin: gd_level) */
+    int32_t gnl, gnlt, xk;                       /* below the crossover: its level, target; the crossover (Q15) */
+    uint8_t blin;                                /* the grains copies of the echo's read: the loop's blend linear */
+    int32_t xl[2], xle[2];                       /* the crossover's two one-poles (the grains' mid), remainders */
+    int32_t bw0, bw1, bwg;                       /* the loop's equal-power GRAIN weights (Q15), for the blend at bwg */
     uint8_t cap;                                 /* grains allowed to start now (the chain's dynamic cap) */
     uint8_t act;                                 /* grains sounding in the last block (on average) */
     uint8_t on;                                  /* running (MIX up, or its fade out) */

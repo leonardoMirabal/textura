@@ -16,11 +16,11 @@ static const char *const PR_CAT[PR_NCAT] = {"RAIN", "STORM", "COAST", "RIVER & L
 static const uint8_t PR_CAT_AT[PR_NCAT + 1u] = {0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100};   /* each one's first */
 /* the effects (scenes.c scn_factory: reverb TYPE MIX DECAY TONE PREDELAY, grain delay MIX TIME FEEDBACK TONE GRAIN): 0 dry, 1 air, 2 space, 3 echo, 4 cave */
 static const uint8_t PR_FX[PR_NFX][PR_FX_NP] = {
-    {0, 35, 64, 64, 0, 0, 70, 50, 100, 64},
-    {2, 13, 44, 52, 0, 0, 70, 50, 100, 64},
-    {2, 20, 64, 56, 6, 0, 70, 50, 100, 64},
+    {0, 35, 64, 64, 0, 0, 70, 50, 127, 64},
+    {2, 13, 44, 52, 0, 0, 70, 50, 127, 64},
+    {2, 20, 64, 56, 6, 0, 70, 50, 127, 64},
     {2, 14, 50, 52, 0, 13, 92, 34, 64, 24},
-    {2, 27, 96, 48, 12, 0, 70, 50, 100, 64},
+    {2, 27, 96, 48, 12, 0, 70, 50, 127, 64},
 };
 static const pr_t PR[PR_N] = {
     {"DRIZZLE", 0x01, {{0x00, 0x11, 78, 64}, {0x04, 0x10, 109, 40}, {0x53, 0x11, 60, 90}, {0xFF, 0, 100, 64}}},
