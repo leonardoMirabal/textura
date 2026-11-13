@@ -153,14 +153,19 @@ void tx_hq_run(tx_hall_t *hv, const int32_t *send, const int32_t *add, int32_t s
 void tx_hq_job(void *a);            /* (the other core's half: lines 8..15) */
 #define HQ_HALL_WORDS 46378u        /* the rings: the lines' 46 314 + 16 x 4 (txtest checks) */
 
-/* INFINITE (tx_fx_inf.c: Frodhes' infinite tank, the LITE build; DARK as its variant) */
+/* INFINITE (tx_fx_inf.c: Frodhes' infinite tank, its bright build; DARK as its variant) */
 #define RI_NL 8u
 #define RI_CPT 4u
 #define RI_NB (HL_NC * RI_CPT)
 #define RI_N 3968u                  /* the lines' shared ring, a multiple of RI_NB (the longest line + its swing below) */
 #define RI_NDIF 3u
 #define RI_NLAP 4u
-#define RI_APSUM (597u * RV_X)      /* the diffusers' lines (127 + 193 + 277, x 2) */
+#ifndef RI_LAP                      /* the bright tank's 4 in-line allpasses (lines 0, 2, 4, 6; Frodhes' full build): 1 the
+                                     * default, 0 the LITE tank as before (bit-exact) */
+#define RI_LAP 1
+#endif
+#define RI_APSUM ((597u + (RI_LAP ? 460u : 0u)) * RV_X)   /* the diffusers' lines (127 + 193 + 277), the lines'
+                                     * allpasses (67 + 89 + 131 + 173), x 2 */
 typedef struct {
     uint32_t w, age, quiet, apfull;
     int32_t il, ie, ik;
@@ -187,8 +192,10 @@ typedef struct {
     uint16_t apd[RI_NDIF + RI_NLAP];
     int32_t eb0[RI_NL], eck[RI_NL];              /* (the line ends' gains and poles, where they start: the block's, */
     uint32_t ef[RI_NL], ew;                      /* made before the two halves run; the write row) */
-    struct { int32_t yp[RI_NL / 2u], op[RI_NL / 2u], oe[RI_NL / 2u]; } TX_LINE hs[2];   /* lines 0..3, 4..7: their
-                                                 * interpolation, one-pole and remainder (each half its own lines) */
+    struct { int32_t yp[RI_NL / 2u], op[RI_NL / 2u], oe[RI_NL / 2u];
+             uint16_t lapd[2]; uint8_t lapf; } TX_LINE hs[2];   /* lines 0..3, 4..7: their interpolation, one-pole
+                                                 * and remainder (each half its own lines); its two lines' allpasses:
+                                                 * their index, wrapped once (bits) */
     int32_t x[RI_NB];
     int32_t m[RI_NB], s[RI_NB];
     struct { int32_t y[RI_NB][RI_NL / 2u]; } TX_LINE hy[2];   /* their ends, a tank block */

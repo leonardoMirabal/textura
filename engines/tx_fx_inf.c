@@ -1,17 +1,19 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura reverb TYPEs INFINITE and DARK: Frodhes' infinite tank (rev_inf.c, its LITE build: our own), as one
+/* Textura reverb TYPEs INFINITE and DARK: Frodhes' infinite tank (rev_inf.c: its bright build, our own), as one
  * instance. DECAY 0..119: T60 4..60 s; 120..126: SUSTAIN (the tail never decays and what is played piles into it, up
  * to a bounded level); 127: FREEZE (the input closes, the tail at that moment is held for ever).
  *
  *   in (HL_NC samples at 44.1 kHz) -> TONE's input one-pole -> the input's gain (FREEZE's fade x the level guard x a
  *   limiter on the block's peak) -> 3 diffusers (allpass, g 0.5, lifting steps) -> 8 lines (41..84 ms x SIZE, primes),
  *   every one read modulated (allpass interpolation: no high loss, a held tank keeps its colour), the damping one-pole
- *   and the line's gain in one product -> line 0's DC block -> the 8 x 8 Householder mix (lossless) -> back into the
- *   lines (int16). Mid / side from the line ends. It runs every 4th control block for 128 samples (its fixed costs
- *   once), every read moved each time.
+ *   and the line's gain in one product -> [an allpass, g 0.5, on lines 0, 2, 4, 6: RI_LAP] -> line 0's DC block ->
+ *   the 8 x 8 Householder mix (lossless) -> back into the lines (int16). Mid / side from the line ends. It runs every
+ *   4th control block for 128 samples (its fixed costs once), every read moved each time.
  * Textura runs it at the full rate: the design's lengths and swing x 2, its one-poles as at the half rate (rv_pole,
  * rv_weight), its gains from the same times (calibrated: the tails' T30 as at the half rate, within 5 % over DECAY and
  * TONE); every line modulated and every read moved each tank block (the design: 4 modulated, a read every 4th).
+ * RI_LAP (tx_fx_kern.h, 1 the default): the bright build's 4 in-line allpasses, their lengths the same part of the
+ * shorter lines as there; each line's gain counts its allpass's delay (the T60 kept). 0: the LITE tank, bit-exact.
  *
  * The loop loses nothing to its rounding (a 60 s T60 holds at any level): the reads round, the line ends and the mix
  * carry their remainders, the allpasses are lifting steps; a quiet line truncates toward zero instead, so a tail that
@@ -61,6 +63,11 @@ static const uint16_t RI_LEN[RI_NL] = {907 * RV_X, 1021 * RV_X, 1129 * RV_X, 123
                                        1669 * RV_X, 1847 * RV_X};   /* primes (half rate), 41 .. 84 ms at
                                     * SIZE 127: in ROOM's memory (the longest + the swing at MOD 127 < RI_N) */
 static const uint16_t RI_AP[RI_NDIF] = {127 * RV_X, 193 * RV_X, 277 * RV_X};
+#if RI_LAP
+static const uint16_t RI_LAPL[RI_NLAP] = {67 * RV_X, 89 * RV_X, 131 * RV_X, 173 * RV_X};   /* lines 0, 2, 4, 6's
+                                    * allpasses: Frodhes' 151 211 293 409 over the lines' 2.39 (primes), so each is
+                                    * the same part of its line as there */
+#endif
 static const uint32_t RI_INC[RI_NL] = {218157u, 645121u, 324119u, 751083u, 433197u, 860162u, 539159u, 966124u};
                                     /* 0.07 .. 0.31 Hz, the LFO step a control block (f x 32 / 44100 x 2^32) */
 
@@ -88,6 +95,22 @@ static inline void ri_dif2(int16_t *q, int32_t *x, uint32_t n, int z)   /* the d
             *x = b - (v >> 1);
         }
 }
+#if RI_LAP
+/* a line's allpass, g 0.5, y steps RI_NL / 2 (a half's row): two lifting steps (v = x + b / 2, y = b - v / 2, each
+ * exactly invertible), so it loses nothing however it rounds (the floor's -1/4 is a DC: the loop's DC block takes it) */
+static inline void ri_lap(int16_t *q, int32_t *y, uint32_t n, int z)
+{
+    int16_t *e = q + n;
+    if (z)
+        for (; q < e; q++, y += RI_NL / 2u) { int32_t v = hl_c16(*y); *q = (int16_t)v; *y = -(v >> 1); }
+    else
+        for (; q < e; q++, y += RI_NL / 2u) {
+            int32_t b = *q, v = hl_c16(*y + (b >> 1));
+            *q = (int16_t)v;
+            *y = b - (v >> 1);
+        }
+}
+#endif
 static inline void ri_end(const int16_t *b, int32_t *y, uint32_t n, int32_t a, int32_t b0, int32_t a1, int32_t *yp,
                           int32_t *op, int32_t *oe, int lo)
 {
@@ -123,6 +146,9 @@ static void ri_gains(tx_inf_t *s, int32_t d, int dark)      /* DECAY 0..119: T60
     for (k = 0; k < RI_NL; k++) {                          /* (a pass's time: the half-rate length) */
         l = s->len[k];                                     /* (a SIZE fade: the length between, as it fades) */
         if (s->xf && k == s->xk) l = (uint32_t)((int32_t)s->lo[k] + ((((int32_t)l - (int32_t)s->lo[k]) * s->xw) >> 14));
+#if RI_LAP
+        if (!(k & 1u)) l += RI_LAPL[k >> 1];               /* (its allpass's delay: a pass that long, the T60 kept) */
+#endif
         s->g[k] = (int16_t)(exp2_neg((((l / RV_X) * inv) >> 8) * q >> 14) >> 1);
     }
 }
@@ -210,7 +236,7 @@ static void ri_half(tx_inf_t *s, uint32_t hf)
     uint32_t j, m, s0;
     for (j = 0; j < RI_NL / 2u; j++) {
         uint32_t k = hf * (RI_NL / 2u) + j, f = s->ef[k], d;
-        if (f >= RI_NB) continue;
+        if (f >= RI_NB) goto lap;
         d = s->ew + f + RI_N - s->mI[k] - 1u;
         d = d >= RI_N ? d - RI_N : d;
         if (s->xf && k == s->xk && s->lo[k] != s->len[k]) {   /* its SIZE fade (a full ring: f 0): the blended rows */
@@ -220,11 +246,24 @@ static void ri_half(tx_inf_t *s, uint32_t hf)
             RI_RUNS(d, RI_NB + 1u, m, s0, f, ri_end(s->xt + d * RI_NL + k, s->hy[hf].y[s0] + j, m, s->ma[k],
                                                     s->eb0[k], s->eck[k], &s->hs[hf].yp[j], &s->hs[hf].op[j],
                                                     &s->hs[hf].oe[j], (s->mlo >> k) & 1u));
-            continue;
+            goto lap;
         }
         RI_RUNS(d, RI_N, m, s0, f, ri_end(s->ring + d * RI_NL + k, s->hy[hf].y[s0] + j, m, s->ma[k], s->eb0[k],
                                           s->eck[k], &s->hs[hf].yp[j], &s->hs[hf].op[j], &s->hs[hf].oe[j],
                                           (s->mlo >> k) & 1u));
+    lap:
+#if RI_LAP
+        if (!(j & 1u)) {                                   /* lines 0, 2, 4, 6: the allpass after the line's end */
+            uint32_t a = j >> 1, n = hf * 2u + a;
+            int16_t *q = s->ap + 597u * RV_X + (hf ? RI_LAPL[0] + RI_LAPL[1] : 0u) + (a ? RI_LAPL[n - 1u] : 0u);
+            d = s->hs[hf].lapd[a];
+            RI_RUNS(d, RI_LAPL[n], m, s0, 0, ri_lap(q + d, s->hy[hf].y[s0] + j, m, !((s->hs[hf].lapf >> a) & 1u));
+                    if (d + m >= RI_LAPL[n]) s->hs[hf].lapf |= (uint8_t)(1u << a));
+            s->hs[hf].lapd[a] = (uint16_t)d;
+        }
+#else
+        ;
+#endif
     }
 }
 static void ri_job(void *a) { ri_half((tx_inf_t *)a, 1u); }   /* (the other core's: lines 4..7) */
