@@ -16,8 +16,9 @@
  *              CUT, DELAY MIX, REVERB MIX), COMPRESSOR 1/2 2/2 (the first effect; Frodhes': THR RATIO ATTACK MAKEUP,
  *              then COMP REL; the footer its gain-reduction meter), DRIVE (AMOUNT TONE MIX TYPE), FILTER (right after
  *              the DRIVE: LOW CUT HIGH CUT RESONANCE SLOPE, a band), GRAIN 1/4 .. 4/4 (the grain delay), REVERB 1/3 ..
- *              3/3 (on what the delay gives: the echoes reverberate); MIX on DRIVE, GRAIN, REVERB reads DRY, D100 W50
- *              .. D100 W100 (64) .. D50 W100, WET; LFO 1/3 .. 3/3,
+ *              3/3 (on what the delay gives: the echoes reverberate); MIX on DRIVE, GRAIN, REVERB (and the front
+ *              page's DELAY MIX, REVERB MIX) a bar: to 64 in the accent, past it in its complement, a line at 64, the
+ *              text DRY / 50/50 / WET (the levels, D100 W50 .. D50 W100, in the state and the web); LFO 1/3 .. 3/3,
  *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, GROOVE 1/2 2/2 (every groove control together: TYPE AMOUNT
  *              SHIFT, then each lane's ROLE on its knob, its PART or own CYCLE), TEMPO (BPM FINE, the transport, what
  *              leads it), SCALE (MODE SCALE ROOT TRANSP, as Frodhes': the keys' notes), MIDI (the clock), MIDI IN (each
@@ -272,7 +273,7 @@ static uint32_t ub_loaded(void)                 /* (a load under way: the one co
 
 /* ---- the tokens (Frodhes' MT_LOOKS[0] on the palette) */
 #define MT_DIMLINE RGB(16, 4, 8)
-static struct { uint16_t lab, val, tag, unit, dim, fill, edge, frame, acc, track; } mt;
+static struct { uint16_t lab, val, tag, unit, dim, fill, edge, frame, acc, track, wet, wfill; } mt;
 #define CD_SEGOFF RGB(8, 8, 8)
 #define CD_PIPOFF RGB(56, 56, 60)
 #define CD_SEGDIM RGB(36, 36, 40)                /* a choice's other options */
@@ -284,6 +285,7 @@ static void mt_update(void)
     mt.unit = RGB(122, 122, 128); mt.dim = RGB(90, 90, 96); mt.track = MT_DIMLINE;
     mt.acc = mt.edge = mt.frame = pal[3];
     mt.fill = cd_shade(pal[3], 45);
+    mt.wet = cd_comp(pal[3]); mt.wfill = cd_shade(mt.wet, 45);   /* (a MIX past 64: the accent's complement) */
 }
 #define UI_ACC mt.acc
 #define FC_BG C_BLACK
@@ -653,7 +655,7 @@ static void ui_blink_dot(uint32_t k, int on, int canvas)
     else lcd_fill(RW_X + ST_DOT_X, RW_Y0 + RW_DY * k + ST_DOT_Y, ST_DOT, ST_DOT, c);
     ui_blink_shown[k] = (uint8_t)on;
 }
-static void cd_edge(int32_t ex, const int16_t *bx, uint32_t nb);
+static void cd_edge(int32_t ex, const int16_t *bx, uint32_t nb, uint16_t col);
 static int32_t ui_home_col(void) { return aa_text_w(&AF_S, "VOL 127") + 8 + aa_text_w(&AF_S, "K4"); }   /* the right
                                                  * column's width, its widest */
 /* the sounds' names: all four in one size, large only when every one ends 6 px clear of the right column, so no name
@@ -704,7 +706,7 @@ static void draw_strip(uint32_t k)
                           (int16_t)(base - 1), (int16_t)(vx - aa_text_w(&AF_S, "VOL 127")), (int16_t)ST_KX,
                           (int16_t)(base - AF_S_CAP_H), (int16_t)(base - 1),
                           6, (int16_t)(ST_DOT_X + ST_DOT), 2, 13};
-        cd_edge(fw - 2, bx, 3);
+        cd_edge(fw - 2, bx, 3, mt.edge);
     }
     x = aa_text_ov(6, S_TOP(9), &AF_S, l, sel ? UI_ACC : (fw > 40 ? RGB(170, 170, 176) : mt.tag)) + 8;
     if (mut) aa_text_ov(x, S_TOP(9), &AF_S, run ? "MUTED" : "MUTED, OFF", UI_ACC);
@@ -730,9 +732,11 @@ static void draw_strip(uint32_t k)
 
 /* ---- a card (Frodhes' style A): the K tag and the label at the left, the value large at the right (small when it
  * will not fit), its unit in a column of its own. Its look: an amount fills the row from the left (LK_MID: from the
- * middle, a pan or a pitch) to the fraction with a 2 px bright edge that stops clear of the text; a choice is a row
- * of segments under the label, the chosen one lit; a toggle is a light by the value */
-enum { LK_FILL, LK_MID, LK_SEG, LK_LED, LK_TEXT };   /* (LK_TEXT: read only, the value alone) */
+ * middle, a pan or a pitch) to the fraction with a 2 px bright edge that stops clear of the text; a dry / wet MIX
+ * (LK_MIX) fills from the left too, its part to 64 in the accent and past it in the accent's complement (the wet
+ * side), a 1 px line at 64 (dry and wet both whole), its text only DRY / 50/50 / WET there (ui_mix_text); a choice
+ * is a row of segments under the label, the chosen one lit; a toggle is a light by the value */
+enum { LK_FILL, LK_MID, LK_MIX, LK_SEG, LK_LED, LK_TEXT };   /* (LK_TEXT: read only, the value alone) */
 #define CD_PAD 6
 #define CD_PAD_R 12
 #define CD_UNIT_W 22
@@ -745,7 +749,7 @@ enum { LK_FILL, LK_MID, LK_SEG, LK_LED, LK_TEXT };   /* (LK_TEXT: read only, the
 #define CD_LABMIN 64                            /* the label keeps this much: a wider value is set small */
 #define CD_SEGMAX 16u                           /* a choice of more is shown by its value alone */
 #define CD_KTAG_TOP S_TOP(9)
-static void cd_edge(int32_t ex, const int16_t *bx, uint32_t nb)
+static void cd_edge(int32_t ex, const int16_t *bx, uint32_t nb, uint16_t col)
 {
     uint64_t blocked = 0;
     uint32_t i;
@@ -758,12 +762,19 @@ static void cd_edge(int32_t ex, const int16_t *bx, uint32_t nb)
     for (y = 0; y <= (int32_t)RW_H; y++) {
         int free_row = y < (int32_t)RW_H && !(blocked >> y & 1u);
         if (free_row && y0 < 0) y0 = y;
-        if (!free_row && y0 >= 0) { if (y - y0 >= CD_MINSEG) cv_rect(ex, y0, 2, y - y0, mt.edge); y0 = -1; }
+        if (!free_row && y0 >= 0) { if (y - y0 >= CD_MINSEG) cv_rect(ex, y0, 2, y - y0, col); y0 = -1; }
     }
 }
 static int32_t ui_card_live = -1;               /* the card being drawn is modulated: its value now (-1: not) */
-static void draw_card(uint32_t k, const char *lab, const char *v, const char *unit, int32_t val, int32_t hi, uint32_t look)
+/* a MIX card's text (LK_MIX): DRY at 0, 50/50 at 64 (dry and wet both whole), WET at the top; between them none (the bar
+ * says it) */
+static const char *ui_mix_text(int32_t val, int32_t hi)
 {
+    return val <= 0 ? "DRY" : val >= hi ? "WET" : val == 64 ? "50/50" : "";
+}
+static void draw_card(uint32_t k, const char *lab, const char *v0, const char *unit, int32_t val, int32_t hi, uint32_t look)
+{
+    const char *v = look == LK_MIX ? ui_mix_text(val, hi) : v0;   /* (a MIX: its own short text) */
     char kk[3] = {'K', (char)('1' + k), 0}, l[32];
     int32_t live = ui_card_live;
     int hot = ui_hot_card == k && ui_hot_t && fm1_ms - ui_hot_t < HOT_MS;
@@ -771,8 +782,8 @@ static void draw_card(uint32_t k, const char *lab, const char *v, const char *un
     int big = aa_covers(&AF_L, v) && aa_text_w(&AF_L, v) <= CD_VR - CD_PAD - CD_LABMIN;
     int32_t kw = aa_text_w(&AF_S, kk), lw, vw = big ? aa_text_w(&AF_L, v) : aa_text_w(&AF_S, v), fw = 0;
     int filled;
-    if (look <= LK_MID && hi > 0) fw = (int32_t)RW_W * clampi(val, 0, hi) / hi;
-    filled = look == LK_FILL && fw > CD_PAD;
+    if (look <= LK_MIX && hi > 0) fw = (int32_t)RW_W * clampi(val, 0, hi) / hi;
+    filled = (look == LK_FILL || look == LK_MIX) && fw > CD_PAD;
     ui_card_live = -1;
     if (live >= 0) { l[0] = '~'; p_strcpy(l + 1, lab, 30); }   /* (modulated: "~" and a marker at its value now) */
     else p_strcpy(l, lab, 31);
@@ -782,12 +793,20 @@ static void draw_card(uint32_t k, const char *lab, const char *v, const char *un
     if (fw > 0) {
         int16_t bx[8];
         int32_t x0 = look == LK_MID ? (int32_t)RW_W / 2 : 0;
+        int32_t cx = (int32_t)RW_W * 64 / (hi > 0 ? hi : 1);
+        uint16_t ec = mt.edge;
         if (look == LK_MID && fw < x0) cv_rect(fw, 0, x0 - fw, RW_H, mt.fill);
-        else cv_rect(x0, 0, fw - x0, RW_H, mt.fill);
+        else if (look == LK_MIX) {              /* the dry side's part in the accent, past 64 the wet side's complement */
+            cv_rect(0, 0, fw < cx ? fw : cx, RW_H, mt.fill);
+            if (fw > cx) cv_rect(cx, 0, fw - cx, RW_H, mt.wfill);
+            ec = val < 64 ? mt.edge : val > 64 ? mt.wet : FC_VAL;
+        } else cv_rect(x0, 0, fw - x0, RW_H, mt.fill);
         bx[0] = CD_PAD; bx[1] = (int16_t)(CD_PAD + (lw > kw ? lw : kw) - 1); bx[2] = (int16_t)(CD_KTAG_TOP + AF_S_CAP_Y); bx[3] = (int16_t)(CD_BASE - 1);
         bx[4] = (int16_t)(CD_VR - vw); bx[5] = (int16_t)(CD_VR - 1); bx[6] = (int16_t)(CD_BASE - (big ? AF_L_CAP_H : AF_S_CAP_H)); bx[7] = (int16_t)(CD_BASE - 1);
-        cd_edge(clampi(look == LK_MID && fw <= (int32_t)RW_W / 2 ? fw : fw - 2, 0, (int32_t)RW_W - 2), bx, 2);
+        cd_edge(clampi((look == LK_MID && fw <= (int32_t)RW_W / 2) || (look == LK_MIX && fw <= cx) ? fw : fw - 2, 0,
+                       (int32_t)RW_W - 2), bx, 2, ec);
     }
+    if (look == LK_MIX && hi > 0) cv_rect((int32_t)RW_W * 64 / hi, 0, 1, RW_H, RGB(150, 150, 156));   /* (64) */
     if (look == LK_SEG && hi >= 1 && (uint32_t)hi < CD_SEGMAX) {   /* a choice: hi + 1 segments, the chosen lit */
         int32_t i, n = hi + 1, x0 = CD_PAD, w = CD_VR - CD_PAD, sw = (w - 2 * (n - 1)) / n;
         for (i = 0; i < n; i++) cv_rect(x0 + i * (sw + 2), RW_H - 6, sw, 3, i == val ? mt.edge : CD_SEGDIM);
@@ -906,6 +925,7 @@ static uint32_t ui_look(uint32_t id)
     if (p_hi(id) == 0) return LK_TEXT;
     if (kd == PK_TOGGLE) return LK_LED;
     if (kd == PK_SELECT) return LK_SEG;
+    if (f == F_MIX) return LK_MIX;
     return f == F_PAN || f == F_SEMI ? LK_MID : LK_FILL;
 }
 /* the browser's row slot k: list rows 2k, 2k + 1 of the window (8 rows over the slots' 164 px: 20 or 21 px each, the

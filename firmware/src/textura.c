@@ -466,6 +466,13 @@ static int host_state(const char *key, char *v, unsigned n)
         if (ui_row_id(k) == NOID) { snprintf(v, n, "-"); return 0; }
         u = p_text(ui_row_id(k), t);
         snprintf(v, n, "%s%s%s", t, u ? " " : "", u ? u : "");
+    } else if (sscanf(key, "show%u%c", &k, &c) == 1 && k < 4u) {   /* the text the card draws (a MIX: DRY / 50/50 /
+                                                         * WET, else "BAR": its bar alone) */
+        char t[24];
+        uint32_t id = ui_row_id(k);
+        if (id == NOID) { snprintf(v, n, "-"); return 0; }
+        if (ui_look(id) == LK_MIX) { const char *s = ui_mix_text(p_ord(id, p_get(id)), p_hi(id)); snprintf(v, n, "%s", *s ? s : "BAR"); }
+        else { (void)p_text(id, t); snprintf(v, n, "%s", t); }
     } else if (sscanf(key, "p%x%c", &k, &c) == 1) snprintf(v, n, "%d", p_valid(k) ? (int)p_get(k) : -1);   /* "p120": id 0x120 */
     else if (sscanf(key, "host%u.%u%c", &k, &i, &c) == 2 && k < SC_N)   /* the hosted engine's parameter i: its override */
         snprintf(v, n, "%d", ln.mix.e[k] == sc.src ? (int)tx_source_host_value(ln.mix.st[k], i) : -2);

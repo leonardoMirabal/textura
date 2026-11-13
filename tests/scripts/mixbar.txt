@@ -1,0 +1,65 @@
+# a MIX card (dry / wet: the front page's DELAY MIX and REVERB MIX, DRIVE, GRAIN, REVERB): a bar from the left, to 64
+# in the accent, past it in the accent's complement, a line at 64; the card's text DRY / 50/50 / WET at 0 / 64 / 127,
+# none between ("show": BAR); the state's "card" keeps the levels (D100 W50 .. D50 W100). At each value a shot once
+# the card has settled (a CC frames it for a second, as a turn), then K4 turned and back: framed, its value as it was
+1700 btn 13
+2100 btn 2
+2150 expect state page EFFECTS
+2150 expect state lab2 DELAY_MIX
+2150 expect state lab3 REVERB_MIX
+2200 midi 0xB4 102 0
+2200 midi 0xB4 91 0
+2300 expect state show2 DRY
+2300 expect state show3 DRY
+2300 expect state card3 DRY
+3400 shot
+3500 turn 5 1
+3600 turn 5 -1
+3700 expect state card3 DRY
+3700 expect state show3 DRY
+3710 shot
+5000 midi 0xB4 102 32
+5000 midi 0xB4 91 32
+5100 expect state show2 BAR
+5100 expect state show3 BAR
+5100 expect state card3 D100_W50
+6200 shot
+6300 turn 5 -1
+6400 turn 5 1
+6500 expect state card3 D100_W50
+6500 expect state show3 BAR
+6510 shot
+7800 midi 0xB4 102 64
+7800 midi 0xB4 91 64
+7900 expect state show2 50/50
+7900 expect state show3 50/50
+7900 expect state card3 D100_W100
+9000 shot
+9100 turn 5 -1
+9200 turn 5 1
+9300 expect state card3 D100_W100
+9300 expect state show3 50/50
+9310 shot
+10600 midi 0xB4 102 96
+10600 midi 0xB4 91 96
+10700 expect state show2 BAR
+10700 expect state show3 BAR
+10700 expect state card3 D49_W100
+11800 shot
+11900 turn 5 -1
+12000 turn 5 1
+12100 expect state card3 D49_W100
+12100 expect state show3 BAR
+12110 shot
+13400 midi 0xB4 102 127
+13400 midi 0xB4 91 127
+13500 expect state show2 WET
+13500 expect state show3 WET
+13500 expect state card3 WET
+14600 shot
+14700 turn 5 -1
+14800 turn 5 1
+14900 expect state card3 WET
+14900 expect state show3 WET
+14910 shot
+16200 end

@@ -140,6 +140,14 @@ static uint16_t cd_shade(uint16_t c, uint32_t pct)      /* an RGB565 colour x pc
     uint32_t r = (c >> 11) & 31u, g = (c >> 5) & 63u, b = c & 31u;
     return (uint16_t)((r * pct / 100u) << 11 | (g * pct / 100u) << 5 | (b * pct / 100u));
 }
+static uint16_t cd_comp(uint16_t c)                     /* an RGB565 colour's complement: its hue turned half way,
+                                                         * the same lightness and saturation (max + min - each) */
+{
+    uint32_t r = (c >> 11) & 31u, g = (c >> 5) & 63u, b = c & 31u;
+    uint32_t r8 = r << 3 | r >> 2, g8 = g << 2 | g >> 4, b8 = b << 3 | b >> 2;
+    uint32_t mx = r8 > g8 ? (r8 > b8 ? r8 : b8) : (g8 > b8 ? g8 : b8), mn = r8 < g8 ? (r8 < b8 ? r8 : b8) : (g8 < b8 ? g8 : b8);
+    return RGB(mx + mn - r8, mx + mn - g8, mx + mn - b8);
+}
 static uint16_t cd_lighten(uint16_t c)                  /* an RGB565 colour half way to white */
 {
     uint32_t r = (c >> 11) & 31u, g = (c >> 5) & 63u, b = c & 31u;
