@@ -23,7 +23,7 @@
  *           44        DISPLAY: COLOR (the screen's palette: COLOR_NAME; in the settings)
  *           48 .. 51  DRIVE: AMOUNT TONE MIX TYPE (tx_fx_drive_params order): the mix's, right after the COMPRESSOR
  *                     (its first effect)
- *           52 .. 55  FILTER: LOW CUT HIGH CUT RESONANCE SLOPE (tx_fx_mfilter_params order): the mix's, right after the
+ *           52 .. 55  FILTER: HIGH PASS LOW PASS RESONANCE SLOPE (tx_fx_mfilter_params order): the mix's, right after the
  *                     DRIVE (a band: a high-pass, then a low-pass; both at their ends: off)
  *           56 .. 58  GROOVE: AMOUNT TYPE SHIFT (groove.c; not an effect: a scene keeps them whatever EFFECTS ON LOAD
  *                     says)
@@ -531,13 +531,13 @@ static const char *p_text(uint32_t id, char *t)
     case F_PAN:
         if (v == 64) { p_strcpy(t, "C", 2); return 0; }
         t[0] = v < 64 ? 'L' : 'R'; p_fmt_int(t + 1, v < 64 ? 64 - v : v - 64); return 0;
-    case F_HZ_LO:                               /* (the mix's FILTER: off at one end, closed at the other) */
-        if (!v || v >= 127) { p_strcpy(t, v ? "CLOSED" : "OFF", 7); return 0; } goto hz;
-    case F_HZ_HI: if (!v || v >= 127) { p_strcpy(t, v ? "OFF" : "CLOSED", 7); return 0; } goto hz;
+    case F_HZ_LO:                               /* (the mix's FILTER: OFF at each pass's open end, Hz at every other step) */
+        if (!v) { p_strcpy(t, "OFF", 3); return 0; } goto hz;
+    case F_HZ_HI: if (v >= 127) { p_strcpy(t, "OFF", 3); return 0; } goto hz;
     hz:
-    case F_HZ_FL: {                             /* 30 Hz .. 16 kHz, log */
-        uint32_t hz = (30u * tx_exp2((int32_t)(16 << 16) + v * 593700 / 127)) >> 16;
-        if (hz >= 1000u) { p_fmt_dec(t, (int32_t)(hz / 100u)); return "kHz"; }
+    case F_HZ_FL: {                             /* 20 Hz .. 20 kHz, log (TX_FX_FL_G's law: -3 dB there) */
+        uint32_t hz = (20u * tx_exp2((int32_t)(16 << 16) + v * 653117 / 127)) >> 16;   /* (653117: log2(1000) Q16) */
+        if (hz >= 995u) { p_fmt_dec(t, (int32_t)((hz + 50u) / 100u)); return "kHz"; }   /* (rounded: 19 999 Hz is 20.0) */
         p_fmt_int(t, (int32_t)hz); return "Hz";
     }
     case F_MS_GD:                               /* (SYNC set: the division instead) */

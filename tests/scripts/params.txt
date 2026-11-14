@@ -1,6 +1,6 @@
 # the params table: the SOUND pages (per-sound cards: the source's own and the hosted engine's) / DRIVE (the mix's) /
 # FILTER (the mix's) / COMPRESSOR / GRAIN / REVERB with their ALGORITHM, CC on the lanes' channels and channel 5, NRPN. A few ids by number: they never
-# change ("p<hex id>": 0x008 = lane 1's first card, 0x435 = the mix's FILTER HIGH CUT, 0x40B = GRAIN FREEZE, 0x411 = REVERB
+# change ("p<hex id>": 0x008 = lane 1's first card, 0x435 = the mix's FILTER LOW PASS, 0x40B = GRAIN FREEZE, 0x411 = REVERB
 # MIX)
 1700 btn 13
 1800 expect state run0 1
@@ -60,12 +60,12 @@
 2800 btn 6
 2820 expect state page SOUND_2/2
 2830 expect led 6 1
-# FX: EFFECTS, the front page (DRIVE, HIGH CUT, DELAY MIX, REVERB MIX: the chain's order); ALGORITHM there: the
+# FX: EFFECTS, the front page (DRIVE, LOW PASS, DELAY MIX, REVERB MIX: the chain's order); ALGORITHM there: the
 # reverb's type
 3300 btn 2
 3320 expect state page EFFECTS
 3320 expect state lab0 DRIVE
-3320 expect state lab1 HIGH_CUT
+3320 expect state lab1 LOW_PASS
 3320 expect state lab2 DELAY_MIX
 3320 expect state lab3 REVERB_MIX
 3320 expect state card0 0
@@ -117,11 +117,11 @@
 3475 expect state p433 4
 3480 midi 0xB4 79 0
 3485 expect state p433 0
-# FX again: FILTER (the mix's, right after the DRIVE: LOW CUT HIGH CUT RESONANCE SLOPE, off at the ends:
+# FX again: FILTER (the mix's, right after the DRIVE: HIGH PASS LOW PASS RESONANCE SLOPE, off at the ends:
 # tests/scripts/masterfilter.txt)
 3505 btn 2
 3515 expect state page FILTER
-3515 expect state lab0 LOW_CUT
+3515 expect state lab0 HIGH_PASS
 3515 expect state card0 OFF
 3515 expect state card1 OFF
 # FX again: GRAIN 1/4 (MIX: DRY..WET, off at DRY); ALGORITHM: FREEZE; 2/4 the animation (MOD, MOD RATE,
@@ -161,7 +161,7 @@
 # HOME: LANDSCAPE
 4400 btn 8
 4420 expect state page LANDSCAPE
-# CC: lane 2's level (channel 2, CC 7), the mix's FILTER HIGH CUT (channel 5, CC 74; on a lane's channel no longer
+# CC: lane 2's level (channel 2, CC 7), the mix's FILTER LOW PASS (channel 5, CC 74; on a lane's channel no longer
 # a filter's), the reverb's MIX (channel 5, CC 91)
 4500 midi 0xB1 7 50
 4520 expect state vol1 50

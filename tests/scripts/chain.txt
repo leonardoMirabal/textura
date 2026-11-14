@@ -8,7 +8,7 @@
 2100 btn 2
 2150 expect state page EFFECTS
 2150 expect state lab0 DRIVE
-2150 expect state lab1 HIGH_CUT
+2150 expect state lab1 LOW_PASS
 2150 expect state lab2 DELAY_MIX
 2150 expect state lab3 REVERB_MIX
 2160 shot

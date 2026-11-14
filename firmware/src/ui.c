@@ -15,7 +15,7 @@
  *              (left to right, as Frodhes: FX_CHAIN; the front page's knobs too): EFFECTS (the front page: DRIVE, HIGH
  *              CUT, DELAY MIX, REVERB MIX), COMPRESSOR 1/2 2/2 (the first effect; Frodhes': THR RATIO ATTACK MAKEUP,
  *              then COMP REL; the footer its gain-reduction meter), DRIVE (AMOUNT TONE MIX TYPE), FILTER (right after
- *              the DRIVE: LOW CUT HIGH CUT RESONANCE SLOPE, a band), GRAIN 1/4 .. 4/4 (the grain delay), REVERB 1/3 ..
+ *              the DRIVE: HIGH PASS LOW PASS RESONANCE SLOPE, a band), GRAIN 1/4 .. 4/4 (the grain delay), REVERB 1/3 ..
  *              3/3 (on what the delay gives: the echoes reverberate); MIX on DRIVE, GRAIN, REVERB (and the front
  *              page's DELAY MIX, REVERB MIX) a bar: to 64 in the accent, past it in its complement, a line at 64, the
  *              text DRY / 50/50 / WET (the levels, D100 W50 .. D50 W100, in the state and the web); LFO 1/3 .. 3/3,
@@ -190,7 +190,7 @@ static unsigned ui_fx_order(uint8_t *pg, uint8_t *fr)   /* -> the steps' stages 
 /* the cards' labels where a page mixes things (EFFECTS: the effect's name with it) */
 static const char *ui_lab(uint32_t id)
 {
-    if (ui_g == G_FX) { static const char *const L[4] = {"DRIVE", "HIGH CUT", "DELAY MIX", "REVERB MIX"}; uint32_t k; for (k = 0; k < 4u; k++) if (FX_IDS[13][k] == id) return L[k]; }
+    if (ui_g == G_FX) { static const char *const L[4] = {"DRIVE", "LOW PASS", "DELAY MIX", "REVERB MIX"}; uint32_t k; for (k = 0; k < 4u; k++) if (FX_IDS[13][k] == id) return L[k]; }
     return p_lab(id);
 }
 static uint8_t ui_lfo, ui_slot;                 /* the LFO and the matrix slot ALGORITHM picked */

@@ -126,11 +126,12 @@
     <dt>HOME</dt><dd>home (TEXTURA); again: back to the last page left (the footer names it); held (0.6 s): the setup, MIDI
       CLOCK (GLO on: MIDI IN, DISPLAY)</dd>
     <dt>EDIT</dt><dd>the selected lane's sound (again: its next page)</dd>
-    <dt>FX</dt><dd>held (0.6 s), from any page: FILTER at once (HOME, HOME again: back to it). Tapped: EFFECTS, the front page: DRIVE, HIGH CUT, DELAY MIX, REVERB MIX; again: every page of the compressor,
+    <dt>FX</dt><dd>held (0.6 s), from any page: FILTER at once (HOME, HOME again: back to it). Tapped: EFFECTS, the front page: DRIVE, LOW PASS, DELAY MIX, REVERB MIX; again: every page of the compressor,
       the drive, the filter, the grain delay, the reverb, then round: the mix's chain, left to right in the order the
       sound goes through it, as Frodhes (one of each on all the lanes together; the reverb takes what the grain delay
-      gives). FILTER: a band, LOW CUT (a high-pass) and
-      HIGH CUT (a low-pass), OFF at their ends, closed at the other (LOW CUT 127, HIGH CUT 0: silence); met: a bell, crossed: it closes; RESONANCE
+      gives). FILTER: HIGH PASS (K1) into LOW PASS (K2): each a real filter
+      over its whole knob, 20 Hz .. 20 kHz, shown in Hz where it is -3 dB, OFF at its open end (HIGH PASS 0, LOW PASS 127); bring them
+      together for a band (a band-pass around them, RESONANCE makes it a peaky bell), cross them and it closes; RESONANCE
       peaks both edges; SLOPE 12 / 18 / 24 dB (also ALGORITHM, in that order). GRAIN 2/4: MOD takes the delay from plain (0) to an evolving
       cloud (the time drifts in a slow wow, each grain its own size, start, direction and place, more grains leave
       unison for INTERVALS: octaves, 5th + octave, 4th + 5th, major, minor, all, or up, which climbs on the repeats);

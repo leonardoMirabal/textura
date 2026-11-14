@@ -74,8 +74,8 @@ int main(int argc, char **argv)
     row("int16_t", "TX_FX_TANH", v, 257, 16, "Q15 tanh over [-4, 4) in steps of 1/32 (the soft clip)");
     for (i = 0; i < 128; i++) v[i] = lround(32767 * pow(10, (-0.0896 * i - (i > 16 ? drv_rise(i) : 0.0)) / 20));
     row("uint16_t", "TX_FX_DRV_LVL", v, 128, 12, "the drive's make-up trim (Q15): level-neutral over AMOUNT");
-    for (i = 0; i < 258; i++) v[i] = lround(tan(M_PI * 30 * pow(16000 / 30.0, (i < 256 ? i : 256) / 256.0) / FS) * 16777216.0);
-    row("uint32_t", "TX_FX_FL_G", v, 258, 8, "the filter's g = tan(pi fc / fs), Q24, fc 30 Hz .. 16 kHz (log, 256 steps + guards)");
+    for (i = 0; i < 258; i++) v[i] = lround(tan(M_PI * 20 * pow(1000.0, (i < 256 ? i : 256) / 256.0) / FS) * 16777216.0);
+    row("uint32_t", "TX_FX_FL_G", v, 258, 8, "the filter's g = tan(pi fc / fs), Q24, fc 20 Hz .. 20 kHz (log, 256 steps + guards)");
     for (i = 0; i < 128; i++) v[i] = lround(16777216.0 / (0.7071 * pow(20 / 0.7071, i / 127.0)));
     row("uint32_t", "TX_FX_FL_K", v, 128, 8, "the filter's damping k = 1 / Q, Q24: Q 0.707 .. 20 (exponential)");
     for (i = 0; i < 1025; i++) v[i] = lround(32767 * 0.5 * (1 - cos(2 * M_PI * i / 1024)));

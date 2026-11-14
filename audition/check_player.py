@@ -249,7 +249,7 @@ def main():
         page.evaluate("window.txTest.fx(3, 0, 0, 0)")
         page.evaluate("window.txTest.fx(2, 0, 8, 0)")
         page.evaluate("window.txTest.fx(2, 0, 2, 64)")
-        page.evaluate("window.txTest.fx(0, 0, 0, 90)")  # the mix's DRIVE and its FILTER (LOW CUT 40) on: still sounds
+        page.evaluate("window.txTest.fx(0, 0, 0, 90)")  # the mix's DRIVE and its FILTER (HIGH PASS 40) on: still sounds
         page.evaluate("window.txTest.fx(1, 0, 0, 40)")
         lv = page.evaluate("window.txTest.render(16)")
         check(lv > 0, f"DRIVE + FILTER (the mix's): the output sounds (peak {lv})")

@@ -1699,7 +1699,7 @@ static void check_fx_drywet(tx_fx_t *fx)
         verdict("fx", "series", first && first - 1u >= fr - 64u, msg, 0);
     }
 }
-/* the mix's FILTER (tx_fx_mfilter.c): a band from LOW CUT and HIGH CUT; off at the ends (bit-exact), stable, no click */
+/* the mix's FILTER (tx_fx_mfilter.c): a band from HIGH PASS and LOW PASS; off at the open ends (bit-exact), stable, no click */
 static double mf_gain(unsigned lo, unsigned hi, unsigned reso, unsigned slope, uint32_t hz)   /* a sine's level, dB */
 {
     tx_fx_mfilter_t f;
@@ -1927,6 +1927,24 @@ static void check_grain_mod(void)
     }
     free(d); free(y);
 }
+static double mf_noise(unsigned lo, unsigned hi, unsigned reso, unsigned slope)   /* white noise's level through it, dB */
+{                                           /* (a pure sine crossed end to end leaves a rounding residue in step with it,
+                                             * up to -43 dB at RESONANCE 127 for a 20 Hz sine; any sound with noise in it:
+                                             * nothing) */
+    tx_fx_mfilter_t f;
+    int32_t L[TX_BLOCK], R[TX_BLOCK];
+    uint32_t b, j, rng = 5u;
+    double ei = 0, eo = 0;
+    tx_fx_mfilter_init(&f);
+    tx_fx_mfilter_param(&f, TX_MF_LOW, lo); tx_fx_mfilter_param(&f, TX_MF_HIGH, hi);
+    tx_fx_mfilter_param(&f, TX_MF_RESO, reso); tx_fx_mfilter_param(&f, TX_MF_SLOPE, slope);
+    for (b = 0; b < 200u; b++) {
+        for (j = 0; j < TX_BLOCK; j++) { rng = rng * 1664525u + 1013904223u; L[j] = R[j] = ((int32_t)rng >> 9); if (b >= 100u) ei += (double)L[j] * L[j]; }
+        tx_fx_mfilter_process(&f, L, R, TX_BLOCK);
+        if (b >= 100u) for (j = 0; j < TX_BLOCK; j++) eo += (double)L[j] * L[j];
+    }
+    return 10 * log10((eo + 1e-3) / ei);
+}
 static double mf_peak(unsigned lo, unsigned hi, unsigned reso, unsigned slope, double f0, double f1, double *at)
 {                                           /* the loudest sine from f0 to f1 (1/12 octave steps), dB; at: where */
     double best = -999, f;
@@ -1936,11 +1954,11 @@ static double mf_peak(unsigned lo, unsigned hi, unsigned reso, unsigned slope, d
     }
     return best;
 }
-static double mf_hz(unsigned v) { return 30.0 * pow(2.0, v * (593700.0 / 65536.0) / 127.0); }   /* (params.c F_HZ_FL) */
-/* the FILTER's shape, a high-pass (LOW CUT) then a low-pass (HIGH CUT): each edge's -3 dB where its knob shows; the band
+static double mf_hz(unsigned v) { return 20.0 * pow(1000.0, v / 127.0); }   /* (params.c F_HZ_FL: 20 Hz .. 20 kHz) */
+/* the FILTER's shape, a high-pass (HIGH PASS) then a low-pass (LOW PASS): each edge's -3 dB where its knob shows; the band
  * between at unity; the edges met, a bell at their place (-6 / -9 / -12 dB at 12 / 18 / 24 dB, RESONANCE lifts it);
- * crossed, the band closes further the further they cross (no jump where they pass); at the ends (LOW CUT 127, HIGH CUT
- * 0) nothing left, at every SLOPE */
+ * crossed, the band closes further the further they cross (no jump where they pass); crossed end to end (HIGH PASS
+ * 127, LOW PASS 0) nothing left, at every SLOPE */
 static void check_mfilter_shape(void)
 {
     static const unsigned SL[3] = {TX_MF_S12, TX_MF_S18, TX_MF_S24};
@@ -1951,16 +1969,13 @@ static void check_mfilter_shape(void)
     double bellpk[3], bellat[3], respk, x1, x2, x3, e3[6];
     unsigned s, ok = 1;
     for (s = 0; s < 3u; s++) {
-        double a, b, c, d, m, x;
+        double c, m, x;
         bellpk[s] = mf_peak(64, 64, 0, SL[s], 100, 6000, &bellat[s]);
         e3[s] = mf_gain(40, 127, 0, SL[s], (uint32_t)mf_hz(40)); e3[s + 3] = mf_gain(0, 90, 0, SL[s], (uint32_t)mf_hz(90));
         ok &= fabs(e3[s] + 3) < 0.6 && fabs(e3[s + 3] + 3) < 0.6;
         ok &= fabs(bellpk[s] - BELL[s]) < 1.5 && fabs(log2(bellat[s] / mf_hz(64))) < 0.2;
-        a = mf_peak(127, 127, 0, SL[s], 20, 20000, 0);          /* LOW CUT at its top: nothing left */
-        b = mf_peak(0, 0, 0, SL[s], 20, 20000, 0);              /* HIGH CUT at its bottom */
-        c = mf_peak(127, 0, 127, SL[s], 20, 20000, 0);          /* both, RESONANCE 127 */
-        d = mf_peak(127, 127, 127, SL[s], 20, 20000, 0);
-        m = a > b ? a : b; m = m > c ? m : c; m = m > d ? m : d;
+        c = mf_noise(127, 0, 127, SL[s]);                       /* crossed end to end, RESONANCE 127: nothing left */
+        m = c;
         if (m > worst_end) worst_end = m;
         x = mf_peak(84, 44, 0, SL[s], 20, 20000, 0);            /* crossed by 40 steps (~2.9 octaves) */
         if (x > bellpk[s] - 20) ok = 0;
@@ -1980,7 +1995,7 @@ static void check_mfilter_shape(void)
         }
         bw = lo > 0 ? log2(hi / lo) : 99;
     }
-    snprintf(msg, sizeof msg, "-3 dB at the shown Hz: LOW CUT %.1f, HIGH CUT %.1f dB (64), 40 / 90 at 18 dB %.1f / %.1f, 24 dB %.1f / %.1f; band 20 .. 110: %.2f dB; met at 64: %.1f / "
+    snprintf(msg, sizeof msg, "-3 dB at the shown Hz: HIGH PASS %.1f, LOW PASS %.1f dB (64), 40 / 90 at 18 dB %.1f / %.1f, 24 dB %.1f / %.1f; band 20 .. 110: %.2f dB; met at 64: %.1f / "
              "%.1f / %.1f dB (12 / 18 / 24) at %.0f Hz (shows %.0f), RESONANCE 127 %.1f dB, RESONANCE 64 %.2f octaves wide; "
              "crossed 5 / 15 / 35 steps (12 dB): %.0f / %.0f / %.0f dB; the ends: %.0f dB at most; a step across %.2f dB",
              e3l, e3h, e3[1], e3[4], e3[2], e3[5], uni, bellpk[0], bellpk[1], bellpk[2], bellat[0], mf_hz(64), respk, bw, x1, x2, x3, worst_end, jump);
@@ -2020,6 +2035,35 @@ static void check_mfilter_reso(void)
              one[2], ONE[0], ONE[1], ONE[2], far[0], far[1], far[2], m64[0], m64[1], m64[2], M64[0], M64[1], M64[2]);
     verdict("fx", "mfilter reso", ok, msg, 0);
 }
+/* each edge a real filter over its whole knob (no fade at the ends): HIGH PASS 1 .. 127 and
+ * LOW PASS 126 .. 0 are 20 Hz .. 20 kHz, -3 dB where the knob shows at every step, the band above (below) it passing
+ * whole; HIGH PASS 127 a high-pass at 20 kHz, LOW PASS 0 a low-pass at 20 Hz */
+static void check_mfilter_ends(void)
+{
+    static const unsigned SL[3] = {TX_MF_S12, TX_MF_S18, TX_MF_S24};
+    char msg[400];
+    double worst = 0, pmin = 0, e;
+    unsigned s, v, ok = 1;
+    int n = 0;
+    for (s = 0; s < 3u; s++)
+        for (v = 0; v < 4u; v++) {
+            unsigned h = 124u + v;                          /* HIGH PASS 124 .. 127; LOW PASS v (0 .. 3) */
+            double eh = mf_gain(h, 127, 0, SL[s], (uint32_t)(mf_hz(h) + 0.5)) + 3, el = mf_gain(0, v, 0, SL[s], (uint32_t)(mf_hz(v) + 0.5)) + 3;
+            double ph = mf_gain(h, 127, 0, SL[s], 21900), pl = mf_gain(0, v, 0, SL[s], (uint32_t)(mf_hz(v) / 3 + 0.5));
+            if (fabs(eh) > fabs(worst)) worst = eh;
+            if (fabs(el) > fabs(worst)) worst = el;
+            if (ph < pmin) pmin = ph;
+            if (pl < pmin) pmin = pl;
+        }
+    ok = fabs(worst) < 0.6 && pmin > -1.5 && mf_hz(127) > 19500 && mf_hz(0) < 20.5;
+    e = mf_gain(127, 127, 0, TX_MF_S12, 10000);
+    ok &= e < -20;
+    n = snprintf(msg, sizeof msg, "HIGH PASS 124 .. 127, LOW PASS 3 .. 0, 12 / 18 / 24 dB: -3 dB at the shown Hz within %.2f dB; "
+                 "their pass band (21.9 kHz; a third of the shown Hz) %.1f dB at worst (no fade); ends %.0f Hz .. %.0f Hz; "
+                 "HIGH PASS 127 at 10 kHz %.1f dB", worst, pmin, mf_hz(0), mf_hz(127), e);
+    (void)n;
+    verdict("fx", "mfilter ends", ok, msg, 0);
+}
 static void check_mfilter(void)
 {
     tx_fx_mfilter_t f;
@@ -2030,17 +2074,16 @@ static void check_mfilter(void)
     double lo24 = mf_gain(30, 100, 0, 1, 60), hi24 = mf_gain(30, 100, 0, 1, 14000), x12 = mf_gain(127, 0, 0, 0, 0), xm;
     double lo18 = mf_gain(30, 100, 0, TX_MF_S18, 60), hi18 = mf_gain(30, 100, 0, TX_MF_S18, 14000);
     double pass18 = mf_gain(30, 100, 0, TX_MF_S18, 1000), pk18 = -999, pk12 = -999;
-    {   /* crossed, at the ends: closed (the peak anywhere 300 .. 1600 Hz) */
-        double best = -999; uint32_t hz;
-        for (hz = 300; hz <= 1600; hz += 50) { double g = mf_gain(127, 0, 0, 0, hz); if (g > best) best = g; }
-        xm = best; (void)x12;
-        for (hz = 2000; hz <= 8000; hz += 250) {        /* RESONANCE 127 at HIGH CUT 100: 18 dB peaks as 12 dB does */
+    {   /* crossed end to end: closed (noise through it) */
+        uint32_t hz;
+        xm = mf_noise(127, 0, 0, 0); (void)x12;
+        for (hz = 2000; hz <= 8000; hz += 250) {        /* RESONANCE 127 at LOW PASS 100: 18 dB peaks as 12 dB does */
             double g = mf_gain(0, 100, 127, 0, hz), h = mf_gain(0, 100, 127, TX_MF_S18, hz);
             if (g > pk12) pk12 = g;
             if (h > pk18) pk18 = h;
         }
     }
-    snprintf(msg, sizeof msg, "LOW CUT 30 (~140 Hz) HIGH CUT 100 (~4 kHz): 1 kHz %.1f dB; 60 Hz %.1f / %.1f dB, 14 kHz %.1f / "
+    snprintf(msg, sizeof msg, "HIGH PASS 30 (~100 Hz) LOW PASS 100 (~4.6 kHz): 1 kHz %.1f dB; 60 Hz %.1f / %.1f dB, 14 kHz %.1f / "
              "%.1f dB (12 / 24 dB); crossed (127 / 0): its peak %.1f dB", pass, lo12, lo24, hi12, hi24, xm);
     verdict("fx", "mfilter band", pass > -1.0 && pass < 0.5 && lo12 < -9 && lo24 < lo12 - 8 && hi12 < -12 && hi24 < hi12 - 8
             && xm < -90, msg, 0);
@@ -2560,7 +2603,7 @@ static void check_fx(FILE *update)
         verdict("fx", "drive-tsh8", own == 3u && !dry, msg, 0);
     }
     /* the DRIVE (one side) and the mix's FILTER: renders against the baselines (a drive at 90 / TONE 100 / MIX 100,
-     * the classic and each TYPE; the FILTER a 24 dB band with RESONANCE, its HIGH CUT moving: fx-mfilter) */
+     * the classic and each TYPE; the FILTER a 24 dB band with RESONANCE, its LOW PASS moving: fx-mfilter) */
     for (t = 0; t < 2u + TX_DRT_N - 1u; t++) {
         tx_sha256_t h, h2;
         const char *bl;
@@ -2628,6 +2671,7 @@ int main(int argc, char **argv)
         check_mfilter();
         check_mfilter_shape();
         check_mfilter_reso();
+        check_mfilter_ends();
         return fails ? 1 : 0;
     }
     if (argc > 1 && !strcmp(argv[1], "--grain")) {         /* the grain delay's loop checks alone */
@@ -2652,6 +2696,7 @@ int main(int argc, char **argv)
     check_mfilter();
     check_mfilter_shape();
     check_mfilter_reso();
+    check_mfilter_ends();
     check_grain_mod();
     check_groove();
     check_noise_core();

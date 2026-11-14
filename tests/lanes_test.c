@@ -159,8 +159,8 @@ static const step_t SCENE[] = {
     {60, 'F', 2, 0, 0, 2, 0},                   /* REVERB TYPE hall */
     {60, 'F', 2, 0, 1, 60, 0},                  /* its MIX */
     {80, 'F', 0, 0, 0, 60, 0},                  /* the mix's DRIVE AMOUNT */
-    {90, 'F', 0, 0, TX_FX_MF_ID + TX_MF_HIGH, 70, 0},   /* the mix's FILTER: HIGH CUT (the DRIVE's group) */
-    {95, 'F', 0, 0, TX_FX_MF_ID + TX_MF_LOW, 25, 0},    /* LOW CUT */
+    {90, 'F', 0, 0, TX_FX_MF_ID + TX_MF_HIGH, 70, 0},   /* the mix's FILTER: LOW PASS (the DRIVE's group) */
+    {95, 'F', 0, 0, TX_FX_MF_ID + TX_MF_LOW, 25, 0},    /* HIGH PASS */
     {100, 'F', 3, 0, 0, 80, 0},                 /* the GRAIN DELAY's MIX */
     {110, 'F', 0, 0, 3, 2, 0},                  /* the DRIVE's TYPE TSH8 (its left side owns the tables) */
     {115, 'F', 3, 0, 3, 15, 0},                 /* the GRAIN DELAY's GRAINS: 16 */

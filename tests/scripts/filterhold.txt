@@ -1,4 +1,4 @@
-# FILTER from anywhere (ui.c): FX held 600 ms opens the mix's FILTER page (LOW CUT, HIGH CUT, RESONANCE, SLOPE) from
+# FILTER from anywhere (ui.c): FX held 600 ms opens the mix's FILTER page (HIGH PASS, LOW PASS, RESONANCE, SLOPE) from
 # any page; FX tapped still steps the effects' pages (on its release); HOME: home, again back to FILTER; in the presets
 # list FX is its LOAD OPTIONS, held too
 1700 btn 13
@@ -7,7 +7,7 @@
 1800 press 2
 2300 expect state page GROOVE_1/2
 2450 expect state page FILTER
-2450 expect state lab0 LOW_CUT
+2450 expect state lab0 HIGH_PASS
 2450 expect state lab3 SLOPE
 2500 release 2
 2510 expect state page FILTER

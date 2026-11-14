@@ -10,8 +10,8 @@
  * In the main loop (mod_poll): the routes. Each slot's TARGET is an index into one list (mod_tgt_*): lane 1..4 or ALL
  * LANES (LEVEL, PAN, HOW MANY, HOW ACTIVE, the sound's 8 cards; FILTER FREQ / RESO / LFO / RATE once: retired, skipped,
  * a scene's routes onto them dropped), the grain delay's
- * and the reverb's amounts, each LFO's RATE and LEVEL, the mix's DRIVE AMOUNT / TONE / MIX, the mix's FILTER LOW CUT /
- * HIGH CUT (appended; a lane's DRIVE
+ * and the reverb's amounts, each LFO's RATE and LEVEL, the mix's DRIVE AMOUNT / TONE / MIX, the mix's FILTER HIGH PASS /
+ * LOW PASS (appended; a lane's DRIVE
  * targets of before, still in the list where they were, are the mix's DRIVE now: mod_tgt_drv). Never: a TYPE, FREEZE, SYNC, SHIFT, a
  * sound's PRESET / TYPE (the cards hold none). The routes are rebuilt into the other of two buffers whenever a slot, a
  * base value or a lane's sound changes and the interrupt takes the new one at its next block; a target that loses
@@ -44,7 +44,7 @@ enum { MK_ENG, MK_HOST, MK_PAN, MK_FX, MK_ACT, MK_COUNT, MK_LRATE, MK_LLEVEL, MK
 #define MT_REV0 (MT_GRAIN0 + 11u)               /* 107 */
 #define MT_LFO0 (MT_REV0 + 8u)                  /* 115 */
 #define MT_DRV0 (MT_LFO0 + 2u * TX_LFO_N)       /* 131: the mix's DRIVE AMOUNT TONE MIX */
-#define MT_MF0 (MT_DRV0 + 3u)                   /* 134: the mix's FILTER LOW CUT HIGH CUT */
+#define MT_MF0 (MT_DRV0 + 3u)                   /* 134: the mix's FILTER HIGH PASS LOW PASS */
 #define MT_GMOD (MT_MF0 + 2u)                   /* 136: the GRAIN delay's MOD */
 #define MT_GRV (MT_GMOD + 1u)                   /* 137: GROOVE AMOUNT (groove.c) */
 #define MT_N (MT_GRV + 1u)                      /* 138: TARGET 0 (none) .. 137 */

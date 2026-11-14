@@ -5,7 +5,7 @@
  *   on the stereo mix, in the order the FX pages show (tx_engine.h TX_ST_*, as Frodhes): the compressor first
  *   (tx_core_mix.c), then the DRIVE (tx_fx_drive_mix: one DRIVE, a pair of instances for L and R with the same
  *   settings; tx_mix_t.pre, after the mix's compressor; AMOUNT 0 = the mix untouched), the FILTER after it (a band:
- *   LOW CUT, HIGH CUT; both at their ends = the mix untouched), then (tx_core_mix.c) the
+ *   HIGH PASS, LOW PASS; both at their open ends = the mix untouched), then (tx_core_mix.c) the
  *   CHAMBER, then, before the limiter, in series, the GRAIN DELAY (a delay whose repeats are
  *   grained) and the REVERB (a mono send of the mid, a stereo return), each with a dry / wet MIX (below): the reverb
  *   takes what the delay gives (GRAIN MIX 127 + REVERB MIX 127: the grains' reverb alone):
@@ -82,8 +82,8 @@ void tx_fx_drive_pair(tx_fx_drive_t *second, const tx_fx_drive_t *first);   /* o
                                                  * takes TSH8 with first (both run with the same settings, first first) */
 uint32_t tx_fx_drive_us(const tx_fx_drive_t *d);  /* its FM-1 cost now, us a block (0: off) */
 
-/* ---- FILTER (the mix's, right after the DRIVE; tx_fx_mfilter.c): a high-pass then a low-pass on the pair, LOW CUT and
- * HIGH CUT the edges of a band; both at their ends (the defaults) = the mix untouched */
+/* ---- FILTER (the mix's, right after the DRIVE; tx_fx_mfilter.c): a high-pass then a low-pass on the pair, HIGH PASS and
+ * LOW PASS the edges of a band; both at their open ends (the defaults) = the mix untouched */
 enum { TX_MF_LOW, TX_MF_HIGH, TX_MF_RESO, TX_MF_SLOPE, TX_MF_NP };   /* (append only) */
 extern const tx_param_t tx_fx_mfilter_params[TX_MF_NP];
 #define TX_FX_US_MF_STAGE 140u     /* an edge's stage on the pair, FM-1 us a block (make tx-budget section 4) */
@@ -91,14 +91,13 @@ extern const tx_param_t tx_fx_mfilter_params[TX_MF_NP];
 enum { TX_MF_S12, TX_MF_S24, TX_MF_S18, TX_MF_SN };   /* SLOPE's values (24 kept at 1: what scenes saved) */
 typedef struct {
     uint8_t p[TX_MF_NP];
-    int32_t pos[2];                /* the edges' places, gliding (0 .. 65535: 30 Hz .. 16 kHz): LOW CUT, HIGH CUT */
+    int32_t pos[2];                /* the edges' places, gliding (0 .. 65535: 20 Hz .. 20 kHz): HIGH PASS, LOW PASS */
     int32_t w[2];                  /* each edge's share (Q15: 0 off .. 32768 on; 46 ms fades) */
     int32_t w2;                    /* the 24 dB stages' share */
     int32_t w3;                    /* the 18 dB one-pole stages' share */
     int32_t s[2][2][2];            /* the stages' integrators: [edge][side][s1, s2] */
     int32_t s2[2][2][2];           /* the 24 dB stages' */
     int32_t s3[2][2];              /* the 18 dB one-pole stages': [edge][side] */
-    int32_t cg;                    /* the ends' closing gain now (Q15: 32768 open; LOW CUT 124 .. 127, HIGH CUT 3 .. 0) */
 } tx_fx_mfilter_t;
 void tx_fx_mfilter_init(tx_fx_mfilter_t *f);
 void tx_fx_mfilter_param(tx_fx_mfilter_t *f, unsigned id, unsigned v);

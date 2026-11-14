@@ -7,7 +7,7 @@
 extern const int16_t TX_FX_SINE[1025];   /* Q15 sine over one cycle (+ guard) */
 extern const int16_t TX_FX_TANH[257];   /* Q15 tanh over [-4, 4) in steps of 1/32 (the soft clip) */
 extern const uint16_t TX_FX_DRV_LVL[128];   /* the drive's make-up trim (Q15): level-neutral over AMOUNT */
-extern const uint32_t TX_FX_FL_G[258];   /* the filter's g = tan(pi fc / fs), Q24, fc 30 Hz .. 16 kHz (log, 256 steps + guards) */
+extern const uint32_t TX_FX_FL_G[258];   /* the filter's g = tan(pi fc / fs), Q24, fc 20 Hz .. 20 kHz (log, 256 steps + guards) */
 extern const uint32_t TX_FX_FL_K[128];   /* the filter's damping k = 1 / Q, Q24: Q 0.707 .. 20 (exponential) */
 extern const int16_t TX_FX_HANN[1025];   /* Q15 Hann window over one grain (+ guard): exact zeros at both ends */
 extern const uint32_t TX_FX_GD_TIME[134];   /* the grain delay's TIME in samples: 20 ms .. 1.66 s at 127 .. 2.00 s at 133 (exponential; the line's top) */

@@ -1,7 +1,8 @@
-# the mix's FILTER (FX: EFFECTS, COMPRESSOR, DRIVE, then FILTER): a band, LOW CUT (a high-pass) and HIGH CUT (a low-pass), OFF at their
-# ends (the defaults: the chain untouched, mfon 0); RESONANCE; SLOPE 12 / 18 / 24 dB (also ALGORITHM); CC 75 74 71 70 on
-# channel 5; K1 LOW CUT at its top closes the band (CLOSED: silence), K2 HIGH CUT at its bottom too, and the front
-# EFFECTS page's HIGH CUT the same; crossed edges close (CC 75 127, CC 74 0: silence); LFO 1 > FLT HIGH CUT on the matrix; back at the ends the filter
+# the mix's FILTER (FX: EFFECTS, COMPRESSOR, DRIVE, then FILTER): HIGH PASS into LOW PASS, each 20 Hz .. 20 kHz in Hz at every
+# step, OFF at its open end (the defaults: the chain untouched, mfon 0); RESONANCE; SLOPE 12 / 18 / 24 dB (also ALGORITHM); CC 75
+# 74 71 70 on channel 5; K1 HIGH PASS at its top a high-pass at 20 kHz (nearly nothing left, no fade), K2 LOW PASS at its bottom
+# a low-pass at 20 Hz, and the front EFFECTS page's LOW PASS the same; crossed end to end (CC 75 127, CC 74 0): silence; LFO 1
+# > FLT LOW PASS on the matrix; back at the open ends the filter
 # stops (mfon 0); a scene stores it; EFFECTS ON LOAD at SMART leaves it once turned, ALWAYS sets it
 1700 btn 13
 1800 expect state run0 1
@@ -11,8 +12,8 @@
 1912 btn 2
 1916 btn 2
 1940 expect state page FILTER
-1940 expect state lab0 LOW_CUT
-1940 expect state lab1 HIGH_CUT
+1940 expect state lab0 HIGH_PASS
+1940 expect state lab1 LOW_PASS
 1940 expect state lab2 RESONANCE
 1940 expect state lab3 SLOPE
 1940 expect state card0 OFF
@@ -20,10 +21,10 @@
 1940 expect state card3 12_dB
 1940 expect state mfon 0
 1940 expect sound
-# K1: LOW CUT 40 (~216 Hz); K2: HIGH CUT 77 (~1.3 kHz): both edges run
+# K1: HIGH PASS 40 (~176 Hz); K2: LOW PASS 77 (~1.3 kHz): both edges run
 2000 turn 2 40
 2020 expect state p434 40
-2020 expect state card0 216_Hz
+2020 expect state card0 176_Hz
 2100 turn 3 -50
 2120 expect state p435 77
 2120 expect state card1 1.3_kHz
@@ -52,30 +53,47 @@
 2480 expect state p437 1
 2500 midi 0xB4 70 0
 2520 expect state p437 0
-# K1 LOW CUT up to its top: the band closes, silence; back to 40: it sounds again; K2 HIGH CUT down to 0 the same
+# K1 HIGH PASS up to its top: a high-pass at 20 kHz, nearly nothing left; back to 40: it sounds again; K2 LOW PASS down to 0:
+# a low-pass at 20 Hz, the same
 2530 turn 2 100
 2540 expect state p434 127
-2540 expect state card0 CLOSED
-2950 expect rms < -120
-3000 turn 2 -87
+2540 expect state card0 20.0_kHz
+2950 expect rms < -95
+# its last steps each a real high-pass, shown in Hz (no fade, no CLOSED)
+2960 turn 2 -1
+2965 expect state card0 18.9_kHz
+2970 turn 2 -1
+2975 expect state card0 17.9_kHz
+2980 turn 2 -1
+2985 expect state p434 124
+2985 expect state card0 17.0_kHz
+3000 turn 2 -84
 3010 expect state p434 40
 3100 expect rms > -70
 3110 turn 3 -100
 3120 expect state p435 0
-3120 expect state card1 CLOSED
-3500 expect rms < -120
-3510 turn 3 77
+3120 expect state card1 20_Hz
+3500 expect rms < -80
+# its last steps each a real low-pass, shown in Hz
+3502 turn 3 1
+3504 expect state card1 21_Hz
+3506 turn 3 1
+3508 expect state card1 22_Hz
+3510 turn 3 1
+3512 expect state p435 3
+3512 expect state card1 23_Hz
+3514 turn 3 74
 3520 expect state p435 77
 3600 expect rms > -70
-# crossed (CC 75: LOW CUT 127, CC 74: HIGH CUT 0): the band closes, silence
+# crossed end to end (CC 75: HIGH PASS 127, CC 74: LOW PASS 0): the band closes, silence
 3800 midi 0xB4 75 127
 3810 midi 0xB4 74 0
 3820 expect state p434 127
 3820 expect state p435 0
 4200 expect rms < -120
 4200 expect sound
-# the matrix (ARP): LFO 1 > FLT HIGH CUT (two before the last TARGET, GROOVE AMOUNT: GRAIN MOD between), depth +30 %; the chain is held by the
-# route; the route gone: HIGH CUT back to its base
+# the matrix (ARP): LFO 1 > FLT LOW PASS (two before the last TARGET, GROOVE AMOUNT: GRAIN MOD between), depth +30 %; the chain is held by the
+# route; the route gone: LOW PASS back to its base
 4300 midi 0xB4 75 30
 4310 midi 0xB4 74 90
 4400 btn 10
@@ -85,17 +103,17 @@
 4452 turn 3 -1
 4453 expect state card1 GRAIN_MOD
 4455 turn 3 -1
-4460 expect state card1 FLT_HIGH_CUT
+4460 expect state card1 FLT_LOW_PASS
 4480 turn 4 30
 4600 expect state routes 1
 4600 expect sound
 4700 turn 3 -1
-4720 expect state card1 FLT_LOW_CUT
+4720 expect state card1 FLT_HIGH_PASS
 4740 turn 3 -200
 4800 expect state routes 0
 4800 expect state p435 90
 4800 expect sound
-# saved to U01 with LOW CUT 30, HIGH CUT 90
+# saved to U01 with HIGH PASS 30, LOW PASS 90
 4900 btn 9
 5000 btn 9
 5600 expect state saving 0
@@ -138,15 +156,15 @@
 8718 btn 8
 8720 expect state p426 1
 8800 expect state dropped 0
-# the front EFFECTS page (HOME, FX tapped): K2 HIGH CUT down to its bottom closes the band (silence once the delay's
-# tail has gone: the FILTER is before the GRAIN DELAY and the REVERB); up to its top: OFF
+# the front EFFECTS page (HOME, FX tapped): K2 LOW PASS down to its bottom, a low-pass at 20 Hz: nearly nothing left once
+# the delay's tail has gone (the FILTER is before the GRAIN DELAY and the REVERB); up to its top: OFF
 8810 btn 8
 8820 btn 2
 8830 expect state page EFFECTS
-8830 expect state lab1 HIGH_CUT
+8830 expect state lab1 LOW_PASS
 8840 turn 3 -127
 8850 expect state p435 0
-10300 expect rms < -120
+10300 expect rms < -70
 10310 turn 3 127
 10320 expect state p435 127
 10400 expect rms > -70

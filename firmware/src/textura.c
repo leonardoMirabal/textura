@@ -433,7 +433,7 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (sscanf(key, "lfo%u%c", &k, &c) == 1 && k < TX_LFO_N) snprintf(v, n, "%d", (int)mod_lfo[k].out);
     else if (sscanf(key, "live%x%c", &k, &c) == 1) { int32_t x; snprintf(v, n, "%d", mod_live(k, &x) ? (int)x : -1); }
     else if (!strcmp(key, "mfon")) snprintf(v, n, "%d", (ln.fx.mf.w[0] != 0) + 2 * (ln.fx.mf.w[1] != 0));   /* the mix's
-                                                 * FILTER: its edges running (1 LOW CUT, 2 HIGH CUT; 0: untouched) */
+                                                 * FILTER: its edges running (1 HIGH PASS, 2 LOW PASS; 0: untouched) */
     else if (!strcmp(key, "gdsync")) snprintf(v, n, "%u", ln.fx.gd.sync);         /* as the chain has it */
     else if (!strcmp(key, "gdmod")) snprintf(v, n, "%d", (int)ln.fx.gd.mg);   /* the GRAIN's MOD, gliding (Q15) */
     else if (sscanf(key, "grpart%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", gr_lane[k].part);   /* GROOVE: the

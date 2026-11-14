@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura FILTER (the mix's, right after the DRIVE): a high-pass then a low-pass in series on the stereo pair, the two
- * cutoffs the edges of a band. LOW CUT (the high-pass) and HIGH CUT (the low-pass), 30 Hz .. 16 kHz (log, the filter
- * tables' laws: TX_FX_FL_G); each edge is off at its end (LOW CUT 0, HIGH CUT 127): the defaults, the mix untouched.
- * The other end closes: an edge's last 4 steps (LOW CUT 124 .. 127, HIGH CUT 3 .. 0) fade the band down to silence
- * (LOW CUT 127 or HIGH CUT 0: nothing left), the fade gliding with the edge.
+/* Textura FILTER (the mix's, right after the DRIVE): a high-pass then a low-pass in series on the stereo pair, each
+ * a real filter over its whole knob. HIGH PASS (K1) and LOW PASS (K2), 20 Hz .. 20 kHz
+ * (log, the filter tables' law: TX_FX_FL_G), -3 dB where the knob shows at every step; each is off at its open end
+ * (HIGH PASS 0, LOW PASS 127): the defaults, the mix untouched. At the other end each is still a filter (HIGH PASS 127
+ * a high-pass at 20 kHz, LOW PASS 0 a low-pass at 20 Hz): nothing fades to silence.
  * RESONANCE is shared and gentle (Q 0.707 .. ~4 at both edges); SLOPE 12, 18 or 24 dB an octave (24: a second stage
  * at each edge; 18: a one-pole stage at each edge, 6 dB; either way the resonance peaks once). At RESONANCE 0 each
  * SLOPE is a Butterworth edge (18: the first stage Q 1; 24: Q 0.541 then 1.307), so each edge is -3 dB where its knob
@@ -11,8 +11,8 @@
  * panel steps them in steepness order (params.c p_ord).
  *
  * A bell, the classic high-pass into low-pass: the edges met make a band at their place, -6 dB at its peak at every
- * SLOPE (RESONANCE lifts it, both edges peaking there: capped at ~+11.5 dB, mf_kmin); crossed (LOW CUT above HIGH
- * CUT) each edge stays where its knob is and the band closes the further they cross (12 dB: ~-11 dB 5 steps across,
+ * SLOPE (RESONANCE lifts it, both edges peaking there: capped at ~+11.5 dB, mf_kmin); crossed (HIGH PASS above LOW
+ * PASS) each edge stays where its knob is and the band closes the further they cross (12 dB: ~-11 dB 5 steps across,
  * ~-60 dB 35 steps), no jump as the knobs pass each other.
  *
  * Each edge is a TPT state-variable stage (the two integrators trapezoidal, solved at once), stable at any setting. The cutoffs glide (one pole, ~6 ms, coefficients every 32 samples:
@@ -26,8 +26,8 @@
 #include "tx_fx.h"
 
 const tx_param_t tx_fx_mfilter_params[TX_MF_NP] = {
-    {"LOW CUT", 127, 0, TX_TEXT("the band's low edge, a high-pass: off (0) .. 30 Hz .. 16 kHz (log); 127: closed")},
-    {"HIGH CUT", 127, 127, TX_TEXT("the band's high edge, a low-pass: 30 Hz .. 16 kHz (log) .. off (127); 0: closed; at LOW CUT: a bell, below it: closing")},
+    {"HIGH PASS", 127, 0, TX_TEXT("a high-pass, the band's low edge: off (0), 20 Hz .. 20 kHz (log)")},
+    {"LOW PASS", 127, 127, TX_TEXT("a low-pass after it, the band's high edge: 20 Hz .. 20 kHz (log), off (127); at HIGH PASS: a band (a bell), below it: closing")},
     {"RESONANCE", 127, 0, TX_TEXT("a peak at both edges, gentle: Q 0.707 .. ~4")},
     {"SLOPE", TX_MF_SN - 1, 0, TX_TEXT("the edges' steepness: 0 12 dB / octave | 1 24 dB / octave | 2 18 dB / octave")},
 };
@@ -35,14 +35,12 @@ const tx_param_t tx_fx_mfilter_params[TX_MF_NP] = {
 #define MF_SUB 32u                  /* the coefficients' step, samples */
 #define MF_FADE 512                 /* a stage's fade a step (Q15): 64 steps, 46 ms */
 #define MF_K24 12841549             /* k = 0.765 (Q 1.307), Q24: the 24 dB second stage's (Butterworth with the first) */
-#define MF_CLOSE (4 * 516)          /* the ends' last 4 steps (LOW CUT 124 .. 127, HIGH CUT 3 .. 0) close the band */
 
 void tx_fx_mfilter_init(tx_fx_mfilter_t *f)
 {
     unsigned i;
     tx_fx_memset(f, 0, sizeof *f);
     for (i = 0; i < TX_MF_NP; i++) f->p[i] = tx_fx_mfilter_params[i].def;
-    f->cg = 32768;
 }
 void tx_fx_mfilter_param(tx_fx_mfilter_t *f, unsigned id, unsigned v)
 {
@@ -131,15 +129,6 @@ static void mf_run1(int32_t *L, int32_t *R, unsigned n, int32_t *s, int32_t G, i
     s[0] = l; s[1] = r;
 }
 
-/* the ends' closing (Q15): 1 until an edge's last 4 steps, then down as a square to 0 at its end (LOW CUT 127, HIGH
- * CUT 0: silence), from the edges' gliding places (an edge on or fading out; off: 1) */
-static int32_t mf_close(const tx_fx_mfilter_t *f, const int *on)
-{
-    int32_t a = 32768, d;
-    if (on[0] && (d = 127 * 516 - f->pos[0]) < MF_CLOSE) { d = d > 0 ? d * 32768 / MF_CLOSE : 0; a = (d * d) >> 15; }
-    if (on[1] && (d = f->pos[1]) < MF_CLOSE) { d = d > 0 ? d * 32768 / MF_CLOSE : 0; a = (int32_t)(((int64_t)a * ((d * d) >> 15)) >> 15); }
-    return a;
-}
 /* the edges near each other: both peak at one place and their peaks multiply (RESONANCE 127 met: +24 dB at 12 dB, +28
  * at 24 dB). A floor under the first stage's k by the edges' distance (pos[1] - pos[0]) caps it: the meeting point
  * +11.5 dB at every SLOPE (crossed: the same), rising to what the edges give alone 48 steps apart (12 dB +12.0, 24 dB
@@ -170,19 +159,20 @@ static int32_t mf_g(int32_t pos)                            /* g at a position 0
 {
     uint32_t i = (uint32_t)pos >> 8;
     int32_t fr = pos & 255;
-    return (int32_t)TX_FX_FL_G[i] + ((((int32_t)TX_FX_FL_G[i + 1] - (int32_t)TX_FX_FL_G[i]) * fr) >> 8);
+    return (int32_t)TX_FX_FL_G[i] + (((((int32_t)TX_FX_FL_G[i + 1] - (int32_t)TX_FX_FL_G[i]) >> 4) * fr) >> 4);   /* (a step
+                                                             * near 20 kHz is up to 2^25: 32-bit) */
 }
 
 void tx_fx_mfilter_process(tx_fx_mfilter_t *f, int32_t *L, int32_t *R, unsigned n)
 {
     int32_t tgt[2], k = (int32_t)TX_FX_FL_K[(f->p[TX_MF_RESO] * 66u) >> 7];   /* (Q 0.707 .. ~4) */
     int32_t kf = (int32_t)TX_FX_FL_K[65], ks;           /* (RESONANCE 127's k) */
-    int act[2], on[2], s24 = f->p[TX_MF_SLOPE] == TX_MF_S24, s18 = f->p[TX_MF_SLOPE] == TX_MF_S18;
+    int act[2], s24 = f->p[TX_MF_SLOPE] == TX_MF_S24, s18 = f->p[TX_MF_SLOPE] == TX_MF_S18;
     unsigned si = s18 ? 1u : s24 ? 2u : 0u;
     unsigned sb, e;
     act[0] = f->p[TX_MF_LOW] > 0; act[1] = f->p[TX_MF_HIGH] < 127;
     if (!act[0] && !act[1] && !f->w[0] && !f->w[1]) {  /* (off: untouched) */
-        f->w2 = s24 ? 32768 : 0; f->w3 = s18 ? 32768 : 0; f->cg = 32768;
+        f->w2 = s24 ? 32768 : 0; f->w3 = s18 ? 32768 : 0;
         return;
     }
     /* the first stage's k at 18 and 24 dB: RESONANCE 0 the Butterworth's (18: Q 1 with the one-pole; 24: Q 0.541 with
@@ -200,8 +190,7 @@ void tx_fx_mfilter_process(tx_fx_mfilter_t *f, int32_t *L, int32_t *R, unsigned 
     if (s24 && !f->w2) tx_fx_memset(f->s2, 0, sizeof f->s2);   /* (the 24 dB stages from rest) */
     if (s18 && !f->w3) tx_fx_memset(f->s3, 0, sizeof f->s3);   /* (the 18 dB stages from rest) */
     for (sb = 0; sb < n; sb += MF_SUB) {
-        unsigned len = sb + MF_SUB < n ? MF_SUB : n - sb, j;
-        int32_t cg, dc;
+        unsigned len = sb + MF_SUB < n ? MF_SUB : n - sb;
         int32_t w2 = f->w2, w21 = s24 ? (w2 < 32768 - MF_FADE ? w2 + MF_FADE : 32768) : (w2 > MF_FADE ? w2 - MF_FADE : 0);
         int32_t w3 = f->w3, w31 = s18 ? (w3 < 32768 - MF_FADE ? w3 + MF_FADE : 32768) : (w3 > MF_FADE ? w3 - MF_FADE : 0);
         for (e = 0; e < 2u; e++) {
@@ -228,13 +217,5 @@ void tx_fx_mfilter_process(tx_fx_mfilter_t *f, int32_t *L, int32_t *R, unsigned 
             f->w[e] = w1;
         }
         f->w2 = w21; f->w3 = w31;
-        on[0] = act[0] || f->w[0]; on[1] = act[1] || f->w[1];
-        cg = mf_close(f, on);                               /* the ends: the band closes (a ramp over the step) */
-        if (cg != 32768 || f->cg != 32768) {
-            int32_t gq = f->cg;
-            dc = (cg - gq) / (int32_t)MF_SUB;
-            for (j = 0; j < len; j++) { gq += dc; L[sb + j] = mq15(L[sb + j], gq); R[sb + j] = mq15(R[sb + j], gq); }
-            f->cg = cg;
-        }
     }
 }
