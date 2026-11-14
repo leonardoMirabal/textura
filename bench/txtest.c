@@ -1945,6 +1945,39 @@ static void check_mfilter_shape(void)
     verdict("fx", "mfilter shape", ok && fabs(e3l + 3) < 0.6 && fabs(e3h + 3) < 0.6 && fabs(uni) < 0.3 && respk > 6
             && bw < 1.5 && x1 < bellpk[0] - 3 && x2 < x1 - 6 && x3 < x2 - 12 && worst_end < -90 && jump < 1.5, msg, 0);
 }
+/* RESONANCE with the edges near each other: both peak at the same place and their peaks multiply (RESONANCE 127,
+ * the edges met: +24 dB at 12 dB, +28 dB at 24 dB): capped, the meeting point at +12 dB at most at every SLOPE and
+ * place, the edges near (crossed 6 steps .. apart 8) no higher than one edge alone (+0.5 dB) or +12; the rest as it
+ * was: one edge alone at RESONANCE 127, the edges met at RESONANCE 64, the edges far apart (48 steps) at 127 */
+static void check_mfilter_reso(void)
+{
+    static const unsigned SL[3] = {TX_MF_S12, TX_MF_S18, TX_MF_S24}, CT[3] = {30, 64, 100};
+    static const double ONE[3] = {11.9, 9.0, 14.4}, M64[3] = {9.1, 7.0, 10.4}, FAR[3] = {11.9, 9.0, 14.4};
+    char msg[400];
+    double met[3] = {-999, -999, -999}, near[3] = {-999, -999, -999}, one[3], m64[3], far[3];
+    unsigned s, c, ok = 1;
+    int d;
+    for (s = 0; s < 3u; s++) {
+        for (c = 0; c < 3u; c++) {
+            double p = mf_peak(CT[c], CT[c], 127, SL[s], 20, 20000, 0);
+            if (p > met[s]) met[s] = p;
+        }
+        for (d = -6; d <= 8; d++) {
+            double p = mf_peak((unsigned)(64 - d / 2), (unsigned)(64 - d / 2 + d), 127, SL[s], 20, 20000, 0);
+            if (p > near[s]) near[s] = p;
+        }
+        one[s] = mf_peak(64, 127, 127, SL[s], 20, 20000, 0);
+        m64[s] = mf_peak(64, 64, 64, SL[s], 20, 20000, 0);
+        far[s] = mf_peak(40, 88, 127, SL[s], 20, 20000, 0);
+        ok &= met[s] <= 12.0 && near[s] <= (ONE[s] + 0.5 > 12.0 ? ONE[s] + 0.5 : 12.0);
+        ok &= fabs(one[s] - ONE[s]) < 0.2 && fabs(m64[s] - M64[s]) < 0.3 && far[s] < FAR[s] + 0.6 && far[s] > FAR[s] - 0.3;
+    }
+    snprintf(msg, sizeof msg, "RESONANCE 127, 12 / 18 / 24 dB: the edges met %.1f / %.1f / %.1f dB (12 at most), near %.1f / %.1f / "
+             "%.1f; one edge %.1f / %.1f / %.1f (was %.1f / %.1f / %.1f); 48 steps apart %.1f / %.1f / %.1f; met at RESONANCE 64 "
+             "%.1f / %.1f / %.1f (was %.1f / %.1f / %.1f)", met[0], met[1], met[2], near[0], near[1], near[2], one[0], one[1],
+             one[2], ONE[0], ONE[1], ONE[2], far[0], far[1], far[2], m64[0], m64[1], m64[2], M64[0], M64[1], M64[2]);
+    verdict("fx", "mfilter reso", ok, msg, 0);
+}
 static void check_mfilter(void)
 {
     tx_fx_mfilter_t f;
@@ -2551,6 +2584,7 @@ int main(int argc, char **argv)
     if (argc > 1 && !strcmp(argv[1], "--mfilter")) {       /* the mix FILTER's checks alone */
         check_mfilter();
         check_mfilter_shape();
+        check_mfilter_reso();
         return fails ? 1 : 0;
     }
     if (argc > 1 && !strcmp(argv[1], "--grain")) {         /* the grain delay's loop checks alone */
@@ -2573,6 +2607,7 @@ int main(int argc, char **argv)
     check_fx(update);
     check_mfilter();
     check_mfilter_shape();
+    check_mfilter_reso();
     check_grain_mod();
     check_groove();
     check_noise_core();

@@ -11,9 +11,9 @@
  * panel steps them in steepness order (params.c p_ord).
  *
  * A bell, the classic high-pass into low-pass: the edges met make a band at their place, -6 dB at its peak at every
- * SLOPE (RESONANCE lifts it, both edges peaking there: up to ~+24 dB at 12 dB); crossed (LOW CUT above HIGH CUT) each
- * edge stays where its knob is and the band closes the further they cross (12 dB: ~-11 dB 5 steps across, ~-60 dB
- * 35 steps), no jump as the knobs pass each other.
+ * SLOPE (RESONANCE lifts it, both edges peaking there: capped at ~+11.5 dB, mf_kmin); crossed (LOW CUT above HIGH
+ * CUT) each edge stays where its knob is and the band closes the further they cross (12 dB: ~-11 dB 5 steps across,
+ * ~-60 dB 35 steps), no jump as the knobs pass each other.
  *
  * Each edge is a TPT state-variable stage (the two integrators trapezoidal, solved at once), stable at any setting. The cutoffs glide (one pole, ~6 ms, coefficients every 32 samples:
  * no zipper, the matrix's steps smoothed); an edge turning on or off, and the 24 dB and 18 dB stages, cross-fade in 46 ms with
@@ -140,6 +140,32 @@ static int32_t mf_close(const tx_fx_mfilter_t *f, const int *on)
     if (on[1] && (d = f->pos[1]) < MF_CLOSE) { d = d > 0 ? d * 32768 / MF_CLOSE : 0; a = (int32_t)(((int64_t)a * ((d * d) >> 15)) >> 15); }
     return a;
 }
+/* the edges near each other: both peak at one place and their peaks multiply (RESONANCE 127 met: +24 dB at 12 dB, +28
+ * at 24 dB). A floor under the first stage's k by the edges' distance (pos[1] - pos[0]) caps it: the meeting point
+ * +11.5 dB at every SLOPE (crossed: the same), rising to what the edges give alone 48 steps apart (12 dB +12.0, 24 dB
+ * +14.6; 18 dB under +11.5 anyway from 12 steps on). Where they peak lower anyway the floor is RESONANCE 127's own k
+ * (16317: no floor), and under the floor RESONANCE is as it was. k in Q16, from 12 steps crossed to 48 apart every 2
+ * steps (fitted on the filter itself at RESONANCE 127, the edges around step 64: the peak barely moves with the
+ * place); 12 dB, 18 dB, 24 dB */
+#define MF_KD0 (12 * 516)
+#define MF_KDS (2 * 516)
+#define MF_KDN 31
+static const uint32_t MF_KMIN[3][MF_KDN] = {
+    {16317, 16317, 16317, 21621, 27726, 31518, 33819, 34889, 34909, 33863, 31640, 28100, 25210, 23274, 21867, 20824,
+     20044, 19422, 18916, 18478, 18214, 17964, 17723, 17534, 17409, 17314, 17151, 17027, 17008, 16933, 16317},
+    {16317, 16317, 16317, 16317, 16317, 21216, 23923, 24906, 24432, 22387, 19119, 17069, 16317, 16317, 16317, 16317,
+     16317, 16317, 16317, 16317, 16317, 16317, 16317, 16317, 16317, 16317, 16317, 16317, 16317, 16317, 16317},
+    {16317, 16317, 16317, 23528, 32589, 39165, 44190, 47591, 49704, 50547, 50133, 48417, 45334, 40615, 34748, 30656,
+     27788, 25754, 24174, 22913, 21878, 21035, 20257, 19595, 19094, 18629, 18213, 17752, 17360, 17056, 16317},
+};
+static int32_t mf_kmin(unsigned si, int32_t d)              /* the k floor (Q24) at the edges' distance d; 0: none */
+{
+    int32_t x = d + MF_KD0, i, a, b;
+    if (x <= 0 || x >= (MF_KDN - 1) * MF_KDS) return 0;
+    i = x / MF_KDS; x -= i * MF_KDS;
+    a = (int32_t)MF_KMIN[si][i]; b = (int32_t)MF_KMIN[si][i + 1];
+    return (a + (b - a) * x / MF_KDS) << 8;                 /* (|b - a| < 2^17, x < 2^11: 32-bit) */
+}
 static int32_t mf_g(int32_t pos)                            /* g at a position 0 .. 65535 (Q24) */
 {
     uint32_t i = (uint32_t)pos >> 8;
@@ -152,6 +178,7 @@ void tx_fx_mfilter_process(tx_fx_mfilter_t *f, int32_t *L, int32_t *R, unsigned 
     int32_t tgt[2], k = (int32_t)TX_FX_FL_K[(f->p[TX_MF_RESO] * 66u) >> 7];   /* (Q 0.707 .. ~4) */
     int32_t kf = (int32_t)TX_FX_FL_K[65], ks;           /* (RESONANCE 127's k) */
     int act[2], on[2], s24 = f->p[TX_MF_SLOPE] == TX_MF_S24, s18 = f->p[TX_MF_SLOPE] == TX_MF_S18;
+    unsigned si = s18 ? 1u : s24 ? 2u : 0u;
     unsigned sb, e;
     act[0] = f->p[TX_MF_LOW] > 0; act[1] = f->p[TX_MF_HIGH] < 127;
     if (!act[0] && !act[1] && !f->w[0] && !f->w[1]) {  /* (off: untouched) */
@@ -180,11 +207,13 @@ void tx_fx_mfilter_process(tx_fx_mfilter_t *f, int32_t *L, int32_t *R, unsigned 
         for (e = 0; e < 2u; e++) {
             int32_t w = f->w[e], w1 = act[e] ? (w < 32768 - MF_FADE ? w + MF_FADE : 32768) : (w > MF_FADE ? w - MF_FADE : 0);
             mf_coef_t c, c2;
-            int32_t g;
+            int32_t g, kk;
             if (!w && !w1) continue;
             f->pos[e] += (tgt[e] - f->pos[e]) >> 3;
             g = mf_g(f->pos[e]);
-            mf_coef(&c, g, ks);
+            kk = ks;
+            if (act[0] && act[1]) { int32_t m = mf_kmin(si, f->pos[1] - f->pos[0]); if (m > kk) kk = m; }   /* (both on: near, capped) */
+            mf_coef(&c, g, kk);
             if (w2 || w21) mf_coef(&c2, g, MF_K24);
             mf_run(L + sb, R + sb, len, f->s[e], &c, e == 0u, w, (w1 - w) / (int32_t)MF_SUB);
             if (w2 || w21) {                                /* 24 dB: the second stage (its share x the edge's) */
