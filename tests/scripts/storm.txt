@@ -52,9 +52,10 @@
 8600 btn 8
 8610 btn 6
 8650 turn 1 1
-8651 turn 1 -20
-8652 turn 1 4
+8651 turn 1 -200
+8652 turn 1 64
 8653 btn 6
+8654 btn 8
 8700 expect state snd1 ridge_gale
 8800 expect state page SOUND_1/2
 8800 expect state lab0 GUST
@@ -69,18 +70,20 @@
 8950 btn 8
 8960 btn 6
 9000 turn 1 1
-9001 turn 1 -20
-9002 turn 1 5
+9001 turn 1 -200
+9002 turn 1 65
 9003 btn 6
+9004 btn 8
 9050 expect state snd1 winter_storm
 9150 expect state lab1 EXPOSED
 9150 expect state lab2 DRIFT
 9200 btn 8
 9210 btn 6
 9250 turn 1 1
-9251 turn 1 -20
-9252 turn 1 6
+9251 turn 1 -200
+9252 turn 1 66
 9253 btn 6
+9254 btn 8
 9300 expect state snd1 hail_on_a_roof
 9400 expect state page SOUND_1/2
 9400 expect state lab0 STONES

@@ -5,13 +5,10 @@
 # moves (the rain stick: SEEDS on the keys). The rain stick is held and turned over again at random gaps (its seeds
 # run out in seconds when it is only held: it went silent): still alive after 30 s
 1700 btn 11
-1750 btn 8
-1800 turn 1 -20
-1850 turn 1 4
-1900 btn 6
-1950 turn 1 -20
-2000 turn 1 7
+1701 turn 1 -200
+1702 turn 1 47
 2050 btn 6
+2051 btn 8
 2100 expect state browser 0
 2100 expect state snd0 rain_stick
 2200 keys 0x800
@@ -32,78 +29,60 @@
 21000 expect state alive0 1
 31000 expect state alive0 1
 31100 btn 11
-31150 btn 8
-31200 turn 1 -20
-31250 turn 1 4
-31300 btn 6
-31350 turn 1 -20
-31400 turn 1 8
+31101 turn 1 -200
+31102 turn 1 48
 31450 btn 6
+31451 btn 8
 31500 expect state browser 0
 31500 expect state snd0 crumpled_paper
 32100 expect state lane0 crumple
 32100 expect state run0 1
 35100 expect state alive0 1
 35200 btn 11
-35250 btn 8
-35300 turn 1 -20
-35350 turn 1 1
-35400 btn 6
-35450 turn 1 -20
-35500 turn 1 9
+35201 turn 1 -200
+35202 turn 1 19
 35550 btn 6
+35551 btn 8
 35600 expect state browser 0
 35600 expect state snd0 stone_clinks
 36200 expect state lane0 stonecloud
 36200 expect state run0 1
 39200 expect state alive0 1
 39300 btn 11
-39350 btn 8
-39400 turn 1 -20
-39450 turn 1 5
-39500 btn 6
-39550 turn 1 -20
-39600 turn 1 10
+39301 turn 1 -200
+39302 turn 1 59
 39650 btn 6
+39651 btn 8
 39700 expect state browser 0
 39700 expect state snd0 wind_chimes
 40300 expect state lane0 chimes
 40300 expect state run0 1
 43300 expect state alive0 1
 43400 btn 11
-43450 btn 8
-43500 turn 1 -20
-43550 turn 1 6
-43600 btn 6
-43650 turn 1 -20
-43700 turn 1 10
+43401 turn 1 -200
+43402 turn 1 70
 43750 btn 6
+43751 btn 8
 43800 expect state browser 0
 43800 expect state snd0 thunder_sheet
 44400 expect state lane0 plate
 44400 expect state run0 1
 47400 expect state alive0 1
 47500 btn 11
-47550 btn 8
-47600 turn 1 -20
-47650 turn 1 6
-47700 btn 6
-47750 turn 1 -20
-47800 turn 1 11
+47501 turn 1 -200
+47502 turn 1 71
 47850 btn 6
+47851 btn 8
 47900 expect state browser 0
 47900 expect state snd0 spring_echo
 48500 expect state lane0 spring
 48500 expect state run0 1
 51500 expect state alive0 1
 51600 btn 11
-51650 btn 8
-51700 turn 1 -20
-51750 turn 1 7
-51800 btn 6
-51850 turn 1 -20
-51900 turn 1 10
+51601 turn 1 -200
+51602 turn 1 82
 51950 btn 6
+51951 btn 8
 52000 expect state browser 0
 52000 expect state snd0 cicada_up_close
 52600 expect state lane0 cicadas

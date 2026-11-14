@@ -64,9 +64,10 @@
 3650 btn 8
 3660 btn 6
 3700 turn 1 1
-3701 turn 1 -20
-3702 turn 1 4
+3701 turn 1 -200
+3702 turn 1 44
 3703 btn 6
+3704 btn 8
 3750 expect state snd1 green_branch
 3850 expect state lab0 SIZE
 3850 expect state lab1 CREAK
@@ -81,9 +82,10 @@
 4100 btn 8
 4110 btn 6
 4150 turn 1 1
-4151 turn 1 -20
-4152 turn 1 5
+4151 turn 1 -200
+4152 turn 1 45
 4153 btn 6
+4154 btn 8
 4200 expect state snd1 tree_trunk
 4300 expect state lab0 CREAK
 4300 expect state lab1 PITCH
@@ -92,9 +94,10 @@
 4400 btn 8
 4410 btn 6
 4450 turn 1 1
-4451 turn 1 -20
-4452 turn 1 6
+4451 turn 1 -200
+4452 turn 1 46
 4453 btn 6
+4454 btn 8
 4500 expect state snd1 twigs_underfoot
 4600 expect state lab0 SIZE
 4600 expect state lab1 MOIST

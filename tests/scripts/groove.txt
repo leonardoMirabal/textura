@@ -15,24 +15,20 @@
 1720 expect state run0 1
 1720 expect state msg ALL_PLAYING
 1740 expect state mpos 6
-# lane 1: a field cricket (SEQ, HOME, ALGORITHM 7: Insects, EDIT, EDIT), HOW MANY 4, busy; lane 2: a brook (free)
+# lane 1: a field cricket (SEQ, to the list's top, ALGORITHM on to Insects' first, EDIT, HOME), HOW MANY 4, busy; lane 2: a brook (free)
 1800 btn 11
-1820 btn 8
-1840 turn 1 -20
-1860 turn 1 7
-1880 btn 6
-1900 turn 1 -20
+1801 turn 1 -200
+1802 turn 1 72
 1920 btn 6
+1921 btn 8
 1940 midi 0xB0 21 64
 1940 midi 0xB0 22 127
 1960 btn 1
 1980 btn 11
-2000 btn 8
-2020 turn 1 -20
-2040 btn 6
-2060 turn 1 -20
-2080 turn 1 5
+1981 turn 1 -200
+1982 turn 1 5
 2100 btn 6
+2101 btn 8
 2120 midi 0xB1 21 22
 2120 midi 0xB1 22 64
 2120 midi 0xB2 21 0

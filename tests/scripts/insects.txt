@@ -65,9 +65,10 @@
 3650 btn 8
 3660 btn 6
 3700 turn 1 1
-3701 turn 1 -20
-3702 turn 1 4
+3701 turn 1 -200
+3702 turn 1 76
 3703 btn 6
+3704 btn 8
 3750 expect state snd1 small_cicada
 3850 expect state lab0 SIZE
 3850 expect state lab1 RING
@@ -82,9 +83,10 @@
 4100 btn 8
 4110 btn 6
 4150 turn 1 1
-4151 turn 1 -20
-4152 turn 1 5
+4151 turn 1 -200
+4152 turn 1 77
 4153 btn 6
+4154 btn 8
 4200 expect state snd1 cicada_chorus
 4300 expect state lab0 DEPTH
 4300 expect state lab1 SIZE
@@ -99,9 +101,10 @@
 4550 btn 8
 4560 btn 6
 4600 turn 1 1
-4601 turn 1 -20
-4602 turn 1 6
+4601 turn 1 -200
+4602 turn 1 78
 4603 btn 6
+4604 btn 8
 4650 expect state snd1 katydid
 4750 expect state lab0 TEMP
 4750 expect state lab1 RASP
@@ -116,9 +119,10 @@
 5000 btn 8
 5010 btn 6
 5050 turn 1 1
-5051 turn 1 -20
-5052 turn 1 7
+5051 turn 1 -200
+5052 turn 1 79
 5053 btn 6
+5054 btn 8
 5100 expect state snd1 grasshopper
 5200 expect state lab0 PEGS
 5200 expect state lab1 TEMP
@@ -133,9 +137,10 @@
 5450 btn 8
 5460 btn 6
 5500 turn 1 1
-5501 turn 1 -20
-5502 turn 1 8
+5501 turn 1 -200
+5502 turn 1 80
 5503 btn 6
+5504 btn 8
 5550 expect state snd1 honeybee
 5650 expect state lab0 SWARM
 5650 expect state lab1 SPEED
@@ -144,9 +149,10 @@
 5750 btn 8
 5760 btn 6
 5800 turn 1 1
-5801 turn 1 -20
-5802 turn 1 9
+5801 turn 1 -200
+5802 turn 1 81
 5803 btn 6
+5804 btn 8
 5850 expect state snd1 bumblebee
 5950 expect state lab0 SWARM
 5950 expect state lab1 SPEED

@@ -18,6 +18,7 @@
 4000 btn 11
 4010 turn 1 2
 4020 btn 6
+4021 btn 8
 4030 expect state snd0 water_drops
 4030 expect state lane0 source
 4030 expect state ring0 1
@@ -105,18 +106,22 @@
 11900 btn 11
 11910 turn 1 4
 11920 btn 6
+11921 btn 8
 11950 btn 1
 12000 btn 11
 12010 turn 1 4
 12020 btn 6
+12021 btn 8
 12050 btn 1
 12100 btn 11
 12110 turn 1 4
 12120 btn 6
+12121 btn 8
 12150 btn 1
 12200 btn 11
 12210 turn 1 4
 12220 btn 6
+12221 btn 8
 13500 expect state swaps 0
 13500 expect state run3 1
 13500 btn 9

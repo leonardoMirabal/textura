@@ -48,9 +48,10 @@
 2600 shot
 # the sound browser (ALGORITHM): the lane's next sound (eaves dripping) picked: its own cards, the override gone
 2700 turn 1 1
-2701 turn 1 -20
+2701 turn 1 -200
 2702 turn 1 4
 2703 btn 6
+2704 btn 8
 2720 expect state snd3 eaves_dripping
 2760 expect state lab2 RHYTHM
 2760 expect state host3.5 63

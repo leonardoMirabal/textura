@@ -111,9 +111,11 @@
       comes back at once; MUTED on its card; a scene keeps it)</dd>
     <dt>F3–E4</dt><dd>how many: off, 1, 2, 4, 10, 19, 32</dd>
     <dt>F4–G5</dt><dd>how active: rare .. busy (each key sounds the same more)</dd>
-    <dt>SEQ</dt><dd>SOUNDS: the sound browser for the selected lane: the families, then their sounds; ALGORITHM
-      moves (the sound plays after 0.4 s while the lane plays), SELECT jumps family, EDIT opens / picks, HOME back /
-      cancel. Any sound on any lane, the same one on two lanes too</dd>
+    <dt>SEQ</dt><dd>SOUNDS: the sound browser for the selected lane, one list as the presets': each family's
+      header, then its sounds, opened on the lane's sound. ALGORITHM moves (past a family's last sound, the next
+      family's first; a playing lane plays the sound after 0.4 s, HEARING, the kept one marked), SELECT jumps family,
+      EDIT keeps the sound (the list stays), HOME or any other button closes with the kept sound back; SAVE held
+      undoes the last sound kept. Any sound on any lane, the same one on two lanes too</dd>
     <dt>ALGORITHM</dt><dd>named on each page's footer with its value: home: picks a landscape (EDIT loads it); SOUND: opens the sound
       browser; EFFECTS: the reverb's type; COMPRESSOR: on / off; DRIVE: its type; FILTER: the slope; DELAY: freeze;
       REVERB: its type; LFO: which LFO; MATRIX: which slot; GROOVE: the groove's type</dd>
@@ -160,7 +162,7 @@
     <dt>PRESETS</dt><dd>the presets list: the factory presets (F001–F100) under their families, then USER (your U01–U16), then LANDSCAPES (each landscape's own start, L01–L10: a starting point to
       shape and save as your own), opened on the one loaded; PRESETS, ALGORITHM or K1 move the cursor (nothing plays until you choose), SELECT jumps a family, EDIT loads it (the list stays open), HOME closes it. FX there: LOAD OPTIONS, PRESETS CHANGE TEMPO (YES: a preset brings its tempo) and EFFECTS ON LOAD (SMART, the default: a preset brings its drive, filter, compressor, delay and reverb unless you turned one since, then yours stay, "FX: YOURS"; ALWAYS; NEVER; they glide, the tails ring on)</dd>
     <dt>SAVE</dt><dd>save the scene: PRESETS or K1 picks U01–U16, SAVE again saves, HOME cancels; held: undo the last
-      load (again: redo). Kept in this browser; MIDI program change picks one too (0–9, 16–31)</dd>
+      load or the last sound kept (again: redo). Kept in this browser; MIDI program change picks one too (0–9, 16–31)</dd>
   </dl>
   <p>Four lanes play at once; the keys' lights blink with each lane's activity.</p>
 </details></aside>

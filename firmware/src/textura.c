@@ -372,11 +372,13 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "swaps")) { for (i = 0, k = 0; k < SC_N; k++) i += sc.a_eng[k] != sc.eng[k] || sc.reswap[k]; snprintf(v, n, "%u", i); }   /* lanes waiting */
     else if (sscanf(key, "sel%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", sc.nsel[k]);   /* the lane's switches so far */
     else if (!strcmp(key, "glides")) { for (i = scn_gl_n, k = 0; k < SC_N; k++) i += sc.gl_on[k]; snprintf(v, n, "%u", i); }   /* settings on their way */
-    else if (!strcmp(key, "browser")) snprintf(v, n, "%u", ub.on ? ub.lv : 0u);   /* the sound browser: 0 shut, its level */
+    else if (!strcmp(key, "browser")) snprintf(v, n, "%u", ub.on ? 2u : 0u);   /* a browser open: 2 (0 shut) */
+    else if (!strcmp(key, "brkept")) snprintf(v, n, "%s", ub.on && !ub.pr && ub.oi >= 0 ? LS[ub.of].s[ub.oi].name : "-");   /* the sound
+                                                 * browser's lane's kept sound */
     else if (!strcmp(key, "brfam")) snprintf(v, n, "%s", !ub.pr ? LS[ub.f].name : ub_cat_name(ub.f));   /* (the presets
                                                  * list: the cursor's family) */
     else if (!strcmp(key, "brpr")) snprintf(v, n, "%u", ub.on && ub.pr);   /* the browser open is the presets one */
-    else if (!strcmp(key, "brcur")) snprintf(v, n, "%u", ub.pr ? ub_pos() : ub.cur);   /* (the presets list: the place in its family) */
+    else if (!strcmp(key, "brcur")) snprintf(v, n, "%u", ub_pos());   /* (the place in its family) */
     else if (!strcmp(key, "bropt")) snprintf(v, n, "%u", ub.on && ub.opt);   /* the presets list's LOAD OPTIONS shown */
     else if (!strcmp(key, "leds")) {            /* the buttons lit, by name ("HOME REC") */
         static const char *const BN[14] = {"OCT-", "OCT+", "FX", "SEL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY", "REC"};

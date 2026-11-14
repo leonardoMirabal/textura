@@ -119,6 +119,7 @@ static scn_t scn_b[2] __attribute__((section(".nozero")));   /* (NOINIT's spare 
 #endif
 static scn_t scn_sv;                            /* the scene being saved */
 static uint8_t scn_u, scn_undo_ok, scn_bidx[2];   /* (scn_bidx: each one's scene number, 0xFF: none) */
+static struct { uint8_t on, k, f, i; } scn_su;   /* the last sound kept by the sound browser (scn_snd_undo) */
 static uint8_t scn_cur = 0xFF;                  /* the scene loaded last (0xFF: none) */
 /* a load in progress */
 static const scn_t *scn_ap;
@@ -522,9 +523,26 @@ static int scn_load(uint32_t idx)               /* 0: loading */
     scn_capture(&scn_b[scn_u]);                 /* (what played: the undo) */
     scn_bidx[scn_u] = scn_cur;
     scn_undo_ok = 1;
+    scn_su.on = 0;
     scn_apply(t, idx);
     ui_toast("LOADED", idx);                    /* (big, ~1.5 s: a load is never missed) */
     return 0;
+}
+/* the last sound the sound browser kept (EDIT): SAVE held puts the one before back on its lane (again: redone), as a
+ * load's undo; a load after it: the load's undo again */
+static void scn_snd_undo_set(uint32_t k, uint32_t f, uint32_t i) { scn_su.on = 1; scn_su.k = (uint8_t)k; scn_su.f = (uint8_t)f; scn_su.i = (uint8_t)i; }
+static void scn_snd_undo(void)
+{
+    uint32_t k = scn_su.k, f = sc.lf[k];
+    int i = sc.snd[k];
+    char t[32];
+    if (i < 0) return;
+    sc_sound_set(k, scn_su.f, scn_su.i);
+    scn_su.f = (uint8_t)f; scn_su.i = (uint8_t)i;
+    scn_touch();
+    p_strcpy(t, "UNDO: LANE 1 ", 31); t[11] = (char)('1' + k);
+    p_upper(t + 13, sc_sound_name(k), 18);
+    ui_say(t);
 }
 static void scn_undo(void)                      /* the last load undone (again: redone) */
 {
@@ -642,7 +660,9 @@ static int scn_input(uint32_t b, uint32_t rel, int32_t d_presets, int32_t d_k1, 
 {
     if (b >> BTN_SAVE & 1u) scn_save_t = fm1_ms ? fm1_ms : 1u;
     if (scn_save_t && fm1_in.buttons >> BTN_SAVE & 1u && fm1_ms - scn_save_t >= SCN_UNDO_MS) {
-        scn_save_t = 0; scn_save_mode = 0; scn_undo(); return 1;
+        scn_save_t = 0; scn_save_mode = 0;
+        if (scn_su.on) scn_snd_undo(); else scn_undo();
+        return 1;
     }
     if (rel >> BTN_SAVE & 1u && scn_save_t) {   /* a tap: the save mode, or (in it) save */
         scn_save_t = 0;

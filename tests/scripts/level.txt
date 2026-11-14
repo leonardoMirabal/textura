@@ -11,6 +11,7 @@
 1900 btn 11
 1910 turn 1 5
 1920 btn 6
+1921 btn 8
 1930 expect state snd0 brook
 2000 keys 0x800
 2050 keys 0
@@ -23,13 +24,12 @@
 4000 expect rms < -90
 4000 midi 0xB0 7 100
 4060 expect rms > -40
-# lane 1: a blackbird (SEQ, HOME: the families, ALGORITHM 8: Songbirds, EDIT, ALGORITHM 1, EDIT), dense
+# lane 1: a blackbird (SEQ, to the list's top, ALGORITHM on to Songbirds' second, EDIT, HOME), dense
 4200 btn 11
-4210 btn 8
-4220 turn 1 8
-4230 btn 6
-4240 turn 1 1
+4201 turn 1 -200
+4202 turn 1 84
 4250 btn 6
+4251 btn 8
 4260 expect state snd0 blackbird
 4300 keys 0x800
 4350 keys 0
