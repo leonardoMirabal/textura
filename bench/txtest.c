@@ -1333,6 +1333,60 @@ static void check_fx_grain_loop(tx_fx_t *fx)
     snprintf(msg + n, sizeof msg - (size_t)n, " dB (level / brightness, 9 s on re 1 s)");
     verdict("fx", "grain loop", ok, msg, 0);
 }
+/* the grain delay's loop at every GRAINS count (the open finding: at GRAINS 1 and 2 the repeats faded fast, each pass
+ * gated by a lone grain's window): a 20 ms noise burst, MIX 127, GRAIN 127 (and 0: the echo), FEEDBACK 96 (0.902 a
+ * pass: -0.89 dB), TIME 70 (229 ms), SPRAY 20 (a pass ~TIME + 39 ms, its mean reach); the wet's level and its top (the
+ * first difference's power over the signal's) per second from 1 to 9 s, each fitted to a line, per pass: the level
+ * near the FEEDBACK's own, the top held, at GRAINS 1, 2, 4 and 30 */
+static void gd_count_run(tx_fx_t *fx, unsigned gn, unsigned gr, double *lvp, double *tpp)
+{
+    tx_fx_grain_t *d = &fx->gd;
+    int32_t L[TX_BLOCK], R[TX_BLOCK], prev = 0;
+    uint32_t rng = 7u;
+    double e[10] = {0}, h[10] = {0}, sx = 0, sy = 0, sxx = 0, sxy = 0, ty = 0, txy = 0, pass;
+    unsigned b, j, s;
+    tx_fx_grain_init(d);
+    tx_fx_grain_param(d, TX_GD_MIX, 127); tx_fx_grain_param(d, TX_GD_FEEDBACK, 96);
+    tx_fx_grain_param(d, TX_GD_GRAIN, gr); tx_fx_grain_param(d, TX_GD_GRAINS, gn - 1u);
+    for (b = 0; b < 1723u; b++) {                       /* 10 s */
+        for (j = 0; j < TX_BLOCK; j++) {
+            uint32_t i = b * TX_BLOCK + j;
+            rng = rng * 1664525u + 1013904223u;
+            L[j] = R[j] = i >= 4410u && i < 5292u ? ((int32_t)(rng >> 8) - 8388608) / 8 : 0;
+        }
+        d->cap = TX_GD_MAXG;
+        tx_fx_grain_process(d, L, R, TX_BLOCK);
+        for (j = 0; j < TX_BLOCK; j++) {
+            uint32_t i = b * TX_BLOCK + j;
+            double x = ((double)L[j] + R[j]) / 2, dx = x - prev;
+            prev = (int32_t)x;
+            if (i / 44100u < 10u) { e[i / 44100u] += x * x; h[i / 44100u] += dx * dx; }
+        }
+    }
+    for (s = 1; s < 9u; s++) {                          /* the fits over seconds 1 .. 8 */
+        double y = 10 * log10(e[s] + 1), t = 10 * log10((h[s] + 1) / (e[s] + 1));
+        sx += s; sy += y; sxx += (double)s * s; sxy += s * y; ty += t; txy += s * t;
+    }
+    pass = (TX_FX_GD_TIME[70] + (gr ? 20u * 174u / 2u : 0u)) / 44100.0;
+    *lvp = (8 * sxy - sx * sy) / (8 * sxx - sx * sx) * pass;
+    *tpp = (8 * txy - sx * ty) / (8 * sxx - sx * sx) * pass;
+}
+static void check_fx_grain_count(tx_fx_t *fx)
+{
+    static const unsigned GN[5] = {1, 2, 4, 30, 1};
+    double lv[5], tp[5];
+    unsigned i, ok = 1;
+    char msg[400];
+    int n = 0;
+    for (i = 0; i < 5u; i++) {
+        gd_count_run(fx, GN[i], i < 4u ? 127u : 0u, &lv[i], &tp[i]);
+        if (lv[i] < -0.89 - 1.0 || lv[i] > 0.3 || tp[i] < -0.4 || tp[i] > 0.4) ok = 0;
+    }
+    for (i = 0; i < 5u; i++)
+        n += snprintf(msg + n, sizeof msg - (size_t)n, "%s%s %u %+.2f / %+.2f", i ? ", " : "", i < 4u ? "GRAINS" : "echo", GN[i], lv[i], tp[i]);
+    snprintf(msg + n, sizeof msg - (size_t)n, " dB a pass (level / top; FEEDBACK 96: -0.89)");
+    verdict("fx", "grain count", ok, msg, 0);
+}
 /* the grain delay's level and overlap (the unit, 0.2.1: the delay faint at high GRAINS, never a cloud): noise in, MIX
  * 127, GRAIN 127, FEEDBACK 0; the wet's level re the input at GRAINS 1 .. 30, scattered (SPRAY 20) and as copies of
  * one read (SPRAY 0): flat (it fell 1 / sqrt(N), -12 dB from 2 to 30). And the cap under GRAINS (4 of 30): the four
@@ -2351,6 +2405,7 @@ static void check_fx(FILE *update)
         check_fx_grain_controls(fx);
         check_fx_grain_level(fx);
         check_fx_grain_loop(fx);
+        check_fx_grain_count(fx);
         check_fx_drywet(fx);
         check_fx_hq(fx);
     }
@@ -2496,6 +2551,13 @@ int main(int argc, char **argv)
     if (argc > 1 && !strcmp(argv[1], "--mfilter")) {       /* the mix FILTER's checks alone */
         check_mfilter();
         check_mfilter_shape();
+        return fails ? 1 : 0;
+    }
+    if (argc > 1 && !strcmp(argv[1], "--grain")) {         /* the grain delay's loop checks alone */
+        tx_fx_t *fx = malloc(sizeof *fx);
+        check_fx_grain_loop(fx);
+        check_fx_grain_count(fx);
+        free(fx);
         return fails ? 1 : 0;
     }
     if (argc > 1 && !strcmp(argv[1], "--update")) {

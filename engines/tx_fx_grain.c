@@ -73,6 +73,13 @@ static const uint32_t GD_IVQ[TX_GDI_N][8] = {
     {GD_R(3, 2), GD_R(2, 1), GD_R(3, 2), GD_R(2, 1), GD_R(3, 2), GD_R(2, 1), GD_R(3, 2), GD_R(2, 1)},
 };
 
+/* the voices GRAINS runs: as many, but GRAINS 1 two heads, half a window apart, sharing the grain's place: one grain
+ * stream, each grain crossfading into the next (a lone Hann window gated every pass: at FEEDBACK 96 the repeats fell
+ * -4.0 dB a pass, the echo's -1.0; a burst caught near a window's end lost ~8 dB a pass) */
+#ifndef GD_HEADS
+#define GD_HEADS 1
+#endif
+TX_INLINE uint32_t gd_nv(const tx_fx_grain_t *d) { uint32_t G = d->p[TX_GD_GRAINS] + 1u; return GD_HEADS && G == 1u ? 2u : G; }
 TX_RAM static uint32_t rnd(uint32_t *s) { *s = *s * 1664525u + 1013904223u; return *s; }   /* (the grains' rng: d->rng,
                                                          * or the second half's copy, tx_fx_grain_split) */
 
@@ -308,7 +315,11 @@ TX_RAM static unsigned gd_voice(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t T, 
         if (j < n) {                                    /* the wrap: a new grain, its first sample here */
             g->on = 0;
             if (ph != T + inc * j) ph = T + inc * j;    /* (off the clock: back on it, silent until its next wrap) */
-            else if (start) gd_spawn(d, g, len, w0, j, rs);
+            else if (start) {
+                gd_spawn(d, g, len, w0, j, rs);
+                if (GD_HEADS && g == &d->g[1] && d->p[TX_GD_GRAINS] == 0u) { g->gl = d->g[0].gl; g->gr = d->g[0].gr; }   /* (GRAINS 1: the
+                                                         * second head at the grain's place) */
+            }
             if (g->on) { gd_seg(d, g, ph, inc, j, 1u, sl, sr); on++; }
             ph += inc;
             j++;
@@ -416,7 +427,7 @@ TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
         d->bwg = -1;
     }
     gd_anim(d, n, tgt);
-    k = d->p[TX_GD_GRAINS] + 1u;
+    k = gd_nv(d);
     d->gnt = gd_level(d, d->cap < k ? d->cap : k);
     d->blin = !d->p[TX_GD_SPRAY] && d->p[TX_GD_PITCH] == 64u && !d->p[TX_GD_REVERSE] && !d->p[TX_GD_MOD];
     gd_lowlevel(d, d->cap < k ? d->cap : k);
@@ -453,7 +464,7 @@ static unsigned gd_spawns(const tx_gd_grain_t *g, uint32_t T, uint32_t inc, unsi
  * the grains are the same as in one pass. K 0: one pass (tx_fx_grain_voices) */
 TX_AUDIO_CODE void tx_fx_grain_split(tx_fx_grain_t *d, unsigned n)
 {
-    uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, inc = d->ginc;
+    uint32_t G = gd_nv(d), cap = d->cap < G ? d->cap : G, inc = d->ginc;
     uint32_t step = 0xFFFFFFFFu / (cap ? cap : 1u) + 1u, k, K = (G + 1u) / 2u, r = d->rng, c = 0;
     if (n > TX_BLOCK) n = TX_BLOCK;
     gd_tap(d);
@@ -465,7 +476,7 @@ TX_AUDIO_CODE void tx_fx_grain_split(tx_fx_grain_t *d, unsigned n)
 /* voice slots k0 .. k1 - 1 into sl, sr (0: dry), their count; rs their rng */
 TX_RAM static unsigned gd_voices(tx_fx_grain_t *d, unsigned k0, unsigned k1, unsigned n, int32_t *sl, int32_t *sr, uint32_t *rs)
 {
-    uint32_t G = d->p[TX_GD_GRAINS] + 1u, cap = d->cap < G ? d->cap : G, inc = d->ginc;
+    uint32_t G = gd_nv(d), cap = d->cap < G ? d->cap : G, inc = d->ginc;
     uint32_t len = d->glen, step = 0xFFFFFFFFu / (cap ? cap : 1u) + 1u, k, j;   /* (spaced by those that may
                                                          * sound: a cap under GRAINS bunched them, a gap each turn) */
     unsigned act = 0;
