@@ -3,8 +3,8 @@
 firmware runs (the splash, then the LANDSCAPE page on the screen), ?selftest starts the landscape and it sounds, the
 on-screen keys reach the firmware and its key LEDs come back (a black key selects its group's lane, LANDSCAPE stays,
 held it mutes the lane; a white key starts it), the knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
-tests/py/test_web_knobs.py), HOME goes home and back, EDIT to SOUND, FX through EFFECTS / COMPRESSOR / DRIVE / FILTER / DELAY / REVERB, GLO through GROOVE /
-TEMPO / SCALE / MIDI, FX held to FILTER, LFO to
+tests/py/test_web_knobs.py), HOME goes home and back, EDIT to SOUND, FX through PERFORM / COMPRESSOR / DRIVE / FILTER / DELAY / REVERB, GLO through GROOVE /
+TEMPO / SCALE / MIDI, FX held to PERFORM, LFO to
 LFO, ARP to MATRIX (the captions follow), SAVE saves a scene that a reload brings back, and the page fits a phone (390 px, no sideways scroll). Screenshots at desktop and phone width.
 
     make fw-web-check     (PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py)
@@ -119,16 +119,16 @@ def main():
         # HOME (on SOUND): LANDSCAPE, remembering SOUND; again: back to SOUND; once more: LANDSCAPE (the captions follow)
         check(home.locator("small").inner_text() == "LANDSCAPE · HOLD: SETUP", "HOME's caption on SOUND: LANDSCAPE · HOLD: SETUP")
         home.click(delay=60)
-        pg.wait_for_timeout(300)
+        pg.wait_for_timeout(400)
         check(pg.evaluate(PAGE) == "LANDSCAPE", "HOME: the LANDSCAPE page")
         check(home.locator("small").inner_text() == "BACK · HOLD: SETUP", "HOME's caption on LANDSCAPE: BACK · HOLD: SETUP")
         home.click(delay=60)
-        pg.wait_for_timeout(300)
+        pg.wait_for_timeout(400)                         # (slower than a double tap: 0.3 s)
         check(pg.evaluate(PAGE) == "SOUND", "HOME again: back to SOUND")
         home.click(delay=60)
-        pg.wait_for_timeout(300)
+        pg.wait_for_timeout(400)
         check(pg.evaluate(PAGE) == "LANDSCAPE", "HOME once more: LANDSCAPE")
-        # EDIT: the lane's SOUND page (again: its next page); FX: EFFECTS, COMPRESSOR, DRIVE, FILTER, DELAY,
+        # EDIT: the lane's SOUND page (again: its next page); FX: PERFORM, COMPRESSOR, DRIVE, FILTER, DELAY,
         # REVERB (every page, the chain's order; the captions follow); GLO: GROOVE 1/2 2/2, TEMPO, SCALE, MIDI
         fx = pg.locator('button.b[data-name="FX"]')
         edit.click(delay=60)
@@ -144,8 +144,8 @@ def main():
                 fx.click(delay=60)
                 pg.wait_for_timeout(150)
         fx_to(1)
-        check(pg.evaluate(PAGE) == "EFFECTS", "FX: the EFFECTS front page")
-        check(fx.locator("small").inner_text() == "COMPRESSOR", "FX's caption on EFFECTS: COMPRESSOR")
+        check(pg.evaluate(PAGE) == "PERFORM", "FX: the PERFORM front page")
+        check(fx.locator("small").inner_text() == "COMPRESSOR", "FX's caption on PERFORM: COMPRESSOR")
         pg.screenshot(path=os.path.join(OUT, "desktop-effects.png"))
         fx_to(1)
         check(pg.evaluate(PAGE) == "COMPRESSOR", "FX again: the COMPRESSOR pages (the chain's first)")
@@ -187,15 +187,15 @@ def main():
         pg.wait_for_timeout(300)
         check(pg.evaluate(PAGE) == "MIDI", "GLO a fifth time: the MIDI page")
         check(glo.locator("small").inner_text() == "MIDI IN", "GLO's caption on MIDI: MIDI IN")
-        # FX held (a mouse held down 0.8 s): the FILTER page from here, and nothing more on its release
+        # FX held (a mouse held down 0.8 s): the PERFORM page from here, and nothing more on its release
         box = fx.bounding_box()
         pg.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
         pg.mouse.down()
         pg.wait_for_timeout(800)
-        check(pg.evaluate(PAGE) == "FILTER", "FX held: the FILTER page")
+        check(pg.evaluate(PAGE) == "PERFORM", "FX held: the PERFORM page")
         pg.mouse.up()
         pg.wait_for_timeout(300)
-        check(pg.evaluate(PAGE) == "FILTER", "FX let go after its hold: still FILTER")
+        check(pg.evaluate(PAGE) == "PERFORM", "FX let go after its hold: still PERFORM")
         glo.click(delay=60)
         pg.wait_for_timeout(300)
         glo.click(delay=60)

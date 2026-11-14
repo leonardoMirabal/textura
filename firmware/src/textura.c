@@ -346,7 +346,7 @@ static int host_state(const char *key, char *v, unsigned n)
         unsigned np = ui_fx_order(pg, fr), na = key[0] == 'f' ? np : tx_st_n, i, ok = np == tx_st_n;
         v[0] = 0;
         for (i = 0; i < np && ok; i++) ok = pg[i] == tx_st_seen[i];
-        for (i = 1; i < 4u && ok; i++) ok = fr[i] > fr[i - 1];
+        for (i = 1; i < 4u && ok; i++) ok = fr[i] >= fr[i - 1];   /* (PERFORM: the FILTER's two edges side by side) */
         if (key[5] == 'o') snprintf(v, n, "%u", ok);
         else for (i = 0; i < na; i++) { if (i) p_cat(v, " ", n); p_cat(v, a[i] < TX_ST_N ? NM[a[i]] : "?", n); }
     }

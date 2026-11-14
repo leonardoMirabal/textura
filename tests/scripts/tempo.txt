@@ -54,7 +54,7 @@
 # K3: the transport off
 5100 turn 4 -1
 5120 expect state running 0
-# the grain delay (FX six times: EFFECTS, COMPRESSOR's two, DRIVE, FILTER, DELAY): SYNC 1/4 = a beat (22050 samples at 120); 1 BAR (88200) fits whole (TIME's top 2.00 s: 88 204 samples)
+# the grain delay (FX six times: PERFORM, COMPRESSOR's two, DRIVE, FILTER, DELAY): SYNC 1/4 = a beat (22050 samples at 120); 1 BAR (88200) fits whole (TIME's top 2.00 s: 88 204 samples)
 5160 btn 2
 5164 btn 2
 5168 btn 2

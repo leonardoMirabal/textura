@@ -60,15 +60,15 @@
 2800 btn 6
 2820 expect state page SOUND_2/2
 2830 expect led 6 1
-# FX: EFFECTS, the front page (DRIVE, LOW PASS, DELAY MIX, REVERB MIX: the chain's order); ALGORITHM there: the
+# FX: PERFORM, the front page (HIGH PASS, LOW PASS, DELAY MIX, REVERB MIX: the chain's order); ALGORITHM there: the
 # reverb's type
 3300 btn 2
-3320 expect state page EFFECTS
-3320 expect state lab0 DRIVE
+3320 expect state page PERFORM
+3320 expect state lab0 HIGH_PASS
 3320 expect state lab1 LOW_PASS
 3320 expect state lab2 DELAY_MIX
 3320 expect state lab3 REVERB_MIX
-3320 expect state card0 0
+3320 expect state card0 OFF
 3320 expect state card1 OFF
 3320 expect state card2 DRY
 3320 expect state card3 D100_W55

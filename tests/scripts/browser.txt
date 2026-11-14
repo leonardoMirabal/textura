@@ -72,7 +72,7 @@
 4500 shot
 4550 btn 2
 4570 expect state browser 0
-4570 expect state page EFFECTS
+4570 expect state page PERFORM
 4570 expect state snd0 bonfire
 # SELECT into the lane's own family lands on the lane's sound: SEQ (bonfire), ALGORITHM 3 (kindling), SELECT -1 (Ice &
 # glass, its first), SELECT 1 (Fire: bonfire); HOME: bonfire stays

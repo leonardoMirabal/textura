@@ -12,8 +12,8 @@
  *              (titled TEXTURA), SOUND 1..n (the selected lane's sound: its cards, four a page), the lane pages HOW
  *              MANY, HOW ACTIVE, PAN, ON / MUTE (the mixer: each the four lanes as rows, Kn lane n's), then the mix's
  *              effects in the order the sound goes through them
- *              (left to right, as Frodhes: FX_CHAIN; the front page's knobs too): EFFECTS (the front page: DRIVE, HIGH
- *              CUT, DELAY MIX, REVERB MIX), COMPRESSOR 1/2 2/2 (the first effect; Frodhes': THR RATIO ATTACK MAKEUP,
+ *              (left to right, as Frodhes: FX_CHAIN; the front page's knobs too): PERFORM (the front page, to play
+ *              the effects live: HIGH PASS, LOW PASS, DELAY MIX, REVERB MIX), COMPRESSOR 1/2 2/2 (the first effect; Frodhes': THR RATIO ATTACK MAKEUP,
  *              then COMP REL; the footer its gain-reduction meter), DRIVE (AMOUNT TONE MIX TYPE), FILTER (right after
  *              the DRIVE: HIGH PASS LOW PASS RESONANCE SLOPE, a band), GRAIN 1/4 .. 4/4 (the grain delay), REVERB 1/3 ..
  *              3/3 (on what the delay gives: the echoes reverberate); MIX on DRIVE, GRAIN, REVERB (and the front
@@ -25,7 +25,7 @@
  *              lane's channel), DISPLAY (COLOR). Each
  *              page titled by what it does, no fractions: pips at the right for its button's pages
  *   ALGORITHM  named on the footer's ALGORITHM line with its value. LANDSCAPE: picks a landscape (the footer names it:
- *              EDIT loads it, HOME keeps what plays; a turn never loads); SOUND: opens the sound browser; EFFECTS,
+ *              EDIT loads it, HOME keeps what plays; a turn never loads); SOUND: opens the sound browser; PERFORM,
  *              REVERB: the reverb's type; COMPRESSOR: COMP (up on, down off); DRIVE: its TYPE; FILTER: its SLOPE;
  *              GRAIN: FREEZE (up on, down off); LFO: which (1..8); ENV: which (ENV 1, ENV 2, FOLLOW 1, FOLLOW 2);
  *              MATRIX: which slot (1..16); GROOVE: the groove's TYPE; SCALE: SCALE; MIDI IN: SELECTED CH
@@ -33,10 +33,11 @@
  *   K1..K4     LANDSCAPE: the volumes of lanes 1..4 (a lane's sound: its SOUND page; HOW MANY, HOW ACTIVE: the white
  *              keys too); the lane pages, GROOVE 2/2: lanes 1..4; else the cards
  *   HOME       LANDSCAPE; on LANDSCAPE: back to the last page left, however it was left (P7; the footer names it);
+ *              tapped twice within 300 ms: PERFORM (the first tap acts at once; a slower second one goes back);
  *              held 600 ms: the setup, MIDI CLOCK (GLO on: MIDI IN, DISPLAY)
- *   EDIT       SOUND (again: its next page)        FX  on its release: EFFECTS (again: each page of COMPRESSOR,
- *              DRIVE, FILTER, GRAIN, REVERB, then round); held 600 ms, from any page: FILTER (the mix's filter at once;
- *              HOME, then HOME again, comes back to it)
+ *   EDIT       SOUND (again: its next page)        FX  on its release: PERFORM (again: each page of COMPRESSOR,
+ *              DRIVE, FILTER, GRAIN, REVERB, then round); held 600 ms, from any page: PERFORM (HOME, then HOME
+ *              again, comes back to it)
  *   GLO        GROOVE (again: GROOVE 2/2, TEMPO, SCALE, MIDI, MIDI IN, DISPLAY, then round)        LFO  the LFO pages; held + a card
  *              turned: mod learn (the selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP
  *              MATRIX. Each group button lit on its own pages only; every group page's footer says where it goes next
@@ -88,13 +89,13 @@ enum { G_LAND, G_SOUND, G_LANES, G_FX, G_COMP, G_DRIVE, G_MFILT, G_GRAIN, G_REVE
        G_TEMPO, G_SCALE, G_MIDI, G_MIDIIN, G_DISPLAY, G_N };
 #define UI_GLANES (ui_g == G_GROOVE && ui_sub == 1u)   /* GROOVE 2/2: the lanes' roles, a row each */
 /* the groups' names for the host and the web panel (the screen titles each page by what it does: PG_T) */
-static const char *const G_TITLE[G_N] = {"LANDSCAPE", "SOUND", "LANES", "EFFECTS", "COMPRESSOR", "DRIVE", "FILTER",
+static const char *const G_TITLE[G_N] = {"LANDSCAPE", "SOUND", "LANES", "PERFORM", "COMPRESSOR", "DRIVE", "FILTER",
                                          "GRAIN", "REVERB", "LFO", "ENV", "MATRIX", "GROOVE", "TEMPO", "SCALE", "MIDI",
                                          "MIDI IN", "DISPLAY"};
 static const uint8_t G_NSUB[G_N] = {1, 0, 4, 1, 2, 1, 1, 4, 3, 3, 2, 1, 2, 1, 1, 1, 1, 1};   /* (SOUND: as many as its cards
                                                  * need; ENV: a FOLLOW has one) */
 /* the pages' titles on the screen, by what they do, the groups' pages in order (SOUND: "SOUND"; a FOLLOW: "FOLLOW") */
-static const char *const PG_T[] = {"TEXTURA", "HOW MANY", "HOW ACTIVE", "PAN", "ON / MUTE", "EFFECTS", "COMPRESSOR",
+static const char *const PG_T[] = {"TEXTURA", "HOW MANY", "HOW ACTIVE", "PAN", "ON / MUTE", "PERFORM", "COMPRESSOR",
                                    "COMP RELEASE", "DRIVE", "FILTER", "DELAY", "DELAY MOTION", "GRAINS", "GRAIN TONE",
                                    "REVERB", "REVERB SPACE", "SHIMMER", "LFO", "LFO PHASE", "LFO LEVEL", "ENV",
                                    "ENV SHAPE", "MOD MATRIX", "GROOVE", "GROOVE LANES", "TEMPO", "SCALE", "MIDI CLOCK",
@@ -133,8 +134,9 @@ static const uint16_t FX_IDS[25][4] = {
     {PID(P_GLOBAL, PG_BPM), PID(P_GLOBAL, PG_FINE), PID(P_GLOBAL, PG_RUN), PID(P_GLOBAL, PG_STATUS)},   /* TEMPO: BPM,
                                                  * the fine tempo, the transport, what leads it (its CLOCK: the MIDI
                                                  * CLOCK page) */
-    {DRV(TX_DR_AMOUNT), MFL(TX_MF_HIGH), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_MIX), PID(P_GLOBAL, PG_REVERB0 + TX_RV_MIX)},   /*
-                                                 * EFFECTS: the front page, each effect's most used, in the chain's order */
+    {MFL(TX_MF_LOW), MFL(TX_MF_HIGH), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_MIX), PID(P_GLOBAL, PG_REVERB0 + TX_RV_MIX)},   /*
+                                                 * PERFORM: the front page to play the effects live, in the chain's
+                                                 * order: the FILTER's two edges, the delay's and the reverb's MIX */
     {ENV_ANY(TX_EP_TRIGGER), ENV_ANY(TX_EP_ATTACK), ENV_ANY(TX_EP_DECAY), ENV_ANY(TX_EP_RELEASE)},
     {ENV_ANY(TX_EP_SUSTAIN), ENV_ANY(TX_EP_CURVE), ENV_ANY(TX_EP_VARY), ENV_ANY(TX_EP_LOOP)},
     {ENV_ANY(TX_FP_INPUT), ENV_ANY(TX_FP_ATTACK), ENV_ANY(TX_FP_RELEASE), ENV_ANY(TX_FP_GAIN)},
@@ -169,7 +171,7 @@ enum { E_HEADER = 0, E_TITLE = 1, E_ROW0 = 2, E_FOOTER = 6, E_N = 7 };
 
 static uint8_t ui_g, ui_sub;                    /* the page: its group, its sub-page */
 #ifdef DINGHY_HOST
-/* the FX pages' effects (FX's steps) and the EFFECTS front page's knobs as TX_ST_* stages, left to right: the host's
+/* the FX pages' effects (FX's steps) and the PERFORM front page's knobs as TX_ST_* stages, left to right: the host's
  * state "chainok" holds them against the order the audio runs the effects in (TX_STAGE, tx_engine.h) */
 static int ui_st_of(uint32_t id)                /* a global's effect */
 {
@@ -187,10 +189,10 @@ static unsigned ui_fx_order(uint8_t *pg, uint8_t *fr)   /* -> the steps' stages 
     return n;
 }
 #endif
-/* the cards' labels where a page mixes things (EFFECTS: the effect's name with it) */
+/* the cards' labels where a page mixes things (PERFORM: the effect's name with it) */
 static const char *ui_lab(uint32_t id)
 {
-    if (ui_g == G_FX) { static const char *const L[4] = {"DRIVE", "LOW PASS", "DELAY MIX", "REVERB MIX"}; uint32_t k; for (k = 0; k < 4u; k++) if (FX_IDS[13][k] == id) return L[k]; }
+    if (ui_g == G_FX) { static const char *const L[4] = {"HIGH PASS", "LOW PASS", "DELAY MIX", "REVERB MIX"}; uint32_t k; for (k = 0; k < 4u; k++) if (FX_IDS[13][k] == id) return L[k]; }
     return p_lab(id);
 }
 static uint8_t ui_lfo, ui_slot;                 /* the LFO and the matrix slot ALGORITHM picked */
@@ -1073,7 +1075,7 @@ static void ft_alg(int32_t yc, const char *what, const char *val)
     aa_text(x, S_TOP(yc), &AF_S, v, FC_VAL, FC_BG);
 }
 /* the footer's line 2 on a group's page: where its button goes next, beside the page's hold gesture when it fits (the
- * effects: FX held opens FILTER; LFO, ENV: held + a card turned learns a route), else the gesture's short form */
+ * effects: FX held opens PERFORM; LFO, ENV: held + a card turned learns a route), else the gesture's short form */
 #ifdef DINGHY_HOST
 static char ui_ft2[48];                         /* (the host's state "ft2": the last line 2 ft_next wrote, "A | B") */
 #endif
@@ -1081,7 +1083,7 @@ static void ft_next(char *t)
 {
     int lfo = ui_g == G_LFO || ui_g == G_ENV, i;
     const char *h = lfo ? (ui_g == G_LFO ? "HOLD LFO + TURN: LEARN" : "HOLD ENV + TURN: LEARN")
-                  : G_BTN[ui_g] == BTN_FX && ui_g != G_MFILT ? "HOLD: FILTER" : 0;
+                  : G_BTN[ui_g] == BTN_FX && ui_g != G_FX ? "HOLD: PERFORM" : 0;
     ui_next_text(t, G_BTN[ui_g]);
     for (i = 0; lfo && i < 3 && aa_text_w(&AF_S, t) + aa_text_w(&AF_S, h) + 9 > 236; i++) {
         if (i == 0) h = "HOLD + TURN: LEARN";       /* (too wide: the hint drops the button, then the NEXT its */
@@ -1148,7 +1150,7 @@ static void draw_footer(void)
     else if (ui_g == G_LAND) {                  /* the buttons by what they open (their printed names do not say); HOME's
                                                  * way back named once there is one */
         char t[40];
-        ft_two(7, "SEQ: SOUNDS", "FX: EFFECTS", FC_LAB);
+        ft_two(7, "SEQ: SOUNDS", "FX: PERFORM", FC_LAB);
         if (ui_back_g == 0xFF) ft_two(22, "GLO: GROOVE", "SELECT: SOUND, LANES", FC_LAB);
         else {
             p_strcpy(t, "HOME: BACK TO ", 39); p_cat(t, ui_title_of(ui_back_g, ui_back_sub), 39);
@@ -1788,6 +1790,8 @@ static void ui_rec(void)
 }
 static uint32_t ui_fx_t, ui_home_t;
 static uint8_t ui_fx_down, ui_home_down;        /* FX, HOME pressed, their release or their hold to come */
+static uint8_t ui_home_2;                       /* HOME's last press may start a double tap (PERFORM) */
+#define HOME_DBL_MS 300u
 static void ui_sel(uint32_t b, uint32_t rel)    /* SEL: a tap switches the key mode; held, the other mode while held
                                                  * (a key or a button used meanwhile: back when let go) */
 {
@@ -1858,9 +1862,15 @@ static void ui_input(uint32_t b, uint32_t rel)
         ui_land_go(sc.fam_want);
         b &= ~(1u << BTN_EDIT);
     }
-    if (b >> BTN_HOME & 1u) {                   /* HOME: the home page; there: back to the last page (P7) */
-        if (ui_g != G_LAND) ui_goto(G_LAND, 0);
-        else if (ui_back_g != 0xFF) ui_goto(ui_back_g, ui_back_sub);
+    if (b & ~(1u << BTN_HOME)) ui_home_2 = 0;  /* (another button between: no double tap) */
+    if (b >> BTN_HOME & 1u) {                   /* HOME: the home page; there: back to the last page (P7); a second
+                                                 * tap within HOME_DBL_MS: PERFORM instead (the first acted at once) */
+        if (ui_home_2 && fm1_ms - ui_home_t < HOME_DBL_MS) { ui_goto(G_FX, 0); ui_home_2 = 0; }
+        else {
+            if (ui_g != G_LAND) ui_goto(G_LAND, 0);
+            else if (ui_back_g != 0xFF) ui_goto(ui_back_g, ui_back_sub);
+            ui_home_2 = 1;
+        }
         ui_home_t = fm1_ms; ui_home_down = 1;
     }
     if (ui_home_down && fm1_ms - ui_home_t >= TAP_HOLD_MS) { ui_home_down = 0; ui_goto(G_MIDI, 0); }   /* held: the setup
@@ -1868,9 +1878,9 @@ static void ui_input(uint32_t b, uint32_t rel)
     if (rel >> BTN_HOME & 1u) ui_home_down = 0;
     if (b >> BTN_EDIT & 1u) ui_goto(G_SOUND, ui_g == G_SOUND ? (ui_sub + 1u) % ui_nsub(G_SOUND) : 0u);   /* (the lane's
                                                  * SOUND; again: its next page) */
-    if (b >> BTN_FX & 1u) { ui_fx_t = fm1_ms; ui_fx_down = 1; }   /* FX: on the release (held TAP_HOLD_MS: FILTER) */
-    if (ui_fx_down && fm1_ms - ui_fx_t >= TAP_HOLD_MS) { ui_fx_down = 0; ui_goto(G_MFILT, 0); }
-    for (i = 0; i < 2u; i++)                    /* FX (EFFECTS, COMPRESSOR, DRIVE, FILTER, DELAY, REVERB), GLO (GROOVE
+    if (b >> BTN_FX & 1u) { ui_fx_t = fm1_ms; ui_fx_down = 1; }   /* FX: on the release (held TAP_HOLD_MS: PERFORM) */
+    if (ui_fx_down && fm1_ms - ui_fx_t >= TAP_HOLD_MS) { ui_fx_down = 0; ui_goto(G_FX, 0); }
+    for (i = 0; i < 2u; i++)                    /* FX (PERFORM, COMPRESSOR, DRIVE, FILTER, DELAY, REVERB), GLO (GROOVE
                                                  * 1/2 2/2, TEMPO, SCALE, MIDI, MIDI IN, DISPLAY): every page in
                                                  * turn, wrapping */
         if (i ? b >> BTN_GLO & 1u : rel >> BTN_FX & ui_fx_down) { uint8_t g, s; ui_next(i ? BTN_GLO : BTN_FX, &g, &s); ui_goto(g, s); }

@@ -1,4 +1,4 @@
-# the GRAIN delay's animation (FX: EFFECTS, COMPRESSOR's two, DRIVE, FILTER, then the DELAY's; page 2/4): MOD (0: the plain delay,
+# the GRAIN delay's animation (FX: PERFORM, COMPRESSOR's two, DRIVE, FILTER, then the DELAY's; page 2/4): MOD (0: the plain delay,
 # its defaults untouched), MOD RATE, INTERVALS (5TH+OCT by default); CC 81 82 83 on channel 5; MOD up: its amount glides
 # in (gdmod 32766 at 127), the time drifts (gdwow 1); MOD 0: back to the plain delay (gdmod 0, gdwow 0); GRAIN MOD on the
 # matrix; a scene stores it; EFFECTS ON LOAD at SMART leaves it once turned, ALWAYS sets it

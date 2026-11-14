@@ -4,7 +4,7 @@
 # the card has settled (a CC frames it for a second, as a turn), then K4 turned and back: framed, its value as it was
 1700 btn 13
 2100 btn 2
-2150 expect state page EFFECTS
+2150 expect state page PERFORM
 2150 expect state lab2 DELAY_MIX
 2150 expect state lab3 REVERB_MIX
 2200 midi 0xB4 102 0

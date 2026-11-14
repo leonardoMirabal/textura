@@ -75,117 +75,117 @@
 4172 expect state page LANDSCAPE
 4175 btn 8
 4177 expect state page SOUND_1/2
-4178 btn 8
-4179 expect state page LANDSCAPE
+4528 btn 8
+4529 expect state page LANDSCAPE
 # lane 3 again (F#4, key 13), its SOUND page
-4180 keys 0x2000
-4181 keys 0
-4182 expect state sel 3
-4185 btn 6
-4187 expect state page SOUND_1/2
+4530 keys 0x2000
+4531 keys 0
+4532 expect state sel 3
+4535 btn 6
+4537 expect state page SOUND_1/2
 # ALGORITHM on SOUND: the sound browser; cave drips picked (it is on no other lane now); HOME back
-4200 turn 1 1
-4201 turn 1 -200
-4202 turn 1 3
-4203 btn 6
-4204 btn 8
-4220 expect state snd2 cave_drips
-4300 expect state run2 1
-4350 btn 8
-4360 expect state sel 3
-4360 expect state page LANDSCAPE
+4550 turn 1 1
+4551 turn 1 -200
+4552 turn 1 3
+4553 btn 6
+4554 btn 8
+4570 expect state snd2 cave_drips
+4650 expect state run2 1
+4700 btn 8
+4710 expect state sel 3
+4710 expect state page LANDSCAPE
 # a black key on LANDSCAPE keeps HOME's way back: HOME returns to the SOUND page it left, HOME again LANDSCAPE
-4370 keys 0x2000
-4371 keys 0
-4373 expect state page LANDSCAPE
-4375 btn 8
-4377 expect state page SOUND_1/2
-4380 btn 8
-4382 expect state page LANDSCAPE
+4720 keys 0x2000
+4721 keys 0
+4723 expect state page LANDSCAPE
+5075 btn 8
+5077 expect state page SOUND_1/2
+5430 btn 8
+5432 expect state page LANDSCAPE
 # ALGORITHM: the next landscape, picked, not loaded (the footer names it); EDIT loads it; what played starts the new
 # one low
-4400 turn 1 1
-4600 expect state landscape Water
-4650 shot
-4700 btn 6
-4800 expect state landscape Stones_&_sand
-4800 expect state run0 1
-4800 expect state sel 1
+5450 turn 1 1
+5650 expect state landscape Water
+5700 shot
+5750 btn 6
+5850 expect state landscape Stones_&_sand
+5850 expect state run0 1
+5850 expect state sel 1
 # ALGORITHM: three on, nothing loads while it turns; EDIT loads the one picked
-5000 turn 1 1
-5050 turn 1 1
-5100 turn 1 1
-5390 expect state landscape Stones_&_sand
-5400 btn 6
-5500 expect state landscape Wood
-5500 expect state lane0 source
+6050 turn 1 1
+6100 turn 1 1
+6150 turn 1 1
+6440 expect state landscape Stones_&_sand
+6450 btn 6
+6550 expect state landscape Wood
+6550 expect state lane0 source
 # ALGORITHM: back, then HOME: kept (Wood plays on); again, EDIT: Fire
-5600 turn 1 -1
-5650 btn 8
-5660 expect state msg LANDSCAPE_KEPT
-5660 expect state page LANDSCAPE
-5700 turn 1 -1
-5900 btn 6
-5910 expect state msg LANDSCAPE_FIRE
-5910 expect state toast FIRE
-6000 expect state landscape Fire
-6000 shot
-6100 expect sound
-6100 expect state dropped 0
+6650 turn 1 -1
+6700 btn 8
+6710 expect state msg LANDSCAPE_KEPT
+6710 expect state page LANDSCAPE
+6750 turn 1 -1
+6950 btn 6
+6960 expect state msg LANDSCAPE_FIRE
+6960 expect state toast FIRE
+7050 expect state landscape Fire
+7050 shot
+7150 expect sound
+7150 expect state dropped 0
 # every key in turn (F3 .. G5): none changes the landscape
-6200 keys 0x1
-6210 keys 0
-6220 keys 0x2
-6230 keys 0
-6240 keys 0x4
-6250 keys 0
-6260 keys 0x8
-6270 keys 0
-6280 keys 0x10
-6290 keys 0
-6300 keys 0x20
-6310 keys 0
-6320 keys 0x40
-6330 keys 0
-6340 keys 0x80
-6350 keys 0
-6360 keys 0x100
-6370 keys 0
-6380 keys 0x200
-6390 keys 0
-6400 keys 0x400
-6410 keys 0
-6420 keys 0x800
-6430 keys 0
-6440 keys 0x1000
-6450 keys 0
-6460 keys 0x2000
-6470 keys 0
-6480 keys 0x4000
-6490 keys 0
-6500 keys 0x8000
-6510 keys 0
-6520 keys 0x10000
-6530 keys 0
-6540 keys 0x20000
-6550 keys 0
-6560 keys 0x40000
-6570 keys 0
-6580 keys 0x80000
-6590 keys 0
-6600 keys 0x100000
-6610 keys 0
-6620 keys 0x200000
-6630 keys 0
-6640 keys 0x400000
-6650 keys 0
-6660 keys 0x800000
-6670 keys 0
-6680 keys 0x1000000
-6690 keys 0
-6700 keys 0x2000000
-6710 keys 0
-6720 keys 0x4000000
-6730 keys 0
-7140 expect state landscape Fire
-7240 end
+7250 keys 0x1
+7260 keys 0
+7270 keys 0x2
+7280 keys 0
+7290 keys 0x4
+7300 keys 0
+7310 keys 0x8
+7320 keys 0
+7330 keys 0x10
+7340 keys 0
+7350 keys 0x20
+7360 keys 0
+7370 keys 0x40
+7380 keys 0
+7390 keys 0x80
+7400 keys 0
+7410 keys 0x100
+7420 keys 0
+7430 keys 0x200
+7440 keys 0
+7450 keys 0x400
+7460 keys 0
+7470 keys 0x800
+7480 keys 0
+7490 keys 0x1000
+7500 keys 0
+7510 keys 0x2000
+7520 keys 0
+7530 keys 0x4000
+7540 keys 0
+7550 keys 0x8000
+7560 keys 0
+7570 keys 0x10000
+7580 keys 0
+7590 keys 0x20000
+7600 keys 0
+7610 keys 0x40000
+7620 keys 0
+7630 keys 0x80000
+7640 keys 0
+7650 keys 0x100000
+7660 keys 0
+7670 keys 0x200000
+7680 keys 0
+7690 keys 0x400000
+7700 keys 0
+7710 keys 0x800000
+7720 keys 0
+7730 keys 0x1000000
+7740 keys 0
+7750 keys 0x2000000
+7760 keys 0
+7770 keys 0x4000000
+7780 keys 0
+8190 expect state landscape Fire
+8290 end

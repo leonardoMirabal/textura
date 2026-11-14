@@ -44,12 +44,12 @@
 3110 expect state mute1 1
 3110 expect state mute0 0
 3150 shot
-# SELECT on: the effects (EFFECTS, the front page); HOME: home, HOME again: back to EFFECTS
+# SELECT on: the effects (PERFORM, the front page); HOME: home, HOME again: back to PERFORM
 3200 turn 0 1
-3220 expect state page EFFECTS
+3220 expect state page PERFORM
 3300 btn 8
 3320 expect state page LANDSCAPE
 3400 btn 8
-3420 expect state page EFFECTS
+3420 expect state page PERFORM
 3500 btn 8
 3600 end

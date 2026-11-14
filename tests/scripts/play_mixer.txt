@@ -33,13 +33,13 @@
 3625 expect led 8 1
 3625 expect led 7 0
 3625 expect state leds OCT+_HOME
-3630 btn 8
-3640 expect state page LANES_3/4
-3650 btn 8
-3660 expect state page LANDSCAPE
-3670 turn 0 1
-3672 turn 0 -1
-3674 btn 8
-3680 expect state page SOUND_1/2
-3700 expect sound
-3700 end
+3980 btn 8
+3990 expect state page LANES_3/4
+4350 btn 8
+4360 expect state page LANDSCAPE
+4370 turn 0 1
+4372 turn 0 -1
+4724 btn 8
+4730 expect state page SOUND_1/2
+4750 expect sound
+4750 end

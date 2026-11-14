@@ -1,7 +1,7 @@
-# the mix's FILTER (FX: EFFECTS, COMPRESSOR, DRIVE, then FILTER): HIGH PASS into LOW PASS, each 20 Hz .. 20 kHz in Hz at every
+# the mix's FILTER (FX: PERFORM, COMPRESSOR, DRIVE, then FILTER): HIGH PASS into LOW PASS, each 20 Hz .. 20 kHz in Hz at every
 # step, OFF at its open end (the defaults: the chain untouched, mfon 0); RESONANCE; SLOPE 12 / 18 / 24 dB (also ALGORITHM); CC 75
 # 74 71 70 on channel 5; K1 HIGH PASS at its top a high-pass at 20 kHz (nearly nothing left, no fade), K2 LOW PASS at its bottom
-# a low-pass at 20 Hz, and the front EFFECTS page's LOW PASS the same; crossed end to end (CC 75 127, CC 74 0): silence; LFO 1
+# a low-pass at 20 Hz, and the front PERFORM page's LOW PASS the same; crossed end to end (CC 75 127, CC 74 0): silence; LFO 1
 # > FLT LOW PASS on the matrix; back at the open ends the filter
 # stops (mfon 0); a scene stores it; EFFECTS ON LOAD at SMART leaves it once turned, ALWAYS sets it
 1700 btn 13
@@ -156,11 +156,11 @@
 8718 btn 8
 8720 expect state p426 1
 8800 expect state dropped 0
-# the front EFFECTS page (HOME, FX tapped): K2 LOW PASS down to its bottom, a low-pass at 20 Hz: nearly nothing left once
+# the front PERFORM page (HOME, FX tapped): K2 LOW PASS down to its bottom, a low-pass at 20 Hz: nearly nothing left once
 # the delay's tail has gone (the FILTER is before the GRAIN DELAY and the REVERB); up to its top: OFF
 8810 btn 8
 8820 btn 2
-8830 expect state page EFFECTS
+8830 expect state page PERFORM
 8830 expect state lab1 LOW_PASS
 8840 turn 3 -127
 8850 expect state p435 0

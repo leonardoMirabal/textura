@@ -1,0 +1,62 @@
+# PERFORM (ui.c), the FX group's front page: K1 HIGH PASS, K2 LOW PASS (the FILTER's two edges), K3 DELAY MIX, K4 REVERB
+# MIX; FX held 600 ms opens it from any page; HOME tapped twice within 300 ms opens it too (the first tap acts at once, as
+# ever); a slower second tap keeps HOME's way back; FX tapped still steps the effects' pages (on its release); in the
+# presets list FX is its LOAD OPTIONS, held too
+1700 btn 13
+1750 btn 7
+1760 expect state page GROOVE_1/2
+# FX held: PERFORM, its four knobs
+1800 press 2
+2300 expect state page GROOVE_1/2
+2450 expect state page PERFORM
+2450 expect state lab0 HIGH_PASS
+2450 expect state lab1 LOW_PASS
+2450 expect state lab2 DELAY_MIX
+2450 expect state lab3 REVERB_MIX
+2500 release 2
+2510 expect state page PERFORM
+2520 shot
+# HOME: home; again, slowly: back to PERFORM
+2600 btn 8
+2610 expect state page LANDSCAPE
+3100 btn 8
+3110 expect state page PERFORM
+# FX tapped: COMPRESSOR; HOME, then HOME slowly: back to COMPRESSOR
+3200 btn 2
+3210 expect state page COMPRESSOR_1/2
+3400 btn 8
+3410 expect state page LANDSCAPE
+3900 btn 8
+3910 expect state page COMPRESSOR_1/2
+# on COMPRESSOR: HOME twice fast: PERFORM (not back to COMPRESSOR)
+4450 btn 8
+4460 expect state page LANDSCAPE
+4600 btn 8
+4610 expect state page PERFORM
+# a third tap after the double: HOME's own (home)
+5050 btn 8
+5060 expect state page LANDSCAPE
+# HOME held still opens the setup
+5450 press 8
+6150 expect state page MIDI
+6160 release 8
+# FX tapped from home: PERFORM; a 250 ms press there: COMPRESSOR on its release
+6250 btn 8
+6260 btn 2
+6270 expect state page PERFORM
+6350 press 2
+6550 expect state page PERFORM
+6600 release 2
+6610 expect state page COMPRESSOR_1/2
+# the presets list: FX is LOAD OPTIONS, held too
+6650 turn 6 1
+6660 expect state brpr 1
+6670 press 2
+6680 expect state bropt 1
+7350 expect state bropt 1
+7350 expect state page COMPRESSOR_1/2
+7360 release 2
+7370 expect state bropt 1
+7370 expect state page COMPRESSOR_1/2
+7450 expect state dropped 0
+7550 end

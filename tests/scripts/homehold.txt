@@ -17,10 +17,10 @@
 2710 expect state page DISPLAY
 2800 btn 8
 2810 expect state page LANDSCAPE
-2820 btn 8
-2830 expect state page DISPLAY
-2900 btn 6
-2910 btn 8
-2920 expect state page LANDSCAPE
-3700 expect state page LANDSCAPE
-3800 end
+3120 btn 8
+3130 expect state page DISPLAY
+3200 btn 6
+3210 btn 8
+3220 expect state page LANDSCAPE
+4000 expect state page LANDSCAPE
+4100 end
