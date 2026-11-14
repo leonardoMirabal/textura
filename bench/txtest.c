@@ -1387,6 +1387,48 @@ static void check_fx_grain_count(tx_fx_t *fx)
     snprintf(msg + n, sizeof msg - (size_t)n, " dB a pass (level / top; FEEDBACK 96: -0.89)");
     verdict("fx", "grain count", ok, msg, 0);
 }
+/* the loop's diffusion (GD_DIFF): a 1 ms click into GRAINS 1, FEEDBACK 96, GRAIN 127; its repeats over seconds 1 .. 3:
+ * their echo density (the share of samples past one deviation in 1024-sample windows, over a noise's 0.3173: 1 a
+ * dense cloud) and crest (peak over RMS). Diffused, each pass is smeared again: 0.84, crest 23.6 dB (undiffused 0.28, 30.3 dB) */
+static void check_fx_grain_diffusion(tx_fx_t *fx)
+{
+    tx_fx_grain_t *d = &fx->gd;
+    int32_t L[TX_BLOCK], R[TX_BLOCK];
+    uint32_t rng = 7u;
+    static double y[44100u * 4u];
+    double ned = 0, e = 0, pk = 0, crest;
+    unsigned b, j, w, nw = 0;
+    char msg[240];
+    tx_fx_grain_init(d);
+    tx_fx_grain_param(d, TX_GD_MIX, 127); tx_fx_grain_param(d, TX_GD_FEEDBACK, 96);
+    tx_fx_grain_param(d, TX_GD_GRAIN, 127); tx_fx_grain_param(d, TX_GD_GRAINS, 0);
+    for (b = 0; b < 689u; b++) {                        /* 4 s */
+        for (j = 0; j < TX_BLOCK; j++) {
+            uint32_t i = b * TX_BLOCK + j;
+            rng = rng * 1664525u + 1013904223u;
+            L[j] = R[j] = i >= 4410u && i < 4454u ? ((int32_t)(rng >> 8) - 8388608) / 2 : 0;
+        }
+        d->cap = TX_GD_MAXG;
+        tx_fx_grain_process(d, L, R, TX_BLOCK);
+        for (j = 0; j < TX_BLOCK; j++) if (b * TX_BLOCK + j < 44100u * 4u) y[b * TX_BLOCK + j] = ((double)L[j] + R[j]) / 2;
+    }
+    for (w = 44100u; w + 1024u <= 44100u * 4u; w += 1024u) {
+        double m = 0, q = 0, sd;
+        unsigned k, n = 0;
+        for (k = 0; k < 1024u; k++) { m += y[w + k]; q += y[w + k] * y[w + k]; }
+        m /= 1024; sd = sqrt(q / 1024 - m * m);
+        if (sd < 1) continue;
+        for (k = 0; k < 1024u; k++) n += fabs(y[w + k] - m) > sd;
+        ned += n / 1024.0 / 0.3173; nw++;
+        e += q;
+        for (k = 0; k < 1024u; k++) if (fabs(y[w + k]) > pk) pk = fabs(y[w + k]);
+    }
+    ned = nw ? ned / nw : 0;
+    crest = nw ? 20 * log10(pk / sqrt(e / (1024.0 * nw))) : 99;
+    snprintf(msg, sizeof msg, "GD_DIFF %d: a click's repeats (GRAINS 1, FEEDBACK 96), seconds 1 .. 3: echo density %.2f, crest %.1f dB%s",
+             GD_DIFF, ned, crest, GD_DIFF ? " (0.75 / 26 dB at least / most)" : "");
+    verdict("fx", "grain diffusion", !GD_DIFF || (ned >= 0.75 && crest <= 26.0), msg, 0);
+}
 /* the grain delay's level and overlap (the unit, 0.2.1: the delay faint at high GRAINS, never a cloud): noise in, MIX
  * 127, GRAIN 127, FEEDBACK 0; the wet's level re the input at GRAINS 1 .. 30, scattered (SPRAY 20) and as copies of
  * one read (SPRAY 0): flat (it fell 1 / sqrt(N), -12 dB from 2 to 30). And the cap under GRAINS (4 of 30): the four
@@ -2439,6 +2481,7 @@ static void check_fx(FILE *update)
         check_fx_grain_level(fx);
         check_fx_grain_loop(fx);
         check_fx_grain_count(fx);
+        check_fx_grain_diffusion(fx);
         check_fx_drywet(fx);
         check_fx_hq(fx);
     }
@@ -2591,6 +2634,7 @@ int main(int argc, char **argv)
         tx_fx_t *fx = malloc(sizeof *fx);
         check_fx_grain_loop(fx);
         check_fx_grain_count(fx);
+        check_fx_grain_diffusion(fx);
         free(fx);
         return fails ? 1 : 0;
     }

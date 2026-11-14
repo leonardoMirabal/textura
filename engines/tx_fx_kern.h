@@ -153,6 +153,17 @@ void tx_hq_run(tx_hall_t *hv, const int32_t *send, const int32_t *add, int32_t s
 void tx_hq_job(void *a);            /* (the other core's half: lines 8..15) */
 #define HQ_HALL_WORDS 46378u        /* the rings: the lines' 46 314 + 16 x 4 (txtest checks) */
 
+/* GRAIN DELAY (tx_fx_grain.c): allpasses in its feedback loop */
+#ifndef GD_DIFF                     /* 1: 4 allpasses (g 0.5) in the loop, each pass diffused again; 0: none (bit-exact
+                                     * as before) */
+#define GD_DIFF 1
+#endif
+#ifndef GD_APX
+#define GD_APX 1u                   /* (their lengths' scale: 37, 53, 79, 113 samples x this) */
+#endif
+#define GD_APN 4u
+#define GD_APSUM (282u * GD_APX)
+
 /* INFINITE (tx_fx_inf.c: Frodhes' infinite tank, its bright build; DARK as its variant) */
 #define RI_NL 8u
 #define RI_CPT 4u

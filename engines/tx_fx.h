@@ -168,6 +168,11 @@ typedef struct {
                                                   * step a sample (Q16) */
     uint32_t ginc, glen;                         /* the grains' clock step this block (SIZE and its drift), a grain's
                                                   * longest length (samples) */
+#if GD_DIFF
+    int32_t ap[GD_APSUM];                        /* the loop's allpasses' lines, one after another (Q22) */
+    uint16_t api[GD_APN];                        /* their read / write places (in ap) */
+    int32_t apw;                                 /* their share (Q15: 0 at GRAIN 0, the echo exactly) */
+#endif
 } TX_LINE tx_fx_grain_t;   /* (TX_LINE: its own cache lines on the FM-1) */
 void tx_fx_grain_init(tx_fx_grain_t *d);
 void tx_fx_grain_param(tx_fx_grain_t *d, unsigned id, unsigned v);

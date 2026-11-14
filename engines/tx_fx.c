@@ -526,7 +526,9 @@ uint32_t tx_fx_drive_mix_us(const tx_fx_t *fx)
 }
 /* the grain delay's dynamic cap: the grains the effects reserve leaves after the reverb's TYPE (FM-1 us a block,
  * CPU-BUDGET.md section 8: the reverb's worst per TYPE, the delay's line + echo, a sounding grain) */
-#define FX_US_GD_BASE 220u         /* the line, the echo, the feedback (make tx-budget section 4, 2026-10-25) */
+#define FX_US_GD_BASE (220u + FX_US_GD_DIFF)   /* the line, the echo, the feedback (make tx-budget section 4,
+                                    * 2026-10-25) */
+#define FX_US_GD_DIFF (GD_DIFF ? 40u : 0u)   /* the loop's 4 allpasses (make tx-budget section 4, 2026-11-14: +35 .. +47) */
 #define FX_US_GD_WOW 20u           /* MOD: the echo's moving read (make tx-budget section 4: ~15) */
 #define FX_US_GD_GRAIN1 14u        /* a grain at rate 1 (whole samples: a run decoded, one read a sample) */
 #define FX_US_GD_GRAINP 42u        /* a pitched or reversed grain (its run decoded, the interpolation) */
@@ -537,7 +539,7 @@ static const uint16_t FX_US_REV[TX_RVT_N] = {0, 390, 210, 280, 280, 280, 290, 18
  * line, the echo and the feedback; a sounding grain), the cap at once down to what fits, but never under one grain (at
  * cap 0 the grains fall silent: the target is 1600 us under the block, a grain ~60), up by one every RV_FADE blocks
  * (a sound whose cost swings block to block does not start and stop grains with it) */
-#define FX_DEV_GD_BASE 283u
+#define FX_DEV_GD_BASE (283u + FX_US_GD_DIFF)
 #define FX_DEV_GD_GRAIN1 44u
 #define FX_DEV_GD_GRAINP 64u
 TX_AUDIO_CODE uint32_t tx_fx_gd_dev_us(const tx_fx_t *fx, uint32_t cap)   /* the delay at cap grains (FM-1 us) */

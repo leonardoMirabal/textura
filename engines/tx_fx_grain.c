@@ -14,7 +14,8 @@
  *     -12 .. +12), reversed by chance (REVERSE), panned at random within SPREAD; read with linear interpolation (whole samples at rate 1: exact)
  *   out = the input x the dry's gain + (ECHO .. GRAINS by GRAIN) x the wet's (MIX, tx_fx.h: 0 the input alone, 64 both
  *     whole, 127 the delay alone); the feedback: that (its mid, as below), through TONE's low-pass,
- *     a soft knee (above half scale only: the quiet repeats stay exact), FEEDBACK's gain and a DC block, into the line
+ *     a soft knee (above half scale only: the quiet repeats stay exact), 4 allpasses (GD_DIFF, tx_fx_kern.h: each
+ *     pass diffused again, flat; not at GRAIN 0, the echo exact), FEEDBACK's gain and a DC block, into the line
  *   the loop keeps what each pass grains again, its level and its top, but for FEEDBACK and TONE: the grains' level
  *     as they add (gd_level: in power when scattered, in amplitude as copies, and in amplitude below a crossover
  *     set by how far their reads spread: gd_lowlevel), their mid x sqrt 2 (their places' equal power undone), the
@@ -29,9 +30,9 @@
  *   FREEZE: the line stops taking input (a 10 ms fade): the whole line (2.55 s) circles, the grains keep reading them
  * The dynamic cap (cap, set by the chain each block): grains beyond it finish their window and do not start again, so
  * the delay costs what the effects reserve leaves (on the FM-1: ~14 us a sounding grain at rate 1, ~42 us pitched or
- * reversed, ~220 us the line, the echo and the feedback; each grain decodes its run of the line once a block).
- * Off (MIX 0, after a 46 ms fade): nothing computed, the mix untouched. A line switched on reads as empty until it has
- * been written (no stale sound, no memset). */
+ * reversed, ~220 us the line, the echo and the feedback, +40 the allpasses; each grain decodes its run of the line
+ * once a block). Off (MIX 0, after a 46 ms fade): nothing computed, the mix untouched. A line switched on reads as
+ * empty until it has been written (no stale sound, no memset). */
 #include "tx_fx.h"
 
 #define GD_GUARD 288u               /* every read this far behind the write at the block's start (a block + a gathered
@@ -425,6 +426,9 @@ TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
         for (k = 0; k < 4u; k++) d->dt[k] = d->da[k] = d->du[k] = 0;
         for (k = 0; k < 2u; k++) d->xl[k] = d->xle[k] = 0;
         d->bwg = -1;
+#if GD_DIFF
+        d->apw = 0;
+#endif
     }
     gd_anim(d, n, tgt);
     k = gd_nv(d);
@@ -544,6 +548,29 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_voices_b(tx_fx_grain_t *d, unsigned n)
     if (n > TX_BLOCK) n = TX_BLOCK;
     d->vact2 = gd_voices(d, d->vk, TX_GD_MAXG, n, dry ? 0 : d->wl2, dry ? 0 : d->wr2, &d->rng2);
 }
+#if GD_DIFF
+/* the loop's diffusion (GD_DIFF): 4 allpasses, g 0.5, in series on the feedback (flat: each pass keeps its level and
+ * its top; its echoes smeared over a few ms again each pass, the cloud denser the longer it goes); rounded toward 0
+ * (silence ends in zeros) */
+#define GD_AP1 (37u * GD_APX)
+#define GD_AP2 (53u * GD_APX)
+#define GD_AP3 (79u * GD_APX)
+#define GD_AP4 (113u * GD_APX)
+TX_INLINE int32_t gd_ap1(int32_t *b, uint32_t *i, uint32_t len, int32_t x)   /* one allpass, its place i (0 .. len - 1) */
+{
+    int32_t v = b[*i], w = x + ((v - (v >> 31)) >> 1);
+    b[*i] = w;
+    *i = *i + 1u >= len ? 0u : *i + 1u;
+    return v - ((w - (w >> 31)) >> 1);
+}
+TX_INLINE int32_t gd_diffuse(int32_t *ap, uint32_t *ai, int32_t x)
+{
+    x = gd_ap1(ap, &ai[0], GD_AP1, x);
+    x = gd_ap1(ap + GD_AP1, &ai[1], GD_AP2, x);
+    x = gd_ap1(ap + GD_AP1 + GD_AP2, &ai[2], GD_AP3, x);
+    return gd_ap1(ap + GD_AP1 + GD_AP2 + GD_AP3, &ai[3], GD_AP4, x);
+}
+#endif
 TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t *R, unsigned n)
 {
     int32_t mv = d->p[TX_GD_MIX], mixt = TX_FX_MIXQ(mv), gb = d->p[TX_GD_GRAIN] * 258, fbk = TX_FX_GD_FB[d->p[TX_GD_FEEDBACK]];
@@ -600,6 +627,9 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
     /* the blend, the feedback into the line (gathered in sl, written after), the output */
     {
     uint32_t wj = w0, fj = d->fill;                     /* (the write index and the fill, sample by sample) */
+#if GD_DIFF
+    uint32_t ai[GD_APN] = {d->api[0], d->api[1], d->api[2], d->api[3]};   /* (the allpasses' places, held here) */
+#endif
     for (j = 0; j < n; j++) {
         int32_t x = (L[j] >> 2) + (R[j] >> 2), wl, wr, f, fm;   /* the mid, Q22 */
         if (d->gn != gnt) d->gn += d->gn < gnt ? (gnt - d->gn > 8 ? 8 : gnt - d->gn) : -(d->gn - gnt > 8 ? 8 : d->gn - gnt);
@@ -647,6 +677,16 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
         f = d->lp;
         if (f > GD_KNEE) f = GD_KNEE + tx_fx_softclip((f - GD_KNEE) >> 6) * 64;
         else if (f < -GD_KNEE) f = -GD_KNEE - tx_fx_softclip((-f - GD_KNEE) >> 6) * 64;
+#if GD_DIFF
+        if (!dry || d->apw) {                           /* (GRAIN 0: the echo alone, exactly; the allpasses fade in and
+                                                         * out with the grains, 23 ms, from clean lines) */
+            int32_t y;
+            if (!d->apw) { uint32_t k; for (k = 0; k < GD_APSUM; k++) d->ap[k] = 0; ai[0] = ai[1] = ai[2] = ai[3] = 0; }
+            y = gd_diffuse(d->ap, ai, f);
+            d->apw += dry ? (d->apw > 32 ? -32 : -d->apw) : (d->apw < 32768 - 32 ? 32 : 32768 - d->apw);
+            f = d->apw == 32768 ? y : f + mq15z(y - f, d->apw);
+        }
+#endif
         if (dfq) { fq += dfq; fbk = fq >> 8; }
         f = mq15z(f, fbk);
         d->dcy = op15(d->dcy, f, 70, &d->dce);         /* (15 Hz: what the grains' crossover leaves under it
@@ -664,6 +704,9 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
         if (fj < TX_GD_N) fj++;
         e[j] = wl; sr[j] = wr;                          /* (the delay's out, for the blend below) */
     }
+#if GD_DIFF
+    d->api[0] = (uint16_t)ai[0]; d->api[1] = (uint16_t)ai[1]; d->api[2] = (uint16_t)ai[2]; d->api[3] = (uint16_t)ai[3];
+#endif
     }
     TX_FAR(tx_fx_drywet)(L, R, e, sr, n, gc[0], gc[1], gs[0], gs[1], 2);   /* dry x its gain + the delay x the wet's (Q22 -> Q23) */
     gd_wrn(d, sl, n);
