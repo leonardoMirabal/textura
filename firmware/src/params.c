@@ -531,8 +531,9 @@ static const char *p_text(uint32_t id, char *t)
     case F_PAN:
         if (v == 64) { p_strcpy(t, "C", 2); return 0; }
         t[0] = v < 64 ? 'L' : 'R'; p_fmt_int(t + 1, v < 64 ? 64 - v : v - 64); return 0;
-    case F_HZ_LO: if (!v) { p_strcpy(t, "OFF", 4); return 0; } goto hz;   /* (the mix's FILTER: off at its ends) */
-    case F_HZ_HI: if (v >= 127) { p_strcpy(t, "OFF", 4); return 0; } goto hz;
+    case F_HZ_LO:                               /* (the mix's FILTER: off at one end, closed at the other) */
+        if (!v || v >= 127) { p_strcpy(t, v ? "CLOSED" : "OFF", 7); return 0; } goto hz;
+    case F_HZ_HI: if (!v || v >= 127) { p_strcpy(t, v ? "OFF" : "CLOSED", 7); return 0; } goto hz;
     hz:
     case F_HZ_FL: {                             /* 30 Hz .. 16 kHz, log */
         uint32_t hz = (30u * tx_exp2((int32_t)(16 << 16) + v * 593700 / 127)) >> 16;

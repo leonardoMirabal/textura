@@ -98,6 +98,7 @@ typedef struct {
     int32_t s[2][2][2];            /* the stages' integrators: [edge][side][s1, s2] */
     int32_t s2[2][2][2];           /* the 24 dB stages' */
     int32_t s3[2][2];              /* the 18 dB one-pole stages': [edge][side] */
+    int32_t cg;                    /* the ends' closing gain now (Q15: 32768 open; LOW CUT 124 .. 127, HIGH CUT 3 .. 0) */
 } tx_fx_mfilter_t;
 void tx_fx_mfilter_init(tx_fx_mfilter_t *f);
 void tx_fx_mfilter_param(tx_fx_mfilter_t *f, unsigned id, unsigned v);

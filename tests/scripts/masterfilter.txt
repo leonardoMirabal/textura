@@ -1,6 +1,7 @@
 # the mix's FILTER (FX: EFFECTS, COMPRESSOR, DRIVE, then FILTER): a band, LOW CUT (a high-pass) and HIGH CUT (a low-pass), OFF at their
 # ends (the defaults: the chain untouched, mfon 0); RESONANCE; SLOPE 12 / 18 / 24 dB (also ALGORITHM); CC 75 74 71 70 on
-# channel 5; crossed edges still sound (a narrow band); LFO 1 > FLT HIGH CUT on the matrix; back at the ends the filter
+# channel 5; K1 LOW CUT at its top closes the band (CLOSED: silence), K2 HIGH CUT at its bottom too, and the front
+# EFFECTS page's HIGH CUT the same; crossed edges close (CC 75 127, CC 74 0: silence); LFO 1 > FLT HIGH CUT on the matrix; back at the ends the filter
 # stops (mfon 0); a scene stores it; EFFECTS ON LOAD at SMART leaves it once turned, ALWAYS sets it
 1700 btn 13
 1800 expect state run0 1
@@ -51,75 +52,102 @@
 2480 expect state p437 1
 2500 midi 0xB4 70 0
 2520 expect state p437 0
-# crossed (CC 75: LOW CUT 127, CC 74: HIGH CUT 0): a narrow band at the middle, it still sounds
-2600 midi 0xB4 75 127
-2610 midi 0xB4 74 0
-2620 expect state p434 127
-2620 expect state p435 0
-3200 expect rms > -80
-3200 expect sound
+# K1 LOW CUT up to its top: the band closes, silence; back to 40: it sounds again; K2 HIGH CUT down to 0 the same
+2530 turn 2 100
+2540 expect state p434 127
+2540 expect state card0 CLOSED
+2950 expect rms < -120
+3000 turn 2 -87
+3010 expect state p434 40
+3100 expect rms > -70
+3110 turn 3 -100
+3120 expect state p435 0
+3120 expect state card1 CLOSED
+3500 expect rms < -120
+3510 turn 3 77
+3520 expect state p435 77
+3600 expect rms > -70
+# crossed (CC 75: LOW CUT 127, CC 74: HIGH CUT 0): the band closes, silence
+3800 midi 0xB4 75 127
+3810 midi 0xB4 74 0
+3820 expect state p434 127
+3820 expect state p435 0
+4200 expect rms < -120
+4200 expect sound
 # the matrix (ARP): LFO 1 > FLT HIGH CUT (two before the last TARGET, GROOVE AMOUNT: GRAIN MOD between), depth +30 %; the chain is held by the
 # route; the route gone: HIGH CUT back to its base
-3300 midi 0xB4 75 30
-3310 midi 0xB4 74 90
-3400 btn 10
-3420 turn 2 1
-3440 turn 3 200
-3450 expect state card1 GROOVE_AMOUNT
-3452 turn 3 -1
-3453 expect state card1 GRAIN_MOD
-3455 turn 3 -1
-3460 expect state card1 FLT_HIGH_CUT
-3480 turn 4 30
-3600 expect state routes 1
-3600 expect sound
-3700 turn 3 -1
-3720 expect state card1 FLT_LOW_CUT
-3740 turn 3 -200
-3800 expect state routes 0
-3800 expect state p435 90
-3800 expect sound
+4300 midi 0xB4 75 30
+4310 midi 0xB4 74 90
+4400 btn 10
+4420 turn 2 1
+4440 turn 3 200
+4450 expect state card1 GROOVE_AMOUNT
+4452 turn 3 -1
+4453 expect state card1 GRAIN_MOD
+4455 turn 3 -1
+4460 expect state card1 FLT_HIGH_CUT
+4480 turn 4 30
+4600 expect state routes 1
+4600 expect sound
+4700 turn 3 -1
+4720 expect state card1 FLT_LOW_CUT
+4740 turn 3 -200
+4800 expect state routes 0
+4800 expect state p435 90
+4800 expect sound
 # saved to U01 with LOW CUT 30, HIGH CUT 90
-3900 btn 9
-4000 btn 9
-4600 expect state saving 0
+4900 btn 9
+5000 btn 9
+5600 expect state saving 0
 # both edges at their ends: after the fade the filter stops, the chain untouched
-4700 midi 0xB4 75 0
-4710 midi 0xB4 74 127
-5000 expect state mfon 0
-5000 expect sound
+5700 midi 0xB4 75 0
+5710 midi 0xB4 74 127
+6000 expect state mfon 0
+6000 expect sound
 # SMART (the default), the effects turned: U01 loads, the filter stays off
-5100 midi 0xC0 100 0
-5700 expect state loading 0
-5700 expect state p434 0
-5700 expect state p435 127
-5700 expect preset
+6100 midi 0xC0 100 0
+6700 expect state loading 0
+6700 expect state p434 0
+6700 expect state p435 127
+6700 expect preset
 # ALWAYS (PRESETS, FX: LOAD OPTIONS, K1): U01 brings its band back; F001 the defaults (off)
-5800 turn 6 1
-5805 btn 2
-5810 expect state bropt 1
-5815 turn 2 -1
-5818 btn 8
-5820 expect state p426 0
-5900 midi 0xC0 100 0
-6500 expect state loading 0
-6500 expect state p434 30
-6500 expect state p435 90
-6500 expect preset
-6600 expect state mfon 3
-6700 midi 0xC0 0 0
-7300 expect state loading 0
-7300 expect state p434 0
-7300 expect state p435 127
-7300 expect preset
-7600 expect state mfon 0
-7600 expect sound
+6800 turn 6 1
+6805 btn 2
+6810 expect state bropt 1
+6815 turn 2 -1
+6818 btn 8
+6820 expect state p426 0
+6900 midi 0xC0 100 0
+7500 expect state loading 0
+7500 expect state p434 30
+7500 expect state p435 90
+7500 expect preset
+7600 expect state mfon 3
+7700 midi 0xC0 0 0
+8300 expect state loading 0
+8300 expect state p434 0
+8300 expect state p435 127
+8300 expect preset
+8600 expect state mfon 0
+8600 expect sound
 # back to SMART
-7700 turn 6 1
-7705 btn 2
-7710 expect state bropt 1
-7715 turn 2 1
-7718 btn 8
-7720 expect state p426 1
-7800 expect state dropped 0
-7900 end
+8700 turn 6 1
+8705 btn 2
+8710 expect state bropt 1
+8715 turn 2 1
+8718 btn 8
+8720 expect state p426 1
+8800 expect state dropped 0
+# the front EFFECTS page (HOME, FX tapped): K2 HIGH CUT down to its bottom closes the band (silence once the delay's
+# tail has gone: the FILTER is before the GRAIN DELAY and the REVERB); up to its top: OFF
+8810 btn 8
+8820 btn 2
+8830 expect state page EFFECTS
+8830 expect state lab1 HIGH_CUT
+8840 turn 3 -127
+8850 expect state p435 0
+10300 expect rms < -120
+10310 turn 3 127
+10320 expect state p435 127
+10400 expect rms > -70
+10500 end

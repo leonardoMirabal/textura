@@ -1831,6 +1831,66 @@ static void check_grain_mod(void)
     }
     free(d); free(y);
 }
+static double mf_peak(unsigned lo, unsigned hi, unsigned reso, unsigned slope, double f0, double f1, double *at)
+{                                           /* the loudest sine from f0 to f1 (1/12 octave steps), dB; at: where */
+    double best = -999, f;
+    for (f = f0; f <= f1 * 1.001; f *= 1.0594630943592953) {
+        double g = mf_gain(lo, hi, reso, slope, (uint32_t)(f + 0.5));
+        if (g > best) { best = g; if (at) *at = f; }
+    }
+    return best;
+}
+static double mf_hz(unsigned v) { return 30.0 * pow(2.0, v * (593700.0 / 65536.0) / 127.0); }   /* (params.c F_HZ_FL) */
+/* the FILTER's shape, a high-pass (LOW CUT) then a low-pass (HIGH CUT): each edge's -3 dB where its knob shows; the band
+ * between at unity; the edges met, a bell at their place (-6 / -9 / -12 dB at 12 / 18 / 24 dB, RESONANCE lifts it);
+ * crossed, the band closes further the further they cross (no jump where they pass); at the ends (LOW CUT 127, HIGH CUT
+ * 0) nothing left, at every SLOPE */
+static void check_mfilter_shape(void)
+{
+    static const unsigned SL[3] = {TX_MF_S12, TX_MF_S18, TX_MF_S24};
+    static const double BELL[3] = {-6.0, -6.0, -6.0};
+    char msg[400];
+    double e3l = mf_gain(64, 127, 0, 0, (uint32_t)mf_hz(64)), e3h = mf_gain(0, 64, 0, 0, (uint32_t)mf_hz(64));
+    double uni = mf_peak(20, 110, 0, 0, 300, 3000, 0), at = 0, worst_end = -999, jump = 0, bw = 0;
+    double bellpk[3], bellat[3], respk, x1, x2, x3, e3[6];
+    unsigned s, ok = 1;
+    for (s = 0; s < 3u; s++) {
+        double a, b, c, d, m, x;
+        bellpk[s] = mf_peak(64, 64, 0, SL[s], 100, 6000, &bellat[s]);
+        e3[s] = mf_gain(40, 127, 0, SL[s], (uint32_t)mf_hz(40)); e3[s + 3] = mf_gain(0, 90, 0, SL[s], (uint32_t)mf_hz(90));
+        ok &= fabs(e3[s] + 3) < 0.6 && fabs(e3[s + 3] + 3) < 0.6;
+        ok &= fabs(bellpk[s] - BELL[s]) < 1.5 && fabs(log2(bellat[s] / mf_hz(64))) < 0.2;
+        a = mf_peak(127, 127, 0, SL[s], 20, 20000, 0);          /* LOW CUT at its top: nothing left */
+        b = mf_peak(0, 0, 0, SL[s], 20, 20000, 0);              /* HIGH CUT at its bottom */
+        c = mf_peak(127, 0, 127, SL[s], 20, 20000, 0);          /* both, RESONANCE 127 */
+        d = mf_peak(127, 127, 127, SL[s], 20, 20000, 0);
+        m = a > b ? a : b; m = m > c ? m : c; m = m > d ? m : d;
+        if (m > worst_end) worst_end = m;
+        x = mf_peak(84, 44, 0, SL[s], 20, 20000, 0);            /* crossed by 40 steps (~2.9 octaves) */
+        if (x > bellpk[s] - 20) ok = 0;
+        {                                                       /* one step across: no jump */
+            double p0 = mf_peak(64, 64, 0, SL[s], 200, 3000, 0), p1 = mf_peak(65, 64, 0, SL[s], 200, 3000, 0);
+            if (fabs(p0 - p1) > jump) jump = fabs(p0 - p1);
+        }
+    }
+    respk = mf_peak(64, 64, 127, 0, 100, 6000, 0);
+    x1 = mf_peak(70, 60, 0, 0, 20, 20000, 0); x2 = mf_peak(80, 50, 0, 0, 20, 20000, 0); x3 = mf_peak(100, 30, 0, 0, 20, 20000, 0);
+    {                                                           /* the bell's -3 dB width (12 dB, RESONANCE 64) */
+        double f, top = mf_peak(64, 64, 64, 0, 100, 6000, &at), lo = 0, hi = 0;
+        for (f = 60; f < 16000; f *= 1.0293022366434921) {     /* (1/24 octave) */
+            double g = mf_gain(64, 64, 64, 0, (uint32_t)(f + 0.5));
+            if (g > top - 3 && !lo) lo = f;
+            if (g > top - 3) hi = f;
+        }
+        bw = lo > 0 ? log2(hi / lo) : 99;
+    }
+    snprintf(msg, sizeof msg, "-3 dB at the shown Hz: LOW CUT %.1f, HIGH CUT %.1f dB (64), 40 / 90 at 18 dB %.1f / %.1f, 24 dB %.1f / %.1f; band 20 .. 110: %.2f dB; met at 64: %.1f / "
+             "%.1f / %.1f dB (12 / 18 / 24) at %.0f Hz (shows %.0f), RESONANCE 127 %.1f dB, RESONANCE 64 %.2f octaves wide; "
+             "crossed 5 / 15 / 35 steps (12 dB): %.0f / %.0f / %.0f dB; the ends: %.0f dB at most; a step across %.2f dB",
+             e3l, e3h, e3[1], e3[4], e3[2], e3[5], uni, bellpk[0], bellpk[1], bellpk[2], bellat[0], mf_hz(64), respk, bw, x1, x2, x3, worst_end, jump);
+    verdict("fx", "mfilter shape", ok && fabs(e3l + 3) < 0.6 && fabs(e3h + 3) < 0.6 && fabs(uni) < 0.3 && respk > 6
+            && bw < 1.5 && x1 < bellpk[0] - 3 && x2 < x1 - 6 && x3 < x2 - 12 && worst_end < -90 && jump < 1.5, msg, 0);
+}
 static void check_mfilter(void)
 {
     tx_fx_mfilter_t f;
@@ -1841,7 +1901,7 @@ static void check_mfilter(void)
     double lo24 = mf_gain(30, 100, 0, 1, 60), hi24 = mf_gain(30, 100, 0, 1, 14000), x12 = mf_gain(127, 0, 0, 0, 0), xm;
     double lo18 = mf_gain(30, 100, 0, TX_MF_S18, 60), hi18 = mf_gain(30, 100, 0, TX_MF_S18, 14000);
     double pass18 = mf_gain(30, 100, 0, TX_MF_S18, 1000), pk18 = -999, pk12 = -999;
-    {   /* crossed: the peak at the middle of the knobs (63.5: ~700 Hz) */
+    {   /* crossed, at the ends: closed (the peak anywhere 300 .. 1600 Hz) */
         double best = -999; uint32_t hz;
         for (hz = 300; hz <= 1600; hz += 50) { double g = mf_gain(127, 0, 0, 0, hz); if (g > best) best = g; }
         xm = best; (void)x12;
@@ -1854,7 +1914,7 @@ static void check_mfilter(void)
     snprintf(msg, sizeof msg, "LOW CUT 30 (~140 Hz) HIGH CUT 100 (~4 kHz): 1 kHz %.1f dB; 60 Hz %.1f / %.1f dB, 14 kHz %.1f / "
              "%.1f dB (12 / 24 dB); crossed (127 / 0): its peak %.1f dB", pass, lo12, lo24, hi12, hi24, xm);
     verdict("fx", "mfilter band", pass > -1.0 && pass < 0.5 && lo12 < -9 && lo24 < lo12 - 8 && hi12 < -12 && hi24 < hi12 - 8
-            && xm < -4 && xm > -9, msg, 0);
+            && xm < -90, msg, 0);
     snprintf(msg, sizeof msg, "18 dB (the 12 dB stage + a one-pole): 1 kHz %.1f dB; 60 Hz %.1f, 14 kHz %.1f dB (between 12 "
              "and 24 dB, 3 dB from each at least); RESONANCE 127's peak %.1f dB (12 dB: %.1f)", pass18, lo18, hi18, pk18, pk12);
     verdict("fx", "mfilter 18", pass18 > -1.5 && pass18 < 0.5 && lo18 < lo12 - 3 && lo18 > lo24 + 3 && hi18 < hi12 - 3
@@ -2433,6 +2493,11 @@ int main(int argc, char **argv)
         check_truepeak();
         return fails ? 1 : 0;
     }
+    if (argc > 1 && !strcmp(argv[1], "--mfilter")) {       /* the mix FILTER's checks alone */
+        check_mfilter();
+        check_mfilter_shape();
+        return fails ? 1 : 0;
+    }
     if (argc > 1 && !strcmp(argv[1], "--update")) {
         if (!(update = fopen(BASELINE, "w"))) { perror(BASELINE); return 2; }
     } else
@@ -2445,6 +2510,7 @@ int main(int argc, char **argv)
     check_layers(update);
     check_fx(update);
     check_mfilter();
+    check_mfilter_shape();
     check_grain_mod();
     check_groove();
     check_noise_core();
