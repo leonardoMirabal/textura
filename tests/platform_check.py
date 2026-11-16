@@ -42,4 +42,17 @@ m = re.search(r"sie_wr\(S_INDEX, 4\);(.*?)if \(csr & 0x01u\)", svc, re.S)
 check(bool(m) and "usb.timeouts" in m.group(1) and "sie_to++" in m.group(1),
       "usb: a timed-out SIE access in the EP4 poll is still queued (sie_rd's 0 queued a packet over a waiting one)")
 
+# the 48 kHz USB tap (usb.c uac_tap48): the 160 / 147 FIR's phases gain up to 1.67 on a loud high passage, so a signal
+# the limiter kept at 24000 overshot full scale and was clamped flat; above UAC_KNEE (24576) the excess is halved before
+# the clamp, both channels, nothing changes below it (Frodhes 9f896abeb)
+usb = src("usb.c")
+tap = body(usb, "static FR_RAM __attribute__((noinline)) void uac_tap48(const int32_t *out, uint32_t n)")
+knee = re.search(r"#define UAC_KNEE (\d+)", usb)
+ok = bool(knee) and int(knee.group(1)) == 24576
+for ch in ("vl", "vr"):
+    k = tap.find(f"if ((uint32_t)({ch} + UAC_KNEE) > 2u * UAC_KNEE)")
+    c = tap.find(f"{ch} = {ch} < -32768 ? -32768 : {ch};")
+    ok = ok and 0 <= k < c and f"{ch} = {ch} > 0 ? UAC_KNEE + (({ch} - UAC_KNEE) >> 1) : -UAC_KNEE - ((-{ch} - UAC_KNEE) >> 1);" in tap
+check(ok, "usb: the 48 kHz tap's knee before its clamp (UAC_KNEE 24576, both channels: a loud passage clamped flat)")
+
 sys.exit(1 if fails else 0)
