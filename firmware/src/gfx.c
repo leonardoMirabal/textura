@@ -24,6 +24,13 @@ static uint16_t cv_px[CV_MAX] __attribute__((section(".pool")));
 #endif
 static uint32_t cv_w, cv_h;
 static int32_t cv_oy;            /* y offset for graph drawing */
+/* Textura: strips. A canvas taller than CV_MAX allows is drawn in strips of CV_MAX / w rows: the part's drawing runs
+ * once a strip (cv_strips), cv_begin gives each pass the next strip (cv_s) and sets cv_oy so the drawing lands in it
+ * (callers that offset their drawing add to cv_oy after cv_begin), cv_blit puts it at its rows. The pixels are those of
+ * one canvas as tall as the part. */
+static uint32_t cv_s;            /* the strip this pass draws */
+static uint32_t cv_y0;           /* its first row in the part */
+static uint8_t cv_more;          /* a part begun this pass has rows past this strip */
 
 #define RGB(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
 #define C_BLACK 0x0000u
@@ -61,24 +68,51 @@ static inline uint16_t swap16(uint32_t c) { return (uint16_t)(((c >> 8) & 0xFFu)
 
 static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
 {
-    uint32_t i, n;
-    if (w * h > CV_MAX)
-        h = CV_MAX / w;
+    uint32_t i, n, r = CV_MAX / w;  /* (Textura: the strip cv_s of a part h rows tall) */
     lcd_sync();                     /* the last blit may still read cv_px */
     cv_w = w;
-    cv_h = h;
-    n = w * h;
+    cv_y0 = cv_s * r;
+    cv_h = cv_y0 < h ? (h - cv_y0 < r ? h - cv_y0 : r) : 0u;
+    if (h > cv_y0 + r)
+        cv_more = 1;
+    cv_oy = -(int32_t)cv_y0;
+    n = w * cv_h;
     for (i = 0; i < n; i++)
         cv_px[i] = swap16(bg);
 }
 
-static void cv_blit(uint32_t x, uint32_t y) { lcd_blit(x, y, cv_w, cv_h, cv_px); }
+static void cv_blit(uint32_t x, uint32_t y)
+{
+    if (cv_h)
+        lcd_blit(x, y + cv_y0, cv_w, cv_h, cv_px);
+}
 
-/* canvas rows r0 .. cv_h-1 only, to screen row y + r0 */
+/* canvas rows r0 .. the part's last only, to screen row y + r0 */
 static void cv_blit_from(uint32_t x, uint32_t y, uint32_t r0)
 {
-    if (r0 < cv_h)
-        lcd_blit(x, y + r0, cv_w, cv_h - r0, cv_px + r0 * cv_w);
+    if (r0 < cv_y0)
+        r0 = cv_y0;
+    if (r0 < cv_y0 + cv_h)
+        lcd_blit(x, y + r0, cv_w, cv_y0 + cv_h - r0, cv_px + (r0 - cv_y0) * cv_w);
+}
+
+/* rows y .. y + h - 1 of the part (in its drawing's coordinates, cv_oy's offset included) fall in this strip */
+static int cv_has(int32_t y, int32_t h)
+{
+    y += cv_oy;
+    return y < (int32_t)cv_h && y + h > 0;
+}
+
+/* f(a) draws one part (cv_begin .. cv_blit, one or more canvases): once a strip, until no part has rows left */
+static void cv_strips(void (*f)(uint32_t), uint32_t a)
+{
+    for (cv_s = 0;; cv_s++) {
+        cv_more = 0;
+        f(a);
+        if (!cv_more)
+            break;
+    }
+    cv_s = 0;
 }
 
 static inline void cv_pset(int32_t x, int32_t y, uint16_t c)

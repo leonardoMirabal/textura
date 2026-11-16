@@ -64,7 +64,9 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
                 fb[(y + j) * 240u + x + i] = (uint16_t)(c >> 8 | c << 8);
             }
 }
+#ifndef CV_MAX                                   /* (Textura: the app's own, textura.c) */
 #define CV_MAX (240u * 64u)
+#endif
 #include "gfx.c"
 
 /* settings: one record, kept by the page in localStorage */

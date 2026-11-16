@@ -347,7 +347,21 @@ static void ui_say(const char *s)
     ui_msg_t = fm1_ms ? fm1_ms : 1u;
     ui_mark(E_FOOTER);
 }
-static int ui_toast_on(void) { return ui_toast_t && fm1_ms - ui_toast_t < TOAST_MS; }
+/* the time a part's drawing sees: fm1_ms, held over its strips (cv_strips: each strip the same decisions) */
+static uint32_t ui_ms0;
+static uint32_t ui_now(void) { return cv_s ? ui_ms0 : (ui_ms0 = fm1_ms); }
+/* a modulated value as a part's drawing sees it: mod_live's, held over its strips (in the order the drawing asks) */
+static int32_t ui_ml_v[4];
+static uint8_t ui_ml_r[4], ui_ml_i;
+static int ui_live(uint32_t id, int32_t *lv)
+{
+    uint32_t i = ui_ml_i++;
+    if (i >= 4u) return mod_live(id, lv);
+    if (!cv_s) ui_ml_r[i] = (uint8_t)(mod_live(id, &ui_ml_v[i]) != 0);
+    *lv = ui_ml_v[i];
+    return ui_ml_r[i];
+}
+static int ui_toast_on(void) { return ui_toast_t && ui_now() - ui_toast_t < TOAST_MS; }
 static void ui_toast_text(const char *hd, const char *fam, const char *nm)
 {
     p_strcpy(ui_toast_hd, hd, 11); p_strcpy(ui_toast_fam, fam, 15); p_strcpy(ui_toast_nm, nm, 23);
@@ -658,13 +672,13 @@ static void draw_title(void)
 #define ST_DOT 8
 #define ST_BLK 4                                /* a meter block's pitch (3 px wide) */
 #define ST_KX ((int32_t)RW_W - 6)               /* Kn's right edge */
-static int ui_blink_on(uint32_t k) { uint32_t p = sc_blink_ms(k); return sc.run[k] && !sc.mute[k] && fm1_ms % p < p / 2u; }   /* (muted: still) */
+static int ui_blink_on(uint32_t k) { uint32_t p = sc_blink_ms(k); return sc.run[k] && !sc.mute[k] && ui_now() % p < p / 2u; }   /* (muted: still) */
 static void ui_blink_dot(uint32_t k, int on, int canvas)
 {
     uint16_t c = on ? mt.edge : sc.run[k] ? mt.fill : CD_SEGOFF;
     if (canvas) cv_rect(ST_DOT_X, ST_DOT_Y, ST_DOT, ST_DOT, c);
     else lcd_fill(RW_X + ST_DOT_X, RW_Y0 + RW_DY * k + ST_DOT_Y, ST_DOT, ST_DOT, c);
-    ui_blink_shown[k] = (uint8_t)on;
+    if (!canvas || cv_has(ST_DOT_Y, ST_DOT)) ui_blink_shown[k] = (uint8_t)on;   /* (the strip that shows it) */
 }
 static void cd_edge(int32_t ex, const int16_t *bx, uint32_t nb, uint16_t col);
 static int32_t ui_home_col(void) { return aa_text_w(&AF_S, "VOL 127") + 8 + aa_text_w(&AF_S, "K4"); }   /* the right
@@ -788,7 +802,7 @@ static void draw_card(uint32_t k, const char *lab, const char *v0, const char *u
     const char *v = look == LK_MIX ? ui_mix_text(val, hi) : v0;   /* (a MIX: its own short text) */
     char kk[3] = {'K', (char)('1' + k), 0}, l[32];
     int32_t live = ui_card_live;
-    int hot = ui_hot_card == k && ui_hot_t && fm1_ms - ui_hot_t < HOT_MS;
+    int hot = ui_hot_card == k && ui_hot_t && ui_now() - ui_hot_t < HOT_MS;
     const int32_t ltop = CD_BASE - AF_S.asc, vtop = CD_BASE - AF_L.asc;
     int big = aa_covers(&AF_L, v) && aa_text_w(&AF_L, v) <= CD_VR - CD_PAD - CD_LABMIN;
     int32_t kw = aa_text_w(&AF_S, kk), lw, vw = big ? aa_text_w(&AF_L, v) : aa_text_w(&AF_S, v), fw = 0;
@@ -857,7 +871,7 @@ static void draw_lane_row(uint32_t k)
     if (sc.snd[k] < 0) { p_strcpy(l, "1 EMPTY", 31); l[0] = (char)('1' + k); draw_card(k, l, "-", 0, 0, 0, LK_TEXT); return; }
     ui_mix_label(k, l);
     if (id == NOID) { draw_card(k, l, sc.mute[k] ? "MUTED" : "ON", 0, !sc.mute[k], 1, LK_LED); return; }
-    if (mod_live(id, &lv)) ui_card_live = lv;
+    if (ui_live(id, &lv)) ui_card_live = lv;
     { const char *u = p_text(id, v); draw_card(k, l, v, u, p_ord(id, p_get(id)), p_hi(id), ui_look(id)); }
 }
 /* ---- GROOVE LANES: lane n's ROLE on Kn, one list over its PART and CYCLE (stored as they were: scenes and MIDI
@@ -896,7 +910,7 @@ static void draw_groove_row(uint32_t k)
     unsigned beats, ns, j;
     uint32_t role = ui_role(k), part = gr_lane[k].part, x;
     int32_t c;
-    int fr = !gr_wl(k), hot = ui_hot_card == k && ui_hot_t && fm1_ms - ui_hot_t < HOT_MS;
+    int fr = !gr_wl(k), hot = ui_hot_card == k && ui_hot_t && ui_now() - ui_hot_t < HOT_MS;
     const int32_t X0 = 124, W = 96;
     cv_begin(RW_W, RW_H, C_BLACK);
     if (sc.snd[k] < 0) { p_strcpy(l, "1 EMPTY", 31); l[0] = (char)('1' + k); aa_text_ov(6, S_TOP(9), &AF_S, l, FC_DIM); cv_blit(RW_X, RW_Y0 + RW_DY * k); return; }
@@ -1029,7 +1043,7 @@ static void draw_toast(void)
     }
     for (part = 0; part < 2; part++) {
         cv_begin(TO_W, TO_H / 2u, RGB(20, 20, 24));
-        cv_oy = -part * (int32_t)(TO_H / 2u);
+        cv_oy -= part * (int32_t)(TO_H / 2u);
         cv_frame(0, 0, TO_W, TO_H, 2);
         x = aa_text_ov(12, S_TOP(20), &AF_S, ui_toast_hd, UI_ACC);
         cv_rect(x + 3, 19, 2, 2, FC_LAB);
@@ -1057,7 +1071,7 @@ static void draw_row(uint32_t k)
         int32_t lv, val = p_ord(id, p_get(id)), hi = p_hi(id);
         uint32_t look = ui_look(id);
         if (P_SCOPE(id) == P_LFO && P_IDX(id) % 16u == ML_NOW) { look = LK_MID; hi = 64; }   /* (NOW: from the middle) */
-        if (mod_live(id, &lv)) ui_card_live = lv;
+        if (ui_live(id, &lv)) ui_card_live = lv;
         draw_card(k, ui_lab(id), v, u, val, hi, look);
     }
 }
@@ -1112,7 +1126,7 @@ static void draw_footer(void)
         cv_rect(xc, 13, wc, 2, mt.edge);
         ft_c(23, "K2 K3: NAME  SAVE: YES  HOME: NO", FC_DIM);
     }
-    else if (ui_msg_t && fm1_ms - ui_msg_t < MSG_MS) ft_c(15, ui_msg, FC_VAL);
+    else if (ui_msg_t && ui_now() - ui_msg_t < MSG_MS) ft_c(15, ui_msg, FC_VAL);
     else if (ub.on && ub.opt) { ft_c(7, "K1 K2: CHOOSE", FC_LAB); ft_two(22, "FX: PRESETS", "HOME: CLOSE", FC_DIM); }
     else if (ub.on && ub.pr) {                  /* the presets list: what is loaded, what EDIT does */
         char a[24], b[24], c[8];
@@ -1183,7 +1197,7 @@ static void draw_footer(void)
         else if (ui_g == G_SOUND) ft_c(22, "OCT - / +: OTHER LANE", FC_DIM);
         else if (ui_g == G_MATRIX) {            /* the slot's target now: a bar */
             int32_t lv, mid = mslot[ui_slot].src && mslot[ui_slot].tgt ? (int32_t)mod_tgt_pid(mslot[ui_slot].tgt, mod_tgt_lanes(mslot[ui_slot].tgt) < 4u ? mod_tgt_lanes(mslot[ui_slot].tgt) : 0u) : -1;
-            if (mid >= 0 && mod_live((uint32_t)mid, &lv) && p_hi((uint32_t)mid) > 0) {
+            if (mid >= 0 && ui_live((uint32_t)mid, &lv) && p_hi((uint32_t)mid) > 0) {
                 cv_rect(20, 20, 200, 4, CD_SEGDIM); cv_rect(20, 20, 200 * clampi(lv, 0, p_hi((uint32_t)mid)) / p_hi((uint32_t)mid), 4, mt.edge);
             }
         }
@@ -1352,16 +1366,14 @@ static void sp_mark(void)
 }
 static uint32_t ui_splash_t;
 static uint8_t ui_splash_on;
-static void ui_splash(void)
+static void sp_draw(uint32_t u)                 /* (a strip of each: cv_strips) */
 {
     char v[24];
-    mt_update();
-    lcd_fill(0, 0, 240, 240, C_BLACK);
+    (void)u;
     cv_begin(240, 64, C_BLACK);                 /* the mark, rows 16 .. 116, in two strips */
-    cv_oy = -16; sp_mark(); cv_blit(0, 16);
+    cv_oy -= 16; sp_mark(); cv_blit(0, 16);
     cv_begin(240, 37, C_BLACK);
-    cv_oy = -80; sp_mark(); cv_blit(0, 80);
-    cv_oy = 0;
+    cv_oy -= 80; sp_mark(); cv_blit(0, 80);
     cv_begin(240, 64, C_BLACK);
     ft_big(16, "TEXTURA", UI_ACC);
     ft_c(48, "TEXTURE SYNTHESIZER", FC_LAB);
@@ -1370,10 +1382,24 @@ static void ui_splash(void)
     p_strcpy(v, "VERSION ", 8); p_upper(v + 8, APP_VER, 12);
     ft_c(10, v, FC_DIM);
     cv_blit(0, 210);
+}
+static void ui_splash(void)
+{
+    mt_update();
+    lcd_fill(0, 0, 240, 240, C_BLACK);
+    cv_strips(sp_draw, 0);
     ui_splash_t = fm1_ms;
     ui_splash_on = 1;
 }
 
+static void ui_part(uint32_t e)                /* a part of the screen (a strip of it a call: cv_strips) */
+{
+    ui_ml_i = 0;
+    if (e == E_HEADER) draw_header();
+    else if (e == E_TITLE) draw_title();
+    else if (e == E_FOOTER) draw_footer();
+    else draw_row(e - E_ROW0);
+}
 static void ui_draw(void)
 {
     static uint8_t cleared;
@@ -1413,10 +1439,7 @@ static void ui_draw(void)
     ui_dirty &= ~(1u << e);
     ui_last_draw = fm1_ms;
     ui_ndraw++;
-    if (e == E_HEADER) draw_header();
-    else if (e == E_TITLE) draw_title();
-    else if (e == E_FOOTER) draw_footer();
-    else draw_row(e - E_ROW0);
+    cv_strips(ui_part, e);
 }
 
 /* ---- input */

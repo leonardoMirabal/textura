@@ -20,6 +20,8 @@
 #define APP_OUT_SHIFT 8u                        /* the codec at full scale (as Frodhes): +6 dB on the jack over
                                                  * Dinghy's -6 dBFS ceiling; the output limiter holds -2 dBFS */
 #define APP_OUT_WRITTEN 1                       /* app_audio writes every sample of out */
+#define CV_MAX (240u * 32u)                     /* the canvas (gfx.c): 32 rows of 240 px (15 KB); a part of the screen
+                                                 * taller than that is drawn in strips (ui.c ui_strips) */
 /* TX_RTD: a zero-initialised buffer in RAMTEXT's room after the RAM code (app.ld .rtdata: the room .ram_text leaves,
  * ~11 KB, the region's own; cleared in APP_EARLY, before the audio and the main loop start). Only buffers the CPU alone
  * reads and writes (no DMA), the app's own (nothing the platform touches before APP_EARLY) */
