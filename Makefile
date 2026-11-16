@@ -24,7 +24,7 @@
 #                      corners EXTRA 0 / 127, COUNT 1 / 127, the classic engines and their ACTIVITY 0 / 127, 8 seeds)
 #   make tx-grain      a granular-delay prototype's cost on the FM-1 and its buffer formats' noise (costing only)
 #   make tx-fx-sweep   every effect control swept and moved once under a ringing chord: clicks, zipper, jumps, bursts
-#                      (tools/fx_sweep.py, Frodhes' control sweep on our effects; numpy in .local/venv)
+#                      (bench/txfxsweep.c, Frodhes' control sweep; ARGS="NAME ..." those cases; tx-pristine runs it too)
 #   make fm1-host      txfm1's table (bench/fm1: every SOURCE preset at the defaults / ACTIVITY 0 / 127 and its worst knob,
 #                      the hosted kinds, the effects, four-lane cases) timed on this host -> build/fm1/host.csv
 #   make fm1-bench     the bench firmware for the FM-1 (Docker + .local/jieli) -> build/fm1/textura-bench.fwsc
@@ -137,9 +137,11 @@ tx-test: $(B)/txtest tx-libcalls
 	$(B)/txtest
 
 # the effects' pristine measurement (bench/txpristine.c): the DRIVE TYPEs on quiet and loud sines, at rest, under a
-# moving AMOUNT; the limiter on a chord over its ceiling; exit 1 when a judged value passes its limit
-tx-pristine: $(B)/txpristine
+# moving AMOUNT; the limiter on a chord over its ceiling; exit 1 when a judged value passes its limit. Then the control
+# sweep (make tx-fx-sweep), so CI keeps every effect control free of clicks, zipper, jumps and bursts
+tx-pristine: $(B)/txpristine $(B)/txfxsweep
 	$(B)/txpristine --check
+	$(B)/txfxsweep check
 
 tx-baseline: $(B)/txtest
 	$(B)/txtest --update
@@ -348,7 +350,7 @@ $(B)/txfxsweep: bench/txfxsweep.c $(ENG_SRC) $(ENG_HDR)
 	$(CC) $(CSTD) -O2 -o $@ bench/txfxsweep.c $(ENG_SRC) -lm
 
 tx-fx-sweep: $(B)/txfxsweep
-	.local/venv/bin/python -I tools/fx_sweep.py $(B)/txfxsweep
+	$(B)/txfxsweep check $(ARGS)
 
 tx-grain: $(B)/txgrain build/calib/frodhes
 	@[ -f build/calib/run/w1.txt ] || $(MAKE) -s tx-calib
