@@ -384,6 +384,8 @@ static void scn_lanes(const scn_t *s)
             sc.snd[k] = -1;
             if (lf >= LS_N || s->snd[k] < 0) { sc_sync(k); continue; }
             sc_load(k, lf, (uint32_t)s->snd[k]);
+            if (sc.snd[k] < 0) { sc_sync(k); continue; }   /* (refused: its engine not in this build; the lane
+                                                 * stays empty, no sound's tables touched at -1) */
         }
         sc_glide(k);
         sc.vol[sc.lf[k]][sc.snd[k]] = s->vol[k] > 127u ? 127u : s->vol[k];

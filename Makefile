@@ -169,7 +169,7 @@ $(FW)/lanes_test_pipe: tests/lanes_test.c firmware/src/lanes.c $(ENG_SRC) $(ENG_
 	@mkdir -p $(FW)
 	$(CC) $(CSTD) -Wno-unused-function -Ifirmware/src -O1 -g -fsanitize=thread -DLANES_TEST_PAR -DLANES_TEST_PIPE -o $@ tests/lanes_test.c $(ENG_SRC) -lm -lpthread
 
-fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textura-host
+fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textura-host $(FW)/textura-host-ub
 	@python3 -I tools/gen_landscapes.py --check || exit 1; \
 	python3 -I tools/gen_presets.py --check || exit 1; python3 -I tools/gen_font1.py --check || exit 1; \
 	$(FW)/lanes_test || exit 1; \
@@ -187,10 +187,17 @@ fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textu
 	   FRODHES_FLASH=$(FW)/power_mid.flash $(FW)/textura-host $(FW)/power4 tests/power/scenes_mid.txt > $(FW)/power4.log 2>&1; \
 	then echo "ok    host power cycle (tests/power: a scene and the settings across a restart; older settings records)"; \
 	else echo "FAIL  host power cycle ($(FW)/power1.log, power2.log, power3.log, power4.log)"; fail=1; fi; \
+	if HOST_ENGINE_DROP=thunder $(FW)/textura-host-ub $(FW)/fault_drop tests/fault/engine_drop.txt > $(FW)/fault_drop.log 2>&1; \
+	then echo "ok    host faults (tests/fault: a scene's engine missing: the lane empty, the load ends, UBSan clean)"; \
+	else echo "FAIL  host faults ($(FW)/fault_drop.log)"; fail=1; fi; \
 	python3 -I tests/clock_check.py > $(FW)/clock.log 2>&1 && echo "ok    clock (tests/clock_check.py)" || { echo "FAIL  clock ($(FW)/clock.log)"; fail=1; }; \
 	python3 -I tests/ports_check.py > $(FW)/ports.log 2>&1 && echo "ok    ports (tests/ports_check.py: Textura first, never Frodhes beside it)" || { echo "FAIL  ports ($(FW)/ports.log)"; fail=1; }; \
 	python3 -I tests/install_check.py > $(FW)/install.log 2>&1 && echo "ok    install (tests/install_check.py: two FM-1s, one unit by its USB location)" || { echo "FAIL  install ($(FW)/install.log)"; fail=1; }; \
 	exit $$fail
+
+$(FW)/textura-host-ub: $(FW_DEPS) $(ENG_SRC) $(ENG_HDR)
+	@mkdir -p $(FW)
+	$(CC) $(CFLAGS_FW) -O1 -g $(UBSAN) -o $@ firmware/src/textura.c $(ENG_SRC) -lm
 
 $(FW)/textura-c1prof: $(FW_DEPS) $(ENG_SRC) $(ENG_HDR) tests/c1prof.c tests/c1prof.h
 	@mkdir -p $(FW)

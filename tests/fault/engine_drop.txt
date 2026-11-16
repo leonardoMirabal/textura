@@ -1,0 +1,10 @@
+# HOST_ENGINE_DROP=thunder (make fw-test, the UBSan host): F011 FAR THUNDER loads with lane 2's engine missing from the
+# build. The lane stays empty (sc_load refuses it); nothing is written outside the lane tables (scn_lanes wrote
+# sc.vol[lf][-1]) and the load ends
+2500 midi 0xC0 10 0
+4000 expect state loading 0
+4000 expect state scene F011_FAR_THUNDER
+4000 expect state snd0 rain_on_water
+4000 expect state snd1 -
+4000 expect state snd2 leafy_trees
+4100 end

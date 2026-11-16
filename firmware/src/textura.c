@@ -129,6 +129,20 @@ static uint32_t tx_palette_index(const char *name)
     return 0;
 }
 
+#ifdef DINGHY_HOST
+/* the tests' faults (make fw-test, tests/fault/): HOST_ENGINE_DROP=NAME: no engine of that name in the build;
+ * HOST_ENGINE_FAT=NAME: it asks more state than a lane's arena (state_bytes past TX_STATE_MAX) */
+static const tx_engine_t *host_engine_find(const char *name)
+{
+    static tx_engine_t fat;
+    const tx_engine_t *e = tx_engine_find(name);
+    const char *d = getenv("HOST_ENGINE_DROP"), *f = getenv("HOST_ENGINE_FAT");
+    if (e && d && !strcmp(name, d)) return 0;
+    if (e && f && !strcmp(name, f)) { fat = *e; fat.state_bytes = TX_STATE_MAX + 1u; return &fat; }
+    return e;
+}
+#define tx_engine_find host_engine_find
+#endif
 #include "scape.c"
 #include "notes.c"
 #include "params.c"
