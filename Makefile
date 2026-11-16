@@ -28,6 +28,8 @@
 #   make fm1-bench     the bench firmware for the FM-1 (Docker + .local/jieli) -> build/fm1/textura-bench.fwsc
 #   make fm1-app       the whole app linked for the FM-1 (tools/fm1_bench.py --app: no flashing): does it fit,
 #                      every section and object over 1 KB (build/fm1/textura-app-objects.txt); ARGS=--measure: no image
+#                      REL=X.Y.Z: a release (VERSION X.Y.Z, build/fm1/textura-app-X.Y.Z.fwsc and .json; NOTES=FILE: the
+#                      json's changes)
 #   make fm1-timing    the same table on the FM-1 over USB-MIDI (tools/fm1_timing.py; installs nothing; DEVICE lock)
 #   make tx-player     the browser player -> build/audition/ (Emscripten from .local/emsdk)
 #   make tx-player-check   the player in headless Chromium (Playwright in .local/venv, browsers in .local/playwright)
@@ -348,7 +350,7 @@ fm1-bench: $(FM1)/gen/fm1_cfg.h
 	python3 -I tools/fm1_bench.py $(ARGS)
 
 fm1-app:
-	python3 -I tools/fm1_bench.py --app $(ARGS)
+	python3 -I tools/fm1_bench.py --app $(if $(REL),--release $(REL) $(if $(NOTES),--notes $(NOTES),),) $(ARGS)
 
 fm1-timing: $(FM1)/gen/fm1_cfg.h
 	python3 -I tools/lock.py run DEVICE --why "make fm1-timing" --wait 3600 -- .local/venv/bin/python -I tools/fm1_timing.py $(ARGS)

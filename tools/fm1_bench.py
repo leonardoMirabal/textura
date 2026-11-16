@@ -248,6 +248,9 @@ def main():
                     "~41 KB of flash: the A0 probe), the bench -O2 (its timings comparable); the app's own code stays -Os")
     ap.add_argument("--id", default="FM-1_959", help="the package identity (fm1_install: MODEL_digits)")
     ap.add_argument("--no-stage", action="store_true", help="reuse build/fm1/tree")
+    ap.add_argument("--release", metavar="X.Y.Z", help="with --app: a release: VERSION X.Y.Z in the app (else dev), and "
+                    "build/fm1/textura-app-X.Y.Z.fwsc with its textura-app-X.Y.Z.json (version, commit, sha256 ...)")
+    ap.add_argument("--notes", metavar="FILE", help="with --release: the json's changes, FILE's first paragraph")
     ap.add_argument("--app", action="store_true", help="the real app (firmware/src/textura.c), not the bench")
     ap.add_argument("--measure", action="store_true", help="with --app: the measuring link's report only, no image")
     ap.add_argument("--define", action="append", default=[], help="-D NAME for bench/txfm1.c (with --app: for "
@@ -261,6 +264,8 @@ def main():
         raise SystemExit("--define: NAME (A-Z, 0-9, _)")
     if not re.fullmatch(r"FM-1_\d{3}", a.id):
         raise SystemExit("--id: FM-1_NNN")
+    if a.release and (not a.app or not re.fullmatch(r"\d+\.\d+\.\d+", a.release)):
+        raise SystemExit("--release: X.Y.Z, with --app")
     name = "textura" if a.app else "txfm1"
     out = "textura-app" if a.app else "txfm1"
     if not a.app and not (OUT / "gen" / "fm1_cfg.h").exists():
@@ -298,7 +303,7 @@ def main():
              # the app
              f"{cc} -c firmware/crt0.S -o o/crt0.o", f"{cc} -c firmware/hal/fm1_vec.S -o o/fm1_vec.o",
              f"{cc} -c firmware/hal/fm1_isr.S -o o/fm1_isr.o",
-             (f'{cc} {cf} {inc} -DFELUCCA_ID=\\"{a.id}\\" -DFELUCCA_USB_PID={USB_PID:#06x} -DAPP_VER=\\"dev\\" '
+             (f'{cc} {cf} {inc} -DFELUCCA_ID=\\"{a.id}\\" -DFELUCCA_USB_PID={USB_PID:#06x} -DAPP_VER=\\"{a.release or "dev"}\\" '
               + "".join(f"-D{d} " for d in a.define) +
               "-c firmware/src/textura.c -o o/textura.o"
               if a.app else
@@ -416,7 +421,27 @@ def main():
     print(f"  loader {len(limg)} B, ota.bin {len(ota)} B")
     print(f"  package {OUT / pname} {len(pkg)} B, identity {a.id}, "
           f"sha256 {hashlib.sha256(pkg).hexdigest()}")
+    if a.release:
+        release_files(a, pkg)
     return 0
+
+
+def release_files(a, pkg):
+    """build/fm1/textura-app-X.Y.Z.fwsc and its json (the release's assets: .github/workflows/release.yml)"""
+    import json
+    import time
+    git = lambda *c: subprocess.run(["git", "-C", str(ROOT), *c], capture_output=True, text=True).stdout.strip()
+    notes = ""
+    if a.notes:
+        notes = " ".join(Path(a.notes).read_text(encoding="utf-8").strip().split("\n\n")[0].split())
+    meta = {"name": "Textura", "version": a.release, "commit": git("rev-parse", "--short", "HEAD"),
+            "date": git("log", "-1", "--format=%cs") or time.strftime("%Y-%m-%d"), "identity": a.id,
+            "usb": f"{USB_NAME} 1209:{USB_PID:04X}", "beta": True, "sha256": hashlib.sha256(pkg).hexdigest(),
+            "changes": notes}
+    base = OUT / f"textura-app-{a.release}"
+    Path(f"{base}.fwsc").write_bytes(pkg)
+    Path(f"{base}.json").write_text(json.dumps(meta) + "\n")
+    print(f"  release {base}.fwsc, {base}.json (VERSION {a.release})")
 
 
 if __name__ == "__main__":
