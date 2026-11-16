@@ -37,6 +37,8 @@
 
 #define GD_GUARD 288u               /* every read this far behind the write at the block's start (a block + a gathered
                                      * one): a block's reads never see its own writes, so the grains run grain by grain */
+#define GD_WOW 983                  /* the delay's drift velocity at most (Q16 a sample): a 1.5 % bend, ~26 cents (settled MOD
+                                     * reaches ~0.9 %; gd_anim) */
 #define GD_KNEE (1 << 21)           /* the feedback's soft knee: half of full scale (Q22) */
 #define GD_MKFLOOR 2560u            /* the make-up's floor: the loop's |x| / 4 summed a block at a mean |x| of -100 dBFS */
 #define GD_WALL (3 << 18)           /* FEEDBACK past 1: the loop's peak it runs up to (Q22: -14.6 dBFS; a dense wall's
@@ -192,7 +194,7 @@ TX_RAM static void gd_spawn(tx_fx_grain_t *d, tx_gd_grain_t *g, uint32_t len, ui
             pr = (uint32_t)(((uint64_t)pr * GD_IVQ[d->p[TX_GD_IVL]][r3 >> 29]) >> 16);
             while (pr > 131072u) pr >>= 1;              /* (past 2x: an octave down, the pitch class kept) */
         }
-        pr = (uint32_t)(((uint64_t)pr * (uint32_t)(65536 - d->wvel)) >> 16);   /* (the wow's bend) */
+        pr = (uint32_t)(((uint64_t)pr * (uint32_t)(d->wvel < 65536 ? 65536 - d->wvel : 1)) >> 16);   /* (the wow's bend) */
         if (pr > 131072u) pr = 131072u;                 /* (a run's span: gd_seg's buffer) */
     }
     back = d->tap + (uint32_t)(((uint64_t)(r >> 8) * (spr * 174u)) >> 24) + (uint32_t)(d->wq0 >> 16);
@@ -364,7 +366,21 @@ static void gd_anim(tx_fx_grain_t *d, unsigned n, uint32_t tgt)
     if (d->wm > (int32_t)tm - (int32_t)GD_GUARD - 4) d->wm = (int32_t)tm - (int32_t)GD_GUARD - 4;
     if (d->wm < 0) d->wm = 0;
     x = (d->du[0] * d->mg) >> 15;
-    d->wvel = (x * d->wm * 2 - d->wq0) / (int32_t)(n ? n : 1u);
+    {   /* the velocity toward the drift's place, bounded to the design's bend (GD_WOW): the reach glides 1 / 16 a block
+         * while a MOD RATE jump makes the drifts fast at once, which bent the echo up to ~58 %; the place stays inside
+         * the guard (as the reach's own clamp) even so, and the read always runs forward (r = 65536 - wvel > 0: gd_echo's buffer) */
+        int32_t nn = (int32_t)(n ? n : 1u), lim = (int32_t)tm - (int32_t)GD_GUARD - 4, v = (x * d->wm * 2 - d->wq0) / nn;
+        if (lim < 0) lim = 0;
+        if (lim > 32767) lim = 32767;
+        lim *= 65536;                                   /* (the guard's reach, Q16: the gliding reach may lag it) */
+        if (v > GD_WOW) v = GD_WOW;
+        if (v < -GD_WOW) v = -GD_WOW;
+        if (d->wq0 + v * nn > lim) v = (lim - d->wq0) / nn;
+        if (d->wq0 + v * nn < -lim) v = (-lim - d->wq0) / nn;
+        if (v > 32768) v = 32768;
+        if (v < -32768) v = -32768;
+        d->wvel = v;
+    }
     d->wq1 = d->wq0 + d->wvel * (int32_t)n;             /* (exactly where the block's read ends) */
 }
 /* the grains' level (Q15) for N sounding: their Hann windows, evenly spaced, sum to N / 2, their squares to 3 N / 8;
@@ -503,6 +519,8 @@ TX_RAM static void gd_echo(tx_fx_grain_t *d, unsigned n)
     int32_t *e = d->we;
     if (d->wq0 | d->wq1) {                              /* MOD: the tap drifts (a moving read, interpolated) */
         int32_t buf[2u * TX_BLOCK + 4u], r = 65536 - d->wvel;
+        if (r < 1) r = 1;                               /* (a guard: gd_anim keeps r in 0.5 .. 1.5; the run fits buf) */
+        if (r > 131072) r = 131072;
         uint32_t whole = d->tap + (uint32_t)(d->wq0 >> 16), P = 65536u - ((uint32_t)d->wq0 & 0xFFFFu);
         if (whole + 1u <= d->fill) {
             gd_run(d, gd_idx(w0, whole + 1u), ((P + (uint32_t)r * (n - 1u)) >> 16) + 2u, buf);

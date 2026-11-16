@@ -1387,6 +1387,38 @@ static void check_fx_grain_count(tx_fx_t *fx)
     snprintf(msg + n, sizeof msg - (size_t)n, " dB a pass (level / top; FEEDBACK 96: -0.89)");
     verdict("fx", "grain count", ok, msg, 0);
 }
+/* the delay's wow under MOD (gd_anim: the tap's drift velocity, Q16 a sample): its bend stays near the design's ~1 %
+ * (17 cents) at every MOD RATE, settled and right after MOD RATE jumps 0 -> 127 and back (the reach glides 1 / 16 a
+ * block, the drifts' poles at once: the old velocity bent the echo up to ~58 % and, past 100 %, ran gd_echo's read
+ * backwards past its buffer on the stack). MOD 127, MIX 100, TIME 120, 8 seeds */
+static void check_fx_grain_wow(tx_fx_t *fx)
+{
+    static const unsigned RT[6] = {0, 30, 64, 100, 127, 0};
+    tx_fx_grain_t *d = &fx->gd;
+    int32_t L[TX_BLOCK], R[TX_BLOCK], settled = 0, jump = 0;
+    unsigned seed, i, b, j;
+    char msg[200];
+    for (seed = 0; seed < 8u; seed++) {
+        tx_fx_grain_init(d);
+        d->mrng = 0x9E3779B9u + seed * 7919u;
+        tx_fx_grain_param(d, TX_GD_MIX, 100); tx_fx_grain_param(d, TX_GD_TIME, 120);
+        tx_fx_grain_param(d, TX_GD_MOD, 127);
+        for (i = 0; i < 6u; i++) {
+            tx_fx_grain_param(d, TX_GD_MODRATE, RT[i]);
+            for (b = 0; b < 1200u; b++) {           /* 7 s: the jump's first 2 s, then settled */
+                int32_t v;
+                for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = (b < 4u && j == 0) ? (1 << 20) : 0;
+                tx_fx_grain_process(d, L, R, TX_BLOCK);
+                v = d->wvel < 0 ? -d->wvel : d->wvel;
+                if (i && b < 350u) { if (v > jump) jump = v; }
+                else if (b >= 350u && v > settled) settled = v;
+            }
+        }
+    }
+    snprintf(msg, sizeof msg, "grain delay MOD 127: the tap's bend at most %.2f %% settled, %.2f %% after a MOD RATE jump (<= 1.5 %%)",
+             settled * 100.0 / 65536, jump * 100.0 / 65536);
+    verdict("fx", "grain wow", settled <= 983 && jump <= 983, msg, 0);
+}
 /* the loop's diffusion (GD_DIFF): a 1 ms click into GRAINS 1, FEEDBACK 96, GRAIN 127; its repeats over seconds 1 .. 3:
  * their echo density (the share of samples past one deviation in 1024-sample windows, over a noise's 0.3173: 1 a
  * dense cloud) and crest (peak over RMS). Diffused, each pass is smeared again: 0.84, crest 23.6 dB (undiffused 0.28, 30.3 dB) */
@@ -2524,6 +2556,7 @@ static void check_fx(FILE *update)
         check_fx_grain_level(fx);
         check_fx_grain_loop(fx);
         check_fx_grain_count(fx);
+        check_fx_grain_wow(fx);
         check_fx_grain_diffusion(fx);
         check_fx_drywet(fx);
         check_fx_hq(fx);
@@ -2678,6 +2711,7 @@ int main(int argc, char **argv)
         tx_fx_t *fx = malloc(sizeof *fx);
         check_fx_grain_loop(fx);
         check_fx_grain_count(fx);
+        check_fx_grain_wow(fx);
         check_fx_grain_diffusion(fx);
         free(fx);
         return fails ? 1 : 0;
