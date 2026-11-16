@@ -38,7 +38,7 @@ def pid(g, pn):
 D0 = f"d{pid('d', 'AMOUNT')}=64"
 add("drive AMOUNT", "d", "AMOUNT", "")
 add("drive TONE", "d", "TONE", D0)
-add("drive MIX", "d", "MIX", D0)
+add("drive MIX", "d", "MIX", D0, through=True)   # (MIX passes its law's middle: both whole there)
 add("drive TYPE", "d", "TYPE", D0, sel=True)
 for t, n in [(1, "KHLON"), (2, "TSH8"), (3, "OHCD"), (4, "BHLUE")]:
     add(f"drive {n} AMOUNT", "d", "AMOUNT", f"d{pid('d', 'TYPE')}={t}")

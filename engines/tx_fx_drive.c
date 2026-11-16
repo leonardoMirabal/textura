@@ -3,7 +3,10 @@
 /* Textura DRIVE (the mix's: a pair of instances, L and R, one set of settings): Felucca's track drive (track_dist) as Frodhes runs it, its classic FDRV
  * (fx.c fx_drive_classic: the gain law to ~18x at the top, level-neutral make-up, TONE after it: a shelf at ~1.8 kHz,
  * 0 = the highs gone, 64 = flat, 127 = +6 dB; MIX dry / driven, tx_fx.h's law), as one instance. TONE glides over ~23 ms, MIX and
- * on / off over ~46 ms: no zipper, no click. AMOUNT 0 = off (after its glide out): the lane untouched.
+ * on / off over ~46 ms: no zipper, no click. AMOUNT 0 = off (after its glide out): the lane untouched. On and off
+ * (and a TYPE change's fade) are a straight crossfade from the dry to MIX's blend (ow), not a glide through MIX's law
+ * (the control sweep: through the law's middle the dry stayed whole while the wet came in, and at a low AMOUNT the two
+ * are one signal: AMOUNT 0 -> 1 rose 4.7 .. 5.7 dB for ~40 ms on every TYPE).
  * Precision: the drive works at Q15 (Frodhes' scale); the dry share of MIX stays at the lane's Q23.
  *
  * TYPE: 0 FDRV is that classic drive (Frodhes' later fixes in: its fractions kept, AMOUNT glides); 1 KHLON, 2 TSH8,
@@ -49,6 +52,11 @@ void tx_fx_drive_init(tx_fx_drive_t *d)
 void tx_fx_drive_param(tx_fx_drive_t *d, unsigned id, unsigned v)
 {
     if (id < TX_DR_NP) d->p[id] = (uint8_t)(v > tx_fx_drive_params[id].max ? tx_fx_drive_params[id].max : v);
+}
+/* on / off: the dry -> the blend b, straight, at ow (Q15) */
+TX_INLINE int32_t dr_onw(int32_t x, int32_t b, int32_t ow)
+{
+    return ow == 32768 ? b : x + (int32_t)(((int64_t)(b - x) * ow) >> 15);
 }
 /* MIX's blend at its place w (tx_fx.h): the dry x its gain + the driven x the wet's (Q23; the dry whole: exact). Not
  * inlined (flash: one copy for the six blends; it runs only while MIX is under 127) */
@@ -112,13 +120,14 @@ static inline __attribute__((always_inline)) void dr_settled(tx_fx_drive_t *d, i
 static void dr_classic(tx_fx_drive_t *d, int32_t *x23, unsigned n, int32_t amt)
 {
     int32_t a = amt ? amt : d->la, tv = d->p[TX_DR_TONE], mv = d->p[TX_DR_MIX], g, k, mk, b0;
-    int32_t wt = !amt ? 0 : TX_FX_MIXQ(mv);                   /* MIX's place it goes to (AMOUNT 0: 0) */
+    int32_t wt = TX_FX_MIXQ(mv), ot = amt ? 32768 : 0;        /* MIX's place it goes to; on / off (AMOUNT 0: off) */
     int32_t tt = tv >= 64 ? 4096 + (((tv - 64) * 4161) >> 6) : tv * 64;   /* the shelf's gain: 0 .. 1 .. 2 (Q12) */
     int32_t gq, kq, mq, dgq = 0, dkq = 0, dmq = 0;            /* the ramp (Q8) while AMOUNT moves */
     unsigned i;
     if (!d->on) {                                               /* off: the lane untouched */
         if (!amt) return;
-        d->on = 1; d->w = 0; d->hp = d->lp1 = d->lp2 = 0; d->ton = 0; d->tg = 4096;   /* on: from dry, a 46 ms glide */
+        d->on = 1; d->w = wt; d->ow = 0; d->hp = d->lp1 = d->lp2 = 0; d->ton = 0; d->tg = 4096;   /* on: from dry,
+                                                     * a 46 ms fade */
         d->gl = -1;
     }
     if (d->gl >= 0 && a != d->dl) a = d->dl + clampi(a - d->dl, -DR_DSTEP, DR_DSTEP);   /* (Frodhes 0.9.6, #5: AMOUNT
@@ -140,7 +149,7 @@ static void dr_classic(tx_fx_drive_t *d, int32_t *x23, unsigned n, int32_t amt)
         dgq = ((g - d->gl) << 8) / (int32_t)n; dkq = ((k - d->kl) << 8) / (int32_t)n; dmq = ((mk - d->ml) << 8) / (int32_t)n;
     }
     d->gl = g; d->kl = k; d->ml = mk;
-    if (!(dgq | dkq | dmq) && d->w == wt && wt && (d->ton ? d->tg == tt && tt != 4096 : tt == 4096)) {   /* settled */
+    if (!(dgq | dkq | dmq) && d->w == wt && wt && d->ow == 32768 && ot && (d->ton ? d->tg == tt && tt != 4096 : tt == 4096)) {   /* settled */
         if (!d->ton) { if (wt == 32768) dr_settled(d, x23, n, g, k, mk, b0, tt, wt, 0, 1); else dr_settled(d, x23, n, g, k, mk, b0, tt, wt, 0, 0); }
         else if (wt == 32768) dr_settled(d, x23, n, g, k, mk, b0, tt, wt, 1, 1);
         else dr_settled(d, x23, n, g, k, mk, b0, tt, wt, 1, 0);
@@ -158,10 +167,11 @@ static void dr_classic(tx_fx_drive_t *d, int32_t *x23, unsigned n, int32_t amt)
             if (d->tg == 4096 && tt == 4096) d->ton = 0;
         }
         if (d->w != wt) d->w += d->w < wt ? (wt - d->w > 16 ? 16 : wt - d->w) : -(d->w - wt > 16 ? 16 : d->w - wt);
+        if (d->ow != ot) d->ow += d->ow < ot ? 16 : -16;         /* (on / off: 2048 samples, 46 ms) */
         y *= 256;                                                /* Q15 -> Q23; the dry share at full precision */
-        x23[i] = d->w == 32768 ? y : dr_blend(x23[i], y, d->w);
+        x23[i] = dr_onw(x23[i], d->w == 32768 ? y : dr_blend(x23[i], y, d->w), d->ow);
     }
-    if (!wt && !d->w) d->on = 0;                                /* AMOUNT 0: glided out, off again */
+    if (!ot && !d->ow) d->on = 0;                               /* AMOUNT 0: faded out, off again */
 }
 
 /* ---- the TYPEs (1..): Frodhes' drive framework, as an instance */
@@ -194,11 +204,12 @@ static int drv_run(tx_fx_drive_t *d, tx_drv_scr_t *w, int32_t *q, unsigned n, in
 TX_SHARE void dr_types(tx_fx_drive_t *d, tx_drv_scr_t *w, int32_t *x23, unsigned n, int sw)
 {
     int32_t amt = sw ? d->p[TX_DR_AMOUNT] : 0, mv = d->p[TX_DR_MIX], a, w0, w1, d4, *q = w->q;
-    int32_t wt = !amt ? 0 : (TX_FX_MIXQ(mv) + 128) & ~255;   /* MIX's place (multiples of 256: the ramp is exact) */
+    int32_t wt = (TX_FX_MIXQ(mv) + 128) & ~255, ot = amt ? 32768 : 0;   /* MIX's place (multiples of 256: the ramp is
+                                                         * exact); on / off */
     unsigned i;
     if (!d->on) {                                         /* off: the lane untouched; on: from rest, from dry */
-        if (!wt) return;
-        d->on = 1; d->w = 0; drv_reset(d, d->cur);
+        if (!ot) return;
+        d->on = 1; d->w = wt; d->ow = 0; drv_reset(d, d->cur);
     }
     if (n > TX_DRV_BLK || n < 4u) return;                 /* (never: the lanes run whole blocks) */
     a = amt ? amt : d->la;
@@ -210,18 +221,20 @@ TX_SHARE void dr_types(tx_fx_drive_t *d, tx_drv_scr_t *w, int32_t *x23, unsigned
     if (drv_run(d, w, q, n & ~1u, a, d->p[TX_DR_TONE])) return;   /* (not ready: dry, w held at 0) */
     w0 = d->w; w1 = w0 < wt ? (wt - w0 > (int32_t)(16u * n) ? w0 + (int32_t)(16u * n) : wt)
                             : (w0 - wt > (int32_t)(16u * n) ? w0 - (int32_t)(16u * n) : wt);
-    if (w0 == 32768 && w1 == 32768) {
+    if (w0 == 32768 && w1 == 32768 && d->ow == 32768 && ot) {
         for (i = 0; i < (n & ~1u); i++) x23[i] = q[i] * 256;
     } else {                                              /* the dry share at the lane's Q23 */
-        int32_t w = w0;
+        int32_t w = w0, ow = d->ow;
         d4 = (w1 - w0) / (int32_t)(n >> 2);
         for (i = 0; i < (n & ~1u); i++) {
-            x23[i] = dr_blend(x23[i], q[i] * 256, w);
+            if (ow != ot) ow += ow < ot ? 16 : -16;       /* (on / off: a straight fade, 46 ms) */
+            x23[i] = dr_onw(x23[i], w == 32768 ? q[i] * 256 : dr_blend(x23[i], q[i] * 256, w), ow);
             if ((i & 3u) == 3u) w += d4;
         }
+        d->ow = ow;
     }
     d->w = w1;
-    if (!wt && !w1) d->on = 0;                            /* glided out: off again */
+    if (!ot && !d->ow) d->on = 0;                         /* faded out: off again */
 }
 /* the TYPE asked for (t) is not the one that runs: it starts at once while the drive is silent, else the one that
  * runs fades out first (sw 0) and t starts from rest in the block after; TSH8 taken by another lane: the running

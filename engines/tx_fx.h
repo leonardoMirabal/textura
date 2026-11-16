@@ -60,6 +60,7 @@ typedef struct {
     uint8_t ton, on, la;           /* the shelf runs; the drive runs (or glides out); the last AMOUNT */
     uint8_t cur;                   /* the TYPE that runs (p[TX_DR_TYPE] after a change has faded through) */
     int32_t hp, lp1, lp2, w, tg, tlp;  /* (FDRV: hp Q7, lp1 lp2 Q19) */
+    int32_t ow;                    /* on / off: the blend's share over the dry (Q15, a straight 46 ms fade) */
     int32_t gl, kl, ml;            /* FDRV: the gain, low-pass and make-up the last block ended on (-1: none) */
     uint8_t dl;                    /* FDRV: the AMOUNT that ran (it glides) */
     int32_t rl;                    /* the held DC a rest dropped (Q23): the next block ramps it out (0: none) */

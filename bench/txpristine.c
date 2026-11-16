@@ -252,6 +252,47 @@ static void drv_dip(void)
     printf("DRIVE KHLON dip (AMOUNT 125 <-> 126): the largest block-to-block level jump %.2f dB\n", jump);
 }
 
+/* DRIVE on and off (the control sweep: AMOUNT 0 -> 1 rose 4.7 dB for ~40 ms: the 46 ms on-glide went through MIX's
+ * law, the dry whole while the wet came in, and at a low AMOUNT the two are one signal): AMOUNT 0 -> 1 at block 100,
+ * 1 -> 0 at block 200, every TYPE, a steady 2-cycle sine; 128-sample windows from the switch over 100 ms against the
+ * louder of the levels before and after it settled: never more than 1 dB over */
+static double drv_onoff1(unsigned type, unsigned amt)
+{
+    double x[NB], y[NB], lv[300 * 2], w = -100;
+    int b, j, s;
+    drv_setup(type, 0);
+    for (b = 0; b < 300; b++) {
+        if (b == 100) tx_fx_drive_set(fx, TX_DR_AMOUNT, amt);
+        if (b == 200) tx_fx_drive_set(fx, TX_DR_AMOUNT, 0);
+        for (j = 0; j < (int)NB; j++) x[j] = lrint(3000.0 * sin(2.0 * M_PI * 2.0 * j / NB));
+        drv_block(x, y);
+        for (s = 0; s < 2; s++) {
+            double e = 0;
+            for (j = 0; j < (int)NB / 2; j++) e += y[s * NB / 2 + j] * y[s * NB / 2 + j];
+            lv[b * 2 + s] = db(e / (NB / 2) + 1e-9);
+        }
+    }
+    for (s = 100; s <= 200; s += 100) {
+        double ref = fmax(lv[(s - 5) * 2], lv[(s + 40) * 2]);
+        for (j = s * 2; j < s * 2 + 36; j++) if (lv[j] - ref > w) w = lv[j] - ref;
+    }
+    return w;
+}
+static void drv_onoff(void)
+{
+    static const char *const N[TX_DRT_N] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
+    double w = -100, v[TX_DRT_N][2];
+    unsigned t;
+    for (t = 0; t < TX_DRT_N; t++) {
+        v[t][0] = drv_onoff1(t, 1); v[t][1] = drv_onoff1(t, 64);
+        if (fmax(v[t][0], v[t][1]) > w) w = fmax(v[t][0], v[t][1]);
+    }
+    printf("DRIVE on / off (AMOUNT 0 <-> 1, 0 <-> 64) under a steady sine: the level over the louder settled side, dB:");
+    for (t = 0; t < TX_DRT_N; t++) printf(" %s %+.2f / %+.2f", N[t], v[t][0], v[t][1]);
+    printf(" (1 at most)\n");
+    judge("DRIVE on / off level", w, 1.0, 1);
+}
+
 /* ---- the GRAIN DELAY: FEEDBACK moving (a modulated FEEDBACK) under a steady 220 Hz sine, GRAIN 0 (the echo alone),
  * MIX 127, TIME 20: the largest second difference at a block's edge re inside (1 = none) */
 static void gd_zipper(void)
@@ -873,6 +914,7 @@ int main(int argc, char **argv)
     drv_rest();
     drv_zipper();
     drv_dip();
+    drv_onoff();
     gd_zipper();
     lim_chord();
     lim_bass();
