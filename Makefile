@@ -23,6 +23,8 @@
 #                      outside its short allowlist of species' own rhythms (ARGS="-f NAME -d"; ARGS="-x -e": the
 #                      corners EXTRA 0 / 127, COUNT 1 / 127, the classic engines and their ACTIVITY 0 / 127, 8 seeds)
 #   make tx-grain      a granular-delay prototype's cost on the FM-1 and its buffer formats' noise (costing only)
+#   make tx-fx-sweep   every effect control swept and moved once under a ringing chord: clicks, zipper, jumps, bursts
+#                      (tools/fx_sweep.py, Frodhes' control sweep on our effects; numpy in .local/venv)
 #   make fm1-host      txfm1's table (bench/fm1: every SOURCE preset at the defaults / ACTIVITY 0 / 127 and its worst knob,
 #                      the hosted kinds, the effects, four-lane cases) timed on this host -> build/fm1/host.csv
 #   make fm1-bench     the bench firmware for the FM-1 (Docker + .local/jieli) -> build/fm1/textura-bench.fwsc
@@ -85,7 +87,7 @@ HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
 PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-timing fw-c1map fw-c1hot
-.PHONY: $(PHONY_FM1) setup fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-pristine tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
+.PHONY: $(PHONY_FM1) setup fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-pristine tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-fx-sweep tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -340,6 +342,13 @@ _tx-budget-run:
 $(B)/txgrain: bench/txgrain.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
 	$(CC) $(CSTD) -O2 -o $@ bench/txgrain.c $(HOST_SRC) $(ENG_SRC) -lm
+
+$(B)/txfxsweep: bench/txfxsweep.c $(ENG_SRC) $(ENG_HDR)
+	@mkdir -p $(B)
+	$(CC) $(CSTD) -O2 -o $@ bench/txfxsweep.c $(ENG_SRC) -lm
+
+tx-fx-sweep: $(B)/txfxsweep
+	.local/venv/bin/python -I tools/fx_sweep.py $(B)/txfxsweep
 
 tx-grain: $(B)/txgrain build/calib/frodhes
 	@[ -f build/calib/run/w1.txt ] || $(MAKE) -s tx-calib
