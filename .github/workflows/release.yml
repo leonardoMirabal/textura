@@ -1,0 +1,97 @@
+name: release
+# As Frodhes' release.yml, for Textura. A version tag (textura-v0.2.5 ...) builds the FM-1 app in CI and publishes
+# the GitHub release with its assets: textura-app-X.Y.Z.fwsc and textura-app-X.Y.Z.json (make fm1-app REL=X.Y.Z:
+# VERSION X.Y.Z in the app; the json: version, commit, date, identity, USB name and id, sha256, changes). A full
+# release (not a draft, not a prerelease), marked latest; the repository's visibility is not touched (a private
+# repository's release stays private). The notes: docs/releases/<tag>.md when the tag has one (its first paragraph
+# is the json's changes), else "Textura X.Y.Z". Every step is safe to rerun (a rerun replaces the assets).
+# Tag only what passed the tests on the FM-1.
+on:
+  push:
+    tags: ['textura-v*']
+permissions:
+  contents: write                    # the release
+  actions: read                      # ci-gate reads the ci runs
+jobs:
+  # ci.yml already runs every test (host, firmware, web) on each push to main. If ci passed on exactly this commit
+  # (waiting up to 40 min if it is still running), or on a commit with the identical git tree, the release skips its
+  # own copy of the tests; if ci failed, never ran or timed out, the fallback jobs below run them here, and a failure
+  # stops the release before the build and publish (tools/ci_gate.sh, CI_GATE_JOBS).
+  ci-gate:
+    runs-on: ubuntu-latest
+    outputs:
+      passed: ${{ steps.gate.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CI_GATE_JOBS: host firmware web
+        run: sh tools/ci_gate.sh "$GITHUB_SHA"
+  host:                              # fallback only: every host test (ci.yml's host-tests, on the same arm64 runner)
+    needs: ci-gate
+    if: needs.ci-gate.outputs.passed != 'true'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - run: command -v clang || { sudo apt-get update && sudo apt-get install -y clang; }
+      - name: host tests (fallback only, when ci did not pass on this commit)
+        run: |
+          sh tools/guard.sh
+          make tx-test CC=clang && make tx-libcalls CC=clang && make tx-pristine CC=clang && make fw-test CC=clang
+  web:                               # fallback only: the web panel built and checked (ci.yml's web)
+    needs: ci-gate
+    if: needs.ci-gate.outputs.passed != 'true'
+    runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright/python:v1.64.0-noble
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .local/emsdk
+          key: emsdk-${{ hashFiles('tools/get_emsdk.sh') }}-${{ runner.os }}-${{ runner.arch }}-playwright-image
+      - run: apt-get update -qq && apt-get install -y -qq xz-utils make python3-venv
+      - run: sh tools/get_emsdk.sh .local/emsdk
+      - run: |
+          python3 -m venv .local/venv
+          .local/venv/bin/pip install -q playwright==1.64.0
+          PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python -m playwright install chromium
+      - run: make fw-web-check LOCK=0
+  release:
+    needs: [ci-gate, host, web]
+    # runs when ci passed on this commit (the fallback jobs skipped) or when both fallback jobs passed. x86_64: the
+    # JieLi toolchain (tools/get_toolchain.sh) runs on nothing else
+    if: >-
+      !cancelled() && needs.ci-gate.result == 'success' &&
+      (needs.ci-gate.outputs.passed == 'true' || (needs.host.result == 'success' && needs.web.result == 'success'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: the JieLi toolchain and the 3 AC79 SDK files (checked by sha256)
+        run: |
+          sh tools/get_toolchain.sh .local/jieli
+          sh tools/get_sdk.sh .local/fw-AC79_AIoT_SDK
+      - name: build
+        run: |
+          V="${GITHUB_REF_NAME#textura-v}"
+          echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "tag $GITHUB_REF_NAME: use textura-vX.Y.Z" >&2; exit 1; }
+          NOTES="docs/releases/${GITHUB_REF_NAME}.md"
+          if [ -f "$NOTES" ]; then make fm1-app REL="$V" NOTES="$NOTES"; else make fm1-app REL="$V"; fi
+          ls -l "build/fm1/textura-app-$V.fwsc" "build/fm1/textura-app-$V.json"
+          sha256sum "build/fm1/textura-app-$V.fwsc"
+          cat "build/fm1/textura-app-$V.json"
+      - name: publish the release (full, latest; a rerun replaces the assets)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${GITHUB_REF_NAME#textura-v}"
+          NOTES="docs/releases/${GITHUB_REF_NAME}.md"
+          [ -f "$NOTES" ] || { echo "Textura $V" > /tmp/notes.md; NOTES=/tmp/notes.md; }
+          set -- "build/fm1/textura-app-$V.fwsc" "build/fm1/textura-app-$V.json"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$@" --clobber
+            gh release edit "$GITHUB_REF_NAME" --title "Textura $V" --notes-file "$NOTES" --draft=false --prerelease=false --latest
+          else
+            gh release create "$GITHUB_REF_NAME" "$@" --title "Textura $V" --notes-file "$NOTES" --latest
+          fi

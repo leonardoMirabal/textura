@@ -99,8 +99,15 @@ still to be designed (**todo**).
 
 - `origin` = leonardoMirabal/textura (private). No upstream remote: Frodhes' files were copied in, never its history.
 - `.private/` is never added; check `git status --short --ignored` before a commit.
-- CI (`.github/workflows/ci.yml`, done): the guard job fails if anything private, audio or a PDF is tracked. Add the
-  host checks (`txtest`) to CI once they exist (port).
+- CI, as Frodhes' (`.github/workflows/`): `ci.yml` on every push to main and PR. A Markdown-only PR runs only the
+  guard. Otherwise the host tests run on arm64 Linux in three parts (engines: `tx-test` + `tx-libcalls`;
+  `tx-pristine`; `fw-test`), each after the guard. The job `host` is the required check. `firmware` builds
+  `make fm1-app` with the toolchain and SDK fetched as `make setup` does. `web` runs `make fw-web-check` in
+  Playwright's image. A failure cancels the run. `release.yml`: a `textura-vX.Y.Z` tag passes the CI gate
+  (`tools/ci_gate.sh`; else the tests run there), builds `make fm1-app REL=X.Y.Z` in CI and publishes a full
+  release with `textura-app-X.Y.Z.fwsc` and `.json`. Notes come from `docs/releases/<tag>.md` when it exists.
+  `runner-retry.yml` reruns jobs GitHub never started (`tools/runner_retry.py`). `fw-c1map` is not in CI: it needs
+  macOS and the FM-1 image together.
 
 ## 7. Working with the user
 

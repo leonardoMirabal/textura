@@ -1,19 +1,160 @@
 name: ci
-on: [push, pull_request]
+# As Frodhes' ci.yml, mapped to Textura's gates. A PR runs once (pull_request); main runs on its push; a newer push
+# cancels the older run of the same ref. The required check is the job `host` (every host test passed); the jobs
+# `firmware` and `web` build and check the FM-1 app and the web panel.
+on:
+  push:
+    branches: [main]
+  pull_request:
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  actions: write                     # (a failure cancels the run: the step at the end of every job)
+  contents: read
 jobs:
-  # arm64 Linux runners: the same architecture as the development Macs (Apple silicon), as Frodhes' CI
-  # Nothing private, no audio, no papers, no third-party binaries or vendor trees in git (AGENTS.md section 1).
-  guard:
-    runs-on: ubuntu-24.04-arm
+  # A pull request that changes only Markdown (README, AGENTS.md, docs) runs the docs job alone (the guard: nothing
+  # private, no audio, no papers, no binaries in git). Every other job is then skipped, and a skipped required job
+  # counts as passed (`host` below accepts that only with docs green). A push to main runs everything.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.c.outputs.code }}
     steps:
       - uses: actions/checkout@v4
-      - name: tracked files allowed
+        with:
+          fetch-depth: 0
+      - id: c
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then echo code=true >> "$GITHUB_OUTPUT"; exit 0; fi
+          git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD | tee files.txt
+          if [ -s files.txt ] && ! grep -qvE '\.md$' files.txt; then echo code=false; else echo code=true; fi | tee -a "$GITHUB_OUTPUT"
+      # a failure stops the run: every other job cancelled at once; `host` still reads the failure, and runner-retry
+      # never reruns a job that ran (tools/runner_retry.py)
+      - name: on a failure, cancel the whole run
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
+  docs:
+    needs: changes
+    if: needs.changes.outputs.code == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: tracked files allowed (tools/guard.sh)
         run: sh tools/guard.sh
-  # The engines' checks: no float, no 64-bit division on a 32-bit target, idle zero, no overflow, the particle cap,
-  # determinism against bench/baselines (AGENTS.md section 4).
-  engines:
+      - name: on a failure, cancel the whole run
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
+  # arm64 Linux: the same architecture as the development Macs (Apple silicon). The host tests in 3 jobs at once
+  # (Frodhes' shards, here by make target: together exactly make tx-test, tx-libcalls, tx-pristine and fw-test); the
+  # guard runs first in each. The required check is the job `host` below: green only when every one of them is.
+  host-tests:
+    name: host-tests ${{ matrix.part }}
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: true                # (one part fails: the others stop)
+      matrix:
+        part: [engines, pristine, firmware-host]
     steps:
       - uses: actions/checkout@v4
-      - run: command -v clang || { sudo apt-get update && sudo apt-get install -y clang; }   # the arm image may lack it
-      - run: make tx-test CC=clang
+      - run: command -v clang || { sudo apt-get update && sudo apt-get install -y clang; }   # (the arm image may lack it)
+      - name: tracked files allowed (tools/guard.sh)
+        run: sh tools/guard.sh
+      - name: the engines (txtest with UBSan, the no-float scan, no libcalls on a 32-bit target, the baselines)
+        if: matrix.part == 'engines'
+        run: make tx-test CC=clang && make tx-libcalls CC=clang
+      - name: the effects' pristine measurement
+        if: matrix.part == 'pristine'
+        run: make tx-pristine CC=clang
+      - name: the firmware on the host (lanes, every host script, the power cycle, the faults, ports, install)
+        if: matrix.part == 'firmware-host'
+        run: make fw-test CC=clang
+      - name: on a failure, cancel the whole run
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
+  host:
+    # the required context `host`: every host test passed; a failed, cancelled or skipped job above fails it (a
+    # skipped required job would count as passed). A Markdown-only pull request: the docs job instead
+    needs: [changes, docs, host-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "changes: ${{ needs.changes.result }} (code ${{ needs.changes.outputs.code }}), docs: ${{ needs.docs.result }}"
+          echo "host-tests (3 parts): ${{ needs.host-tests.result }}"
+          test "${{ needs.changes.result }}" = success
+          if [ "${{ needs.changes.outputs.code }}" = false ]; then test "${{ needs.docs.result }}" = success; exit; fi
+          test "${{ needs.host-tests.result }}" = success
+  # The FM-1 app (make fm1-app): the JieLi toolchain (x86_64 Linux only, tools/get_toolchain.sh) and the 3 AC79 SDK
+  # files (tools/get_sdk.sh, sha256-checked) fetched from their own sources, run in Docker as on the development
+  # machine; the image's checks (size, RAM, the hot code, the USB name) must pass. The package is kept as an artifact.
+  firmware:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .local/jieli
+          key: jieli-${{ hashFiles('tools/get_toolchain.sh') }}-${{ runner.os }}-${{ runner.arch }}
+      - name: the JieLi toolchain and the 3 AC79 SDK files
+        run: |
+          [ -e .local/jieli/toolchain ] || sh tools/get_toolchain.sh .local/jieli
+          sh tools/get_sdk.sh .local/fw-AC79_AIoT_SDK
+      - name: build the app
+        run: make fm1-app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: textura-app
+          path: build/fm1/textura-app.fwsc
+          if-no-files-found: error
+      - name: on a failure, cancel the whole run
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
+  # The web panel (web/build.sh, Emscripten pinned in tools/get_emsdk.sh) built and checked in headless Chromium at
+  # desktop and phone width (make fw-web-check: tests/web_check.py). In Playwright's own image (the browsers' system
+  # libraries installed). Nothing is deployed.
+  web:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright/python:v1.64.0-noble
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .local/emsdk
+          key: emsdk-${{ hashFiles('tools/get_emsdk.sh') }}-${{ runner.os }}-${{ runner.arch }}-playwright-image
+      - run: apt-get update -qq && apt-get install -y -qq xz-utils make python3-venv   # (emsdk unpacks node from a .tar.xz)
+      - run: sh tools/get_emsdk.sh .local/emsdk
+      - name: Playwright in .local/venv, Chromium in .local/playwright (where make fw-web-check looks)
+        run: |
+          python3 -m venv .local/venv
+          .local/venv/bin/pip install -q playwright==1.64.0
+          PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python -m playwright install chromium
+      - run: make fw-web-check LOCK=0
+      - name: on a failure, cancel the whole run
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 -c "import os, urllib.request as u; e = os.environ; u.urlopen(u.Request(e['GITHUB_API_URL'] +
+          '/repos/' + e['GITHUB_REPOSITORY'] + '/actions/runs/' + e['GITHUB_RUN_ID'] + '/cancel', method='POST',
+          headers={'Authorization': 'Bearer ' + e['GH_TOKEN'], 'Accept': 'application/vnd.github+json'}))"
