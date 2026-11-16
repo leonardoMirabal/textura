@@ -1412,6 +1412,7 @@ static void ui_draw(void)
     if (e == 0xFF) for (e = E_ROW0; e < E_N && !(d >> e & 1u); e++) {}
     ui_dirty &= ~(1u << e);
     ui_last_draw = fm1_ms;
+    ui_ndraw++;
     if (e == E_HEADER) draw_header();
     else if (e == E_TITLE) draw_title();
     else if (e == E_FOOTER) draw_footer();

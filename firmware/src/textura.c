@@ -151,11 +151,28 @@ static const tx_engine_t *host_engine_find(const char *name)
 #include "groove.c"
 #include "presets.c"
 #include "scenes.c"
+static uint32_t ui_ndraw;                       /* screen parts ui_draw drew (ui.c), for the draw time (ui_draw_timed) */
 #include "ui.c"
 
 /* ---- MIDI: notes on SELECTED CH (1) play the selected lane, on a lane's MIDI CH (lane n: n) that lane, pitched,
  * through SCALE (notes.c nt_midi); control changes reach the params table (a lane's on its MIDI CH, the effects on the
  * mix on channel 5: params.c); the clock and the transport go to tempo.c */
+#ifdef LN_BUS_TIMED
+/* the main loop's screen drawing (ui_draw, one part of the screen a call), timed when it drew: each call's time less
+ * the audio interrupt's when one came in it (its last_us); the longest and the sum since the last ask (items 56, 57,
+ * 58 below), tools/fm1_dbg.py */
+static uint32_t ui_us_max, ui_us_sum, ui_us_n;
+static void ui_draw_timed(void)
+{
+    uint32_t n0 = ui_ndraw, i0 = isr_st.t_prev, t0 = fm1_ticks(), d;
+    ui_draw();
+    if (ui_ndraw == n0) return;
+    d = (fm1_ticks() - t0) / FM1_TICKS_PER_US;
+    if (isr_st.t_prev != i0) d = d > isr_st.last_us ? d - isr_st.last_us : 0u;
+    if (d > ui_us_max) ui_us_max = d;
+    ui_us_sum += d; ui_us_n++;
+}
+#endif
 #ifdef LN_BUS_TIMED
 /* the grain delay's measured room (lanes.c ln_bus), for a check on the FM-1: CC 116 on channel 16 asks, the reply is
  * CC 100 id / 101 - 102 value (14 bits, as Frodhes' CC 116 items) on channel 1: 20 the cap now, 21 the lowest cap,
@@ -167,7 +184,8 @@ static const tx_engine_t *host_engine_find(const char *name)
  * 42 the governor's pool now (us), 43 / 44 the user / system stack's deepest (4-byte words, since boot); the mailbox
  * (core1.h): 45 core 1's read-again recoveries, 46 core 0's, 47 the jobs core 1 refused (done here), 48 late jobs, 49
  * holds for good, 50 retries (C1_RETRY), 51 SYS_DIV's low 14 bits now, 52 1 = C1_HSB2 wrote it; 53 the crash count
- * (fm1_crash), 54 its vector, 55 the reset's P33 reason (bit 0 power-on, 2 watchdog, 6 soft) */
+ * (fm1_crash), 54 its vector, 55 the reset's P33 reason (bit 0 power-on, 2 watchdog, 6 soft); the screen (ui_draw_timed):
+ * 56 the longest part drawn (us), 57 the mean (us), 58 the parts drawn (to 16383), all since the last ask */
 /* an item: three USB-MIDI events; it waits (up to 50 ms) for room in the 64-event out queue (usb.c drops what does
  * not fit: the reply is 23 items, 69 events, and its last ones were lost) */
 static void tx_dbg_item(uint32_t id, uint32_t v)
@@ -205,6 +223,8 @@ static void tx_dbg_reply(void)
     tx_dbg_item(53, fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.count : 0u);
     tx_dbg_item(54, fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.vec : 0u);
     tx_dbg_item(55, fm1_boot.p3_rst);
+    tx_dbg_item(56, ui_us_max); tx_dbg_item(57, ui_us_n ? ui_us_sum / ui_us_n : 0u); tx_dbg_item(58, ui_us_n);
+    ui_us_max = 0; ui_us_sum = 0; ui_us_n = 0;
 }
 #endif
 
@@ -256,7 +276,11 @@ static void app_main(void)
         mod_poll();
         gr_poll();
         scn_poll();
+#ifdef LN_BUS_TIMED
+        ui_draw_timed();
+#else
         ui_draw();
+#endif
         nt_leds(ui_btn_leds());
     }
 }
