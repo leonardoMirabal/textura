@@ -43,8 +43,7 @@
  * last scene, the palette) are one small record saved as Frodhes does: SET_SAVE_MS after the last change, with
  * settings_save_start / settings_save_poll (the platform's split save).
  *
- * The flash place is settled at stage 8 (the map): the banks sit in store.h's slots area (Textura keeps no samples),
- * their sizes named here. On the host and the web the store is the platform's flash window (tests/host.c,
+ * The flash place: store.h's scenes (the map), their sizes named here; the save and the load: scn_bank.c. On the host and the web the store is the platform's flash window (tests/host.c,
  * web/web_hal.c fl_window_*). Main loop only. */
 
 #define SCN_NU 16u                              /* user scenes */
@@ -92,16 +91,16 @@ _Static_assert(SCN_SLOT % SCN_CHUNK == 0u, "a record is whole chunks");
 _Static_assert(sizeof(scn_hdr_t) + SCN_NU * SCN_SLOT <= SCN_BANK_SECT * 0x1000u, "a bank copy fits its sectors");
 _Static_assert(SCN_BANK_B + SCN_BANK_SECT * 0x1000u == SCENES_AT + SCENES_SECT * 0x1000u, "the banks fill store.h's scenes");
 
-/* ---- the flash (the host and the web: the platform's window; the FM-1: platform.c's, an erase stalls the sound
- * ~50 ms until stage 8 gives the banks the split erase the settings have) */
+/* ---- the flash (the host and the web: the platform's window, at once; the FM-1: fm1_flash.h's split operations, a
+ * slice a main-loop pass, as the settings' save) */
 #ifdef DINGHY_HOST
 static int scn_rd(uint32_t at, void *p, uint32_t n) { return fl_window_read(at, p, n); }
-static int scn_er(uint32_t at) { return fl_window_erase(at); }
-static int scn_wr(uint32_t at, const void *p, uint32_t n) { return fl_window_write(at, p, n); }
+#define SB_START(at, src, n) ((src) ? fl_window_write(at, src, n) : fl_window_erase(at))   /* (at once: done) */
+#define SB_POLL() 0
 #else
 static int scn_rd(uint32_t at, void *p, uint32_t n) { return flash_ok ? st_read(at, p, n) : -1; }
-static int scn_er(uint32_t at) { uint32_t took; return fl_erase4k(at, &took); }
-static int scn_wr(uint32_t at, const void *p, uint32_t n) { return fl_write(at, p, n); }
+#define SB_START(at, src, n) (flash_ok ? fl_op_start(at, src, n) : -1)   /* (a slice now, the rest by SB_POLL) */
+#define SB_POLL() fl_op_poll()
 #endif
 static uint32_t scn_crc(uint32_t c, const uint8_t *p, uint32_t n)   /* running: start 0xFFFFFFFF, end ~ */
 {
@@ -141,9 +140,9 @@ static uint8_t scn_gl_n;
 static uint8_t scn_ap_sw, scn_ap_cd;            /* this load's switched lanes (bit k); those whose cards are set */
 static uint32_t scn_gl_tick;
 /* a save in progress */
-static uint8_t scn_sv_on, scn_sv_slot;
-static uint16_t scn_sv_step;                    /* sectors erased, then chunks written */
-static uint32_t scn_sv_at, scn_sv_crc;
+static uint8_t scn_sv_on, scn_sv_slot, scn_sv_go;   /* (a save: asked; its slot; started in flash) */
+static uint32_t scn_sv_at;                      /* (the copy it writes) */
+static uint8_t set_saving;                      /* (the settings' save running: set_poll) */
 /* browsing and the save mode */
 static uint8_t scn_cand = 0xFF, scn_save_mode, scn_save_slot;
 static char scn_nm[12];                         /* the save mode's name (11 characters), its letter, edited or not */
@@ -562,17 +561,13 @@ static void scn_undo(void)                      /* the last load undone (again: 
 }
 
 /* ---- the bank */
-static int scn_bank_valid(uint32_t at, scn_hdr_t *h)
+static void scn_chunk(uint32_t j, uint8_t *b)  /* a save's chunk j: the saved scene's, else the newer copy's (zeros: none) */
 {
-    uint8_t b[SCN_CHUNK];
-    uint32_t c = 0xFFFFFFFFu, o;
-    if (scn_rd(at, h, sizeof *h) || h->magic != SCN_MAGIC || h->len != SCN_NU * SCN_SLOT) return 0;
-    for (o = 0; o < h->len; o += SCN_CHUNK) {
-        if (scn_rd(at + sizeof *h + o, b, SCN_CHUNK)) return 0;
-        c = scn_crc(c, b, SCN_CHUNK);
-    }
-    return ~c == h->crc;
+    uint32_t rec = j / (SCN_SLOT / SCN_CHUNK), off = j % (SCN_SLOT / SCN_CHUNK) * SCN_CHUNK;
+    if (rec == scn_sv_slot) memcpy(b, (const uint8_t *)&scn_sv + off, SCN_CHUNK);
+    else if (!scn_bank || scn_rd(scn_bank + sizeof(scn_hdr_t) + rec * SCN_SLOT + off, b, SCN_CHUNK)) memset(b, 0, SCN_CHUNK);
 }
+#include "scn_bank.c"                           /* (the bank's load and its save, a slice a pass) */
 static void scn_meta_load(void)
 {
     uint32_t i;
@@ -584,11 +579,7 @@ static void scn_meta_load(void)
 }
 static void scn_bank_load(void)
 {
-    scn_hdr_t ha, hb;
-    int va = scn_bank_valid(SCN_BANK_A, &ha), vb = scn_bank_valid(SCN_BANK_B, &hb);
-    scn_bank = 0; scn_seq = 0;
-    if (va && (!vb || (int32_t)(ha.seq - hb.seq) > 0)) { scn_bank = SCN_BANK_A; scn_seq = ha.seq; }
-    else if (vb) { scn_bank = SCN_BANK_B; scn_seq = hb.seq; }
+    scn_bank_pick(SCN_BANK_A, SCN_BANK_B, &scn_bank, &scn_seq);
     scn_meta_load();
 }
 static void scn_nm_take(void)                   /* the name the save mode starts from: the slot's, or the landscape's */
@@ -622,35 +613,27 @@ static void scn_save_start(uint32_t slot)       /* the scene that plays now into
     scn_cand = 0xFF;                            /* (a pending load: never over the scene just saved) */
     scn_sv_slot = (uint8_t)slot;
     scn_sv_at = scn_bank == SCN_BANK_A ? SCN_BANK_B : SCN_BANK_A;   /* (the older copy) */
-    scn_sv_step = 0; scn_sv_crc = 0xFFFFFFFFu; scn_sv_on = 1;
+    scn_sv_on = 1; scn_sv_go = 0;               /* (scn_save_poll starts it once the settings' save is done) */
     ui_say("SAVING...");
 }
 static void scn_save_fail(void) { scn_sv_on = 0; ui_say("SAVE FAILED"); }
-static void scn_save_poll(void)                 /* a step a pass: a sector erased, or a chunk written */
+static void scn_save_poll(void)                 /* a slice or a new flash operation a pass (scn_bank.c sb_poll) */
 {
-    const uint32_t nch = SCN_NU * (SCN_SLOT / SCN_CHUNK);
+    int rc;
     if (!scn_sv_on) return;
-    if (scn_sv_step < SCN_BANK_SECT) {
-        if (scn_er(scn_sv_at + scn_sv_step * 0x1000u)) { scn_save_fail(); return; }
-        scn_sv_step++;
+    if (!scn_sv_go) {                           /* (the flash's one operation at a time: after the settings' save) */
+        if (set_saving) return;
+        scn_sv_go = 1;
+        if (sb_start(scn_sv_at, scn_seq + 1u) < 0) { scn_save_fail(); return; }
         return;
     }
-    if (scn_sv_step < SCN_BANK_SECT + nch) {
-        uint32_t j = scn_sv_step - SCN_BANK_SECT, rec = j / (SCN_SLOT / SCN_CHUNK), off = j % (SCN_SLOT / SCN_CHUNK) * SCN_CHUNK;
-        uint8_t b[SCN_CHUNK];
-        if (rec == scn_sv_slot) memcpy(b, (const uint8_t *)&scn_sv + off, SCN_CHUNK);
-        else if (!scn_bank || scn_rd(scn_bank + sizeof(scn_hdr_t) + rec * SCN_SLOT + off, b, SCN_CHUNK)) memset(b, 0, SCN_CHUNK);
-        scn_sv_crc = scn_crc(scn_sv_crc, b, SCN_CHUNK);
-        if (scn_wr(scn_sv_at + sizeof(scn_hdr_t) + rec * SCN_SLOT + off, b, SCN_CHUNK)) { scn_save_fail(); return; }
-        scn_sv_step++;
-        return;
-    }
-    {                                           /* the header last; then it is the bank */
-        scn_hdr_t h, v;
+    if ((rc = sb_poll()) == 1) return;
+    if (rc < 0) { scn_save_fail(); return; }
+    {                                           /* the header written: then it is the bank */
+        scn_hdr_t v;
         char m[20];
-        h.magic = SCN_MAGIC; h.seq = scn_seq + 1u; h.len = SCN_NU * SCN_SLOT; h.crc = ~scn_sv_crc;
-        if (scn_wr(scn_sv_at, &h, sizeof h) || !scn_bank_valid(scn_sv_at, &v)) { scn_save_fail(); return; }
-        scn_bank = scn_sv_at; scn_seq = h.seq; scn_sv_on = 0;
+        if (!scn_bank_valid(scn_sv_at, &v) || v.seq != scn_seq + 1u) { scn_save_fail(); return; }
+        scn_bank = scn_sv_at; scn_seq = v.seq; scn_sv_on = 0;
         scn_meta[scn_sv_slot].used = 1; scn_meta[scn_sv_slot].fam = scn_sv.fam;
         memcpy(scn_meta[scn_sv_slot].name, scn_sv.name, 12);
         scn_cur = (uint8_t)(SCN_NF + scn_sv_slot);
@@ -767,7 +750,7 @@ static uint8_t set_fx_mode(uint32_t b) { return (uint8_t)(b == 1u ? SCN_FX_ALWAY
 static tx_set_t set_saved, set_now;
 static uint8_t set_rec[256];                    /* the record as saved: set_now zero-padded to set_store.c's 256 bytes
                                                  * (it saves no other length; kept as it is until the save is done) */
-static uint8_t set_dirty, set_saving;
+static uint8_t set_dirty;
 static uint32_t set_t;
 static void set_take(tx_set_t *s)
 {

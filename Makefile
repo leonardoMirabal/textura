@@ -179,7 +179,11 @@ $(FW)/set_ab_test_align: tests/set_ab_test.c tests/fl_host_model.h firmware/src/
 	@mkdir -p $(FW)
 	$(CC) -O1 -Wall -Wno-unused-function -Wno-int-to-pointer-cast -DFL_ALIGN_TEST -Ifirmware/hal -o $@ tests/set_ab_test.c
 
-fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textura-host $(FW)/textura-host-ub $(FW)/set_ab_test $(FW)/set_ab_test_align
+$(FW)/scn_bank_test: tests/scn_bank_test.c tests/fl_host_model.h firmware/src/scn_bank.c firmware/src/store.h firmware/hal/fm1_flash.h firmware/hal/fm1_flash_map.h
+	@mkdir -p $(FW)
+	$(CC) -O2 -Wall -Wno-unused-function -Wno-int-to-pointer-cast -Ifirmware/hal -o $@ tests/scn_bank_test.c
+
+fw-test: $(FW)/scn_bank_test $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textura-host $(FW)/textura-host-ub $(FW)/set_ab_test $(FW)/set_ab_test_align
 	@python3 -I tools/gen_landscapes.py --check || exit 1; \
 	python3 -I tools/gen_presets.py --check || exit 1; python3 -I tools/gen_font1.py --check || exit 1; \
 	$(FW)/lanes_test || exit 1; \
@@ -203,6 +207,7 @@ fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textu
 	else echo "FAIL  host faults ($(FW)/fault_drop.log, fault_fat.log)"; fail=1; fi; \
 	$(FW)/set_ab_test > $(FW)/set_ab.log 2>&1 && echo "ok    settings A / B (tests/set_ab_test.c: a power cut at every step of a save keeps the older record; the store's map)" || { echo "FAIL  settings A / B ($(FW)/set_ab.log)"; fail=1; }; \
 	$(FW)/set_ab_test_align > $(FW)/set_ab_align.log 2>&1 && echo "ok    settings A / B, slices after a USB packet (tests/set_ab_test.c -DFL_ALIGN_TEST: $$(grep -o 'a whole save [0-9]* ms' $(FW)/set_ab_align.log))" || { echo "FAIL  settings A / B, slices after a USB packet ($(FW)/set_ab_align.log)"; fail=1; }; \
+	$(FW)/scn_bank_test > $(FW)/scn_bank.log 2>&1 && echo "ok    scene bank (tests/scn_bank_test.c: a save never holds the main loop, $$(grep -o 'longest call [0-9]* us' $(FW)/scn_bank.log); a power cut at every call keeps the older copy)" || { echo "FAIL  scene bank ($(FW)/scn_bank.log)"; fail=1; }; \
 	CC=$(CC) python3 -I tests/uac_check.py > $(FW)/uac.log 2>&1 && echo "ok    USB audio timing (tests/uac_check.py: the EP4 poll on the token, slices after a packet; usb.c in tests/uac_seq_test.c)" || { echo "FAIL  USB audio timing ($(FW)/uac.log)"; fail=1; }; \
 	python3 -I tests/platform_check.py > $(FW)/platform.log 2>&1 && echo "ok    platform (tests/platform_check.py: the device-only paths in their source)" || { echo "FAIL  platform ($(FW)/platform.log)"; fail=1; }; \
 	python3 -I tests/clock_check.py > $(FW)/clock.log 2>&1 && echo "ok    clock (tests/clock_check.py)" || { echo "FAIL  clock ($(FW)/clock.log)"; fail=1; }; \
