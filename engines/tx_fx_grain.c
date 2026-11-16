@@ -466,11 +466,13 @@ TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
         d->bwg = -1;
 #if GD_DIFF
         d->apw = 0;
-        d->sc = d->scl = 0;
+        d->sc = 0; d->pw = -1; d->prei = 0;           /* (pw -1: set below, to where this block's SYNC puts it) */
+        for (k = 0; k < GD_SYNCC; k++) d->pre[k] = 0;
 #endif
     }
 #if GD_DIFF
     d->sc = tgt != (d->sync ? d->sync : TX_FX_GD_TIME[d->p[TX_GD_TIME]]);   /* (SYNC's compensation: gd_target) */
+    if (d->pw < 0) d->pw = d->sc ? 32768 : 0;          /* (the delay comes on: no glide into its first block) */
 #endif
     gd_anim(d, n, tgt);
     k = gd_nv(d);
@@ -674,10 +676,7 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
 #if GD_DIFF
     uint32_t ai[GD_APN] = {d->api[0], d->api[1], d->api[2], d->api[3]};   /* (the allpasses' places, held here) */
     uint32_t pi = d->prei;
-    if (d->sc != d->scl) {                              /* (SYNC's compensation comes on: from a silent pre-delay) */
-        if (d->sc) { for (j = 0; j < GD_SYNCC; j++) d->pre[j] = 0; pi = 0; }
-        d->scl = d->sc;
-    }
+    int32_t pwt = d->sc ? 32768 : 0;                    /* (SYNC's compensation: the pre-delayed input's share) */
 #endif
     for (j = 0; j < n; j++) {
         int32_t x = (L[j] >> 2) + (R[j] >> 2), wl, wr, f, fm;   /* the mid, Q22 */
@@ -743,11 +742,16 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
         f -= d->dcy;
         if (d->wg != wgt) d->wg += d->wg < wgt ? (wgt - d->wg > 74 ? 74 : wgt - d->wg) : -(d->wg - wgt > 74 ? 74 : d->wg - wgt);
 #if GD_DIFF
-        if (d->sc) {                                    /* (SYNC: the input GD_SYNCC samples later, gd_target) */
+        {                                               /* SYNC: the input GD_SYNCC samples later (gd_target); the
+                                                         * pre-delay runs all the time the delay is on, and the line
+                                                         * crossfades between it and the direct input over 23 ms when
+                                                         * the compensation comes on or goes off (as gd_tap's tap does:
+                                                         * no stretch of silence, no dropped stretch, into the repeats) */
             int32_t o = d->pre[pi];
             d->pre[pi] = x;
             pi = pi + 1u >= GD_SYNCC ? 0u : pi + 1u;
-            x = o;
+            if (d->pw != pwt) d->pw += d->pw < pwt ? 32 : -32;
+            if (d->pw) x = d->pw == 32768 ? o : x + mq15(o - x, d->pw);
         }
 #endif
         x += f;

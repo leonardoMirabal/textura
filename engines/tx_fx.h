@@ -175,7 +175,8 @@ typedef struct {
     int32_t pre[GD_SYNCC];                       /* SYNC: the input into the line this much later, the tap this much
                                                   * shorter (the loop's group delay: each repeat on the beat) */
     uint16_t prei;                               /* (its place) */
-    uint8_t sc, scl;                             /* (SYNC's compensation this block, the last block's) */
+    int32_t pw;                                  /* (the pre-delayed input's share in the line, gliding: Q15) */
+    uint8_t sc;                                  /* (SYNC's compensation this block) */
 #endif
 } TX_LINE tx_fx_grain_t;   /* (TX_LINE: its own cache lines on the FM-1) */
 void tx_fx_grain_init(tx_fx_grain_t *d);

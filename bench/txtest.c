@@ -1549,6 +1549,56 @@ static void check_fx_grain_sync(tx_fx_t *fx)
              wk[0], wk[1], wk[2]);
     verdict("fx", "grain sync", worst <= 3.0, msg, 0);
 }
+/* SYNC's compensation switched (F round 3: it came on from a zeroed pre-delay, 6.4 ms of silence into the line, and
+ * went off dropping it): a steady noise in, MIX 127, FEEDBACK 0, SYNC 120 BPM 1/8; GRAIN 1 -> 0 at 1.0 s and back at
+ * 2.0 s (the compensation off and on), SYNC off at 3.0 s and on at 4.0 s. GRAIN 1: the grains barely there, so a gap
+ * in the line is heard whole in its repeat (at 64 they smear it to a 5 dB dip). The wet's level in 128-sample windows
+ * from each switch to a delay and a half after it (where its repeat lands) against the second before the first
+ * switch: never more than 6 dB down (a crossfade's middle, two noises: 3 dB) */
+static void check_fx_grain_sync_switch(tx_fx_t *fx)
+{
+    tx_fx_grain_t *d = &fx->gd;
+    int32_t L[TX_BLOCK], R[TX_BLOCK];
+    static double y[44100u * 5u];
+    uint32_t rng = 9u, b, j, i, S = 11025u, ns = 44100u * 5u / TX_BLOCK * TX_BLOCK;
+    double ref = 0, worst = 0;
+    static const uint32_t SW[] = {44100u, 88200u, 132300u, 176400u};
+    char msg[240];
+    tx_fx_grain_init(d);
+    tx_fx_grain_param(d, TX_GD_MIX, 127); tx_fx_grain_param(d, TX_GD_FEEDBACK, 0); tx_fx_grain_param(d, TX_GD_GRAIN, 1);
+    tx_fx_grain_sync(d, S);
+    for (b = 0; b < ns / TX_BLOCK; b++) {
+        uint32_t t = b * TX_BLOCK;
+        if (t == 44032u) tx_fx_grain_param(d, TX_GD_GRAIN, 0);   /* (the block that holds each switch's second) */
+        if (t == 88064u) tx_fx_grain_param(d, TX_GD_GRAIN, 1);
+        if (t == 132096u) tx_fx_grain_sync(d, 0);
+        if (t == 176384u) tx_fx_grain_sync(d, S);
+        for (j = 0; j < TX_BLOCK; j++) {
+            rng = rng * 1664525u + 1013904223u;
+            L[j] = R[j] = ((int32_t)(rng >> 8) - 8388608) / 16;
+        }
+        d->cap = TX_GD_MAXG;
+        tx_fx_grain_process(d, L, R, TX_BLOCK);
+        for (j = 0; j < TX_BLOCK; j++) y[t + j] = ((double)L[j] + R[j]) / 2;
+    }
+    for (i = 0; i < 44032u - 128u; i += 128u) {   /* (the reference: 0 .. 1 s, after the first repeats built up) */
+        double e = 0;
+        if (i < 22050u) continue;
+        for (j = 0; j < 128u; j++) e += y[i + j] * y[i + j];
+        ref += e;
+    }
+    ref /= (44032.0 - 22050.0) / 128.0;
+    for (b = 0; b < 4u; b++)
+        for (i = SW[b] - 512u; i + 128u < SW[b] + S * 3u / 2u && i + 128u <= ns; i += 128u) {
+            double e = 0, db;
+            for (j = 0; j < 128u; j++) e += y[i + j] * y[i + j];
+            db = 10 * log10((e + 1) / (ref + 1));
+            if (-db > worst) worst = -db;
+        }
+    snprintf(msg, sizeof msg, "grain delay SYNC switched (GRAIN 1 <-> 0, SYNC off / on, a steady noise): the wet at most %.1f dB down in 3 ms windows (6 at most: no gap)",
+             worst);
+    verdict("fx", "grain sync switch", worst <= 6.0, msg, 0);
+}
 /* the grain delay's level and overlap (the unit, 0.2.1: the delay faint at high GRAINS, never a cloud): noise in, MIX
  * 127, GRAIN 127, FEEDBACK 0; the wet's level re the input at GRAINS 1 .. 30, scattered (SPRAY 20) and as copies of
  * one read (SPRAY 0): flat (it fell 1 / sqrt(N), -12 dB from 2 to 30). And the cap under GRAINS (4 of 30): the four
@@ -2662,6 +2712,7 @@ static void check_fx(FILE *update)
         check_fx_grain_wow(fx);
         check_fx_grain_diffusion(fx);
         check_fx_grain_sync(fx);
+        check_fx_grain_sync_switch(fx);
         check_fx_drywet(fx);
         check_fx_hq(fx);
     }
@@ -2820,6 +2871,7 @@ int main(int argc, char **argv)
         check_fx_grain_wow(fx);
         check_fx_grain_diffusion(fx);
         check_fx_grain_sync(fx);
+        check_fx_grain_sync_switch(fx);
         free(fx);
         return fails ? 1 : 0;
     }
