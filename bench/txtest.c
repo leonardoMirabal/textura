@@ -2096,6 +2096,20 @@ static void check_mfilter_ends(void)
     (void)n;
     verdict("fx", "mfilter ends", ok, msg, 0);
 }
+/* the FILTER's reciprocal (tx_fx_mfilter_recip, the coefficients' 1 / (1 + g (g + k))): exactly floor(2^43 / den) over
+ * its whole range, den 65536 .. 2^26 (the HIGH PASS at 127 reaches ~3.7M; (r << 12) overflowed past 2^20, ~18.5 kHz) */
+static void check_mfilter_recip(void)
+{
+    uint32_t den, bad = 0, worst = 0, at = 0;
+    char msg[160];
+    for (den = 65536u; den < (1u << 26); den += 1u + (den >> 12)) {
+        int64_t want = ((int64_t)1 << 43) / den, got = tx_fx_mfilter_recip(den);
+        uint32_t e = (uint32_t)(got > want ? got - want : want - got);
+        if (e) { bad++; if (e > worst) { worst = e; at = den; } }
+    }
+    snprintf(msg, sizeof msg, "1 / den in Q27, den 65536 .. 2^26: %u wrong, worst %u at den %u", bad, worst, at);
+    verdict("fx", "mf recip", !bad, msg, 0);
+}
 static void check_mfilter(void)
 {
     tx_fx_mfilter_t f;
@@ -2701,6 +2715,7 @@ int main(int argc, char **argv)
         return fails ? 1 : 0;
     }
     if (argc > 1 && !strcmp(argv[1], "--mfilter")) {       /* the mix FILTER's checks alone */
+        check_mfilter_recip();
         check_mfilter();
         check_mfilter_shape();
         check_mfilter_reso();
@@ -2727,6 +2742,7 @@ int main(int argc, char **argv)
     check_chamber(update);
     check_layers(update);
     check_fx(update);
+    check_mfilter_recip();
     check_mfilter();
     check_mfilter_shape();
     check_mfilter_reso();

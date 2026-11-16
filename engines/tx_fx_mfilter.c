@@ -53,15 +53,18 @@ uint32_t tx_fx_mfilter_us(const tx_fx_mfilter_t *f)
                 + (f->p[TX_MF_SLOPE] == TX_MF_S18 || f->w3 ? TX_FX_US_MF_POLE : 0u));
 }
 
-static int32_t mf_recip27(uint32_t den)                     /* 2^43 / den (den Q16) = 1 / den in Q27, 32-bit only */
+int32_t tx_fx_mfilter_recip(uint32_t den)                  /* 2^43 / den (den Q16) = 1 / den in Q27, 32-bit only */
 {
-    uint32_t q = 0x80000000u / den, r = 0x80000000u - q * den;
-    return (int32_t)((q << 12) + (r << 12) / den);
+    uint32_t q = 0x80000000u / den, r = 0x80000000u - q * den, q1, q2;
+    q1 = (r << 6) / den; r = (r << 6) - q1 * den;       /* (the last 12 bits in two steps of 6: r < den < 2^26, so
+                                                         * r << 6 fits; one step of 12 overflowed past den 2^20) */
+    q2 = (r << 6) / den;
+    return (int32_t)((q << 12) + (q1 << 6) + q2);
 }
 typedef struct { int32_t a1, a2, a3, k; } mf_coef_t;       /* 1 / (1 + g (g + k)), g a1, g a2 (Q27); k (Q24) */
 static void mf_coef(mf_coef_t *c, int32_t g24, int32_t k24)
 {
-    c->a1 = mf_recip27(65536u + (uint32_t)(((int64_t)g24 * (g24 + k24)) >> 32));
+    c->a1 = tx_fx_mfilter_recip(65536u + (uint32_t)(((int64_t)g24 * (g24 + k24)) >> 32));
     c->a2 = (int32_t)(((int64_t)g24 * c->a1) >> 24);
     c->a3 = (int32_t)(((int64_t)g24 * c->a2) >> 24);
     c->k = k24;
@@ -211,7 +214,7 @@ void tx_fx_mfilter_process(tx_fx_mfilter_t *f, int32_t *L, int32_t *R, unsigned 
             }
             if (w3 || w31) {                                /* 18 dB: the one-pole stage (its share x the edge's) */
                 int32_t v0 = (int32_t)(((int64_t)w3 * w) >> 15), v1 = (int32_t)(((int64_t)w31 * w1) >> 15);
-                int32_t G = (int32_t)(((int64_t)g * mf_recip27(65536u + ((uint32_t)g >> 8))) >> 27);   /* (Q24) */
+                int32_t G = (int32_t)(((int64_t)g * tx_fx_mfilter_recip(65536u + ((uint32_t)g >> 8))) >> 27);   /* (Q24) */
                 mf_run1(L + sb, R + sb, len, f->s3[e], G, e == 0u, v0, (v1 - v0) / (int32_t)MF_SUB);
             }
             f->w[e] = w1;

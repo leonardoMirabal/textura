@@ -102,6 +102,7 @@ typedef struct {
 void tx_fx_mfilter_init(tx_fx_mfilter_t *f);
 void tx_fx_mfilter_param(tx_fx_mfilter_t *f, unsigned id, unsigned v);
 void tx_fx_mfilter_process(tx_fx_mfilter_t *f, int32_t *L, int32_t *R, unsigned n);   /* Q23, in place (in XIP) */
+int32_t tx_fx_mfilter_recip(uint32_t den);   /* 2^43 / den, exact (floor), den (Q16) in 65536 .. 2^26: the coefficients' 1 / x */
 uint32_t tx_fx_mfilter_us(const tx_fx_mfilter_t *f);   /* its FM-1 cost now, us a block (0: off) */
 
 /* ---- GRAIN DELAY (on the mix, before the reverb; tx_fx_grain.c): a delay whose repeats are grained */
