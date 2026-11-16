@@ -87,10 +87,10 @@ static int settings_save_start(const void *p, uint32_t n) { return settings_save
 static int settings_save_poll(void) { return 0; }
 
 /* Textura: a window of the flash for the app's own records (the scene banks: scenes.c), WEB_FLW_LEN bytes from
- * store.h's slots; the page keeps it in localStorage too (web_flw, web_flw_take_dirty) */
+ * store.h's scenes; the page keeps it in localStorage too (web_flw, web_flw_take_dirty) */
 #include "store.h"
-#define WEB_FLW_AT SLOTS_AT
-#define WEB_FLW_LEN 0x8000u
+#define WEB_FLW_AT SCENES_AT
+#define WEB_FLW_LEN (SCENES_SECT * 0x1000u)
 static uint8_t web_flw[WEB_FLW_LEN], web_flw_ok, web_flw_dirty;
 static int web_flw_in(uint32_t at, uint32_t n)
 {

@@ -55,4 +55,20 @@ for ch in ("vl", "vr"):
     ok = ok and 0 <= k < c and f"{ch} = {ch} > 0 ? UAC_KNEE + (({ch} - UAC_KNEE) >> 1) : -UAC_KNEE - ((-{ch} - UAC_KNEE) >> 1);" in tap
 check(ok, "usb: the 48 kHz tap's knee before its clamp (UAC_KNEE 24576, both channels: a loud passage clamped flat)")
 
+# the update staging per unit (platform.c tx_ota_pick, store.h): 0xE0000 is in V16's SEQ64, so a unit that came from
+# V16 (no 55 AA AA 55 at 0x93000, V15's VM start) stages at 0xA9000, in no region of V16's; a V15 unit at 0xE0000,
+# where only a record left there is erased, never the stock data the sectors may hold. At power-on, before the screen
+plat = src("platform.c")
+pick = body(plat, "static void tx_ota_pick(void)")
+check("st_read(0x93000u, m, 4)" in pick and "m[0] == 0x55u && m[1] == 0xAAu && m[2] == 0xAAu && m[3] == 0x55u" in pick and
+      "tx_ota_area = TX_OTA_V15;" in pick and "if (rec) ota_unstage();" in pick and
+      re.search(r"\} else\s+ota_boot_cleanup\(\);", pick) is not None,
+      "ota: the staging picked per unit (V15's VM marker: 0xE0000, a record only erased; else V16's gap 0xA9000)")
+check(re.search(r"static uint32_t tx_ota_area = TX_OTA_V16;.*?#include \"ota.c\"", plat, re.S) is not None and
+      re.search(r"flash_ok = FL_JEDEC_OK\(FL_FAR\(fl_jedec_ram\)\(\)\);\n#endif\n#ifdef TX_OTA_V15\n\s+tx_ota_pick\(\);", plat)
+      is not None, "ota: ... picked at power-on once the flash is known, V16's place until then (the USB rescue)")
+store = src("store.h")
+check("#define OTA_AREA tx_ota_area" in store and "#ifndef OTA_AREA" in src("ota.c"),
+      "ota: ota.c stages at the picked place (store.h OTA_AREA), not its fixed 0xE0000")
+
 sys.exit(1 if fails else 0)

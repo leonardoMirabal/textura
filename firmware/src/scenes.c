@@ -54,8 +54,8 @@
 #define SCN_SLOT 1020u                          /* a record's bytes in the bank */
 #define SCN_REC_MAX 244u                        /* (id, value) records a scene holds at most */
 #define SCN_BANK_SECT 4u                        /* a bank copy: 4 KiB sectors */
-#define SCN_BANK_A SLOTS_AT                     /* (store.h; stage 8 settles the place) */
-#define SCN_BANK_B (SLOTS_AT + SCN_BANK_SECT * 0x1000u)
+#define SCN_BANK_A SCENES_AT                    /* (store.h: the store's map, why there) */
+#define SCN_BANK_B (SCENES_AT + SCN_BANK_SECT * 0x1000u)
 #define SCN_MAGIC 0x42535854u                   /* "TXSB" */
 #define SCN_VER 1u
 #define SCN_CHUNK 255u                          /* a save writes this much a pass (SCN_SLOT = 4 chunks) */
@@ -90,7 +90,7 @@ typedef struct { uint32_t magic, seq, len, crc; } scn_hdr_t;
 _Static_assert(sizeof(scn_t) == SCN_SLOT, "a scene record is SCN_SLOT bytes");
 _Static_assert(SCN_SLOT % SCN_CHUNK == 0u, "a record is whole chunks");
 _Static_assert(sizeof(scn_hdr_t) + SCN_NU * SCN_SLOT <= SCN_BANK_SECT * 0x1000u, "a bank copy fits its sectors");
-_Static_assert(SCN_BANK_B + SCN_BANK_SECT * 0x1000u <= SLOTS_AT + NSLOT * SLOT_SECT * 0x1000u, "the banks in the slots area");
+_Static_assert(SCN_BANK_B + SCN_BANK_SECT * 0x1000u == SCENES_AT + SCENES_SECT * 0x1000u, "the banks fill store.h's scenes");
 
 /* ---- the flash (the host and the web: the platform's window; the FM-1: platform.c's, an erase stalls the sound
  * ~50 ms until stage 8 gives the banks the split erase the settings have) */

@@ -156,9 +156,9 @@ static int host_fl_check(const char *what, uint32_t at, uint32_t n)
     return 0;
 }
 /* Textura: a window of the flash the app keeps its own records in (the scene banks: scenes.c), HOST_FLW_LEN bytes
- * from store.h's slots, erased (0xFF) at the start; checked as above, kept in the FRODHES_FLASH file after the rest */
-#define HOST_FLW_AT SLOTS_AT
-#define HOST_FLW_LEN 0x8000u
+ * from store.h's scenes, erased (0xFF) at the start; checked as above, kept in the FRODHES_FLASH file after the rest */
+#define HOST_FLW_AT SCENES_AT
+#define HOST_FLW_LEN (SCENES_SECT * 0x1000u)
 static uint8_t host_flw[HOST_FLW_LEN], host_flw_ok;
 static int host_flw_in(uint32_t at, uint32_t n)
 {
@@ -244,12 +244,12 @@ static int settings_save_start(const void *p, uint32_t n)
 
 /* The flash across power cycles: with FRODHES_FLASH=FILE the run starts from FILE's flash (if it exists) and writes
  * the flash back at its end, so a second run is the FM-1 switched on again. Only what the firmware saved is there.
- * FILE is five 4 KiB sectors as on the FM-1: the settings ([magic DNGY][len][crc32] + the record, platform.c's
+ * FILE is five 4 KiB sectors as on the FM-1: the settings ([magic TXST][len][crc32] + the record, platform.c's
  * format and checks), the preset bank A / B (presets.c), the pattern A / B (seq.c). */
 static uint8_t host_bank[2][4096];              /* presets.c's and seq.c's sectors (their definitions: there) */
 static uint8_t sq_host_fl[2][4096];
 static uint32_t crc32(const uint8_t *p, uint32_t n);   /* presets.c (host) */
-#define HOST_FLASH_MAGIC 0x59474E44u            /* "DNGY", platform.c SETTINGS_MAGIC */
+#define HOST_FLASH_MAGIC STORE_MAGIC            /* ("TXST", store.h) */
 static void host_flash_load(const char *path)
 {
     static uint8_t img[5][4096];

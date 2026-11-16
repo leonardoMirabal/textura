@@ -183,6 +183,9 @@ static uint8_t recovery_active;
 #else
 #define OTA_IDENTITY (recovery_active ? "FM-1_000" : FELUCCA_ID)
 #endif
+#ifdef TX_OTA_V15
+static uint32_t tx_ota_area = TX_OTA_V16;      /* (store.h OTA_AREA: tx_ota_pick at power-on) */
+#endif
 #include "ota.c"
 static void recovery_poll(void);
 static uint32_t ota_now_ms(void) { return fm1_ms; }
@@ -192,6 +195,24 @@ static void ota_idle(void)
     if (recovery_active) recovery_poll();
 }
 static int ota_in_area(uint32_t off, uint32_t n) { return FL_IN(off, n, OTA_AREA, OTA_AREA + OTA_AREA_LEN); }
+#ifdef TX_OTA_V15
+/* the update staging where the stock firmware this unit came from has no data (as Frodhes: store.h has the map).
+ * V15's VM (its settings store) starts 55 AA AA 55 at 0x93000: stage at its end, 0xE0000 (as Felucca and Frodhes on
+ * such a unit), and erase only a record left there, never the stock data the sectors may hold; else (V16: its image's
+ * end at 0x93000) in V16's gap at 0xA9000..0xADFFF, which no region of V16's covers (0xE0000 is in V16's SEQ64) */
+static void tx_ota_pick(void)
+{
+    uint8_t m[8];
+    uint32_t i, rec = 0;
+    if (flash_ok && !st_read(0x93000u, m, 4) && m[0] == 0x55u && m[1] == 0xAAu && m[2] == 0xAAu && m[3] == 0x55u) {
+        tx_ota_area = TX_OTA_V15;
+        if (!st_read(OTA_RES, m, 8))
+            for (i = 0; i < 8u; i++) rec |= m[i] != 0xFFu;
+        if (rec) ota_unstage();
+    } else
+        ota_boot_cleanup();
+}
+#endif
 static int ota_erase(uint32_t off)
 {
     uint32_t took;
@@ -630,7 +651,11 @@ void fm1_cstart(void)
 #else
     flash_ok = FL_JEDEC_OK(FL_FAR(fl_jedec_ram)());
 #endif
+#ifdef TX_OTA_V15
+    tx_ota_pick();
+#else
     ota_boot_cleanup();
+#endif
     lcd_init();
     lcd_fill(0, 0, 240, 240, C_BLACK);
     fm1_input_init();

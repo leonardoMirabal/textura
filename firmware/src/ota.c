@@ -6,7 +6,8 @@
  *   cmd 0x11  handshake -> we answer our package identity (FELUCCA_ID)
  *   F0 22 24 35 7F F7  upgrade -> ota_session(): pull parts of the package
  *     with cmd 0x30 read requests, check them, stage the package's update
- *     loader at 0xE0000 (outside Felucca's store; SMK: 0xBB000), ask 0xE0000000 ("success"),
+ *     loader at 0xE0000 (outside Felucca's store; SMK: 0xBB000; Textura: 0xA9000 on a unit that came
+ *     from V16, store.h), ask 0xE0000000 ("success"),
  *     then write the UPDATA_PARM record (flash 0xE4F00, SMK 0xBFF00, + RAM 0x01C7FD88) and
  *     reset. The SPL runs the loader, which installs the package.
  * Nothing is committed before the host's "success"; any failure erases the
@@ -33,7 +34,9 @@
 #define OTA_PARM_ID "ota-" SMK_MODEL "_016"       /* the stock app's parm identity (Pro 18 B, Elite 20 B) */
 _Static_assert(OTA_AREA + OTA_AREA_LEN <= 0xC0000u && OTA_AREA >= 0x9D000u, "SMK: OTA area outside the VM");
 #else
+#ifndef OTA_AREA                                 /* (the app may give its own: Textura, store.h, picked per unit) */
 #define OTA_AREA 0x000E0000u                     /* staged loader, 5 x 4 KiB */
+#endif
 #define OTA_AREA_LEN 0x5000u
 #define OTA_RES (OTA_AREA + OTA_AREA_LEN - 0x100u)  /* 0xE4F00 = 4K boundary - 256: SPL scan */
 #define OTA_PARM_ID "ota-FM-1_015"

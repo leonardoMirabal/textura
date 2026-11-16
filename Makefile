@@ -171,7 +171,11 @@ $(FW)/lanes_test_pipe: tests/lanes_test.c firmware/src/lanes.c $(ENG_SRC) $(ENG_
 	@mkdir -p $(FW)
 	$(CC) $(CSTD) -Wno-unused-function -Ifirmware/src -O1 -g -fsanitize=thread -DLANES_TEST_PAR -DLANES_TEST_PIPE -o $@ tests/lanes_test.c $(ENG_SRC) -lm -lpthread
 
-fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textura-host $(FW)/textura-host-ub
+$(FW)/set_ab_test: tests/set_ab_test.c tests/fl_host_model.h firmware/src/set_store.c firmware/src/store.h firmware/hal/fm1_flash.h firmware/hal/fm1_flash_map.h
+	@mkdir -p $(FW)
+	$(CC) -O1 -Wall -Wno-unused-function -Wno-int-to-pointer-cast -Ifirmware/hal -o $@ tests/set_ab_test.c
+
+fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textura-host $(FW)/textura-host-ub $(FW)/set_ab_test
 	@python3 -I tools/gen_landscapes.py --check || exit 1; \
 	python3 -I tools/gen_presets.py --check || exit 1; python3 -I tools/gen_font1.py --check || exit 1; \
 	$(FW)/lanes_test || exit 1; \
@@ -193,6 +197,7 @@ fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textu
 	   HOST_ENGINE_FAT=thunder $(FW)/textura-host-ub $(FW)/fault_fat tests/fault/engine_fat.txt > $(FW)/fault_fat.log 2>&1; \
 	then echo "ok    host faults (tests/fault: a scene's engine missing or too big: the lane empty, the load ends, UBSan clean)"; \
 	else echo "FAIL  host faults ($(FW)/fault_drop.log, fault_fat.log)"; fail=1; fi; \
+	$(FW)/set_ab_test > $(FW)/set_ab.log 2>&1 && echo "ok    settings A / B (tests/set_ab_test.c: a power cut at every step of a save keeps the older record; the store's map)" || { echo "FAIL  settings A / B ($(FW)/set_ab.log)"; fail=1; }; \
 	python3 -I tests/platform_check.py > $(FW)/platform.log 2>&1 && echo "ok    platform (tests/platform_check.py: the device-only paths in their source)" || { echo "FAIL  platform ($(FW)/platform.log)"; fail=1; }; \
 	python3 -I tests/clock_check.py > $(FW)/clock.log 2>&1 && echo "ok    clock (tests/clock_check.py)" || { echo "FAIL  clock ($(FW)/clock.log)"; fail=1; }; \
 	python3 -I tests/ports_check.py > $(FW)/ports.log 2>&1 && echo "ok    ports (tests/ports_check.py: Textura first, never Frodhes beside it)" || { echo "FAIL  ports ($(FW)/ports.log)"; fail=1; }; \
