@@ -1,1 +1,11 @@
+# .local/venv (make setup). Pillow: the font rasteriser of make fw-fonts (another version rasterises a few pixels
+# differently); mido + python-rtmidi: the installer and the FM-1 tools; numpy / scipy / matplotlib: the analysis and
+# table generators; playwright: the browser checks; markitdown: tools/doc2md.sh
 markitdown[pdf]==0.1.8
+matplotlib==3.11.2
+mido==1.3.3
+numpy==2.5.4
+pillow==13.0.0
+playwright==1.64.0
+python-rtmidi==1.5.8
+scipy==1.18.1

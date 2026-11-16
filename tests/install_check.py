@@ -10,7 +10,7 @@ location, a product name, MIDI ports and a running firmware or an update loader 
   - two units of one name: refused before anything is sent; --location on a non-FM-1: refused;
   - --info lists every FM-1 with its location, USB name and state, nothing sent; --query asks identities, never a
     loader's unless --location names it.
-Needs Frodhes' tools/fm1_install.py (the staged tree or its git: skipped, and said so, without either)."""
+Uses tools/fm1_install.py (Frodhes' v0.9.5 installer, kept here with its header)."""
 import importlib.util
 import io
 import queue

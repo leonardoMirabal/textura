@@ -4,59 +4,51 @@
 """Build txfm1, Textura's bench firmware for the FM-1 (bench/fm1/txfm1.c): the engines timed in the audio interrupt.
 Adapted from Frodhes' tools/build.py (the update loader, the image, the package; the Rhodes checks dropped).
 
-  tools/fm1_bench.py [--frodhes ../frodhes] [--rev v0.9.5] [--eng-opt -Os|-O2] [--id FM-1_959] [--app] [--no-twins]
+  tools/fm1_bench.py [--eng-opt -Os|-O2] [--id FM-1_959] [--app] [--no-twins]
 
 Core 1's twins (TX_C1, engines/tx_engine.h): every engine file with TX_RAM code is built a second time as
 o/NAME_c1.o, its TX_RAM functions renamed NAME_c1 and placed in XIP (twin_headers), so core 1 never fetches code from
 RAM while core 0 does; the link keeps only the twins core 1 calls, and twin_check fails the build if a twin keeps flash
 code of its own (a second copy: that function wants TX_SHARE). --no-twins builds without them (an A/B).
 
---app builds the real app instead (firmware/src/textura.c, the whole of Textura's firmware/src and firmware/gen over
-Frodhes'), to measure its true flash and RAM: build/fm1/textura-app.{bin,elf,map} and textura-app.fwsc. It is also
+--app builds the real app instead (firmware/src/textura.c), to measure its true flash and RAM: build/fm1/textura-app.{bin,elf,map} and textura-app.fwsc. It is also
 linked once with app.ld's XIP, RAM and POOL made large (a measuring link, never an image): the true sizes of every
 section and every object over 1 KB (build/fm1/textura-app-objects.txt), so an app that does not fit can still be read
 object by object (--measure: that report only, no image).
 
-The device side of Dinghy's platform (hal/, crt0, app.ld, the loader, usb.c, lcd.c, ota.c ...) is read from Frodhes'
-git at --rev (git archive: its checkout is never touched) into build/fm1/tree; Textura's own platform.c / gfx.c / fonts
-and the engines go over it; usb.c's product and manufacturer strings are made "Textura" (the device, the MIDI port
-and the audio interface; usb_name) and the app's USB product id is USB_PID. The JieLi toolchain
-(.local/jieli/toolchain, Linux x86-64) runs in one linux/amd64 Docker container. Outputs in build/fm1: txfm1.bin, txfm1.elf, txfm1.map, stack.txt, textura-bench.fwsc.
+The device side of the platform (firmware/hal, crt0.S, app.ld, firmware/loader, usb.c, lcd.c, ota.c ...: Frodhes'
+v0.9.5 files, kept in this repository with their headers) is copied with firmware/src, firmware/gen, the engines and
+the package tools into build/fm1/tree, and built there. usb.c names the device, its MIDI port and audio interface
+"Textura FM-1" (USB_NAME, checked at the stage) and the app's USB product id is USB_PID. The JieLi toolchain
+(.local/jieli/toolchain, Linux x86-64; make setup) runs in one linux/amd64 Docker container; the package needs three
+files of the JieLi AC79 SDK (.local/fw-AC79_AIoT_SDK; make setup). Outputs in build/fm1: txfm1.bin, txfm1.elf, txfm1.map, stack.txt, textura-bench.fwsc.
 Nothing here is committed: build/ and .local/ are ignored.
 """
 import argparse
 import hashlib
-import io
 import os
 import re
 import shutil
 import struct
 import subprocess
 import sys
-import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "build" / "fm1"
 TREE = OUT / "tree"
-# Frodhes' repository: the sibling of the repo root, also from a worktree or a copy nested under build/ (the first
-# ancestor with a frodhes/.git beside it)
-FRODHES = next((d.parent / "frodhes" for d in (ROOT, *ROOT.parents) if (d.parent / "frodhes" / ".git").exists()),
-               ROOT.parent / "frodhes")
 APP_XIP = 0x02000120
 LOADER_LOAD = 0x01C0A800
 RAM_AT, RAM_LEN = 0x01C06000, 0x70800     # app.ld's RAM: the debug gap, .data / .bss and the pool, one region
 NOINIT_LEN = 0x3D50
 LOADER_NAME = b"usb_hid_ota.bin"
 CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-function"]
-FR_FILES = ["firmware/hal", "firmware/crt0.S", "firmware/app.ld", "firmware/loader", "firmware/src",
-            "tools/fm1pkg_make.py", "tools/lz4blk.py", "tools/fm1_install.py"]
-TX_OVER = ["firmware/app.ld", "firmware/src/platform.c", "firmware/src/core1.h", "firmware/src/gfx.c", "firmware/gen/felucca_font.h", "firmware/gen/felucca_font1.h", "firmware/hal/fm1_cc.h",
-           "firmware/hal/fm1_flash_map.h"]
+STAGE = ["firmware/hal", "firmware/crt0.S", "firmware/app.ld", "firmware/loader", "firmware/src", "firmware/gen",
+         "tools/fm1pkg_make.py", "tools/lz4blk.py", "tools/fm1_install.py"]
 
 
 # Textura's own USB identity in the app and the bench (never the update loader: FELUCCA_LOADER keeps 1209:0002, "Felucca
-# Update", Hügelton Instruments). Frodhes' usb.c (its header kept) is rewritten as it is copied:
+# Update", Hügelton Instruments). usb.c (Frodhes', its header kept) carries the strings; the stage checks them:
 #   STR2, the product: the device, its MIDI port (the jacks are named by it) and its audio interface: "Textura FM-1"
 #     ("FM-1" in it: the web installers, thefirmwarehub.com's among them, probe only ports whose name has "fm-1",
 #     "felucca", "sloop", ...; without it a unit on Textura could not be given another firmware from there)
@@ -69,10 +61,6 @@ TX_OVER = ["firmware/app.ld", "firmware/src/platform.c", "firmware/src/core1.h",
 USB_NAME = "Textura FM-1"
 USB_MAKER = "Textura"
 USB_PID = 0x000A
-USB_STR2_RE = re.compile(r"static const uint8_t STR2\[\] = \{16, 3, 'F', 0, 'r', 0, 'o', 0, 'd', 0, 'h', 0, 'e', 0, 's', 0\};")
-USB_STR1_RE = re.compile(r"static const uint8_t STR1\[\] = \{42, 3, 'H', 0, 0xFC, 0, [^;]*\};\n")
-
-
 def str_desc(text):
     """a USB string descriptor's C initialiser (UTF-16LE, ASCII only): bLength, 3, the characters"""
     if not text.isascii() or not 0 < len(text) <= 126:
@@ -80,34 +68,25 @@ def str_desc(text):
     return "{" + ", ".join([str(2 + 2 * len(text)), "3"] + [f"'{c}', 0" for c in text]) + "}"
 
 
-def usb_name(path):
+def usb_check(path):
+    """usb.c's app strings are USB_NAME (STR2) and USB_MAKER (STR1), each once, the loader's kept apart"""
     src = path.read_text(encoding="utf-8")
-    new, k = USB_STR2_RE.subn(lambda m: f"static const uint8_t STR2[] = {str_desc(USB_NAME)};   /* Textura", src)
-    new, k1 = USB_STR1_RE.subn(lambda m: f"#ifdef FELUCCA_LOADER\n{m.group(0)}#else\nstatic const uint8_t STR1[] = "
-                                         f"{str_desc(USB_MAKER)};   /* Textura (tools/fm1_bench.py) */\n#endif\n", new)
-    if (k, k1) != (1, 1):
-        raise SystemExit(f"fm1_bench: {path}: the app's STR2 (\"Frodhes\") or STR1 (the manufacturer) not found once "
-                         f"({k}, {k1}): the USB name")
-    path.write_text(new.replace("/* Textura   /* Frodhes: the", "/* Textura (tools/fm1_bench.py; Frodhes: the", 1),
-                    encoding="utf-8")
+    for what, text in (("STR2", USB_NAME), ("STR1", USB_MAKER)):
+        if src.count(f"static const uint8_t {what}[] = {str_desc(text)};") != 1:
+            raise SystemExit(f"fm1_bench: {path}: {what} is not {text!r} once (the USB name; tools/fm1_bench.py)")
+    if src.count("#ifdef FELUCCA_LOADER") < 2:
+        raise SystemExit(f"fm1_bench: {path}: the loader's own strings (FELUCCA_LOADER) not found")
 
 
-def stage(frodhes, rev, app=False):
+def stage(app=False):
     if TREE.exists():
         shutil.rmtree(TREE)
     TREE.mkdir(parents=True)
-    tar = subprocess.run(["git", "-C", str(frodhes), "archive", "--format=tar", rev, *FR_FILES], capture_output=True)
-    if tar.returncode:
-        raise SystemExit(f"fm1_bench: git archive {rev} in {frodhes} failed: {tar.stderr.decode().strip()}")
-    with tarfile.open(fileobj=io.BytesIO(tar.stdout)) as t:
-        t.extractall(TREE, filter="data")
-    for rel in TX_OVER:
-        (TREE / rel).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / rel, TREE / rel)
-    if app:                                   # (the app: all of Textura's own sources over Frodhes')
-        for d in ("firmware/src", "firmware/gen"):
-            shutil.copytree(ROOT / d, TREE / d, dirs_exist_ok=True)
-    usb_name(TREE / "firmware" / "src" / "usb.c")
+    for rel in STAGE:
+        src, dst = ROOT / rel, TREE / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        (shutil.copytree if src.is_dir() else shutil.copy2)(src, dst)
+    usb_check(TREE / "firmware" / "src" / "usb.c")
     shutil.copytree(ROOT / "engines", TREE / "engines")
     shutil.copytree(ROOT / "bench" / "fm1", TREE / "bench")
     if not app:
@@ -265,8 +244,6 @@ def ldr_wrap(image, lz4blk):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--frodhes", default=str(FRODHES))
-    ap.add_argument("--rev", default="v0.9.5", help="Frodhes' revision for the platform's device files (platform.c's)")
     ap.add_argument("--eng-opt", help="the engines' optimisation: the app -Os (on the FM-1 it costs ~1 %% CPU and saves "
                     "~41 KB of flash: the A0 probe), the bench -O2 (its timings comparable); the app's own code stays -Os")
     ap.add_argument("--id", default="FM-1_959", help="the package identity (fm1_install: MODEL_digits)")
@@ -289,7 +266,7 @@ def main():
     if not a.app and not (OUT / "gen" / "fm1_cfg.h").exists():
         raise SystemExit("fm1_bench: no build/fm1/gen/fm1_cfg.h (make fm1-gen)")
     if not a.no_stage:
-        stage(Path(a.frodhes), a.rev, a.app)
+        stage(a.app)
     hot = hot_names() if a.app and not a.no_hot else []
     if not a.no_stage:                         # the hot code at .text's start, in c1_hot.txt's order (app.ld's marker)
         ldp = TREE / "firmware" / "app.ld"

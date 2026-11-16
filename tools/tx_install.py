@@ -22,17 +22,15 @@ unit (exit 7): nothing is written to a unit that cannot be told apart. --info li
 location, USB name, MIDI ports and state, from ioreg and CoreMIDI only (nothing sent); --query also asks each unit's
 identity, never a loader's unless --location names it (another session may be writing it).
 
-The installer is read from build/fm1/tree (staged by make fm1-app / fm1-bench), else from Frodhes' git (git archive
-into build/fm1/install: its checkout is never touched). Needs mido with python-rtmidi (.local/venv).
+The installer is tools/fm1_install.py (Frodhes' v0.9.5 installer, kept with its header). Needs mido with python-rtmidi
+(.local/venv; make setup).
 """
 import argparse
 import importlib.util
-import io
 import queue
 import re
 import subprocess
 import sys
-import tarfile
 import time
 from pathlib import Path
 
@@ -41,27 +39,12 @@ sys.path.insert(0, str(HERE))                  # (python -I: the tools' own help
 import tx_ports  # noqa: E402
 
 ROOT = HERE.parent
-REV = "v0.9.5"                                 # (tools/fm1_bench.py's --rev)
-STAGED = ROOT / "build" / "fm1" / "tree" / "tools" / "fm1_install.py"
-OWN = ROOT / "build" / "fm1" / "install" / "fm1_install.py"
+INSTALLER = HERE / "fm1_install.py"            # (Frodhes' v0.9.5 installer, kept here with its header)
 AMBIGUOUS = 7                                  # exit: more than one unit could be the target
 
 
 def installer_path():
-    if STAGED.exists():
-        return STAGED
-    if not OWN.exists():
-        fr = next((d.parent / "frodhes" for d in (ROOT, *ROOT.parents) if (d.parent / "frodhes" / ".git").exists()),
-                  ROOT.parent / "frodhes")
-        tar = subprocess.run(["git", "-C", str(fr), "archive", "--format=tar", REV, "tools/fm1_install.py"],
-                             capture_output=True)
-        if tar.returncode:
-            raise SystemExit(f"tx_install: no {STAGED} and git archive {REV} in {fr} failed: "
-                             f"{tar.stderr.decode().strip()}")
-        OWN.parent.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(fileobj=io.BytesIO(tar.stdout)) as t:
-            OWN.write_bytes(t.extractfile("tools/fm1_install.py").read())
-    return OWN
+    return INSTALLER
 
 
 class RtLink:

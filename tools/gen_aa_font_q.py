@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
-"""Textura: Frodhes' gen_aa_font.py (read from its git by make fw-fonts) with fewer alpha levels.
+"""Textura: Frodhes' gen_aa_font.py (tools/fonts/, staged by make fw-fonts) with fewer alpha levels.
 
   gen_aa_font_q.py TOOLS_DIR BITS ARGS...   runs TOOLS_DIR/gen_aa_font.py ARGS with each pixel's coverage kept to
                                             2^BITS levels (4: Frodhes' 16, unchanged; 2: 0, 5, 10, 15 of 15)

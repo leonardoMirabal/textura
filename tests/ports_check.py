@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""The FM-1's port choice (tools/tx_ports.py, tools/tx_install.py) and its USB name (tools/fm1_bench.py), no device:
-"Textura" first, "Frodhes" only when named and never beside a Textura port; the installer's candidates the same; the
-product string descriptor 16 bytes. The installer part needs Frodhes' tools/fm1_install.py (the staged tree or its git:
-skipped, and said so, without either)."""
+"""The FM-1's port choice (tools/tx_ports.py, tools/tx_install.py) and its USB name (firmware/src/usb.c, checked as
+tools/fm1_bench.py does), no device: "Textura" first, "Frodhes" only when named and never beside a Textura port; the
+installer's candidates the same (tools/fm1_install.py)."""
 import importlib.util
 import sys
 from pathlib import Path
@@ -43,28 +42,17 @@ check(tx_ports.pick(["MOTU M6", "IAC Driver Bus 1"]) == [], "other gear: nothing
 
 b = mod("fm1_bench")
 check(b.str_desc("Textura") == "{16, 3, 'T', 0, 'e', 0, 'x', 0, 't', 0, 'u', 0, 'r', 0, 'a', 0}", "STR2 Textura: 16 bytes")
-str1 = ("static const uint8_t STR1[] = {42, 3, 'H', 0, 0xFC, 0, 'g', 0, 'e', 0,\n"
-        "                               'n', 0, 't', 0, 's', 0};\n")
-src = (str1 + "#ifdef FELUCCA_LOADER\nstatic const uint8_t STR2[] = {30, 3, 'F', 0};\n#else\n"
-       "static const uint8_t STR2[] = {16, 3, 'F', 0, 'r', 0, 'o', 0, 'd', 0, 'h', 0, 'e', 0, 's', 0};   /* Frodhes: the\n"
-       " * product */\n#endif\n")
-tmp = ROOT / "build" / "fw" / "ports_check_usb.c"
-tmp.parent.mkdir(parents=True, exist_ok=True)
-tmp.write_text(src)
-b.usb_name(tmp)
-out = tmp.read_text()
-check(b.str_desc(b.USB_NAME) in out and "fm-1" in b.USB_NAME.lower() and "'F', 0, 'r'" not in out
-      and "{30, 3, 'F', 0}" in out, "usb_name: the app's STR2 replaced (a name with FM-1: the web installers find it), the loader's kept")
-tex = "static const uint8_t STR1[] = {16, 3, 'T', 0, 'e', 0, 'x', 0, 't', 0, 'u', 0, 'r', 0, 'a', 0};"
-check(out.startswith("#ifdef FELUCCA_LOADER\n" + str1 + "#else\n" + tex), "usb_name: STR1 Textura, the loader's kept")
+usb = (ROOT / "firmware" / "src" / "usb.c").read_text(encoding="utf-8")
+check(usb.count(f"static const uint8_t STR2[] = {b.str_desc(b.USB_NAME)};") == 1 and "fm-1" in b.USB_NAME.lower(),
+      "usb.c: the app's STR2 is USB_NAME (a name with FM-1: the web installers find it)")
+check(usb.count(f"static const uint8_t STR1[] = {b.str_desc(b.USB_MAKER)};") == 1, "usb.c: the app's STR1 is Textura")
+check(usb.count("#ifdef FELUCCA_LOADER") >= 2 and "'F', 0, 'e', 0, 'l', 0" in usb and "0xFC, 0" in usb,
+      "usb.c: the loader's own strings kept (Felucca Update, H\u00fcgelton)")
+check("'F', 0, 'r', 0, 'o', 0, 'd', 0" not in usb, "usb.c: no Frodhes string")
+b.usb_check(ROOT / "firmware" / "src" / "usb.c")
+check(True, "fm1_bench.usb_check passes on usb.c")
 check(0x0001 <= b.USB_PID <= 0x0010 and b.USB_PID not in (1, 2, 4, 5, 6, 7, 8, 9) or b.USB_PID > 0x1FFF,
       f"USB_PID {b.USB_PID:#06x}: a free pid.codes test PID (interim) or a granted one, never Frodhes' / the loader's")
-try:
-    b.usb_name(tmp)
-    check(False, "usb_name: a second pass fails loudly")
-except SystemExit:
-    check(True, "usb_name: a second pass fails loudly")
-tmp.unlink()
 
 
 class Fake:

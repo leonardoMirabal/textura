@@ -5,8 +5,9 @@ Textura is a physically modelled texture synthesizer for the M-VAVE FM-1 (JieLi 
 sounds are computed, never sampled. The repository is `leonardoMirabal/textura` (private). `CLAUDE.md` is the short
 version. When this file and the code disagree, the code wins: fix the file.
 
-Many rules here come from the sister project Frodhes (`../frodhes`, its AGENTS.md), where they were learned on the
-same hardware. Each section says what exists (**done**), what is to be ported from Frodhes (**port**), and what is
+Textura is based on Frodhes (github.com/leonardoMirabal/frodhes, same author): its firmware platform and tools were
+copied in, and many rules here were learned there on the same hardware. The repository is self-contained: nothing
+builds, installs, tests or calibrates from a Frodhes checkout. Each section says what exists (**done**), what is to be ported from Frodhes (**port**), and what is
 still to be designed (**todo**).
 
 ## 1. Ground rules
@@ -36,6 +37,10 @@ still to be designed (**todo**).
   folders: run it before every commit.
 - **Research is private**: papers, notes, plans, reports live in `.private/` (git-ignored, never pushed). The
   README and public files never cite papers.
+- **Self-contained**: no tool, target, test or doc step may read a sibling repository (`../frodhes` included). Code
+  we take from Frodhes is copied in with its header; third-party tooling (the JieLi toolchain and SDK files,
+  Emscripten, Chromium, the fonts) is fetched by `make setup` from its own public source into `.local/`, pinned by
+  sha256 where the source allows it.
 - **Keep everything inside the project folder**: tools in `.local/`, outputs in `build/`, research in `.private/`.
   Never delete or recreate the project folder. Before any history rewrite, bundle to `.local-backup/`.
 - **Every change is tested before it counts as done**; the commit message says what was tested and what was not.
@@ -57,11 +62,13 @@ still to be designed (**todo**).
 - Host tools and checks: the `tx-*` make targets (test, bench, render, player).
 - Browser player: built to `build/audition/`, served with `python3 -m http.server` on localhost (Web MIDI works on
   localhost).
-- Firmware: **todo** (stage S4: port onto Frodhes' platform; build on macOS through Docker as Frodhes does).
+- Setup: `make setup` fetches the tooling into `.local/` (venv, JieLi toolchain, 3 SDK files, Emscripten, Chromium,
+  fonts); Docker runs the toolchain on macOS. Firmware: `make fm1-app` (the app image, `build/fm1/textura-app.fwsc`),
+  `make fm1-bench`; the platform sources are in `firmware/` (Frodhes v0.9.5's, headers kept).
 - On USB the FM-1 reads **Textura FM-1** (the device, its MIDI port and its audio interface; maker "Textura"). The
   "FM-1" keeps the web installers working: thefirmwarehub.com probes only ports named like an FM-1, and a unit on
   Textura must always take another firmware from there. It has its own
-  product id (`tools/fm1_bench.py`: the strings written into the copied `usb.c`, `USB_PID`; interim 1209:000A, a
+  product id (the strings in `firmware/src/usb.c`, checked by `tools/fm1_bench.py` and `tests/ports_check.py`; `USB_PID`; interim 1209:000A, a
   pid.codes test PID for in-house tests only, until Textura's own is granted). The update loader keeps 1209:0002.
   Our tools take a "Textura" port first and never a "Frodhes" one beside it (`tools/tx_ports.py`: `fm1_timing.py`,
   `hil_jack.py`); a "Frodhes" port may be Frodhes' own FM-1. Install with `tools/tx_install.py PACKAGE.fwsc`; a unit
@@ -90,7 +97,7 @@ still to be designed (**todo**).
 
 ## 6. Git and CI
 
-- `origin` = leonardoMirabal/textura (private). No upstream remote yet (Frodhes' tree comes in at stage S4).
+- `origin` = leonardoMirabal/textura (private). No upstream remote: Frodhes' files were copied in, never its history.
 - `.private/` is never added; check `git status --short --ignored` before a commit.
 - CI (`.github/workflows/ci.yml`, done): the guard job fails if anything private, audio or a PDF is tracked. Add the
   host checks (`txtest`) to CI once they exist (port).

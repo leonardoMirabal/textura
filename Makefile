@@ -1,14 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Textura: host tools for the engines (wave 0). Everything generated goes under build/, tools under .local/.
 #
+#   make setup         the local tooling, fetched from its own public sources into .local/ (never committed): the
+#                      Python venv (requirements.txt), the JieLi toolchain (tools/get_toolchain.sh), the 3 SDK files
+#                      (tools/get_sdk.sh, sha256-checked), Emscripten (tools/get_emsdk.sh), Playwright's Chromium,
+#                      the fonts for fw-fonts (tools/get_fonts.sh, sha256-checked). Docker runs the toolchain.
 #   make tx-test       the checks (txtest with UBSan, no-float source scan, no libcalls on a 32-bit target)
 #   make tx-render     every engine x every standard scene -> build/wav/   (one: make tx-render ENGINE=test SCENE=tap)
 #                      (through the CHAMBER: build/bench/txrender ENGINE SCENE -c -> build/wav/ENGINE-SCENE-chamber.wav)
 #   make tx-bench      CPU per block + the FM-1 estimate (runs tx-calib first; CALIB=0 skips the calibration;
 #                      REPEAT=3: each scene measured 3 times, the median kept: no flakes from a slow host moment;
 #                      timing jobs wait for the shared HEAVY lock, tools/lock.py; LOCK=0 skips it)
-#   make tx-calib      Frodhes' worst scene timed on this host, its code pinned at FRODHES_REV (read from ../frodhes'
-#                      git, never changed; FRODHES=path to change)
+#   make tx-calib      Frodhes' worst scene timed on this host: its code at e68d1a7, kept in bench/calib/ref
 #   make tx-budget     the CPU budget of the whole audio interrupt on the FM-1: the platform's costs (Frodhes'
 #                      measurements), the mix / CHAMBER, the effects reserve, the sources' pool, every SOURCE preset's
 #                      cost curve and the mixes (build/bench/budget.txt, budget.csv): a report, nothing changed
@@ -57,13 +60,12 @@
 #   make fw-landscapes write firmware/src/landscapes.h again from audition/app.js (after a change to FAMILIES / QUICK)
 #   make fw-presets    write firmware/src/presets.h and tests/scripts/presets.txt again from firmware/presets.txt
 #                      (the factory presets; tools/pr_level.py measures their lanes and sets the levels there)
-#   make fw-fonts      regenerate the fonts with Frodhes' generators at FW_FONT_REV, read from its git (Frodhes'
-#                      checkout is never changed), every glyph (no font diet): firmware/gen/felucca_font.h (Terminus
+#   make fw-fonts      regenerate the fonts with Frodhes' generators (tools/fonts/, from its cfabf632) and the fonts
+#                      from tools/get_fonts.sh (.local/fonts), every glyph (no font diet): firmware/gen/felucca_font.h (Terminus
 #                      8x16, gfx.c), aa_font.h and aa_font_v24.h (Inter Tight, anti-aliased, aatext.c; Pillow from
 #                      .local/venv: another Pillow rasterises a few pixels differently), their alpha in AA_BITS
 #                      bits (tools/gen_aa_font_q.py)
 CC       ?= cc
-FRODHES  ?= ../frodhes
 CALIB    ?= 1
 REPEAT   ?= 1
 CALIB_RUNS ?= 9
@@ -81,7 +83,7 @@ HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
 PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-timing fw-c1map fw-c1hot
-.PHONY: $(PHONY_FM1) fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-pristine tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
+.PHONY: $(PHONY_FM1) setup fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-pristine tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -146,7 +148,6 @@ tx-render: $(B)/txrender
 FW        := build/fw
 FW_DEPS   := $(wildcard firmware/src/*.c firmware/src/*.h firmware/gen/*.h firmware/hal/*.h) tests/host.c
 CFLAGS_FW := -O2 -Wall -Wno-unused-function -DDINGHY_HOST -DAPP_VER='"dev"' -Ifirmware/src -Ifirmware/gen -Iengines
-FW_FONT_REV ?= cfabf632
 # the anti-aliased faces' alpha levels (make fw-fonts): 2 bits, 4 levels (4: Frodhes' 16)
 AA_BITS ?= 2
 
@@ -212,6 +213,16 @@ fw-c1map: $(FW)/textura-c1prof
 	python3 -I tools/c1map.py $(FW)/textura-c1prof $(FM1)/textura-app.elf $(foreach n,0 1 2 3 4 5 6 7 8 9 10,$(FW)/c1prof$(n).txt) \
 	  > $(FW)/c1map.txt && echo "fw-c1map: $(FW)/c1map.txt"
 
+setup:
+	@command -v docker >/dev/null || echo "setup: no docker on the PATH (make fm1-app / fm1-bench need it)"
+	[ -x .local/venv/bin/python ] || python3 -m venv .local/venv
+	.local/venv/bin/python -m pip install -q -r requirements.txt
+	[ -e .local/jieli/toolchain ] || sh tools/get_toolchain.sh .local/jieli
+	sh tools/get_sdk.sh .local/fw-AC79_AIoT_SDK
+	sh tools/get_emsdk.sh .local/emsdk
+	PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python -m playwright install chromium
+	sh tools/get_fonts.sh .local/fonts
+
 fw-web:
 	sh web/build.sh $(if $(REL),--release $(REL),)
 
@@ -229,8 +240,10 @@ fw-presets:
 
 fw-fonts:
 	@rm -rf $(FW)/fonts && mkdir -p $(FW)/fonts
-	git -C $(FRODHES) archive $(FW_FONT_REV) tools/gen_font.py tools/gen_aa_font.py tools/aa_raster.py tools/font_chars.py \
-	  assets/fonts/ter-u16n.bdf 'assets/fonts/InterTight[wght].ttf' | tar -x -C $(FW)/fonts
+	sh tools/get_fonts.sh .local/fonts
+	@mkdir -p $(FW)/fonts/tools $(FW)/fonts/assets/fonts
+	cp tools/fonts/*.py $(FW)/fonts/tools/
+	cp .local/fonts/ter-u16n.bdf '.local/fonts/InterTight[wght].ttf' $(FW)/fonts/assets/fonts/
 	python3 -I $(FW)/fonts/tools/gen_font.py --full firmware/gen/felucca_font.h
 	python3 -I tools/gen_font1.py
 	.local/venv/bin/python -I tools/gen_aa_font_q.py $(FW)/fonts/tools $(AA_BITS) firmware/gen/aa_font.h \
@@ -251,33 +264,21 @@ tx-libcalls:
 	  if [ -n "$$bad" ]; then echo "FAIL  libcalls $$f: $$bad"; fail=1; else echo "ok    libcalls $$f (64-bit multiplies: $$m64)"; fi; \
 	done; exit $$fail
 
-# ---- calibration: Frodhes' own sources at FRODHES_REV, read from its git (git archive: Frodhes' checkout is never
-# changed) into build/calib/fr, host.c's audio call rewritten to a timed one (bench/calib/frcal_hook.h), built as its
-# Makefile's host build does, run CALIB_RUNS times. Pinned: FM1_WORST_US (3620 us, bench/txbench.c) was measured on
-# the FM-1 with exactly this revision's code (9 voices); a later Frodhes (0.9.5: 10 voices, other effects and CCs)
-# runs another scene, so its host time would no longer match that figure. Change both together, never one.
-FRODHES_REV ?= e68d1a7
-# (the sources are taken into build/calib/fr.new and swapped in only when complete: a wrong FRODHES path or a failed
-# archive leaves build/calib/fr as it was)
-build/calib/frodhes: bench/calib/frcal_hook.h build/calib/rev-$(FRODHES_REV)
-	@git -C $(FRODHES) cat-file -e '$(FRODHES_REV)^{commit}' 2>/dev/null || \
-	  { echo "no commit $(FRODHES_REV) in $(FRODHES) (FRODHES=path to Frodhes' checkout): build/calib left as it is"; exit 1; }
-	@rm -rf build/calib/fr.new build/calib/fr.tar && mkdir -p build/calib/fr.new
-	git -C $(FRODHES) archive --format=tar -o $(CURDIR)/build/calib/fr.tar $(FRODHES_REV) firmware/src firmware/gen tests/host.c
-	tar -x -C build/calib/fr.new -f build/calib/fr.tar && rm build/calib/fr.tar
-	@mv build/calib/fr.new/tests/host.c build/calib/fr.new/tests/host.orig
-	sed 's/app_audio(blk, HALF_FRAMES);/FRCAL_AUDIO(blk, HALF_FRAMES);/' build/calib/fr.new/tests/host.orig > build/calib/fr.new/tests/host.c && rm build/calib/fr.new/tests/host.orig
-	@grep -q FRCAL_AUDIO build/calib/fr.new/tests/host.c || { echo "host.c's app_audio call not found: calibration hook not applied"; exit 1; }
-	@rm -rf build/calib/fr && mv build/calib/fr.new build/calib/fr
-	git -C $(FRODHES) log -1 --format='%h %ci' $(FRODHES_REV) > build/calib/frodhes.rev
+# ---- calibration: Frodhes' own sources at e68d1a7 (the files its host build compiles, kept in bench/calib/ref: no
+# other repository needed), copied into build/calib/fr, host.c's audio call rewritten to a timed one
+# (bench/calib/frcal_hook.h), built as its Makefile's host build does, run CALIB_RUNS times. Pinned: FM1_WORST_US
+# (3620 us, bench/txbench.c) was measured on the FM-1 with exactly this code (9 voices); a later Frodhes (0.9.5: 10
+# voices, other effects and CCs) runs another scene, so its host time would no longer match that figure. Change both
+# together, never one.
+CALIB_REF := bench/calib/ref
+CALIB_REV := e68d1a7d 2026-10-20 10:59:48 +0200
+build/calib/frodhes: bench/calib/frcal_hook.h $(shell find $(CALIB_REF) -type f)
+	@rm -rf build/calib/fr && mkdir -p build/calib && cp -R $(CALIB_REF) build/calib/fr
+	sed 's/app_audio(blk, HALF_FRAMES);/FRCAL_AUDIO(blk, HALF_FRAMES);/' $(CALIB_REF)/tests/host.c > build/calib/fr/tests/host.c
+	@grep -q FRCAL_AUDIO build/calib/fr/tests/host.c || { echo "host.c's app_audio call not found: calibration hook not applied"; exit 1; }
+	@echo '$(CALIB_REV)' > build/calib/frodhes.rev
 	$(CC) -O2 -Wall -Wno-unused-function -DDINGHY_HOST -DAPP_VER='"dev"' -include bench/calib/frcal_hook.h \
 	  -Ibuild/calib/fr/firmware/src -Ibuild/calib/fr/firmware/gen -o $@ build/calib/fr/firmware/src/frodhes.c -lm
-
-# a stamp per pinned revision: changing FRODHES_REV rebuilds the calibration binary
-build/calib/rev-$(FRODHES_REV):
-	@git -C $(FRODHES) cat-file -e '$(FRODHES_REV)^{commit}' 2>/dev/null || \
-	  { echo "no commit $(FRODHES_REV) in $(FRODHES) (FRODHES=path to Frodhes' checkout)"; exit 1; }
-	@mkdir -p build/calib && rm -f build/calib/rev-* && touch $@
 
 tx-calib: build/calib/frodhes
 	@$(HEAVY) $(MAKE) -s _tx-calib-run

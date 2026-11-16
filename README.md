@@ -26,8 +26,9 @@ these small events from the FM-1's keys: say how many and how busy, and the clou
   </tr>
 </table>
 
-Its sister project is [Frodhes](https://github.com/leonardoMirabal/frodhes), an electric piano computed live for the
-same keyboard. Textura runs on the same platform.
+Textura is based on [Frodhes](https://github.com/leonardoMirabal/frodhes), an electric piano computed live for the
+same keyboard by the same author: it grew from Frodhes' firmware and platform. This repository is self-contained and
+needs no copy of Frodhes to build or install.
 
 ## What you get
 
@@ -56,10 +57,8 @@ at any time: see below.
 2. Connect the FM-1 with USB and install it in one of these ways:
    - **The Firmware Hub**: install and update from the FM-1's firmware catalogue in the browser.
    - **FM-1 Loader**: put the `.fwsc` file in the folder it watches, and install it from there.
-   - **From a terminal**, in a copy of this repository with a copy of Frodhes beside it (the installer comes from
-     there):
+   - **From a terminal**, in a copy of this repository:
      ```sh
-     git clone https://github.com/leonardoMirabal/frodhes ../frodhes
      pip install mido python-rtmidi
      python3 tools/tx_install.py textura-app-X.Y.Z.fwsc
      ```
@@ -123,7 +122,10 @@ The sounds are written in integer C in `engines/` and auditioned on a computer b
 | `tests/` | The firmware's checks and host scripts |
 | `tools/` | Install, build and generator scripts |
 
-`make tx-test` and `make fw-test` run the checks; the top of the `Makefile` lists every target.
+`make setup` fetches the tools into `.local/` from their own public sources (a Python environment, JieLi's toolchain
+and three files of its SDK, Emscripten, a headless Chromium, the fonts); building for the FM-1 also needs Docker.
+`make fm1-app` builds the firmware (`build/fm1/textura-app.fwsc`), `make tx-test` and `make fw-test` run the checks;
+the top of the `Makefile` lists every target.
 
 ## License and disclaimer
 
