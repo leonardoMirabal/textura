@@ -210,6 +210,8 @@ def docker(script):
     # 4 CPUs, or fewer where the machine has fewer (a private repository's CI runner has 2; docker refuses more)
     cpus = os.environ.get("JIELI_DOCKER_CPUS", str(min(4, os.cpu_count() or 1)))
     cmd = ["docker", "run", "--rm", "--platform", "linux/amd64", "--cpus", cpus,
+           # on Linux the files the container writes keep our owner (as root, the next host step could not rewrite them)
+           *(["--user", f"{os.getuid()}:{os.getgid()}"] if sys.platform.startswith("linux") else []),
            "-v", f"{TREE}:/work", "-v", f"{tc}:/opt/jieli:ro", "-w", "/work", "debian:bookworm-slim", "sh", "build.sh"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     sys.stderr.write(r.stdout[-6000:] + r.stderr[-6000:])
