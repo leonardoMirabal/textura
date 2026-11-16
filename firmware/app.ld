@@ -7,20 +7,21 @@
  * app's own: nothing else uses the region while the app runs; the update loader
  * runs from RAM's 0x01C0A800 with the app gone).
  * Textura: the RAM-run debug gap (0x01C06000..0x01C08000), .data/.bss and the
- * pool are one region (RAM, 450 KiB): .pool follows .bss at once, so all the
+ * pool are one region (RAM, 459.75 KiB): .pool follows .bss at once, so all the
  * RAM .data and .bss leave goes to the pool (the grain delay's line). crt0's
  * STATUS words at 0x01C07F00 are overwritten by .data (nothing reads them).
  * POOL : big zero-initialised buffers (FX lines, canvases), section .pool
  * .nozero: buffers that need no clearing (core 1's stack, a sector buffer),
  *   after .noinit's records in NOINIT's spare room; never cleared.
- * STACKS with 256-byte guard bands (Textura: the user stack 14 KiB, its deepest use read on the FM-1 1.3 KiB; its
- * other 10 KiB to RAM); NOINIT survives resets and UBOOT entry.
+ * STACKS with 256-byte guard bands (Textura: the user stack 4 KiB, twice its deepest use read on the FM-1 after a
+ * heavy UI session (make fm1-uitour, 2 rounds with sound: 1552 B; 1452 B after a sound-only soak), rounded up to a
+ * 4 KiB floor; the 10 KiB it held before go to RAM); NOINIT survives resets and UBOOT entry.
  * 0x01C7FD50.. is reserved: boot_info, boot-state mailbox, vector table. */
 MEMORY
 {
     XIP    (rx)  : ORIGIN = 0x02000120, LENGTH = 0x8DFBC
     RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x6000
-    RAM    (rwx) : ORIGIN = 0x01C06000, LENGTH = 0x70800
+    RAM    (rwx) : ORIGIN = 0x01C06000, LENGTH = 0x72F00
     NOINIT (rw)  : ORIGIN = 0x01C7C000, LENGTH = 0x3D50
 }
 SECTIONS
@@ -46,7 +47,10 @@ SECTIONS
     .noinit (NOLOAD) : { *(.noinit*) . = ALIGN(8); *(.nozero*) } > NOINIT
     ASSERT(ORIGIN(RAMTEXT) + LENGTH(RAMTEXT) <= ORIGIN(RAM) && ADDR(.data) >= ORIGIN(RAM),
            "app.ld: RAMTEXT and RAM overlap")
-    _guard0 = 0x01C76800; _ustack_lo = 0x01C76900; _ustack_top = 0x01C7A000;
+    _guard0 = 0x01C78F00; _ustack_lo = 0x01C79000; _ustack_top = 0x01C7A000;
     _guard1 = 0x01C7A000; _sstack_lo = 0x01C7A100; _sstack_top = 0x01C7C000;
+    ASSERT(_ustack_lo == _guard0 + 256, "app.ld: the user stack's guard band is 256 bytes")
+    ASSERT(_ustack_top - _ustack_lo == 4096,
+           "app.ld: the user stack is 4 KiB (twice its deepest read, 1552 B; a 4 KiB floor): re-read it before a change")
     /DISCARD/ : { *(.comment) *(.note*) }
 }

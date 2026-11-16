@@ -39,7 +39,7 @@ OUT = ROOT / "build" / "fm1"
 TREE = OUT / "tree"
 APP_XIP = 0x02000120
 LOADER_LOAD = 0x01C0A800
-RAM_AT, RAM_LEN = 0x01C06000, 0x70800     # app.ld's RAM: the debug gap, .data / .bss and the pool, one region
+RAM_AT, RAM_LEN = 0x01C06000, 0x72F00     # app.ld's RAM: the debug gap, .data / .bss and the pool, one region
 NOINIT_LEN = 0x3D50
 LOADER_NAME = b"usb_hid_ota.bin"
 CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-function"]
@@ -286,7 +286,7 @@ def main():
     if a.app:                                  # the measuring link's map: the same sections, room for all of them
         ld = (TREE / "firmware" / "app.ld").read_text()
         big, k = re.subn(r"(XIP\s+\(rx\)\s*:\s*ORIGIN\s*=\s*0x02000120,\s*LENGTH\s*=\s*)0x8DFBC", r"\g<1>16M", ld)
-        big, k2 = re.subn(r"RAM\s+\(rwx\)\s*:\s*ORIGIN\s*=\s*0x01C06000,\s*LENGTH\s*=\s*0x70800",
+        big, k2 = re.subn(r"RAM\s+\(rwx\)\s*:\s*ORIGIN\s*=\s*0x01C06000,\s*LENGTH\s*=\s*0x72F00",
                           "RAM    (rwx) : ORIGIN = 0x10000000, LENGTH = 16M", big)
         if (k, k2) != (1, 1):
             raise SystemExit("fm1_bench: app.ld's XIP / RAM lines not found (the measuring link needs them)")
