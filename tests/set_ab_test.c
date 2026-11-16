@@ -5,11 +5,27 @@
  * newer, B newer, nothing valid. After the cut the load gives the older record or the new one, never neither while
  * one was valid, the new one only once its header was programmed; the next save works. Also the sequence's 32-bit
  * wrap, a corrupted header / data / sequence, and Textura's FM-1 store map (store.h): the settings A / B and the scene
- * banks in 0xAE000..0xB9FFF, the update staging per unit, nothing else writable around them. (make fw-test)
+ * banks in 0xAE000..0xB9FFF, the update staging per unit, nothing else writable around them. (make fw-test; and with
+ * -DFL_ALIGN_TEST: each slice right after a USB audio packet, the save's time with the stream open)
  * Build: cc -O1 -Wall -Wno-unused-function -Ifirmware/hal -o build/fw/set_ab_test tests/set_ab_test.c */
 #define FL_HOST_MODEL "../../tests/fl_host_model.h"
 #include "../firmware/src/store.h"
+#ifdef FL_ALIGN_TEST                    /* -DFL_ALIGN_TEST (Frodhes' flash_split_test): FL_SLICE_OK says yes only in the
+                                         * first 200 us of each 1 ms (as usb.c uac_slice_ok right after a USB audio
+                                         * packet, the stream open): every check still holds; the save's time */
+static int fl_align_ok(void);
+#define FL_SLICE_OK() fl_align_ok()
+#endif
 #include "fm1_flash.h"
+#ifdef FL_ALIGN_TEST
+static uint32_t al_no, al_yes;
+static int fl_align_ok(void)
+{
+    int ok = (T4_CNT / 24u) % 1000u < 200u;
+    if (ok) al_yes++; else al_no++;
+    return ok;
+}
+#endif
 #include <stdlib.h>
 
 static int fails;
@@ -90,9 +106,11 @@ static int load_is(void)                        /* the record the load gives: 0.
 }
 /* a save of record r, cut after `cut` calls (0: none); mode: the cut operation's bytes 0 as before, 1 done, 2 half.
  * Returns the calls a whole save takes; *hdr = 1 once the header's program was started */
+static uint64_t save_us_max, save_us_sum, save_n;   /* (whole saves: start to done, model time) */
 static uint32_t save_cut(int r, uint32_t cut, int mode, int *hdr)
 {
     uint32_t calls = 0;
+    uint64_t t0 = M.now;
     int rc = settings_save_start(R[r], N);
     *hdr = 0;
     calls++;
@@ -103,6 +121,11 @@ static uint32_t save_cut(int r, uint32_t cut, int mode, int *hdr)
         calls++;
     }
     if (ss.step == 4u) *hdr = 1;
+    if (!cut && rc == 0) {
+        uint64_t us = (M.now - t0) / 24u;
+        if (us > save_us_max) save_us_max = us;
+        save_us_sum += us; save_n++;
+    }
     if (cut && M.busy) {                        /* the power goes mid-operation */
         uint32_t i;
         if (M.op == 1) {
@@ -234,6 +257,13 @@ int main(void)
         check("the store's magic: TXST", STORE_MAGIC == 0x54535854u);
     }
 
+    printf("set_ab: a whole save %llu ms on average, %llu ms at most (%llu saves)\n",
+           (unsigned long long)(save_n ? save_us_sum / save_n / 1000u : 0u), (unsigned long long)(save_us_max / 1000u),
+           (unsigned long long)save_n);
+#ifdef FL_ALIGN_TEST
+    check("FL_SLICE_OK asked: said no and yes", al_no > 0 && al_yes > 0);
+    printf("set_ab align: FL_SLICE_OK yes %u, no %u\n", al_yes, al_no);
+#endif
     printf(fails ? "set_ab: %d FAILED\n" : "set_ab: all ok\n", fails);
     return fails != 0;
 }

@@ -34,10 +34,10 @@ check(bool(re.search(r"while \(midi_get\(&st, &d1, &d2\)\)\s*(/\*.*?\*/\s*)?;", 
 check(bool(re.search(r"if \(MQ - \(mi_w - mi_r\) < EP1_ROOM\)\n\s+return 0;", src("usb.c"))),
       "recovery: ... the ring's back-pressure on EP1 (what the drain is for) still there")
 
-# the USB audio's EP4 poll (usb.c uac_service): sie_rd returns 0 when the SIE does not answer, and 0 read as TxPktRdy
+# the USB audio's EP4 poll (usb.c uac_ep4_poll, uac_service's and uac_slot's; tests/uac_check.py runs it): sie_rd returns 0 when the SIE does not answer, and 0 read as TxPktRdy
 # clear queued a new packet over the one still waiting (its 44 frames lost, uncounted). A timed-out INDEX write or
 # TXCSR1 read is "still queued", counted in uac.sie_to (Frodhes 76404313d)
-svc = body(src("usb.c"), "static void uac_service(void)")
+svc = body(src("usb.c"), "static uint32_t uac_ep4_poll(uint32_t probe)")
 m = re.search(r"sie_wr\(S_INDEX, 4\);(.*?)if \(csr & 0x01u\)", svc, re.S)
 check(bool(m) and "usb.timeouts" in m.group(1) and "sie_to++" in m.group(1),
       "usb: a timed-out SIE access in the EP4 poll is still queued (sie_rd's 0 queued a packet over a waiting one)")
@@ -54,6 +54,18 @@ for ch in ("vl", "vr"):
     c = tap.find(f"{ch} = {ch} < -32768 ? -32768 : {ch};")
     ok = ok and 0 <= k < c and f"{ch} = {ch} > 0 ? UAC_KNEE + (({ch} - UAC_KNEE) >> 1) : -UAC_KNEE - ((-{ch} - UAC_KNEE) >> 1);" in tap
 check(ok, "usb: the 48 kHz tap's knee before its clamp (UAC_KNEE 24576, both channels: a loud passage clamped flat)")
+
+# the USB audio's EP4 poll on the host's IN token and the flash slices right after a packet (Frodhes 0.9.9; usb.c is
+# run by tests/uac_check.py, this is platform.c's side): both on, TIMER5 hands uac_tick its folded ticks every tick
+# (and no fixed 2 kHz uac_service in the render), the slice gate before fm1_flash.h, the rescue's own 2 kHz poll
+plat = src("platform.c")
+t5 = body(plat, "void fm1_timer5_irq(void)")
+check(re.search(r"#define FELUCCA_UAC_PHASE 1\b", plat) is not None and re.search(r"#define FELUCCA_UAC_ALIGN 1\b", plat)
+      is not None and "uac_tick(n);" in t5 and "#if FELUCCA_UAC_PHASE\n    if (in_audio)\n        return;" in t5 and
+      plat.find("#define FL_SLICE_OK() uac_slice_ok()") < plat.find('#include "fm1_flash.h"') and
+      "#define FL_SLICE_OK() uac_slice_ok()" in plat and
+      "#if FELUCCA_UAC_PHASE\n        uac_service();" in src("recovery.c"),
+      "usb: the EP4 poll follows the IN token (TIMER5 uac_tick), each flash slice after a packet (FL_SLICE_OK)")
 
 # the update staging per unit (platform.c tx_ota_pick, store.h): 0xE0000 is in V16's SEQ64, so a unit that came from
 # V16 (no 55 AA AA 55 at 0x93000, V15's VM start) stages at 0xA9000, in no region of V16's; a V15 unit at 0xE0000,
