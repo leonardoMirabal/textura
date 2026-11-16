@@ -34,4 +34,12 @@ check(bool(re.search(r"while \(midi_get\(&st, &d1, &d2\)\)\s*(/\*.*?\*/\s*)?;", 
 check(bool(re.search(r"if \(MQ - \(mi_w - mi_r\) < EP1_ROOM\)\n\s+return 0;", src("usb.c"))),
       "recovery: ... the ring's back-pressure on EP1 (what the drain is for) still there")
 
+# the USB audio's EP4 poll (usb.c uac_service): sie_rd returns 0 when the SIE does not answer, and 0 read as TxPktRdy
+# clear queued a new packet over the one still waiting (its 44 frames lost, uncounted). A timed-out INDEX write or
+# TXCSR1 read is "still queued", counted in uac.sie_to (Frodhes 76404313d)
+svc = body(src("usb.c"), "static void uac_service(void)")
+m = re.search(r"sie_wr\(S_INDEX, 4\);(.*?)if \(csr & 0x01u\)", svc, re.S)
+check(bool(m) and "usb.timeouts" in m.group(1) and "sie_to++" in m.group(1),
+      "usb: a timed-out SIE access in the EP4 poll is still queued (sie_rd's 0 queued a packet over a waiting one)")
+
 sys.exit(1 if fails else 0)
