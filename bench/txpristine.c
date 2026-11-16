@@ -321,6 +321,48 @@ static void gd_zipper(void)
     free(d); free(o);
 }
 
+/* GRAIN DELAY controls stepped under a steady 220 Hz sine (the control sweep), MIX 127: id v0 -> v1 at block 100;
+ * the largest second difference over the 46 ms after re the larger of v0 and v1 held over the same span (1 = none) */
+static double *gd_step_run(unsigned id, unsigned v0, unsigned v1)
+{
+    tx_fx_grain_t *d = calloc(1, sizeof *d);
+    int b, j, nb = 160;
+    double *o = malloc(sizeof(double) * nb * NB);
+    tx_fx_grain_init(d);
+    tx_fx_grain_param(d, TX_GD_MIX, 127); tx_fx_grain_param(d, id, v0);
+    for (b = 0; b < nb; b++) {
+        if (b == 100) tx_fx_grain_param(d, id, v1);
+        for (j = 0; j < (int)NB; j++) L[j] = R[j] = (int32_t)lrint(500000.0 * sin(2.0 * M_PI * 220.0 * (double)(b * NB + j) / FS));
+        d->cap = TX_GD_MAXG;
+        tx_fx_grain_process(d, L, R, NB);
+        for (j = 0; j < (int)NB; j++) o[b * NB + j] = L[j];
+    }
+    free(d);
+    return o;
+}
+static double gd_d2(const double *o, int a, int e)
+{
+    double m = 0;
+    int i;
+    for (i = a; i < e - 2; i++) { double v = fabs(o[i + 2] - 2 * o[i + 1] + o[i]); if (v > m) m = v; }
+    return m;
+}
+static double gd_step(unsigned id, unsigned v0, unsigned v1)
+{
+    double *m = gd_step_run(id, v0, v1), *h0 = gd_step_run(id, v0, v0), *h1 = gd_step_run(id, v1, v1), r;
+    int a = 100 * (int)NB - 2, e = 100 * (int)NB + 2048;
+    r = gd_d2(m, a, e) / fmax(fmax(gd_d2(h0, a, e), gd_d2(h1, a, e)), 1.0);
+    free(m); free(h0); free(h1);
+    return r;
+}
+static void gd_reverse(void)
+{
+    double a = gd_step(TX_GD_REVERSE, 0, 1), b = gd_step(TX_GD_REVERSE, 1, 0), c = gd_step(TX_GD_REVERSE, 0, 127);
+    printf("GRAIN DELAY REVERSE stepped under a 220 Hz sine: the largest second difference after re both held: 0 -> 1 "
+           "%.2f, 1 -> 0 %.2f, 0 -> 127 %.2f (1.5 at most)\n", a, b, c);
+    judge("GRAIN DELAY REVERSE step", fmax(fmax(a, b), c), 1.5, 1);
+}
+
 /* ---- the LIMITER and the COMPRESSOR */
 static void lim_chord(void)
 {
@@ -916,6 +958,7 @@ int main(int argc, char **argv)
     drv_dip();
     drv_onoff();
     gd_zipper();
+    gd_reverse();
     lim_chord();
     lim_bass();
     comp_quiet();

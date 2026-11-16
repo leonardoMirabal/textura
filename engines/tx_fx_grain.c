@@ -407,7 +407,10 @@ static void gd_lowlevel(tx_fx_grain_t *d, uint32_t N)
     uint32_t p = d->p[TX_GD_PITCH], dp = p > 64u ? p - 64u : 64u - p;
     uint32_t R = d->p[TX_GD_SPRAY] ? (uint32_t)d->p[TX_GD_SPRAY] * 174u
                                    : (d->glen < 0x100000u ? d->glen : 0x100000u) * dp * 6u / 100u;
-    if (N < 2u || d->p[TX_GD_REVERSE]) { d->gnlt = d->gnt; d->xk = 32768; return; }   /* (one grain: no other to add to) */
+    if (N < 2u || d->p[TX_GD_REVERSE]) { d->gnlt = d->gnt; return; }   /* (one grain: no other to add to. The crossover
+                                                         * keeps its pole while the low share glides out: forced
+                                                         * open at once, its low-pass jumped to the whole signal, a
+                                                         * step: REVERSE 0 -> 1 under a tone 11x a held one's d2) */
     d->gnlt = (int32_t)(65536u / N > 65536u ? 65536u : 65536u / N);
 #ifndef GD_XM
 #define GD_XM 6u
