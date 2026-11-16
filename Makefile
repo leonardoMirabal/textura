@@ -35,6 +35,8 @@
 #   make fm1-timing    the same table on the FM-1 over USB-MIDI (tools/fm1_timing.py; installs nothing; DEVICE lock)
 #   make fm1-dbg       the app's debug items on the FM-1 (tools/fm1_dbg.py: stacks' deepest, UI draw time, core 1,
 #                      the interrupt; ARGS="--watch 5"; installs nothing; DEVICE lock)
+#   make fm1-uitour    a heavy UI session on the FM-1 over USB-MIDI, no hands (tools/fm1_uitour.py, the app's dev hook),
+#                      then the stacks' deepest and the draw time (ARGS="--rounds 2 --no-save"; DEVICE lock)
 #   make tx-player     the browser player -> build/audition/ (Emscripten from .local/emsdk)
 #   make tx-player-check   the player in headless Chromium (Playwright in .local/venv, browsers in .local/playwright)
 #   make tx-ab         the player's A/B data: ours vs the local reference recordings (.local/reference), loudness-
@@ -88,7 +90,7 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-dbg fm1-timing fw-c1map fw-c1hot
+PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-dbg fm1-uitour fm1-timing fw-c1map fw-c1hot
 .PHONY: $(PHONY_FM1) setup fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-pristine tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-fx-sweep tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
@@ -384,6 +386,9 @@ fm1-app:
 
 fm1-dbg:
 	python3 -I tools/lock.py run DEVICE --why "make fm1-dbg" --wait 3600 -- .local/venv/bin/python -I tools/fm1_dbg.py $(ARGS)
+
+fm1-uitour:
+	python3 -I tools/lock.py run DEVICE --why "make fm1-uitour" --wait 3600 -- .local/venv/bin/python -I tools/fm1_uitour.py $(ARGS)
 
 fm1-timing: $(FM1)/gen/fm1_cfg.h
 	python3 -I tools/lock.py run DEVICE --why "make fm1-timing" --wait 3600 -- .local/venv/bin/python -I tools/fm1_timing.py $(ARGS)

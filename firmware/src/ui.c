@@ -1842,7 +1842,7 @@ static void ui_input(uint32_t b, uint32_t rel)
 {
     int32_t d[7];
     uint32_t i;
-    for (i = 0; i < 7u; i++) d[i] = fm1_enc_take(i);
+    for (i = 0; i < 7u; i++) d[i] = fm1_enc_take(i) + tx_inj_steps(i);
     if (ui_splash_on) for (i = 0; i < 7u; i++) if (d[i] || b) ui_splash_t = fm1_ms - UI_SPLASH_MS;
     if (scn_input(b, rel, d[ENC_PRESETS], d[ENC_KNOB1], d[ENC_KNOB2], d[ENC_KNOB3])) {   /* (the save mode takes
                                                          * PRESETS, K1 .. K3 and HOME) */

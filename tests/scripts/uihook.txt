@@ -1,0 +1,37 @@
+# the panel over MIDI (textura.c tx_inj: tools/fm1_uitour.py's dev hook): channel 16 CC 116 = 85 arms it for 10 s; CC
+# 117 presses a button (its index, + 64 releases), CC 118 turns an encoder (index x 16 + 8 + detents). Unarmed, CC 117
+# / 118 do nothing to the panel; a debug ask (CC 116, another value) leaves it armed
+1700 btn 13
+1800 expect state run0 1
+1800 expect state page LANDSCAPE
+# not armed: SEQ over MIDI opens nothing
+2000 midi 0xBF 117 11
+2050 midi 0xBF 117 75
+2100 expect state browser 0
+# armed: SEQ opens the sound browser; ALGORITHM +2 moves its cursor two on; HOME shuts it
+2200 midi 0xBF 116 85
+2250 midi 0xBF 116 0
+2300 midi 0xBF 117 11
+2350 midi 0xBF 117 75
+2400 expect state browser 2
+2400 expect state brcur 0
+2500 midi 0xBF 118 26
+2550 expect state brcur 2
+2600 midi 0xBF 117 8
+2650 midi 0xBF 117 72
+2700 expect state browser 0
+# EDIT (SOUND), SELECT +1: its next page; FX: the effects' first page
+2800 midi 0xBF 117 6
+2850 midi 0xBF 117 70
+2900 expect state page SOUND_1/2
+2950 midi 0xBF 118 9
+3000 expect state page SOUND_2/2
+3100 midi 0xBF 117 8
+3150 midi 0xBF 117 72
+3200 expect state page LANDSCAPE
+# 10 s with nothing: disarmed again
+13300 midi 0xBF 117 11
+13350 midi 0xBF 117 75
+13400 expect state browser 0
+13500 expect sound
+13600 end

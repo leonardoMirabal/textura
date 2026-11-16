@@ -169,6 +169,7 @@ static const tx_engine_t *host_engine_find(const char *name)
 #include "presets.c"
 #include "scenes.c"
 static uint32_t ui_ndraw;                       /* screen parts ui_draw drew (ui.c), for the draw time (ui_draw_timed) */
+static int32_t tx_inj_steps(uint32_t e);        /* (the dev hook's turns: tx_inj, below) */
 #include "ui.c"
 
 /* ---- MIDI: notes on SELECTED CH (1) play the selected lane, on a lane's MIDI CH (lane n: n) that lane, pitched,
@@ -245,6 +246,37 @@ static void tx_dbg_reply(void)
 }
 #endif
 
+/* ---- the panel driven over MIDI, for a check on the FM-1 (tools/fm1_uitour.py: the UI's stack, its draw time): a
+ * dev hook, compiled in, inert until armed. Channel 16: CC 116 value 85 arms it for 10 s (each event it takes renews
+ * that; any other CC 116 value is the debug ask); armed, CC 117 presses a button (value: its index, + 64 releases it)
+ * and CC 118 turns an encoder (value: its index x 16 + 8 + the detents, -8 .. +7). The presses and turns join the
+ * panel's own (app_main, ui_input) as edges and steps: nothing else changes; unarmed, CC 117 / 118 go on as before */
+#define TX_INJ_ARM 85u
+#define TX_INJ_MS 10000u
+static struct { uint32_t t, p, r; int32_t enc[8]; } tx_inj;
+static int tx_inj_cc(uint32_t cc, uint32_t v)   /* 1: taken */
+{
+    if (cc == 116u) { if (v != TX_INJ_ARM) return 0; tx_inj.t = fm1_ms | 1u; return 1; }
+    if (!tx_inj.t || fm1_ms - tx_inj.t >= TX_INJ_MS) { tx_inj.t = 0; return 0; }
+    tx_inj.t = fm1_ms | 1u;
+    if (cc == 117u) { uint32_t m = 1u << (v & 31u); if (v & 64u) tx_inj.r |= m; else tx_inj.p |= m; }
+    else tx_inj.enc[v >> 4 & 7u] += (int32_t)(v & 15u) - 8;
+    return 1;
+}
+static uint32_t tx_inj_edges(uint32_t *rel)     /* (app_main: with the panel's edges) */
+{
+    uint32_t p = tx_inj.p;
+    *rel |= tx_inj.r;
+    tx_inj.p = tx_inj.r = 0;
+    return p;
+}
+static int32_t tx_inj_steps(uint32_t e)         /* (ui_input: with the encoder's steps) */
+{
+    int32_t s = tx_inj.enc[e & 7u];
+    tx_inj.enc[e & 7u] = 0;
+    return s;
+}
+
 static void tx_midi_poll(void)
 {
     uint8_t st, d1, d2;
@@ -254,6 +286,7 @@ static void tx_midi_poll(void)
         if (st >= 0xF8u) { (void)tempo_clock(st, (uint32_t)d1 | (uint32_t)d2 << 8, src); continue; }   /* (d1 d2: the
                                                  * arrival and the pulse count, as platform.c stamps them) */
         if (st == 0xF2u) { tempo_spp((uint32_t)(d1 & 127u) | (uint32_t)(d2 & 127u) << 7, src); continue; }
+        if (t == 0xB0u && ch == 15u && d1 >= 116u && d1 <= 118u && tx_inj_cc(d1, d2)) continue;   /* (the dev hook) */
 #ifdef LN_BUS_TIMED
         if (t == 0xB0u && ch == 15u && d1 == 116u) { tx_dbg_reply(); continue; }   /* (the grain room's check) */
 #endif
@@ -284,6 +317,7 @@ static void app_main(void)
         c1_retry_poll(fm1_ms);                  /* (C1_RETRY only: core 1 started again after a hold) */
 #endif
         b = fm1_input_edges(&rel);
+        b |= tx_inj_edges(&rel);                /* (the dev hook's presses: tx_inj) */
         ui_input(b, rel);
         nt_poll();
         tx_midi_poll();
