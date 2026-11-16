@@ -191,6 +191,7 @@ fw-test: $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textu
 	   HOST_ENGINE_FAT=thunder $(FW)/textura-host-ub $(FW)/fault_fat tests/fault/engine_fat.txt > $(FW)/fault_fat.log 2>&1; \
 	then echo "ok    host faults (tests/fault: a scene's engine missing or too big: the lane empty, the load ends, UBSan clean)"; \
 	else echo "FAIL  host faults ($(FW)/fault_drop.log, fault_fat.log)"; fail=1; fi; \
+	python3 -I tests/platform_check.py > $(FW)/platform.log 2>&1 && echo "ok    platform (tests/platform_check.py: the device-only paths in their source)" || { echo "FAIL  platform ($(FW)/platform.log)"; fail=1; }; \
 	python3 -I tests/clock_check.py > $(FW)/clock.log 2>&1 && echo "ok    clock (tests/clock_check.py)" || { echo "FAIL  clock ($(FW)/clock.log)"; fail=1; }; \
 	python3 -I tests/ports_check.py > $(FW)/ports.log 2>&1 && echo "ok    ports (tests/ports_check.py: Textura first, never Frodhes beside it)" || { echo "FAIL  ports ($(FW)/ports.log)"; fail=1; }; \
 	python3 -I tests/install_check.py > $(FW)/install.log 2>&1 && echo "ok    install (tests/install_check.py: two FM-1s, one unit by its USB location)" || { echo "FAIL  install ($(FW)/install.log)"; fail=1; }; \
