@@ -207,7 +207,9 @@ def docker(script):
     if not (tc / "pi32v2" / "bin" / "clang").exists():
         raise SystemExit(f"fm1_bench: no toolchain in {tc}")
     (TREE / "build.sh").write_text(script)
-    cmd = ["docker", "run", "--rm", "--platform", "linux/amd64", "--cpus", os.environ.get("JIELI_DOCKER_CPUS", "4"),
+    # 4 CPUs, or fewer where the machine has fewer (a private repository's CI runner has 2; docker refuses more)
+    cpus = os.environ.get("JIELI_DOCKER_CPUS", str(min(4, os.cpu_count() or 1)))
+    cmd = ["docker", "run", "--rm", "--platform", "linux/amd64", "--cpus", cpus,
            "-v", f"{TREE}:/work", "-v", f"{tc}:/opt/jieli:ro", "-w", "/work", "debian:bookworm-slim", "sh", "build.sh"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     sys.stderr.write(r.stdout[-6000:] + r.stderr[-6000:])
