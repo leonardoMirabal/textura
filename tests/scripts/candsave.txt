@@ -1,0 +1,21 @@
+# a preset asked for while another still loads (EDIT twice in the presets list) is dropped when the save mode opens:
+# SAVE SAVE stores the scene as it plays into U01, and the pending preset no longer loads over the scene just saved
+1700 midi 0xC0 0 0
+2600 expect state scene F001_DRIZZLE
+2700 turn 6 1
+2800 turn 6 2
+4000 expect state loading 0
+# EDIT: F003 loads; EDIT on F004 while it loads: pending
+4100 btn 6
+4120 expect state loading 1
+4140 turn 6 1
+4160 btn 6
+4170 expect state loading 1
+# SAVE, SAVE: U01 saved; the pending F004 dropped
+4200 btn 9
+4300 btn 9
+4320 expect state saving 1
+6000 expect state saving 0
+6000 expect state loading 0
+6000 expect state scene U01_WATER
+6100 end

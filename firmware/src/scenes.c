@@ -619,6 +619,7 @@ static void scn_save_start(uint32_t slot)       /* the scene that plays now into
     memcpy(scn_sv.name, scn_nm, 11);
     for (i = 10; i >= 0 && (scn_sv.name[i] == ' ' || !scn_sv.name[i]); i--) scn_sv.name[i] = 0;
     if (i < 0) p_upper(scn_sv.name, LS[sc.fam].name, 11);
+    scn_cand = 0xFF;                            /* (a pending load: never over the scene just saved) */
     scn_sv_slot = (uint8_t)slot;
     scn_sv_at = scn_bank == SCN_BANK_A ? SCN_BANK_B : SCN_BANK_A;   /* (the older copy) */
     scn_sv_step = 0; scn_sv_crc = 0xFFFFFFFFu; scn_sv_on = 1;
@@ -676,6 +677,8 @@ static int scn_input(uint32_t b, uint32_t rel, int32_t d_presets, int32_t d_k1, 
         if (!scn_save_mode) {
             if (scn_sv_on) { ui_say("SAVING..."); return 1; }
             scn_save_mode = 1;
+            scn_cand = 0xFF;                    /* (a preset still waiting for a load to end: dropped, else it loads
+                                                 * over the scene about to be saved) */
             scn_save_slot = (uint8_t)(scn_cur != 0xFF && scn_cur >= SCN_NF ? scn_cur - SCN_NF : 0u);
             if (scn_cur == 0xFF || scn_cur < SCN_NF) {   /* (from a factory scene: the first empty one) */
                 uint32_t i;
