@@ -118,7 +118,7 @@ static scn_t scn_b[2];                          /* a load's scene and the undo's
 static scn_t scn_b[2] __attribute__((section(".nozero")));   /* (NOINIT's spare room, app.ld: each one is written whole
                                                  * before it is read: scn_factory, scn_capture, scn_read) */
 #endif
-static scn_t scn_sv;                            /* the scene being saved */
+static TX_RTD scn_t scn_sv;                            /* the scene being saved */
 static uint8_t scn_u, scn_undo_ok, scn_bidx[2];   /* (scn_bidx: each one's scene number, 0xFF: none) */
 static struct { uint8_t on, k, f, i; } scn_su;   /* the last sound kept by the sound browser (scn_snd_undo) */
 static uint8_t scn_cur = 0xFF;                  /* the scene loaded last (0xFF: none) */
@@ -135,7 +135,7 @@ static uint8_t scn_fx_mine;                     /* the player turned an effect s
 static uint8_t scn_fx_force;                    /* the next load sets the effects whatever EFFECTS ON LOAD says */
 static uint8_t scn_edited;                      /* the player changed what plays since the last load or save (the
                                                  * header's "*") */
-static struct { uint16_t id, t0; int16_t from, to; } scn_gl[SCN_GL_N];   /* the glides (scn_put): t0, ms mod 2^16 */
+static TX_RTD struct { uint16_t id, t0; int16_t from, to; } scn_gl[SCN_GL_N];   /* the glides (scn_put): t0, ms mod 2^16 */
 static uint8_t scn_gl_n;
 static uint8_t scn_ap_sw, scn_ap_cd;            /* this load's switched lanes (bit k); those whose cards are set */
 static uint32_t scn_gl_tick;
@@ -748,7 +748,7 @@ static const uint8_t SET_SC_OLD[NT_NSCALE] = {1, 2, 3, 6, 5, 4, 7, 8, 9, 10, 11}
 static uint8_t set_fx_of(uint32_t m) { return (uint8_t)(m == SCN_FX_ALWAYS ? 1u : m == SCN_FX_NEVER ? 2u : 0u); }
 static uint8_t set_fx_mode(uint32_t b) { return (uint8_t)(b == 1u ? SCN_FX_ALWAYS : b == 2u ? SCN_FX_NEVER : SCN_FX_SMART); }
 static tx_set_t set_saved, set_now;
-static uint8_t set_rec[256];                    /* the record as saved: set_now zero-padded to set_store.c's 256 bytes
+static TX_RTD uint8_t set_rec[256];                    /* the record as saved: set_now zero-padded to set_store.c's 256 bytes
                                                  * (it saves no other length; kept as it is until the save is done) */
 static uint8_t set_dirty;
 static uint32_t set_t;

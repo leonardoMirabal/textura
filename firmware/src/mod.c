@@ -54,7 +54,7 @@ static const uint8_t MT_GRAIN[11] = {TX_GD_MIX, TX_GD_TIME, TX_GD_FEEDBACK, TX_G
 static const uint8_t MT_REV[8] = {TX_RV_MIX, TX_RV_DECAY, TX_RV_TONE, TX_RV_PREDELAY, TX_RV_SIZE, TX_RV_MOD,
                                   TX_RV_LOWCUT, TX_RV_SHIMMER};
 
-static tx_lfo_t mod_lfo[TX_LFO_N];
+static TX_RTD tx_lfo_t mod_lfo[TX_LFO_N];
 static tx_env_t mod_env[TX_ENV_N];
 static tx_fol_t mod_fol[TX_FOL_N];
 static int32_t m_lprev[TX_LFO_N];               /* (the LFOs' last values: an envelope's LFO n trigger) */
@@ -70,14 +70,14 @@ typedef struct {
     const tx_engine_t *eng;                     /* MK_ENG / MK_HOST: the engine it was resolved on */
 } mt_t;
 typedef struct { uint8_t nt, nr; mt_t t[MOD_NT]; tx_mod_rt_t r[MOD_NR]; } mbuf_t;
-static mbuf_t mbuf[2];
+static TX_RTD mbuf_t mbuf[2];
 static volatile uint8_t mcur;
 static volatile uint32_t mgen;
 /* the interrupt's */
 static int16_t m_last[MOD_NT];
 static volatile int16_t m_final[MOD_NT];
-static volatile int32_t m_fq8[MOD_NT];          /* (HOW MANY: the final in Q8, for its hysteresis) */
-static int32_t m_sum[MOD_NT];
+static TX_RTD volatile int32_t m_fq8[MOD_NT];          /* (HOW MANY: the final in Q8, for its hysteresis) */
+static TX_RTD int32_t m_sum[MOD_NT];
 static uint32_t m_seen, m_rot, m_ref;
 static uint8_t m_lrate[TX_LFO_N], m_llev[TX_LFO_N], m_lmod;   /* the LFOs' RATE / LEVEL as modulated (m_lmod: by LFO) */
 static uint32_t m_trig, m_rng = 0x2545F491u;

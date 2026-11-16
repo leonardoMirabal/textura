@@ -114,7 +114,7 @@ static void tempo_tap_undo(void)
  *   makes the next pulse pulse 0 (beat 1 of bar 1), Continue (FB) goes on from the song position, Stop (FC) stops
  *   its count, Song Position (F2) sets it. */
 #define CLK_N 96u
-static uint32_t clk_hist[CLK_N + 1u], clk_h, clk_hw;  /* the last CLK_N + 1 stamps (Q8 ms): a ring, clk_h of them valid */
+static TX_RTD uint32_t clk_hist[CLK_N + 1u], clk_h, clk_hw;  /* the last CLK_N + 1 stamps (Q8 ms): a ring, clk_h of them valid */
 static uint32_t clk_last, clk_last_ms, clk_b8, clk_pub, clk_k, clk_gk, clk_gt;   /* clk_b8: the beat (Q8 ms),
                                                         * smoothed; clk_pub: as published */
 static uint8_t clk_lock, clk_fa, clk_chg, clk_dev, clk_stop = 1, clk_wait;   /* (clk_stop: no Start yet) */

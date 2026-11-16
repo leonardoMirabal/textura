@@ -20,6 +20,14 @@
 #define APP_OUT_SHIFT 8u                        /* the codec at full scale (as Frodhes): +6 dB on the jack over
                                                  * Dinghy's -6 dBFS ceiling; the output limiter holds -2 dBFS */
 #define APP_OUT_WRITTEN 1                       /* app_audio writes every sample of out */
+/* TX_RTD: a zero-initialised buffer in RAMTEXT's room after the RAM code (app.ld .rtdata: the room .ram_text leaves,
+ * ~11 KB, the region's own; cleared in APP_EARLY, before the audio and the main loop start). Only buffers the CPU alone
+ * reads and writes (no DMA), the app's own (nothing the platform touches before APP_EARLY) */
+#ifdef DINGHY_HOST
+#define TX_RTD
+#else
+#define TX_RTD __attribute__((section(".rtdata")))
+#endif
 #ifdef DINGHY_HOST
 static void kv_host_vkey(uint32_t k, uint32_t raw) { (void)k; (void)raw; }   /* (tests/host.c "vkey": no key velocity scan yet) */
 #else
@@ -32,8 +40,9 @@ static void c1_fault(const void *c);
 static void c1_rails(void);
 static void c1_hsb2(uint32_t power_on);
 static void tx_stk_paint(void);
+static void tx_rtd_clear(void);
 #define C1_RAILS
-#define APP_EARLY() (tx_stk_paint(), c1_hold(), c1_rails(), \
+#define APP_EARLY() (tx_rtd_clear(), tx_stk_paint(), c1_hold(), c1_rails(), \
                      c1_hsb2((fm1_boot.p3_rst & 1u) && !(fm1_boot.p3_rst & 4u)), (void)c1_start())
 #define APP_RESET_PREP() c1_hold()
 #define APP_FAULT(c) c1_fault(c)
@@ -60,6 +69,12 @@ static void tx_stk_paint(void)
     volatile uint32_t here = 0;
     tx_stk_paint1((uint32_t *)_ustack_lo, (uint32_t *)_guard1, (uint32_t)&here);   /* (_guard1: its top) */
     tx_stk_paint1((uint32_t *)_sstack_lo, (uint32_t *)_sstack_top, (uint32_t)&here);
+}
+static void tx_rtd_clear(void)                  /* (app.ld .rtdata: NOLOAD, so not cleared by the platform's start) */
+{
+    extern uint32_t _rtd_start[], _rtd_end[];
+    uint32_t *p;
+    for (p = _rtd_start; p < _rtd_end; p++) *p = 0;
 }
 static uint32_t tx_stk_used(const uint32_t *lo, const uint32_t *top)
 {
@@ -106,7 +121,7 @@ static uint32_t tx_seed(void)
 }
 
 /* ---- audio (the interrupt): the lanes, Q23 -> the platform's Q15, rounded and saturated */
-static int32_t tx_L[TX_BLOCK], tx_R[TX_BLOCK];
+static TX_RTD int32_t tx_L[TX_BLOCK], tx_R[TX_BLOCK];
 static void app_audio(int32_t *out, uint32_t n)
 {
     uint32_t i;

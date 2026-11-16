@@ -135,11 +135,11 @@ def measure_report(o, out):
         shutil.copy2(o / f, out / f"textura-app-{f}")
     g = lambda n: sec.get(n, 0)
     ram = g(".data") + g(".bss")
-    lim = ((".text", g(".text"), 0x8DFBC - g(".ram_text") - g(".data")), (".ram_text", g(".ram_text"), 0x6000),
+    lim = ((".text", g(".text"), 0x8DFBC - g(".ram_text") - g(".data")), (".ram_text+.rtdata", g(".ram_text") + g(".rtdata"), 0x6000),
            (".data+.bss+.pool", ram + g(".pool"), RAM_LEN), (".noinit", g(".noinit"), NOINIT_LEN))
     print("  measuring link (app.ld's regions made large):")
     for n, v, l in lim:
-        print(f"    {n:11s} {v:8d} B of {l:7d}  " + (f"OVER by {v - l}" if v > l else f"free {l - v}"))
+        print(f"    {n:18s} {v:8d} B of {l:7d}  " + (f"OVER by {v - l}" if v > l else f"free {l - v}"))
     print("  largest objects (build/fm1/textura-app-objects.txt):")
     for s, sc, n in rows[:30]:
         print(f"    {s:8d}  {sc:12s} {n}")
@@ -413,6 +413,9 @@ def main():
     print(f"  image  {len(img)} B of {fm1pkg_make.APP_SLOT} ({100 * len(img) // fm1pkg_make.APP_SLOT} %), "
           f"free {fm1pkg_make.APP_SLOT - len(img)} B")
     print(f"  RAM    .data+.bss {ram} B + pool {pool} B of {RAM_LEN} (free {RAM_LEN - ram - pool})")
+    if sym("_rtd_end"):                         # (the app: RAMTEXT holds the RAM code, then .rtdata)
+        rt, rd = sym("_rt_end") - sym("_rt_start"), sym("_rtd_end") - sym("_rtd_start")
+        print(f"  RAMTEXT .ram_text {rt} B + .rtdata {rd} B of {0x6000} (free {0x6000 - (sym('_rtd_end') - 0x01C00000)})")
     if frames:
         print("  stack  largest frames: " + ", ".join(f"{f[1].split(':')[-1]} {f[0]}" for f in frames[:8]))
     for e in errors:
