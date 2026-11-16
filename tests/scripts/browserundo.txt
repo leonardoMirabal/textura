@@ -1,0 +1,16 @@
+# SAVE held while the sound browser is still open: EDIT kept bonfire; the undo gives rain on water back
+1700 btn 13
+1800 expect state run0 1
+1800 expect state snd0 rain_on_water
+2000 btn 11
+2020 turn 0 3
+2040 turn 1 1
+2060 btn 6
+2080 expect state browser 2
+2080 expect state snd0 bonfire
+2080 expect state brkept bonfire
+2200 press 9
+3000 release 9
+3020 expect state snd0 rain_on_water
+3020 expect state fam0 Water
+3100 end

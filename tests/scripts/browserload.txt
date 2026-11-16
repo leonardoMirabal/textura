@@ -1,0 +1,20 @@
+# a scene loads while the sound browser is open (a program change): the browser takes the loaded scene's sound as the
+# lane's kept one, so HOME closes it without putting its old kept sound back over the scene (it did: bonfire came
+# back on lane 1 over F001's rain on water). SAVE held then undoes the load, the browser on the restored sound
+1700 btn 13
+2000 btn 11
+2020 turn 0 3
+2040 turn 1 1
+2060 btn 6
+2080 expect state snd0 bonfire
+2080 expect state browser 2
+2080 expect state brkept bonfire
+2200 midi 0xC0 0 0
+3200 expect state loading 0
+3200 expect state snd0 rain_on_water
+3200 expect state browser 2
+3200 expect state brkept rain_on_water
+3300 btn 8
+3320 expect state browser 0
+3320 expect state snd0 rain_on_water
+3400 end

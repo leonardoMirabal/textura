@@ -1503,6 +1503,15 @@ static void ub_follow(void)                     /* another lane (OCT, a black ke
     ub.lane = sc.sel; ub.of = sc.lf[ub.lane]; ub.oi = sc.snd[ub.lane];
     ub_at_lane();
 }
+static void ub_rebase(void)                     /* a scene loads (a program change, an undo, the web): an open sound
+                                                 * browser keeps the lane's new sound, its audition dropped (HOME put
+                                                 * the old kept sound back over the scene) */
+{
+    if (!ub.on || ub.pr) return;
+    ub.of = sc.lf[ub.lane]; ub.oi = sc.snd[ub.lane];
+    ub_at_lane();
+    ui_all();
+}
 static void ub_move(int32_t d)                  /* ALGORITHM, K1 (the presets: PRESETS too): the cursor, d items on (the
                                                  * headers passed over, no wrap); the presets: nothing loads; the sounds:
                                                  * the audition's wait */

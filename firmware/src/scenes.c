@@ -152,6 +152,7 @@ static uint32_t scn_cand_t, scn_save_t;
 static void ui_say(const char *s);              /* ui.c */
 static void ui_all(void);
 static void ui_toast(const char *hd, uint32_t idx);
+static void ub_rebase(void);                    /* (ui.c: an open sound browser takes the scene's sounds) */
 
 static void scn_name_of(uint32_t idx, char *s)  /* "F003 GARDEN RAIN", "U05 WATER", "U06 ----" (s: 20 bytes) */
 {
@@ -413,6 +414,7 @@ static void scn_apply(const scn_t *s, uint32_t idx)
     scn_ap_sw = scn_ap_cd = 0;
     if (scn_ap_fx) scn_fx_early(s);
     scn_lanes(s);
+    ub_rebase();
     scn_ap_stage = 1; scn_ap_t = fm1_ms; scn_ap_i = 0; scn_ap_d = 0;
 }
 static int scn_busy(void) { return scn_ap_stage != 0; }
