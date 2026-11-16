@@ -71,14 +71,27 @@ check(re.search(r"#define FELUCCA_UAC_PHASE 1\b", plat) is not None and re.searc
 # V16 (no 55 AA AA 55 at 0x93000, V15's VM start) stages at 0xA9000, in no region of V16's; a V15 unit at 0xE0000,
 # where only a record left there is erased, never the stock data the sectors may hold. At power-on, before the screen
 plat = src("platform.c")
-pick = body(plat, "static void tx_ota_pick(void)")
+pick = body(plat, "static void tx_ota_pick(int cleanup)")
 check("st_read(0x93000u, m, 4)" in pick and "m[0] == 0x55u && m[1] == 0xAAu && m[2] == 0xAAu && m[3] == 0x55u" in pick and
-      "tx_ota_area = TX_OTA_V15;" in pick and "if (rec) ota_unstage();" in pick and
-      re.search(r"\} else\s+ota_boot_cleanup\(\);", pick) is not None,
-      "ota: the staging picked per unit (V15's VM marker: 0xE0000, a record only erased; else V16's gap 0xA9000)")
+      "tx_ota_area = TX_OTA_V15;" in pick and "tx_ota_area = TX_OTA_V16;" in pick and
+      re.search(r"if \(cleanup\) ota_boot_cleanup\(\);", pick) is not None,
+      "ota: the staging picked per unit (V15's VM marker: 0xE0000; else V16's gap 0xA9000)")
+# a V15 unit's 0xE4F00 holds its own VM data unless an update was staged there: erased only when the loader itself
+# would take it for a record (ldr_core.c ldr_records_drop: "AT" at +6, a nonzero CRC16 over bytes 2..79 at +0); any
+# non-FF byte erased V15's data before (F round 3)
+ldr = (ROOT / "firmware" / "loader" / "ldr_core.c").read_text(encoding="utf-8")
+check("ota_rd16(r + 6) == 0x5441u && ota_rd16(r) && ota_rd16(r) == ota_crc16(r + 2, 78, 0)" in ldr and
+      re.search(r"cleanup && !st_read\(OTA_RES, m, 80\) && ota_rd16\(m \+ 6\) == 0x5441u && ota_rd16\(m\) &&\s+"
+                r"ota_rd16\(m\) == ota_crc16\(m \+ 2, 78, 0\)\)\s+ota_unstage\(\);", pick) is not None,
+      "ota: a V15 unit's staging erased only for a record the loader's own test takes (never V15's data)")
+# the USB rescue (OCT- at power-on) runs before the normal boot's pick: it picks too (the place only, no write), else
+# a V15 unit's rescue staged at 0xA9000, in V15's VM (F round 3)
+rec = body(src("recovery.c"), "static void recovery_main(void)")
+check(re.search(r"flash_ok = FL_JEDEC_OK\(FL_FAR\(fl_jedec_ram\)\(\)\);\n#ifdef TX_OTA_V15\n\s+tx_ota_pick\(0\);", rec)
+      is not None, "ota: the USB rescue stages where the unit's stock firmware leaves room (tx_ota_pick, no write)")
 check(re.search(r"static uint32_t tx_ota_area = TX_OTA_V16;.*?#include \"ota.c\"", plat, re.S) is not None and
-      re.search(r"flash_ok = FL_JEDEC_OK\(FL_FAR\(fl_jedec_ram\)\(\)\);\n#endif\n#ifdef TX_OTA_V15\n\s+tx_ota_pick\(\);", plat)
-      is not None, "ota: ... picked at power-on once the flash is known, V16's place until then (the USB rescue)")
+      re.search(r"flash_ok = FL_JEDEC_OK\(FL_FAR\(fl_jedec_ram\)\(\)\);\n#endif\n#ifdef TX_OTA_V15\n\s+tx_ota_pick\(1\);", plat)
+      is not None, "ota: ... picked at power-on once the flash is known (the USB rescue: its own pick)")
 store = src("store.h")
 check("#define OTA_AREA tx_ota_area" in store and "#ifndef OTA_AREA" in src("ota.c"),
       "ota: ota.c stages at the picked place (store.h OTA_AREA), not its fixed 0xE0000")

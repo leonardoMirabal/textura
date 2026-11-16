@@ -66,6 +66,10 @@ static void recovery_main(void)
     recovery_fraction = fm1_ms = 0;
     /* No persist_boot or OTA cleanup: no flash write just for entering rescue. */
     flash_ok = FL_JEDEC_OK(FL_FAR(fl_jedec_ram)());
+#ifdef TX_OTA_V15
+    tx_ota_pick(0);                          /* (Textura: the staging this unit's stock firmware leaves free, as at a
+                                              * normal boot: a V15 unit's at 0xE0000; the place only, no write) */
+#endif
     lcd_init();
     lcd_fill(0, 0, 240, 240, C_BLACK);
     draw_text_box(0, 64, 240, &FONT_S, APP_NAME " USB RESCUE", C_WHITE, 1);

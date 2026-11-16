@@ -213,19 +213,22 @@ static int ota_in_area(uint32_t off, uint32_t n) { return FL_IN(off, n, OTA_AREA
 #ifdef TX_OTA_V15
 /* the update staging where the stock firmware this unit came from has no data (as Frodhes: store.h has the map).
  * V15's VM (its settings store) starts 55 AA AA 55 at 0x93000: stage at its end, 0xE0000 (as Felucca and Frodhes on
- * such a unit), and erase only a record left there, never the stock data the sectors may hold; else (V16: its image's
- * end at 0x93000) in V16's gap at 0xA9000..0xADFFF, which no region of V16's covers (0xE0000 is in V16's SEQ64) */
-static void tx_ota_pick(void)
+ * such a unit), and erase only an update record left there (the loader's own test, ldr_core.c ldr_records_drop:
+ * "AT" at +6 and a valid CRC16 over its 80 bytes), never the stock data the sector may hold; else (V16: its image's
+ * end at 0x93000) in V16's gap at 0xA9000..0xADFFF, which no region of V16's covers (0xE0000 is in V16's SEQ64).
+ * cleanup 0 (the USB rescue: no flash write just for entering it): the place only */
+static void tx_ota_pick(int cleanup)
 {
-    uint8_t m[8];
-    uint32_t i, rec = 0;
+    uint8_t m[80];
     if (flash_ok && !st_read(0x93000u, m, 4) && m[0] == 0x55u && m[1] == 0xAAu && m[2] == 0xAAu && m[3] == 0x55u) {
         tx_ota_area = TX_OTA_V15;
-        if (!st_read(OTA_RES, m, 8))
-            for (i = 0; i < 8u; i++) rec |= m[i] != 0xFFu;
-        if (rec) ota_unstage();
-    } else
-        ota_boot_cleanup();
+        if (cleanup && !st_read(OTA_RES, m, 80) && ota_rd16(m + 6) == 0x5441u && ota_rd16(m) &&
+            ota_rd16(m) == ota_crc16(m + 2, 78, 0))
+            ota_unstage();
+    } else {
+        tx_ota_area = TX_OTA_V16;
+        if (cleanup) ota_boot_cleanup();
+    }
 }
 #endif
 static int ota_erase(uint32_t off)
@@ -698,7 +701,7 @@ void fm1_cstart(void)
     flash_ok = FL_JEDEC_OK(FL_FAR(fl_jedec_ram)());
 #endif
 #ifdef TX_OTA_V15
-    tx_ota_pick();
+    tx_ota_pick(1);
 #else
     ota_boot_cleanup();
 #endif
