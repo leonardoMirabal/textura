@@ -545,6 +545,7 @@ static const uint16_t FX_US_REV[TX_RVT_N] = {0, 390, 210, 280, 280, 280, 290, 18
 TX_AUDIO_CODE uint32_t tx_fx_gd_dev_us(const tx_fx_t *fx, uint32_t cap)   /* the delay at cap grains (FM-1 us) */
 {
     int pitched = fx->gd.p[TX_GD_PITCH] != 64 || fx->gd.p[TX_GD_REVERSE] || fx->gd.mg;   /* (MOD: grains pitched, bent) */
+    if (cap == 1u && !fx->gd.p[TX_GD_GRAINS]) cap = 2u;   /* (GRAINS 1: its two heads at a cap of one, tx_fx_grain.c gd_ncap) */
     return FX_DEV_GD_BASE + (fx->gd.mg ? FX_US_GD_WOW : 0u) + cap * (pitched ? FX_DEV_GD_GRAINP : FX_DEV_GD_GRAIN1);
 }
 TX_AUDIO_CODE void tx_fx_gd_cap(tx_fx_t *fx)

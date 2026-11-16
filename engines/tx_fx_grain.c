@@ -83,6 +83,14 @@ static const uint32_t GD_IVQ[TX_GDI_N][8] = {
 #define GD_HEADS 1
 #endif
 TX_INLINE uint32_t gd_nv(const tx_fx_grain_t *d) { uint32_t G = d->p[TX_GD_GRAINS] + 1u; return GD_HEADS && G == 1u ? 2u : G; }
+/* the voices that may sound: the cap (the chain's, by the CPU), but GRAINS 1's two heads are one grain stream: a cap
+ * of one keeps both (one head alone is the fade they cure; the governor's floor is one grain, never a weaker sound) */
+TX_INLINE uint32_t gd_ncap(const tx_fx_grain_t *d, uint32_t G)
+{
+    uint32_t c = d->cap;
+    if (GD_HEADS && G == 2u && d->p[TX_GD_GRAINS] == 0u && c == 1u) c = 2u;
+    return c < G ? c : G;
+}
 TX_RAM static uint32_t rnd(uint32_t *s) { *s = *s * 1664525u + 1013904223u; return *s; }   /* (the grains' rng: d->rng,
                                                          * or the second half's copy, tx_fx_grain_split) */
 
@@ -466,9 +474,9 @@ TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
 #endif
     gd_anim(d, n, tgt);
     k = gd_nv(d);
-    d->gnt = gd_level(d, d->cap < k ? d->cap : k);
+    d->gnt = gd_level(d, gd_ncap(d, k));
     d->blin = !d->p[TX_GD_SPRAY] && d->p[TX_GD_PITCH] == 64u && !d->p[TX_GD_REVERSE] && !d->p[TX_GD_MOD];
-    gd_lowlevel(d, d->cap < k ? d->cap : k);
+    gd_lowlevel(d, gd_ncap(d, k));
     d->ahead = !(d->zrun >= TX_GD_N && wgt && !d->tx);
     return d->ahead;
 }
@@ -502,7 +510,7 @@ static unsigned gd_spawns(const tx_gd_grain_t *g, uint32_t T, uint32_t inc, unsi
  * the grains are the same as in one pass. K 0: one pass (tx_fx_grain_voices) */
 TX_AUDIO_CODE void tx_fx_grain_split(tx_fx_grain_t *d, unsigned n)
 {
-    uint32_t G = gd_nv(d), cap = d->cap < G ? d->cap : G, inc = d->ginc;
+    uint32_t G = gd_nv(d), cap = gd_ncap(d, G), inc = d->ginc;
     uint32_t step = 0xFFFFFFFFu / (cap ? cap : 1u) + 1u, k, K = (G + 1u) / 2u, r = d->rng, c = 0;
     if (n > TX_BLOCK) n = TX_BLOCK;
     gd_tap(d);
@@ -514,7 +522,7 @@ TX_AUDIO_CODE void tx_fx_grain_split(tx_fx_grain_t *d, unsigned n)
 /* voice slots k0 .. k1 - 1 into sl, sr (0: dry), their count; rs their rng */
 TX_RAM static unsigned gd_voices(tx_fx_grain_t *d, unsigned k0, unsigned k1, unsigned n, int32_t *sl, int32_t *sr, uint32_t *rs)
 {
-    uint32_t G = gd_nv(d), cap = d->cap < G ? d->cap : G, inc = d->ginc;
+    uint32_t G = gd_nv(d), cap = gd_ncap(d, G), inc = d->ginc;
     uint32_t len = d->glen, step = 0xFFFFFFFFu / (cap ? cap : 1u) + 1u, k, j;   /* (spaced by those that may
                                                          * sound: a cap under GRAINS bunched them, a gap each turn) */
     unsigned act = 0;

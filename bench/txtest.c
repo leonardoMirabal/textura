@@ -1419,6 +1419,49 @@ static void check_fx_grain_wow(tx_fx_t *fx)
              settled * 100.0 / 65536, jump * 100.0 / 65536);
     verdict("fx", "grain wow", settled <= 983 && jump <= 983, msg, 0);
 }
+/* GRAINS 1 under the governor (the open finding: capped to one grain, GRAINS 1 lost its second head and the fade
+ * 296a7f0 had cured came back: the repeats gated by a lone window each pass): a 20 ms noise burst, MIX 127, GRAIN 127,
+ * GRAINS 1, FEEDBACK 96, SPRAY 20, 6 s; the device's cap (tx_fx_gd_cap, its measured room 10 us: an overload, the cap
+ * at its floor) against no cap. The same two heads: the same output, sample for sample; the level over seconds 2 .. 6
+ * re the uncapped (before: +5.5 dB, the lone window's level) */
+static void check_fx_grain_cap1(tx_fx_t *fx)
+{
+    static int32_t y[2][44100u * 6u];
+    double e[2] = {0, 0}, dl;
+    unsigned run, b, j, same = 1, capmax = 0;
+    int32_t room = fx->room_us;
+    char msg[240];
+    for (run = 0; run < 2u; run++) {
+        tx_fx_grain_t *d = &fx->gd;
+        int32_t L[TX_BLOCK], R[TX_BLOCK];
+        uint32_t rng = 5u;
+        tx_fx_grain_init(d);
+        tx_fx_grain_param(d, TX_GD_MIX, 127); tx_fx_grain_param(d, TX_GD_FEEDBACK, 96);
+        tx_fx_grain_param(d, TX_GD_GRAIN, 127); tx_fx_grain_param(d, TX_GD_GRAINS, 0); tx_fx_grain_param(d, TX_GD_SPRAY, 20);
+        fx->up = 0;
+        for (b = 0; b < 44100u * 6u / TX_BLOCK; b++) {
+            for (j = 0; j < TX_BLOCK; j++) {
+                uint32_t i = b * TX_BLOCK + j;
+                rng = rng * 1664525u + 1013904223u;
+                L[j] = R[j] = i >= 4410u && i < 5292u ? ((int32_t)(rng >> 8) - 8388608) / 8 : 0;
+            }
+            if (run) { fx->room_us = 10; tx_fx_gd_cap(fx); if (d->cap > capmax) capmax = d->cap; }
+            else d->cap = TX_GD_MAXG;
+            tx_fx_grain_process(d, L, R, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) {
+                uint32_t i = b * TX_BLOCK + j;
+                y[run][i] = L[j];
+                if (i >= 88200u) e[run] += (double)L[j] * L[j];
+            }
+        }
+    }
+    fx->room_us = room; fx->up = 0;
+    for (j = 0; j < 44100u * 6u / TX_BLOCK * TX_BLOCK; j++) same &= y[0][j] == y[1][j];
+    dl = 10 * log10((e[1] + 1) / (e[0] + 1));
+    snprintf(msg, sizeof msg, "GRAINS 1 at the governor's floor (cap %u): the level over seconds 2 .. 6 %+.1f dB re uncapped, %s",
+             capmax, dl, same ? "the same output" : "the output differs");
+    verdict("fx", "grains 1 cap", same && capmax <= 1u, msg, 0);
+}
 /* the loop's diffusion (GD_DIFF): a 1 ms click into GRAINS 1, FEEDBACK 96, GRAIN 127; its repeats over seconds 1 .. 3:
  * their echo density (the share of samples past one deviation in 1024-sample windows, over a noise's 0.3173: 1 a
  * dense cloud) and crest (peak over RMS). Diffused, each pass is smeared again: 0.84, crest 23.6 dB (undiffused 0.28, 30.3 dB) */
@@ -2615,6 +2658,7 @@ static void check_fx(FILE *update)
         check_fx_grain_level(fx);
         check_fx_grain_loop(fx);
         check_fx_grain_count(fx);
+        check_fx_grain_cap1(fx);
         check_fx_grain_wow(fx);
         check_fx_grain_diffusion(fx);
         check_fx_grain_sync(fx);
@@ -2772,6 +2816,7 @@ int main(int argc, char **argv)
         tx_fx_t *fx = malloc(sizeof *fx);
         check_fx_grain_loop(fx);
         check_fx_grain_count(fx);
+        check_fx_grain_cap1(fx);
         check_fx_grain_wow(fx);
         check_fx_grain_diffusion(fx);
         check_fx_grain_sync(fx);
