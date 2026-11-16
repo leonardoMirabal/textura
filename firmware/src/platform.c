@@ -526,6 +526,31 @@ static __attribute__((noinline)) void isr_stats(uint32_t t0, uint32_t t1, uint32
     if (fill && (!isr_st.fill_low || fill < isr_st.fill_low)) isr_st.fill_low = fill;   /* fill + 1; 0 = no stream */
 }
 
+/* Frodhes: the block's MASTER pass with the gain ramping from master_prev to m (the loops below, a gain a frame) */
+static int32_t master_prev = -1;
+#define TAIL_PRE(x) ((x) > 32767 ? 32767 : (x) < -32767 ? -32767 : (x))
+static __attribute__((noinline)) void master_ramp(int32_t *o, int32_t m)
+{
+    int32_t mq = (master_prev < 0 ? m : master_prev) << 8, dm = master_prev < 0 ? 0 : m - master_prev, b, i;
+    for (b = 0; b < (int32_t)HALF_WORDS; b += 64) {
+        int32_t *c = o + b, *q = tap_q;
+        HAL_KEEP_REG(q);
+        for (i = 0; i < 32; i++, c += 2, q += 2) {
+            int32_t g, k, x;
+            mq += dm; g = mq >> 8;
+            for (k = 0; k < 2; k++) {           /* (both channels, either order of the gain and the clip below) */
+                x = c[k];
+                if (!usb_pre_master) x = (x * g) >> 12;
+                x = TAIL_PRE(x);
+                q[k] = x;
+                c[k] = (usb_pre_master ? (x * g) >> 12 : x) << APP_OUT_SHIFT;
+            }
+        }
+        UAC_ONLY(uac_tap(q - 64, 32u));
+    }
+    master_prev = m;
+}
+#undef TAIL_PRE
 void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) */
 {
     uint8_t p;
@@ -550,7 +575,13 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
          * of three over the block; the same samples. MASTER read once: only the main loop writes it */
         m = master_q12;
 #define TAIL_PRE(x) ((x) > 32767 ? 32767 : (x) < -32767 ? -32767 : (x))
-        for (b = 0; b < HALF_WORDS; b += 64u) {
+        if (m != master_prev) {                 /* Frodhes (0.9.6, BUGHUNT #20: a new MASTER stepped once a block, a
+                                                 * 2.4x zipper while the knob turns): the gain ramps from the last
+                                                 * block's, frame by frame (Q8: (m - prev) a frame reaches m exactly) */
+            master_ramp(o, m);
+            b = HALF_WORDS;
+        } else b = 0;
+        for (; b < HALF_WORDS; b += 64u) {
             int32_t *c = o + b, *q = tap_q;
             HAL_KEEP_REG(q);                    /* (an opaque pointer: else the compiler specialises uac_tap48 on
                                                  * tap_q and its per-frame loop gets 7 instructions longer) */
