@@ -1,26 +1,133 @@
 # Textura
 
-A physically modelled **texture synthesizer** for the M-VAVE FM-1. Each engine simulates the physics of a natural
-sound source instead of playing samples: drops, rain, streams, fire, sand and small stones, struck and scraped
-minerals, ice, sparks, thunder, wind, insects. Every engine plays as a **cloud of sounding particles** from the keys:
-tap for a burst, hold for a stream, and shape it with the engine's own physical controls.
+**A texture synthesizer for the M-VAVE FM-1: rain, streams, fire, sand and stones, ice, wood, wind, storms, insects
+and birds, computed live.**
 
-Its sister project is [Frodhes](https://github.com/leonardoMirabal/frodhes), a physically modelled Rhodes for the same
-hardware. Textura's firmware will be built on the same platform (Dinghy / Felucca), and Frodhes is the reference for
-method, tooling and the integer DSP rules.
+No samples. Every drop, crackle, grain and chirp is calculated as it sounds, from how the real source works: a drop
+hits water and rings a bubble, a log splits and spits, a pebble knocks and rolls. Each sound plays as a cloud of
+these small events from the FM-1's keys: say how many and how busy, and the cloud never repeats itself.
 
-**Status: early development (2026-10-20).** The engines are being written and auditioned on a computer first, in a
-browser player; the firmware comes later.
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/img/landscape.png" width="240" alt="The LANDSCAPE page: four lanes, each with its sound, HOW MANY, HOW ACTIVE and its volume"></td>
+    <td align="center"><img src="docs/img/sounds.png" width="240" alt="The sound browser: the Water family's sounds, one being heard before it is kept"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>LANDSCAPE</b>: four lanes play at once</td>
+    <td align="center"><b>SOUNDS</b>: hear a sound before you keep it</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/img/perform.png" width="240" alt="The PERFORM page: HIGH PASS, LOW PASS, DELAY MIX and REVERB MIX on the four knobs"></td>
+    <td align="center"><img src="docs/img/delay.png" width="240" alt="The DELAY page: MIX, TIME, SYNC and FEEDBACK"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>PERFORM</b>: play the effects live</td>
+    <td align="center"><b>Effects</b>: one card per knob</td>
+  </tr>
+</table>
 
-## Layout
+Its sister project is [Frodhes](https://github.com/leonardoMirabal/frodhes), an electric piano computed live for the
+same keyboard. Textura runs on the same platform.
+
+## What you get
+
+- **10 landscapes, 103 sounds**: Water, Stones & sand, Ice & glass, Fire, Wood, Wind, Storm, Insects, Songbirds and
+  Wild birds. A landscape is a place to start: its sounds load onto the lanes, ready to play.
+- **4 lanes**: four sounds at once, any sound on any lane. Each lane has HOW MANY (how many sources: off, 1 .. 32),
+  HOW ACTIVE (rare to busy), pan, volume and mute.
+- **Effects, in the order the sound goes through them**: compressor, drive (five types), filter (a high-pass into a
+  low-pass, 20 Hz .. 20 kHz, together a band), grain delay (its repeats grained, up to a slowly evolving cloud) and
+  reverb (room, hall, plate and infinite spaces). The pages follow the same order, left to right.
+- **PERFORM**: one page for playing the effects live: HIGH PASS, LOW PASS, DELAY MIX and REVERB MIX.
+- **Movement**: 8 LFOs, 2 envelopes, 2 envelope followers and a 16-slot mod matrix. A groove makes the small events lean
+  toward a shared, slowly drifting pulse, felt rather than heard, never a beat.
+- **For playing**: PLAY mode turns the keys into a pitched keyboard for the selected lane, with scales; tap tempo or
+  MIDI clock.
+- **Connections**: MIDI over USB and the TRS input (each lane on its own channel), and audio over USB as well as
+  the headphone jack.
+- **Presets**: 100 factory presets in families, 16 slots for your own, and the 10 landscapes.
+
+## Install on the FM-1
+
+Installing Textura **replaces the firmware now on your FM-1** (Frodhes, for example). Your FM-1 can go back to it
+at any time: see below.
+
+1. Download the newest `.fwsc` file from the [release page](https://github.com/leonardoMirabal/textura/releases).
+2. Connect the FM-1 with USB and install it in one of these ways:
+   - **The Firmware Hub**: install and update from the FM-1's firmware catalogue in the browser.
+   - **FM-1 Loader**: put the `.fwsc` file in the folder it watches, and install it from there.
+   - **From a terminal**, in a copy of this repository with a copy of Frodhes beside it (the installer comes from
+     there):
+     ```sh
+     git clone https://github.com/leonardoMirabal/frodhes ../frodhes
+     pip install mido python-rtmidi
+     python3 tools/tx_install.py textura-app-X.Y.Z.fwsc
+     ```
+3. If something goes wrong, switch the FM-1 off, hold **OCT−** and switch it on. This starts the USB rescue, and you
+   can install again from there.
+
+**Going back.** Install the other firmware (Frodhes, or M-VAVE's own) the same way: from The Firmware Hub, FM-1
+Loader, or Frodhes' own installer. The USB rescue (OCT− held at power-on) works whatever is installed.
+
+## Status
+
+**Beta.** Pages and presets can still change between versions. The USB ID is
+interim until Textura's own pid.codes ID is granted.
+
+## Controls
+
+The screen shows one page at a time, one card per knob (K1 .. K4); each page's footer says what ALGORITHM and the
+buttons do there.
+
+| Control | What it does |
+| --- | --- |
+| Black keys (groups 3, 2, 3, 2) | Select lanes 1 .. 4. Held: mute or unmute that lane |
+| F3 .. E4 | HOW MANY on the selected lane: off, 1, 2, 4, 10, 19, 32 |
+| F4 .. G5 | HOW ACTIVE: rare .. busy |
+| K1 .. K4 | On LANDSCAPE: the four lanes' volumes. On other pages: the cards |
+| ALGORITHM | On LANDSCAPE: pick a landscape (EDIT loads it). Elsewhere: named in the footer |
+| HOME | LANDSCAPE. Again: back to the last page. Twice quickly: PERFORM. Held: setup |
+| EDIT | The selected lane's sound and its pages |
+| SEQ | The sound browser: every family's sounds, heard before you keep one |
+| SELECT | The pages, in the order of the sound: the lane's sound, the mixer |
+| FX | PERFORM, then the effects' pages in signal order. Held: PERFORM from anywhere |
+| GLO | GROOVE, TEMPO, SCALE, MIDI, DISPLAY |
+| LFO / ENV / ARP | The LFOs, the envelopes and followers, the mod matrix. LFO held + turn a card: learn |
+| OCT− / OCT+ | Previous / next lane (in PLAY mode: octave) |
+| SEL | Keys: LANDSCAPE or PLAY |
+| REC | All lanes stop / start |
+| PLAY | Tap tempo. Held: start / stop |
+| PRESETS | The preset list: factory, your own, landscapes |
+| SAVE | Save a preset. Held: undo the last load |
+
+## Try it on your computer
+
+The firmware also builds for a computer, unchanged:
+
+- **The web panel**: the FM-1's screen, knobs and keys in the browser, playable from the computer keyboard or a MIDI
+  keyboard. `make fw-web` builds it (it needs Emscripten), `make fw-web-serve` serves it at `http://localhost:8001`.
+- **A fake FM-1 in the terminal**: `make fw-host` builds `build/fw/textura-host`, which plays a script of key and
+  button presses and writes the sound (WAV) and screenshots.
+
+## For developers
+
+The sounds are written in integer C in `engines/` and auditioned on a computer before they reach the device:
 
 | Folder | What |
 | --- | --- |
-| `engines/` | The engines and their shared DSP cores: integer C, the same code the device will run |
-| `bench/` | Host tools: render scripts to WAV, checks, CPU bench |
-| `audition/` | The browser player for trying the engines (keys, MIDI, CPU meter) |
-| `tools/` | Helper scripts |
+| `engines/` | The sound engines, their shared cores and the effects: the same code the FM-1 runs |
+| `firmware/` | The FM-1 app: lanes, pages, presets, landscapes, MIDI |
+| `bench/` | Host tools: renders to WAV, checks, the CPU budget |
+| `audition/` | A browser player for trying the engines |
+| `web/` | The web panel |
+| `tests/` | The firmware's checks and host scripts |
+| `tools/` | Install, build and generator scripts |
 
-## Licence
+`make tx-test` and `make fw-test` run the checks; the top of the `Makefile` lists every target.
 
-Open source under the GPL-3.0 ([LICENSE](LICENSE)).
+## License and disclaimer
+
+GPL-3.0 ([LICENSE](LICENSE)).
+
+Textura is an independent open-source project, not affiliated with or endorsed by M-VAVE. It comes with no warranty:
+install it at your own risk.
