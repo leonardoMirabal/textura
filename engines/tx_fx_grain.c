@@ -397,6 +397,21 @@ static void gd_anim(tx_fx_grain_t *d, unsigned n, uint32_t tgt)
  * 20 ms on). So the delay keeps its level at every GRAINS and every cap: a sparse repeat and a dense cloud alike
  * (it fell 1 / sqrt(N): -12 dB from 2 grains to 30) */
 static int32_t gd_level(const tx_fx_grain_t *d, uint32_t N);
+/* the count the level law takes: N (GRAINS, capped); after a change, the voices sounding, kept between the old count
+ * and N, until they reach N (or a grain's length has passed). GRAINS 30 -> 1 on copies (SPRAY 0) took one grain's
+ * level while the 28 others still sounded out their windows (gliding there in 170 ms: ~9 dB over both held renders);
+ * 1 -> 30 kept the old level while the new voices started. At rest, N exactly */
+static uint32_t gd_nlaw(tx_fx_grain_t *d, uint32_t N, unsigned n)
+{
+    uint32_t o = d->nlv, a = 0, k, lo, hi;
+    if (!o || o == N) { d->nlv = (uint8_t)N; d->nlt = 0; return N; }
+    for (k = 0; k < TX_GD_MAXG; k++) a += d->g[k].on;
+    lo = o < N ? o : N; hi = o < N ? N : o;
+    a = a < lo ? lo : a > hi ? hi : a;
+    d->nlt += n;
+    if (a == N || d->nlt >= d->glen) { d->nlv = (uint8_t)N; d->nlt = 0; return N; }
+    return a;
+}
 /* the same below the crossover: scattered grains still read alike far below 1 / their reads' spread (SPRAY's reach,
  * and PITCH's drift between grains over a window), so there they add in amplitude: 2 / N (the power law let them
  * gain up to +13 dB a pass at 3 Hz (30 grains, SPRAY 20) or 50 Hz (SPRAY 2): at high FEEDBACK the bottom ran away,
@@ -467,6 +482,7 @@ TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
         for (k = 0; k < 4u; k++) d->dt[k] = d->da[k] = d->du[k] = 0;
         for (k = 0; k < 2u; k++) d->xl[k] = d->xle[k] = 0;
         d->bwg = -1;
+        d->nlv = 0;
 #if GD_DIFF
         d->apw = 0;
         d->sc = 0; d->pw = -1; d->prei = 0;           /* (pw -1: set below, to where this block's SYNC puts it) */
@@ -479,9 +495,10 @@ TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
 #endif
     gd_anim(d, n, tgt);
     k = gd_nv(d);
-    d->gnt = gd_level(d, gd_ncap(d, k));
+    k = gd_nlaw(d, gd_ncap(d, k), n);
+    d->gnt = gd_level(d, k);
     d->blin = !d->p[TX_GD_SPRAY] && d->p[TX_GD_PITCH] == 64u && !d->p[TX_GD_REVERSE] && !d->p[TX_GD_MOD];
-    gd_lowlevel(d, gd_ncap(d, k));
+    gd_lowlevel(d, k);
     d->ahead = !(d->zrun >= TX_GD_N && wgt && !d->tx);
     return d->ahead;
 }
@@ -683,9 +700,17 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
 #endif
     for (j = 0; j < n; j++) {
         int32_t x = (L[j] >> 2) + (R[j] >> 2), wl, wr, f, fm;   /* the mid, Q22 */
-        if (d->gn != gnt) d->gn += d->gn < gnt ? (gnt - d->gn > 8 ? 8 : gnt - d->gn) : -(d->gn - gnt > 8 ? 8 : d->gn - gnt);
-        if (d->gnl != d->gnlt) d->gnl += d->gnl < d->gnlt ? (d->gnlt - d->gnl > 8 ? 8 : d->gnlt - d->gnl)
-                                                          : -(d->gnl - d->gnlt > 8 ? 8 : d->gnl - d->gnlt);
+        if (d->gn != gnt) {                             /* (8 a sample, or 1 / 256 of the way: a voice count's step
+                                                         * in ~6 ms, as the voices come and go, gd_nlaw) */
+            int32_t st = (gnt > d->gn ? gnt - d->gn : d->gn - gnt) >> 8;
+            st = st > 8 ? st : 8;
+            d->gn += d->gn < gnt ? (gnt - d->gn > st ? st : gnt - d->gn) : -(d->gn - gnt > st ? st : d->gn - gnt);
+        }
+        if (d->gnl != d->gnlt) {                        /* (the same, below the crossover) */
+            int32_t st = (d->gnlt > d->gnl ? d->gnlt - d->gnl : d->gnl - d->gnlt) >> 8;
+            st = st > 8 ? st : 8;
+            d->gnl += d->gnl < d->gnlt ? (d->gnlt - d->gnl > st ? st : d->gnlt - d->gnl) : -(d->gnl - d->gnlt > st ? st : d->gnl - d->gnlt);
+        }
         if (dry) wl = wr = fm = e[j];                   /* (GRAIN 0: the echo alone, exactly) */
         else {
             int32_t gl = mq15(sl[j], d->gn), gr = mq15(sr[j], d->gn), lo;   /* (gd_level's; below the crossover,

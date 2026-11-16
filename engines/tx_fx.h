@@ -167,6 +167,9 @@ typedef struct {
     int32_t wm;                                  /* the delay's drift's reach, gliding (samples) */
     int32_t wq0, wq1, wvel;                      /* the delay's drift at the block's start and end (Q16 samples), its
                                                   * step a sample (Q16) */
+    uint8_t nlv;                                 /* (the voices the level law is at: GRAINS / the cap; 0: none yet) */
+    uint32_t nlt;                                /* (since GRAINS / the cap changed, samples: the law follows the
+                                                  * voices sounding until it reaches the new count, a grain at most) */
     uint32_t ginc, glen;                         /* the grains' clock step this block (SIZE and its drift), a grain's
                                                   * longest length (samples) */
 #if GD_DIFF

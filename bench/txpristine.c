@@ -394,6 +394,55 @@ static void lim_chord(void)
     judge("limiter chord: over the ceiling (-2 dBFS)", pk, 6663308.0, 1);
     free(l); free(v); free(o);
 }
+/* GRAIN DELAY GRAINS changed under a chord (the control sweep), SPRAY 0 (copies: held at any GRAINS they are the echo,
+ * so a change shows alone), MIX 127: GRAINS g0 -> g1 at 1 s; the wet's level in 20 ms windows over 300 ms against the
+ * two held renders': the most it goes over the louder less 3 dB or under the quieter less 6 (the sweep's margins), dB
+ * (0: inside). Before: 30 -> 1 took one grain's level while 28 still sounded out their windows (+13 dB), 1 -> 30 the
+ * low band's level lagged the grains' */
+static double *gd_gr_run(unsigned g0, unsigned g1)
+{
+    static const int F[4] = {196, 247, 294, 392};
+    tx_fx_grain_t *d = calloc(1, sizeof *d);
+    int b, j, k, nb = 260;
+    double *o = malloc(sizeof(double) * nb * NB);
+    tx_fx_grain_init(d);
+    tx_fx_grain_param(d, TX_GD_MIX, 127); tx_fx_grain_param(d, TX_GD_SPRAY, 0); tx_fx_grain_param(d, TX_GD_GRAINS, g0);
+    for (b = 0; b < nb; b++) {
+        if (b == 172) tx_fx_grain_param(d, TX_GD_GRAINS, g1);
+        for (j = 0; j < (int)NB; j++) {
+            double v = 0;
+            for (k = 0; k < 4; k++) v += sin(2.0 * M_PI * F[k] * (double)(b * NB + j) / FS + k);
+            L[j] = R[j] = (int32_t)lrint(8388608.0 * 0.1 * v);
+        }
+        d->cap = TX_GD_MAXG;
+        tx_fx_grain_process(d, L, R, NB);
+        for (j = 0; j < (int)NB; j++) o[b * NB + j] = L[j];
+    }
+    free(d);
+    return o;
+}
+static double gd_gr1(unsigned g0, unsigned g1)
+{
+    double *m = gd_gr_run(g0, g1), *h0 = gd_gr_run(g0, g0), *h1 = gd_gr_run(g1, g1), w = 0;
+    int k, i, s0 = 172 * (int)NB;
+    for (k = 0; k < 15; k++) {
+        int s = s0 + k * 882;
+        double em = 0, e0 = 0, e1 = 0, x;
+        for (i = s; i < s + 882; i++) em += m[i] * m[i], e0 += h0[i] * h0[i], e1 += h1[i] * h1[i];
+        x = fmax(db((em + 1) / (fmax(e0, e1) + 1)) - 3.0, db((fmin(e0, e1) + 1) / (em + 1)) - 6.0);
+        if (x > w) w = x;
+    }
+    free(m); free(h0); free(h1);
+    return w;
+}
+static void gd_grains(void)
+{
+    double a = gd_gr1(0, 29), b = gd_gr1(29, 0), c = gd_gr1(3, 29), e = gd_gr1(29, 3);
+    printf("GRAIN DELAY GRAINS changed under a chord (SPRAY 0): the wet outside both held (3 dB over, 6 under), dB: "
+           "1 -> 30 %.2f, 30 -> 1 %.2f, 4 -> 30 %.2f, 30 -> 4 %.2f (0 at most)\n", a, b, c, e);
+    judge("GRAIN DELAY GRAINS change level", fmax(fmax(a, b), fmax(c, e)), 0.0, 1);
+}
+
 static void lim_bass(void)
 {
     tx_limit_t *l = malloc(sizeof *l);
@@ -960,6 +1009,7 @@ int main(int argc, char **argv)
     gd_zipper();
     gd_reverse();
     lim_chord();
+    gd_grains();
     lim_bass();
     comp_quiet();
     comp_chord();
