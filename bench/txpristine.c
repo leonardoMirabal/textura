@@ -55,7 +55,8 @@
  *     (MIX 127): the quiet tail scaled up less the loud, re the loud, over the tail's first second (the rounding's
  *     grain on a quiet note), and the -60 tail's level at its end re the loud. Reported
  *   REVERB SIZE steps under a held chord (MIX 127): SIZE stepped and back; the largest second difference in the 1.2 s
- *     after a step re the held tail before and after (Frodhes' control click; 1 = none). Reported */
+ *     after a step re the held tail before and after (Frodhes' control click; 1 = none). Reported
+ *   REVERB MOD 0 <-> 127 under a held chord: the same measure, HALL, ROOM, INFINITE, PLATE; 2 at most */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -749,7 +750,9 @@ static void rev_tail(void)
 /* REVERB SIZE steps under a held chord (MIX 127, the wet alone): SIZE z0 -> z1 at 1.5 s, back at 3 s; the largest
  * second difference in the 1.2 s after a step (a glide's or a fade's whole span) re the largest of the held tail in
  * the 0.5 s before it and the 0.3 s after that span (Frodhes' control click; 1 = none): the worse of the two steps */
-static double rev_size1(unsigned ty, unsigned z0, unsigned z1)
+static double rev_step1(unsigned ty, unsigned id, unsigned z0, unsigned z1);
+static double rev_size1(unsigned ty, unsigned z0, unsigned z1) { return rev_step1(ty, TX_RV_SIZE, z0, z1); }
+static double rev_step1(unsigned ty, unsigned id, unsigned z0, unsigned z1)
 {
     static const int F[4] = {196, 247, 294, 392};
     tx_fx_reverb_t *r = malloc(sizeof *r);
@@ -757,10 +760,10 @@ static double rev_size1(unsigned ty, unsigned z0, unsigned z1)
     int32_t x[NB], y[NB];
     double *o = malloc(sizeof(double) * nb * NB), w = 0;
     tx_fx_reverb_init(r);
-    tx_fx_reverb_param(r, TX_RV_TYPE, ty); tx_fx_reverb_param(r, TX_RV_MIX, 127); tx_fx_reverb_param(r, TX_RV_SIZE, z0);
+    tx_fx_reverb_param(r, TX_RV_TYPE, ty); tx_fx_reverb_param(r, TX_RV_MIX, 127); tx_fx_reverb_param(r, id, z0);
     for (b = 0; b < nb; b++) {
-        if (b == s1) tx_fx_reverb_param(r, TX_RV_SIZE, z1);
-        if (b == s2) tx_fx_reverb_param(r, TX_RV_SIZE, z0);
+        if (b == s1) tx_fx_reverb_param(r, id, z1);
+        if (b == s2) tx_fx_reverb_param(r, id, z0);
         for (i = 0; i < (int)NB; i++) {
             double v = 0;
             for (k = 0; k < 4; k++) v += sin(2.0 * M_PI * F[k] * (double)(b * NB + i) / FS + k);
@@ -790,6 +793,19 @@ static void rev_size(void)
            rev_size1(TX_RVT_INF, 64, 64));
 }
 
+/* REVERB MOD moved at once under a held chord (Frodhes 0.9.6, BUGHUNT #10: HALL's read offset moved a whole sample
+ * every 8 MOD steps, INFINITE's and PLATE's depth followed MOD at once): MOD 0 -> 127 at 1.5 s, back at 3 s, the
+ * largest second difference in the 1.2 s after re the held tail (as the SIZE steps); 2 at most */
+static void rev_mod(void)
+{
+    double h = rev_step1(TX_RVT_HALL, TX_RV_MOD, 0, 127), m = rev_step1(TX_RVT_ROOM, TX_RV_MOD, 0, 127);
+    double i = rev_step1(TX_RVT_INF, TX_RV_MOD, 0, 127), p = rev_step1(TX_RVT_PLATE, TX_RV_MOD, 0, 127);
+    printf("REVERB MOD 0 <-> 127 under a held chord: the largest second difference in the 1.2 s after a step re the "
+           "held: HALL %.2f, ROOM %.2f, INFINITE %.2f, PLATE %.2f (2 at most)\n", h, m, i, p);
+    judge("REVERB MOD step HALL", h, 2.0, 1); judge("REVERB MOD step ROOM", m, 2.0, 1);
+    judge("REVERB MOD step INFINITE", i, 2.0, 1); judge("REVERB MOD step PLATE", p, 2.0, 1);
+}
+
 int main(int argc, char **argv)
 {
     check = argc > 1 && !strcmp(argv[1], "--check");
@@ -813,6 +829,7 @@ int main(int argc, char **argv)
     rev_quiet();
     rev_tail();
     rev_size();
+    rev_mod();
     free(fx);
     if (check) printf("tx-pristine: %s (%d over)\n", fails ? "FAIL" : "ok", fails);
     return check && fails ? 1 : 0;

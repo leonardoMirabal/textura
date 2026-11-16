@@ -302,6 +302,12 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
     uint32_t sb, i, j, pd = FX_PDLY_SAMPLES(r->p[TX_RV_PREDELAY]);
     int quiet = !r->running, dark = tgt == TX_RVT_DARK, shon = r->p[TX_RV_SHIMMER] != 0, two = 0;
     if (!send && !r->running && !r->fade && !r->xd) { r->xw = mt; return; }   /* (off: the mix untouched) */
+    /* MOD, gliding (Frodhes 0.9.6, BUGHUNT #10: HALL's read offset moved a whole sample every 8 MOD steps, INFINITE's
+     * mean read depth and PLATE's swing followed MOD at once: MOD 0 -> 127 at once 35x .. 50x a held tail's second
+     * difference): HALL's and ROOM's depth in Q8 (md8) moves 1/8 sample a control block (0 -> 127 in 93 ms), the
+     * others' MOD x 16 (mg) 1 a control block (127 in 1.5 s); at rest both are MOD's own, so a MOD that has not moved
+     * renders as before */
+    if (!r->running) { r->md8 = md << 8; r->mg = (int32_t)r->p[TX_RV_MOD] << 4; }
     r->running = 1;
     TX_FAR(tx_fx_mix_glide)(&r->xd, dt, 512, nb, 0, gd);       /* MIX glides: 512 a control block, 46 ms end to */
     TX_FAR(tx_fx_mix_glide)(&r->xw, mt, 512, nb, r->gw, 0);    /* end (in flash) */
@@ -375,6 +381,8 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
             r->rn += CTL;
         }
     tail:
+        if (r->md8 != md << 8) r->md8 += clampi((md << 8) - r->md8, -32, 32);   /* (MOD's glides, above) */
+        if (r->mg != (int32_t)r->p[TX_RV_MOD] << 4) r->mg += r->mg < (int32_t)r->p[TX_RV_MOD] << 4 ? 1 : -1;
         {   /* the kernels (and ROOM's tail: a short hall) */
             int32_t ipk = 0;                                    /* (the send's peak: the shimmer's guard reads it) */
             for (i = 0; i < HL_NC; i++) ipk |= in[i] ^ (in[i] >> 31);
@@ -388,13 +396,13 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
                                                                  * went under 0, which hall_gains read as its longest) */
                 (hq ? TX_FAR(tx_hq_run) : tx_hall_run)(hq ? (tx_hall_t *)(void *)&r->u.hq.q : &r->u.rm.h, hq ? r->x : in,
                     0,
-                    hq ? size + r->off : rz < 2 ? 2 : rz, r->damp, md, om, os,
+                    hq ? size + r->off : rz < 2 ? 2 : rz, r->damp, r->md8, om, os,
                     two == 1 ? 0 : &r->par);                    /* (one call: RAM text. ROOM on one core here while the
                                                                  * body holds the other) */
             }
             else if (cur == TX_RVT_INF) {
                 tx_rev_ctl_t c;
-                c.decay = r->dk; c.damp = r->damp; c.size = zv ? zv : TX_RV_INF_AUTO; c.mod = r->p[TX_RV_MOD]; c.dark = dark;
+                c.decay = r->dk; c.damp = r->damp; c.size = zv ? zv : TX_RV_INF_AUTO; c.mod = r->mg; c.dark = dark;
                 c.drift = tgt == TX_RVT_DRIFT ? &r->rng : 0; c.par = &r->par;
                 c.freeze = kern((uint32_t)tgt) != TX_RVT_INF || r->dk < 120 ? 0 : r->dk < 127 ? 1 : 2;
                 TX_FAR(tx_inf_run)(&r->u.i, r->x, om, os, &c);
@@ -402,7 +410,7 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
             } else if (cur == TX_RVT_PLATE) {
                 tx_rev_ctl_t c;
                 if (r->pz < 0 || !TX_FAR(tx_plate_active)(&r->u.p)) r->pz = v;   /* (AUTO: MIX's size, taken from silence) */
-                c.decay = r->dk; c.damp = r->damp; c.size = zv ? zv : r->pz; c.mod = r->p[TX_RV_MOD];
+                c.decay = r->dk; c.damp = r->damp; c.size = zv ? zv : r->pz; c.mod = r->mg;
                 c.freeze = 0; c.dark = 0; c.drift = 0; c.par = &r->par;
                 TX_FAR(tx_plate_run)(&r->u.p, r->x, om, os, &c);
             }

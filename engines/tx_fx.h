@@ -208,6 +208,7 @@ typedef struct {
     uint8_t p[TX_RV_NP];
     uint8_t cur, fade, running, pd_on;
     int32_t off, damp, dk;                       /* DECAY's size offset, TONE's damping, DECAY for the kernels (glide) */
+    int32_t md8, mg;                             /* MOD, gliding: HALL's / ROOM's depth (Q8), the others' MOD x 16 */
     int32_t hp, he, lc, lca, lcv;                /* the kernels' DC blocker; LOW CUT */
     uint32_t pd_w, pd_d, pd_d0, pd_x, pd_fill;
     int32_t inb[CTL];                            /* the send, a control block */

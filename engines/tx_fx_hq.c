@@ -83,7 +83,7 @@ static void hq_half(tx_hq_t *h, uint32_t hf)
         int32_t *y = h->half[hf].y[0] + j;
         r = (uint32_t)h->len[k] << 8;
         uint32_t ph = h->half[hf].ph[j] += HQ_LFO / 8u * HQ_RATE[k];   /* every read modulated, its own rate: */
-        r -= (uint32_t)((h->jmd << 8) + ((tx_fx_sine(ph) * h->jmd) >> 7));   /* up to 2 x depth nearer */
+        r -= (uint32_t)(h->jmd + ((tx_fx_sine(ph) * h->jmd) >> 15));   /* up to 2 x depth nearer (jmd: Q8) */
         i0 = h->w[k] + rl - (r >> 8) - 1u;          /* (r's fraction from i0 toward i0 + 1) */
         i0 = i0 >= rl ? i0 - rl : i0;
         f = 256 - (int32_t)(r & 255u);
@@ -157,7 +157,7 @@ void tx_hq_run(tx_hall_t *hv, const int32_t *send, const int32_t *add, int32_t s
         hq_gains(h, t < 100 ? 100 : t, damp);
         h->sz = sz;
     }
-    h->jmd = md > 12 ? 12 : md;
+    h->jmd = md > 12 << 8 ? 12 << 8 : md;          /* (md: Q8, gliding) */
     for (i = 0; i < HL_NC; i++) h->bx[i] = send[i] + (add ? add[i] : 0);   /* (the caller's DC blocker before: no RAM
                                                      * code called from here, either core) */
     for (i = 0; i < HL_NC; i++) h->er[(h->ew + i) & (HQ_ERN - 1u)] = (int16_t)hl_c16(h->bx[i]);

@@ -66,7 +66,7 @@ typedef struct {            /* filled by the framework once per control block */
     int32_t decay;          /* 0..127 DECAY, after the framework's slew */
     int32_t damp;           /* 0..150 (TONE: 150 dark, 60 at its middle, 0 bright) */
     int32_t size;           /* 0..127 */
-    int32_t mod;            /* 0..127 (64 the default) */
+    int32_t mod;            /* MOD x 16, 0..2032 (64: 1024; the framework glides it 1 a control block) */
     int32_t freeze;         /* the infinite kernel: 0 normal; 1 SUSTAIN (DECAY 120..126); 2 FREEZE (DECAY 127) */
     int32_t dark;           /* the infinite kernel: DARK (no wander, the top held down, the input darker) */
     uint32_t *drift;        /* the infinite kernel: DRIFT (the wander a slow random walk; the framework's random state) */
@@ -114,7 +114,7 @@ typedef struct {
     } TX_LINE half[2];
 } tx_hall_t;
 void tx_hall_start(tx_hall_t *h);
-/* add: HL_NC samples added to the input (the shimmer), or 0 */
+/* add: HL_NC samples added to the input (the shimmer), or 0; md: MOD's depth, Q8 (gliding) */
 void tx_hall_run(tx_hall_t *h, const int32_t *send, const int32_t *add, int32_t size, int32_t damp, int32_t md, int32_t *mid,
                  int32_t *side, const tx_rv_par_t *par);
 void tx_hall_job(void *a);          /* (the other core's half: lines 4..7; core 1 runs its twin) */
@@ -147,7 +147,7 @@ typedef struct {
 } tx_hq_t;
 void tx_hq_start(tx_hq_t *h, int16_t *mem, uint32_t words);
 uint32_t tx_hq_words(void);       /* the rings' words (HQ_HALL_WORDS) */
-/* (hv: the tx_hq_t, as tx_hall_run's type; sz the size step, clamped to 0 .. 140) */
+/* (hv: the tx_hq_t, as tx_hall_run's type; sz the size step, clamped to 0 .. 140; md Q8, as tx_hall_run's) */
 void tx_hq_run(tx_hall_t *hv, const int32_t *send, const int32_t *add, int32_t sz, int32_t damp, int32_t md, int32_t *mid,
                int32_t *side, const tx_rv_par_t *par);
 void tx_hq_job(void *a);            /* (the other core's half: lines 8..15) */

@@ -110,7 +110,8 @@ static void hall_half(tx_hall_t *h, uint32_t hf)
         const int32_t *b = h->comb + k;
         int32_t g = h->g[k], f, lo;
         d = w + HL_N - len;
-        r = (uint32_t)(((md + 2) << 8) + ((tx_fx_sine(h->ph * (1u + (k & 1u)) + k * 0x2C000000u) * md) >> 7)) * RV_X;
+        r = (uint32_t)(md + 512 + ((tx_fx_sine(h->ph * (1u + (k & 1u)) + k * 0x2C000000u) * md) >> 15)) * RV_X;   /* (md:
+                                                     * Q8; a whole md: (md + 2) << 8 + sine md >> 7, the same) */
         f = (int32_t)(r & 255u);
         d += r >> 8;
         d = d >= HL_N ? d - HL_N : d;

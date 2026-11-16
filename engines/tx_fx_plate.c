@@ -537,7 +537,7 @@ TX_AUDIO_CODE void tx_plate_run(tx_plate_t *s, const int32_t *in, int32_t *mid, 
         rk = s->to;
         d0 = (PL_TOP[0] + PL_N - s->to[0]) & PL_M, d4 = (PL_TOP[4] + PL_N - s->to[4]) & PL_M;
     }
-    ex = (uint32_t)c->mod * 48u;                       /* MOD 127: 6096 = 23.8 samples (Q8) */
+    ex = (uint32_t)c->mod * 3u;                        /* MOD 127 (x 16, gliding): 6096 = 23.8 samples (Q8) */
     s->ph += PL_LFO;
     dm0 = (d0 << 8) + (uint32_t)((tx_fx_sine(s->ph) * (int32_t)ex) >> 15);
     dm1 = (d4 << 8) + (uint32_t)((tx_fx_sine(s->ph + 0x40000000u) * (int32_t)ex) >> 15);

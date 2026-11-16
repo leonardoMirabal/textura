@@ -312,7 +312,7 @@ static void ri_tank(tx_inf_t *s, int32_t *mo, int32_t *so, const tx_rev_ctl_t *c
         int32_t g = c->freeze ? 16384 + (s->dq >> 8) : s->g[k];
         int32_t ck = clampi((((16384 - g) * s->c * (c->dark ? RI_KDD : 16)) >> 13) + s->ca, 0, 14000) + RI_CMIN;
         {                                                  /* the read (every tank block) */
-            int32_t dep = (int32_t)((RI_MODQ8 * (uint32_t)mod) >> 6), lf, u0, u1;
+            int32_t dep = (int32_t)((RI_MODQ8 * (uint32_t)mod) >> 10), lf, u0, u1;   /* (mod: MOD x 16, gliding) */
             uint32_t t, r;
             lf = tx_fx_sine(s->ph[k] += RI_CPT * RI_INC[k]) >> 1;   /* (+-16384: the swing) */
             if (c->drift) {                                /* DRIFT: the walk, over twice the swing */
