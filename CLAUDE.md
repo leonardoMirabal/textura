@@ -2,12 +2,12 @@
 
 Physically modelled texture synthesizer for the M-VAVE FM-1 (JieLi AC791N, pi32v2, no FPU): water, rain, fire, sand
 and stones, minerals, ice, sparks, thunder, wind, insects, each played as a particle cloud from the keys.
-**`AGENTS.md` is the operating manual.** The sister project `../frodhes` is the reference for method, tooling and
-the firmware platform.
+**`AGENTS.md` is the operating manual.** Textura is based on Frodhes (same author) and is self-contained: nothing
+builds, installs or tests from a `../frodhes` checkout; code taken from Frodhes is copied in with its header.
 
 - **Base (decided 2026-10-19):** an own GPL-3.0 firmware from Frodhes' tree (Dinghy / Felucca platform), no
-  Bluetooth. FM1 Open was dropped (its closed library gives a custom engine no MIDI). The firmware port is a later
-  stage; today the engines are developed and auditioned on the host (`engines/`, `bench/`, `audition/`).
+  Bluetooth. FM1 Open was dropped (its closed library gives a custom engine no MIDI). The firmware runs on the FM-1
+  (`firmware/`); engines are still developed and auditioned on the host first (`engines/`, `bench/`, `audition/`).
 - Integers only in `engines/`: no float/double, no 64-bit `/` or `%`. Q15 levels, 32-bit phases; prefer 32-bit
   products in inner loops (a 64-bit multiply fault is reported on this chip).
 - Audio: 256-frame blocks at 44.1 kHz = 5805 us (Frodhes' platform). Every engine is an instance (no globals) so
