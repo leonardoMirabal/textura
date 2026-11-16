@@ -87,11 +87,12 @@ static void shimmer(tx_fx_reverb_t *r, const int32_t *mid, int live)
 {
     int32_t amt = r->p[TX_RV_SHIMMER], dk = r->dk, pk = 0, row = r->cur == TX_RVT_ROOM ? 0 : r->cur == TX_RVT_HALL ? 1
         : r->cur != TX_RVT_INF ? 3 : r->p[TX_RV_TYPE] == TX_RVT_DARK ? 4 : 2;
-    int32_t kg = SH_KT[row][dk >> 5], g, held, zv = r->p[TX_RV_SIZE], mpk = 0;
+    int32_t kg = SH_KT[row][dk >> 5], g, held, zv = r->p[TX_RV_SIZE], mpk = 0, dm;
     uint32_t i, inc = SH_INC[r->p[TX_RV_SHIFT] & 3u], ph = r->shph, w = r->shw;
     kg += ((SH_KT[row][(dk >> 5) + 1] - kg) * (dk & 31)) >> 5;          /* (the row at DECAY) */
     kg = (kg * SH_KS[r->p[TX_RV_SHIFT] & 3u]) >> 8;                    /* (the rows hold for a fifth up, TONE 127: */
-    kg = (kg * (320 - (r->damp < 60 ? (60 - r->damp) * 16 / 15 : 0))) >> 8;   /* the other SHIFTs, a darker TONE
+    dm = r->damp + (row == 4 ? 60 : 0);                                /* (DARK's damping: the kernel's) */
+    kg = (kg * (320 - (dm < 60 ? (60 - dm) * 16 / 15 : 0))) >> 8;   /* the other SHIFTs, a darker TONE
                                                                  * ring longer: up to x1.35, x1.25) */
     if (zv && zv < 64 && row >= 2) kg = (kg * (128 + 2 * zv)) >> 8;   /* (INFINITE, PLATE: a small SIZE, a short
                                                                  * loop comes round more often; x0.5 .. x1 to SIZE 64) */
@@ -311,7 +312,8 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
     r->running = 1;
     TX_FAR(tx_fx_mix_glide)(&r->xd, dt, 512, nb, 0, gd);       /* MIX glides: 512 a control block, 46 ms end to */
     TX_FAR(tx_fx_mix_glide)(&r->xw, mt, 512, nb, r->gw, 0);    /* end (in flash) */
-    if (tgt == TX_RVT_DARK) damp += 60;                         /* DARK: TONE's damping 60 steps darker */
+    /* DARK: TONE's damping 60 steps darker, added in the kernel as DARK's share glides in (tx_fx_inf.c dkw: a TYPE
+     * change INFINITE <-> DARK under a tail, the damping lifted in 22 ms, swelled the tail's top 3.5x) */
     if (r->body_run && tgt == TX_RVT_ROOM && r->cur == TX_RVT_ROOM && send && !r->fade && r->xin == 32768 && n == TX_BLOCK
         && !r->rn) {
         /* ROOM on two cores: every control block's send first (as below: the loop then takes them from sv), the body

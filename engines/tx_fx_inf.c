@@ -21,7 +21,7 @@
  *
  * DARK (Textura): the same tank darker and still: no wander (MOD 0: the reads stand, nothing beats), TONE's damping
  * 60 steps darker (the input one-pole near 250 Hz and lower, the top's absolute damping up), so a FREEZE holds a deep,
- * soft bed. The framework sets it (c->dark: damp + 60, mod 0).
+ * soft bed. The framework sets c->dark; the kernel glides into it (dkw: damp + 60, mod 0, its gains and loss).
  *
  * DRIFT (Textura): the same tank, its wander a slow random walk instead of the slow sines: each wandering read follows
  * two one-poles (0.75 s each) toward a target drawn at random every 1.5 .. 6 s, over twice the swing, so the tail
@@ -34,6 +34,7 @@
                                     * shorter, as much a second as the +-24 before) */
 #define RI_KD 9                     /* TONE's damping ratio R = damp x RI_KD / 256 */
 #define RI_KA 76                    /* TONE darker than its middle: an absolute damping on top, Q14 per step and pass */
+#define RI_DKW 128u                 /* DARK in / out: its share's steps, one a tank block (Q7: 128 = DARK) */
 #define RI_KDD 40                   /* DARK: TONE's damping with the loss, x 2.5 (Q4; the short lines' more passes:
                                     * DARK's tails at DECAY 0 .. 100 as with the long lines) */
 #define RI_KI 2400u                 /* TONE's input one-pole: k = 2^(-damp x RI_KI / 65536) */
@@ -140,9 +141,9 @@ static inline void ri_end(const int16_t *b, int32_t *y, uint32_t n, int32_t a, i
         d = (d) + k >= (len) ? 0u : (d) + k;                                                \
     }
 
-static void ri_gains(tx_inf_t *s, int32_t d, int dark)      /* DECAY 0..119: T60 4 .. 60 s (4 x 15^(d / 119)) */
+static void ri_gains(tx_inf_t *s, int32_t d, uint32_t dkw)   /* DECAY 0..119: T60 4 .. 60 s (4 x 15^(d / 119)) */
 {
-    uint32_t inv = exp2_neg((uint32_t)(131072 + d * 2151)) - RI_LOSS, k, q = dark ? 3776u : RI_GQ, l;
+    uint32_t inv = exp2_neg((uint32_t)(131072 + d * 2151)) - RI_LOSS, k, q = RI_GQ - (((RI_GQ - 3776u) * dkw) >> 7), l;   /* (DARK: 3776) */
     for (k = 0; k < RI_NL; k++) {                          /* (a pass's time: the half-rate length) */
         l = s->len[k];                                     /* (a SIZE fade: the length between, as it fades) */
         if (s->xf && k == s->xk) l = (uint32_t)((int32_t)s->lo[k] + ((((int32_t)l - (int32_t)s->lo[k]) * s->xw) >> 14));
@@ -271,8 +272,16 @@ static void ri_job(void *a) { ri_half((tx_inf_t *)a, 1u); }   /* (the other core
 static void ri_tank(tx_inf_t *s, int32_t *mo, int32_t *so, const tx_rev_ctl_t *c, int32_t xi)
 {
     uint32_t i, k, d, m, w = s->w;
-    int32_t act = 0, ab = 0, closed = c->freeze == 2, dec, ct, ch = 0, mod = c->dark ? 0 : c->mod;
+    int32_t act = 0, ab = 0, closed = c->freeze == 2, dec, ct, ch = 0, mod, kdd, dmp;
     int16_t *ap = s->ap;
+    /* DARK in and out (the sweep: INFINITE -> DARK under a tail clicked 17.5x a held one's: the reads stood still at
+     * once, the gains and the loss jumped): its share glides a step a tank block, RI_DKW steps (0.37 s); MOD, the
+     * gains' exponent and the loss's factor follow it. A tank that starts (or rests) takes its TYPE's at once, so
+     * INFINITE and DARK alone render as before */
+    if (!s->len[0] || !tx_inf_active(s)) s->dkw = c->dark ? RI_DKW : 0;
+    else if (s->dkw != (c->dark ? RI_DKW : 0)) s->dkw = (uint8_t)(s->dkw + (c->dark ? 1 : -1));
+    mod = (c->mod * (int32_t)(RI_DKW - s->dkw)) >> 7;
+    kdd = 16 + (((RI_KDD - 16) * (int32_t)s->dkw) >> 7);
     if (!c->freeze && c->decay >= 120) {                   /* a release: the tail fades out in ~2 s */
         s->rd = s->rd > RI_REL + 2 * (int32_t)RI_CPT ? s->rd - 2 * (int32_t)RI_CPT : RI_REL;
         dec = s->rd;
@@ -296,13 +305,14 @@ static void ri_tank(tx_inf_t *s, int32_t *mo, int32_t *so, const tx_rev_ctl_t *c
             }
         }
     }
-    if (ch || s->gdec != dec || s->gdk != c->dark) { ri_gains(s, dec, c->dark); s->gdec = dec; s->gdk = (uint8_t)c->dark; }
-    ct = c->freeze ? 0 : c->damp * RI_KD;
+    if (ch || s->gdec != dec || s->gdk != s->dkw) { ri_gains(s, dec, s->dkw); s->gdec = dec; s->gdk = s->dkw; }
+    dmp = c->damp + ((60 * (int32_t)s->dkw) >> 7);         /* (DARK: 60 steps darker, as its share) */
+    ct = c->freeze ? 0 : dmp * RI_KD;
     s->c = s->c < ct ? (ct - s->c > 64 ? s->c + 64 : ct) : (s->c - ct > 64 ? s->c - 64 : ct);
-    s->ik = (int32_t)(exp2_neg((uint32_t)c->damp * RI_KI) >> 1);
+    s->ik = (int32_t)(exp2_neg((uint32_t)dmp * RI_KI) >> 1);
     s->ik = s->ik < RI_KMAX ? s->ik : RI_KMAX;
     s->ik = rv_weight(s->ik * 2) >> 1;                     /* (Q14) */
-    ct = c->freeze || c->damp <= 60 ? 0 : (c->damp - 60) * RI_KA;
+    ct = c->freeze || dmp <= 60 ? 0 : (dmp - 60) * RI_KA;
     s->ca = s->ca < ct ? (ct - s->ca > 64 ? s->ca + 64 : ct) : (s->ca - ct > 64 ? s->ca - 64 : ct);
     ct = closed ? 0 : 32768;
     s->fin = s->fin < ct ? (ct - s->fin > RI_FIN_STEP ? s->fin + RI_FIN_STEP : ct)
@@ -310,7 +320,7 @@ static void ri_tank(tx_inf_t *s, int32_t *mo, int32_t *so, const tx_rev_ctl_t *c
     for (k = 0; k < RI_NL; k++) {                          /* the line ends: their reads, gains and poles */
         uint32_t I, f = 0;
         int32_t g = c->freeze ? 16384 + (s->dq >> 8) : s->g[k];
-        int32_t ck = clampi((((16384 - g) * s->c * (c->dark ? RI_KDD : 16)) >> 13) + s->ca, 0, 14000) + RI_CMIN;
+        int32_t ck = clampi((((16384 - g) * s->c * kdd) >> 13) + s->ca, 0, 14000) + RI_CMIN;
         {                                                  /* the read (every tank block) */
             int32_t dep = (int32_t)((RI_MODQ8 * (uint32_t)mod) >> 10), lf, u0, u1;   /* (mod: MOD x 16, gliding) */
             uint32_t t, r;

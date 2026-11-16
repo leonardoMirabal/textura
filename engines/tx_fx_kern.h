@@ -191,7 +191,8 @@ typedef struct {
     uint32_t hw;
     int32_t rd;
     int32_t lv, tgt, dq, dqi;
-    uint8_t mlo, fm, full, gdk;               /* (gdk: DARK's gains made) */
+    uint8_t mlo, fm, full, gdk;               /* (gdk: the dkw the gains were made for) */
+    uint8_t dkw;                              /* DARK's share, gliding 0 .. RI_DKW (INFINITE <-> DARK: no step) */
     int32_t ma[RI_NL];
     uint32_t ph[RI_NL];
     int32_t wu[RI_NL], wv[RI_NL];   /* DRIFT: each wandering read's walk (two one-poles toward a random target) */

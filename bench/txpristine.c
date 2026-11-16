@@ -806,6 +806,63 @@ static void rev_mod(void)
     judge("REVERB MOD step INFINITE", i, 2.0, 1); judge("REVERB MOD step PLATE", p, 2.0, 1);
 }
 
+/* REVERB TYPE within the INFINITE kernel under a held chord (the control sweep: INFINITE, DARK, DRIFT, SWELL are one
+ * kernel, no fade between them; INFINITE -> DARK stood the reads still and jumped the gains and the loss at once:
+ * 17.5x): t0 -> t1 at 1.5 s, back at 3 s; the largest second difference in the 1.2 s after each step re the larger
+ * of the two TYPEs held over the same 1.2 s (their own tails: DRIFT's walk is peaky of itself); 2 at most */
+static double *rev_ty_render(unsigned t0, unsigned t1)
+{
+    static const int F[4] = {196, 247, 294, 392};
+    tx_fx_reverb_t *r = malloc(sizeof *r);
+    int nb = 5 * FS / (int)NB, b, i, k, s1 = 3 * FS / 2 / (int)NB, s2 = 3 * FS / (int)NB;
+    int32_t x[NB], y[NB];
+    double *o = malloc(sizeof(double) * nb * NB);
+    tx_fx_reverb_init(r);
+    tx_fx_reverb_param(r, TX_RV_TYPE, t0); tx_fx_reverb_param(r, TX_RV_MIX, 127);
+    for (b = 0; b < nb; b++) {
+        if (b == s1) tx_fx_reverb_param(r, TX_RV_TYPE, t1);
+        if (b == s2) tx_fx_reverb_param(r, TX_RV_TYPE, t0);
+        for (i = 0; i < (int)NB; i++) {
+            double v = 0;
+            for (k = 0; k < 4; k++) v += sin(2.0 * M_PI * F[k] * (double)(b * NB + i) / FS + k);
+            x[i] = y[i] = (int32_t)lrint(8388608.0 * 0.12 * v);
+        }
+        tx_fx_reverb_process(r, x, y, NB);
+        for (i = 0; i < (int)NB; i++) o[b * NB + i] = x[i];
+    }
+    free(r);
+    return o;
+}
+static double d2win(const double *o, int a, int e)
+{
+    double m = 0;
+    int i;
+    for (i = a; i < e - 2; i++) { double d = fabs(o[i + 2] - 2 * o[i + 1] + o[i]); if (d > m) m = d; }
+    return m;
+}
+static double rev_ty1(unsigned t0, unsigned t1)
+{
+    double *mv = rev_ty_render(t0, t1), *h0 = rev_ty_render(t0, t0), *h1 = rev_ty_render(t1, t1), w = 0;
+    int s;
+    for (s = 0; s < 2; s++) {
+        int e = (s ? 3 * FS / (int)NB : 3 * FS / 2 / (int)NB) * (int)NB, z = e + FS * 6 / 5;
+        double ref = fmax(d2win(h0, e - 2, z), d2win(h1, e - 2, z));
+        if (d2win(mv, e - 2, z) / ref > w) w = d2win(mv, e - 2, z) / ref;
+    }
+    free(mv); free(h0); free(h1);
+    return w;
+}
+static void rev_dark(void)
+{
+    double a = rev_ty1(TX_RVT_INF, TX_RVT_DARK), b = rev_ty1(TX_RVT_DARK, TX_RVT_DRIFT);
+    double c = rev_ty1(TX_RVT_DARK, TX_RVT_SWELL), d = rev_ty1(TX_RVT_INF, TX_RVT_DRIFT);
+    printf("REVERB TYPE within the INFINITE kernel under a held chord: the largest second difference after a step re both "
+           "TYPEs held: INFINITE <-> DARK %.2f, DARK <-> DRIFT %.2f, DARK <-> SWELL %.2f, INFINITE <-> DRIFT %.2f (2 at "
+           "most)\n", a, b, c, d);
+    judge("REVERB TYPE INFINITE <-> DARK", a, 2.0, 1); judge("REVERB TYPE DARK <-> DRIFT", b, 2.0, 1);
+    judge("REVERB TYPE DARK <-> SWELL", c, 2.0, 1); judge("REVERB TYPE INFINITE <-> DRIFT", d, 2.0, 1);
+}
+
 int main(int argc, char **argv)
 {
     check = argc > 1 && !strcmp(argv[1], "--check");
@@ -830,6 +887,7 @@ int main(int argc, char **argv)
     rev_tail();
     rev_size();
     rev_mod();
+    rev_dark();
     free(fx);
     if (check) printf("tx-pristine: %s (%d over)\n", fails ? "FAIL" : "ok", fails);
     return check && fails ? 1 : 0;
