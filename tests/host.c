@@ -212,7 +212,7 @@ static void host_store_put(const void *p, uint32_t n)
 static __attribute__((unused)) int settings_save(const void *p, uint32_t n)
 {
     uint32_t i;
-    if (host_fl_check("erase settings", SETTINGS_AT, 0x1000u) || host_fl_check("write settings", SETTINGS_AT, 12u + n))
+    if (n != 256u || host_fl_check("erase settings", SETTINGS_AT, 0x1000u) || host_fl_check("write settings", SETTINGS_AT, 12u + n))
         return -1;
     for (i = 0; i < HOST_SAVE_MS; i++) platform_poll();   /* (the main loop held) */
     host_store_put(p, n);
@@ -232,7 +232,7 @@ static int settings_save_poll(void)
 static int settings_save_start(const void *p, uint32_t n)
 {
     if (host_save_on) { host_save_on = 0; host_store_put(host_save_buf, host_save_n); }   /* (finished first) */
-    if (n > sizeof host_save_buf || host_fl_check("erase settings", SETTINGS_AT, 0x1000u) ||
+    if (n != 256u || host_fl_check("erase settings", SETTINGS_AT, 0x1000u) ||   /* (set_store.c: a 256-byte record only) */
         host_fl_check("write settings", SETTINGS_AT, 12u + n))
         return -1;
     memcpy(host_save_buf, p, n);

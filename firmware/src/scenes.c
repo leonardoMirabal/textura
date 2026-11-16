@@ -762,6 +762,8 @@ static const uint8_t SET_SC_OLD[NT_NSCALE] = {1, 2, 3, 6, 5, 4, 7, 8, 9, 10, 11}
 static uint8_t set_fx_of(uint32_t m) { return (uint8_t)(m == SCN_FX_ALWAYS ? 1u : m == SCN_FX_NEVER ? 2u : 0u); }
 static uint8_t set_fx_mode(uint32_t b) { return (uint8_t)(b == 1u ? SCN_FX_ALWAYS : b == 2u ? SCN_FX_NEVER : SCN_FX_SMART); }
 static tx_set_t set_saved, set_now;
+static uint8_t set_rec[256];                    /* the record as saved: set_now zero-padded to set_store.c's 256 bytes
+                                                 * (it saves no other length; kept as it is until the save is done) */
 static uint8_t set_dirty, set_saving;
 static uint32_t set_t;
 static void set_take(tx_set_t *s)
@@ -785,11 +787,20 @@ static void set_poll(void)
         if (!set_dirty) set_t = fm1_ms;
         set_dirty = 1;
         if (fm1_ms - set_t >= SET_SAVE_MS && !scn_busy() && !scn_sv_on) {
-            int rc = settings_save_start(&set_now, sizeof set_now);
+            int rc;
+            memset(set_rec, 0, sizeof set_rec);
+            memcpy(set_rec, &set_now, sizeof set_now);
+            rc = settings_save_start(set_rec, sizeof set_rec);
             if (rc >= 0) { set_saved = set_now; set_dirty = 0; set_saving = (uint8_t)(rc > 0); }
             else set_t = fm1_ms;                /* (failed: again later) */
         }
     } else set_dirty = 0;
+}
+static int set_load256(tx_set_t *s)             /* the record as saved (256 bytes: its first sizeof *s are the settings) */
+{
+    if (settings_load(set_rec, sizeof set_rec)) return -1;
+    memcpy(s, set_rec, sizeof *s);
+    return 0;
 }
 /* the boot: the bank's names, the settings, the scene loaded last */
 static void scn_init(void)
@@ -803,7 +814,7 @@ static void scn_init(void)
     }
     scn_bank_load();
     memset(&s, 0, sizeof s);
-    if ((!settings_load(&s, sizeof s) || !settings_load(&s, SET_MID_SZ) || !settings_load(&s, SET_OLD_SZ))
+    if ((!set_load256(&s) || !settings_load(&s, sizeof s) || !settings_load(&s, SET_MID_SZ) || !settings_load(&s, SET_OLD_SZ))
         && s.ver == SET_VER) {
         if (s.scm) {                            /* (Frodhes' SCALE page saved it) */
             p_set(PID(P_GLOBAL, PG_SCMODE), s.scm - 1u); p_set(PID(P_GLOBAL, PG_SCALE), s.scf);
