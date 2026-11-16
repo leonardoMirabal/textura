@@ -235,6 +235,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_test = {
-    "test", TX_TEXT("Test tone (sine particles)"), NP, PARAMS, TX_POOL_MAX, 16, sizeof(test_t), SCENE_MAX,
+    "test", TX_TEXT("Test tone (sine particles)"), NP, PARAMS, TX_POOL_MAX, 16, TX_STATE_SIZE(test_t), SCENE_MAX,
     test_init, test_key, test_param, test_render, test_stats,
 };

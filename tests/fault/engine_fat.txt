@@ -1,0 +1,10 @@
+# HOST_ENGINE_FAT=thunder (make fw-test, the UBSan host): F011 FAR THUNDER loads with lane 2's engine asking more state
+# than a lane's arena. sc_load refuses it as a missing engine: the lane stays empty and the load ends (scn_busy stuck at
+# 1 before: no load nor settings save after it); the next program change loads
+2500 midi 0xC0 10 0
+4000 expect state loading 0
+4000 expect state snd1 -
+4100 midi 0xC0 0 0
+6000 expect state loading 0
+6000 expect state snd0 rain_on_water
+6100 end

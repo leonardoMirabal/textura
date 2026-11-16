@@ -316,6 +316,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_stonecloud = {
-    "stonecloud", TX_TEXT("Stone cloud"), NP, PARAMS, NV, 10, sizeof(cloud_t), SCENE_MAX,
+    "stonecloud", TX_TEXT("Stone cloud"), NP, PARAMS, NV, 10, TX_STATE_SIZE(cloud_t), SCENE_MAX,
     sc_init, sc_key, sc_param, sc_render, sc_stats,
 };

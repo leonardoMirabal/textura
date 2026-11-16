@@ -493,6 +493,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_glass = {
-    "glass", TX_TEXT("#19 Glass / crystal shards"), NP, PARAMS, NRING, 12, sizeof(glass_t), SCENE_MAX,
+    "glass", TX_TEXT("#19 Glass / crystal shards"), NP, PARAMS, NRING, 12, TX_STATE_SIZE(glass_t), SCENE_MAX,
     glass_init, glass_key, glass_param, glass_render, glass_stats,
 };

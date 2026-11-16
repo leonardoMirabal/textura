@@ -428,6 +428,6 @@ static const char SCENE_MAX[] =
     "5000 end\n");
 
 const tx_engine_t tx_eng_sand = {
-    "sand", TX_TEXT("#14 Sand"), NP, PARAMS, NV, 3, sizeof(sand_t), SCENE_MAX,
+    "sand", TX_TEXT("#14 Sand"), NP, PARAMS, NV, 3, TX_STATE_SIZE(sand_t), SCENE_MAX,
     sand_init, sand_key, sand_param, sand_render, sand_stats,
 };

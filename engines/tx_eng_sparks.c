@@ -311,6 +311,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_sparks = {
-    "sparks", TX_TEXT("#20 Static / sparks"), NP, PARAMS, SPARK_MAX, 16, sizeof(sparks_t), SCENE_MAX,
+    "sparks", TX_TEXT("#20 Static / sparks"), NP, PARAMS, SPARK_MAX, 16, TX_STATE_SIZE(sparks_t), SCENE_MAX,
     sparks_init, sparks_key, sparks_param, sparks_render, sparks_stats,
 };

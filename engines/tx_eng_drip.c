@@ -437,6 +437,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_drip = {
-    "drip", TX_TEXT("#1 Drip (bubbles in a pool)"), NP, PARAMS, TX_POOL_MAX, 12, sizeof(drip_t), SCENE_MAX,
+    "drip", TX_TEXT("#1 Drip (bubbles in a pool)"), NP, PARAMS, TX_POOL_MAX, 12, TX_STATE_SIZE(drip_t), SCENE_MAX,
     drip_init, drip_key, drip_param, drip_render, drip_stats,
 };

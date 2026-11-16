@@ -338,6 +338,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_candle = {
-    "candle", TX_TEXT("#9 Candle / gas flame"), NP, PARAMS, NFL, NFL, sizeof(candle_t), SCENE_MAX,
+    "candle", TX_TEXT("#9 Candle / gas flame"), NP, PARAMS, NFL, NFL, TX_STATE_SIZE(candle_t), SCENE_MAX,
     candle_init, candle_key, candle_param, candle_render, candle_stats,
 };

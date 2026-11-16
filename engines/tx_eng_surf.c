@@ -620,6 +620,6 @@ static const char SCENE_MAX[] =
     "5000 end\n");
 
 const tx_engine_t tx_eng_surf = {
-    "surf", TX_TEXT("#5 Surf / breaking waves"), NP, PARAMS, NH, 8, sizeof(surf_t), SCENE_MAX,
+    "surf", TX_TEXT("#5 Surf / breaking waves"), NP, PARAMS, NH, 8, TX_STATE_SIZE(surf_t), SCENE_MAX,
     surf_init, surf_key, surf_param, surf_render, surf_stats,
 };

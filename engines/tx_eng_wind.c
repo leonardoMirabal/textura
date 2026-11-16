@@ -181,6 +181,6 @@ static const char SCENE_MAX[] =
     "3000 off 60\n3000 off 64\n3000 off 67\n3000 off 72\n4000 end\n");
 
 const tx_engine_t tx_eng_wind = {
-    "wind", TX_TEXT("Wind"), NP, PARAMS, TX_WIND_NW, 3, sizeof(wind_t), SCENE_MAX,
+    "wind", TX_TEXT("Wind"), NP, PARAMS, TX_WIND_NW, 3, TX_STATE_SIZE(wind_t), SCENE_MAX,
     wind_init, wind_key, wind_param, wind_render, wind_stats,
 };

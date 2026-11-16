@@ -206,6 +206,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_spring = {
-    "spring", TX_TEXT("#23a Spring"), NP, PARAMS, NV, NV, sizeof(spring_t), SCENE_MAX,
+    "spring", TX_TEXT("#23a Spring"), NP, PARAMS, NV, NV, TX_STATE_SIZE(spring_t), SCENE_MAX,
     spring_init, spring_key, spring_param, spring_render, spring_stats,
 };

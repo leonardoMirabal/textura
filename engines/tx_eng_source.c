@@ -2463,6 +2463,6 @@ void tx_source_host_param(void *st, unsigned id, unsigned val)   /* an override 
 }
 
 const tx_engine_t tx_eng_source = {
-    "source", TX_TEXT("Landscape"), NP, PARAMS, NV, 6, sizeof(src_t), SCENE_MAX,
+    "source", TX_TEXT("Landscape"), NP, PARAMS, NV, 6, TX_STATE_SIZE(src_t), SCENE_MAX,
     src_init, src_key, src_param, src_render, src_stats,
 };

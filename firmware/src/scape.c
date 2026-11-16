@@ -336,7 +336,8 @@ static void sc_load(uint32_t k, uint32_t f, uint32_t i)   /* soundLoad: family f
     if (f >= LS_N || i >= LS[f].n) return;
     s = &LS[f].s[i];
     e = s->eng ? tx_engine_find(s->src) : sc.src;
-    if (!e) return;
+    if (!e || e->state_bytes > TX_STATE_MAX) return;   /* (missing, or more than a lane's arena: never taken, the
+                                                 * lane stays as it is; TX_STATE_SIZE fails such a build) */
     sw = sc_swaps(k, s, e);
     if (sc.run[k]) {
         if (sw) { sc.run[k] = 0; sc.q_next[k] = 0; }   /* (a switch: the old engine plays on till it rings out) */

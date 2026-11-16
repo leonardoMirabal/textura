@@ -374,6 +374,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_mineral = {
-    "mineral", TX_TEXT("#11 Mineral friction (scrape)"), NP, PARAMS, NV, 3, sizeof(mineral_t), SCENE_MAX,
+    "mineral", TX_TEXT("#11 Mineral friction (scrape)"), NP, PARAMS, NV, 3, TX_STATE_SIZE(mineral_t), SCENE_MAX,
     mineral_init, mineral_key, mineral_param, mineral_render, mineral_stats,
 };

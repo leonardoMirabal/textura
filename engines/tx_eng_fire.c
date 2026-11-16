@@ -522,6 +522,6 @@ static const char SCENE_MAX[] =
     "6000 end\n");
 
 const tx_engine_t tx_eng_fire = {
-    "fire", TX_TEXT("#8 Wood fire"), NP, PARAMS, NH, 8, sizeof(fire_t), SCENE_MAX,
+    "fire", TX_TEXT("#8 Wood fire"), NP, PARAMS, NH, 8, TX_STATE_SIZE(fire_t), SCENE_MAX,
     fire_init, fire_key, fire_param, fire_render, fire_stats,
 };

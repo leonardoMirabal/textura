@@ -389,6 +389,6 @@ static const char SCENE_MAX[] =
     "5000 end\n");
 
 const tx_engine_t tx_eng_crumple = {
-    "crumple", TX_TEXT("#17 Crumpling"), NP, PARAMS, NH, 8, sizeof(crumple_t), SCENE_MAX,
+    "crumple", TX_TEXT("#17 Crumpling"), NP, PARAMS, NH, 8, TX_STATE_SIZE(crumple_t), SCENE_MAX,
     crumple_init, crumple_key, crumple_param, crumple_render, crumple_stats,
 };

@@ -70,6 +70,9 @@
 #define TX_NKEYS 27u
 #define TX_SLOTS 4u                /* instances that may play at once (stage S3) */
 #define TX_STATE_MAX 16384u        /* bytes of state an instance may use (a slot's arena) */
+/* an engine's state_bytes, checked at compile time: an instance over TX_STATE_MAX fails the build (a lane could never
+ * take it: lanes.c ln_select refuses it, and a scene load waited for it forever) */
+#define TX_STATE_SIZE(T) ((uint32_t)sizeof(T) + 0u * (uint32_t)sizeof(char[sizeof(T) <= TX_STATE_MAX ? 1 : -1]))
 
 /* clear n bytes (tx_engines.c): 32-bit stores where p is word aligned (an engine's state, a voice), else byte by byte.
  * The same zeros as a byte loop, which the FM-1's compiler keeps as one store a byte (no builtin memset there): an

@@ -780,6 +780,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_rainsurf = {
-    "rainsurf", TX_TEXT("#3 Rain on surfaces"), NP, PARAMS, 32, 16, sizeof(rain_t), SCENE_MAX,
+    "rainsurf", TX_TEXT("#3 Rain on surfaces"), NP, PARAMS, 32, 16, TX_STATE_SIZE(rain_t), SCENE_MAX,
     rain_init, rain_key, rain_param, rain_render, rain_stats,
 };

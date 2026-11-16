@@ -282,6 +282,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_rainstick = {
-    "rainstick", TX_TEXT("#16 Rain stick"), NP, PARAMS, NV, 4, sizeof(stick_t), SCENE_MAX,
+    "rainstick", TX_TEXT("#16 Rain stick"), NP, PARAMS, NV, 4, TX_STATE_SIZE(stick_t), SCENE_MAX,
     stick_init, stick_key, stick_param, stick_render, stick_stats,
 };

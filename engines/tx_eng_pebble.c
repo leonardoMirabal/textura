@@ -376,6 +376,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_pebble = {
-    "pebble", TX_TEXT("#12 Rolling pebble"), NP, PARAMS, NV, 6, sizeof(pebble_t), SCENE_MAX,
+    "pebble", TX_TEXT("#12 Rolling pebble"), NP, PARAMS, NV, 6, TX_STATE_SIZE(pebble_t), SCENE_MAX,
     pebble_init, pebble_key, pebble_param, pebble_render, pebble_stats,
 };

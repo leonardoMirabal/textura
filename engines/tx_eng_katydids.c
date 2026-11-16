@@ -713,6 +713,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_katydids = {
-    "katydids", TX_TEXT("#29 Katydids / grasshoppers"), NP, PARAMS, NV, 8, sizeof(katy_t), SCENE_MAX,
+    "katydids", TX_TEXT("#29 Katydids / grasshoppers"), NP, PARAMS, NV, 8, TX_STATE_SIZE(katy_t), SCENE_MAX,
     katy_init, katy_key, katy_param, katy_render, katy_stats,
 };

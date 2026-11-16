@@ -255,6 +255,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_sandsong = {
-    "sandsong", TX_TEXT("#15 Singing / booming sand"), NP, PARAMS, NA, 3, sizeof(song_t), SCENE_MAX,
+    "sandsong", TX_TEXT("#15 Singing / booming sand"), NP, PARAMS, NA, 3, TX_STATE_SIZE(song_t), SCENE_MAX,
     song_init, song_key, song_param, song_render, song_stats,
 };

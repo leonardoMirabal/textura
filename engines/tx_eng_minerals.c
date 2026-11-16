@@ -343,6 +343,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_minerals = {
-    "minerals", TX_TEXT("#33 Mineral sounds"), NP, PARAMS, NV, 4, sizeof(min_t), SCENE_MAX,
+    "minerals", TX_TEXT("#33 Mineral sounds"), NP, PARAMS, NV, 4, TX_STATE_SIZE(min_t), SCENE_MAX,
     min_init, min_key, min_param, min_render, min_stats,
 };

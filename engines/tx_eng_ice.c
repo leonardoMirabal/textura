@@ -541,6 +541,6 @@ static const char SCENE_MAX[] =
     "4500 end\n");
 
 const tx_engine_t tx_eng_ice = {
-    "ice", TX_TEXT("#32 Ice crashing"), NP, PARAMS, NV, 6, sizeof(ice_t), SCENE_MAX,
+    "ice", TX_TEXT("#32 Ice crashing"), NP, PARAMS, NV, 6, TX_STATE_SIZE(ice_t), SCENE_MAX,
     ice_init, ice_key, ice_param, ice_render, ice_stats,
 };

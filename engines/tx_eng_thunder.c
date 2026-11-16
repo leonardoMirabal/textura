@@ -217,6 +217,6 @@ static const char SCENE_MAX[] =
     "6000 end\n");
 
 const tx_engine_t tx_eng_thunder = {
-    "thunder", TX_TEXT("#25 Thunder"), NP, PARAMS, NF, NF, sizeof(thunder_t), SCENE_MAX,
+    "thunder", TX_TEXT("#25 Thunder"), NP, PARAMS, NF, NF, TX_STATE_SIZE(thunder_t), SCENE_MAX,
     thunder_init, thunder_key, thunder_param, thunder_render, thunder_stats,
 };

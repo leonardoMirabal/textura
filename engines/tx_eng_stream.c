@@ -332,7 +332,7 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_stream = {
-    "stream", TX_TEXT("#4 Stream / brook"), NP, PARAMS, NH, 14, sizeof(stream_t), SCENE_MAX,   /* (14 heroes: the bed now sounds
+    "stream", TX_TEXT("#4 Stream / brook"), NP, PARAMS, NH, 14, TX_STATE_SIZE(stream_t), SCENE_MAX,   /* (14 heroes: the bed now sounds
                                                              * every block, ~90 us at the top; 16 went over half the pool) */
     stream_init, stream_key, stream_param, stream_render, stream_stats,
 };

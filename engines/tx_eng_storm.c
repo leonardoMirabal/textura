@@ -419,6 +419,6 @@ unsigned tx_storm_misfits(const char **bad)
 }
 
 const tx_engine_t tx_eng_storm = {
-    "storm", TX_TEXT("#26 Storm (scene)"), NP, PARAMS, 1, 1, sizeof(storm_t), SCENE_MAX,
+    "storm", TX_TEXT("#26 Storm (scene)"), NP, PARAMS, 1, 1, TX_STATE_SIZE(storm_t), SCENE_MAX,
     storm_init, storm_key, storm_param, storm_render, storm_stats,
 };

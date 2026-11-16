@@ -309,6 +309,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_cicadas = {
-    "cicadas", TX_TEXT("#28 Cicadas"), NP, PARAMS, NV, 8, sizeof(cicadas_t), SCENE_MAX,
+    "cicadas", TX_TEXT("#28 Cicadas"), NP, PARAMS, NV, 8, TX_STATE_SIZE(cicadas_t), SCENE_MAX,
     cicadas_init, cicadas_key, cicadas_param, cicadas_render, cicadas_stats,
 };

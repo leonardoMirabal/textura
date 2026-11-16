@@ -382,6 +382,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_chimes = {
-    "chimes", TX_TEXT("#24 Wind chimes"), NP, PARAMS, NT, 6, sizeof(chimes_t), SCENE_MAX,
+    "chimes", TX_TEXT("#24 Wind chimes"), NP, PARAMS, NT, 6, TX_STATE_SIZE(chimes_t), SCENE_MAX,
     chimes_init, chimes_key, chimes_param, chimes_render, chimes_stats,
 };

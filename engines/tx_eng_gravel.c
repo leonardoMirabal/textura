@@ -300,6 +300,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_gravel = {
-    "gravel", TX_TEXT("#13 Small stones / gravel"), NP, PARAMS, NV, 6, sizeof(gravel_t), SCENE_MAX,
+    "gravel", TX_TEXT("#13 Small stones / gravel"), NP, PARAMS, NV, 6, TX_STATE_SIZE(gravel_t), SCENE_MAX,
     gravel_init, gravel_key, gravel_param, gravel_render, gravel_stats,
 };

@@ -295,6 +295,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_aeolian = {
-    "aeolian", TX_TEXT("#22 Wind / Aeolian harp"), NP, PARAMS, NS, 4, sizeof(aeol_t), SCENE_MAX,
+    "aeolian", TX_TEXT("#22 Wind / Aeolian harp"), NP, PARAMS, NS, 4, TX_STATE_SIZE(aeol_t), SCENE_MAX,
     aeol_init, aeol_key, aeol_param, aeol_render, aeol_stats,
 };

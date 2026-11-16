@@ -362,6 +362,6 @@ static const char SCENE_MAX[] =
     "12000 end\n");
 
 const tx_engine_t tx_eng_rockfall = {
-    "rockfall", TX_TEXT("#34 Rockfall / scree"), NP, PARAMS, NF, 2, sizeof(rock_t), SCENE_MAX,
+    "rockfall", TX_TEXT("#34 Rockfall / scree"), NP, PARAMS, NF, 2, TX_STATE_SIZE(rock_t), SCENE_MAX,
     rock_init, rock_key, rock_param, rock_render, rock_stats,
 };

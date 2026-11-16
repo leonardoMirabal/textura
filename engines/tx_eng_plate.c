@@ -357,6 +357,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_plate = {
-    "plate", TX_TEXT("#23b Thunder sheet / plate"), NP, PARAMS, TX_PLATE_MODES, 10, sizeof(plate_t), SCENE_MAX,
+    "plate", TX_TEXT("#23b Thunder sheet / plate"), NP, PARAMS, TX_PLATE_MODES, 10, TX_STATE_SIZE(plate_t), SCENE_MAX,
     plate_init, plate_key, plate_param, plate_render, plate_stats,
 };

@@ -378,6 +378,6 @@ static const char SCENE_MAX[] =
     "3000 end\n");
 
 const tx_engine_t tx_eng_stonedrum = {
-    "stonedrum", TX_TEXT("#10 Stone drum / lithophone"), NP, PARAMS, NV, 6, sizeof(drum_t), SCENE_MAX,
+    "stonedrum", TX_TEXT("#10 Stone drum / lithophone"), NP, PARAMS, NV, 6, TX_STATE_SIZE(drum_t), SCENE_MAX,
     drum_init, drum_key, drum_param, drum_render, drum_stats,
 };

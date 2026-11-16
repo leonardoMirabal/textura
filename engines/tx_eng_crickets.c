@@ -485,6 +485,6 @@ static const char SCENE_MAX[] =
     "4000 end\n");
 
 const tx_engine_t tx_eng_crickets = {
-    "crickets", TX_TEXT("#27 Crickets"), NP, PARAMS, NV, 16, sizeof(crickets_t), SCENE_MAX,
+    "crickets", TX_TEXT("#27 Crickets"), NP, PARAMS, NV, 16, TX_STATE_SIZE(crickets_t), SCENE_MAX,
     crickets_init, crickets_key, crickets_param, crickets_render, crickets_stats,
 };

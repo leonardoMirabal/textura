@@ -536,6 +536,6 @@ static const char SCENE_MAX[] =
     "4500 end\n");
 
 const tx_engine_t tx_eng_wood = {
-    "wood", TX_TEXT("#31 Wood cracks / creak"), NP, PARAMS, NP_, 3, sizeof(wood_t), SCENE_MAX,
+    "wood", TX_TEXT("#31 Wood cracks / creak"), NP, PARAMS, NP_, 3, TX_STATE_SIZE(wood_t), SCENE_MAX,
     wood_init, wood_key, wood_param, wood_render, wood_stats,
 };

@@ -60,6 +60,8 @@
 #define SCN_VER 1u
 #define SCN_CHUNK 255u                          /* a save writes this much a pass (SCN_SLOT = 4 chunks) */
 #define SCN_SLICE 16u                           /* records a load sends a pass */
+#define SCN_STUCK_MS 6000u                      /* a load waits this long at most for its lanes' engines (a lane that
+                                                 * never switches: the load ends anyway, scn_busy never stuck) */
 #define SCN_SETTLE_MS 120u                      /* a load: the lanes' engines first, this long at least */
 #define SCN_BROWSE_MS 400u
 #define SCN_GLIDE_MS 500u                       /* a load: a lane's numbers (its cards) glide this long */
@@ -474,7 +476,8 @@ static void scn_apply_poll(void)
     if (scn_ap_stage) scn_apply_cards();
     if (scn_ap_stage == 1) {                    /* the lanes' engines switched (and their hosted ones in): the cards */
         if (fm1_ms - scn_ap_t < SCN_SETTLE_MS) return;
-        for (k = 0; k < SC_N; k++) if (sc.a_eng[k] != sc.eng[k] || sc.reswap[k]) return;   /* (a lane still waiting
+        if (fm1_ms - scn_ap_t < SCN_STUCK_MS)   /* (a fail-safe: a lane never switched still ends the load) */
+            for (k = 0; k < SC_N; k++) if (sc.a_eng[k] != sc.eng[k] || sc.reswap[k]) return;   /* (a lane still waiting
                                                  * for the spare: the last switch rings out) */
         for (k = 0; k < SC_N; k++) (void)p_cards(k);
         scn_ap_stage = 2;

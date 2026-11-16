@@ -394,6 +394,6 @@ static const char SCENE_MAX[] =
     "5000 end\n");
 
 const tx_engine_t tx_eng_bees = {
-    "bees", TX_TEXT("#30 Bees / flies"), NP, PARAMS, NV, 8, sizeof(bees_t), SCENE_MAX,
+    "bees", TX_TEXT("#30 Bees / flies"), NP, PARAMS, NV, 8, TX_STATE_SIZE(bees_t), SCENE_MAX,
     bees_init, bees_key, bees_param, bees_render, bees_stats,
 };
