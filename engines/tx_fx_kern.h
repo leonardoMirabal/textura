@@ -163,6 +163,9 @@ void tx_hq_job(void *a);            /* (the other core's half: lines 8..15) */
 #endif
 #define GD_APN 4u
 #define GD_APSUM (282u * GD_APX)
+#define GD_SYNCC (GD_APSUM - 1u)    /* SYNC: a pass's group delay in the loop (the allpasses' 282, each one's mean group
+                                     * delay its length, less the DC block's ~1 sample a pass on the diffused repeats:
+                                     * txtest "grain sync") */
 
 /* INFINITE (tx_fx_inf.c: Frodhes' infinite tank, its bright build; DARK as its variant) */
 #define RI_NL 8u

@@ -1461,6 +1461,51 @@ static void check_fx_grain_diffusion(tx_fx_t *fx)
              GD_DIFF, ned, crest, GD_DIFF ? " (0.75 / 26 dB at least / most)" : "");
     verdict("fx", "grain diffusion", !GD_DIFF || (ned >= 0.75 && crest <= 26.0), msg, 0);
 }
+/* SYNC on the tempo (the open finding: the loop's allpasses (GD_DIFF) delay each pass by their group delay, 282
+ * samples, 6.4 ms, so the repeats drifted off the beat, 0.12 s late by the 20th): a click, MIX 127, GRAINS 1, SPRAY 0,
+ * SPREAD 0 (the grains' random places move a wide cloud's centre by a few samples: not the timing), FEEDBACK 108,
+ * SYNC at three tempi / divisions long enough that 20 diffused repeats stay apart, GRAIN 1, 64 and 127; each repeat's
+ * energy centre (within half a step of its beat; the diffusion spreads it both ways) against the click's + k steps:
+ * within 3 samples for all 20 (the DC block shifts a diffused repeat by up to ~1.7: GD_SYNCC) */
+static void check_fx_grain_sync(tx_fx_t *fx)
+{
+    static const uint32_t S[] = {26460u, 33075u, 39690u};   /* 100 BPM 1/4, 80 BPM 1/4, 100 BPM dotted 1/4 */
+    static const uint8_t G[] = {1u, 64u, 127u};
+    static double y[4410u + 21u * 39690u + 2u * TX_BLOCK];
+    tx_fx_grain_t *d = &fx->gd;
+    double worst = 0, wk[3] = {0, 0, 0};
+    unsigned c, g, b, j, k;
+    char msg[300];
+    for (g = 0; g < 3u; g++)
+        for (c = 0; c < 3u; c++) {
+            int32_t L[TX_BLOCK], R[TX_BLOCK];
+            uint32_t nb = (4410u + 21u * S[c]) / TX_BLOCK + 1u, ns = nb * TX_BLOCK;
+            tx_fx_grain_init(d);
+            tx_fx_grain_param(d, TX_GD_MIX, 127); tx_fx_grain_param(d, TX_GD_FEEDBACK, 108);
+            tx_fx_grain_param(d, TX_GD_GRAIN, G[g]); tx_fx_grain_param(d, TX_GD_GRAINS, 0);
+            tx_fx_grain_param(d, TX_GD_SPRAY, 0); tx_fx_grain_param(d, TX_GD_SPREAD, 0);
+            tx_fx_grain_sync(d, S[c]);
+            for (b = 0; b < nb; b++) {
+                for (j = 0; j < TX_BLOCK; j++) L[j] = R[j] = b * TX_BLOCK + j == 4410u ? 4194304 : 0;
+                d->cap = TX_GD_MAXG;
+                tx_fx_grain_process(d, L, R, TX_BLOCK);
+                for (j = 0; j < TX_BLOCK; j++) y[b * TX_BLOCK + j] = ((double)L[j] + R[j]) / 2;
+            }
+            for (k = 1; k <= 20u; k++) {
+                double want = 4410.0 + (double)k * S[c], cm = 0, em = 0, err;
+                uint32_t i;
+                for (i = (uint32_t)(want - S[c] / 2.0); i < (uint32_t)(want + S[c] / 2.0) && i < ns; i++) {
+                    cm += i * y[i] * y[i]; em += y[i] * y[i];
+                }
+                err = em > 0 ? fabs(cm / em - want) : 1e9;
+                if (err > wk[g]) wk[g] = err;
+            }
+            if (wk[g] > worst) worst = wk[g];
+        }
+    snprintf(msg, sizeof msg, "grain delay SYNC (FEEDBACK 108, 100 BPM 1/4, 80 1/4, 100 1/4.): 20 repeats' centres off their beats at most %.1f / %.1f / %.1f samples at GRAIN 1 / 64 / 127 (3 at most)",
+             wk[0], wk[1], wk[2]);
+    verdict("fx", "grain sync", worst <= 3.0, msg, 0);
+}
 /* the grain delay's level and overlap (the unit, 0.2.1: the delay faint at high GRAINS, never a cloud): noise in, MIX
  * 127, GRAIN 127, FEEDBACK 0; the wet's level re the input at GRAINS 1 .. 30, scattered (SPRAY 20) and as copies of
  * one read (SPRAY 0): flat (it fell 1 / sqrt(N), -12 dB from 2 to 30). And the cap under GRAINS (4 of 30): the four
@@ -2572,6 +2617,7 @@ static void check_fx(FILE *update)
         check_fx_grain_count(fx);
         check_fx_grain_wow(fx);
         check_fx_grain_diffusion(fx);
+        check_fx_grain_sync(fx);
         check_fx_drywet(fx);
         check_fx_hq(fx);
     }
@@ -2728,6 +2774,7 @@ int main(int argc, char **argv)
         check_fx_grain_count(fx);
         check_fx_grain_wow(fx);
         check_fx_grain_diffusion(fx);
+        check_fx_grain_sync(fx);
         free(fx);
         return fails ? 1 : 0;
     }

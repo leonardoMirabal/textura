@@ -419,6 +419,20 @@ static int32_t gd_level(const tx_fx_grain_t *d, uint32_t N)
     r = 8388608u / (r ? r : 1u);
     return (int32_t)(r > 65536u ? 65536u : r);
 }
+/* the echo's delay: TIME's, or SYNC's. With SYNC and the loop's allpasses on (GD_DIFF, GRAIN above 0), each pass
+ * also takes their group delay (282 samples, 6.4 ms: an allpass's mean group delay is its length, its impulse
+ * response's energy centre there; less ~1 sample the DC block takes off the diffused repeats: GD_SYNCC), and the
+ * repeats drifted off the beat by that much a pass (0.12 s by the 20th): the tap is that much shorter and the input
+ * goes into the line that much later (d->pre), so the first echo is on the beat and so is every pass after it. SYNC
+ * off, or GRAIN 0 (no allpasses): the delay as before */
+TX_INLINE uint32_t gd_target(const tx_fx_grain_t *d)
+{
+    if (!d->sync) return TX_FX_GD_TIME[d->p[TX_GD_TIME]];
+#if GD_DIFF
+    if (d->p[TX_GD_GRAIN] && d->sync >= TX_FX_GD_TIME[0] + GD_SYNCC) return d->sync - GD_SYNCC;
+#endif
+    return d->sync;
+}
 /* A block in three steps (tx_fx_grain_process runs them in turn): begin (MIX on: the line's start), the voices (the
  * echo's run and the grains: they read only the line as the blocks before left it, never this block's input, so
  * they may run before the input is there, on another core: tx_fx_bus_begin), the end (the blend with the input, the
@@ -427,7 +441,7 @@ static int32_t gd_level(const tx_fx_grain_t *d, uint32_t N)
 TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
 {
     int32_t mv = d->p[TX_GD_MIX], gb = d->p[TX_GD_GRAIN] * 258, wgt = d->p[TX_GD_FREEZE] ? 0 : 32768;
-    uint32_t k, tgt = d->sync ? d->sync : TX_FX_GD_TIME[d->p[TX_GD_TIME]];
+    uint32_t k, tgt = gd_target(d);
     (void)n;
     d->ahead = 0;
     if (!d->on) {
@@ -444,8 +458,12 @@ TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
         d->bwg = -1;
 #if GD_DIFF
         d->apw = 0;
+        d->sc = d->scl = 0;
 #endif
     }
+#if GD_DIFF
+    d->sc = tgt != (d->sync ? d->sync : TX_FX_GD_TIME[d->p[TX_GD_TIME]]);   /* (SYNC's compensation: gd_target) */
+#endif
     gd_anim(d, n, tgt);
     k = gd_nv(d);
     d->gnt = gd_level(d, d->cap < k ? d->cap : k);
@@ -457,7 +475,7 @@ TX_AUDIO_CODE int tx_fx_grain_begin(tx_fx_grain_t *d, unsigned n)
 /* the echo's tap: a new TIME starts its crossfade (before the voices: a grain starts TIME behind the write) */
 TX_INLINE void gd_tap(tx_fx_grain_t *d)
 {
-    uint32_t tgt = d->sync ? d->sync : TX_FX_GD_TIME[d->p[TX_GD_TIME]];
+    uint32_t tgt = gd_target(d);
     if (!d->tx && tgt != d->tap) { d->tap0 = d->tap; d->tap = tgt; d->tx = 1; }
 }
 /* the grains this block will start on voice g (2 rng draws each, 3 with MOD): its wraps on the clock, as gd_voice walks them */
@@ -647,6 +665,11 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
     uint32_t wj = w0, fj = d->fill;                     /* (the write index and the fill, sample by sample) */
 #if GD_DIFF
     uint32_t ai[GD_APN] = {d->api[0], d->api[1], d->api[2], d->api[3]};   /* (the allpasses' places, held here) */
+    uint32_t pi = d->prei;
+    if (d->sc != d->scl) {                              /* (SYNC's compensation comes on: from a silent pre-delay) */
+        if (d->sc) { for (j = 0; j < GD_SYNCC; j++) d->pre[j] = 0; pi = 0; }
+        d->scl = d->sc;
+    }
 #endif
     for (j = 0; j < n; j++) {
         int32_t x = (L[j] >> 2) + (R[j] >> 2), wl, wr, f, fm;   /* the mid, Q22 */
@@ -711,6 +734,14 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
                                                          * never builds up pass on pass) */
         f -= d->dcy;
         if (d->wg != wgt) d->wg += d->wg < wgt ? (wgt - d->wg > 74 ? 74 : wgt - d->wg) : -(d->wg - wgt > 74 ? 74 : d->wg - wgt);
+#if GD_DIFF
+        if (d->sc) {                                    /* (SYNC: the input GD_SYNCC samples later, gd_target) */
+            int32_t o = d->pre[pi];
+            d->pre[pi] = x;
+            pi = pi + 1u >= GD_SYNCC ? 0u : pi + 1u;
+            x = o;
+        }
+#endif
         x += f;
         if (d->wg != 32768) {                          /* FREEZE: the line keeps what it had here */
             int32_t o = fj >= TX_GD_N ? gd_rd(d, wj) : 0;
@@ -724,6 +755,7 @@ TX_RAM TX_AUDIO_CODE void tx_fx_grain_end(tx_fx_grain_t *d, int32_t *L, int32_t 
     }
 #if GD_DIFF
     d->api[0] = (uint16_t)ai[0]; d->api[1] = (uint16_t)ai[1]; d->api[2] = (uint16_t)ai[2]; d->api[3] = (uint16_t)ai[3];
+    d->prei = (uint16_t)pi;
 #endif
     }
     TX_FAR(tx_fx_drywet)(L, R, e, sr, n, gc[0], gc[1], gs[0], gs[1], 2);   /* dry x its gain + the delay x the wet's (Q22 -> Q23) */
