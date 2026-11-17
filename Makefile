@@ -65,6 +65,8 @@
 #   make fw-web        the firmware in a web browser -> build/web/ (web/build.sh, Emscripten from .local/emsdk;
 #                      REL=X.Y.Z stamps a version); make fw-web-serve serves it at http://localhost:8001
 #   make fw-web-check  the web panel in headless Chromium at desktop and phone width (tests/web_check.py)
+#   make docs-img      the README's pictures from the built emulator: docs/img/device.png, docs/img/logo.png
+#                      (tools/emu_shots.py, headless Chromium)
 #   make fw-landscapes write firmware/src/landscapes.h again from audition/app.js (after a change to FAMILIES / QUICK)
 #   make fw-presets    write firmware/src/presets.h and tests/scripts/presets.txt again from firmware/presets.txt
 #                      (the factory presets; tools/pr_level.py measures their lanes and sets the levels there)
@@ -91,7 +93,7 @@ HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
 PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-dbg fm1-uitour fm1-timing fw-c1map fw-c1hot
-.PHONY: $(PHONY_FM1) setup fw-host fw-test fw-web fw-web-serve fw-web-check fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-pristine tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-fx-sweep tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
+.PHONY: $(PHONY_FM1) setup fw-host fw-test fw-web fw-web-serve fw-web-check docs-img fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-pristine tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-fx-sweep tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
@@ -267,6 +269,9 @@ fw-web-serve: fw-web
 
 fw-web-check: fw-web
 	$(HEAVY) env PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py
+
+docs-img: fw-web
+	env PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tools/emu_shots.py
 
 fw-landscapes:
 	python3 -I tools/gen_landscapes.py
