@@ -1,0 +1,15 @@
+{
+ "version": "0.2.8",
+ "identity": "FM-1_959",
+ "file": "textura.fwsc",
+ "size": 612224,
+ "sha256": "6d64b36406b06ab4b003d297bf6f4c68a3e63735ac0b0969c6844fb6a3fa3299",
+ "packages": [
+  {
+   "identity": "FM-1_959",
+   "file": "textura.fwsc",
+   "size": 612224,
+   "sha256": "6d64b36406b06ab4b003d297bf6f4c68a3e63735ac0b0969c6844fb6a3fa3299"
+  }
+ ]
+}

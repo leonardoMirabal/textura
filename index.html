@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Textura</title>
+<meta name="description" content="Textura, a physically modelled texture synthesizer (water, rain, fire, stones, ice, wind, insects, birds), running in the browser: the same firmware code, compiled to WebAssembly.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Inter+Tight:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { color-scheme: dark;
+          --page: #17181b; --body: #232428; --tray: #18191c; --well: #141518; --knob: #2a2a2c; --knob-edge: #0e0e0f;
+          --btn: #3a3b41; --btn-ink: #e9e7e2; --lit: #fff4d6; --lit-ink: #151515; --key: #0d0e10; --key-line: #d9d7d1;
+          --amber: #ff5a44; --ink: #ecebe7; --dim: #9a9aa1; --line: #34353b; --red: #ef4a3c;
+          --l1: #ef4a3c; --l2: #f0a33a; --l3: #3fb8a5; --l4: #8f8cf2;          /* the lanes 1-4 on the keyboard map */
+          --display: "DotGothic16", ui-monospace, "SF Mono", Menlo, monospace;
+          --text: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.5 var(--text); }
+  body { touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+         padding: 0 max(16px, env(safe-area-inset-right, 0px)) 32px max(16px, env(safe-area-inset-left, 0px)); }
+  .page { max-width: 1600px; margin: 0 auto; }
+  .top { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding-block: 16px; }
+  .top h1 { font: 30px/1 var(--display); margin: 0; letter-spacing: .06em; font-weight: 400; }
+  .top h1 .ver { font-size: 15px; letter-spacing: .02em; color: var(--dim); }
+  .top button { background: var(--red); color: #fff; border: 0; border-radius: 8px; padding: 9px 16px; font: 600 14px var(--text);
+                cursor: pointer; }
+  .top label { color: var(--dim); font-size: 14px; display: flex; gap: 8px; align-items: center; }
+  .top select { background: var(--body); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit; }
+  #status { color: var(--dim); font-size: 14px; flex: 1 1 260px; }
+  button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+  .main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
+  @media (max-width: 1100px) { .main { grid-template-columns: minmax(0, 1fr); } }
+  /* the device and its keyboard map, drawn at 1200 px wide and scaled to the column (fit() in app.js); narrower than
+     its smallest scale, it scrolls sideways in its own box */
+  #stage { width: 100%; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; }
+  #rig { position: relative; }
+  #scaler { position: absolute; left: 0; top: 0; width: 1200px; transform-origin: 0 0; }
+  #device { width: 1200px; height: 700px; position: relative;
+            background: var(--body); border-radius: 46px; box-shadow: inset 0 1px 0 #2e2f34, 0 18px 40px #0008; }
+  .lab { font: 18px/1 var(--display); color: var(--ink); text-align: center; letter-spacing: .02em; }
+  .knob { position: absolute; width: 120px; text-align: center; touch-action: none; cursor: ns-resize; }
+  .knob .dial { width: 66px; height: 66px; margin: 12px auto 0; border-radius: 50%; position: relative;
+                background: radial-gradient(circle at 50% 38%, #3a3a3c 0, var(--knob) 55%, #222 100%);
+                box-shadow: 0 0 0 6px var(--knob-edge), 0 4px 8px rgba(0,0,0,.6); }
+  .knob .dial::after { content: ""; position: absolute; left: 50%; top: 7px; width: 3px; height: 15px; margin-left: -1.5px;
+                       border-radius: 2px; background: #e8e8e8; transform-origin: 50% 26px; transform: rotate(var(--a, 0deg)); }
+  .knob.endless .dial::after { background: #555; }
+  .tray { position: absolute; background: var(--tray); border-radius: 18px; }
+  .b { position: absolute; width: 68px; height: 64px; border: 0; border-radius: 10px; background: var(--btn);
+       color: var(--btn-ink); font: 700 18px/1.05 var(--text); letter-spacing: .02em;
+       box-shadow: 0 3px 0 #141415, inset 0 1px 0 #4c4c4e; cursor: pointer; touch-action: none; padding: 0; }
+  .b.small { font-size: 12px; }
+  .b small { display: block; margin-top: 5px; font: 600 9.5px/1.1 var(--text); letter-spacing: .04em; opacity: .62; }
+  .knob .sub { font: 600 10px/1 var(--text); color: var(--dim); letter-spacing: .08em; margin-top: 4px; }
+  .b.on { background: var(--lit); color: var(--lit-ink); box-shadow: 0 0 16px rgba(255, 230, 170, .45), 0 3px 0 #b9ad8f; }
+  .b.down { transform: translateY(2px); box-shadow: 0 1px 0 #141415; }
+  .b.rec { color: #ff5a4a; }
+  .b.rec.on { background: #ff5a4a; color: #fff; box-shadow: 0 0 16px rgba(255, 90, 74, .55); }
+  .b.oct { width: 112px; height: 44px; font-size: 17px; }
+  .screenbox { position: absolute; left: 380px; top: 40px; width: 300px; height: 300px; background: #0a0a0a;
+               border-radius: 18px; padding: 18px; box-shadow: inset 0 0 0 2px #262628; }
+  #screen { width: 264px; height: 264px; display: block; image-rendering: pixelated; border-radius: 4px; background: #000; }
+  #scaler.shrunk #screen { image-rendering: auto; }   /* scaled down: smooth, or whole pixel rows go missing */
+  .keys { position: absolute; left: 30px; top: 372px; width: 1140px; height: 300px; background: var(--well);
+          border-radius: 24px; touch-action: none; }
+  .key { position: absolute; width: 54px; height: 120px; border-radius: 27px; background: var(--key);
+         box-shadow: inset 0 0 0 2px #24252a; cursor: pointer; }
+  .key::after { content: ""; position: absolute; left: 50%; top: 18px; bottom: 18px; width: 5px; margin-left: -2.5px;
+                border-radius: 3px; background: var(--key-line); }
+  .key.glow { box-shadow: inset 0 0 0 2px #6b261e; }
+  .key.glow::after { background: #b8483a; }
+  .key.lit::after, .key.down::after { background: var(--amber); box-shadow: 0 0 12px var(--amber); }
+  .key.down { background: #1b1612; }
+
+  /* the keyboard map under the keys, key for key (app.js buildMap: the keys' own positions) */
+  #map { position: relative; width: 1200px; height: 170px; }
+  .brk { position: absolute; top: 14px; border-top: 3px solid var(--c); padding-top: 7px; text-align: center;
+         font: 20px/1 var(--display); color: var(--c); letter-spacing: .05em; }
+  .brk::before, .brk::after { content: ""; position: absolute; top: -3px; width: 3px; height: 11px; background: var(--c); }
+  .brk::before { left: 0; } .brk::after { right: 0; }
+  .val { position: absolute; top: 66px; width: 68px; margin-left: -34px; text-align: center; font: 600 20px/1 var(--text);
+         font-variant-numeric: tabular-nums; }
+  .dots { position: absolute; top: 58px; width: 46px; margin-left: -23px; height: 28px; display: flex; flex-wrap: wrap;
+          justify-content: center; align-content: flex-end; gap: 3px; }
+  .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--ink); opacity: .85; }
+  .zone { position: absolute; top: 104px; border-top: 3px solid var(--dim); padding-top: 9px; }
+  .zone b { font: 400 22px/1.1 var(--display); letter-spacing: .06em; display: block; }
+  .zone span { color: var(--dim); font-size: 18px; }
+
+  .how { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-top: 18px; }
+  .step { border-left: 2px solid var(--line); padding: 2px 0 2px 14px; }
+  .step em { font: 400 14px var(--display); color: var(--red); font-style: normal; letter-spacing: .06em; }
+  .step p { margin: 3px 0 0; font-size: 14px; color: #d4d3ce; }
+  .help { margin-top: 18px; color: var(--dim); font-size: 13px; line-height: 2; }
+  .help kbd { display: inline-block; min-width: 20px; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px;
+              background: var(--body); color: var(--ink); font: 600 12px/18px var(--text); text-align: center; }
+
+  aside { background: #f1efe9; color: #1d1d20; border-radius: 16px; padding: 18px 22px; }
+  aside summary { font: 22px/1.1 var(--display); letter-spacing: .06em; cursor: pointer; list-style: none;
+                  display: flex; justify-content: space-between; }
+  aside summary::-webkit-details-marker { display: none; }
+  aside summary::after { content: "+"; color: var(--red); }
+  aside details[open] summary::after { content: "−"; }
+  aside dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 10px 0 0; font-size: 14px; line-height: 1.35; }
+  aside dt { font-weight: 700; white-space: nowrap; }
+  aside dd { margin: 0; color: #3c3c42; }
+  aside .sec { grid-column: 1 / -1; font: 600 11px var(--text); letter-spacing: .14em; color: #8a8780; text-transform: uppercase;
+               margin-top: 8px; border-top: 1px solid #dcd9d1; padding-top: 10px; }
+  aside p { font-size: 13px; color: #55555c; margin: 14px 0 0; }
+  aside a { color: #b8342a; }
+  .install { margin-top: 28px; max-width: 760px; background: #f1efe9; color: #1d1d20; border-radius: 16px; padding: 18px 22px; }
+  .install h2 { font: 400 22px/1.1 var(--display); letter-spacing: .06em; margin: 0 0 10px; }
+  .install dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0 0 12px; font-size: 14px; }
+  .install dt { font-weight: 700; }
+  .install dd { margin: 0; color: #3c3c42; overflow-wrap: anywhere; }
+  .install code { font: 12px ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+  .install button { background: var(--red); color: #fff; border: 0; border-radius: 8px; padding: 9px 16px; font: 600 14px var(--text); cursor: pointer; }
+  .install button:disabled { opacity: .45; cursor: default; }
+  .install progress { width: 100%; height: 14px; margin: 12px 0 4px; accent-color: var(--red); }
+  .install .row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; font-size: 14px; }
+  .install p { font-size: 14px; color: #3c3c42; margin: 8px 0 0; }
+  .install a { color: #b8342a; }
+  .install .err { color: #b8342a; font-weight: 600; }
+  .install .ok { color: #1f7a3a; font-weight: 600; }
+  .foot { color: var(--dim); font-size: 13px; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .foot a { color: var(--ink); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="top">
+  <h1>TEXTURA <span id="ver" class="ver">dev</span></h1>
+  <button id="start">Start sound</button>
+  <span id="status">Tap "Start sound" (browsers need a tap before they play audio).</span>
+  <label>MIDI in <select id="midi"><option value="">none</option></select></label>
+</div>
+
+<div class="main">
+<div>
+<div id="stage"><div id="rig"><div id="scaler">
+  <div id="device">
+    <!-- left: MASTER SELECT / PRESETS ALGORITHM / OCT- OCT+; centre: the screen; right: K1-K4, two rows of buttons;
+         below: the keys (app.js places the knobs, buttons and keys) -->
+    <div class="tray" style="left:52px; top:288px; width:292px; height:66px"></div>
+    <div class="screenbox"><canvas id="screen" width="240" height="240" aria-label="The screen"></canvas></div>
+    <div class="tray" style="left:700px; top:186px; width:462px; height:164px"></div>
+    <div id="ctrls"></div>
+    <div class="keys" id="kb" aria-label="Keyboard F3 to G5"></div>
+  </div>
+  <div id="map" aria-label="What the keys do: the black keys pick lanes 1 to 4, F3 to E4 set HOW MANY, F4 to G5 set HOW ACTIVE"></div>
+</div></div></div>
+
+<div class="how">
+  <div class="step"><em>1 · PICK A LANE</em><p>Tap a black key. Each group is one lane: 3 keys for lane 1, 2 for lane 2, 3 for lane 3, 2 for lane 4. Hold one for 0.6 s to mute that lane, again to unmute it.</p></div>
+  <div class="step"><em>2 · HOW MANY</em><p>The seven left white keys set how many sources play: off, 1, 2, 4, 10, 19 or 32.</p></div>
+  <div class="step"><em>3 · HOW ACTIVE</em><p>The nine right white keys set how often they sound, from rare to busy. Four lanes play at once.</p></div>
+  <div class="step"><em>PLAY MODE</em><p>SEL turns the keys into a pitched keyboard for the selected lane; OCT− and OCT+ then shift the octave.</p></div>
+</div>
+<div class="help">
+  Computer keys: <kbd>A</kbd>–<kbd>;</kbd> the keys F3–A4 · <kbd>Z</kbd> <kbd>X</kbd> lane / octave · <kbd>Space</kbd> all on / off ·
+  <kbd>←</kbd> <kbd>→</kbd> pages · <kbd>↑</kbd> <kbd>↓</kbd> landscapes · knobs: drag or wheel · MIDI notes: channel 1 the selected lane,
+  channels 1–4 lanes 1–4 (GLO: MIDI IN); CC and NRPN: lanes 1–4 on their channels, the effects on 5
+</div>
+</div>
+
+<aside><details id="guide" open>
+  <summary>QUICK GUIDE</summary>
+  <dl>
+    <div class="sec">Knobs</div>
+    <dt>KNOB 1–4</dt><dd>home: lane volumes · elsewhere: the 4 cards</dd>
+    <dt>MASTER</dt><dd>volume</dd>
+    <dt>SELECT</dt><dd>pages, in the order of the sound</dd>
+    <dt>PRESETS</dt><dd>the presets list</dd>
+    <dt>ALGORITHM</dt><dd>the page's choice, named in its footer</dd>
+    <dt>OCT− OCT+</dt><dd>previous / next lane (PLAY: octave)</dd>
+    <div class="sec">Buttons</div>
+    <dt>HOME</dt><dd>home · again: back · twice fast: PERFORM · hold: setup</dd>
+    <dt>SEQ</dt><dd>sound browser for the lane</dd>
+    <dt>EDIT</dt><dd>the lane's sound pages</dd>
+    <dt>FX</dt><dd>PERFORM, then each effect in order · hold: PERFORM</dd>
+    <dt>SEL</dt><dd>keys: landscape / play</dd>
+    <dt>ENV LFO</dt><dd>click, turn a card: learn · again: their pages</dd>
+    <dt>ARP</dt><dd>mod matrix</dd>
+    <dt>GLO</dt><dd>groove, tempo, scale, MIDI</dd>
+    <dt>SAVE</dt><dd>save a scene · hold: undo</dd>
+    <dt>PLAY</dt><dd>tap tempo · hold: start / stop</dd>
+    <dt>REC</dt><dd>all lanes on / off</dd>
+  </dl>
+  <p>Press a button again on its page for its second job. <a href="https://github.com/leonardoMirabal/textura/blob/main/docs/MANUAL.md">Full manual</a></p>
+</details></aside>
+</div>
+
+<section class="install" id="install">
+  <h2>INSTALL ON YOUR FM-1</h2>
+  <div id="inst-ui">
+    <dl>
+      <dt>Firmware</dt><dd id="inst-ver">...</dd>
+      <dt>sha256</dt><dd><code id="inst-sha">-</code></dd>
+    </dl>
+    <div class="row">
+      <button id="inst-go" disabled>Find my FM-1</button>
+      <label>or a file: <input type="file" id="inst-file" accept=".fwsc"></label>
+    </div>
+    <progress id="inst-bar" max="100" value="0"></progress>
+    <p id="inst-warn" hidden>Do not unplug the FM-1 or close this page while it writes.</p>
+    <p id="inst-msg">Installing Textura replaces the firmware now on your FM-1; you can go back at any time the same way.
+      Connect the FM-1 with a USB data cable: the page finds it. The browser asks to allow MIDI with SysEx: allow it.
+      An install that was cut off (UPDATE MODE on the screen) resumes from here. Once installed, the FM-1 shows up on
+      USB as <b>Textura FM-1</b> (USB id 1209:000A for now).</p>
+  </div>
+  <p id="inst-none" hidden>This browser has no Web MIDI with SysEx (Safari, Firefox): install from Chrome or Edge, or with
+    <code>python3 tools/tx_install.py textura-app-X.Y.Z.fwsc</code> (the package from the
+    <a href="https://github.com/leonardoMirabal/textura/releases/latest">latest release</a>).</p>
+  <p>If something goes wrong, switch the FM-1 off, hold OCT− and switch it on: the USB rescue, and install again.</p>
+</section>
+
+<div class="foot">
+  Textura <span id="ver-foot">dev</span> ·
+  Physically modelled textures, computed, never sampled: the same firmware code, compiled to WebAssembly · GPL-3.0 ·
+  based on Frodhes, built on Dinghy and Felucca · DotGothic16 and Inter Tight fonts, SIL OFL 1.1
+  <br>An independent open-source project, not affiliated with or endorsed by any instrument maker. No warranty.
+</div>
+</div>
+<script src="version.js"></script>
+<script src="app.js"></script>
+<script src="fm1install.js"></script>
+<script src="install.js"></script>
+<script src="textura.js"></script>
+</body>
+</html>
