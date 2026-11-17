@@ -10,12 +10,12 @@ mkdir -p "$DEST"
 if [ ! -f "$DEST/ter-u16n.bdf" ]; then
     T="$DEST/terminus.tmp"
     rm -rf "$T" && mkdir -p "$T"
-    curl -fsSL --retry 3 -o "$T/terminus.tar.gz" \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$T/terminus.tar.gz" \
       https://downloads.sourceforge.net/project/terminus-font/terminus-font-4.49/terminus-font-4.49.1.tar.gz
     tar -xzf "$T/terminus.tar.gz" -C "$T" terminus-font-4.49.1/ter-u16n.bdf
     mv "$T/terminus-font-4.49.1/ter-u16n.bdf" "$DEST/" && rm -rf "$T"
 fi
-[ -f "$DEST/InterTight[wght].ttf" ] || curl -fsSL --retry 3 -o "$DEST/InterTight[wght].ttf" \
+[ -f "$DEST/InterTight[wght].ttf" ] || curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$DEST/InterTight[wght].ttf" \
   'https://raw.githubusercontent.com/google/fonts/fac60545cc0de9d4eff6eb5b1ab88bcdfc9ecc69/ofl/intertight/InterTight%5Bwght%5D.ttf'
 (cd "$DEST" && shasum -a 256 -c - <<'SUMS'
 5197662b22bf9f3e68d4af9f969a7fefa3edae40dd82ae969a147381130fb4ae  ter-u16n.bdf

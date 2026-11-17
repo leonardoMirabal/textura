@@ -110,6 +110,12 @@ jobs:
         with:
           path: .local/jieli
           key: jieli-${{ hashFiles('tools/get_toolchain.sh') }}-${{ runner.os }}-${{ runner.arch }}
+      # the 3 SDK files are pinned by sha256 in get_sdk.sh: cached, so a slow or resetting gitee.com (curl 35 in CI,
+      # 2026-11-17) no longer fails a run once they are in the cache
+      - uses: actions/cache@v4
+        with:
+          path: .local/fw-AC79_AIoT_SDK
+          key: ac79sdk-${{ hashFiles('tools/get_sdk.sh') }}
       - name: the JieLi toolchain and the 3 AC79 SDK files
         run: |
           [ -e .local/jieli/toolchain ] || sh tools/get_toolchain.sh .local/jieli
