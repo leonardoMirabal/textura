@@ -10,7 +10,7 @@
  *            stratiform rain after it (small drops, the 13-20 kHz shimmer): L21's time course (note 10).
  *   wind     a gusting broadband roar (NOISE roar path, ~250 Hz, Q 0.5, tilted), level ~ u^3 (u 3 .. 20 m/s with
  *            INTENSITY), gusts as a slow random walk (~0.3 Hz, +-40 %) and a flutter (ours, as #22's bed).
- *   thunder  one flash at a time (THUNDER core: the channel model channel, N-waves by distance); the cell's distance DIST,
+ *   thunder  one flash at a time (THUNDER core: a tortuous channel, N-waves by distance); the cell's distance DIST,
  *            each flash at DIST x 2^(+-1) (nearer as INTENSITY rises), energy and height drawn per flash.
  * The end (the user, session 5: "ends super sharp, not natural"): released, the rain thins out over ~3-4 s (its
  * output faded, tau 0.74 s, its drops let go only at -54 dB) and the wind dies away over ~4-5 s; a thunder tail

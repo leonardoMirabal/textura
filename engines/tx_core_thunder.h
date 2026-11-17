@@ -62,7 +62,7 @@ typedef struct {
     int32_t epk;                   /* the tail's envelope peak (the roll ends some dB under it) */
 } tx_flash_t;
 
-/* start a flash: distance (m), start height (m), tortuosity (Q8, 256 = the channel model), energy per length E_l (log2 of
+/* start a flash: distance (m), start height (m), tortuosity (Q8, 256 = the natural spread), energy per length E_l (log2 of
  * E_l / 1e4 J/m, Q16, 0 .. 6.64), level (Q15) */
 void tx_flash_start(tx_flash_t *f, tx_rng_t *r, uint32_t dist_m, uint32_t height_m, uint32_t tort_q8, int32_t el_l2,
                     int32_t level_q15);

@@ -2,7 +2,7 @@
 /* Textura THUNDER core: channel, segment boxes, recursive N-wave, air (tx_core_thunder.h). */
 #include "tx_core_thunder.h"
 
-#define STEP_CM 1600               /* 16 m (the channel model 8 m; the deflections do not depend on the step: 640 x 16 m reach the ground from 5 km) */
+#define STEP_CM 1600               /* 16 m (the model's 8 m; the deflections do not depend on the step: 640 x 16 m reach the ground from 5 km) */
 #define XMAX 8191                  /* the excitation's bound (13 bits: S2 <= (2L)^2 / 2 x 2^13 < 2^31) */
 #define AREA_L2 10                 /* a segment's box area at 1 km, E_l 1e4 J/m: 2^10 (calibrated by render) */
 #define TH_KCAP 40u                /* the far roll: x r / 3.6 km up to 2.5 (+8 dB, tau 3.75 s) */
@@ -45,7 +45,7 @@ static void grow(tx_flash_t *f, tx_rng_t *r)
     dph = (int32_t)((uint32_t)gauss_q12(r) * 131072u + (uint32_t)(((tx_rand(r) & 1u) ? 1 : -1) * (f->psi / 20)) * 256u);
     for (k = 3; k > 0; k--) f->th[k] = f->th[k - 1];
     f->th[0] = dth >> 8;
-    f->psi += ((dph >> 8) - f->psi) >> 6;                    /* the azimuth memory (~64 steps; the channel model k_phi 100) */
+    f->psi += ((dph >> 8) - f->psi) >> 6;                    /* the azimuth memory (~64 steps; the model's k_phi 100) */
     /* the memory orientation (Theta, Psi) and its frame */
     cT = tx_sin_q15((uint32_t)(Th * 256) + 0x40000000u) >> 1; sT = tx_sin_q15((uint32_t)(Th * 256)) >> 1;   /* Q14 */
     cP = tx_sin_q15((uint32_t)(f->psi * 256) + 0x40000000u) >> 1; sP = tx_sin_q15((uint32_t)(f->psi * 256)) >> 1;

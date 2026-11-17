@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura #25 Thunder: a lightning flash heard from a distance (THUNDER core).
  *
- * A key press is a flash: a new tortuous channel from the start height down to the ground (THUNDER core: the channel model's
- * generator, one N-wave per 10 m segment, heard in order of distance). Holding the key restrikes the same channel
+ * A key press is a flash: a new tortuous channel from the start height down to the ground (THUNDER core: the
+ * tortuous-channel generator, one N-wave per 10 m segment, heard in order of distance). Holding the key restrikes the same channel
  * (return strokes 40-50 ms apart, E2: here 30 ms + an exponential draw of mean 20 ms, at most 4; later strokes at
  * 0.6 of the first, ours). Lower keys are farther: the distance at C4 is DIST, 2^(1/12) closer per semitone up.
  * Velocity scales the energy per length (+-1 octave of E_l per 40 velocity) and the level. The sound starts at the
