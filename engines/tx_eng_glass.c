@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura #19 Glass / crystal shards: a pane breaks, its shards ring, fall and bounce (MODAL + CONTACT cores;
- *: I5 fracture scaling, I6 / M7 glass Q).
+ * fracture scaling, glass Q).
  *
  * A key breaks a pane (velocity = the blow). Physics:
  *   crack    the fracture: a sharp broadband click (a crack runs through glass at km/s: a few samples) and the

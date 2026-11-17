@@ -13,7 +13,7 @@
  *   katydid      (N8, N8c) one decaying oscillation of the wing per tooth strike: regular strikes give a tone,
  *                uneven ones a broadband rasp. The escapement sets one strike per carrier cycle; JITTER is the SD of
  *                the strike interval. Panacanthus: 5.0 kHz, wing Q 16-17, 226 cycles per call (N8c); its upper
- *                components: 14.7 kHz at -9.4 dB kept (20,25 kHz dropped); here a Q 10 two-pole
+ *                components: 14.7 kHz at -9.4 dB kept (20 and 25 kHz dropped); here a Q 10 two-pole
  *                at 14.7 kHz on the same strikes (its Q: ours). Calls ~1.7 /s at 25 C (ours).
  *   grasshopper  (N23-N25, N30) both hind legs scrape a peg file across a wing vein, the legs out of phase (their
  *                rhythms drift freely: C. biguttulus). No tuned resonator: a click (250-450 us) per peg impact, a

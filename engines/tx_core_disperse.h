@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura DISPERSE core: a dispersive waveguide loop, the spring ( Parker,
- *).
+/* Textura DISPERSE core: a dispersive waveguide loop, the spring.
  *
  * A helical spring returns an impulse as a train of chirped echoes every T_D (30-60 ms), the low frequencies (below the
  * transition F_C, 2-5 kHz) dominating (D6). The efficient model (D2b): only the low chirp chain, at a decimated rate

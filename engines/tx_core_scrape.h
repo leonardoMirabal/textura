@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura SCRAPE / ROLL core: the contact force of one sliding or rolling contact, as a series of micro-impacts
- * (F2's impact-series model, afterscraping).
+ * (an impact-series model, after the classic scraping model).
  *
  *   rub      dense impacts = white noise (one impact per sample);
  *   impacts  sparse ones: exponential gaps (scratch, corr = 0) or amplitudes and gaps that follow an AR(1) series

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura #12 Rolling pebble: pebbles rolling across a table, a slab, a tray (05 for the bodies).
+/* Textura #12 Rolling pebble: pebbles rolling across a table, a slab, a tray.
  *
  * A key press pushes a pebble (velocity = push speed), holding the key keeps it rolling (a slope), release lets it
  * coast to a stop. Physics:

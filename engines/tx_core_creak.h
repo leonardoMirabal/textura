@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura CREAK core: a stick-slip trainjittered harmonic source.
+/* Textura CREAK core: a stick-slip train, a jittered harmonic source.
  *
  * W7 models a creak as a harmonic source f0(t) = (1 + e(t)) Phi(pressure, speed) driving resonators, e(t) a noise
  * low-passed below 20 Hz: a low f0 sounds noisy (single slips heard), a high f0 "sings". Here the source is the

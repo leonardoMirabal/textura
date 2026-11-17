@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura THUNDER core: one lightning flash heard from a distance.
  *
- *   channel   a tortuous return-stroke channel grown downward in steps of 16 m ( and
+ *   channel   a tortuous return-stroke channel grown downward in steps of 16 m (after the classic tortuous-channel models and
  *             Hill: each step a cone deflection theta' ~ N(-Theta / 20, 27.08 deg x TORT), phi' ~ N(+-Psi / 20, 45 deg)
  *             around the memory orientation Theta = the mean of the last 4 theta', Psi = a slow mean of the phi'), from
  *             a start height to the ground (the channel model: 8 m steps; the deflection does not depend on the step). Grown over

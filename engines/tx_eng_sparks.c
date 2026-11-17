@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura #20 Static / sparks: electric discharges as N-wave ticks, a corona fizz, an optional resonant body
- *.
+/* Textura #20 Static / sparks: electric discharges as N-wave ticks, a corona fizz, an optional resonant body.
  *
  * A key press fires one discharge (with Omori aftershocks when BURST is up); a held key keeps discharging at RATE.
  *   spark    a spark heats a thin channel in microseconds and launches an N-wave of half-duration T (2 us for a

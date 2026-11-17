@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura #5 Surf: waves breaking on a beach .
+/* Textura #5 Surf: waves breaking on a beach.
  *
  * A held key = the sea: breakers arrive every PERIOD (+-20 %); a press sends one breaker now (velocity = its size).
  * Each breaker (ours: the time course; the spectra and the whoomph from L37 / L38):

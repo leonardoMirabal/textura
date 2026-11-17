@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura #34 Rockfall / scree: a rock face lets go (R1 Hertz).
+/* Textura #34 Rockfall / scree: a rock face lets go (Hertz contact).
  *
  * A key press triggers a fall (velocity = volume; lower keys = a bigger main block). The time course follows R2's
  * seismic template:

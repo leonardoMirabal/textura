@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura AEOLIAN core: the tone of air flowing past a wire (JAES 2018).
+/* Textura AEOLIAN core: the tone of air flowing past a wire.
  *
  *   shedding  f_l = St(Re) u / d, Re = u d / nu (nu = 1.5e-5 m^2/s), St = lambda + tau / sqrt(Re) by Re range (A2b
  *             Table 2); no shedding below Re 47. Tone width (A2b Eq. 11): df/f = 4.624e-5 Re + 0.9797 % (Q ~ 101 at Re

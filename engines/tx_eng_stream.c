@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura #4 Stream / brook: water running over stones (L2).
+/* Textura #4 Stream / brook: water running over stones.
  *
  * Each held key is a little plunge in the stream (a riffle over a stone), its bubbles' size centred on the key; a press
  * also tips a stone in (a burst). Physics (note 02):
  *   bubbles    turbulence and small falls entrain bubbles with a broad power-law size distribution: a log-bin rate
- *              a^-gamma (gamma 0.5-2.3 from L7; no measured brook value). Each rings at its Minnaert
+ *              a^-gamma (gamma 0.5-2.3; no measured brook value). Each rings at its Minnaert
  *              frequency 3.28 m/s / a with the L2 damping (BUBBLE heroes); its amplitude ~ a^1.5 x D, D = u^beta: most
  *              bubbles are deep and quiet, a few near the surface loud, and only those (D > 0.9, L2's riseCutoff) rise
  *              (xi 0.1): the babble. NEAR moves beta (20 far .. 3 near, ours).

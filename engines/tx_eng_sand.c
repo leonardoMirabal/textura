@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura #14 Sand: sand pouring onto a hand, a pile, a tray, a glass bulb, into a tube (
- *).
+/* Textura #14 Sand: sand pouring onto a hand, a pile, a tray, a glass bulb, into a tube.
  *
  * Holding a key pours (velocity = how much), release stops the flow; the grains still in the air land after
  * sqrt(2 h / g). Physics:

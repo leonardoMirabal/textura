@@ -40,7 +40,7 @@ void tx_noise_tilt(tx_noise_t *z, uint32_t fc_hz);       /* 0 = off */
 TX_AUDIO_CODE void tx_noise_roar_add(tx_noise_t *z, int32_t g_q15, int32_t *out, unsigned n);
 /* SVF BANK: band-pass resonators (Chamberlin) for body / tube / box modes, f <= fs/6. Each mode i: coefficient
  * f_i = 2 sin(pi fc / fs) (Q14), shared q = 1 / Q (Q14), output gain g_i (Q11). Input gain: q (unit PEAK gain,
- *: a tone at the resonance comes out at its own level) times gin_i (Q8; 0 pointer = 256 = 1.0); for
+ * a tone at the resonance comes out at its own level) times gin_i (Q8; 0 pointer = 256 = 1.0); for
  * broadband drive (friction, noise) gin_i ~ sqrt(fs Q / (pi f_i)) gives unit NOISE power (tx_svf_gin_noise).
  * Signal Q15 (the input, Q23, is clamped to +-2 full scale; bands saturate at +-4.0): every product < 2^31.
  * A Chamberlin band whose damping q band rounds to zero freezes at a small constant; so when the input block is

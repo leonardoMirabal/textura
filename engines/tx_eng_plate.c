@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura #23b Thunder sheet / metal plate (D18 damping).
+/* Textura #23b Thunder sheet / metal plate.
  *
  * A thin steel plate (aspect 2.4 : 1, a thunder sheet's 1.2 x 0.5 m) hangs free; a key strikes it (velocity = the
  * mallet's speed, the key = where: low keys near the centre, high keys toward the edge), a held key rolls it (soft

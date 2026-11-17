@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura #26 Storm (scene): rain, wind and thunder under one intensity control (02, 03, 11).
+/* Textura #26 Storm (scene): rain, wind and thunder under one intensity control.
  *
  * A held key = the storm (it builds and fades over ~1 s); while it lasts, lightning strikes at random (Poisson, a few
  * per minute, more and nearer as the storm grows) and the rain and wind follow INTENSITY. A press also strikes a

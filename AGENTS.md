@@ -2,7 +2,7 @@
 
 Textura is a physically modelled texture synthesizer for the M-VAVE FM-1 (JieLi AC791N, pi32v2 core, no FPU,
 240 x 240 screen, 27 touch keys F3..G5, buttons, encoders, USB-MIDI, TRS MIDI in, USB audio, headphone jack). The
-sounds are computed, never sampled. The repository is `leonardoMirabal/textura` (private). `CLAUDE.md` is the short
+sounds are computed, never sampled. The repository is `leonardoMirabal/textura`. `CLAUDE.md` is the short
 version. When this file and the code disagree, the code wins: fix the file.
 
 Textura is based on Frodhes (github.com/leonardoMirabal/frodhes, same author): its firmware platform and tools were
@@ -97,7 +97,7 @@ still to be designed (**todo**).
 
 ## 6. Git and CI
 
-- `origin` = leonardoMirabal/textura (private). No upstream remote: Frodhes' files were copied in, never its history.
+- `origin` = leonardoMirabal/textura. No upstream remote: Frodhes' files were copied in, never its history.
 - `.private/` is never added; check `git status --short --ignored` before a commit.
 - CI, as Frodhes' (`.github/workflows/`): `ci.yml` on every push to main and PR. A Markdown-only PR runs only the
   guard. Otherwise the host tests run on arm64 Linux in three parts (engines: `tx-test` + `tx-libcalls`;

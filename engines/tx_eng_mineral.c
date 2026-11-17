@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura #11 Mineral friction (the cheap scrape route): a stone rubbed, scratched or ground against another
- * (05: the brake-noise groan, honk).
+ * (the brake-noise groan / honk).
  *
  * Each held key is a stone (a bar of the chosen mineral, its first mode at SIZE for C4, a semitone per key) being
  * rubbed; release lifts the contact and the stone rings out. Physics:

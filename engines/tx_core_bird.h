@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Textura BIRD core: a bird's voice and its songs (15), cheap enough for a chorus on the FM-1.
+/* Textura BIRD core: a bird's voice and its songs, cheap enough for a chorus on the FM-1.
  *
  *   source   the syrinx's labia oscillate; how they start sets the timbre: born at a Hopf bifurcation the wave is a
  *            sine (whistles, hoots), born on an invariant circle (SNIC) it is pulse-like and rich (caws, the gull's
