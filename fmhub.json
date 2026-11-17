@@ -1,0 +1,11 @@
+{
+ "what": "A physical modelling synthesizer for the sounds of nature: rain, streams, fire, sand and stones, ice, wood, wind, thunder, insects and birds, each computed live, no samples. Four lanes play at once; the keys set how many and how active. Compressor, drive, filter, grain delay, reverb.",
+ "author": "Leonardo Mirabal",
+ "kinds": [
+  "synth"
+ ],
+ "play": "https://leonardomirabal.github.io/textura/",
+ "cheat": "https://github.com/leonardoMirabal/textura/blob/main/docs/MANUAL.md",
+ "image": "docs/img/card.png",
+ "color": "#EF4A3C"
+}
