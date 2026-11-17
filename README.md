@@ -73,6 +73,8 @@ at any time: see below.
 
 1. Download the newest `.fwsc` file from the [release page](https://github.com/leonardoMirabal/textura/releases).
 2. Connect the FM-1 with USB and install it in one of these ways:
+   - **In the browser** (Chrome or Edge): the [emulator page](https://leonardomirabal.github.io/textura/#install)'s
+     **Install on your FM-1** finds the FM-1 and installs the newest release (live with the first public release).
    - **The Firmware Hub** (once Textura is listed there): install and update from the FM-1's firmware catalogue in
      the browser.
    - **FM-1 Loader**: put the `.fwsc` file in the folder it watches, and install it from there.

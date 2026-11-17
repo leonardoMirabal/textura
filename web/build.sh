@@ -1,8 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
 # The Textura panel in a web browser: firmware/src/textura.c compiled to WebAssembly with Emscripten (the browser shim
-# is web/web_hal.c), the engines beside it. Output: build/web/ (index.html, app.js, version.js, textura.js,
-# textura.wasm), a static site. From Frodhes' web/build.sh.
+# is web/web_hal.c), the engines beside it. Output: build/web/ (index.html, app.js, fm1install.js, install.js,
+# version.js, textura.js, textura.wasm), a static site. From Frodhes' web/build.sh.
 #
 #   web/build.sh [--release X.Y.Z]   (Emscripten from .local/emsdk, or emcc on the PATH)
 # The version is stamped at build time, never written in the repo: --release X.Y.Z shows "Textura X.Y.Z" in the page's
@@ -28,6 +28,6 @@ emcc -O2 -DDINGHY_HOST -DDINGHY_WEB -DHOST_SAVE_MS=1u -DAPP_VER="\"$VER\"" -Ifir
   -sASYNCIFY -sASYNCIFY_IMPORTS='["emscripten_sleep"]' -sALLOW_MEMORY_GROWTH=0 -sINITIAL_MEMORY=33554432 \
   -sEXPORTED_FUNCTIONS='["_main","_web_audio","_web_btn","_web_keys","_web_enc","_web_midi","_web_master","_web_fb","_web_leds","_web_store","_web_store_take_dirty","_web_flw_buf","_web_flw_len","_web_flw_take_dirty","_web_page","_web_scene","_web_state"]' \
   -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAPF32","ccall"]' -sENVIRONMENT=web
-cp web/index.html web/app.js $OUT/
+cp web/index.html web/app.js web/fm1install.js web/install.js $OUT/
 printf 'window.TEXTURA_VERSION = "%s";\n' "$VER" > $OUT/version.js
 echo "$OUT: $(ls $OUT | tr '\n' ' ')"

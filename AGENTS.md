@@ -105,7 +105,11 @@ still to be designed (**todo**).
   `make fm1-app` with the toolchain and SDK fetched as `make setup` does. `web` runs `make fw-web-check` in
   Playwright's image. A failure cancels the run. `release.yml`: a `textura-vX.Y.Z` tag passes the CI gate
   (`tools/ci_gate.sh`; else the tests run there), builds `make fm1-app REL=X.Y.Z` in CI and publishes a full
-  release with `textura-app-X.Y.Z.fwsc` and `.json`. Notes come from `docs/releases/<tag>.md` when it exists.
+  release with `textura-app-X.Y.Z.fwsc` and `.json`. Notes come from `docs/releases/<tag>.md` when it exists. The
+  emulator's GitHub Pages deploy is prepared there but off: only with the repository variable `PAGES_ENABLED` set to
+  `true` does the tag also build and check the emulator (`web-dist`), keep the release a draft, put the package beside
+  the page for its installer (`tools/web_firmware.sh`), deploy to gh-pages (`tools/deploy_pages.sh`), wait for it to
+  be live (`tools/pages_wait.sh`) and then publish. `ci.yml` never deploys.
   `runner-retry.yml` reruns jobs GitHub never started (`tools/runner_retry.py`). `fw-c1map` is not in CI: it needs
   macOS and the FM-1 image together.
 

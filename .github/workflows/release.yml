@@ -5,6 +5,17 @@ name: release
 # release (not a draft, not a prerelease), marked latest; the repository's visibility is not touched (a private
 # repository's release stays private). The notes: docs/releases/<tag>.md when the tag has one (its first paragraph
 # is the json's changes), else "Textura X.Y.Z". Every step is safe to rerun (a rerun replaces the assets).
+# The emulator on GitHub Pages (prepared, off until the repository variable PAGES_ENABLED is 'true'; it is unset
+# while the repository is private): the job web-dist builds it from the tag (web/build.sh --release X.Y.Z, through
+# make fw-web-check REL=X.Y.Z: the page shows that version and passes its checks, the installer's selftest too) before
+# anything is published, and a failure stops the release; the job release then creates the release as a draft, puts
+# the package beside the emulator for its installer (tools/web_firmware.sh: textura.fwsc, firmware.json), deploys it
+# to the gh-pages branch (tools/deploy_pages.sh: "Emulator X.Y.Z", the branch's other files kept; the branch is
+# created, with .nojekyll, on the first deploy), waits until Pages has built that commit and serves every file byte
+# for byte (tools/pages_wait.sh), and only then publishes the release. Before setting PAGES_ENABLED: Settings > Pages,
+# source "Deploy from a branch", gh-pages / (root) (after the first deploy made the branch, or push an empty one).
+# Without PAGES_ENABLED none of this runs and the release is published at once, as before. Only a textura-v* tag
+# deploys: ci.yml builds and tests the emulator, never deploys it.
 # Tag only what passed the tests on the FM-1.
 on:
   push:
@@ -12,6 +23,7 @@ on:
 permissions:
   contents: write                    # the release
   actions: read                      # ci-gate reads the ci runs
+  pages: write                       # tools/pages_wait.sh reads the Pages builds (and asks for one if none started)
 jobs:
   # ci.yml already runs every test (host, firmware, web) on each push to main. If ci passed on exactly this commit
   # (waiting up to 40 min if it is still running), or on a commit with the identical git tree, the release skips its
@@ -58,14 +70,44 @@ jobs:
           .local/venv/bin/pip install -q playwright==1.64.0
           PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python -m playwright install chromium
       - run: make fw-web-check LOCK=0
+  web-dist:                          # PAGES_ENABLED only: the emulator from the tag, built and checked before anything is published
+    if: vars.PAGES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright/python:v1.64.0-noble
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .local/emsdk
+          key: emsdk-${{ hashFiles('tools/get_emsdk.sh') }}-${{ runner.os }}-${{ runner.arch }}-playwright-image
+      - run: apt-get update -qq && apt-get install -y -qq xz-utils make python3-venv
+      - run: sh tools/get_emsdk.sh .local/emsdk
+      - run: |
+          python3 -m venv .local/venv
+          .local/venv/bin/pip install -q playwright==1.64.0
+          PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python -m playwright install chromium
+      - name: build the emulator with the tag's version and check it (the installer's selftest included)
+        run: make fw-web-check LOCK=0 REL="${GITHUB_REF_NAME#textura-v}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: build/web
+          if-no-files-found: error
   release:
-    needs: [ci-gate, host, web]
-    # runs when ci passed on this commit (the fallback jobs skipped) or when both fallback jobs passed. x86_64: the
-    # JieLi toolchain (tools/get_toolchain.sh) runs on nothing else
+    needs: [ci-gate, host, web, web-dist]
+    # runs when ci passed on this commit (the fallback jobs skipped) or when both fallback jobs passed, and the
+    # emulator passed its checks (or Pages is off: web-dist skipped). x86_64: the JieLi toolchain
+    # (tools/get_toolchain.sh) runs on nothing else
     if: >-
       !cancelled() && needs.ci-gate.result == 'success' &&
-      (needs.ci-gate.outputs.passed == 'true' || (needs.host.result == 'success' && needs.web.result == 'success'))
+      (needs.ci-gate.outputs.passed == 'true' || (needs.host.result == 'success' && needs.web.result == 'success')) &&
+      (needs.web-dist.result == 'success' || (needs.web-dist.result == 'skipped' && vars.PAGES_ENABLED != 'true'))
     runs-on: ubuntu-latest
+    concurrency:
+      group: gh-pages-deploy
+      cancel-in-progress: false
+    env:
+      PAGES: ${{ vars.PAGES_ENABLED == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - name: the JieLi toolchain and the 3 AC79 SDK files (checked by sha256)
@@ -81,7 +123,7 @@ jobs:
           ls -l "build/fm1/textura-app-$V.fwsc" "build/fm1/textura-app-$V.json"
           sha256sum "build/fm1/textura-app-$V.fwsc"
           cat "build/fm1/textura-app-$V.json"
-      - name: publish the release (full, latest; a rerun replaces the assets)
+      - name: publish the release (full, latest; a rerun replaces the assets; with Pages a draft until the emulator is live)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -91,7 +133,57 @@ jobs:
           set -- "build/fm1/textura-app-$V.fwsc" "build/fm1/textura-app-$V.json"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "$@" --clobber
-            gh release edit "$GITHUB_REF_NAME" --title "Textura $V" --notes-file "$NOTES" --draft=false --prerelease=false --latest
+            if [ "$PAGES" = true ]; then
+              gh release edit "$GITHUB_REF_NAME" --title "Textura $V" --notes-file "$NOTES"
+            else
+              gh release edit "$GITHUB_REF_NAME" --title "Textura $V" --notes-file "$NOTES" --draft=false --prerelease=false --latest
+            fi
+          elif [ "$PAGES" = true ]; then
+            gh release create "$GITHUB_REF_NAME" "$@" --title "Textura $V" --notes-file "$NOTES" --draft
           else
             gh release create "$GITHUB_REF_NAME" "$@" --title "Textura $V" --notes-file "$NOTES" --latest
           fi
+      # ---- PAGES_ENABLED only: the emulator of this tag live before the release leaves draft (see the top)
+      - name: the emulator built and checked by the job web-dist
+        if: env.PAGES == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: build/web
+      - name: the gh-pages branch in build/pages (created, with .nojekyll, if it does not exist yet)
+        if: env.PAGES == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            git fetch -q --depth 1 origin gh-pages:gh-pages
+            git worktree add build/pages gh-pages
+          else
+            git worktree add --detach build/pages
+            git -C build/pages checkout -q --orphan gh-pages
+            git -C build/pages rm -rqf .
+            touch build/pages/.nojekyll
+            git -C build/pages add .nojekyll
+            git -C build/pages commit -q -m "gh-pages: the emulator's branch"
+          fi
+      - name: the package beside the emulator (its installer; release downloads have no CORS)
+        if: env.PAGES == 'true'
+        run: |
+          V="${GITHUB_REF_NAME#textura-v}"
+          sh tools/web_firmware.sh "build/fm1/textura-app-$V.fwsc" build/web "$V"
+      - name: deploy the emulator
+        if: env.PAGES == 'true'
+        run: sh tools/deploy_pages.sh build/web build/pages "${GITHUB_REF_NAME#textura-v}"
+      - name: wait for Pages
+        if: env.PAGES == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          sh tools/pages_wait.sh "$(git -C build/pages rev-parse HEAD)" build/web \
+            "https://$OWNER.github.io/${GITHUB_REPOSITORY#*/}/"
+      - name: publish the release
+        if: env.PAGES == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease=false --latest

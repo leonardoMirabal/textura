@@ -111,6 +111,20 @@
                margin-top: 8px; border-top: 1px solid #dcd9d1; padding-top: 10px; }
   aside p { font-size: 13px; color: #55555c; margin: 14px 0 0; }
   aside a { color: #b8342a; }
+  .install { margin-top: 28px; max-width: 760px; background: #f1efe9; color: #1d1d20; border-radius: 16px; padding: 18px 22px; }
+  .install h2 { font: 400 22px/1.1 var(--display); letter-spacing: .06em; margin: 0 0 10px; }
+  .install dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0 0 12px; font-size: 14px; }
+  .install dt { font-weight: 700; }
+  .install dd { margin: 0; color: #3c3c42; overflow-wrap: anywhere; }
+  .install code { font: 12px ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+  .install button { background: var(--red); color: #fff; border: 0; border-radius: 8px; padding: 9px 16px; font: 600 14px var(--text); cursor: pointer; }
+  .install button:disabled { opacity: .45; cursor: default; }
+  .install progress { width: 100%; height: 14px; margin: 12px 0 4px; accent-color: var(--red); }
+  .install .row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; font-size: 14px; }
+  .install p { font-size: 14px; color: #3c3c42; margin: 8px 0 0; }
+  .install a { color: #b8342a; }
+  .install .err { color: #b8342a; font-weight: 600; }
+  .install .ok { color: #1f7a3a; font-weight: 600; }
   .foot { color: var(--dim); font-size: 13px; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
   .foot a { color: var(--ink); }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
@@ -180,6 +194,30 @@
 </details></aside>
 </div>
 
+<section class="install" id="install">
+  <h2>INSTALL ON YOUR FM-1</h2>
+  <div id="inst-ui">
+    <dl>
+      <dt>Firmware</dt><dd id="inst-ver">...</dd>
+      <dt>sha256</dt><dd><code id="inst-sha">-</code></dd>
+    </dl>
+    <div class="row">
+      <button id="inst-go" disabled>Find my FM-1</button>
+      <label>or a file: <input type="file" id="inst-file" accept=".fwsc"></label>
+    </div>
+    <progress id="inst-bar" max="100" value="0"></progress>
+    <p id="inst-warn" hidden>Do not unplug the FM-1 or close this page while it writes.</p>
+    <p id="inst-msg">Installing Textura replaces the firmware now on your FM-1; you can go back at any time the same way.
+      Connect the FM-1 with a USB data cable: the page finds it. The browser asks to allow MIDI with SysEx: allow it.
+      An install that was cut off (UPDATE MODE on the screen) resumes from here. Once installed, the FM-1 shows up on
+      USB as <b>Textura FM-1</b> (USB id 1209:000A for now).</p>
+  </div>
+  <p id="inst-none" hidden>This browser has no Web MIDI with SysEx (Safari, Firefox): install from Chrome or Edge, or with
+    <code>python3 tools/tx_install.py textura-app-X.Y.Z.fwsc</code> (the package from the
+    <a href="https://github.com/leonardoMirabal/textura/releases/latest">latest release</a>).</p>
+  <p>If something goes wrong, switch the FM-1 off, hold OCT− and switch it on: the USB rescue, and install again.</p>
+</section>
+
 <div class="foot">
   Textura <span id="ver-foot">dev</span> ·
   Physically modelled textures, computed, never sampled: the same firmware code, compiled to WebAssembly · GPL-3.0 ·
@@ -189,6 +227,8 @@
 </div>
 <script src="version.js"></script>
 <script src="app.js"></script>
+<script src="fm1install.js"></script>
+<script src="install.js"></script>
 <script src="textura.js"></script>
 </body>
 </html>

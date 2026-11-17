@@ -268,7 +268,7 @@ fw-web-serve: fw-web
 	python3 -m http.server -d build/web 8001
 
 fw-web-check: fw-web
-	$(HEAVY) env PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py
+	$(HEAVY) env PLAYWRIGHT_BROWSERS_PATH=.local/playwright TEXTURA_WEB_VER=$(or $(REL),dev) .local/venv/bin/python tests/web_check.py
 
 docs-img: fw-web
 	env PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tools/emu_shots.py

@@ -5,7 +5,7 @@ on-screen keys reach the firmware and its key LEDs come back (a black key select
 held it mutes the lane; a white key starts it), the knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
 tests/py/test_web_knobs.py), HOME goes home and back, EDIT to SOUND, FX through PERFORM / COMPRESSOR / DRIVE / FILTER / DELAY / REVERB, GLO through GROOVE /
 TEMPO / SCALE / MIDI, FX held to PERFORM, LFO to
-LFO, ARP to MATRIX (the captions follow), SAVE saves a scene that a reload brings back, and the page fits a phone (390 px, no sideways scroll). The keyboard map lines up with the keys and the quick guide is short. Screenshots at desktop and phone width.
+LFO, ARP to MATRIX (the captions follow), SAVE saves a scene that a reload brings back, and the page fits a phone (390 px, no sideways scroll). The keyboard map lines up with the keys and the quick guide is short; the installer installs on a fake FM-1 (?installtest). Screenshots at desktop and phone width.
 
     make fw-web-check     (PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py)
 Outputs in build/web-check/. Exit 1 on any failure. The sound itself is not judged here (no ears)."""
@@ -22,6 +22,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SITE = os.path.join(ROOT, "build", "web")
 OUT = os.path.join(ROOT, "build", "web-check")
 fails = []
+WANT_VER = os.environ.get("TEXTURA_WEB_VER") or "dev"   # (the Makefile: REL, else dev)
 
 
 def check(ok, what):
@@ -77,7 +78,7 @@ def main():
         pg.goto(url)
         pg.wait_for_function("window.Module && window.Module.calledRun", timeout=30000)
         check(re.match(r"Textura ", pg.title()) is not None, f"the title names Textura ({pg.title()})")
-        check(pg.locator("#ver").inner_text() == "dev", "the version: dev (a local build)")
+        check(pg.locator("#ver").inner_text() == WANT_VER, f"the version: {WANT_VER} (make fw-web-check REL=X.Y.Z: X.Y.Z)")
         pg.wait_for_timeout(2200)                      # the splash (1.6 s), then the page
         check(pg.evaluate(PAGE) == "LANDSCAPE", "the firmware shows the LANDSCAPE page")
         check(pg.evaluate(LIT) > 3000, f"the screen is drawn ({pg.evaluate(LIT)} px lit)")
@@ -296,6 +297,17 @@ def main():
         m = re.search(r"rms=(-?[\d.]+|-Infinity)dB screen=(\d+)px", st.title())
         rms = float(m.group(1)) if m else -999.0
         check(m is not None and -75 < rms < -3, f"selftest: the landscape sounds (low: its start) ({st.title()})")
+        # the installer: the section shown (Chromium has Web MIDI), then ?installtest: a full install through the page on
+        # a fake FM-1 (tests/web/fake_fm1.js): M-VAVE's firmware with a chosen file, then a Frodhes FM-1 with firmware.json
+        check(pg.locator("#install").is_visible() and not pg.locator("#inst-ui").is_hidden(), "the Install on your FM-1 section")
+        it = b.new_page(viewport={"width": 1280, "height": 900})
+        ierr = []
+        it.on("pageerror", lambda e: ierr.append(str(e)))
+        it.add_init_script(path=os.path.join(ROOT, "tests", "web", "fake_fm1.js"))
+        it.goto(url + "?installtest")
+        it.wait_for_function("document.title.startsWith('INSTALLTEST')", timeout=60000, polling=500)
+        check(it.title().startswith("INSTALLTEST ok") and not ierr, f"installtest: {it.title()}" + (f" errors {ierr}" if ierr else ""))
+        it.close()
         # a phone (390 px): the whole panel scaled in, no sideways scroll
         ph = b.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=True, has_touch=True)
         perr = []
