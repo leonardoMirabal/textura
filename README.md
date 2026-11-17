@@ -7,6 +7,24 @@ No samples. Every drop, crackle, grain and chirp is calculated as it sounds, fro
 hits water and rings a bubble, a log splits and spits, a pebble knocks and rolls. Each sound plays as a cloud of
 these small events from the FM-1's keys: say how many and how busy, and the cloud never repeats itself.
 
+<p align="center">
+  <img src="docs/img/device.png" width="100%" alt="Textura on the FM-1: the TEXTURA home page on the screen, and under the keys what they do: the black-key groups pick lanes 1 to 4, F3 to E4 set HOW MANY, F4 to G5 set HOW ACTIVE">
+</p>
+
+**The keys, in three steps:**
+
+1. **Pick a lane**: tap a black key. Each group is one lane: 3 keys for lane 1, 2 for lane 2, 3 for lane 3, 2 for
+   lane 4 (F#5 has none). Hold one for 0.6 s to mute that lane, again to unmute it.
+2. **How many**: the seven left white keys (F3 .. E4) set how many sources the lane plays: off, 1, 2, 4, 10, 19 or 32.
+3. **How active**: the nine right white keys (F4 .. G5) set how often they sound, from rare events to a busy cloud.
+
+Four lanes play at once. **SEL** turns the keys into a pitched keyboard for the selected lane (PLAY mode); OCT− and
+OCT+ then shift the octave.
+
+**[Try it in your browser](https://leonardomirabal.github.io/textura/)** before you install: the same firmware, with
+the FM-1's screen, knobs and keys, played from your computer keyboard or a MIDI keyboard. The page goes live with
+Textura's first public release.
+
 <table align="center">
   <tr>
     <td align="center"><img src="docs/img/landscape.png" width="240" alt="The LANDSCAPE page: four lanes, each with its sound, HOW MANY, HOW ACTIVE and its volume"></td>
@@ -69,6 +87,14 @@ at any time: see below.
 **Going back.** Install the other firmware (Frodhes, or M-VAVE's own) the same way: from The Firmware Hub, FM-1
 Loader, or Frodhes' own installer. The USB rescue (OCT− held at power-on) works whatever is installed.
 
+## Where to find Textura
+
+| Where | What it is |
+|---|---|
+| [Releases](https://github.com/leonardoMirabal/textura/releases) | Every version's `.fwsc` package and its release notes |
+| [The Firmware Hub](https://thefirmwarehub.com/) | The FM-1's firmware catalogue: install and update from one place (once Textura is listed) |
+| [Web emulator](https://leonardomirabal.github.io/textura/) | Play Textura in the browser before you install it (live with the first public release) |
+
 ## Status
 
 **Beta.** Pages and presets can still change between versions. The USB ID is
@@ -77,7 +103,8 @@ interim until Textura's own pid.codes ID is granted.
 ## Controls
 
 The screen shows one page at a time, one card per knob (K1 .. K4); each page's footer says what ALGORITHM and the
-buttons do there.
+buttons do there. Press a button again on its page for its second job. Every control in full:
+[the manual](docs/MANUAL.md).
 
 | Control | What it does |
 | --- | --- |
@@ -127,6 +154,21 @@ The sounds are written in integer C in `engines/` and auditioned on a computer b
 and three files of its SDK, Emscripten, a headless Chromium, the fonts); building for the FM-1 also needs Docker.
 `make fm1-app` builds the firmware (`build/fm1/textura-app.fwsc`), `make tx-test` and `make fw-test` run the checks;
 the top of the `Makefile` lists every target.
+
+## Credits
+
+Textura is based on [Frodhes](https://github.com/leonardoMirabal/frodhes), by the same author: its firmware, platform
+and tools were the starting point. That platform comes from [Dinghy](https://github.com/zvenson/dinghy) by zvenson,
+which uses the platform of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita (Hügelton Instruments) as
+[SLOOP](https://github.com/isod89/sloop-fm1) by isod89 carries it: updates, the USB rescue, USB MIDI and audio, the
+panel, the screen and the settings.
+
+Fonts, all under the SIL Open Font License 1.1: Inter Tight (the screen's text and the web page), Terminus (the
+screen's small text) and DotGothic16 (the web page's labels).
+
+## Support
+
+Questions, bugs or ideas: [GitHub issues](https://github.com/leonardoMirabal/textura/issues).
 
 ## License and disclaimer
 
