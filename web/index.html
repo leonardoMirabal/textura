@@ -7,43 +7,40 @@
 <meta name="description" content="Textura, a physically modelled texture synthesizer (water, rain, fire, stones, ice, wind, insects, birds), running in the browser: the same firmware code, compiled to WebAssembly.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Inter+Tight:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-  :root { --page: #8e8c90; --body: #1c1c1e; --tray: #161618; --well: #121213; --knob: #2a2a2c; --knob-edge: #0e0e0f;
-          --btn: #3a3a3c; --btn-ink: #e9e7e2; --lit: #fff4d6; --lit-ink: #151515; --key: #0d0d0e; --key-line: #c9c6bf;
-          --amber: #ff5a44; --ink: #f2f0ea; }
+  :root { color-scheme: dark;
+          --page: #17181b; --body: #232428; --tray: #18191c; --well: #141518; --knob: #2a2a2c; --knob-edge: #0e0e0f;
+          --btn: #3a3b41; --btn-ink: #e9e7e2; --lit: #fff4d6; --lit-ink: #151515; --key: #0d0e10; --key-line: #d9d7d1;
+          --amber: #ff5a44; --ink: #ecebe7; --dim: #9a9aa1; --line: #34353b; --red: #ef4a3c;
+          --l1: #ef4a3c; --l2: #f0a33a; --l3: #3fb8a5; --l4: #8f8cf2;          /* the lanes 1-4 on the keyboard map */
+          --display: "DotGothic16", ui-monospace, "SF Mono", Menlo, monospace;
+          --text: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--page); color: #222; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  body { touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
-  .top { max-width: none; margin: 0 auto; padding: 14px 16px 10px; display: flex; flex-wrap: wrap; gap: 10px 16px;
-         align-items: center; }
-  .top h1 { font: 24px/1 "DotGothic16", system-ui, sans-serif; margin: 0; color: #111; letter-spacing: .06em; }
-  .top h1 .ver { font-size: 14px; letter-spacing: .02em; color: #444; }
-  .top button { background: #111; color: #ff9a8a; border: 0; border-radius: 8px; padding: 9px 16px; font-weight: 700;
+  html, body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.5 var(--text); }
+  body { touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+         padding: 0 max(16px, env(safe-area-inset-right, 0px)) 32px max(16px, env(safe-area-inset-left, 0px)); }
+  .page { max-width: 1440px; margin: 0 auto; }
+  .top { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding-block: 16px; }
+  .top h1 { font: 30px/1 var(--display); margin: 0; letter-spacing: .06em; font-weight: 400; }
+  .top h1 .ver { font-size: 15px; letter-spacing: .02em; color: var(--dim); }
+  .top button { background: var(--red); color: #fff; border: 0; border-radius: 8px; padding: 9px 16px; font: 600 14px var(--text);
                 cursor: pointer; }
-  .top select { background: #eee; border: 1px solid #555; border-radius: 6px; padding: 5px; }
-  #status { color: #111; font-size: 13px; flex: 1 1 260px; }
+  .top label { color: var(--dim); font-size: 14px; display: flex; gap: 8px; align-items: center; }
+  .top select { background: var(--body); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit; }
+  #status { color: var(--dim); font-size: 14px; flex: 1 1 260px; }
+  button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
-  /* the device, drawn at 1200 x 700 and scaled to fit the window (fit() in app.js) */
-  .wrap { max-width: none; margin: 0 auto; padding: 0 16px; display: flex; gap: 22px; align-items: flex-start; justify-content: center; }
-  #stage { flex: 0 1 auto; min-width: 0; overflow: hidden; }
-  aside { flex: 0 0 calc(250px * var(--z, 1)); background: #f3f1ec; color: #1b1b1b; border-radius: 16px; padding: 12px 16px;
-          font-size: calc(13px * var(--z, 1));
-          line-height: 1.3; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
-  aside summary { font: calc(18px * var(--z, 1))/1.1 "DotGothic16", system-ui, sans-serif; letter-spacing: .04em; cursor: pointer; list-style: none; }
-  aside summary::-webkit-details-marker { display: none; }
-  aside summary::after { content: " +"; color: #8a2a1c; }
-  aside details[open] summary::after { content: " −"; }
-  aside dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 10px 0 8px; }
-  aside dt { font-weight: 800; }
-  aside dd { margin: 0; color: #444; }
-  aside p { margin: 0 0 5px; color: #555; font-size: calc(12px * var(--z, 1)); }
-  aside a { color: #8a2a1c; }
-  @media (max-width: 760px) { .wrap { flex-direction: column; align-items: center; } aside { flex: none; width: 100%; --z: 1; } #stage { width: 100%; flex: none; }
-                              aside dl { grid-template-columns: auto 1fr auto 1fr; } }
-  #device { width: 1200px; height: 700px; transform-origin: 0 0; position: relative;
-            background: var(--body); border-radius: 46px; box-shadow: inset 0 1px 0 #333; }
-  .lab { font: 18px/1 "DotGothic16", system-ui, sans-serif; color: var(--ink); text-align: center; letter-spacing: .02em; }
+  .main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
+  @media (max-width: 1100px) { .main { grid-template-columns: minmax(0, 1fr); } }
+  /* the device and its keyboard map, drawn at 1200 px wide and scaled to the column (fit() in app.js); narrower than
+     its smallest scale, it scrolls sideways in its own box */
+  #stage { width: 100%; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; }
+  #rig { position: relative; }
+  #scaler { position: absolute; left: 0; top: 0; width: 1200px; transform-origin: 0 0; }
+  #device { width: 1200px; height: 700px; position: relative;
+            background: var(--body); border-radius: 46px; box-shadow: inset 0 1px 0 #2e2f34, 0 18px 40px #0008; }
+  .lab { font: 18px/1 var(--display); color: var(--ink); text-align: center; letter-spacing: .02em; }
   .knob { position: absolute; width: 120px; text-align: center; touch-action: none; cursor: ns-resize; }
   .knob .dial { width: 66px; height: 66px; margin: 12px auto 0; border-radius: 50%; position: relative;
                 background: radial-gradient(circle at 50% 38%, #3a3a3c 0, var(--knob) 55%, #222 100%);
@@ -53,11 +50,11 @@
   .knob.endless .dial::after { background: #555; }
   .tray { position: absolute; background: var(--tray); border-radius: 18px; }
   .b { position: absolute; width: 68px; height: 64px; border: 0; border-radius: 10px; background: var(--btn);
-       color: var(--btn-ink); font: 700 18px/1.05 system-ui, -apple-system, sans-serif; letter-spacing: .02em;
+       color: var(--btn-ink); font: 700 18px/1.05 var(--text); letter-spacing: .02em;
        box-shadow: 0 3px 0 #141415, inset 0 1px 0 #4c4c4e; cursor: pointer; touch-action: none; padding: 0; }
   .b.small { font-size: 12px; }
-  .b small { display: block; margin-top: 5px; font: 600 9.5px/1.1 system-ui, sans-serif; letter-spacing: .04em; opacity: .62; }
-  .knob .sub { font: 600 10px/1 system-ui, sans-serif; color: #9a978f; letter-spacing: .06em; margin-top: 4px; }
+  .b small { display: block; margin-top: 5px; font: 600 9.5px/1.1 var(--text); letter-spacing: .04em; opacity: .62; }
+  .knob .sub { font: 600 10px/1 var(--text); color: var(--dim); letter-spacing: .08em; margin-top: 4px; }
   .b.on { background: var(--lit); color: var(--lit-ink); box-shadow: 0 0 16px rgba(255, 230, 170, .45), 0 3px 0 #b9ad8f; }
   .b.down { transform: translateY(2px); box-shadow: 0 1px 0 #141415; }
   .b.rec { color: #ff5a4a; }
@@ -66,25 +63,61 @@
   .screenbox { position: absolute; left: 380px; top: 40px; width: 300px; height: 300px; background: #0a0a0a;
                border-radius: 18px; padding: 18px; box-shadow: inset 0 0 0 2px #262628; }
   #screen { width: 264px; height: 264px; display: block; image-rendering: pixelated; border-radius: 4px; background: #000; }
-  #device.shrunk #screen { image-rendering: auto; }   /* scaled down: smooth, or whole pixel rows go missing */
+  #scaler.shrunk #screen { image-rendering: auto; }   /* scaled down: smooth, or whole pixel rows go missing */
   .keys { position: absolute; left: 30px; top: 372px; width: 1140px; height: 300px; background: var(--well);
           border-radius: 24px; touch-action: none; }
   .key { position: absolute; width: 54px; height: 120px; border-radius: 27px; background: var(--key);
-         box-shadow: inset 0 0 0 2px #202022; cursor: pointer; }
+         box-shadow: inset 0 0 0 2px #24252a; cursor: pointer; }
   .key::after { content: ""; position: absolute; left: 50%; top: 18px; bottom: 18px; width: 5px; margin-left: -2.5px;
                 border-radius: 3px; background: var(--key-line); }
   .key.glow { box-shadow: inset 0 0 0 2px #6b261e; }
   .key.glow::after { background: #b8483a; }
   .key.lit::after, .key.down::after { background: var(--amber); box-shadow: 0 0 12px var(--amber); }
   .key.down { background: #1b1612; }
-  .help { max-width: 1140px; margin: 16px auto 6px; padding: 0 16px; color: #111; text-align: center; font-size: 14px; line-height: 2; }
-  .help kbd { display: inline-block; min-width: 20px; padding: 0 5px; border: 1px solid #333; border-radius: 3px;
-              background: #e4e2dd; font: 12px/18px ui-monospace, Menlo, monospace; text-align: center; }
-  .foot { text-align: center; color: #222; font-size: 13px; padding: 6px 16px 26px; max-width: 1132px; margin: 0 auto; }
-  .foot a { color: #111; }
+
+  /* the keyboard map under the keys, key for key (app.js buildMap: the keys' own positions) */
+  #map { position: relative; width: 1200px; height: 170px; }
+  .brk { position: absolute; top: 14px; border-top: 3px solid var(--c); padding-top: 7px; text-align: center;
+         font: 20px/1 var(--display); color: var(--c); letter-spacing: .05em; }
+  .brk::before, .brk::after { content: ""; position: absolute; top: -3px; width: 3px; height: 11px; background: var(--c); }
+  .brk::before { left: 0; } .brk::after { right: 0; }
+  .val { position: absolute; top: 66px; width: 68px; margin-left: -34px; text-align: center; font: 600 20px/1 var(--text);
+         font-variant-numeric: tabular-nums; }
+  .dots { position: absolute; top: 58px; width: 46px; margin-left: -23px; height: 28px; display: flex; flex-wrap: wrap;
+          justify-content: center; align-content: flex-end; gap: 3px; }
+  .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--ink); opacity: .85; }
+  .zone { position: absolute; top: 104px; border-top: 3px solid var(--dim); padding-top: 9px; }
+  .zone b { font: 400 22px/1.1 var(--display); letter-spacing: .06em; display: block; }
+  .zone span { color: var(--dim); font-size: 18px; }
+
+  .how { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-top: 18px; }
+  .step { border-left: 2px solid var(--line); padding: 2px 0 2px 14px; }
+  .step em { font: 400 14px var(--display); color: var(--red); font-style: normal; letter-spacing: .06em; }
+  .step p { margin: 3px 0 0; font-size: 14px; color: #d4d3ce; }
+  .help { margin-top: 18px; color: var(--dim); font-size: 13px; line-height: 2; }
+  .help kbd { display: inline-block; min-width: 20px; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px;
+              background: var(--body); color: var(--ink); font: 600 12px/18px var(--text); text-align: center; }
+
+  aside { background: #f1efe9; color: #1d1d20; border-radius: 16px; padding: 18px 22px; }
+  aside summary { font: 22px/1.1 var(--display); letter-spacing: .06em; cursor: pointer; list-style: none;
+                  display: flex; justify-content: space-between; }
+  aside summary::-webkit-details-marker { display: none; }
+  aside summary::after { content: "+"; color: var(--red); }
+  aside details[open] summary::after { content: "−"; }
+  aside dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 10px 0 0; font-size: 14px; line-height: 1.35; }
+  aside dt { font-weight: 700; white-space: nowrap; }
+  aside dd { margin: 0; color: #3c3c42; }
+  aside .sec { grid-column: 1 / -1; font: 600 11px var(--text); letter-spacing: .14em; color: #8a8780; text-transform: uppercase;
+               margin-top: 8px; border-top: 1px solid #dcd9d1; padding-top: 10px; }
+  aside p { font-size: 13px; color: #55555c; margin: 14px 0 0; }
+  aside a { color: #b8342a; }
+  .foot { color: var(--dim); font-size: 13px; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .foot a { color: var(--ink); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
+<div class="page">
 <div class="top">
   <h1>TEXTURA <span id="ver" class="ver">dev</span></h1>
   <button id="start">Start sound</button>
@@ -92,92 +125,67 @@
   <label>MIDI in <select id="midi"><option value="">none</option></select></label>
 </div>
 
-<div class="wrap">
-<div id="stage"><div id="device">
-  <!-- left: MASTER SELECT / PRESETS ALGORITHM / OCT- OCT+; centre: the screen; right: K1-K4, two rows of buttons;
-       below: the keys (app.js places the knobs, buttons and keys) -->
-  <div class="tray" style="left:52px; top:288px; width:292px; height:66px"></div>
-  <div class="screenbox"><canvas id="screen" width="240" height="240" aria-label="The screen"></canvas></div>
-  <div class="tray" style="left:700px; top:186px; width:462px; height:164px"></div>
-  <div id="ctrls"></div>
-  <div class="keys" id="kb" aria-label="Keyboard F3 to G5"></div>
-</div></div>
+<div class="main">
+<div>
+<div id="stage"><div id="rig"><div id="scaler">
+  <div id="device">
+    <!-- left: MASTER SELECT / PRESETS ALGORITHM / OCT- OCT+; centre: the screen; right: K1-K4, two rows of buttons;
+         below: the keys (app.js places the knobs, buttons and keys) -->
+    <div class="tray" style="left:52px; top:288px; width:292px; height:66px"></div>
+    <div class="screenbox"><canvas id="screen" width="240" height="240" aria-label="The screen"></canvas></div>
+    <div class="tray" style="left:700px; top:186px; width:462px; height:164px"></div>
+    <div id="ctrls"></div>
+    <div class="keys" id="kb" aria-label="Keyboard F3 to G5"></div>
+  </div>
+  <div id="map" aria-label="What the keys do: the black keys pick lanes 1 to 4, F3 to E4 set HOW MANY, F4 to G5 set HOW ACTIVE"></div>
+</div></div></div>
+
+<div class="how">
+  <div class="step"><em>1 · PICK A LANE</em><p>Tap a black key. Each group is one lane: 3 keys for lane 1, 2 for lane 2, 3 for lane 3, 2 for lane 4. Hold one for 0.6 s to mute that lane, again to unmute it.</p></div>
+  <div class="step"><em>2 · HOW MANY</em><p>The seven left white keys set how many sources play: off, 1, 2, 4, 10, 19 or 32.</p></div>
+  <div class="step"><em>3 · HOW ACTIVE</em><p>The nine right white keys set how often they sound, from rare to busy. Four lanes play at once.</p></div>
+  <div class="step"><em>PLAY MODE</em><p>SEL turns the keys into a pitched keyboard for the selected lane; OCT− and OCT+ then shift the octave.</p></div>
+</div>
+<div class="help">
+  Computer keys: <kbd>A</kbd>–<kbd>;</kbd> the keys F3–A4 · <kbd>Z</kbd> <kbd>X</kbd> lane / octave · <kbd>Space</kbd> all on / off ·
+  <kbd>←</kbd> <kbd>→</kbd> pages · <kbd>↑</kbd> <kbd>↓</kbd> landscapes · knobs: drag or wheel · MIDI notes: channel 1 the selected lane,
+  channels 1–4 lanes 1–4 (GLO: MIDI IN); CC and NRPN: lanes 1–4 on their channels, the effects on 5
+</div>
+</div>
 
 <aside><details id="guide" open>
   <summary>QUICK GUIDE</summary>
   <dl>
-    <dt>BLACK KEYS</dt><dd>by their groups (3, 2, 3, 2): lanes 1–4, shown on LANDSCAPE (F#5: nothing; a
-      lane's sound: SEQ, the sound browser); held 0.6 s: that lane muted, or unmuted (it plays on, so it
-      comes back at once; MUTED on its card; a scene keeps it)</dd>
-    <dt>F3–E4</dt><dd>how many: off, 1, 2, 4, 10, 19, 32</dd>
-    <dt>F4–G5</dt><dd>how active: rare .. busy (each key sounds the same more)</dd>
-    <dt>SEQ</dt><dd>SOUNDS: the sound browser for the selected lane, one list as the presets': each family's
-      header, then its sounds, opened on the lane's sound. ALGORITHM moves (past a family's last sound, the next
-      family's first; a playing lane plays the sound after 0.4 s, HEARING, the kept one marked), SELECT jumps family,
-      EDIT keeps the sound (the list stays), HOME or any other button closes with the kept sound back; SAVE held
-      undoes the last sound kept. Any sound on any lane, the same one on two lanes too</dd>
-    <dt>ALGORITHM</dt><dd>named on each page's footer with its value: home: picks a landscape (EDIT loads it); SOUND: opens the sound
-      browser; PERFORM: the reverb's type; COMPRESSOR: on / off; DRIVE: its type; FILTER: the slope; DELAY: freeze;
-      REVERB: its type; LFO: which LFO; MATRIX: which slot; GROOVE: the groove's type</dd>
-    <dt>KNOB 1–4</dt><dd>home: the volumes of lanes 1–4; the lane pages: lanes 1–4; other pages: the cards</dd>
-    <dt>SELECT</dt><dd>pages, first to last (no wrap), in the sound's order: after home the selected lane's SOUND (the source),
-      then the lane pages (the mixer), each the four lanes as rows: HOW MANY, HOW ACTIVE, PAN,
-      ON / MUTE</dd>
-    <dt>HOME</dt><dd>home (TEXTURA); again: back to the last page left (the footer names it); tapped twice quickly (within
-      0.3 s): PERFORM; held (0.6 s): the setup, MIDI CLOCK (GLO on: MIDI IN, DISPLAY)</dd>
-    <dt>EDIT</dt><dd>the selected lane's sound (again: its next page)</dd>
-    <dt>FX</dt><dd>held (0.6 s), from any page: PERFORM at once (HOME, HOME again: back to it). Tapped: PERFORM, the front page to play the effects live: HIGH PASS, LOW PASS, DELAY MIX, REVERB MIX; again: every page of the compressor,
-      the drive, the filter, the grain delay, the reverb, then round: the mix's chain, left to right in the order the
-      sound goes through it, as Frodhes (one of each on all the lanes together; the reverb takes what the grain delay
-      gives). FILTER: HIGH PASS (K1) into LOW PASS (K2): each a real filter
-      over its whole knob, 20 Hz .. 20 kHz, shown in Hz where it is -3 dB, OFF at its open end (HIGH PASS 0, LOW PASS 127); bring them
-      together for a band (a band-pass around them, RESONANCE makes it a peaky bell), cross them and it closes; RESONANCE
-      peaks both edges; SLOPE 12 / 18 / 24 dB (also ALGORITHM, in that order). GRAIN 2/4: MOD takes the delay from plain (0) to an evolving
-      cloud (the time drifts in a slow wow, each grain its own size, start, direction and place, more grains leave
-      unison for INTERVALS: octaves, 5th + octave, 4th + 5th, major, minor, all, or up, which climbs on the repeats);
-      MOD RATE how fast it moves, always at random; GRAIN the echo .. the grains. MIX (on every effect's card a bar, a line at 64): DRY (0, the
-      sound alone); up to 64 the effect comes in, the sound whole (the bar in the colour); 64 both whole ("50/50"); above it
-      the sound fades out (the bar on in the colour's complement); WET (127, the effect alone)</dd>
-    <dt>GLO</dt><dd>GROOVE, every groove control together on two pages: 1/2 TYPE, AMOUNT, SHIFT (ALGORITHM the TYPE too). The groove: the landscape's
-      small events lean toward one shared, slowly drifting pulse, felt rather than heard, never a beat: AMOUNT (35 by
-      default, light; 0: off), TYPE (polyrhythms first: 3:4, 3:4:5 ..., then swings, claves and other rhythms, then even
-      spreads E(k,n)), SHIFT. GLO again: GROOVE 2/2, each lane's role on its knob (FREE; AUTO, by its sound: "AUTO:
-      PULSE"; PULSE, OFFBEAT, FILL; or its own 2–9 pulses over the span, "5 PER 4 BEATS", a polyrhythm), with its pulse
-      drawn; a sound the groove leaves alone says "FLOWS FREE". Then TEMPO (BPM, FINE, TRANSPORT, STATUS), SCALE (as Frodhes': MODE
-      OFF, SNAP (a key out of the scale plays its nearest note) or DEGREE (the white keys walk the scale, the black ones
-      silent), SCALE, ROOT, TRANSP; the keys only, MIDI notes play as sent; in PLAY only the scale's keys light),
-      MIDI (clock in: AUTO follows a clock while one comes), MIDI IN (each lane's channel, notes and CCs, lane n on
-      channel n; ALGORITHM: SELECTED CH, the channel that plays the selected lane, 1; OFF: channel 1 is lane 1's), DISPLAY. Water, wind and the other flows stay free; insects, birds,
-      crackles and knocks lean the most. A scene keeps it</dd>
-    <dt>LFO</dt><dd>the 8 LFOs' pages; held while a card turns: that LFO onto the card (the turn its depth, back to 0
-      removes it; here: a click latches learn for 3 s, turn a knob; a second click: the LFO pages)</dd>
-    <dt>ARP</dt><dd>the mod matrix: 16 slots, source &gt; target, depth, spread (a modulated card shows ~ and its value
-      now)</dd>
-    <dt>OCT− OCT+</dt><dd>previous / next lane: SOUND stays on that page, other pages go to
-      LANDSCAPE (PLAY keys: octave)</dd>
-    <dt>SEL</dt><dd>keys: landscape / play (in play every key lit); held, the other mode while held: in play, SEL held
-      + a black key picks that lane (OCT: the next / previous one), the keys play it once SEL is let go</dd>
-    <dt>REC</dt><dd>all lanes and the transport stop / start (bar 1 there: the groove starts in phase); pressed again
-      within 1.5 s: taps, the tempo from the third (a series never leaves things stopped; no taps while a clock leads)</dd>
-    <dt>PLAY</dt><dd>tap tempo; held: start / stop</dd>
-    <dt>PRESETS</dt><dd>the presets list: the factory presets (F001–F100) under their families, then USER (your U01–U16), then LANDSCAPES (each landscape's own start, L01–L10: a starting point to
-      shape and save as your own), opened on the one loaded; PRESETS, ALGORITHM or K1 move the cursor (nothing plays until you choose), SELECT jumps a family, EDIT loads it (the list stays open), HOME closes it. FX there: LOAD OPTIONS, PRESETS CHANGE TEMPO (YES: a preset brings its tempo) and EFFECTS ON LOAD (SMART, the default: a preset brings its drive, filter, compressor, delay and reverb unless you turned one since, then yours stay, "FX: YOURS"; ALWAYS; NEVER; they glide, the tails ring on)</dd>
-    <dt>SAVE</dt><dd>save the scene: PRESETS or K1 picks U01–U16, SAVE again saves, HOME cancels; held: undo the last
-      load or the last sound kept (again: redo). Kept in this browser; MIDI program change picks one too (0–9, 16–31)</dd>
+    <div class="sec">Knobs</div>
+    <dt>KNOB 1–4</dt><dd>home: lane volumes · elsewhere: the 4 cards</dd>
+    <dt>MASTER</dt><dd>volume</dd>
+    <dt>SELECT</dt><dd>pages, in the order of the sound</dd>
+    <dt>PRESETS</dt><dd>the presets list</dd>
+    <dt>ALGORITHM</dt><dd>the page's choice, named in its footer</dd>
+    <dt>OCT− OCT+</dt><dd>previous / next lane (PLAY: octave)</dd>
+    <div class="sec">Buttons</div>
+    <dt>HOME</dt><dd>home · again: back · twice fast: PERFORM · hold: setup</dd>
+    <dt>SEQ</dt><dd>sound browser for the lane</dd>
+    <dt>EDIT</dt><dd>the lane's sound pages</dd>
+    <dt>FX</dt><dd>PERFORM, then each effect in order · hold: PERFORM</dd>
+    <dt>SEL</dt><dd>keys: landscape / play</dd>
+    <dt>ENV LFO</dt><dd>click, turn a card: learn · again: their pages</dd>
+    <dt>ARP</dt><dd>mod matrix</dd>
+    <dt>GLO</dt><dd>groove, tempo, scale, MIDI</dd>
+    <dt>SAVE</dt><dd>save a scene · hold: undo</dd>
+    <dt>PLAY</dt><dd>tap tempo · hold: start / stop</dd>
+    <dt>REC</dt><dd>all lanes on / off</dd>
   </dl>
-  <p>Four lanes play at once; the keys' lights blink with each lane's activity.</p>
+  <p>Press a button again on its page for its second job. <a href="https://github.com/leonardoMirabal/textura/blob/main/docs/MANUAL.md">Full manual</a></p>
 </details></aside>
 </div>
 
-<div class="help">
-  Computer keys: <kbd>A</kbd>–<kbd>;</kbd> the keys F3–A4 · <kbd>Z</kbd> <kbd>X</kbd> lane / octave · <kbd>Space</kbd> all on / off ·
-  <kbd>←</kbd> <kbd>→</kbd> pages · <kbd>↑</kbd> <kbd>↓</kbd> landscapes · knobs: drag or wheel · MIDI notes: channel 1 the selected lane, channels 1–4 lanes 1–4 (GLO: MIDI IN); CC and NRPN: lanes 1–4 on their channels, the effects on 5
-</div>
 <div class="foot">
   Textura <span id="ver-foot">dev</span> ·
   Physically modelled textures, computed, never sampled: the same firmware code, compiled to WebAssembly · GPL-3.0 ·
-  built on Dinghy, Felucca and Frodhes · DotGothic16 and Inter Tight fonts, SIL OFL 1.1
+  based on Frodhes, built on Dinghy and Felucca · DotGothic16 and Inter Tight fonts, SIL OFL 1.1
   <br>An independent open-source project, not affiliated with or endorsed by any instrument maker. No warranty.
+</div>
 </div>
 <script src="version.js"></script>
 <script src="app.js"></script>

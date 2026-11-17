@@ -5,7 +5,7 @@ on-screen keys reach the firmware and its key LEDs come back (a black key select
 held it mutes the lane; a white key starts it), the knobs send one detent per distance of the hand (wheel 50 px, drag 10 px; at most 2 a frame, 12 queued: from Frodhes'
 tests/py/test_web_knobs.py), HOME goes home and back, EDIT to SOUND, FX through PERFORM / COMPRESSOR / DRIVE / FILTER / DELAY / REVERB, GLO through GROOVE /
 TEMPO / SCALE / MIDI, FX held to PERFORM, LFO to
-LFO, ARP to MATRIX (the captions follow), SAVE saves a scene that a reload brings back, and the page fits a phone (390 px, no sideways scroll). Screenshots at desktop and phone width.
+LFO, ARP to MATRIX (the captions follow), SAVE saves a scene that a reload brings back, and the page fits a phone (390 px, no sideways scroll). The keyboard map lines up with the keys and the quick guide is short. Screenshots at desktop and phone width.
 
     make fw-web-check     (PLAYWRIGHT_BROWSERS_PATH=.local/playwright .local/venv/bin/python tests/web_check.py)
 Outputs in build/web-check/. Exit 1 on any failure. The sound itself is not judged here (no ears)."""
@@ -81,6 +81,24 @@ def main():
         pg.wait_for_timeout(2200)                      # the splash (1.6 s), then the page
         check(pg.evaluate(PAGE) == "LANDSCAPE", "the firmware shows the LANDSCAPE page")
         check(pg.evaluate(LIT) > 3000, f"the screen is drawn ({pg.evaluate(LIT)} px lit)")
+        # the keyboard map under the keys, key for key: LANE 1 over the first black group (F#3 .. A#3), LANE 4 over C#5
+        # .. D#5, the HOW MANY values under F3 .. E4; the quick guide short, ending on the full manual
+        MAPX = """() => { const r = e => e.getBoundingClientRect(), k = n => r(document.querySelector(`#kb > .key[data-k="${n}"]`));
+          const br = [...document.querySelectorAll('#map .brk')].map(e => [e.textContent, r(e).left, r(e).right]);
+          const v = [...document.querySelectorAll('#map .val')].map(e => [e.textContent, (r(e).left + r(e).right) / 2]);
+          return { br, v, k1: k(1).left, k5: k(5).right, k20: k(20).left, k22: k(22).right, w0: (k(0).left + k(0).right) / 2,
+                   w9: (k(9).left + k(9).right) / 2 }; }"""
+        mx = pg.evaluate(MAPX)
+        near = lambda a, b: abs(a - b) < 3
+        check([b[0] for b in mx["br"]] == ["LANE 1", "LANE 2", "LANE 3", "LANE 4", "—"], f"the map: lanes 1-4 and F#5's dash ({[b[0] for b in mx['br']]})")
+        check(near(mx["br"][0][1], mx["k1"]) and near(mx["br"][0][2], mx["k5"]) and near(mx["br"][3][1], mx["k20"])
+              and near(mx["br"][3][2], mx["k22"]), "the map: LANE 1 and LANE 4 span their black keys")
+        check([x[0] for x in mx["v"]] == ["OFF", "1", "2", "4", "10", "19", "32"] and near(mx["v"][0][1], mx["w0"])
+              and near(mx["v"][5][1], mx["w9"]), "the map: HOW MANY under F3 .. E4, key for key")
+        dts = pg.locator("#guide dt").all_inner_texts()
+        check(len(dts) <= 20 and "HOME" in dts and "KNOB 1–4" in dts, f"the quick guide: one line per control ({len(dts)})")
+        check(pg.locator("#guide a", has_text="Full manual").get_attribute("href").endswith("docs/MANUAL.md"),
+              "the quick guide links the full manual")
         pg.click("#start")
         pg.wait_for_timeout(300)
         # a black key (C#5, key 20: the 4th group) selects lane 4, LANDSCAPE stays; a white key (D4, key 9: HOW MANY 16)
@@ -288,7 +306,7 @@ def main():
         sw = ph.evaluate("document.documentElement.scrollWidth")
         check(sw <= 390, f"phone: no sideways scroll ({sw} px wide)")
         box = ph.locator("#stage").bounding_box()
-        check(box is not None and box["x"] >= 0 and box["x"] + box["width"] <= 390, "phone: the panel fits the width")
+        check(box is not None and box["x"] >= 0 and box["x"] + box["width"] <= 390, "phone: the panel's box fits the width (it scrolls inside)")
         ph.screenshot(path=os.path.join(OUT, "phone.png"), full_page=True)
         check(not perr, "phone: no JavaScript errors")
         b.close()

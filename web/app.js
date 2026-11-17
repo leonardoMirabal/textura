@@ -220,18 +220,15 @@ function buildPanel() {
   c.appendChild(button("OCT+", BTN["OCT+"], 216, 299, "oct"));
   ROWS.forEach((row, r) => row.forEach((n, i) => c.appendChild(button(n, BTN[n], 712 + i * 76, 198 + r * 76, n === "REC" ? "rec" : ""))));
 }
-function fit() {                                     // as big as the window allows: its width (beside the guide) and height
-  const st = $("stage"), d = $("device"), g = document.querySelector("aside"), narrow = innerWidth <= 760;
-  const top = st.getBoundingClientRect().top + scrollY, room = innerHeight - top - 70;
-  const zg = narrow ? 1 : Math.max(1, Math.min(1.5, innerHeight / 760, innerWidth / 1200));   // the guide's text grows with the window
-  if (g) g.style.setProperty("--z", zg);
-  const w = narrow ? innerWidth - 32 : innerWidth - 32 - 22 - 250 * zg - 32;
-  const s = Math.max(0.2, Math.min(w / 1200, narrow ? 9 : room / 700, 1.6));
-  d.style.transform = `scale(${s})`;
-  d.classList.toggle("shrunk", s < 0.999);
-  st.style.width = 1200 * s + "px";
-  st.style.height = 700 * s + "px";
-  d.style.marginLeft = "0px";
+const MAP_H = 170;                                    // the keyboard map under the device (#map)
+function fit() {                                     // the device and its map scaled to the column; never under FIT_MIN:
+  const st = $("stage"), sc = $("scaler");           // narrower, it scrolls sideways in its own box
+  const FIT_MIN = 0.55, h = 700 + MAP_H;
+  const s = Math.max(FIT_MIN, Math.min(1, st.clientWidth / 1200));
+  sc.style.transform = `scale(${s})`;
+  sc.classList.toggle("shrunk", s < 0.999);
+  $("rig").style.width = 1200 * s + "px";
+  $("rig").style.height = h * s + "px";
 }
 addEventListener("resize", fit);
 
@@ -249,6 +246,32 @@ function buildKeys() {                               // 16 white keys below, the
     d.addEventListener("pointercancel", () => press(k, false));
     kb.appendChild(d);
   }
+}
+// the keyboard map under the keys, at the keys' own x (device coordinates, as buildKeys): the black keys' groups are
+// lanes 1-4 (F#5: none), the white keys F3-E4 HOW MANY (landscapes.h LS_COUNT_N), F4-G5 HOW ACTIVE (rare .. busy)
+function buildMap() {
+  const map = $("map"), whites = [], blacks = [];
+  const black = s => [1, 3, 6, 8, 10].includes((5 + s) % 12);
+  for (let k = 0; k < NKEYS; k++) if (!black(k)) whites.push(k);
+  for (let k = 0; k < NKEYS; k++) if (black(k)) blacks.push(whites.indexOf(k - 1));
+  const step = (1140 - 40) / whites.length, X0 = 30 + 20;
+  const wx = i => X0 + i * step + step / 2, bx = w => X0 + (w + 1) * step;   // a key's centre
+  const add = (cls, html, css) => { const d = document.createElement("div"); d.className = cls; d.innerHTML = html; Object.assign(d.style, css); map.appendChild(d); };
+  const GROUPS = [[0, 3, "var(--l1)", "LANE 1"], [3, 5, "var(--l2)", "LANE 2"], [5, 8, "var(--l3)", "LANE 3"],
+                  [8, 10, "var(--l4)", "LANE 4"], [10, 11, "#6b6b72", "—"]];         // [first, end) of the black keys
+  for (const [a, e, c, t] of GROUPS) {
+    const l = bx(blacks[a]) - 27, r = bx(blacks[e - 1]) + 27;
+    add("brk", t, { left: l + "px", width: r - l + "px" });
+    map.lastChild.style.setProperty("--c", c);
+  }
+  const MANY = ["OFF", "1", "2", "4", "10", "19", "32"], DOTS = [1, 2, 3, 5, 7, 9, 12, 15, 20];
+  whites.forEach((k, i) => {
+    if (i < MANY.length) add("val", MANY[i], { left: wx(i) + "px" });
+    else add("dots", "<i></i>".repeat(DOTS[i - MANY.length]), { left: wx(i) + "px" });
+  });
+  const z = (a, b) => ({ left: wx(a) - step / 2 + 6 + "px", width: (b - a + 1) * step - 12 + "px" });
+  add("zone", "<b>HOW MANY</b><span>F3–E4 · how many sources the lane plays</span>", z(0, MANY.length - 1));
+  add("zone", "<b>HOW ACTIVE</b><span>F4–G5 · from rare events to a busy cloud</span>", z(MANY.length, whites.length - 1));
 }
 function press(k, down) {
   if (!M) return;
@@ -307,6 +330,7 @@ async function setupMidi() {
 
 buildPanel();
 buildKeys();
+buildMap();
 fit();
 if (innerWidth <= 760) $("guide").open = false;            // phones: the guide folded, one tap opens it
 setupMidi();
