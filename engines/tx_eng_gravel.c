@@ -2,10 +2,9 @@
 /* Textura #13 Small stones / gravel: a handful of stones shaken, or gravel under a step.
  *
  * PhISEM (SHAKER core, the STK port): grains are too small to ring in the audio band, so each collision is a click
- * filtered by one resonance whose frequency and width come from the grain size ( measured two gravels by
+ * filtered by one resonance whose frequency and width come from the grain size (two gravels measured by
  * LPC: 1.5 cm -> 6460 Hz, r 0.932; 0.3 cm -> 12670 Hz, r 0.843). Between them, and beyond: f = 6460 Hz x
- * (d / 15 mm)^-0.418 (the power law through Cook's two points; G12's rigid-body law would be d^-1, see the note's
- * open question 3) and r linear in log d. A shake = shake energy decaying at SHAKE; collisions at N / 1024 per
+ * (d / 15 mm)^-0.418 (the power law through the two points; a rigid-body law would be d^-1) and r linear in log d. A shake = shake energy decaying at SHAKE; collisions at N / 1024 per
  * sample; each collision bumps a sound level (decay 0.98 per sample, STK rocks) and re-tunes the resonance by
  * +-SPREAD (STK varyFactor 0.11-0.18). STK's rocks equaliser 1, 0, -1.
  *
