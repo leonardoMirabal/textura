@@ -11,7 +11,7 @@
  *   bands    the denser rest (above the last exact mode) as 17 band energies, W_b = energy per Hz x bandwidth.
  *   strike   a mallet contact t_c (0.3 .. 6 ms, MALLET): energy spectrum flat up to f_c = 1 / (2 t_c), then -12 dB / oct
  *            (ours); the energy per Hz ~ v^2 x plate mobility (1 / (rho h kappa) ~ 1 / h^2: we use 1 / h, ours).
- *   damping  D18 (0.5 mm): xi omega = 8e-3 omega^0.6 per mode and band, plus a hand on the sheet (DAMP).
+ *   damping  the plate law (0.5 mm): xi omega = 8e-3 omega^0.6 per mode and band, plus a hand on the sheet (DAMP).
  *   crash    wave turbulence (D22, D24): above a chaos threshold the exact modes lose energy into their bands (D22's
  *            injection kappa from the modes) and the bands diffuse it up the spectrum, faster the more energy there
  *            is: a hard hit builds a bright crash over 0.15-0.5 s, a soft one stays a linear plate. Geometric
