@@ -595,6 +595,13 @@ header shows the slot and its route ("SLOT 1 LFO 1 > FLT LOW ..."); a bar in the
 
 Types, FREEZE, SYNC, SHIFT and the like cannot be targets.
 
+**Learning the MOD CC.** The CC source follows one controller, the MOD CC (CC 2 at first). To pick another, show a
+slot whose SOURCE is CC on this page (turn K1 to CC, or pick such a slot with ALGORITHM): the footer says
+**SEND A CC: MOD CC**. Move the knob or fader on your controller: the first CC that Textura does not already use on that channel
+(see the MIDI chapter's tables; CC 1 is the MOD WHEEL, and CC 120 and above are never learned) becomes the MOD CC. The screen says "MOD CC 11", the
+SOURCE card shows "CC 11", and every slot with the CC source follows it. The learn then stops; to learn again, pick
+another slot and come back, or turn SOURCE away from CC and back. A preset keeps its MOD CC.
+
 ### GROOVE and GROOVE LANES
 
 ![GROOVE: TYPE, AMOUNT, SHIFT](manual/img/groove.png)
@@ -1838,7 +1845,7 @@ Textura is a class-compliant USB-MIDI device and also listens to the FM-1's **TR
 
 Set the channels on the [MIDI IN](#midi-in) page. MIDI notes play as sent: SCALE's MODE and TRANSP act on the FM-1's
 own keys only. A note's velocity is the VELOCITY source of the matrix; CC 1 is the MOD WHEEL source; channel and
-polyphonic aftertouch are the AFTERTCH source; the MOD CC (CC 2 at first) is the CC source.
+polyphonic aftertouch are the AFTERTCH source; the MOD CC (CC 2 at first; learned on the MOD MATRIX page) is the CC source.
 
 ### Program change
 

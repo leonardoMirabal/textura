@@ -1,0 +1,26 @@
+# MOD CC's learn: on MATRIX, a slot whose SOURCE is CC listens; the next CC no card takes becomes the MOD CC (the
+# SOURCE card shows it, the footer says so), then the learn stops until the slot is come to again (the page, the slot,
+# the SOURCE turned onto CC)
+1700 btn 10
+1720 expect state page MATRIX
+# K1: SOURCE down to NONE, then up to CC (NONE, LFO 1..8, VELOCITY, MOD WHEEL, AFTERTCH, CC)
+1750 turn 2 -40
+1800 turn 2 12
+1820 expect state card0 CC_2
+# CC 11 (no card's) on channel 1: learned
+1900 midi 0xB0 11 100
+1950 expect state card0 CC_11
+1950 expect state msg MOD_CC_11
+1950 expect state edited 1
+# learned once: CC 12 does not take it
+2000 midi 0xB0 12 100
+2050 expect state card0 CC_11
+# a card's CC (CC 7, lane 1's LEVEL) is never learned; the slot away and back: listening again, CC 13 learned
+2100 turn 1 1
+2150 turn 1 -1
+2200 midi 0xB0 7 90
+2250 expect state card0 CC_11
+2300 midi 0xB0 13 64
+2350 expect state card0 CC_13
+2350 expect state p740 13
+2400 end

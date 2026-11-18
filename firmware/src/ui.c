@@ -1425,6 +1425,20 @@ static void ui_draw(void)
         if (acc != pal[3]) { if (acc) ui_all(); acc = pal[3]; }
     }
     if (ui_sub >= ui_nsub(ui_g)) ui_sub = (uint8_t)(ui_nsub(ui_g) - 1u);   /* (a sound with fewer cards) */
+    {   /* MOD CC's learn: armed while MATRIX shows a slot whose SOURCE is CC (on coming to it: the page, the slot, the
+         * SOURCE turned onto CC), until a CC no card takes arrives (mod_cc_in: it becomes the MOD CC) */
+        static uint8_t arm;
+        uint32_t a = ui_g == G_MATRIX && mslot[ui_slot].src == MS_CC ? ui_slot + 1u : 0u;
+        if (a != arm) { arm = (uint8_t)a; mod_cc_learn = a != 0u; ui_mark(E_FOOTER); }
+        if (mod_cc_learned) {                   /* learned: kept as the panel's own change (the scene's "*", the web) */
+            uint32_t id = PID(P_MAT, MQ_CC);
+            scn_touch_id(id);
+            p_set(id, (int32_t)mod_cc_learned - 1);
+            ui_say_n("MOD CC", (int32_t)mod_cc_learned - 1);
+            mod_cc_learned = 0;
+            ui_all();
+        }
+    }
     if (p_touched) { ui_hot_id(p_touched - 1u); p_touched = 0; }          /* MIDI turned a card on this page */
     if (fm1_ms - ui_sig_t >= UI_SIG_MS) {       /* what changed */
         ui_sig_t = fm1_ms;
