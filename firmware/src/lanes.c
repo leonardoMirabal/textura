@@ -33,7 +33,14 @@
 
 #define LN_N TX_MIX_SLOTS                       /* lanes */
 #define LN_QN 128u                              /* queued events (a power of two) */
+#ifdef LN_HQ
+/* LN_HQ: a desktop (the plugin, plugin/src/engine_unit.c, and the host build it is checked against): no CPU limit, so
+ * nothing is thinned: the governor's pool has no end (it never takes a hero) and the grain delay plays every grain
+ * (tx_fx_gd_cap's model with fx.two: no cap), as the audition player does (audition/tx_web.c) */
+#define LN_GOV_POOL_US 1000000000u
+#else
 #define LN_GOV_POOL_US TX_GOV_POOL_DEVICE       /* the sources' CPU pool on the FM-1 (CLAUDE.md: ~2500 us a block) */
+#endif
 /* The governor's costs, FM-1 us a block, from the app:
  *   LN_CLOCK(), LN_CLOCK_US(d)   the device: its free-running clock (wrapping) and a difference of it in us; each
  *                                lane's block is timed (its generator and engine) and so
@@ -225,6 +232,9 @@ static void ln_init(void)
     for (i = 0; i < sizeof ln; i++) b[i] = 0;
     tx_mix_init(&ln.mix);
     tx_fx_init(&ln.fx);
+#ifdef LN_HQ
+    ln.fx.two = 1;                              /* (every grain: no CPU limit) */
+#endif
 #ifdef LN_PAR
     ln.fx.rev.body_run = ln_rev_run; ln.fx.rev.body_wait = ln_rev_wait;
     ln.fx.rev.par.run = ln_krun; ln.fx.rev.par.wait = ln_rev_wait;   /* (and the mix's DRIVE: R there) */

@@ -511,10 +511,11 @@ static void p_set(uint32_t id, int32_t v)
     if (i == PL_GPART || i == PL_GCYC) { gr_set[i - PL_GPART][s] = (uint8_t)v; return; }
     if (i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX) { p_card_set(s, i - PL_CARD0, (uint32_t)v); return; }
 }
-/* a value as the screen writes it, and its unit apart (0: none) */
-static const char *p_text(uint32_t id, char *t)
+/* a value as the screen writes it, and its unit apart (0: none); p_text_v: the text of value v (the desktop plugin's
+ * host view, plugin/src/slot_bridge.h: there only for the formats whose text is v's alone, not the lane's sound, the
+ * grain's synced TIME, the tempo's STATUS or the modulation's, which read what plays) */
+static const char *p_text_v(uint32_t id, int32_t v, char *t)
 {
-    int32_t v = p_get(id);
     uint32_t f = p_fmt(id);
     t[0] = 0;
     if (P_MODS(P_SCOPE(id))) return mod_text(id, t);
@@ -585,6 +586,7 @@ static const char *p_text(uint32_t id, char *t)
     p_fmt_int(t, v);
     return 0;
 }
+static const char *p_text(uint32_t id, char *t) { return p_text_v(id, p_get(id), t); }
 /* a card's look: an amount (a fill), a choice (n options: segments), a toggle (ON / OFF) */
 enum { PK_AMOUNT, PK_SELECT, PK_TOGGLE };
 static uint32_t p_kind(uint32_t id)

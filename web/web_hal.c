@@ -138,11 +138,18 @@ static void app_main(void);
 
 static void platform_poll(void)
 {
+#ifdef DINGHY_PLUGIN
+    /* the desktop plugin (plugin/src/slot_bridge.h): the clock is the slot's own milliseconds, the one the next pass
+     * runs in (as tests/host.c: its pass after millisecond k sees fm1_ms = k, the first one too) */
+    fm1_ms = (uint32_t)emscripten_get_now();
+    emscripten_sleep(1);
+#else
     static double t0;
     double now = emscripten_get_now();
     if (t0 == 0.0) t0 = now;
     fm1_ms = (uint32_t)(now - t0);
     emscripten_sleep(1);                       /* the browser's turn: input, the screen, the audio callback */
+#endif
 }
 
 /* ---- the page's side */
