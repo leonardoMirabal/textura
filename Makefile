@@ -445,7 +445,7 @@ PLUGIN_NICE  ?= nice -n 15
 plugin-deps:               ## the pinned plugin dependencies (plugin/deps.lock) into .local/plugin-deps
 	sh tools/plugin_deps.sh
 
-plugin:                    ## build/plugin/bundles/Textura.{clap,vst3,component} (macOS: arm64; PLUGIN_ARCH="arm64;x86_64")
+plugin:                    ## build/plugin/bundles/Textura.{clap,vst3,component} (macOS: universal; PLUGIN_ARCH=arm64)
 	@test -d .local/plugin-deps/clap || sh tools/plugin_deps.sh --libs
 	@test -f $(PLUGIN_BUILD)/CMakeCache.txt || $(PLUGIN_NICE) cmake -S plugin -B $(PLUGIN_BUILD) \
 	  $(if $(shell command -v ninja),-G Ninja,) -DTXP_VERSION=$(or $(PLUGIN_VER),0.0.0-dev) \

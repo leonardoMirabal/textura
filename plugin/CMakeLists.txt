@@ -11,7 +11,7 @@
 cmake_minimum_required(VERSION 3.21)
 if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "the oldest macOS the plugin runs on")
-    set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "arm64 by default (\"arm64;x86_64\": universal)")
+    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "universal by default (make plugin PLUGIN_ARCH=arm64: faster to build)")
 endif()
 project(textura_plugin LANGUAGES C CXX)
 if(NOT WIN32)
