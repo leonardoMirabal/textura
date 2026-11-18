@@ -26,6 +26,9 @@
 2830 turn 4 2
 2850 expect state act2 3
 2850 expect state act1 3
+# (the card shows the step as the keys give it, 1 .. 9: "3", not "3/8")
+2850 expect state card2 3
+2850 expect state card1 3
 # PAN: K4 to the right by 10, lane 4 only
 2900 turn 0 1
 2920 expect state page LANES_3/4

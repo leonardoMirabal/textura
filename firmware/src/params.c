@@ -527,7 +527,8 @@ static const char *p_text(uint32_t id, char *t)
     case F_ONOFF: p_strcpy(t, v ? "ON" : "OFF", 4); return 0;
     case F_SOUND: p_upper(t, sc_sound_name(P_SCOPE(id)), 22); return 0;
     case F_COUNT: if (!v) p_strcpy(t, "OFF", 4); else p_fmt_int(t, LS_COUNT_N[v < LS_NCNT ? v : LS_NCNT - 1]); return 0;   /* (the count the key gives) */
-    case F_ACTIVE: if (!v) p_strcpy(t, "OFF", 4); else { p_fmt_int(t, v); p_cat(t, "/8", 15); } return 0;
+    case F_ACTIVE: if (!v) p_strcpy(t, "OFF", 4); else p_fmt_int(t, v); return 0;   /* (the step the keys give, 1 .. 9:
+                                                 * F4 rare .. G5 busy) */
     case F_PAN:
         if (v == 64) { p_strcpy(t, "C", 2); return 0; }
         t[0] = v < 64 ? 'L' : 'R'; p_fmt_int(t + 1, v < 64 ? 64 - v : v - 64); return 0;

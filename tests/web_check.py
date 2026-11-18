@@ -96,6 +96,8 @@ def main():
               and near(mx["br"][3][2], mx["k22"]), "the map: LANE 1 and LANE 4 span their black keys")
         check([x[0] for x in mx["v"]] == ["OFF", "1", "2", "4", "10", "19", "32"] and near(mx["v"][0][1], mx["w0"])
               and near(mx["v"][5][1], mx["w9"]), "the map: HOW MANY under F3 .. E4, key for key")
+        za = [t for t in pg.locator("#map .zone").all_inner_texts() if "HOW ACTIVE" in t]
+        check(len(za) == 1 and "(1)" in za[0] and "(9)" in za[0], f"the map: HOW ACTIVE 1 .. 9, as its card shows it ({za})")
         dts = pg.locator("#guide dt").all_inner_texts()
         check(len(dts) <= 20 and "HOME" in dts and "KNOB 1–4" in dts, f"the quick guide: one line per control ({len(dts)})")
         check(pg.locator("#guide a", has_text="Full manual").get_attribute("href").endswith("docs/MANUAL.md"),

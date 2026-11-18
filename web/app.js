@@ -271,7 +271,7 @@ function buildMap() {
   });
   const z = (a, b) => ({ left: wx(a) - step / 2 + 6 + "px", width: (b - a + 1) * step - 12 + "px" });
   add("zone", "<b>HOW MANY</b><span>F3–E4 · how many sources the lane plays</span>", z(0, MANY.length - 1));
-  add("zone", "<b>HOW ACTIVE</b><span>F4–G5 · from rare events to a busy cloud</span>", z(MANY.length, whites.length - 1));
+  add("zone", "<b>HOW ACTIVE</b><span>F4–G5 · from rare events (1) to a busy cloud (9)</span>", z(MANY.length, whites.length - 1));
 }
 function press(k, down) {
   if (!M) return;

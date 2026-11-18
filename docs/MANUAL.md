@@ -114,7 +114,7 @@ ready on the lanes: rain on water, lake lapping, water drops and cave drips.
 1. **Press REC.** All lanes start. Press REC again to stop them all.
 2. **Pick a lane**: tap a black key. The black keys come in groups of 3, 2, 3 and 2: each group is one lane.
 3. **How many**: the seven left white keys (F3 to E4) set how many sources the lane plays: off, 1, 2, 4, 10, 19 or 32.
-4. **How active**: the nine right white keys (F4 to G5) set how often they sound, from rare events to a busy cloud.
+4. **How active**: the nine right white keys (F4 to G5) set how often they sound, from rare events to a busy cloud (1 to 9).
 5. **MASTER** sets the volume of the headphone jack and of the USB audio.
 
 That is all you need to play. Turn **K1 to K4** on the home page for the four lanes' volumes.
@@ -251,7 +251,7 @@ In LANDSCAPE mode:
 | **Black keys**, in groups of 3, 2, 3, 2 | Each group selects one lane, 1 to 4, and shows the home page. The last black key (F#5) does nothing. |
 | A black key **held** for 0.6 s | Mutes that lane, or unmutes it. A muted lane keeps playing silently, so it comes back at once. Its card says MUTED. A preset keeps the mute. |
 | **F3 to E4** (the 7 left white keys) | HOW MANY on the selected lane: off, 1, 2, 4, 10, 19, 32 |
-| **F4 to G5** (the 9 right white keys) | HOW ACTIVE on the selected lane: rare to busy |
+| **F4 to G5** (the 9 right white keys) | HOW ACTIVE on the selected lane: rare to busy (1 to 9 on its card) |
 
 The key lights tell you what plays. A lane's black keys blink with its activity while it plays (slow for rare, fast
 for busy), glow steadily while it plays muted, and glow when it is selected but stopped. The white keys show the
@@ -365,7 +365,7 @@ the lane and its sound. SELECT walks through them.
 | Page | Range | What it does |
 | --- | --- | --- |
 | **HOW MANY** | OFF, 1, 2, 4, 10, 19, 32 | How many sources the lane plays (the left white keys) |
-| **HOW ACTIVE** | OFF, then nine steps (shown 1/8 and up) | How often they sound, rare to busy (the right white keys) |
+| **HOW ACTIVE** | OFF, 1 .. 9 | How often they sound, 1 rare to 9 busy: the step the right white keys give (F4 is 1, G5 is 9) |
 | **PAN** | L64 .. C .. R63 | Where the lane sits, left to right |
 | **ON / MUTE** | ON / MUTED | Turn up: on. Turn down: muted (as holding the lane's black key) |
 
