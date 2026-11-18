@@ -7,6 +7,8 @@ No samples. Every drop, crackle, grain and chirp is calculated as it sounds, fro
 hits water and rings a bubble, a log splits and spits, a pebble knocks and rolls. Each sound plays as a cloud of
 these small events from the FM-1's keys: say how many and how busy, and the cloud never repeats itself.
 
+Textura is free. If you enjoy it, you can [buy me a coffee](https://ko-fi.com/leomirabal).
+
 <p align="center">
   <img src="docs/img/device.png" width="100%" alt="Textura on the FM-1: the TEXTURA home page on the screen, and under the keys what they do: the black-key groups pick lanes 1 to 4, F3 to E4 set HOW MANY, F4 to G5 set HOW ACTIVE">
 </p>
@@ -171,6 +173,8 @@ screen's small text) and DotGothic16 (the web page's labels).
 ## Support
 
 Questions, bugs or ideas: [GitHub issues](https://github.com/leonardoMirabal/textura/issues).
+
+Textura is free. If you enjoy it, you can [buy me a coffee](https://ko-fi.com/leomirabal).
 
 ## License and disclaimer
 
