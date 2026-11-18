@@ -1,1 +1,1 @@
-window.TEXTURA_VERSION = "0.2.8";
+window.TEXTURA_VERSION = "0.2.9";
