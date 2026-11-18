@@ -65,8 +65,9 @@
 #   make fw-web        the firmware in a web browser -> build/web/ (web/build.sh, Emscripten from .local/emsdk;
 #                      REL=X.Y.Z stamps a version); make fw-web-serve serves it at http://localhost:8001
 #   make fw-web-check  the web panel in headless Chromium at desktop and phone width (tests/web_check.py)
-#   make docs-img      the README's pictures from the built emulator: docs/img/device.png, logo.png, splash.png
-#                      (tools/emu_shots.py, headless Chromium)
+#   make docs-img      the pictures from the built emulator: the README's (docs/img/device.png, logo.png,
+#                      splash.png) and the manual's page and sound shots (docs/manual/img/*.png, 480 x 480)
+#                      (tools/emu_shots.py, headless Chromium; --readme or --manual for one set)
 #   make fw-landscapes write firmware/src/landscapes.h again from audition/app.js (after a change to FAMILIES / QUICK)
 #   make fw-presets    write firmware/src/presets.h and tests/scripts/presets.txt again from firmware/presets.txt
 #                      (the factory presets; tools/pr_level.py measures their lanes and sets the levels there)
