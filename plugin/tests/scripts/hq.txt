@@ -1,0 +1,28 @@
+# the plugin's HQ (tools/plugin_gate.py, on the host build with LN_HQ): a heavy 4-lane scene (F034 WATERFALL, every
+# lane at HOW MANY and HOW ACTIVE 127, the grain delay at all its grains with feedback, the reverb up, a note on
+# each lane): the CPU governor's pool has no end and it never cuts a lane's heroes. (The build without LN_HQ fails
+# the first expect: its pool is the FM-1's 2500 us.)
+500 midi 0xC0 33 0
+3000 midi 0xB0 21 127
+3000 midi 0xB0 22 127
+3000 midi 0xB1 21 127
+3000 midi 0xB1 22 127
+3000 midi 0xB2 21 127
+3000 midi 0xB2 22 127
+3000 midi 0xB3 21 127
+3000 midi 0xB3 22 127
+3100 midi 0xB4 102 90
+3100 midi 0xB4 105 127
+3100 midi 0xB4 104 90
+3100 midi 0xB4 91 100
+3100 midi 0xB4 86 110
+4000 midi 0x90 48 110
+4300 midi 0x91 53 110
+4600 midi 0x92 58 110
+4900 midi 0x93 63 110
+8000 expect state govpool 1000000000
+8000 expect state govcut 0
+12000 expect state govcut 0
+16000 expect state govcut 0
+16000 expect state dropped 0
+16100 end

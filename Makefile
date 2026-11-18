@@ -435,3 +435,24 @@ tx-size:
 
 tx-clean:
 	rm -rf build/bench build/wav build/calib build/arm build/size build/audition build/audition-check build/fw build/web build/web-check
+
+# ---- the desktop plugin (CLAP, VST3, Audio Unit v2; docs/PLUGIN.md): plugin/ ----
+# Light by default: nice -n 15 and 2 jobs (PLUGIN_J). The bundles land in build/plugin/bundles; nothing is installed.
+PLUGIN_J     ?= 2
+PLUGIN_BUILD ?= build/plugin
+PLUGIN_NICE  ?= nice -n 15
+.PHONY: plugin-deps plugin test-plugin
+plugin-deps:               ## the pinned plugin dependencies (plugin/deps.lock) into .local/plugin-deps
+	sh tools/plugin_deps.sh
+
+plugin:                    ## build/plugin/bundles/Textura.{clap,vst3,component} (macOS: arm64; PLUGIN_ARCH="arm64;x86_64")
+	@test -d .local/plugin-deps/clap || sh tools/plugin_deps.sh --libs
+	@test -f $(PLUGIN_BUILD)/CMakeCache.txt || $(PLUGIN_NICE) cmake -S plugin -B $(PLUGIN_BUILD) \
+	  $(if $(shell command -v ninja),-G Ninja,) -DTXP_VERSION=$(or $(PLUGIN_VER),0.0.0-dev) \
+	  $(if $(PLUGIN_ARCH),"-DCMAKE_OSX_ARCHITECTURES=$(PLUGIN_ARCH)",)
+	$(PLUGIN_NICE) cmake --build $(PLUGIN_BUILD) -j$(PLUGIN_J)
+
+test-plugin: plugin        ## the coroutine; the plugin renders the host build's audio (44.1 kHz: sample for sample),
+                           ## other rates through the oversampler, the state read back, the CPU per host buffer
+	$(PLUGIN_BUILD)/txp_test_coro
+	python3 -I tools/plugin_gate.py --build $(PLUGIN_BUILD)

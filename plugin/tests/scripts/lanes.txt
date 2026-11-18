@@ -1,0 +1,35 @@
+# the plugin's gate (tools/plugin_gate.py): MIDI only, so the host build and the plugin play the same events. A
+# factory preset by program change, notes on each lane's channel (1 .. 4) and on channel 1 (the selected lane), the
+# lanes' CCs (HOW MANY, HOW ACTIVE, LEVEL, PAN, a card), the effects on channel 5 (reverb, grain delay, filter), a
+# second preset over the first (its 500 ms glides), and the pitch bend
+1500 midi 0xC0 8 0
+4000 midi 0x90 48 100
+4200 midi 0x91 55 90
+4400 midi 0x92 60 110
+4600 midi 0x93 64 80
+5200 midi 0x80 48 0
+5400 midi 0x81 55 0
+5600 midi 0x82 60 0
+5800 midi 0x83 64 0
+6000 midi 0xB0 21 110
+6000 midi 0xB1 22 120
+6100 midi 0xB2 7 90
+6100 midi 0xB3 10 20
+6200 midi 0xB0 14 100
+6300 midi 0xB4 91 90
+6300 midi 0xB4 102 80
+6400 midi 0xB4 105 127
+6500 midi 0xB4 74 70
+7000 midi 0x90 52 127
+7300 midi 0xE0 0 80
+7800 midi 0x80 52 0
+8000 midi 0xE0 0 64
+9000 midi 0xC0 33 0
+9500 midi 0x91 50 100
+10500 midi 0x81 50 0
+11000 midi 0xB2 22 0
+11000 midi 0xB4 113 127
+12000 midi 0xB4 113 0
+13000 midi 0x90 60 64
+13500 midi 0x80 60 0
+16000 end
