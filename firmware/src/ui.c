@@ -210,6 +210,9 @@ static uint8_t ui_blink_shown[SC_N];
 #define TOAST_MS 1500u
 static char ui_toast_hd[12], ui_toast_fam[16], ui_toast_nm[24];
 static uint32_t ui_toast_t;
+static uint8_t ui_gaps;                         /* the gaps under rows 0..2 an overlay drew into (bit k): the lists' rows
+                                                 * take the gap below them, the toast the one under row 1; the next
+                                                 * row drawn without it clears its gap (the pages draw only their rows) */
 /* the browsers, one flowing list over the four rows: a family's header row, its items, the next family's header ...
  * The sound browser (SEQ, or ALGORITHM on SOUND): the landscapes' families and their sounds, the cursor's sound
  * auditioned on the lane UB_PREVIEW_MS after the last detent while the lane plays, EDIT keeps it. The presets list
@@ -964,6 +967,7 @@ static void draw_pr_row(uint32_t k)
     int32_t h = k < 3u ? (int32_t)RW_DY : (int32_t)RW_H, y0 = (int32_t)RW_DY * (int32_t)k;
     uint32_t r, n = ub_n(), q = ub_mark();
     cv_begin(RW_W, (uint32_t)h, C_BLACK);
+    if (k < 3u) ui_gaps |= (uint8_t)(1u << k);
     for (r = 2u * k; r < 2u * k + 2u; r++) {
         uint32_t i = ub.top + r, v;
         int32_t ya = UB_Y(r) - y0, yb = UB_Y(r + 1u) - y0, yc = (ya + yb) / 2;
@@ -1041,6 +1045,7 @@ static void draw_toast(void)
         p_strcpy(code, nm, c); nm += c + 1u;
         big = aa_covers(&AF_L, nm) && aa_text_w(&AF_L, nm) <= (int32_t)TO_W - 24;
     }
+    ui_gaps |= 2u;
     for (part = 0; part < 2; part++) {
         cv_begin(TO_W, TO_H / 2u, RGB(20, 20, 24));
         cv_oy -= part * (int32_t)(TO_H / 2u);
@@ -1061,6 +1066,7 @@ static void draw_row(uint32_t k)
     uint32_t id;
     if (ui_toast_on() && (k == 1u || k == 2u)) { draw_toast(); return; }
     if (ub.on) { if (ub.opt) draw_opt_row(k); else draw_pr_row(k); return; }
+    if (ui_gaps >> k & 1u && !cv_s) { lcd_fill(RW_X, RW_Y0 + RW_DY * k + RW_H, RW_W, RW_DY - RW_H, C_BLACK); ui_gaps &= (uint8_t)~(1u << k); }
     if (ui_g == G_LAND) { draw_strip(k); return; }
     if (ui_g == G_LANES) { draw_lane_row(k); return; }
     if (UI_GLANES) { draw_groove_row(k); return; }

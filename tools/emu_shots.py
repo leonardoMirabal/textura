@@ -16,7 +16,7 @@ tests/web_check.py drives them): the home page, the lane's SOUND pages, the lane
 in signal order, the LFO, ENV / FOLLOW and MATRIX pages, GROOVE, TEMPO, SCALE, MIDI CLOCK, MIDI IN, DISPLAY, the
 sound browser, the presets list and its LOAD OPTIONS, the save mode, a load's toast, PLAY mode, a muted lane, mod
 learn. Then every landscape in turn, each of its sounds put on lane 1 (CC 20) and its SOUND page shot once per
-engine (eng-<engine>.png; the gaps between the rows blanked, since the loads' toasts leave marks there); --cards PATH
+engine (eng-<engine>.png; each checked to have the gaps between its rows black, the firmware's "gaps"); --cards PATH
 also writes every sound's cards as JSON, for the manual's sound chapter. Each PNG is reduced to an adaptive palette and optimized, so it
 stays small.
 
@@ -128,15 +128,6 @@ def engine_key(fam, src, eng, hosted):
     return src.replace(" ", "") if eng else hosted or "source-" + src.replace(" ", "")
 
 
-def clean_gaps(path):
-    """the 4 px gaps between the four rows back to black, as the firmware means them (a load's toast leaves its edge
-    there: the rows draw only their own area)"""
-    im = Image.open(path).convert("RGB")
-    for y0 in (84, 126, 168):                   # (framebuffer rows: RW_Y0 + RW_DY k + RW_H, 4 px)
-        im.paste((0, 0, 0), (0, 2 * y0, 480, 2 * y0 + 8))
-    save_png(im, path, True)
-
-
 def engine_shots(pn, out, errs, cards_json=None):
     """every sound of every family on lane 1: its SOUND pages' cards read back (lab / card states), the first SOUND
     page of each engine's first sound shot as eng-<engine>.png. Families load as landscapes (ALGORITHM + EDIT on the
@@ -207,7 +198,8 @@ def engine_shots(pn, out, errs, cards_json=None):
                     errs.append(f"{snd}: on {pn.page()}, not SOUND 1")
                 path = os.path.join(out, f"eng-{key}.png")
                 shot(pn.pg, path, palette=True)
-                clean_gaps(path)
+                if pn.state("gaps") != "0":     # (an overlay's marks left between the rows)
+                    errs.append(f"{snd}: the gaps between the rows not black ({pn.state('gaps')} px)")
                 n += 1
     if cards_json:
         with open(cards_json, "w") as fh:
@@ -219,21 +211,22 @@ def manual_shots(pn, out, errs):
     """every page, in the manual's order; each checked to be the page it is named for"""
     n = 0
 
-    def take(name, want=None, wait=1100):
+    def take(name, want=None, wait=1100, overlay=False):
         nonlocal n
         pn.wait(wait)
         if want is not None and pn.page() != want:
             errs.append(f"{name}: on {pn.page()}, not {want}")
             return
         shot(pn.pg, os.path.join(out, name + ".png"), palette=True)
+        if not overlay and pn.state("gaps") != "0":   # (a page: the gaps between its rows black)
+            errs.append(f"{name}: the gaps between the rows not black ({pn.state('gaps')} px)")
         n += 1
 
     def step(want, name):                       # SELECT one page on
         pn.enc(E_SELECT, 1)
         take(name, want)
 
-    # the pages first, on the boot's landscape: an overlay (a list, a load's toast) leaves marks in the gaps between
-    # the rows, which the pages do not draw again
+    # the pages first, on the boot's landscape; the overlays (the lists, a load's toast) last
     take("landscape", "LANDSCAPE", 0)           # the boot's landscape (WATER), playing
     pn.keys(1 << 1, 900)                        # F#3 held: lane 1 muted
     take("landscape-muted", "LANDSCAPE", 200)
@@ -279,18 +272,18 @@ def manual_shots(pn, out, errs):
     pn.wait(1600)
     # the overlays last
     pn.btn(SEQ)                                 # the sound browser
-    take("sounds", "LANDSCAPE")
+    take("sounds", "LANDSCAPE", overlay=True)
     pn.enc(E_ALG, 2, after=100)                 # two sounds on: heard on the lane after 0.4 s
-    take("sounds-hearing", "LANDSCAPE", 900)
+    take("sounds-hearing", "LANDSCAPE", 900, overlay=True)
     pn.btn(HOME)                                # closed: the kept sound back
     pn.wait(1600)
     pn.enc(E_PRESETS, 1)                        # the presets list, opened on what plays (L01 WATER)
     pn.enc(E_PRESETS, -60)                      # up into the factory presets: F041 (FOREST)
-    take("presets", "LANDSCAPE")
+    take("presets", "LANDSCAPE", overlay=True)
     pn.btn(EDIT, after=0)                       # F041 loads: its toast
-    take("loaded", "LANDSCAPE", 400)
+    take("loaded", "LANDSCAPE", 400, overlay=True)
     pn.btn(FX)                                  # the list's LOAD OPTIONS
-    take("loadoptions", "LANDSCAPE", 1800)
+    take("loadoptions", "LANDSCAPE", 1800, overlay=True)
     pn.btn(FX)
     pn.btn(HOME)
     return n

@@ -1,0 +1,28 @@
+# the gaps between the four rows stay black once an overlay is gone: the sound browser's cursor frame, the presets
+# list's and the load toast's box each drew into them, and the pages, which draw only their rows, left the marks there
+# (on every later page)
+1700 expect state gaps 0
+# the sound browser (SEQ), two sounds on, HOME: the landscape again
+1800 btn 11
+1900 turn 0 2
+2000 expect state browser 2
+2400 btn 8
+2900 expect state browser 0
+2900 expect state page LANDSCAPE
+2900 expect state gaps 0
+# the presets list (PRESETS), three on, EDIT loads: its toast; HOME closes the list
+3000 turn 6 1
+3100 turn 6 3
+3200 btn 6
+3300 expect state toasthd LOADED
+3400 btn 8
+3500 expect state browser 0
+# (the toast, over rows 1 and 2, fills the gap between them: 228 x 4 px, the others black)
+3600 expect state gaps 912
+# the toast gone: the rows under it again, clean
+5500 expect state gaps 0
+# a page of cards (EDIT: the lane's SOUND)
+5600 btn 6
+6200 expect state page SOUND_1/2
+6200 expect state gaps 0
+6300 end
