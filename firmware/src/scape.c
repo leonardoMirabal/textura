@@ -361,20 +361,6 @@ static void sc_play_ready(uint32_t k)
     if (k < SC_N && !sc.cnt[k]) { sc.cnt[k] = 1; sc_sync(k); }
 }
 static void sc_select(uint32_t k) { if (k < SC_N) sc.sel = (uint8_t)k; }
-/* the lane's sound set to its family's sound i (a CC, the SOUND card): playing, it goes on playing as it was; a sound
- * already on another lane stays there (no change) */
-static void sc_sound_to(uint32_t k, uint32_t i)
-{
-    uint32_t j, f;
-    uint8_t run, c, st;
-    if (k >= SC_N) return;
-    f = sc.lf[k];
-    if (i >= LS[f].n || sc.snd[k] == (int)i) return;
-    for (j = 0; j < SC_N; j++) if (sc.snd[j] == (int)i && sc.lf[j] == f) return;
-    run = sc.run[k]; c = sc.cnt[k]; st = sc.step[k];
-    sc_load(k, f, i);
-    if (run) { sc_count(k, c); sc_step(k, st); }
-}
 /* the sound browser's pick (and its preview): family f's sound i on lane k, a sound on another lane too (each lane its
  * own instance); playing, it goes on playing as it was */
 static void sc_sound_set(uint32_t k, uint32_t f, uint32_t i)
@@ -385,6 +371,9 @@ static void sc_sound_set(uint32_t k, uint32_t f, uint32_t i)
     sc_load(k, f, i);
     if (run) { sc_count(k, c); sc_step(k, st); }
 }
+/* the lane's sound set to its family's sound i (CC 20, the SOUND card): as the browser's pick, a sound another lane
+ * plays too */
+static void sc_sound_to(uint32_t k, uint32_t i) { if (k < SC_N) sc_sound_set(k, sc.lf[k], i); }
 static void sc_volume(uint32_t k, uint32_t v)
 {
     if (k >= SC_N || sc.snd[k] < 0) return;

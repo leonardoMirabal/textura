@@ -1856,7 +1856,7 @@ On channel 1: **0 to 99** load F001 to F100, **100 to 115** load U01 to U16.
 | CC | Parameter | CC | Parameter |
 | --- | --- | --- | --- |
 | 7 | LEVEL (the lane's volume) | 10 | PAN |
-| 20 | SOUND (within the lane's family; a sound another lane of that family plays is not taken) | 21 | HOW MANY |
+| 20 | SOUND (any sound of the lane's family, as in the sound browser: one another lane plays too) | 21 | HOW MANY |
 | 22 | HOW ACTIVE | 14 / 15 / 16 / 17 | The sound's cards 1 to 4 |
 | 18 / 19 / 23 / 24 | The sound's cards 5 to 8 | | |
 

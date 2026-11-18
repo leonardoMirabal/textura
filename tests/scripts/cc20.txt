@@ -1,0 +1,21 @@
+# CC 20 (SOUND) on a lane's channel loads any sound of its family, as the sound browser does: one another lane plays
+# too (each lane its own instance; it was refused). The boot's WATER: rain on water, lake lapping, water drops, cave
+# drips; REC: playing, the lane goes on playing as it was
+1700 btn 13
+1800 expect state run0 1
+# lane 1 (channel 1): lake lapping, lane 2's
+1900 midi 0xB0 20 21
+2000 expect state snd0 lake_lapping
+2000 expect state snd1 lake_lapping
+2000 expect state run0 1
+# lane 4 (channel 4): water drops, lane 3's
+2100 midi 0xB3 20 35
+2200 expect state snd3 water_drops
+2200 expect state snd2 water_drops
+# a sound no lane plays still loads (waves on shingle, the last)
+2300 midi 0xB0 20 127
+2400 expect state snd0 waves_on_shingle
+2400 expect state snd1 lake_lapping
+3400 expect state alive0 1
+3400 expect state alive1 1
+3500 end
