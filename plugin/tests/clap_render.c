@@ -4,7 +4,8 @@
  * float WAV, the latency's frames dropped (the output starts at the app's own frame 0).
  *
  *   txp_clap_render PLUGIN.clap SCRIPT OUT.wav [--rate HZ] [--block N] [--keep-latency] [--state-check] [--cpu-from MS]
- *                   [--fuzz SEED] [--inactive] [--state-in FILE] [--state-out FILE]
+ *                   [--fuzz SEED] [--inactive] [--state-in FILE] [--state-out FILE] [--shot OUT.png] [--shot-w PX]
+ *                   [--gui-test]
  *
  * --rate     the host's rate (44100 by default); --block  frames a process call (512)
  * --fuzz SEED  before the activation, every automatable parameter at a random value (one flush)
@@ -12,6 +13,10 @@
  * --cpu-from MS  time only the process calls from that millisecond on (after a scene's load)
  * --state-in FILE  a state loaded before the activation (and the fuzz), as a host restoring a project
  * --state-out FILE  the state saved after the render (or without one, --inactive)
+ * --shot OUT.png  after the render: the window (a headless one, no native view) painted at --shot-w pixels wide (1200
+ *            by default) as a PNG; exit 5 when it looks empty
+ * --gui-test  with --shot, after it: clicks and drags in the window (M, S, VOL, a map dot, LANES +, a row), checked
+ *            against the parameters, the host's events, the masks and the saved state (exit 5 when one fails)
  * --state-check  after the render: save the state, load it into a second instance, check every parameter reads
  *            back the same (exit 3 when not) and that it saves the same text again (exit 4 when not: both kept as
  *            OUT.wav.state1, .state2)
@@ -24,6 +29,8 @@
 #include <string.h>
 #include <time.h>
 #include <clap/clap.h>
+
+#include "gui_shot.h"
 
 typedef struct { uint32_t t; uint8_t st, d1, d2; } sev_t;
 static sev_t ev[16384];
@@ -60,7 +67,17 @@ static const clap_event_header_t *el_get(const clap_input_events_t *l, uint32_t 
 static uint32_t fz_n;                    /* --fuzz: the parameter events of one flush */
 static uint32_t fz_size(const clap_input_events_t *l) { (void)l; return fz_n; }
 static const clap_event_header_t *fz_get(const clap_input_events_t *l, uint32_t i) { return &((const clap_event_param_value_t *)l->ctx)[i].header; }
-static bool ol_push(const clap_output_events_t *l, const clap_event_header_t *e) { (void)l; (void)e; return true; }
+static uint32_t n_out[3];                /* the output events pushed: gesture begins, values, gesture ends */
+static bool ol_push(const clap_output_events_t *l, const clap_event_header_t *e)
+{
+    (void)l;
+    if (e->space_id == CLAP_CORE_EVENT_SPACE_ID) {
+        if (e->type == CLAP_EVENT_PARAM_GESTURE_BEGIN) n_out[0]++;
+        else if (e->type == CLAP_EVENT_PARAM_VALUE) n_out[1]++;
+        else if (e->type == CLAP_EVENT_PARAM_GESTURE_END) n_out[2]++;
+    }
+    return true;
+}
 
 /* the state through memory */
 typedef struct { char *b; size_t n, at; } mem_t;
@@ -100,6 +117,154 @@ static void wav_write(const char *path, const float *lr, uint32_t n, uint32_t ra
     fclose(f);
 }
 
+/* ---- the window (--shot, --gui-test): a headless window core through the plugin's test extension (gui_shot.h) */
+static uint32_t crc_tab[256];
+static uint32_t crc32_of(uint32_t c, const uint8_t *p, size_t n)
+{
+    if (!crc_tab[1]) for (uint32_t i = 0; i < 256; i++) { uint32_t x = i; for (int k = 0; k < 8; k++) x = x & 1 ? 0xEDB88320u ^ (x >> 1) : x >> 1; crc_tab[i] = x; }
+    c = ~c;
+    while (n--) c = crc_tab[(c ^ *p++) & 255u] ^ (c >> 8);
+    return ~c;
+}
+static void be32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)(v >> 24); p[1] = (uint8_t)(v >> 16); p[2] = (uint8_t)(v >> 8); p[3] = (uint8_t)v; }
+static void png_chunk(FILE *f, const char *type, const uint8_t *d, uint32_t n)
+{
+    uint8_t h[8];
+    uint32_t c;
+    be32(h, n); memcpy(h + 4, type, 4);
+    fwrite(h, 1, 8, f);
+    if (n) fwrite(d, 1, n, f);
+    c = crc32_of(0, (const uint8_t *)type, 4);
+    c = crc32_of(c, d, n);
+    be32(h, c);
+    fwrite(h, 1, 4, f);
+}
+static int png_write(const char *path, const uint32_t *px, int w, int h)   /* RGB, zlib stored blocks (no deflate) */
+{
+    size_t raw_n = (size_t)h * (size_t)(1 + 3 * w), nblk = (raw_n + 65534u) / 65535u, zn = 2 + raw_n + nblk * 5 + 4, at = 0, o = 0;
+    uint8_t *raw = malloc(raw_n), *z = malloc(zn), ihdr[13];
+    uint32_t a = 1, b = 0;
+    FILE *f;
+    if (!raw || !z) return -1;
+    for (int y = 0; y < h; y++) {
+        raw[at++] = 0;
+        for (int x = 0; x < w; x++) {
+            uint32_t p = px[(size_t)y * (size_t)w + (size_t)x];
+            raw[at++] = (uint8_t)(p >> 16); raw[at++] = (uint8_t)(p >> 8); raw[at++] = (uint8_t)p;
+        }
+    }
+    z[o++] = 0x78; z[o++] = 0x01;
+    for (at = 0; at < raw_n;) {
+        size_t n = raw_n - at < 65535u ? raw_n - at : 65535u;
+        z[o++] = at + n == raw_n ? 1 : 0;
+        z[o++] = (uint8_t)n; z[o++] = (uint8_t)(n >> 8); z[o++] = (uint8_t)~n; z[o++] = (uint8_t)(~n >> 8);
+        memcpy(z + o, raw + at, n); o += n; at += n;
+    }
+    for (at = 0; at < raw_n; at++) { a = (a + raw[at]) % 65521u; b = (b + a) % 65521u; }
+    be32(z + o, b << 16 | a); o += 4;
+    if (!(f = fopen(path, "wb"))) { perror(path); return -1; }
+    fwrite("\x89PNG\r\n\x1a\n", 1, 8, f);
+    be32(ihdr, (uint32_t)w); be32(ihdr + 4, (uint32_t)h);
+    ihdr[8] = 8; ihdr[9] = 2; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+    png_chunk(f, "IHDR", ihdr, 13);
+    png_chunk(f, "IDAT", z, (uint32_t)o);
+    png_chunk(f, "IEND", 0, 0);
+    fclose(f);
+    free(raw); free(z);
+    return 0;
+}
+static void gui_flush(const clap_plugin_t *p)   /* as a host answers request_flush */
+{
+    const clap_plugin_params_t *xp = p->get_extension(p, CLAP_EXT_PARAMS);
+    static evl_t none;
+    clap_input_events_t in = { &none, el_size, el_get };
+    clap_output_events_t on = { 0, ol_push };
+    none.n = 0;
+    xp->flush(p, &in, &on);
+}
+static void gui_click(const clap_plugin_t *p, const txg_gui_shot_t *xs, float x, float y, int mods)
+{
+    frg_input e;
+    memset(&e, 0, sizeof e);
+    e.kind = FRG_DOWN; e.button = FRG_LEFT; e.x = x; e.y = y; e.mods = mods;
+    xs->input(p, &e);
+    e.kind = FRG_UP;
+    xs->input(p, &e);
+    gui_flush(p);
+    xs->tick(p);
+}
+static double gui_value(const clap_plugin_t *p, uint32_t id)
+{
+    const clap_plugin_params_t *xp = p->get_extension(p, CLAP_EXT_PARAMS);
+    double v = -1.0;
+    xp->get_value(p, id, &v);
+    return v;
+}
+static void gui_wait(void) { struct timespec ts = { 0, 350000000 }; nanosleep(&ts, 0); }   /* (past the window's own
+                                          * value's hold: what it shows then is the app's) */
+#define LANE_ID(k, i) (((uint32_t)(k) < 4u ? (uint32_t)(k) : 12u + (uint32_t)(k)) << 8 | (uint32_t)(i))
+static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int test)
+{
+    const txg_gui_shot_t *xs = p->get_extension(p, TXG_EXT_GUI_SHOT);
+    const uint32_t *px;
+    int w, h, bad = 0;
+    uint32_t i, ncol = 0, ink = 0;
+    static uint8_t seen[1u << 21];       /* (24-bit colours, a bit each) */
+    if (!xs || !xs->headless(p, pw, pw * 3 / 5)) { fprintf(stderr, "gui: no headless window\n"); return 5; }
+    xs->tick(p);
+    if (!xs->grab(p, 0, &px, &w, &h)) { fprintf(stderr, "gui: nothing painted\n"); return 5; }
+    for (i = 0; i < (uint32_t)(w * h); i++) {
+        uint32_t c = px[i] & 0xFFFFFFu;
+        if (!(seen[c >> 3] >> (c & 7) & 1)) { seen[c >> 3] |= (uint8_t)(1u << (c & 7)); ncol++; }
+        if ((px[i] >> 16 & 255u) > 200u && (px[i] >> 8 & 255u) > 190u && (px[i] & 255u) > 180u) ink++;
+    }
+    printf("gui %d x %d, %u colours, %u bright pixels\n", w, h, ncol, ink);
+    if (png && png_write(png, px, w, h)) return 5;
+    if (ncol < 40u || ink < (uint32_t)(w * h) / 400u) { fprintf(stderr, "gui: the window looks empty\n"); return 5; }
+    if (test) {                          /* the controls do what they say (inactive: each write applied at its flush) */
+        float r[4];
+        double v0, v1;
+        uint32_t m = 0, s = 0, lanes0 = (uint32_t)gui_value(p, 4u << 8 | 81u);
+        n_out[0] = n_out[1] = n_out[2] = 0;
+        if (!xs->find(p, 3 /* TXG_W_MUTE */, 1, r)) { fprintf(stderr, "gui: no M on lane 2\n"); return 5; }
+        gui_click(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 0);
+        if (!xs->find(p, 4 /* TXG_W_SOLO */, 2, r)) { fprintf(stderr, "gui: no S on lane 3\n"); return 5; }
+        gui_click(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 0);
+        gui_wait(); xs->tick(p);
+        xs->masks(p, &m, &s);
+        printf("gui mute %#x solo %#x\n", m, s);
+        if (!(m & 2u) || s != 4u) { fprintf(stderr, "gui: M / S did not reach the app\n"); bad = 1; }
+        if (!xs->find(p, 2 /* TXG_W_VOL */, 0, r)) { fprintf(stderr, "gui: no VOL on lane 1\n"); return 5; }
+        gui_click(p, xs, r[0] + 4.f + (r[2] - 8.f) * 0.25f, r[1] + r[3] * 0.5f, 0);
+        v1 = gui_value(p, LANE_ID(0, 3));
+        printf("gui VOL: lane 1 LEVEL %g (events to the host: %u begin, %u values, %u end)\n", v1, n_out[0], n_out[1], n_out[2]);
+        if (v1 < 31.0 || v1 > 33.0 || !n_out[0] || n_out[0] != n_out[2] || !n_out[1]) { fprintf(stderr, "gui: VOL\n"); bad = 1; }
+        if (!xs->find(p, 5 /* TXG_W_DOT */, 0, r)) { fprintf(stderr, "gui: no dot for lane 1\n"); return 5; }
+        v0 = gui_value(p, LANE_ID(0, 4));
+        {
+            frg_input e;
+            memset(&e, 0, sizeof e);
+            e.kind = FRG_DOWN; e.button = FRG_LEFT; e.x = r[0] + r[2] * 0.5f; e.y = r[1] + r[3] * 0.5f;
+            xs->input(p, &e);
+            e.kind = FRG_MOVE; e.x -= 70.f; e.y -= 30.f;
+            xs->input(p, &e);
+            e.kind = FRG_UP;
+            xs->input(p, &e);
+            gui_flush(p); xs->tick(p);
+        }
+        v1 = gui_value(p, LANE_ID(0, 4));
+        printf("gui MAP: lane 1 PAN %g -> %g\n", v0, v1);
+        if (!(v1 < v0)) { fprintf(stderr, "gui: the map's drag did not move PAN\n"); bad = 1; }
+        if (!xs->find(p, 9 /* TXG_W_LUP */, -1, r)) { fprintf(stderr, "gui: no LANES +\n"); return 5; }
+        gui_click(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 0);
+        v1 = gui_value(p, 4u << 8 | 81u);
+        printf("gui LANES %u -> %g\n", lanes0 + 1u, v1 + 1.0);
+        if (lanes0 < 15u && v1 != lanes0 + 1.0) { fprintf(stderr, "gui: LANES +\n"); bad = 1; }
+        if (xs->find(p, 1 /* TXG_W_ROW */, 2, r)) gui_click(p, xs, r[0] + 30.f, r[1] + r[3] * 0.5f, 0);   /* (lane 3 selected) */
+    }
+    return bad ? 5 : 0;
+}
+
 static const clap_plugin_t *make(const clap_plugin_factory_t *fac)
 {
     const clap_plugin_descriptor_t *d = fac->get_plugin_descriptor(fac, 0);
@@ -113,7 +278,8 @@ int main(int argc, char **argv)
     const char *plug, *script, *out;
     double rate = 44100.0;
     uint32_t block = 512, keep = 0, state_check = 0, i, lat, total, nproc = 0, ei = 0, cpu_from = 0, fuzz = 0, inactive = 0;
-    const char *state_in = 0, *state_out = 0;
+    const char *state_in = 0, *state_out = 0, *shot = 0;
+    int shot_w = 1200, gui_test = 0;
     char bin[1024];
     void *so;
     const clap_plugin_entry_t *entry;
@@ -135,6 +301,9 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--inactive")) inactive = 1;
         else if (!strcmp(argv[i], "--state-in") && i + 1 < (uint32_t)argc) state_in = argv[++i];
         else if (!strcmp(argv[i], "--state-out") && i + 1 < (uint32_t)argc) state_out = argv[++i];
+        else if (!strcmp(argv[i], "--shot") && i + 1 < (uint32_t)argc) shot = argv[++i];
+        else if (!strcmp(argv[i], "--shot-w") && i + 1 < (uint32_t)argc) shot_w = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--gui-test")) gui_test = 1;
         else if (!strcmp(argv[i], "--keep-latency")) keep = 1;
         else if (!strcmp(argv[i], "--state-check")) state_check = 1;
     }
@@ -154,6 +323,14 @@ int main(int argc, char **argv)
     entry = dlsym(so, "clap_entry");
     if (!entry || !entry->init(plug)) { fprintf(stderr, "no clap_entry\n"); return 2; }
     fac = entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
+    if (shot) {                          /* (the plugin offers its test extension only so) */
+#ifdef _WIN32
+        _putenv_s("TEXTURA_PLUGIN_GUI_SHOT", "1");
+#else
+        setenv("TEXTURA_PLUGIN_GUI_SHOT", "1", 1);
+#endif
+        if (shot_w < 400 || shot_w > 4800) shot_w = 1200;
+    }
     p = make(fac);
     if (state_in) {                      /* a project's state, before anything else */
         const clap_plugin_state_t *xs = p->get_extension(p, CLAP_EXT_STATE);
@@ -239,6 +416,22 @@ int main(int argc, char **argv)
                rate, t_sum / (nproc ? nproc : 1), 100.0 * t_sum / (nproc ? nproc : 1) / dur, t_max, 100.0 * t_max / dur);
     }
 states:
+    if (shot) {
+        int rc = gui_shot(p, shot, shot_w, gui_test);
+        if (!rc && gui_test) {           /* the window's writes in the saved state: the solo, the selected lane */
+            const clap_plugin_state_t *xs = p->get_extension(p, CLAP_EXT_STATE);
+            mem_t m = {0, 0, 0};
+            clap_ostream_t os = { &m, os_write };
+            if (!xs || !xs->save(p, &os)) { fprintf(stderr, "gui: state save failed\n"); return 5; }
+            m.b = realloc(m.b, m.n + 1); m.b[m.n] = 0;
+            printf("gui state: solo %s, sel %s\n", strstr(m.b, "\"solo\":\"4\"") ? "saved" : "MISSING",
+                   strstr(m.b, "\"sel\":\"2\"") ? "saved" : "MISSING");
+            if (!strstr(m.b, "\"solo\":\"4\"") || !strstr(m.b, "\"sel\":\"2\"")) rc = 5;
+            free(m.b);
+        }
+        if (rc) { p->destroy(p); return rc; }
+        printf("gui ok\n");
+    }
     if (state_out) {
         const clap_plugin_state_t *xs = p->get_extension(p, CLAP_EXT_STATE);
         mem_t m = {0, 0, 0};

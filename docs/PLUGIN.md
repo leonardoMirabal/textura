@@ -10,7 +10,7 @@ The plugin has up to 16 lanes where the FM-1 has 4: the build option `TX_MIX_SLO
 default 4; `plugin/cmake/slots.cmake` sets `TXP_LANES 16`). The FM-1 and the browser builds keep 4 lanes, and their
 binaries do not change.
 
-No window of its own yet. Hosts show their generic parameter view.
+The plugin has its own window (below); hosts can still show their generic parameter view.
 
 ## Build
 
@@ -65,6 +65,37 @@ Lowering it empties the lanes past it: each stops, its cards go back, and its en
 A factory preset, a landscape's start or an FM-1 scene fills lanes 1 .. 4 exactly as the FM-1 does and sets LANES to
 4. A plugin scene keeps all its lanes.
 
+## The window
+
+One resizable window, 5:3 (1200 x 720 points by default, 840 .. 2400 wide), drawn at the screen's own resolution
+(Retina: twice the points). Dark and monochrome; red marks only the selection (and, later, the LFOs). The macOS view
+is built and tested; the Windows and Linux views (`plugin/gui_win.c`, `plugin/gui_x11.c`) are written for the same
+core but not built or tested yet.
+
+- **Top bar**: TEXTURA, the previous / next factory scene and the scene's name (`*` when edited), LANES - / +, and
+  SETTINGS (a placeholder page for now).
+- **MAP**: the listener at the bottom, one dot a lane. Left / right is the lane's **PAN**; near / far is the sound's
+  **DIST card** where the sound has one (a hollow dot when it has none: then a drag moves PAN only). Drag a dot to
+  move it: each move is a host parameter change, with a gesture around the drag (one undo step, automation
+  recording). A dot glows with the lane's last events. Above the field: the selected lane's sound, PAN, DIST,
+  HOW MANY, HOW ACTIVE and MIDI channel. SPACE (a 3D view) is the next step's.
+- **Lanes**: one row a lane in use (it follows LANES, up to 16), and ADD LANE under them. A row has the lane's number,
+  its sound and family, its **event line** (the last 6 seconds: a bar for each app block with events, as high as
+  the block's peak, over a faint body for the lane's level), its MIDI channel, **VOL** (the lane's LEVEL: drag,
+  wheel, double-click for the default), **M** and **S**. Click a row to select the lane (arrow keys move it; `m`
+  and `s` mute and solo it).
+- **M** is the app's own lane mute, the one a scene keeps. **S** is the plugin's own: while any lane is soloed only
+  the soloed lanes play (alt / cmd / ctrl-click solos one lane alone). Solo is not on the FM-1; the plugin saves it
+  in its state.
+
+The window reads what the audio side last published (each lane's events and peak per app block, the lanes' names,
+channels and cards) and never waits on the audio thread; its writes go to the audio thread through a queue, and every
+parameter it sets is told to the host. The window draws the whole picture into a canvas (`plugin/ui/frui_*`, from
+Frodhes) and the platform view only shows it, so all three systems look the same.
+
+The font is Inter Tight (SIL Open Font License 1.1, `assets/fonts/OFL-InterTight.txt`). `make plugin` fetches it
+into `.local/fonts` (`tools/get_fonts.sh`, checksum-checked) and embeds it in the plugin; it is never committed.
+
 ## Parameters
 
 About 480 host parameters, by the app's own stable ids, so automation stays put across versions. An id is the
@@ -98,7 +129,9 @@ written to disk by the plugin: its user scene bank (U01 .. U16) lives for the se
 
 The state is version 2: the scene record of this build, 2040 bytes with its lane count and all 16 lanes. A project
 saved by the 4-lane plugin (version 1, the FM-1's scene record) still loads: lanes 1 .. 4 as saved, the others
-empty, LANES 4.
+empty, LANES 4. The state also keeps the solo (`"solo"`, the lanes soloed as a bit mask), the window's width
+(`"win"`, 0 when at the default) and the selected lane (`"sel"`). These keys are optional: a state without them
+(an older project) loads with no solo and the default window.
 
 ## Sample rates and latency
 
@@ -134,23 +167,28 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
   presets' lanes in one state), printed, not judged. On an Apple M-series machine: 4 heavy lanes about 110 .. 130 us
   a call on average (1.0 .. 1.2 % of the 10.7 ms the call has), 16 heavy lanes about 280 us (2.6 %), the worst call
   under 400 us (3.7 %).
+- **gui**: the window without a native view (headless): `plugin/tests/scripts/gui4.txt` (four lanes) and `gui16.txt`
+  (sixteen) played, then the window painted to a PNG in two separate runs. Both runs must give the same bytes, and
+  the picture must not be empty. Then the window's controls are used (M, S, VOL, a map dot, LANES +, a row) and
+  checked against the parameters, the events sent to the host, the mute and solo masks and the saved state.
+  `--shots DIR` keeps a copy of the two pictures.
 
 The headless host is `build/plugin/txp_clap_render PLUGIN.clap SCRIPT OUT.wav [--rate HZ] [--block N]
-[--state-check] [--fuzz SEED] [--inactive] [--cpu-from MS] [--state-in FILE] [--state-out FILE]`; it plays a
-host-build script's MIDI lines; `--state-in` loads a state before the activation, `--state-out` saves one after the
-render.
+[--state-check] [--fuzz SEED] [--inactive] [--cpu-from MS] [--state-in FILE] [--state-out FILE] [--shot OUT.png]
+[--shot-w PX] [--gui-test]`; it plays a host-build script's MIDI lines; `--state-in` loads a state before the
+activation, `--state-out` saves one after the render; `--shot` paints the window after the render (through a test
+extension the plugin offers only with `TEXTURA_PLUGIN_GUI_SHOT` set), `--gui-test` then uses its controls.
 
 Validators (after `make plugin-deps`):
 
     .local/plugin-deps/clap-validator/binaries/clap-validator validate build/plugin/bundles/Textura.clap
     sh tools/plugin_vst3_validator.sh                        # the VST3 SDK's own validator (built from the SDK)
-    .local/plugin-deps/pluginval/pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --skip-gui-tests \
+    .local/plugin-deps/pluginval/pluginval.app/Contents/MacOS/pluginval --strictness-level 10 \
         --validate build/plugin/bundles/Textura.vst3
     auval -strict -v aumu Txt1 Txtr                          # the Audio Unit, once installed (above)
 
 All four pass with 16 lanes: clap-validator (35 passed, 9 skipped for extensions the plugin does not have), the VST3 validator
-(47 tests), pluginval at strictness 10 (the VST3 and the Audio Unit, without its editor tests: there is no window
-yet). `auval -strict` passes with one warning, "Preset name is not retained in retrieved class data": it comes from
+(47 tests), pluginval at strictness 10 (the VST3 and the Audio Unit, with the editor tests). `auval -strict` passes with one warning, "Preset name is not retained in retrieved class data": it comes from
 clap-wrapper's Audio Unit, which names the class data from its own field.
 
 ## How it is built
@@ -161,6 +199,10 @@ clap-wrapper's Audio Unit, which names the class data from its own field.
 | `plugin/src/slot_bridge.h` | a slot's glue: the time (one step a millisecond), the event queue, the audio FIFO, the host parameters, the state |
 | `plugin/src/bridge.c` | an instance: the slot it holds, the host's frames onto the app's, the oversampler (`txp_os.h`) and the sinc |
 | `plugin/src/textura_clap.c` | the CLAP plugin; clap-wrapper makes the VST3 and the Audio Unit from it |
+| `plugin/src/txp_ui.h` | what the window may ask of its instance: the published snapshot, parameter writes with gestures, mute, solo |
+| `plugin/gui_core.c` | the window: layout, drawing, input (any platform) |
+| `plugin/gui_clap.c` | the CLAP gui extension, and the test extension (`plugin/gui_shot.h`) |
+| `plugin/gui_mac.m`, `gui_win.c`, `gui_x11.c` | the platform views behind `plugin/gui_platform.h` (from Frodhes); `plugin/ui/`: frui's canvas and font (from Frodhes) |
 | `plugin/src/coro/` | the coroutine the app's main loop runs in (arm64 and x86_64 assembly; Windows: Fibers) |
 | `plugin/compat/` | `emscripten.h` for `web_hal.c`, and the Windows shims |
 

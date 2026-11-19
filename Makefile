@@ -447,12 +447,13 @@ plugin-deps:               ## the pinned plugin dependencies (plugin/deps.lock) 
 
 plugin:                    ## build/plugin/bundles/Textura.{clap,vst3,component} (macOS: universal; PLUGIN_ARCH=arm64)
 	@test -d .local/plugin-deps/clap || sh tools/plugin_deps.sh --libs
+	@test -f '.local/fonts/InterTight[wght].ttf' || sh tools/get_fonts.sh .local/fonts
 	@test -f $(PLUGIN_BUILD)/CMakeCache.txt || $(PLUGIN_NICE) cmake -S plugin -B $(PLUGIN_BUILD) \
 	  $(if $(shell command -v ninja),-G Ninja,) -DTXP_VERSION=$(or $(PLUGIN_VER),0.0.0-dev) \
 	  $(if $(PLUGIN_ARCH),"-DCMAKE_OSX_ARCHITECTURES=$(PLUGIN_ARCH)",)
 	$(PLUGIN_NICE) cmake --build $(PLUGIN_BUILD) -j$(PLUGIN_J)
 
 test-plugin: plugin        ## the coroutine; the plugin renders the host build's audio (44.1 kHz: sample for sample),
-                           ## other rates through the oversampler, the state read back, the CPU per host buffer
+                           ## other rates through the oversampler, the state read back, the CPU per host buffer, the window
 	$(PLUGIN_BUILD)/txp_test_coro
 	python3 -I tools/plugin_gate.py --build $(PLUGIN_BUILD)

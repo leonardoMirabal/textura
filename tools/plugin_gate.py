@@ -27,11 +27,18 @@ FM-1's app: the 16-lane plugin plays it sample for sample), sixteen-lane content
   cpu     the shipped time at 48 kHz, 512-frame buffers: average and worst time per process call for heavy 4-lane
           scenes (every lane at HOW MANY and HOW ACTIVE 127, the grain delay at all its grains, the reverb up), and
           for sixteen heavy lanes (the four heaviest presets' lanes side by side, by a state)
+  gui     the window, headless (no native view): plugin/tests/scripts/gui4.txt (four lanes) and gui16.txt (sixteen)
+          played, then the window painted as a PNG twice from two runs (the same bytes: stable), not empty; and the
+          window's controls used (M, S, VOL, a map dot, LANES +, a row) and checked against the parameters, the events
+          to the host, the masks and the saved state (txp_clap_render --shot, --gui-test). --shots DIR keeps a copy of
+          the two pictures there.
 
-  tools/plugin_gate.py [--build build/plugin] [--quick] [--only equal,hq,rates,state,cpu]
+  tools/plugin_gate.py [--build build/plugin] [--quick] [--only equal,hq,rates,state,cpu,gui] [--shots DIR]
 Exit 0 when every check passes. Needs numpy and scipy for the rates (skipped without them)."""
 import argparse
+import hashlib
 import os
+import shutil
 import re
 import subprocess
 import sys
@@ -391,6 +398,38 @@ def heavy_script(path, prog):
 args_quick = False
 
 
+GUI = [("gui4", "plugin/tests/scripts/gui4.txt"), ("gui16", "plugin/tests/scripts/gui16.txt")]
+
+
+def check_gui(args, exe, bundle, tmp):
+    ok = True
+    for name, script in GUI:
+        shas = []
+        for run_i in range(2):
+            png = os.path.join(tmp, "%s-%d.png" % (name, run_i))
+            r = plug_render(exe, bundle, script, os.path.join(tmp, name + ".wav"), 44100, test=False,
+                            extra=["--shot", png] + (["--gui-test"] if run_i == 1 and name == "gui4" else []))
+            good = r.returncode == 0 and os.path.exists(png)
+            if not good:
+                sys.stderr.write(r.stdout + r.stderr)
+                ok = False
+                break
+            with open(png, "rb") as f:
+                shas.append(hashlib.sha256(f.read()).hexdigest())
+            for line in r.stdout.splitlines():
+                if line.startswith("gui ") and run_i == 1:
+                    print("info  %s: %s" % (name, line[4:]))
+        if len(shas) == 2:
+            same = shas[0] == shas[1]
+            print("%s  gui %s: the window painted twice, %s (%s)" % ("ok  " if same else "FAIL", name,
+                  "the same" if same else "DIFFERENT", shas[0][:12]))
+            ok = ok and same
+            if args.shots:
+                os.makedirs(args.shots, exist_ok=True)
+                shutil.copy(os.path.join(tmp, name + "-0.png"), os.path.join(args.shots, "textura-window-%s.png" % name))
+    return ok
+
+
 def check_cpu(args, exe, bundle, tmp):
     progs = HEAVY[:2] if args.quick else HEAVY
     for prog in progs:
@@ -421,7 +460,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", default="build/plugin")
     ap.add_argument("--quick", action="store_true")
-    ap.add_argument("--only", default="equal,hq,rates,state,cpu")
+    ap.add_argument("--only", default="equal,hq,rates,state,cpu,gui")
+    ap.add_argument("--shots", default="")
     args = ap.parse_args()
     args_quick = args.quick
     build = os.path.join(ROOT, args.build)
@@ -445,6 +485,8 @@ def main():
         ok = check_rates(args, host, exe, bundle, tmp) and ok
     if "state" in only:
         ok = check_state(args, exe, bundle, tmp) and ok
+    if "gui" in only:
+        ok = check_gui(args, exe, bundle, tmp) and ok
     if "cpu" in only:
         check_cpu(args, exe, bundle, tmp)
     print("plugin gate: " + ("ok" if ok else "FAILED"))

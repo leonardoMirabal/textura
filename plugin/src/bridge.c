@@ -345,6 +345,19 @@ void txp_inst_param(txp_inst_t *in, uint32_t time, uint32_t id, double value)
     param_put(in, !in->s ? 0u : x ? due_x(in, time) : due_ms(in, time), id, value, x);
 }
 void txp_inst_param_now(txp_inst_t *in, uint32_t id, double value) { param_put(in, 0u, id, value, 0); }
+/* the window's own events (a mute, the solo): never parked (one at a click) */
+void txp_inst_event(txp_inst_t *in, uint32_t time, int kind, uint32_t a, int32_t v)
+{
+    int x = in->tmode == T_EXACT;
+    if (!in->s) return;
+    (void)sput(in, x, kind, x ? due_x(in, time) : due_ms(in, time), a, v);
+}
+void txp_inst_event_now(txp_inst_t *in, int kind, uint32_t a, int32_t v) { if (in->s) (void)in->s->put(kind, 0, a, v); }
+uint32_t txp_inst_act(const txp_inst_t *in, uint8_t (*ev)[TXP_LANES], uint8_t (*pk)[TXP_LANES], uint32_t n)
+{
+    if (!in->s) { memset(ev, 0, n * sizeof *ev); memset(pk, 0, n * sizeof *pk); return 0; }
+    return in->s->act(ev, pk, n);
+}
 /* the queued changes applied (the main thread, no block running). Not active: then run until what they started is
  * done (sb_settle: a SOUND's engine switch, the cards of its new sound, a PRESET's load), as the FM-1's main loop
  * would have before anyone looked; so the values read back, and a state saved, are the settled ones */

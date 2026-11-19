@@ -36,7 +36,11 @@
 #define TXP_ID_PRESET (TXP_ID_OWN0 + 0u) /* PRESET: F001 .. F100 (a program change on channel 1) */
 #define TXP_LAT_MS 10u                   /* the ms test mode's pre-roll (bridge.c) */
 
-enum { TXP_EV_MIDI = 1, TXP_EV_PARAM, TXP_EV_RESET, TXP_EV_RELEASE };
+enum { TXP_EV_MIDI = 1, TXP_EV_PARAM, TXP_EV_RESET, TXP_EV_RELEASE,
+       TXP_EV_MUTE,                      /* the window's M: lane a muted (v 1) or not (the app's own mute: scape.c) */
+       TXP_EV_SOLO };                    /* the window's S: the lanes soloed, v a mask (the plugin's own: slot_bridge.h) */
+#define TXP_LANES 16u                    /* the lanes a slot has (TX_MIX_SLOTS: plugin/cmake/slots.cmake) */
+#define TXP_ACT_N 2048u                  /* the activity ring: app blocks (11.9 s), a power of two */
 
 /* a host parameter: the app's id, its range, how its value reads */
 typedef struct {
@@ -48,6 +52,23 @@ typedef struct {
     char module[24];
 } txp_param_t;
 
+/* what the window shows of a lane and of the slot (published with the values, txp_snap_t) */
+typedef struct {
+    uint8_t used;                        /* a sound is set */
+    uint8_t mute;                        /* the app's mute (a scene keeps it) */
+    uint8_t ch;                          /* its MIDI channel: 0 OFF, 1 .. 16 */
+    uint8_t dist;                        /* the card named DIST of its sound (0 .. 7), 0xFF none */
+    char snd[24];                        /* the sound's name ("campfire"), "" none */
+    char fam[16];                        /* its family ("Fire") */
+} txp_ui_lane_t;
+typedef struct {
+    uint8_t nlane;                       /* LANES: 1 .. 16 */
+    uint8_t edited;                      /* the scene was changed since its load or save */
+    uint16_t solo;                       /* the lanes soloed (bit k: lane k + 1; 0 none) */
+    char preset[24];                     /* the scene loaded last ("F003 GARDEN RAIN"), "" none */
+    txp_ui_lane_t lane[TXP_LANES];
+} txp_ui_snap_t;
+
 /* what the main thread may read of a slot: published by the audio side (a sequence lock) */
 typedef struct {
     uint32_t rev;                        /* bumps on every change the app made or took */
@@ -55,6 +76,7 @@ typedef struct {
     uint8_t scene;                       /* the scene loaded last (scenes.c scn_cur; 0xFF none) */
     uint8_t settled;                     /* no load, glide or engine switch under way */
     uint16_t tempo10;                    /* the app's tempo (BPM x 10) */
+    txp_ui_snap_t ui;
 } txp_snap_t;
 
 typedef struct {
@@ -83,6 +105,10 @@ typedef struct {
     uint32_t (*params)(txp_param_t *tab, uint32_t max);   /* the host parameters (constant tables only) */
     int (*text)(uint32_t id, int32_t v, char *buf, uint32_t n);   /* v's text (constant tables only); -1: a number */
     void (*settle)(void);                /* main thread, not processing: run until a load is done (audio dropped) */
+    /* the lanes' activity, one entry an app block (any thread): the last n blocks (n <= TXP_ACT_N / 2), oldest first,
+     * into ev (each lane's engine events in the block, 255 at most) and pk (its peak: 0 silent, 1 .. 255 = -72 .. 0
+     * dBFS, before its mute); returns the blocks rendered so far (the newest is that count - 1) */
+    uint32_t (*act)(uint8_t (*ev)[TXP_LANES], uint8_t (*pk)[TXP_LANES], uint32_t n);
 } txp_slot_api_t;
 
 #define TXP_SLOT_DECL(n) extern const txp_slot_api_t txp_slot_##n;
@@ -106,6 +132,9 @@ void txp_inst_reset(txp_inst_t *in);
 void txp_inst_midi(txp_inst_t *in, uint32_t time, uint8_t st, uint8_t d1, uint8_t d2);   /* time: frame in the block */
 void txp_inst_param(txp_inst_t *in, uint32_t time, uint32_t id, double value);
 void txp_inst_param_now(txp_inst_t *in, uint32_t id, double value);   /* outside processing (a flush): queued */
+void txp_inst_event(txp_inst_t *in, uint32_t time, int kind, uint32_t a, int32_t v);   /* TXP_EV_MUTE / SOLO, timed */
+void txp_inst_event_now(txp_inst_t *in, int kind, uint32_t a, int32_t v);              /* (outside processing) */
+uint32_t txp_inst_act(const txp_inst_t *in, uint8_t (*ev)[TXP_LANES], uint8_t (*pk)[TXP_LANES], uint32_t n);
 void txp_inst_drain(txp_inst_t *in);     /* the queue applied (not active: and settled) */
 int txp_inst_get(const txp_inst_t *in, uint32_t id, double *value);
 int txp_inst_snap(const txp_inst_t *in, txp_snap_t *out);

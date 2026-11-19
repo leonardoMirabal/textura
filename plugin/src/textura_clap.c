@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura as a CLAP instrument: the entry, the factory and the plugin. clap-wrapper builds the VST3 and the Audio
  * Unit (v2) from the same code (plugin/CMakeLists.txt, make_clapfirst_plugins). From Frodhes' plugin/src/frodhes_clap.c,
- * without its window, its update checker and its UI core (step 1 has no window of its own: the host's generic
- * parameter view).
+ * without its update checker, with its own window (plugin/gui_clap.c, plugin/gui_core.c) over its own calls for the
+ * window (plugin/src/txp_ui.h, at the end of this file).
  *
  *   audio-ports   one stereo output, no input
  *   note-ports    one input, CLAP and MIDI dialects: notes, CC, pitch bend, program change, as the FM-1 takes them
@@ -14,6 +14,8 @@
  *   state         the scene the FM-1's user bank keeps, and the settings that are parameters (slot_bridge.h)
  *   latency       the bridge's (plugin/src/bridge.c): one app block + the oversampler, constant per rate
  *   tail          a fixed bound (TAIL_MS): the reverb's longest decay and the grain delay's feedback
+ *   gui           the window (macOS: an NSView; plugin/gui_win.c and gui_x11.c are the other systems', not built yet);
+ *                 its writes reach the app and the host through the UI queue (uq) at the next process call or flush
  * Sample rates: 44.1 kHz (the app's own), the 44.1 and 48 kHz families through an oversampler, any other from 1 to
  * 1536 kHz through a windowed sinc (bridge.c); outside that the instance refuses to activate and logs why. More than
  * TXP_SLOTS (16) instances in one process: the extra ones play silence and log why. */
@@ -22,8 +24,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <clap/clap.h>
+#include "../gui_size.h"
 #include "bridge.h"
+#include "txp_ui.h"
+#include "../gui_clap.h"
+#include "../gui_shot.h"
 
 #ifndef TXP_VERSION
 #define TXP_VERSION "0.0.0-dev"
@@ -46,7 +56,12 @@ static const clap_plugin_descriptor_t DESC = {
     .features = FEATURES,
 };
 
-typedef struct {
+#define UQ 1024u                         /* the window's writes waiting for the audio side (a power of two) */
+enum { UQ_BEGIN, UQ_VALUE, UQ_END, UQ_MUTE, UQ_SOLO };
+typedef struct { uint8_t type; uint32_t id; int32_t v; } uq_ev_t;
+#define PEND_S 0.3                       /* the window's own value wins this long after its write (then the app's) */
+
+typedef struct txp_plugin {
     clap_plugin_t plugin;
     const clap_host_t *host;
     const clap_host_log_t *log;
@@ -64,6 +79,19 @@ typedef struct {
     _Atomic uint32_t rescan_rev;         /* a state loaded while active: re-read the values once the app took it */
     _Atomic int rescan_tries;
     _Atomic int processing;
+    /* the window: its own pointer (plugin/gui_clap.c), its writes on their way (main thread in, audio thread or flush
+     * out), what it wrote last until the app shows it, its width and selected lane (saved with the project) */
+    const clap_host_state_t *hstate;
+    void *gui;
+    uq_ev_t uq[UQ];
+    _Atomic uint32_t uqw, uqr;
+    double *pend_t;
+    int32_t *pend_v;
+    double pend_mt[TXP_LANES], pend_st;
+    uint8_t pend_m[TXP_LANES];
+    uint16_t pend_s;
+    int win_w, sel;
+    int shot;                            /* TEXTURA_PLUGIN_GUI_SHOT set: the tests' extension (gui_shot.h) */
 } txp_plugin_t;
 
 static void say(txp_plugin_t *p, clap_log_severity sev, const char *msg)
@@ -123,10 +151,12 @@ static void p_events_in(txp_plugin_t *p, const clap_input_events_t *ev, int time
     }
 }
 static void p_out(txp_plugin_t *p, const clap_output_events_t *out);
+static void uq_drain(txp_plugin_t *p, const clap_output_events_t *out, int timed);
 static void p_flush(const clap_plugin_t *plugin, const clap_input_events_t *in, const clap_output_events_t *out)
 {
     txp_plugin_t *p = plugin->plugin_data;
     int proc = atomic_load(&p->processing);
+    uq_drain(p, out, p->active && proc);     /* (the window's writes first: the host's own come after them) */
     p_events_in(p, in, p->active && proc);   /* processing: the audio thread, between two blocks; else at once */
     if (!(p->active && proc)) txp_inst_drain(p->in);
     p_out(p, out);
@@ -176,12 +206,24 @@ static uint32_t lat_get(const clap_plugin_t *plugin)
 }
 static const clap_plugin_latency_t EXT_LATENCY = { lat_get };
 
+/* the state: the slot's (slot_bridge.h) and the window's own, "win" (its width, 0: the default) and "sel" (the lane
+ * selected), added before the closing brace (a build of before reads past them) */
+static int st_key(const char *j, const char *key, int *v)   /* "key":"N" in a flat object: 0 found */
+{
+    char pat[16];
+    const char *q;
+    snprintf(pat, sizeof pat, "\"%s\":\"", key);
+    if (!(q = strstr(j, pat))) return -1;
+    *v = atoi(q + strlen(pat));
+    return 0;
+}
 static bool st_save(const clap_plugin_t *plugin, const clap_ostream_t *s)
 {
     txp_plugin_t *p = plugin->plugin_data;
     static _Thread_local char buf[TXP_STATE_MAX];
-    int n = txp_inst_state_get(p->in, buf, TXP_STATE_MAX), done = 0;
-    if (n < 0) return false;
+    int n = txp_inst_state_get(p->in, buf, TXP_STATE_MAX - 64), done = 0;
+    if (n < 2 || buf[n - 1] != '}') return false;
+    n += snprintf(buf + n - 1, 64, ",\"win\":\"%d\",\"sel\":\"%d\"}", p->win_w, p->sel) - 1;
     while (done < n) {
         int64_t w = s->write(s, buf + done, (uint64_t)(n - done));
         if (w <= 0) return false;
@@ -197,6 +239,14 @@ static bool st_load(const clap_plugin_t *plugin, const clap_istream_t *s)
     while (got < (int64_t)sizeof buf - 1 && (r = s->read(s, buf + got, (uint64_t)(sizeof buf - 1 - (size_t)got))) > 0) got += r;
     buf[got] = 0;
     if (txp_inst_state_set(p->in, buf)) { say(p, CLAP_LOG_WARNING, "Textura: the saved state could not be read"); return false; }
+    {   /* the window's (a state of before has none: the default size, lane 1) */
+        int w = 0, k = 0;
+        (void)st_key(buf, "win", &w);
+        (void)st_key(buf, "sel", &k);
+        p->sel = k >= 0 && k < (int)TXP_LANES ? k : 0;
+        w = w >= TXG_MIN_W && w <= TXG_MAX_W ? w : 0;
+        if (w != p->win_w) { p->win_w = w; txg_clap_size_changed(p->gui); }
+    }
     if (!p->active) { if (p->hparams) p->hparams->rescan(p->host, CLAP_PARAM_RESCAN_VALUES); }
     else {                               /* applied by the audio thread's next steps: re-read the values after it */
         atomic_store(&p->rescan_rev, txp_inst_rev(p->in));
@@ -214,10 +264,18 @@ static bool pl_init(const clap_plugin_t *plugin)
     p->log = p->host->get_extension(p->host, CLAP_EXT_LOG);
     p->hparams = p->host->get_extension(p->host, CLAP_EXT_PARAMS);
     p->hlat = p->host->get_extension(p->host, CLAP_EXT_LATENCY);
+    p->hstate = p->host->get_extension(p->host, CLAP_EXT_STATE);
     p->tab = txp_params(&p->np);
     p->host_view = calloc(p->np ? p->np : 1u, sizeof *p->host_view);
     p->def = calloc(p->np ? p->np : 1u, sizeof *p->def);
-    if (!p->host_view || !p->def) return false;
+    p->pend_t = calloc(p->np ? p->np : 1u, sizeof *p->pend_t);
+    p->pend_v = calloc(p->np ? p->np : 1u, sizeof *p->pend_v);
+    if (!p->host_view || !p->def || !p->pend_t || !p->pend_v) return false;
+    {
+        const char *s = getenv("TEXTURA_PLUGIN_GUI_SHOT");
+        p->shot = s && *s && strcmp(s, "0");
+    }
+    p->gui = txg_clap_new(p->host, p);   /* (the window's state; the window opens on the host's create) */
     p->in = txp_inst_new();
     if (!p->in) return false;
     if (txp_inst_slot(p->in) < 0)
@@ -233,9 +291,12 @@ static bool pl_init(const clap_plugin_t *plugin)
 static void pl_destroy(const clap_plugin_t *plugin)
 {
     txp_plugin_t *p = plugin->plugin_data;
+    txg_clap_free(p->gui);
     txp_inst_free(p->in);
     free(p->host_view);
     free(p->def);
+    free(p->pend_t);
+    free(p->pend_v);
     free(p);
 }
 static bool pl_activate(const clap_plugin_t *plugin, double rate, uint32_t min_frames, uint32_t max_frames)
@@ -291,6 +352,7 @@ static clap_process_status pl_process(const clap_plugin_t *plugin, const clap_pr
     float *l, *r;
     if (pr->transport && (pr->transport->flags & CLAP_TRANSPORT_HAS_TEMPO) && pr->transport->tempo > 0.0)
         tempo10 = (uint32_t)lround(pr->transport->tempo * 10.0);
+    uq_drain(p, pr->out_events, 1);
     for (k = 0; k < n; k++) {
         const clap_event_header_t *h = ev->get(ev, k);
         if (h->space_id != CLAP_CORE_EVENT_SPACE_ID) continue;
@@ -366,8 +428,12 @@ static void p_out(txp_plugin_t *p, const clap_output_events_t *out)
 
 static const void *pl_ext(const clap_plugin_t *plugin, const char *id)
 {
-    (void)plugin;
+    const txp_plugin_t *p = plugin->plugin_data;
     if (!strcmp(id, CLAP_EXT_PARAMS)) return &EXT_PARAMS;
+    if (!strcmp(id, CLAP_EXT_GUI)) return txg_clap_ext();
+    if (!strcmp(id, TXG_EXT_GUI_SHOT)) return p->shot ? txg_clap_shot_ext() : 0;   /* (the tests only) */
+    if (!strcmp(id, CLAP_EXT_POSIX_FD_SUPPORT)) return txg_clap_fd_ext();         /* (Linux: the X11 view) */
+    if (!strcmp(id, CLAP_EXT_TIMER_SUPPORT)) return txg_clap_timer_ext();
     if (!strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &EXT_AUDIO;
     if (!strcmp(id, CLAP_EXT_NOTE_PORTS)) return &EXT_NOTES;
     if (!strcmp(id, CLAP_EXT_LATENCY)) return &EXT_LATENCY;
@@ -414,6 +480,158 @@ static const clap_plugin_t *f_create(const clap_plugin_factory_t *f, const clap_
 static uint32_t f_count(const clap_plugin_factory_t *f) { (void)f; return 1; }
 static const clap_plugin_descriptor_t *f_desc(const clap_plugin_factory_t *f, uint32_t i) { (void)f; return i ? 0 : &DESC; }
 static const clap_plugin_factory_t FACTORY = { f_count, f_desc, f_create };
+
+/* ---- the window's calls (txp_ui.h) */
+static double mono_s(void)
+{
+#ifdef _WIN32
+    LARGE_INTEGER f, t;
+    QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&t);
+    return (double)t.QuadPart / (double)f.QuadPart;
+#else
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec + t.tv_nsec * 1e-9;
+#endif
+}
+static int out_push(const clap_output_events_t *out, uint8_t type, uint32_t id, double v)
+{
+    if (type == UQ_VALUE) {
+        clap_event_param_value_t o;
+        memset(&o, 0, sizeof o);
+        o.header.size = sizeof o;
+        o.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        o.header.type = CLAP_EVENT_PARAM_VALUE;
+        o.param_id = id;
+        o.note_id = -1; o.port_index = -1; o.channel = -1; o.key = -1;
+        o.value = v;
+        return out->try_push(out, &o.header);
+    } else {
+        clap_event_param_gesture_t g;
+        memset(&g, 0, sizeof g);
+        g.header.size = sizeof g;
+        g.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        g.header.type = type == UQ_BEGIN ? CLAP_EVENT_PARAM_GESTURE_BEGIN : CLAP_EVENT_PARAM_GESTURE_END;
+        g.param_id = id;
+        return out->try_push(out, &g.header);
+    }
+}
+/* the window's writes, in their order: told to the host (gestures, values), then into the app (timed: the audio
+ * thread, for this process call's block; else queued, the flush applies them). The host's list full: the rest wait */
+static void uq_drain(txp_plugin_t *p, const clap_output_events_t *out, int timed)
+{
+    uint32_t r = atomic_load_explicit(&p->uqr, memory_order_relaxed);
+    while (r != atomic_load_explicit(&p->uqw, memory_order_acquire)) {
+        const uq_ev_t *e = &p->uq[r & (UQ - 1u)];
+        int i;
+        if (e->type <= UQ_END && out && !out_push(out, e->type, e->id, e->v)) return;
+        if (e->type == UQ_VALUE) {
+            if ((i = txp_param_index(e->id)) >= 0) p->host_view[i] = e->v;
+            if (timed) txp_inst_param(p->in, 0, e->id, e->v); else txp_inst_param_now(p->in, e->id, e->v);
+        } else if (e->type == UQ_MUTE || e->type == UQ_SOLO) {
+            int k = e->type == UQ_MUTE ? TXP_EV_MUTE : TXP_EV_SOLO;
+            if (timed) txp_inst_event(p->in, 0, k, e->id, e->v); else txp_inst_event_now(p->in, k, e->id, e->v);
+        }
+        atomic_store_explicit(&p->uqr, ++r, memory_order_release);
+    }
+}
+static void uq_put(txp_plugin_t *c, uint8_t type, uint32_t id, int32_t v)
+{
+    uint32_t w = atomic_load_explicit(&c->uqw, memory_order_relaxed);
+    if (w - atomic_load_explicit(&c->uqr, memory_order_acquire) >= UQ) return;   /* (full: dropped; a host that never
+                                          * processes nor flushes) */
+    c->uq[w & (UQ - 1u)] = (uq_ev_t){ type, id, v };
+    atomic_store_explicit(&c->uqw, w + 1u, memory_order_release);
+    if (c->hparams && c->hparams->request_flush) c->hparams->request_flush(c->host);   /* (the host calls flush, or
+                                          * process, and the app and the host get it) */
+}
+txp_core *txp_core_of(const clap_plugin_t *plugin) { return plugin ? plugin->plugin_data : 0; }
+void **txp_ui_gui_data(txp_core *c) { return &c->gui; }
+int txp_ui_has_slot(const txp_core *c) { return txp_inst_slot(c->in) >= 0; }
+int txp_ui_snap(const txp_core *c, txp_snap_t *out)
+{
+    if (txp_inst_snap(c->in, out) == 0) return 0;
+    memset(out, 0, sizeof *out);
+    out->ui.nlane = 4;
+    return -1;
+}
+int txp_ui_get(const txp_core *c, uint32_t id)
+{
+    int i = txp_param_index(id);
+    double v;
+    if (i < 0 || txp_inst_get(c->in, id, &v)) return -1;
+    if (c->pend_t[i] > 0.0) {            /* the window's write until the app shows it (or PEND_S passed) */
+        if ((int)v == c->pend_v[i] || mono_s() - c->pend_t[i] >= PEND_S) ((txp_core *)c)->pend_t[i] = 0.0;
+        else return c->pend_v[i];
+    }
+    return (int)v;
+}
+int txp_ui_hi(uint32_t id)
+{
+    uint32_t n;
+    const txp_param_t *t = txp_params(&n);
+    int i = txp_param_index(id);
+    return i < 0 ? -1 : t[i].hi;
+}
+int txp_ui_default(const txp_core *c, uint32_t id) { int i = txp_param_index(id); return i < 0 ? -1 : (int)c->def[i]; }
+void txp_ui_begin(txp_core *c, uint32_t id) { if (txp_param_index(id) >= 0) uq_put(c, UQ_BEGIN, id, 0); }
+void txp_ui_end(txp_core *c, uint32_t id) { if (txp_param_index(id) >= 0) uq_put(c, UQ_END, id, 0); }
+void txp_ui_set(txp_core *c, uint32_t id, int v)
+{
+    int i = txp_param_index(id), hi = txp_ui_hi(id);
+    if (i < 0) return;
+    v = v < 0 ? 0 : v > hi ? hi : v;
+    if (txp_ui_get(c, id) == v) return;
+    c->pend_v[i] = v;
+    c->pend_t[i] = mono_s();
+    uq_put(c, UQ_VALUE, id, v);
+}
+static void ui_dirty(txp_core *c) { if (c->hstate && c->hstate->mark_dirty) c->hstate->mark_dirty(c->host); }
+void txp_ui_mute(txp_core *c, uint32_t lane, int on)
+{
+    if (lane >= TXP_LANES) return;
+    c->pend_m[lane] = (uint8_t)(on != 0);
+    c->pend_mt[lane] = mono_s();
+    uq_put(c, UQ_MUTE, lane, on != 0);
+    ui_dirty(c);
+}
+void txp_ui_solo(txp_core *c, uint32_t mask)
+{
+    c->pend_s = (uint16_t)mask;
+    c->pend_st = mono_s();
+    uq_put(c, UQ_SOLO, 0, (int32_t)(mask & 0xFFFFu));
+    ui_dirty(c);
+}
+void txp_ui_mutes(const txp_core *c, uint32_t *mute, uint32_t *solo)
+{
+    txp_core *w = (txp_core *)c;         /* (the pending writes resolved) */
+    static txp_snap_t sn;                /* (the main thread's alone) */
+    double now = mono_s();
+    uint32_t k, m = 0, s = 0;
+    if (txp_ui_snap(c, &sn) == 0) {
+        for (k = 0; k < TXP_LANES; k++) if (sn.ui.lane[k].mute) m |= 1u << k;
+        s = sn.ui.solo;
+    }
+    for (k = 0; k < TXP_LANES; k++) {
+        if (w->pend_mt[k] <= 0.0) continue;
+        if ((uint32_t)w->pend_m[k] == (m >> k & 1u) || now - w->pend_mt[k] >= PEND_S) w->pend_mt[k] = 0.0;
+        else m = (m & ~(1u << k)) | (uint32_t)w->pend_m[k] << k;
+    }
+    if (w->pend_st > 0.0) {
+        if (w->pend_s == s || now - w->pend_st >= PEND_S) w->pend_st = 0.0;
+        else s = w->pend_s;
+    }
+    *mute = m; *solo = s;
+}
+uint32_t txp_ui_act(const txp_core *c, uint8_t (*ev)[TXP_LANES], uint8_t (*pk)[TXP_LANES], uint32_t n)
+{
+    return txp_inst_act(c->in, ev, pk, n);
+}
+int txp_ui_win_w(const txp_core *c) { return c->win_w; }
+void txp_ui_win_w_set(txp_core *c, int w) { c->win_w = w >= TXG_MIN_W && w <= TXG_MAX_W ? w : 0; }
+int txp_ui_sel(const txp_core *c) { return c->sel; }
+void txp_ui_sel_set(txp_core *c, int k) { if (k >= 0 && k < (int)TXP_LANES) c->sel = k; }
 
 /* the entry's three functions (plugin/src/clap_entry.cpp exports clap_entry from them in every format) */
 bool txp_entry_init(const char *path) { (void)path; return true; }

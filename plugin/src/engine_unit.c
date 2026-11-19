@@ -43,4 +43,5 @@ const txp_slot_api_t TXP_CAT(txp_slot_, TXP_SLOT) = {
     .drain = sb_drain, .avail = sb_avail, .read = sb_read, .now = sb_now, .room = sb_room, .set_exact = sb_set_exact,
     .efr = sb_efr, .efw = sb_efw, .snapshot = sb_snapshot, .state_get = sb_state_get, .state_set = sb_state_set,
     .set_tempo = sb_set_tempo, .stats = sb_stats, .params = sb_params, .text = sb_text, .settle = sb_settle,
+    .act = sb_act,
 };
