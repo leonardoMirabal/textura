@@ -160,7 +160,14 @@ static int host_fl_check(const char *what, uint32_t at, uint32_t n)
 /* Textura: a window of the flash the app keeps its own records in (the scene banks: scenes.c), HOST_FLW_LEN bytes
  * from store.h's scenes, erased (0xFF) at the start; checked as above, kept in the FRODHES_FLASH file after the rest */
 #define HOST_FLW_AT SCENES_AT
+#ifdef SCENES_WIN_SECT
+#define HOST_FLW_LEN (SCENES_WIN_SECT * 0x1000u)   /* (more lanes: store.h; a desktop's window, not the FM-1's map:
+                                                 * no allow-list) */
+#define HOST_FLW_CHECK(what, at, n) 0
+#else
+#define HOST_FLW_CHECK(what, at, n) host_fl_check(what, at, n)
 #define HOST_FLW_LEN (SCENES_SECT * 0x1000u)
+#endif
 static uint8_t host_flw[HOST_FLW_LEN], host_flw_ok;
 static int host_flw_in(uint32_t at, uint32_t n)
 {
@@ -175,14 +182,14 @@ static __attribute__((unused)) int fl_window_read(uint32_t at, void *p, uint32_t
 }
 static __attribute__((unused)) int fl_window_erase(uint32_t at)
 {
-    if ((at & 0xFFFu) || !host_flw_in(at, 0x1000u) || host_fl_check("erase window", at, 0x1000u)) return -1;
+    if ((at & 0xFFFu) || !host_flw_in(at, 0x1000u) || HOST_FLW_CHECK("erase window", at, 0x1000u)) return -1;
     memset(host_flw + (at - HOST_FLW_AT), 0xFF, 0x1000u);
     return 0;
 }
 static __attribute__((unused)) int fl_window_write(uint32_t at, const void *p, uint32_t n)
 {
     uint32_t i;
-    if (!host_flw_in(at, n) || host_fl_check("write window", at, n)) return -1;
+    if (!host_flw_in(at, n) || HOST_FLW_CHECK("write window", at, n)) return -1;
     for (i = 0; i < n; i++) host_flw[at - HOST_FLW_AT + i] &= ((const uint8_t *)p)[i];   /* (NOR: bits only clear) */
     return 0;
 }

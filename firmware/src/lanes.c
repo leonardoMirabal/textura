@@ -32,8 +32,20 @@
 #include "tx_core_ring.h"
 
 #define LN_N TX_MIX_SLOTS                       /* lanes */
+#if LN_N > 4
+#define LN_QN 512u                              /* (more lanes: a scene's load queues each lane's engine, PRESET, TYPE,
+                                                 * level, pan ... at once; 128 would drop the last lanes') */
+#else
 #define LN_QN 128u                              /* queued events (a power of two) */
+#endif
+#ifdef LN_HQ
+/* LN_HQ: a desktop (the plugin, plugin/src/engine_unit.c, and the host build it is checked against): no CPU limit, so
+ * nothing is thinned: the governor's pool has no end (it never takes a hero) and the grain delay plays every grain
+ * (tx_fx_gd_cap's model with fx.two: no cap), as the audition player does (audition/tx_web.c) */
+#define LN_GOV_POOL_US 1000000000u
+#else
 #define LN_GOV_POOL_US TX_GOV_POOL_DEVICE       /* the sources' CPU pool on the FM-1 (CLAUDE.md: ~2500 us a block) */
+#endif
 /* The governor's costs, FM-1 us a block, from the app:
  *   LN_CLOCK(), LN_CLOCK_US(d)   the device: its free-running clock (wrapping) and a difference of it in us; each
  *                                lane's block is timed (its generator and engine) and so
@@ -147,7 +159,7 @@ static ln_out_t ln_out[LN_N] LN_POOL;
 static struct { uint32_t gv_us[2], busy_us, pipe_us; volatile uint8_t pipe_on; } __attribute__((aligned(64))) ln_c1t LN_POOL;
                                                 /* (the second core's own line: its job's grain voices and busy time;
                                                  * LN_PIPE: the mix end's us, and on while it runs it there) */
-#define LN_GV 4u                                /* the split's items past the lanes: the grain delay's voices, the echo
+#define LN_GV LN_N                              /* the split's items past the lanes: the grain delay's voices, the echo
                                                  * and the first half (LN_GV), the second half (LN_GV + 1) */
 
 #if defined(LN_CLOCK) && defined(LN_ISR_US)
@@ -225,6 +237,9 @@ static void ln_init(void)
     for (i = 0; i < sizeof ln; i++) b[i] = 0;
     tx_mix_init(&ln.mix);
     tx_fx_init(&ln.fx);
+#ifdef LN_HQ
+    ln.fx.two = 1;                              /* (every grain: no CPU limit) */
+#endif
 #ifdef LN_PAR
     ln.fx.rev.body_run = ln_rev_run; ln.fx.rev.body_wait = ln_rev_wait;
     ln.fx.rev.par.run = ln_krun; ln.fx.rev.par.wait = ln_rev_wait;   /* (and the mix's DRIVE: R there) */

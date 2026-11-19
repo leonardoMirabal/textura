@@ -19,6 +19,16 @@
 #include "tx_core_lin.h"
 
 #define SC_N LN_N                               /* lanes */
+#if SC_N > 4
+/* more lanes (the desktop plugin: up to 16): how many are in use, 1 .. SC_N (LANES, params.c; a scene keeps it). A
+ * lane past it is empty and costs nothing; a sound put on one (the browser, CC 20, the SOUND card) takes the count up
+ * to it; LANES lowered empties the lanes past it (scenes.c scn_lane_clear). A landscape's start fills lanes 1 .. 4, as
+ * on the FM-1 */
+#define SC_LAND_N 4u
+static uint8_t sc_nlane = 4u;
+#else
+#define SC_LAND_N SC_N
+#endif
 #define SC_STEPS 14                             /* HOW ACTIVE as a step 1 .. 14 (0: off), as the player's */
 #define SC_QUICK_MS 50u                         /* the classic engines' glide: 20 a second, 0.4 of the way each */
 #define SC_HOLD_NOTE 60u                        /* the key a lane holds down (the source, a held classic engine) */
@@ -368,6 +378,9 @@ static void sc_sound_set(uint32_t k, uint32_t f, uint32_t i)
     uint8_t run, c, st;
     if (k >= SC_N || f >= LS_N || i >= LS[f].n || (sc.snd[k] == (int)i && sc.lf[k] == f)) return;
     run = sc.run[k]; c = sc.cnt[k]; st = sc.step[k];
+#if SC_N > 4
+    if (k >= sc_nlane) sc_nlane = (uint8_t)(k + 1u);
+#endif
     sc_load(k, f, i);
     if (run) { sc_count(k, c); sc_step(k, st); }
 }
@@ -391,8 +404,11 @@ static void sc_family(uint32_t f)               /* setFamily: every lane stopped
     sc.fam_want = sc.fam; sc.fam_pend = 0;
     for (k = 0; k < SC_N; k++) { if (sc.run[k]) sc_start(k, 0); sc.snd[k] = -1; sc.mem_cnt[k] = 0; sc_mute(k, 0); }
     for (k = 0; k < SC_N; k++) sc.lf[k] = sc.fam;
-    for (k = 0; k < SC_N && k < LS[sc.fam].n; k++) sc_load(k, sc.fam, k);
+    for (k = 0; k < SC_LAND_N && k < LS[sc.fam].n; k++) sc_load(k, sc.fam, k);
     sc.sel = 0;
+#if SC_N > 4
+    sc_nlane = SC_LAND_N;
+#endif
 }
 static void sc_start_landscape(void)            /* the first three sounds at once, low: 2 / 1 / 1 of them, rare */
 {

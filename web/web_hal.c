@@ -92,7 +92,11 @@ static int settings_save_poll(void) { return 0; }
  * store.h's scenes; the page keeps it in localStorage too (web_flw, web_flw_take_dirty) */
 #include "store.h"
 #define WEB_FLW_AT SCENES_AT
+#ifdef SCENES_WIN_SECT
+#define WEB_FLW_LEN (SCENES_WIN_SECT * 0x1000u)   /* (more lanes, the plugin: store.h) */
+#else
 #define WEB_FLW_LEN (SCENES_SECT * 0x1000u)
+#endif
 static uint8_t web_flw[WEB_FLW_LEN], web_flw_ok, web_flw_dirty;
 static int web_flw_in(uint32_t at, uint32_t n)
 {
@@ -138,11 +142,18 @@ static void app_main(void);
 
 static void platform_poll(void)
 {
+#ifdef DINGHY_PLUGIN
+    /* the desktop plugin (plugin/src/slot_bridge.h): the clock is the slot's own milliseconds, the one the next pass
+     * runs in (as tests/host.c: its pass after millisecond k sees fm1_ms = k, the first one too) */
+    fm1_ms = (uint32_t)emscripten_get_now();
+    emscripten_sleep(1);
+#else
     static double t0;
     double now = emscripten_get_now();
     if (t0 == 0.0) t0 = now;
     fm1_ms = (uint32_t)(now - t0);
     emscripten_sleep(1);                       /* the browser's turn: input, the screen, the audio callback */
+#endif
 }
 
 /* ---- the page's side */

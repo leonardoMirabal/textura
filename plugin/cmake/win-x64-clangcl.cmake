@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Windows x64 from macOS (or Linux): clang-cl + lld-link (LLVM 20, Homebrew llvm@20 + lld@20) over the Windows SDK and
+# the MSVC CRT laid out by xwin (tools/plugin_win_toolchain.sh puts them in .local/win-toolchain/sdk; nothing of it is
+# committed). On a Windows machine (CI's windows-2022) the same file uses the installed LLVM's clang-cl + lld-link and
+# the SDK / CRT of the Visual Studio environment (vcvars64: INCLUDE, LIB), no xwin.
+#   cmake -S plugin -B build/plugin-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=plugin/cmake/win-x64-clangcl.cmake
+if(CMAKE_HOST_WIN32)   # native: clang-cl from LLVM (TXP_LLVM_BIN, else PATH), the MSVC environment's headers and libraries
+    find_program(_txp_clangcl clang-cl HINTS "${TXP_LLVM_BIN}" "$ENV{ProgramFiles}/LLVM/bin" REQUIRED)
+    get_filename_component(_txp_llvm "${_txp_clangcl}" DIRECTORY)
+    set(CMAKE_C_COMPILER "${_txp_clangcl}")
+    set(CMAKE_CXX_COMPILER "${_txp_clangcl}")
+    set(CMAKE_LINKER "${_txp_llvm}/lld-link.exe" CACHE FILEPATH "")
+    set(CMAKE_AR "${_txp_llvm}/llvm-lib.exe" CACHE FILEPATH "")
+    set(CMAKE_NM "${_txp_llvm}/llvm-nm.exe" CACHE FILEPATH "")
+    set(CMAKE_CXX_FLAGS_INIT "/EHsc")
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+    return()
+endif()
+set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_SYSTEM_VERSION 10.0)
+set(CMAKE_SYSTEM_PROCESSOR AMD64)
+get_filename_component(_txp_root "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+if(EXISTS "${_txp_root}/.local/win-toolchain/sdk")
+    set(_txp_xwin_default "${_txp_root}/.local/win-toolchain/sdk")
+else()   # (a git worktree under .claude/worktrees/<name>: the main checkout's .local)
+    get_filename_component(_txp_xwin_default "${_txp_root}/../../../.local/win-toolchain/sdk" ABSOLUTE)
+endif()
+set(TXP_XWIN "${_txp_xwin_default}" CACHE PATH "the xwin splat (crt/, sdk/)")
+set(TXP_LLVM_BIN "/opt/homebrew/opt/llvm@20/bin" CACHE PATH "clang-cl, llvm-lib, llvm-rc, llvm-mt, llvm-nm")
+set(TXP_LLD_BIN "/opt/homebrew/opt/lld@20/bin" CACHE PATH "lld-link (the same LLVM version as clang-cl: LTO)")
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES TXP_XWIN TXP_LLVM_BIN TXP_LLD_BIN)
+
+set(CMAKE_C_COMPILER "${TXP_LLVM_BIN}/clang-cl")
+set(CMAKE_CXX_COMPILER "${TXP_LLVM_BIN}/clang-cl")
+set(CMAKE_C_COMPILER_TARGET x86_64-pc-windows-msvc)
+set(CMAKE_CXX_COMPILER_TARGET x86_64-pc-windows-msvc)
+set(CMAKE_LINKER "${TXP_LLD_BIN}/lld-link" CACHE FILEPATH "")
+set(CMAKE_AR "${TXP_LLVM_BIN}/llvm-lib" CACHE FILEPATH "")
+set(CMAKE_NM "${TXP_LLVM_BIN}/llvm-nm" CACHE FILEPATH "")
+set(CMAKE_RC_COMPILER "${TXP_LLVM_BIN}/llvm-rc" CACHE FILEPATH "")
+set(CMAKE_MT "${TXP_LLVM_BIN}/llvm-mt" CACHE FILEPATH "")
+
+set(_txp_inc "/imsvc \"${TXP_XWIN}/crt/include\" /imsvc \"${TXP_XWIN}/sdk/include/ucrt\" /imsvc \"${TXP_XWIN}/sdk/include/um\" /imsvc \"${TXP_XWIN}/sdk/include/shared\"")
+set(CMAKE_C_FLAGS_INIT "${_txp_inc}")
+set(CMAKE_CXX_FLAGS_INIT "${_txp_inc} /EHsc")
+set(CMAKE_RC_FLAGS_INIT "-I \"${TXP_XWIN}/sdk/include/um\" -I \"${TXP_XWIN}/sdk/include/shared\"")
+set(_txp_lib "/libpath:\"${TXP_XWIN}/crt/lib/x86_64\" /libpath:\"${TXP_XWIN}/sdk/lib/um/x86_64\" /libpath:\"${TXP_XWIN}/sdk/lib/ucrt/x86_64\"")
+foreach(_k EXE SHARED MODULE)
+    set(CMAKE_${_k}_LINKER_FLAGS_INIT "${_txp_lib}")
+endforeach()
+# the static CRT: the DLL then needs no Visual C++ redistributable on the user's machine
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)

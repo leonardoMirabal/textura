@@ -80,6 +80,21 @@ static void p_cat(char *d, const char *s, uint32_t max) { uint32_t n = 0; while 
 #define P_MAT 7u                                /* the matrix: slot x 4 + SOURCE TARGET DEPTH SPREAD, 64 MOD CC (mod.c) */
 #define P_ENV 6u                                /* the envelopes: n x 16 + param; the followers: 32 + n x 16 + param (mod.c) */
 #define P_MODS(s) ((s) == P_LFO || (s) == P_ENV || (s) == P_MAT)   /* the modulation's scopes (mod.c's) */
+/* the lanes' scopes: lane k (0-based) is scope P_LS(k). Lanes 1 .. 4 are scopes 0 .. 3, as ever; a build with more
+ * lanes (the desktop plugin: SC_N up to 16, plugin/) has lanes 5 .. 16 at scopes 16 .. 27: new ids, the old ones never
+ * move (a scene's records, NRPN, the host's automation) */
+#if SC_N > 4
+#define P_LS(k) ((uint32_t)(k) < 4u ? (uint32_t)(k) : (uint32_t)(k) + 12u)
+#define P_IS_LANE(s) ((uint32_t)(s) < 4u || ((uint32_t)(s) >= 16u && (uint32_t)(s) < SC_N + 12u))
+#define P_NOT_LANE(s) (!P_IS_LANE(s))
+#define P_LANE_OF(s) ((uint32_t)(s) < 4u ? (uint32_t)(s) : (uint32_t)(s) - 12u)   /* (a lane's scope: its lane) */
+typedef char p_lanes_fit[SC_N <= 16u ? 1 : -1];
+#else
+#define P_LS(k) (k)
+#define P_IS_LANE(s) ((s) < P_LANES)
+#define P_NOT_LANE(s) ((s) >= P_LANES)
+#define P_LANE_OF(s) (s)
+#endif
 #define NOID_P 0xFFFFu
 enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_ODRIVE0 = 32, PL_OFILTER0 = 36, PL_GPART = 48,
        PL_GCYC };   /* (PL_OFILTER0:
@@ -93,7 +108,24 @@ enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP0 = 26, PG_BPM = 32
 #define PG_GD(e) (PG_GRAIN0 + (e) + ((e) >= TX_GD_MOD))     /* the grain param e's global id */
 #define PG_GDE(i) ((i) - PG_GRAIN0 - ((i) > PG_GSYNC))      /* the grain param of global id i (i < PG_REVERB0, not SYNC) */
 typedef char pg_gd_fits[TX_GD_NP + 1 <= PG_REVERB0 - PG_GRAIN0 ? 1 : -1];
+#if SC_N > 4
+/* (more lanes: LANE 5 .. 16 CHANNEL, then FX CHANNEL: the channel of the globals' CCs, 0 OFF, 1 .. 16, by default 5 as
+ * on the FM-1: the globals' CC numbers and the lanes' share none, so lane 5 on channel 5 still works) */
+enum { PG_LCH4 = PG_TRANS + 1, PG_CHG = PG_LCH4 + 12, PG_NLANE };   /* (PG_NLANE: LANES, the lanes in use - 1) */
+static void scn_lane_clear(uint32_t k);         /* (scenes.c: LANES lowered, lane k emptied) */
+#define PG_LCH(k) ((k) < 4u ? PG_LCH0 + (k) : PG_LCH4 + (k) - 4u)   /* lane k's MIDI channel's global index */
+static int p_lch_lane(uint32_t i)               /* the lane whose channel global index i is (-1: none) */
+{
+    if (i >= PG_LCH0 && i < PG_LCH0 + 4u) return (int)(i - PG_LCH0);
+    if (i >= PG_LCH4 && i < PG_LCH4 + SC_N - 4u) return (int)(i - PG_LCH4 + 4u);
+    return -1;
+}
+static uint8_t p_chg = 5u;                      /* FX CHANNEL (1-based; 0 OFF) */
+#define P_CH_IS_GLOBAL(ch) ((ch) + 1u == p_chg)
+#else
 #define P_CH_GLOBAL 4u                          /* MIDI channel 5 (0-based 4) */
+#define P_CH_IS_GLOBAL(ch) ((ch) == P_CH_GLOBAL)
+#endif
 
 /* how a value reads */
 enum { F_NUM, F_ENUM, F_ONOFF, F_SOUND, F_COUNT, F_ACTIVE, F_PAN, F_HZ_FL, F_MS_GD, F_MS_GS, F_MS_PD, F_SEMI,
@@ -212,10 +244,19 @@ static const p_gx_t PGX[] = {
     {PG_SELCH, "SELECTED CH", 16, F_MCH, PGX_NODEF}, {PG_LCH0, "LANE 1 CHANNEL", 16, F_MCH, PGX_NODEF},
     {PG_LCH0 + 1, "LANE 2 CHANNEL", 16, F_MCH, PGX_NODEF}, {PG_LCH0 + 2, "LANE 3 CHANNEL", 16, F_MCH, PGX_NODEF},
     {PG_LCH0 + 3, "LANE 4 CHANNEL", 16, F_MCH, PGX_NODEF},
+#if SC_N > 4
+    {PG_LCH4, "LANE 5 CHANNEL", 16, F_MCH, PGX_NODEF}, {PG_LCH4 + 1, "LANE 6 CHANNEL", 16, F_MCH, PGX_NODEF},
+    {PG_LCH4 + 2, "LANE 7 CHANNEL", 16, F_MCH, PGX_NODEF}, {PG_LCH4 + 3, "LANE 8 CHANNEL", 16, F_MCH, PGX_NODEF},
+    {PG_LCH4 + 4, "LANE 9 CHANNEL", 16, F_MCH, PGX_NODEF}, {PG_LCH4 + 5, "LANE 10 CHANNEL", 16, F_MCH, PGX_NODEF},
+    {PG_LCH4 + 6, "LANE 11 CHANNEL", 16, F_MCH, PGX_NODEF}, {PG_LCH4 + 7, "LANE 12 CHANNEL", 16, F_MCH, PGX_NODEF},
+    {PG_LCH4 + 8, "LANE 13 CHANNEL", 16, F_MCH, PGX_NODEF}, {PG_LCH4 + 9, "LANE 14 CHANNEL", 16, F_MCH, PGX_NODEF},
+    {PG_LCH4 + 10, "LANE 15 CHANNEL", 16, F_MCH, PGX_NODEF}, {PG_LCH4 + 11, "LANE 16 CHANNEL", 16, F_MCH, PGX_NODEF},
+    {PG_CHG, "FX CHANNEL", 16, F_MCH, PGX_NODEF}, {PG_NLANE, "LANES", SC_N - 1u, F_PLUS1, PGX_NODEF},
+#endif
 };
 static const p_gx_t *p_gx(uint32_t id)
 {
-    uint32_t i, x = P_IDX(id) | (P_SCOPE(id) < P_LANES ? PGX_LANE : 0u);
+    uint32_t i, x = P_IDX(id) | (P_IS_LANE(P_SCOPE(id)) ? PGX_LANE : 0u);
     if (P_SCOPE(id) != P_GLOBAL && x < PGX_LANE) return 0;
     for (i = 0; i < sizeof PGX / sizeof PGX[0]; i++) if (PGX[i].idx == x) return &PGX[i];
     return 0;
@@ -323,7 +364,7 @@ static void p_card_set(uint32_t k, uint32_t i, uint32_t v)
     if (i >= c->n) return;
     if (v > c->hi[i]) v = c->hi[i];
     c->cv[i] = (uint8_t)v;
-    if (mod_holds(PID(k, PL_CARD0 + i))) return;   /* (modulated: the base only; mod.c sets it) */
+    if (mod_holds(PID(P_LS(k), PL_CARD0 + i))) return;   /* (modulated: the base only; mod.c sets it) */
     x = c->kind[i] & CK_INV ? c->hi[i] - v : v;
     if (c->kind[i] & CK_HOST) ln_host(k, c->id[i], x, 0);
     else ln_param(k, c->id[i], x);
@@ -347,9 +388,9 @@ static int p_valid(uint32_t id)
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
     if (p_fx_desc(id) || p_gx(id)) return 1;
     if (P_MODS(s)) return mod_valid(id);
-    if (s >= P_LANES) return 0;
+    if (P_NOT_LANE(s)) return 0;
     if (i <= PL_PAN) return 1;
-    return i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX && i - PL_CARD0 < p_cards(s)->n;
+    return i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX && i - PL_CARD0 < p_cards(P_LANE_OF(s))->n;
 }
 static const char *p_lab(uint32_t id)
 {
@@ -359,8 +400,8 @@ static const char *p_lab(uint32_t id)
     if (d) return d->name;
     if (p_gx(id)) return p_gx(id)->lab;
     if (P_MODS(s) && mod_valid(id)) return mod_lab(id);
-    if (s < P_LANES && i <= PL_PAN) return L[i];
-    if (s < P_LANES && i >= PL_CARD0 && i - PL_CARD0 < p_cards(s)->n) return p_cards(s)->lab[i - PL_CARD0];
+    if (P_IS_LANE(s) && i <= PL_PAN) return L[i];
+    if (P_IS_LANE(s) && i >= PL_CARD0 && i - PL_CARD0 < p_cards(P_LANE_OF(s))->n) return p_cards(P_LANE_OF(s))->lab[i - PL_CARD0];
     return "";
 }
 static int32_t p_hi(uint32_t id)
@@ -370,7 +411,10 @@ static int32_t p_hi(uint32_t id)
     if (d) return d->max;
     if (p_gx(id)) return p_gx(id)->hi;
     if (P_MODS(s)) return mod_valid(id) ? mod_hi(id) : 0;
-    if (s >= P_LANES) return 0;
+    if (P_NOT_LANE(s)) return 0;
+#if SC_N > 4
+    s = P_LANE_OF(s);
+#endif
     if (i == PL_SOUND) return LS[sc.lf[s]].n - 1;
     if (i == PL_COUNT) return LS_NCNT - 1;
     if (i == PL_ACTIVE) return LS_NACT;
@@ -383,7 +427,7 @@ static uint32_t p_fmt(uint32_t id)
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
     if (P_MODS(s)) return mod_choice(id) ? F_ENUM : F_NUM;
     if (p_gx(id)) return p_gx(id)->fmt;
-    if (s < P_LANES) {
+    if (P_IS_LANE(s)) {
         if (i == PL_SOUND) return F_SOUND;
         if (i == PL_COUNT) return F_COUNT;
         if (i == PL_ACTIVE) return F_ACTIVE;
@@ -412,7 +456,7 @@ static uint32_t p_fmt(uint32_t id)
 static const char *const *p_names(uint32_t id)
 {
     uint32_t i = P_IDX(id);
-    if (P_SCOPE(id) < P_LANES) return N_GPART;
+    if (P_IS_LANE(P_SCOPE(id))) return N_GPART;
     if (i == PG_COMP0 + TX_CP_RATIO) return N_RATIO;
     if (i == PG_DRIVE0 + TX_DR_TYPE) return N_DRIVE;
     if (i == PG_MF0 + TX_MF_SLOPE) return N_SLOPE;
@@ -444,10 +488,19 @@ static int32_t p_get(uint32_t id)
         case PG_ROOT: return nt_root;
         case PG_SELCH: return nt_selch;
         }
+#if SC_N > 4
+        if (p_lch_lane(i) >= 0) return nt_lch[p_lch_lane(i)];
+        if (i == PG_CHG) return p_chg;
+        if (i == PG_NLANE) return sc_nlane - 1;
+#else
         if (i >= PG_LCH0 && i < PG_LCH0 + SC_N) return nt_lch[i - PG_LCH0];
+#endif
         return i <= PG_GSHIFT ? pv_glob[i] : 0;
     }
-    if (s >= P_LANES) return 0;
+    if (P_NOT_LANE(s)) return 0;
+#if SC_N > 4
+    s = P_LANE_OF(s);
+#endif
     switch (i) {
     case PL_SOUND: return sc.snd[s] < 0 ? 0 : sc.snd[s];
     case PL_COUNT: return (int32_t)sc_cnt_of(s);
@@ -486,7 +539,19 @@ static void p_set(uint32_t id, int32_t v)
         case PG_ROOT: nt_root = (uint8_t)v; break;
         case PG_SELCH: nt_selch = (uint8_t)v; break;
         default:
-            if (i >= PG_LCH0 && i < PG_LCH0 + SC_N) { nt_lch[i - PG_LCH0] = (uint8_t)v; break; } pv_glob[i] = (uint8_t)v;       /* (GROOVE's; STATUS, read only, never read from it) */
+#if SC_N > 4
+            if (p_lch_lane(i) >= 0) { nt_lch[p_lch_lane(i)] = (uint8_t)v; break; }
+            if (i == PG_CHG) { p_chg = (uint8_t)v; break; }
+            if (i == PG_NLANE) {                /* (lowered: the lanes past it emptied) */
+                uint32_t k;
+                for (k = (uint32_t)v + 1u; k < SC_N; k++) scn_lane_clear(k);
+                sc_nlane = (uint8_t)(v + 1);
+                break;
+            }
+            pv_glob[i] = (uint8_t)v;
+#else
+            if (i >= PG_LCH0 && i < PG_LCH0 + SC_N) { nt_lch[i - PG_LCH0] = (uint8_t)v; break; } pv_glob[i] = (uint8_t)v;
+#endif       /* (GROOVE's; STATUS, read only, never read from it) */
         }
         return;
     }
@@ -501,6 +566,9 @@ static void p_set(uint32_t id, int32_t v)
         else ln_fx(LN_FX_REVERB, 0, i - PG_REVERB0, (uint32_t)v);
         return;
     }
+#if SC_N > 4
+    s = P_LANE_OF(s);
+#endif
     switch (i) {
     case PL_SOUND: sc_sound_to(s, (uint32_t)v); return;
     case PL_COUNT: sc_count(s, (uint32_t)v); return;
@@ -511,10 +579,11 @@ static void p_set(uint32_t id, int32_t v)
     if (i == PL_GPART || i == PL_GCYC) { gr_set[i - PL_GPART][s] = (uint8_t)v; return; }
     if (i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX) { p_card_set(s, i - PL_CARD0, (uint32_t)v); return; }
 }
-/* a value as the screen writes it, and its unit apart (0: none) */
-static const char *p_text(uint32_t id, char *t)
+/* a value as the screen writes it, and its unit apart (0: none); p_text_v: the text of value v (the desktop plugin's
+ * host view, plugin/src/slot_bridge.h: there only for the formats whose text is v's alone, not the lane's sound, the
+ * grain's synced TIME, the tempo's STATUS or the modulation's, which read what plays) */
+static const char *p_text_v(uint32_t id, int32_t v, char *t)
 {
-    int32_t v = p_get(id);
     uint32_t f = p_fmt(id);
     t[0] = 0;
     if (P_MODS(P_SCOPE(id))) return mod_text(id, t);
@@ -525,7 +594,7 @@ static const char *p_text(uint32_t id, char *t)
         if (P_SCOPE(id) == P_GLOBAL) tx_groove_name((unsigned)v, t); else if (v) p_fmt_int(t, v + 1); else p_strcpy(t, "AUTO", 5);
         return 0;
     case F_ONOFF: p_strcpy(t, v ? "ON" : "OFF", 4); return 0;
-    case F_SOUND: p_upper(t, sc_sound_name(P_SCOPE(id)), 22); return 0;
+    case F_SOUND: p_upper(t, sc_sound_name(P_LANE_OF(P_SCOPE(id))), 22); return 0;
     case F_COUNT: if (!v) p_strcpy(t, "OFF", 4); else p_fmt_int(t, LS_COUNT_N[v < LS_NCNT ? v : LS_NCNT - 1]); return 0;   /* (the count the key gives) */
     case F_ACTIVE: if (!v) p_strcpy(t, "OFF", 4); else p_fmt_int(t, v); return 0;   /* (the step the keys give, 1 .. 9:
                                                  * F4 rare .. G5 busy) */
@@ -585,6 +654,7 @@ static const char *p_text(uint32_t id, char *t)
     p_fmt_int(t, v);
     return 0;
 }
+static const char *p_text(uint32_t id, char *t) { return p_text_v(id, p_get(id), t); }
 /* a card's look: an amount (a fill), a choice (n options: segments), a toggle (ON / OFF) */
 enum { PK_AMOUNT, PK_SELECT, PK_TOGGLE };
 static uint32_t p_kind(uint32_t id)
@@ -599,6 +669,9 @@ static void p_init(void)
 {
     uint32_t k, i;
     for (k = 0; k < P_LANES; k++) pc[k].snd = -2;   /* (resolved at the first look) */
+#if SC_N > 4
+    for (k = 4; k < SC_N; k++) nt_lch[k] = (uint8_t)(k + 1u);   /* (lane n on channel n) */
+#endif
     for (i = 0; i < TX_GD_NP; i++) pv_glob[PG_GD(i)] = tx_fx_grain_params[i].def;
     for (i = 0; i < TX_RV_NP; i++) pv_glob[PG_REVERB0 + i] = tx_fx_reverb_params[i].def;
     for (i = 0; i < TX_DR_NP; i++) pv_glob[PG_DRIVE0 + i] = tx_fx_drive_params[i].def;   /* (the effects' own: no send) */
@@ -655,7 +728,7 @@ static void p_midi_set(uint32_t id, int32_t v) { if (p_valid(id)) { scn_touch_id
  * notes.c nt_lch; the two lists share no number, so a lane on channel 5 works too) */
 static int p_cc(uint32_t ch, uint32_t cc, uint32_t v)
 {
-    uint32_t i, k, lanes = nt_ch_lanes(ch), glob = ch == P_CH_GLOBAL;
+    uint32_t i, k, lanes = nt_ch_lanes(ch), glob = P_CH_IS_GLOBAL(ch);
     if (!lanes && !glob) return 0;
     if (cc == 99u) { p_nrpn.msb[ch] = (uint8_t)v; p_nrpn.on[ch] = 1; return 1; }
     if (cc == 98u) { p_nrpn.lsb[ch] = (uint8_t)v; p_nrpn.on[ch] = 1; return 1; }
@@ -669,7 +742,7 @@ static int p_cc(uint32_t ch, uint32_t cc, uint32_t v)
         if (P_CC_GLOBAL[i].cc == cc) { uint32_t id = PID(P_GLOBAL, P_CC_GLOBAL[i].idx); p_midi_set(id, p_scale7(id, v)); return 1; }
     for (i = 0; i < sizeof P_CC_LANE / sizeof P_CC_LANE[0]; i++)
         if (P_CC_LANE[i].cc == cc) {
-            for (k = 0; k < P_LANES; k++) if (lanes >> k & 1u) { uint32_t id = PID(k, P_CC_LANE[i].idx); p_midi_set(id, p_scale7(id, v)); }
+            for (k = 0; k < P_LANES; k++) if (lanes >> k & 1u) { uint32_t id = PID(P_LS(k), P_CC_LANE[i].idx); p_midi_set(id, p_scale7(id, v)); }
             return lanes != 0u;
         }
     return 0;

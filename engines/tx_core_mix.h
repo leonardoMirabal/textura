@@ -16,7 +16,9 @@
 #include "tx_core_limit.h"
 #include "tx_core_comp.h"
 
-#define TX_MIX_SLOTS 4u
+#ifndef TX_MIX_SLOTS
+#define TX_MIX_SLOTS 4u                    /* (the FM-1's four lanes; the desktop plugin's build sets 16) */
+#endif
 #define TX_MIX_GATE_N 512u                 /* the gate's ramp: 11.6 ms at 44.1 kHz, no click */
 #ifndef TX_LINE                    /* (as tx_fx_drv.h's: a buffer one core writes while the other works, its own lines) */
 #ifdef __PI32V2__

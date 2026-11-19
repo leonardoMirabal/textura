@@ -14,7 +14,12 @@
 #define gr_type pv_glob[PG_GTYPE]
 #define gr_shift pv_glob[PG_GSHIFT]
 static GR_BSS volatile uint8_t gr_amt_mod, gr_amt_on;   /* the matrix's GROOVE AMOUNT (mod.c, in the interrupt) */
-static GR_BSS uint8_t gr_set[2][4];             /* each lane's PART (0 AUTO, then PULSE OFFBEAT FILL FREE) and CYCLE (0 AUTO,
+#ifdef TX_MIX_SLOTS
+#define GR_LANES TX_MIX_SLOTS                   /* (a build with more lanes sets it: tx_core_mix.h) */
+#else
+#define GR_LANES 4u
+#endif
+static GR_BSS uint8_t gr_set[2][GR_LANES];      /* each lane's PART (0 AUTO, then PULSE OFFBEAT FILL FREE) and CYCLE (0 AUTO,
                                                  * 1 .. 8: 2 .. 9 pulses over the span): params.c PL_GPART, PL_GCYC */
 static GR_BSS uint8_t gr_rephase;               /* bar 1 set anew (tempo.c: START, a tap's re-phase): mod.c snaps the song
                                                  * position */
