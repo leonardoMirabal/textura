@@ -116,6 +116,21 @@ if(APPLE)   # (the Audio Unit's description: the CLAP's own, not the wrapper's "
         COMMAND /usr/libexec/PlistBuddy -c "Set :AudioComponents:0:description Physically modelled nature sounds"
                 "${CMAKE_CURRENT_BINARY_DIR}/textura_auv2-build-helper-output/auv2_Info.plist")
 endif()
+# the window's font is embedded (cmake/gui.cmake): its licence (SIL OFL 1.1) travels in every bundle's Resources
+set(TXP_OFL "${TXP_ROOT}/assets/fonts/OFL-InterTight.txt")
+if(APPLE)
+    foreach(t textura_clap textura_vst3 textura_auv2)
+        add_custom_command(TARGET ${t} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_CONTENT_DIR:${t}>/Resources"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TXP_OFL}" "$<TARGET_BUNDLE_CONTENT_DIR:${t}>/Resources/")
+    endforeach()
+else()   # (the CLAP is a single file there: the licence next to it; the VST3 is a bundle)
+    add_custom_command(TARGET textura_clap POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TXP_OFL}" "$<TARGET_FILE_DIR:textura_clap>/")
+    add_custom_command(TARGET textura_vst3 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${TXP_BUNDLES}/Textura.vst3/Contents/Resources"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TXP_OFL}" "${TXP_BUNDLES}/Textura.vst3/Contents/Resources/")
+endif()
 
 # ---- tests (make test-plugin): the coroutine, the headless CLAP host (tools/plugin_gate.py)
 if(WIN32)
