@@ -317,6 +317,9 @@ static void scn_capture(scn_t *s)
 #endif
         if (sc.mute[k]) SCN_MUTE_SET(s, k);
         if (sc.snd[k] >= 0) SCN_LF_SET(s, k, sc.lf[k]);
+#if SC_N > 4
+        if (sc.snd[k] < 0) continue;            /* (nor its cards: a load drops them, the same scene saves the same) */
+#endif
         for (i = 0; i < c->n; i++) if (c->cv[i] != 0xFF) scn_add(s, PID(P_LS(k), PL_CARD0 + i), c->cv[i]);   /* (the ones set) */
     }
     scn_add(s, PID(P_GLOBAL, PG_FINE), (int32_t)tempo_bpm10() - 400);

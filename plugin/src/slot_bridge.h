@@ -155,7 +155,8 @@ static void sb_tab_make(void)
         sb_tab_add(PID(s, PL_GPART), (uint32_t)p_hi(PID(s, PL_GPART)), 0, 1, mod, pfx, "GROOVE PART");
         sb_tab_add(PID(s, PL_GCYC), (uint32_t)p_hi(PID(s, PL_GCYC)), 0, 1, mod, pfx, "GROOVE CYCLE");
     }
-    for (i = 0; i < 256u; i++) {
+    for (i = 0; i < PGX_LANE; i++) {    /* (params.c p_gx: a global index from PGX_LANE up would find a lane's
+                                         * GROOVE PART / CYCLE, and p_set would write past pv_glob) */
         uint32_t id = PID(P_GLOBAL, i);
         const char *m, *px;
         if (sb_glob_hidden(i) || !(p_fx_desc(id) || p_gx(id))) continue;
