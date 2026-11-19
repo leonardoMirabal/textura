@@ -182,6 +182,15 @@ static void gui_flush(const clap_plugin_t *p)   /* as a host answers request_flu
     none.n = 0;
     xp->flush(p, &in, &on);
 }
+static void gui_key(const clap_plugin_t *p, const txg_gui_shot_t *xs, int key)
+{
+    frg_input e;
+    memset(&e, 0, sizeof e);
+    e.kind = FRG_KEY; e.key = key;
+    xs->input(p, &e);
+    gui_flush(p);
+    xs->tick(p);
+}
 static void gui_click(const clap_plugin_t *p, const txg_gui_shot_t *xs, float x, float y, int mods)
 {
     frg_input e;
@@ -203,6 +212,112 @@ static double gui_value(const clap_plugin_t *p, uint32_t id)
 static void gui_wait(void) { struct timespec ts = { 0, 350000000 }; nanosleep(&ts, 0); }   /* (past the window's own
                                           * value's hold: what it shows then is the app's) */
 #define LANE_ID(k, i) (((uint32_t)(k) < 4u ? (uint32_t)(k) : 12u + (uint32_t)(k)) << 8 | (uint32_t)(i))
+#define ID_PRESET 0x10000u               /* (bridge.h TXP_ID_PRESET) */
+/* gui_core.h's controls the tests click (its enum's values) */
+enum { W_ROW = 1, W_VOL, W_MUTE, W_SOLO, W_DOT, W_LUP = 9, W_SET = 10, W_VMAP = 13, W_VSPACE, W_PRESET, W_SND, W_COLDOT,
+       W_SWATCH, W_SEG = 26, W_FIELD = 27 };
+static int gui_hit(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, int lane)   /* a click on a control */
+{
+    float r[4];
+    if (!xs->find(p, kind, lane, r)) { fprintf(stderr, "gui: no control %d (%d)\n", kind, lane); return 0; }
+    gui_click(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 0);
+    return 1;
+}
+static int gui_png(const clap_plugin_t *p, const txg_gui_shot_t *xs, const char *png, const char *tag)   /* the window
+                                          * now, as png with "-tag" before its ".png" */
+{
+    const uint32_t *px;
+    int w, h;
+    char path[1024];
+    const char *dot = strrchr(png, '.');
+    size_t n = dot ? (size_t)(dot - png) : strlen(png);
+    xs->tick(p);
+    if (!xs->grab(p, 0, &px, &w, &h)) return 5;
+    snprintf(path, sizeof path, "%.*s-%s.png", (int)n, png, tag);
+    return png_write(path, px, w, h) ? 5 : 0;
+}
+static int gui_views(const clap_plugin_t *p, const txg_gui_shot_t *xs, const char *png)   /* the other views' pictures:
+                                          * SPACE, the sound browser, the presets browser, SETTINGS, the colour picker */
+{
+    int rc = 0, sel;
+    float r[4];
+    if (!gui_hit(p, xs, W_VSPACE, -1)) return 5;
+    rc |= gui_png(p, xs, png, "space");
+    if (!gui_hit(p, xs, W_VMAP, -1)) return 5;
+    for (sel = 0; sel < 16 && !xs->find(p, W_COLDOT, sel, r); sel++) {}
+    if (!gui_hit(p, xs, W_SND, sel < 16 ? sel : 0)) return 5;
+    rc |= gui_png(p, xs, png, "sounds");
+    gui_key(p, xs, FRK_ESCAPE);
+    if (!gui_hit(p, xs, W_PRESET, -1)) return 5;
+    rc |= gui_png(p, xs, png, "presets");
+    gui_key(p, xs, FRK_ESCAPE);
+    if (!gui_hit(p, xs, W_SET, -1)) return 5;
+    rc |= gui_png(p, xs, png, "settings");
+    gui_key(p, xs, FRK_ESCAPE);
+    if (sel < 16) {
+        if (!gui_hit(p, xs, W_COLDOT, sel)) return 5;
+        rc |= gui_png(p, xs, png, "colour");
+        gui_key(p, xs, FRK_ESCAPE);
+    }
+    return rc;
+}
+static int gui_test3b(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* the browsers, SETTINGS, a colour, SPACE */
+{
+    int bad = 0, f0 = -1, s0 = -1, f1 = -1, s1 = -1;
+    double v0, v1;
+    float r[4];
+    /* the presets browser: the next bank's first preset loaded (PRESET follows a factory one) */
+    v0 = gui_value(p, ID_PRESET);
+    if (!gui_hit(p, xs, W_PRESET, -1)) return 5;
+    gui_key(p, xs, FRK_RIGHT);
+    gui_key(p, xs, FRK_RETURN);
+    gui_key(p, xs, FRK_ESCAPE);
+    gui_wait(); gui_flush(p); xs->tick(p);
+    v1 = gui_value(p, ID_PRESET);
+    printf("gui presets: PRESET %g -> %g\n", v0, v1);
+    if (v1 == v0) { fprintf(stderr, "gui: the presets browser did not load\n"); bad = 1; }
+    /* the sound browser on lane 1: the next family's first sound kept */
+    if (!xs->lane(p, 0, &f0, &s0)) { fprintf(stderr, "gui: lane 1 empty\n"); return 5; }
+    if (!gui_hit(p, xs, W_SND, 0)) return 5;
+    gui_key(p, xs, FRK_RIGHT);
+    gui_key(p, xs, FRK_RETURN);
+    gui_wait(); gui_flush(p); xs->tick(p);
+    (void)xs->lane(p, 0, &f1, &s1);
+    printf("gui sounds: lane 1 %d.%d -> %d.%d\n", f0, s0, f1, s1);
+    if (f1 == f0 || s1 != 0) { fprintf(stderr, "gui: the sound browser did not set the sound\n"); bad = 1; }
+    /* SETTINGS: lane 2's channel one up, EFFECTS ON LOAD set to NEVER */
+    v0 = gui_value(p, 4u << 8 | 63u);
+    if (!gui_hit(p, xs, W_SET, -1)) return 5;
+    if (!gui_hit(p, xs, W_FIELD, 0x400 | 63)) return 5;
+    if (!gui_hit(p, xs, W_SEG, (0x400 | 38) << 8 | 2)) return 5;
+    gui_key(p, xs, FRK_ESCAPE);
+    v1 = gui_value(p, 4u << 8 | 63u);
+    printf("gui settings: lane 2 channel %g -> %g, EFFECTS ON LOAD %g\n", v0, v1, gui_value(p, 4u << 8 | 38u));
+    if (v1 == v0 || gui_value(p, 4u << 8 | 38u) != 2.0) { fprintf(stderr, "gui: SETTINGS\n"); bad = 1; }
+    /* the colour picker: lane 1's engine TEAL (6; in the saved state) */
+    if (xs->find(p, W_ROW, 0, r)) gui_click(p, xs, r[0] + 30.f, r[1] + r[3] * 0.5f, 0);
+    if (!gui_hit(p, xs, W_COLDOT, 0)) return 5;
+    if (!gui_hit(p, xs, W_SWATCH, 6)) return 5;
+    gui_key(p, xs, FRK_ESCAPE);
+    /* SPACE: lane 1 dragged left on the ground */
+    if (!gui_hit(p, xs, W_VSPACE, -1) || !xs->find(p, W_DOT, 0, r)) return 5;
+    v0 = gui_value(p, LANE_ID(0, 4));
+    {
+        frg_input e;
+        memset(&e, 0, sizeof e);
+        e.kind = FRG_DOWN; e.button = FRG_LEFT; e.x = r[0] + r[2] * 0.5f; e.y = r[1] + r[3] * 0.5f;
+        xs->input(p, &e);
+        e.kind = FRG_MOVE; e.x -= 60.f; e.y += 10.f;
+        xs->input(p, &e);
+        e.kind = FRG_UP;
+        xs->input(p, &e);
+        gui_flush(p); xs->tick(p);
+    }
+    v1 = gui_value(p, LANE_ID(0, 4));
+    printf("gui SPACE: lane 1 PAN %g -> %g\n", v0, v1);
+    if (!(v1 < v0)) { fprintf(stderr, "gui: the SPACE drag did not move PAN\n"); bad = 1; }
+    return bad;
+}
 static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int test)
 {
     const txg_gui_shot_t *xs = p->get_extension(p, TXG_EXT_GUI_SHOT);
@@ -221,6 +336,7 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int test)
     printf("gui %d x %d, %u colours, %u bright pixels\n", w, h, ncol, ink);
     if (png && png_write(png, px, w, h)) return 5;
     if (ncol < 40u || ink < (uint32_t)(w * h) / 400u) { fprintf(stderr, "gui: the window looks empty\n"); return 5; }
+    if (png && gui_views(p, xs, png)) return 5;
     if (test) {                          /* the controls do what they say (inactive: each write applied at its flush) */
         float r[4];
         double v0, v1;
@@ -260,6 +376,7 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int test)
         v1 = gui_value(p, 4u << 8 | 81u);
         printf("gui LANES %u -> %g\n", lanes0 + 1u, v1 + 1.0);
         if (lanes0 < 15u && v1 != lanes0 + 1.0) { fprintf(stderr, "gui: LANES +\n"); bad = 1; }
+        if (gui_test3b(p, xs)) bad = 1;
         if (xs->find(p, 1 /* TXG_W_ROW */, 2, r)) gui_click(p, xs, r[0] + 30.f, r[1] + r[3] * 0.5f, 0);   /* (lane 3 selected) */
     }
     return bad ? 5 : 0;
@@ -424,9 +541,12 @@ states:
             clap_ostream_t os = { &m, os_write };
             if (!xs || !xs->save(p, &os)) { fprintf(stderr, "gui: state save failed\n"); return 5; }
             m.b = realloc(m.b, m.n + 1); m.b[m.n] = 0;
-            printf("gui state: solo %s, sel %s\n", strstr(m.b, "\"solo\":\"4\"") ? "saved" : "MISSING",
-                   strstr(m.b, "\"sel\":\"2\"") ? "saved" : "MISSING");
-            if (!strstr(m.b, "\"solo\":\"4\"") || !strstr(m.b, "\"sel\":\"2\"")) rc = 5;
+            printf("gui state: solo %s, sel %s, view %s, colour %s\n", strstr(m.b, "\"solo\":\"4\"") ? "saved" : "MISSING",
+                   strstr(m.b, "\"sel\":\"2\"") ? "saved" : "MISSING", strstr(m.b, "\"view\":\"1\"") ? "saved" : "MISSING",
+                   strstr(m.b, ":6;") ? "saved" : "MISSING");
+            if (!strstr(m.b, "\"solo\":\"4\"") || !strstr(m.b, "\"sel\":\"2\"") || !strstr(m.b, "\"view\":\"1\"") ||
+                !strstr(m.b, ":6;"))
+                rc = 5;
             free(m.b);
         }
         if (rc) { p->destroy(p); return rc; }

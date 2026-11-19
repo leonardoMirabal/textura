@@ -25,5 +25,7 @@ typedef struct {
     bool (*find)(const clap_plugin_t *plugin, int kind, int lane, float r[4]);
     /* the lanes muted and soloed as the window shows them (bit k: lane k + 1) */
     bool (*masks)(const clap_plugin_t *plugin, uint32_t *mute, uint32_t *solo);
+    /* lane k's sound as the app shows it: its family and its sound there (false: the lane is empty) */
+    bool (*lane)(const clap_plugin_t *plugin, int k, int *fam, int *snd);
 } txg_gui_shot_t;
 #endif

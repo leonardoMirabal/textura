@@ -5,17 +5,23 @@
  * into the app's parameters, mutes and solos. Main thread only.
  *
  * The window (TXG_W x TXG_H logical pixels, gui_size.h; any size at its aspect, drawn at the canvas's pixels):
- *   top bar     TEXTURA, the scene loaded last with its previous / next (PRESET), LANES, SETTINGS (a stub so far)
+ *   top bar     TEXTURA, the scene loaded last with its previous / next (PRESET; a click on it: the presets browser),
+ *               LANES, SETTINGS
  *   MAP         the place seen from above, you at the bottom: each lane a dot, its angle the lane's PAN, its distance
  *               the card named DIST of its sound (a sound without one: the middle ring, a hollow dot, the angle only);
  *               a dot glows with its lane's events; drag one to move it (PAN, DIST), click one to select its lane.
- *               Above the field the selected lane: its family, sound, PAN, DIST, HOW MANY, HOW ACTIVE, channel.
- *               (SPACE, the same place in perspective, is the next step's: its switch is drawn, off.)
+ *               Above the field the selected lane: its family, sound (a click: the sound browser), its engine's
+ *               colour (a click: the picker), PAN, DIST, HOW MANY, HOW ACTIVE, channel; the LFOs routed, traced red.
+ *   SPACE       (the MAP | SPACE switch) the same place in perspective: the lanes on a ground, far ones small, each
+ *               one's events drifting toward the horizon; a drag on the ground moves a lane (PAN, DIST).
  *   lanes       one row a lane in use (LANES, 1 .. 16): its number, the sound and family, its event line (each app
  *               block's engine events as a bar, as high as the lane's peak then; the last 6 s, newest at the right),
  *               its MIDI channel, VOL (the lane's LEVEL), M (the app's mute) and S (the plugin's solo); a muted or
  *               soloed-out lane fades. Below the last, ADD LANE (LANES + 1).
- * Red only marks the selected lane and what is on (the solo). Repaints: the whole window when anything drawn but the
+ * Overlays: the sound browser (families, a search, the cursor's sound heard on the lane while it plays, KEEP or
+ * CLOSE puts the old one back), the presets browser (USER, the factory's categories, the landscapes; LOAD), SETTINGS
+ * (MIDI IN, SCALE, TIMING, LOADING, ENGINE COLOURS, WINDOW). Each engine has a colour (bone at first) for its dots,
+ * event lines and row accents. Red only marks the selected lane, what is on (the solo) and what an LFO moves. Repaints: the whole window when anything drawn but the
  * activity changed, else only the map and the event lines (frui's base clip: the same pixels as a whole repaint). */
 #ifndef TXG_CORE_H
 #define TXG_CORE_H
@@ -26,7 +32,10 @@
 
 /* the controls (txg_find, the tests) */
 enum { TXG_W_NONE, TXG_W_ROW, TXG_W_VOL, TXG_W_MUTE, TXG_W_SOLO, TXG_W_DOT, TXG_W_PREV, TXG_W_NEXT, TXG_W_LDN,
-       TXG_W_LUP, TXG_W_SET, TXG_W_CLOSE, TXG_W_ADD };
+       TXG_W_LUP, TXG_W_SET, TXG_W_CLOSE, TXG_W_ADD,
+       /* 3b: the place's view, the browsers, SETTINGS, the colours (txg_find's lane: see gui_core.c's wid_add2 calls) */
+       TXG_W_VMAP, TXG_W_VSPACE, TXG_W_PRESET, TXG_W_SND, TXG_W_COLDOT, TXG_W_SWATCH, TXG_W_COLRESET, TXG_W_PICKER,
+       TXG_W_SEARCH, TXG_W_NAV, TXG_W_LIST, TXG_W_KEEP, TXG_W_LOAD, TXG_W_SEG, TXG_W_FIELD, TXG_W_WSIZE, TXG_W_VIEWSEL };
 
 typedef struct txg txg_t;
 txg_t *txg_new(txp_core *c);             /* NULL: out of memory or the font did not load */

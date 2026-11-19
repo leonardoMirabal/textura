@@ -283,5 +283,13 @@ static bool s_masks(const clap_plugin_t *plugin, uint32_t *mute, uint32_t *solo)
     txp_ui_mutes(c->pc, mute, solo);
     return true;
 }
-static const txg_gui_shot_t EXT_SHOT = { s_tick, s_grab, s_input, s_headless, s_find, s_masks };
+static bool s_lane(const clap_plugin_t *plugin, int k, int *fam, int *snd)
+{
+    txg_clap_t *c = GUI(plugin);
+    txp_snap_t sn;
+    if (!c || k < 0 || k >= (int)TXP_LANES || txp_ui_snap(c->pc, &sn) || !sn.ui.lane[k].used) return false;
+    *fam = sn.ui.lane[k].fi; *snd = sn.ui.lane[k].si;
+    return true;
+}
+static const txg_gui_shot_t EXT_SHOT = { s_tick, s_grab, s_input, s_headless, s_find, s_masks, s_lane };
 const void *txg_clap_shot_ext(void) { return &EXT_SHOT; }

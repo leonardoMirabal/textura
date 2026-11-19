@@ -1,5 +1,13 @@
 # the window's 4-lane picture (tools/plugin_gate.py gui): a factory preset, notes on its lanes; MIDI only
 1500 midi 0xC0 8 0
+# the matrix's slot 16 (NRPN on channel 5): LFO 1 -> lane 3 PAN, depth +60 % (the window's red: what an LFO moves)
+2000 midi 0xB4 99 7
+2000 midi 0xB4 98 60
+2000 midi 0xB4 6 7
+2000 midi 0xB4 98 61
+2000 midi 0xB4 6 37
+2000 midi 0xB4 98 62
+2000 midi 0xB4 6 102
 4000 midi 0x90 48 100
 4200 midi 0x91 55 90
 4400 midi 0x92 60 110

@@ -401,6 +401,9 @@ args_quick = False
 GUI = [("gui4", "plugin/tests/scripts/gui4.txt"), ("gui16", "plugin/tests/scripts/gui16.txt")]
 
 
+GUI_VIEWS = ("", "space", "sounds", "presets", "settings", "colour")   # clap_render --shot: x.png, x-space.png ...
+
+
 def check_gui(args, exe, bundle, tmp):
     ok = True
     for name, script in GUI:
@@ -414,19 +417,24 @@ def check_gui(args, exe, bundle, tmp):
                 sys.stderr.write(r.stdout + r.stderr)
                 ok = False
                 break
-            with open(png, "rb") as f:
-                shas.append(hashlib.sha256(f.read()).hexdigest())
+            h = hashlib.sha256()
+            for view in GUI_VIEWS:   # the map, then SPACE, the browsers, SETTINGS, the colour picker: all the same twice
+                with open(png if not view else png[:-4] + "-" + view + ".png", "rb") as f:
+                    h.update(f.read())
+            shas.append(h.hexdigest())
             for line in r.stdout.splitlines():
                 if line.startswith("gui ") and run_i == 1:
                     print("info  %s: %s" % (name, line[4:]))
         if len(shas) == 2:
             same = shas[0] == shas[1]
-            print("%s  gui %s: the window painted twice, %s (%s)" % ("ok  " if same else "FAIL", name,
+            print("%s  gui %s: the window and its views painted twice, %s (%s)" % ("ok  " if same else "FAIL", name,
                   "the same" if same else "DIFFERENT", shas[0][:12]))
             ok = ok and same
             if args.shots:
                 os.makedirs(args.shots, exist_ok=True)
-                shutil.copy(os.path.join(tmp, name + "-0.png"), os.path.join(args.shots, "textura-window-%s.png" % name))
+                for view in GUI_VIEWS:
+                    shutil.copy(os.path.join(tmp, name + "-0" + ("-" + view if view else "") + ".png"),
+                                os.path.join(args.shots, "textura-window-%s%s.png" % (name, "-" + view if view else "")))
     return ok
 
 

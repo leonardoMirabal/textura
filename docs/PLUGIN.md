@@ -68,25 +68,53 @@ A factory preset, a landscape's start or an FM-1 scene fills lanes 1 .. 4 exactl
 ## The window
 
 One resizable window, 5:3 (1200 x 720 points by default, 840 .. 2400 wide), drawn at the screen's own resolution
-(Retina: twice the points). Dark and monochrome; red marks only the selection (and, later, the LFOs). The macOS view
+(Retina: twice the points). Dark and nearly monochrome: red marks only the selection, what is on (the solo) and
+what an LFO moves; each engine has a colour of its own (bone until you choose one). The macOS view
 is built and tested; the Windows and Linux views (`plugin/gui_win.c`, `plugin/gui_x11.c`) are written for the same
 core but not built or tested yet.
 
-- **Top bar**: TEXTURA, the previous / next factory scene and the scene's name (`*` when edited), LANES - / +, and
-  SETTINGS (a placeholder page for now).
+- **Top bar**: TEXTURA, the previous / next factory scene and the scene's name (`*` when edited; click it for the
+  presets browser), LANES - / +, and SETTINGS.
 - **MAP**: the listener at the bottom, one dot a lane. Left / right is the lane's **PAN**; near / far is the sound's
   **DIST card** where the sound has one (a hollow dot when it has none: then a drag moves PAN only). Drag a dot to
   move it: each move is a host parameter change, with a gesture around the drag (one undo step, automation
-  recording). A dot glows with the lane's last events. Above the field: the selected lane's sound, PAN, DIST,
-  HOW MANY, HOW ACTIVE and MIDI channel. SPACE (a 3D view) is the next step's.
+  recording). A dot glows with the lane's last events. When more than 8 lanes play, a dot's label is its number
+  only, with the full name for the selected lane and the one under the mouse. Above the field: the selected lane's
+  sound (click it for the sound browser), its engine's colour (click it for the colour picker), PAN, DIST,
+  HOW MANY, HOW ACTIVE and MIDI channel.
+- **SPACE** (the MAP | SPACE switch, or `v`): the same place in perspective, the listener at the bottom edge, far
+  sounds small near the horizon; each lane's events of the last 6 seconds drift from it toward the horizon. The
+  lanes stand where the MAP puts them; drag one on the ground to move it (PAN and DIST, as on the MAP). The MAP stays
+  the precise editor. The view is saved with the project.
+- **LFOs** (red): each LFO routed in the matrix shows its trace and its first target at the top of the place. A
+  value an LFO moves now is red with a `~` (PAN, DIST, HOW MANY, HOW ACTIVE, a row's VOL), and on the MAP and SPACE
+  a red point shows where the LFO has the lane right now. All of it reads the app's own modulation state.
 - **Lanes**: one row a lane in use (it follows LANES, up to 16), and ADD LANE under them. A row has the lane's number,
   its sound and family, its **event line** (the last 6 seconds: a bar for each app block with events, as high as
   the block's peak, over a faint body for the lane's level), its MIDI channel, **VOL** (the lane's LEVEL: drag,
   wheel, double-click for the default), **M** and **S**. Click a row to select the lane (arrow keys move it; `m`
-  and `s` mute and solo it).
+  and `s` mute and solo it; Return opens its sound browser). Click a row's sound name for the sound browser.
 - **M** is the app's own lane mute, the one a scene keeps. **S** is the plugin's own: while any lane is soloed only
   the soloed lanes play (alt / cmd / ctrl-click solos one lane alone). Solo is not on the FM-1; the plugin saves it
   in its state.
+- **Sound browser**: the families and their sounds from the app's own tables (the FM-1 browser's and CC 20's), each
+  sound with its engine. Type to search all sounds (name, family or engine); arrows move, left / right change the
+  family, the wheel scrolls. As on the FM-1, the sound under the cursor plays on the lane while the lane plays
+  (a click at once, the keys once they rest); **KEEP** (Return, double-click) keeps it and marks the scene edited,
+  **CLOSE** (Esc) puts the old sound back. The preview sets the engine's colour.
+- **Presets browser**: USER (your saved scenes, when there are any), the factory presets by category, and the
+  landscapes to start from. Search, arrows, left / right for the next category. The preview shows the preset's lanes
+  where they stand and its plan. **LOAD** (Return, double-click) loads it the FM-1's way; loading the one loaded
+  again brings its effects back when EFFECTS ON LOAD is SMART and you changed them (SMART loading as on the FM-1).
+  EFFECTS ON LOAD and PRESETS CHANGE TEMPO are at hand under the preview.
+- **SETTINGS**, by function (all but WINDOW and ENGINE COLOURS are the app's own host parameters):
+  MIDI IN (each lane's channel, 1 .. 16 or OFF; the FX CHANNEL for effects, tempo, groove and scale CCs; the channel
+  whose notes play the selected lane; MOD CC), SCALE (MODE, SCALE, ROOT, TRANSPOSE), TIMING (the tempo now; the
+  host's leads; GROOVE, its AMOUNT and SHIFT), LOADING (EFFECTS ON LOAD, PRESETS CHANGE TEMPO, LANES), ENGINE
+  COLOURS (the engines the lanes play; RESET ALL TO BONE) and WINDOW (SIZE 100 .. 200 %, the place's view). A
+  field steps on a click (shift or alt: back), the wheel, a double-click for the default.
+- **Colours**: eleven, none red (red is the selection's and the LFOs'). A colour belongs to an engine, not a lane:
+  every sound of that engine, in every preset, takes it, for its dots, event line and row accent.
 
 The window reads what the audio side last published (each lane's events and peak per app block, the lanes' names,
 channels and cards) and never waits on the audio thread; its writes go to the audio thread through a queue, and every
@@ -94,7 +122,8 @@ parameter it sets is told to the host. The window draws the whole picture into a
 Frodhes) and the platform view only shows it, so all three systems look the same.
 
 The font is Inter Tight (SIL Open Font License 1.1, `assets/fonts/OFL-InterTight.txt`). `make plugin` fetches it
-into `.local/fonts` (`tools/get_fonts.sh`, checksum-checked) and embeds it in the plugin; it is never committed.
+into `.local/fonts` (`tools/get_fonts.sh`, checksum-checked) and embeds it in the plugin; it is never committed. The
+licence goes into every bundle's `Contents/Resources` (Windows / Linux: next to the CLAP, in the VST3's Resources).
 
 ## Parameters
 
@@ -130,8 +159,10 @@ written to disk by the plugin: its user scene bank (U01 .. U16) lives for the se
 The state is version 2: the scene record of this build, 2040 bytes with its lane count and all 16 lanes. A project
 saved by the 4-lane plugin (version 1, the FM-1's scene record) still loads: lanes 1 .. 4 as saved, the others
 empty, LANES 4. The state also keeps the solo (`"solo"`, the lanes soloed as a bit mask), the window's width
-(`"win"`, 0 when at the default) and the selected lane (`"sel"`). These keys are optional: a state without them
-(an older project) loads with no solo and the default window.
+(`"win"`, 0 when at the default), the selected lane (`"sel"`), the place's view (`"view"`, 1 for SPACE) and the
+engines' colours (`"col"`, `"engine name:colour;..."` for the engines not bone; an engine a build has not is
+skipped). These keys are optional: a state without them (an older project) loads with no solo, the default window,
+the MAP and all engines bone. The state stays version 2.
 
 ## Sample rates and latency
 
@@ -169,15 +200,20 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
   under 400 us (3.7 %).
 - **gui**: the window without a native view (headless): `plugin/tests/scripts/gui4.txt` (four lanes) and `gui16.txt`
   (sixteen) played, then the window painted to a PNG in two separate runs. Both runs must give the same bytes, and
-  the picture must not be empty. Then the window's controls are used (M, S, VOL, a map dot, LANES +, a row) and
-  checked against the parameters, the events sent to the host, the mute and solo masks and the saved state.
+  the picture must not be empty. Each run also paints SPACE, the sound browser, the presets browser, SETTINGS and
+  the colour picker (`OUT-space.png` ...; all must be the same bytes twice too; `gui4.txt` routes an LFO so the red
+  shows). Then the window's controls are used (M, S, VOL, a map dot, LANES +, a preset loaded from the browser, a
+  sound kept from the sound browser, a lane's channel and EFFECTS ON LOAD in SETTINGS, a colour, a drag in SPACE, a
+  row) and checked against the parameters, the events sent to the host, the lane's sound, the mute and solo masks
+  and the saved state (solo, lane, view, colour). `--shots DIR` keeps a copy of every picture.
   `--shots DIR` keeps a copy of the two pictures.
 
 The headless host is `build/plugin/txp_clap_render PLUGIN.clap SCRIPT OUT.wav [--rate HZ] [--block N]
 [--state-check] [--fuzz SEED] [--inactive] [--cpu-from MS] [--state-in FILE] [--state-out FILE] [--shot OUT.png]
 [--shot-w PX] [--gui-test]`; it plays a host-build script's MIDI lines; `--state-in` loads a state before the
 activation, `--state-out` saves one after the render; `--shot` paints the window after the render (through a test
-extension the plugin offers only with `TEXTURA_PLUGIN_GUI_SHOT` set), `--gui-test` then uses its controls.
+extension the plugin offers only with `TEXTURA_PLUGIN_GUI_SHOT` set; the other views next to it), `--gui-test` then
+uses its controls.
 
 Validators (after `make plugin-deps`):
 
