@@ -92,7 +92,11 @@ static int settings_save_poll(void) { return 0; }
  * store.h's scenes; the page keeps it in localStorage too (web_flw, web_flw_take_dirty) */
 #include "store.h"
 #define WEB_FLW_AT SCENES_AT
+#ifdef SCENES_WIN_SECT
+#define WEB_FLW_LEN (SCENES_WIN_SECT * 0x1000u)   /* (more lanes, the plugin: store.h) */
+#else
 #define WEB_FLW_LEN (SCENES_SECT * 0x1000u)
+#endif
 static uint8_t web_flw[WEB_FLW_LEN], web_flw_ok, web_flw_dirty;
 static int web_flw_in(uint32_t at, uint32_t n)
 {

@@ -17,8 +17,17 @@
  *                 START (the transport, a third tap) snaps it to bar 1, so the grooved lanes start in phase
  * AMOUNT 0 (and the matrix's route at 0): every lane exactly as without it. Main loop, but gr_isr (the interrupt). */
 
-static GR_BSS tx_groove_lane_t gr_lane[4];      /* (the interrupt's; part, cycle, wl set by the main loop) */
-static GR_BSS volatile int32_t gr_m[4];         /* each lane's rate multiplier now (Q12; gr_init: 4096) */
+#if SC_N > 4
+#define GR_K(k) (k)                             /* (more lanes, the desktop plugin: each its own) */
+#define GR_LB 4u                                /* (gr_poll's rank: the lane's bits under the weight) */
+#define GR_RANK(r) ((r) & 3u)                   /* (AUTO's parts by rank: PULSE OFFBEAT FILL PULSE, again from the 5th) */
+#else
+#define GR_K(k) ((k) & 3u)
+#define GR_LB 2u
+#define GR_RANK(r) (r)
+#endif
+static GR_BSS tx_groove_lane_t gr_lane[SC_N];   /* (the interrupt's; part, cycle, wl set by the main loop) */
+static GR_BSS volatile int32_t gr_m[SC_N];      /* each lane's rate multiplier now (Q12; gr_init: 4096) */
 static GR_BSS uint32_t grd_q[SC_N], grd_t[SC_N];   /* gr_due: the press's time it counts to, when last counted */
 static GR_BSS int32_t grd_rem[SC_N];             /* (the gap left, ms Q8) */
 
@@ -40,7 +49,7 @@ static const uint32_t GR_SW[LS_N] = {
 static int32_t gr_cursor(uint32_t k)            /* lane k's place in the span now (0 .. 255; -1: no pulse): the UI's
                                                  * sweep cursor */
 {
-    return tx_groove_place(&gr_lane[k & 3u], gr_type, gr_shift, mpos >> 8);
+    return tx_groove_place(&gr_lane[GR_K(k)], gr_type, gr_shift, mpos >> 8);
 }
 static uint32_t gr_wl(uint32_t k)               /* lane k's sound's weight */
 {
@@ -50,7 +59,7 @@ static uint32_t gr_wl(uint32_t k)               /* lane k's sound's weight */
 
 static int32_t gr_isr(uint32_t k)               /* (1 .. under 24000: tx_groove_mul's range) */
 {
-    return gr_m[k & 3u] = tx_groove_mul(&gr_lane[k & 3u], gr_type, gr_amt_on ? gr_amt_mod : gr_amount, gr_shift, mpos);
+    return gr_m[GR_K(k)] = tx_groove_mul(&gr_lane[GR_K(k)], gr_type, gr_amt_on ? gr_amt_mod : gr_amount, gr_shift, mpos);
 }
 
 /* ACTIVITY leaning as the notes do: the particles' rate goes as ACTIVITY^2.5 (the perceptually even curve,
@@ -81,12 +90,12 @@ static void gr_init(void)
 static void gr_poll(void)
 {
     uint32_t k, j, r, w[SC_N];
-    for (k = 0; k < SC_N; k++) w[k] = gr_wl(k) << 2 | (3u - k);   /* (the weight, then the lane: a rank each) */
+    for (k = 0; k < SC_N; k++) w[k] = gr_wl(k) << GR_LB | (SC_N - 1u - k);   /* (the weight, then the lane: a rank each) */
     for (k = 0; k < SC_N; k++) {
         for (j = 0, r = 0; j < SC_N; j++) r += w[j] > w[k];
-        gr_lane[k].wl = (uint8_t)(w[k] >> 2);
+        gr_lane[k].wl = (uint8_t)(w[k] >> GR_LB);
         gr_lane[k].cycle = (uint8_t)(gr_set[1][k] ? gr_set[1][k] + 1u : 0u);
-        gr_lane[k].part = (uint8_t)(gr_set[0][k] ? gr_set[0][k] : w[k] < 4u ? TX_GRP_FREE : (0x1321u >> 4u * r & 15u));
+        gr_lane[k].part = (uint8_t)(gr_set[0][k] ? gr_set[0][k] : w[k] < 1u << GR_LB ? TX_GRP_FREE : (0x1321u >> 4u * GR_RANK(r) & 15u));
     }                                           /* (0x1321: PULSE OFFBEAT FILL PULSE by rank) */
 }
 

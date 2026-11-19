@@ -77,6 +77,11 @@
                              FL_IN(off, n, BLOBS_AT, BLOBS_AT + NBLOB * 0x1000u) || \
                              FL_IN(off, n, TX_OTA_V16, TX_OTA_V16 + 0x5000u) || FL_IN(off, n, TX_OTA_V15, TX_OTA_V15 + 0x5000u))
 #endif
+#if defined(TX_MIX_SLOTS) && TX_MIX_SLOTS > 4u
+#define SCENES_WIN_SECT 16u                     /* a desktop build with more lanes (the plugin): its scene banks in its
+                                                 * own window (web/web_hal.c, tests/host.c), twice the room (scenes.c:
+                                                 * records twice as long); never the FM-1's flash */
+#endif
 #ifdef APP_FL_RANGE
 /* Frodhes (a platform delta, README): the app's own, tighter allow-list in place of the one above: the update staging,
  * the settings sector and APP_FL_RANGE (frodhes_store.h: the preset bank A / B, the pattern A / B; on the SMK-37 also

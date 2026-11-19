@@ -50,13 +50,29 @@
 #define SCN_NF PR_N                             /* factory scenes: the presets (presets.c) */
 #define SCN_PC_U 100u                           /* MIDI PC: the first user scene's program */
 #define SCN_N (SCN_NF + SCN_NU)
+#if SC_N > 4
+/* more lanes (the desktop plugin, plugin/: SC_N up to 16): the scene record is version 2, its lanes SC_N, its count of
+ * lanes in use (nlane), each lane's family a byte, the mutes a word; twice the bytes, so twice the bank (store.h
+ * SCENES_WIN_SECT: the plugin's own window, never the FM-1's flash). A version 1 record (the FM-1's, four lanes) still
+ * loads: lanes 1 .. 4 as it has them, the others empty (scn_from_v1) */
+#define SCN_SLOT 2040u
+#define SCN_REC_MAX ((SCN_SLOT - 24u - 7u * SC_N) / 4u)
+#define SCN_BANK_SECT 8u
+#define SCN_V1_SLOT 1020u                       /* (the FM-1's record) */
+#define SCN_V1_REC_MAX 244u
+#else
 #define SCN_SLOT 1020u                          /* a record's bytes in the bank */
 #define SCN_REC_MAX 244u                        /* (id, value) records a scene holds at most */
 #define SCN_BANK_SECT 4u                        /* a bank copy: 4 KiB sectors */
+#endif
 #define SCN_BANK_A SCENES_AT                    /* (store.h: the store's map, why there) */
 #define SCN_BANK_B (SCENES_AT + SCN_BANK_SECT * 0x1000u)
 #define SCN_MAGIC 0x42535854u                   /* "TXSB" */
+#if SC_N > 4
+#define SCN_VER 2u
+#else
 #define SCN_VER 1u
+#endif
 #define SCN_CHUNK 255u                          /* a save writes this much a pass (SCN_SLOT = 4 chunks) */
 #define SCN_SLICE 16u                           /* records a load sends a pass */
 #define SCN_STUCK_MS 6000u                      /* a load waits this long at most for its lanes' engines (a lane that
@@ -76,6 +92,33 @@
 #define SCN_NF_OLD 10u
 
 typedef struct { uint16_t id; int16_t v; } scn_rec_t;
+#if SC_N > 4
+typedef struct {
+    uint8_t ver, used, fam, nlane;              /* (nlane: the lanes in use, 1 .. SC_N) */
+    char name[12];
+    int8_t snd[SC_N];
+    uint8_t cnt[SC_N], step[SC_N], run[SC_N], vol[SC_N], pan[SC_N];
+    uint8_t lf[SC_N];                           /* lane k's family + 1 (0: the scene's landscape) */
+    uint32_t mute;                              /* lane k muted at bit k */
+    uint16_t nrec, spare;
+    scn_rec_t r[SCN_REC_MAX];
+} scn_t;
+typedef struct {                                /* the FM-1's record (version 1): scn_t of a four-lane build */
+    uint8_t ver, used, fam, mute;
+    char name[12];
+    int8_t snd[4];
+    uint8_t cnt[4], step[4], run[4], vol[4], pan[4];
+    uint16_t nrec, lfam;
+    scn_rec_t r[SCN_V1_REC_MAX];
+} scn_v1_t;
+_Static_assert(sizeof(scn_v1_t) == SCN_V1_SLOT, "the FM-1's scene record is 1020 bytes");
+typedef uint32_t scn_lm_t;                      /* (a mask of lanes) */
+#define SCN_MUTE_SET(s, k) ((s)->mute |= 1u << (k))
+#define SCN_MUTE_OF(s, k) ((s)->mute >> (k) & 1u)
+#define SCN_LF_SET(s, k, f) ((s)->lf[k] = (uint8_t)((f) + 1u))
+#define SCN_LF_OF(s, k) ((uint32_t)(s)->lf[k])
+#define SCN_WIN_SECT SCENES_WIN_SECT
+#else
 typedef struct {
     uint8_t ver, used, fam, mute;               /* (mute: lane k muted at bit k; a scene from before it: 0, none) */
     char name[12];
@@ -85,11 +128,18 @@ typedef struct {
                                                  * landscape, as every scene before the sound browser) */
     scn_rec_t r[SCN_REC_MAX];
 } scn_t;
+typedef uint8_t scn_lm_t;
+#define SCN_MUTE_SET(s, k) ((s)->mute |= (uint8_t)(1u << (k)))
+#define SCN_MUTE_OF(s, k) ((s)->mute >> (k) & 1u)
+#define SCN_LF_SET(s, k, f) ((s)->lfam |= (uint16_t)(((f) + 1u) << (4u * (k))))
+#define SCN_LF_OF(s, k) ((s)->lfam >> (4u * (k)) & 15u)
+#define SCN_WIN_SECT SCENES_SECT
+#endif
 typedef struct { uint32_t magic, seq, len, crc; } scn_hdr_t;
 _Static_assert(sizeof(scn_t) == SCN_SLOT, "a scene record is SCN_SLOT bytes");
 _Static_assert(SCN_SLOT % SCN_CHUNK == 0u, "a record is whole chunks");
 _Static_assert(sizeof(scn_hdr_t) + SCN_NU * SCN_SLOT <= SCN_BANK_SECT * 0x1000u, "a bank copy fits its sectors");
-_Static_assert(SCN_BANK_B + SCN_BANK_SECT * 0x1000u == SCENES_AT + SCENES_SECT * 0x1000u, "the banks fill store.h's scenes");
+_Static_assert(SCN_BANK_B + SCN_BANK_SECT * 0x1000u == SCENES_AT + SCN_WIN_SECT * 0x1000u, "the banks fill store.h's scenes");
 
 /* ---- the flash (the host and the web: the platform's window, at once; the FM-1: fm1_flash.h's split operations, a
  * slice a main-loop pass, as the settings' save) */
@@ -137,7 +187,7 @@ static uint8_t scn_edited;                      /* the player changed what plays
                                                  * header's "*") */
 static TX_RTD struct { uint16_t id, t0; int16_t from, to; } scn_gl[SCN_GL_N];   /* the glides (scn_put): t0, ms mod 2^16 */
 static uint8_t scn_gl_n;
-static uint8_t scn_ap_sw, scn_ap_cd;            /* this load's switched lanes (bit k); those whose cards are set */
+static scn_lm_t scn_ap_sw, scn_ap_cd;           /* this load's switched lanes (bit k); those whose cards are set */
 static uint32_t scn_gl_tick;
 /* a save in progress */
 static uint8_t scn_sv_on, scn_sv_slot, scn_sv_go;   /* (a save: asked; its slot; started in flash) */
@@ -199,7 +249,7 @@ static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id *
     if (i < SCN_DEF_MAT) { i -= SCN_DEF_FOL; return PID(P_ENV, MV_FOL0 + i / TX_FP_N * 16u + i % TX_FP_N); }
     if (i < SCN_DEF_GRV) { i -= SCN_DEF_MAT; return PID(P_MAT, i < MOD_NS * MQ_N ? i : MQ_CC); }
     i -= SCN_DEF_GRV;
-    return PID(i / 2u, PL_GPART + (i & 1u));
+    return PID(P_LS(i / 2u), PL_GPART + (i & 1u));
 }
 static int32_t scn_def_of(uint32_t id)          /* an id's default (-1: none: the cards, the tempo) */
 {
@@ -207,7 +257,7 @@ static int32_t scn_def_of(uint32_t id)          /* an id's default (-1: none: th
     const p_gx_t *g = p_gx(id);                 /* (SYNC; GROOVE: light and loose, each lane AUTO: a scene from before
                                                  * it gets these) */
     if (g) return g->def == PGX_NODEF ? -1 : g->def;
-    if (s < SC_N) return -1;
+    if (P_IS_LANE(s)) return -1;
     if (s == P_GLOBAL) {
         if (i < PG_REVERB0) return tx_fx_grain_params[PG_GDE(i)].def;
         if (i >= PG_REVERB0 && i < PG_REVERB0 + TX_RV_NP) return tx_fx_reverb_params[i - PG_REVERB0].def;
@@ -250,6 +300,9 @@ static void scn_capture(scn_t *s)
     uint32_t k, i;
     memset(s, 0, sizeof *s);
     s->ver = SCN_VER; s->used = 1; s->fam = sc.fam;
+#if SC_N > 4
+    s->nlane = sc_nlane;
+#endif
     if (scn_cur != 0xFF && scn_cur >= SCN_NF && scn_meta[scn_cur - SCN_NF].used) memcpy(s->name, scn_meta[scn_cur - SCN_NF].name, 12);
     else p_upper(s->name, LS[sc.fam].name, 11);
     for (k = 0; k < SC_N; k++) {
@@ -258,9 +311,13 @@ static void scn_capture(scn_t *s)
         s->cnt[k] = m_cb_ok[k] && sc.run[k] && m_cbase[k] ? m_cbase[k] : sc.cnt[k];   /* (HOW MANY modulated: its base) */
         s->step[k] = sc.step[k]; s->run[k] = sc.run[k];
         s->vol[k] = (uint8_t)sc_vol_of(k); s->pan[k] = sc.pan[k];
-        if (sc.mute[k]) s->mute |= (uint8_t)(1u << k);
-        if (sc.snd[k] >= 0) s->lfam |= (uint16_t)((sc.lf[k] + 1u) << (4u * k));
-        for (i = 0; i < c->n; i++) if (c->cv[i] != 0xFF) scn_add(s, PID(k, PL_CARD0 + i), c->cv[i]);   /* (the ones set) */
+#if SC_N > 4
+        if (sc.snd[k] < 0) { s->cnt[k] = s->step[k] = s->run[k] = 0; s->pan[k] = 64; }   /* (an empty lane: none of what it
+                                                 * had before, which no load sets: the same scene saves the same) */
+#endif
+        if (sc.mute[k]) SCN_MUTE_SET(s, k);
+        if (sc.snd[k] >= 0) SCN_LF_SET(s, k, sc.lf[k]);
+        for (i = 0; i < c->n; i++) if (c->cv[i] != 0xFF) scn_add(s, PID(P_LS(k), PL_CARD0 + i), c->cv[i]);   /* (the ones set) */
     }
     scn_add(s, PID(P_GLOBAL, PG_FINE), (int32_t)tempo_bpm10() - 400);
     for (i = 0; i < SCN_DEF_N; i++) { uint32_t id = scn_def_id(i); scn_add_nd(s, id, p_get(id)); }
@@ -283,8 +340,8 @@ static void scn_factory(scn_t *s, uint32_t i)
         s->snd[k] = l.snd; s->vol[k] = l.vol; s->pan[k] = l.pan;
         if (l.snd < 0) continue;
         if (first) { s->fam = (uint8_t)l.fam; first = 0; }   /* (the landscape: the first lane's family) */
-        s->lfam |= (uint16_t)((l.fam + 1u) << (4u * k));
-        if (l.mute) s->mute |= (uint8_t)(1u << k);
+        SCN_LF_SET(s, k, l.fam);
+        if (l.mute) SCN_MUTE_SET(s, k);
         if (l.cnt) { s->cnt[k] = l.cnt; s->step[k] = (uint8_t)sc_act_step(l.act); s->run[k] = 1; }
     }
     if (fx >= PR_NFX) fx = 0;
@@ -299,7 +356,7 @@ static int scn_fx_id(uint32_t id);
 static int scn_glides(uint32_t id)              /* an id a load glides to its value */
 {
     if (p_fmt(id) == F_ENUM || p_hi(id) < 16) return 0;
-    if (P_SCOPE(id) < SC_N) return P_IDX(id) >= PL_CARD0;
+    if (P_IS_LANE(P_SCOPE(id))) return P_IDX(id) >= PL_CARD0;
     return P_SCOPE(id) == P_GLOBAL && scn_fx_id(id) && P_IDX(id) != PG_GRAIN0 + TX_GD_TIME;
 }
 static void scn_put(uint32_t id, int32_t v)
@@ -318,7 +375,7 @@ static void scn_put(uint32_t id, int32_t v)
 static void scn_gl_drop(uint32_t k)             /* lane k's glides dropped (its sound changes: other cards) */
 {
     uint32_t i = 0;
-    while (i < scn_gl_n) if (P_SCOPE(scn_gl[i].id) == k) scn_gl[i] = scn_gl[--scn_gl_n]; else i++;
+    while (i < scn_gl_n) if (P_SCOPE(scn_gl[i].id) == P_LS(k)) scn_gl[i] = scn_gl[--scn_gl_n]; else i++;
 }
 static void scn_gl_poll(void)
 {
@@ -345,7 +402,7 @@ static void scn_cards_reset(uint32_t k, const scn_t *s, int how)
     p_cards_t *c = p_cards(k);
     uint32_t i;
     for (i = 0; i < c->n; i++) {
-        uint32_t id = PID(k, PL_CARD0 + i);
+        uint32_t id = PID(P_LS(k), PL_CARD0 + i);
         if (c->cv[i] == 0xFF) continue;
         if (how == SCN_LANE_SAME && scn_rec_of(s, id) >= 0) continue;
         if (how == SCN_LANE_SAME && !(c->kind[i] & CK_HOST)) { scn_put(id, c->def[i]); continue; }
@@ -355,6 +412,40 @@ static void scn_cards_reset(uint32_t k, const scn_t *s, int how)
         else ln_param(k, c->id[i], c->kind[i] & CK_INV ? c->hi[i] - c->def[i] : c->def[i]);
     }
 }
+#if SC_N > 4
+/* lane k emptied (LANES lowered, params.c): stopped, its cards back, its engine let go (it rings out, then the lane
+ * costs nothing) */
+static void scn_lane_clear(uint32_t k)
+{
+    if (k >= SC_N || (sc.snd[k] < 0 && !sc.eng[k])) return;
+    if (sc.snd[k] >= 0) scn_cards_reset(k, &scn_sv, SCN_LANE_NEW);
+    scn_gl_drop(k);
+    sc.mem_cnt[k] = 0; m_cb_ok[k] = 0; sc.mute[k] = 0;
+    if (sc.run[k]) sc_start(k, 0);
+    sc.snd[k] = -1; sc.eng[k] = 0; sc.q[k] = 0;   /* (no engine: no QUICK parameters either) */
+    sc_sync(k);
+}
+/* the FM-1's scene (version 1, four lanes) as this build's: lanes 1 .. 4 as it has them, the others empty, its
+ * records as they are (their ids are this build's too); 0, or -1 if it is not one */
+static int scn_from_v1(scn_t *d, const scn_v1_t *v)
+{
+    uint32_t k;
+    if (v->ver != 1u || !v->used || v->nrec > SCN_V1_REC_MAX) return -1;
+    memset(d, 0, sizeof *d);
+    d->ver = SCN_VER; d->used = 1; d->fam = v->fam; d->nlane = 4;
+    memcpy(d->name, v->name, sizeof d->name);
+    for (k = 0; k < SC_N; k++) { d->snd[k] = -1; d->vol[k] = 100; d->pan[k] = 64; }
+    for (k = 0; k < 4u; k++) {
+        d->snd[k] = v->snd[k]; d->cnt[k] = v->cnt[k]; d->step[k] = v->step[k]; d->run[k] = v->run[k];
+        d->vol[k] = v->vol[k]; d->pan[k] = v->pan[k];
+        d->lf[k] = (uint8_t)(v->lfam >> (4u * k) & 15u);
+        if (v->mute >> k & 1u) d->mute |= 1u << k;
+    }
+    d->nrec = v->nrec;
+    memcpy(d->r, v->r, v->nrec * sizeof d->r[0]);
+    return 0;
+}
+#endif
 /* the scene's lanes. A lane that keeps its sound plays on untouched: its level, pan, HOW MANY and HOW ACTIVE glide
  * (scape.c sc_glide). A lane that gets another sound switches: its old engine plays on till the spare is free (one
  * lane at a time), then rings out under the new one (lanes.c); the lanes the scene leaves empty stop (their tails
@@ -365,7 +456,7 @@ static void scn_lanes(const scn_t *s)
     if (f != sc.fam) { sc.fam = (uint8_t)f; sc.fam_want = (uint8_t)f; }
     sc.fam_pend = 0;
     for (k = 0; k < SC_N; k++) {
-        uint32_t lf = s->lfam >> (4u * k) & 15u;
+        uint32_t lf = SCN_LF_OF(s, k);
         int how = SCN_LANE_NEW;
         lf = lf && lf <= LS_N ? lf - 1u : f;
         if (s->snd[k] >= 0 && (uint32_t)s->snd[k] >= LS[lf].n) lf = LS_N;   /* (one out of its family's range: none) */
@@ -376,9 +467,9 @@ static void scn_lanes(const scn_t *s)
             else if (e && sc_swaps(k, d, e)) how = SCN_LANE_SWAP;
         }
         scn_cards_reset(k, s, how);
-        if (how == SCN_LANE_SWAP) scn_ap_sw |= (uint8_t)(1u << k);
+        if (how == SCN_LANE_SWAP) scn_ap_sw |= (scn_lm_t)(1u << k);
         sc.mem_cnt[k] = 0; m_cb_ok[k] = 0;
-        sc.mute[k] = (uint8_t)(lf < LS_N && s->snd[k] >= 0 ? s->mute >> k & 1u : 0u);
+        sc.mute[k] = (uint8_t)(lf < LS_N && s->snd[k] >= 0 ? SCN_MUTE_OF(s, k) : 0u);
         if (how != SCN_LANE_SAME) {
             scn_gl_drop(k);
             if (sc.run[k] && how != SCN_LANE_SWAP) sc_start(k, 0);   /* (a switch: sc_load lets it play on) */
@@ -400,6 +491,14 @@ static void scn_lanes(const scn_t *s)
         else sc_sync(k);
     }
     if (sc.sel >= SC_N || sc.snd[sc.sel] < 0) sc.sel = 0;
+#if SC_N > 4
+    {                                           /* the lanes in use: the scene's (a factory scene, one of the FM-1's:
+                                                 * 4), at least up to its last sound */
+        uint32_t n = s->nlane >= 1u && s->nlane <= SC_N ? s->nlane : 4u;
+        for (k = n; k < SC_N; k++) if (sc.snd[k] >= 0) n = k + 1u;
+        sc_nlane = (uint8_t)n;
+    }
+#endif
 }
 static void scn_fx_early(const scn_t *s);
 static void scn_apply(const scn_t *s, uint32_t idx)
@@ -411,7 +510,7 @@ static void scn_apply(const scn_t *s, uint32_t idx)
     scn_fx_force = 0;
     scn_ap_drv = 0xFF;                          /* (a lane DRIVE's records, retired: the most AMOUNT's go to the mix's) */
     for (i = 0; i < s->nrec; i++)
-        if (P_SCOPE(s->r[i].id) < SC_N && P_IDX(s->r[i].id) == PL_ODRIVE0 + TX_DR_AMOUNT && s->r[i].v > (int32_t)best) {
+        if (P_IS_LANE(P_SCOPE(s->r[i].id)) && P_IDX(s->r[i].id) == PL_ODRIVE0 + TX_DR_AMOUNT && s->r[i].v > (int32_t)best) {
             best = (uint32_t)s->r[i].v; scn_ap_drv = (uint8_t)P_SCOPE(s->r[i].id);
         }
     scn_ap_sw = scn_ap_cd = 0;
@@ -438,7 +537,7 @@ static void scn_fx_early(const scn_t *s)
 static int scn_fx_id(uint32_t id)
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
-    if (s < SC_N) return i >= PL_ODRIVE0 && i < PL_ODRIVE0 + TX_DR_NP;
+    if (P_IS_LANE(s)) return i >= PL_ODRIVE0 && i < PL_ODRIVE0 + TX_DR_NP;
     if (s != P_GLOBAL) return 0;
     return i < PG_COMP0 + TX_CP_NP || (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP) || (i >= PG_MF0 && i < PG_MF0 + TX_MF_NP);
 }
@@ -464,9 +563,9 @@ static void scn_apply_cards(void)
         (void)p_cards(k);
         for (i = 0; i < scn_ap->nrec; i++) {
             uint32_t id = scn_ap->r[i].id;
-            if (P_SCOPE(id) == k && P_IDX(id) >= PL_CARD0 && P_IDX(id) < PL_CARD0 + SCD_MAX && p_valid(id)) p_set(id, scn_ap->r[i].v);
+            if (P_SCOPE(id) == P_LS(k) && P_IDX(id) >= PL_CARD0 && P_IDX(id) < PL_CARD0 + SCD_MAX && p_valid(id)) p_set(id, scn_ap->r[i].v);
         }
-        scn_ap_cd |= (uint8_t)(1u << k);
+        scn_ap_cd |= (scn_lm_t)(1u << k);
     }
 }
 static void scn_apply_poll(void)
@@ -486,6 +585,11 @@ static void scn_apply_poll(void)
                                                          * record of (theirs come next: no value set twice) */
         uint32_t id = scn_def_id(scn_ap_d++);
         if (scn_fx_id(id)) continue;            /* (the effects: set as the load started, or kept) */
+#if SC_N > 4
+        if (P_SCOPE(id) >= 16u && scn_rec_of(scn_ap, id) < 0 && p_get(id) == scn_def_of(id)) continue;   /* (lanes 5 ..:
+                                                 * at their default already, no pass spent: a four-lane scene's load
+                                                 * takes as long as on the FM-1) */
+#endif
         if (scn_rec_of(scn_ap, id) < 0) { scn_put(id, scn_def_of(id)); n++; }
     }
     while (scn_ap_d >= SCN_DEF_N && scn_ap_i < scn_ap->nrec && n < SCN_SLICE && ln.qw - ln.qr < LN_QN / 2u) {
@@ -494,10 +598,10 @@ static void scn_apply_poll(void)
         if (scn_fx_id(r->id) && (rs == P_GLOBAL || !scn_ap_fx)) continue;   /* (set as the load started, or kept;
                                                  * a lane's DRIVE, retired: below) */
         if (rs == P_GLOBAL && ri == PG_FINE) { if (tm.scn_tempo) tempo_set10((uint32_t)(r->v + 400)); }
-        else if (rs < SC_N && ri >= PL_ODRIVE0 && ri < PL_ODRIVE0 + TX_DR_NP) {   /* (a lane's DRIVE, retired) */
+        else if (P_IS_LANE(rs) && ri >= PL_ODRIVE0 && ri < PL_ODRIVE0 + TX_DR_NP) {   /* (a lane's DRIVE, retired) */
             if (rs == scn_ap_drv) p_set(PID(P_GLOBAL, PG_DRIVE0 + ri - PL_ODRIVE0), r->v);
         }
-        else if (rs < SC_N && ri >= PL_CARD0 && ri < PL_CARD0 + SCD_MAX && (scn_ap_cd >> rs & 1u)) continue;   /* (set) */
+        else if (P_IS_LANE(rs) && ri >= PL_CARD0 && ri < PL_CARD0 + SCD_MAX && (scn_ap_cd >> P_LANE_OF(rs) & 1u)) continue;   /* (set) */
         else if (rs == P_MAT && ri < MOD_NS * MQ_N && ri % MQ_N == MQ_TGT && mod_tgt_retired((uint32_t)r->v)) {}
                                                 /* (a route onto a lane's FILTER, retired: dropped, the slot's TARGET
                                                  * stays NONE) */
@@ -727,8 +831,17 @@ static void scn_pc(uint32_t p)                  /* MIDI program change (channel 
 }
 
 /* ---- the settings: one small record, saved SET_SAVE_MS after its last change (the platform's split save) */
+#if SC_N > 4
+typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, scn_tempo, out_off; uint16_t bpm10; uint8_t scn_fx, layout;
+                 uint8_t scale, root, selch, lch[4], spare, scm, scf, sct, spare2;
+                 uint8_t lchx[SC_N - 4u], chg; } tx_set_t;   /* (more lanes: lane 5 .. SC_N's channels, FX CHANNEL, each
+                                                 * XOR its default as lch) */
+#define SET_LCH_OF(s, k) ((k) < 4u ? (s)->lch[k] : (s)->lchx[(k) - 4u])
+#else
 typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, scn_tempo, out_off; uint16_t bpm10; uint8_t scn_fx, layout;
                  uint8_t scale, root, selch, lch[SC_N], spare, scm, scf, sct, spare2; } tx_set_t;
+#define SET_LCH_OF(s, k) ((s)->lch[k])
+#endif
                                                 /* (scn_tempo, out_off, palette, scn_fx, layout: once spare bytes, 0 = as
                                                  * before: off, USB, RED, SMART, the scenes before the presets. scn_fx: 0
                                                  * SMART, 1 ALWAYS, 2 NEVER: the KEEP and RECALL of before read as SMART
@@ -741,7 +854,11 @@ typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, scn_tempo, 
                                                  * old list's number (OFF: 0), for a firmware of before) */
 #define SET_OLD_SZ 12u
 #define SET_MID_SZ 20u
+#if SC_N > 4
+_Static_assert(sizeof(tx_set_t) <= 256u && SET_OLD_SZ == 12u && SET_MID_SZ == 20u, "the settings: the old records, then the appended bytes");
+#else
 _Static_assert(sizeof(tx_set_t) == 24u && SET_OLD_SZ == 12u && SET_MID_SZ == 20u, "the settings: the old records, then the appended bytes");
+#endif
 /* the old SCALE list's numbers (CHROMATIC MAJOR MINOR DORIAN PHRYGIAN LYDIAN MIXOLYDIAN HARMONIC MELODIC MAJ PENTA MIN
  * PENTA BLUES) <-> Frodhes' (MAJOR MINOR DORIAN MIXO LYDIAN PHRYG HARMON MELODIC PENTA MPENTA BLUES) */
 static const uint8_t SET_SC_OLD[NT_NSCALE] = {1, 2, 3, 6, 5, 4, 7, 8, 9, 10, 11};   /* (Frodhes' n: the old number) */
@@ -763,7 +880,12 @@ static void set_take(tx_set_t *s)
     s->scale = (uint8_t)(nt_scmode == NT_OFF ? 0u : SET_SC_OLD[nt_scale]); s->root = nt_root;
     s->scm = (uint8_t)(nt_scmode + 1u); s->scf = nt_scale; s->sct = (uint8_t)(nt_trans + 24);
     s->selch = (uint8_t)(nt_selch ^ 1u);
+#if SC_N > 4
+    for (k = 0; k < SC_N; k++) *(k < 4u ? &s->lch[k] : &s->lchx[k - 4u]) = (uint8_t)(nt_lch[k] ^ (k + 1u));
+    s->chg = (uint8_t)(p_chg ^ 5u);
+#else
     for (k = 0; k < SC_N; k++) s->lch[k] = (uint8_t)(nt_lch[k] ^ (k + 1u));
+#endif
 }
 static void set_poll(void)
 {
@@ -813,7 +935,12 @@ static void scn_init(void)
         }
         p_set(PID(P_GLOBAL, PG_ROOT), s.root);
         p_set(PID(P_GLOBAL, PG_SELCH), s.selch ^ 1u);
+#if SC_N > 4
+        for (k = 0; k < SC_N; k++) p_set(PID(P_GLOBAL, PG_LCH(k)), SET_LCH_OF(&s, k) ^ (k + 1u));
+        p_set(PID(P_GLOBAL, PG_CHG), s.chg ^ 5u);
+#else
         for (k = 0; k < SC_N; k++) p_set(PID(P_GLOBAL, PG_LCH0 + k), s.lch[k] ^ (k + 1u));   /* (p_set keeps them in range) */
+#endif
         tempo_mode(s.clock); tempo_port(1, s.in_usb); tempo_port(2, s.in_trs);
         tempo_scene_flag(s.scn_tempo); tempo_out(!s.out_off); color_apply(s.palette); scn_fx_mode = set_fx_mode(s.scn_fx);
         if (s.bpm10 >= 400u && s.bpm10 <= 2400u) tempo_set10(s.bpm10);

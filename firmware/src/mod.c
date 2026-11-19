@@ -31,12 +31,20 @@
 #include "tx_mod.h"
 
 #define MOD_NS 16u                              /* slots */
+#if SC_N > 4
+#define MOD_NT 255u                             /* (more lanes, the desktop plugin: ALL LANES on up to 16 each; nt, nr
+                                                 * and a route's target are bytes) */
+#define MOD_NR 255u
+#define MOD_LK(k) (k)                           /* lane k's notes: its own count (LANE 1 .. 4 read the first four) */
+#else
 #define MOD_NT 64u                              /* targets at most (16 slots x 4 lanes) */
 #define MOD_NR 64u
+#define MOD_LK(k) ((k) & 3u)
+#endif
 #define MOD_SENDS 8u                            /* set() calls a block at most (the cost's cap) */
 enum { MS_NONE, MS_LFO1, MS_VEL = 9, MS_MODW, MS_AT, MS_CC, MS_ACTIVE, MS_RANDOM, MS_CONST, MS_ENV1, MS_FOL1 = MS_ENV1 + TX_ENV_N,
        MS_N = MS_FOL1 + TX_FOL_N };   /* (append only: a scene stores the number) */
-enum { ME_VEL, ME_MODW, ME_AT, ME_CC, ME_ACT1, ME_RANDOM = ME_ACT1 + 4, ME_CONST, ME_ENV1, ME_FOL1 = ME_ENV1 + TX_ENV_N,
+enum { ME_VEL, ME_MODW, ME_AT, ME_CC, ME_ACT1, ME_RANDOM = ME_ACT1 + SC_N, ME_CONST, ME_ENV1, ME_FOL1 = ME_ENV1 + TX_ENV_N,
        ME_N = ME_FOL1 + TX_FOL_N };   /* mod_ext[] */
 enum { MK_ENG, MK_HOST, MK_PAN, MK_FX, MK_ACT, MK_COUNT, MK_LRATE, MK_LLEVEL, MK_GRV };   /* (MK_GRV: GROOVE AMOUNT) */
 #define MT_LANE_N 19u                           /* a lane's targets */
@@ -58,7 +66,7 @@ static TX_RTD tx_lfo_t mod_lfo[TX_LFO_N];
 static tx_env_t mod_env[TX_ENV_N];
 static tx_fol_t mod_fol[TX_FOL_N];
 static int32_t m_lprev[TX_LFO_N];               /* (the LFOs' last values: an envelope's LFO n trigger) */
-static uint8_t m_held[4];                       /* notes held per lane (the envelopes' sustain) */
+static uint8_t m_held[SC_N];                    /* notes held per lane (the envelopes' sustain) */
 static struct { uint8_t src, tgt, depth, spread; } mslot[MOD_NS];   /* depth 0 .. 200: -100 .. +100 % */
 static uint8_t mod_cc = 2;                      /* MOD CC (the CC source's number; 2: breath) */
 static volatile int16_t mod_ext[ME_N];
@@ -92,20 +100,20 @@ static volatile uint32_t mpos_snap_v;
 /* ---- the interrupt */
 static void mod_key_isr(uint32_t k, uint32_t vel)   /* a note on (a key, the generator, a lane's start: lanes.c) */
 {
-    m_trig |= 1u << (k & 3u);
+    m_trig |= 1u << MOD_LK(k);
 #ifdef DINGHY_HOST
     gr_note_host(k);                            /* (groove.c: how near its pulse each note falls) */
 #endif
-    if (m_held[k & 3u] < 255u) m_held[k & 3u]++;
+    if (m_held[MOD_LK(k)] < 255u) m_held[MOD_LK(k)]++;
     mod_ext[ME_VEL] = (int16_t)(vel > 127u ? 32767 : vel * 258u);
     m_rng ^= m_rng << 13; m_rng ^= m_rng >> 17; m_rng ^= m_rng << 5;
     mod_ext[ME_RANDOM] = (int16_t)(m_rng >> 17);
 }
 static void mod_key_off_isr(uint32_t k)        /* a note off (lanes.c) */
 {
-    if (m_held[k & 3u]) m_held[k & 3u]--;
+    if (m_held[MOD_LK(k)]) m_held[MOD_LK(k)]--;
 }
-static void mod_lane_reset_isr(uint32_t k) { m_held[k & 3u] = 0; }   /* the lane's engine changed: its notes gone */
+static void mod_lane_reset_isr(uint32_t k) { m_held[MOD_LK(k)] = 0; }   /* the lane's engine changed: its notes gone */
 /* the envelopes and the followers, a block: their triggers and inputs (lanes.c's last block: ln.lpk, ln.lev) */
 static void mod_env_block(uint32_t trig, uint32_t start)
 {
@@ -232,7 +240,7 @@ static uint32_t mod_tgt_pid(uint32_t T, uint32_t k)   /* the param id it is on l
         static const uint8_t J[MT_LANE_N] = {PL_LEVEL, PL_PAN, PL_COUNT, PL_ACTIVE, PL_CARD0, PL_CARD0 + 1, PL_CARD0 + 2,
             PL_CARD0 + 3, PL_CARD0 + 4, PL_CARD0 + 5, PL_CARD0 + 6, PL_CARD0 + 7, 0, 0, 0,   /* (12 .. 14: mod_tgt_drv) */
             0, 0, 0, 0};                        /* (15 .. 18: retired, mod_tgt_retired) */
-        return PID(k, J[(T - 1u) % MT_LANE_N]);
+        return PID(P_LS(k), J[(T - 1u) % MT_LANE_N]);
     }
     if (T < MT_REV0) return PID(P_GLOBAL, PG_GRAIN0 + MT_GRAIN[T - MT_GRAIN0]);
     if (T < MT_LFO0) return PID(P_GLOBAL, PG_REVERB0 + MT_REV[T - MT_REV0]);
@@ -262,7 +270,7 @@ static void mod_tgt_text(uint32_t T, char *s)
 /* the TARGET index of a param id (0: not a target) */
 static uint32_t mod_tgt_of(uint32_t id)
 {
-    uint32_t T, k = P_SCOPE(id) < P_LANES ? P_SCOPE(id) : 0u;
+    uint32_t T, k = P_IS_LANE(P_SCOPE(id)) ? P_LANE_OF(P_SCOPE(id)) : 0u;
     for (T = 1; T < MT_N; T++) {
         uint32_t l = mod_tgt_lanes(T);
         if (l == 4u || (l < 4u && l != k)) continue;   /* (a lane's target: that lane's, not lane 1's) */

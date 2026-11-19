@@ -205,6 +205,11 @@ static uint32_t ui_msg_t;
 static uint8_t ui_hot_card = 0xFF;
 static uint32_t ui_hot_t;
 static uint8_t ui_blink_shown[SC_N];
+#if SC_N > 4
+#define UI_NROW 4u                              /* (more lanes, the desktop plugin: the screen still has four rows) */
+#else
+#define UI_NROW SC_N
+#endif
 /* the load toast: every load (PRESETS' EDIT, a program change, the boot, an undo, a landscape) names what comes, big,
  * over the rows for TOAST_MS ("LOADED . COAST", "F034 HARBOUR NIGHT"); the header keeps the name after */
 #define TOAST_MS 1500u
@@ -418,7 +423,7 @@ static uint32_t ui_nsub(uint32_t g)             /* a group's sub-pages */
 static int ui_lane_page(void) { return ui_g == G_SOUND; }   /* (the selected lane's pages) */
 static uint32_t ui_id_lane(uint32_t id)         /* a page's id made concrete: the selected lane, LFO, slot */
 {
-    if (P_SCOPE(id) == LA) return PID(sc.sel, P_IDX(id));
+    if (P_SCOPE(id) == LA) return PID(P_LS(sc.sel), P_IDX(id));
     if (P_SCOPE(id) == P_LFO && P_IDX(id) >= 0xF0u) return PID(P_LFO, ui_lfo * 16u + (P_IDX(id) & 15u));
     if (P_SCOPE(id) == P_MAT && P_IDX(id) >= 0xF0u) return PID(P_MAT, ui_slot * 4u + (P_IDX(id) & 15u));
     if (P_SCOPE(id) == P_ENV && P_IDX(id) >= 0xF0u)
@@ -430,9 +435,9 @@ static uint32_t ui_row_id(uint32_t k)
 {
     if (ui_g == G_SOUND) {
         uint32_t i = ui_sub * 4u + k;
-        return sc.snd[sc.sel] >= 0 && i < p_cards(sc.sel)->n ? PID(sc.sel, PL_CARD0 + i) : NOID;
+        return sc.snd[sc.sel] >= 0 && i < p_cards(sc.sel)->n ? PID(P_LS(sc.sel), PL_CARD0 + i) : NOID;
     }
-    if (ui_g == G_LANES) return ui_sub < 3u && sc.snd[k] >= 0 ? PID(k, ui_sub == 2u ? PL_PAN : PL_COUNT + ui_sub) : NOID;   /* (HOW MANY, HOW
+    if (ui_g == G_LANES) return ui_sub < 3u && sc.snd[k] >= 0 ? PID(P_LS(k), ui_sub == 2u ? PL_PAN : PL_COUNT + ui_sub) : NOID;   /* (HOW MANY, HOW
                                                  * ACTIVE, PAN: lane k's; ON / MUTE: drawn, turned here) */
     if (ui_g < G_FX || UI_GLANES) return NOID;
     {
@@ -887,9 +892,9 @@ static uint32_t ui_role(uint32_t k)
 }
 static void ui_role_set(uint32_t k, uint32_t r)
 {
-    scn_touch_id(PID(k, PL_GPART));
-    p_set(PID(k, PL_GPART), r == 0u ? TX_GRP_FREE : r <= 4u ? (int32_t)r - 1 : TX_GRP_AUTO);
-    p_set(PID(k, PL_GCYC), r > 4u ? (int32_t)r - 4 : 0);
+    scn_touch_id(PID(P_LS(k), PL_GPART));
+    p_set(PID(P_LS(k), PL_GPART), r == 0u ? TX_GRP_FREE : r <= 4u ? (int32_t)r - 1 : TX_GRP_AUTO);
+    p_set(PID(P_LS(k), PL_GCYC), r > 4u ? (int32_t)r - 4 : 0);
 }
 /* lane k's role as the row reads it ("FREE", "AUTO: PULSE", "OFFBEAT", "5 PER 4 BEATS"); its slots into pos, w */
 static unsigned ui_role_text(uint32_t k, char *r, uint8_t *pos, uint8_t *w)
@@ -1448,7 +1453,7 @@ static void ui_draw(void)
         }
     }
     if (ui_g == G_LAND && !ub.on && !(ui_dirty >> E_ROW0 & 0xFu))   /* the blink dots: a few pixels, at once */
-        for (k = 0; k < SC_N; k++)
+        for (k = 0; k < UI_NROW; k++)
             if (sc.snd[k] >= 0 && ui_blink_on(k) != ui_blink_shown[k] && !((k == 1u || k == 2u) && ui_toast_on()))   /* (not
                                                  * under the toast) */
                 ui_blink_dot(k, ui_blink_on(k), 0);
@@ -1700,7 +1705,7 @@ static void ui_learn(uint32_t k, int32_t d)
 {
     uint32_t id = NOID;
     int s;
-    if (ui_g == G_LAND) id = PID(k, PL_LEVEL);   /* (LANDSCAPE: lane k's volume) */
+    if (ui_g == G_LAND) id = PID(P_LS(k), PL_LEVEL);   /* (LANDSCAPE: lane k's volume) */
     else id = ui_row_id(k);
     ui_lfo_learned = 1;
     s = id == NOID ? -1 : mod_learn(ui_lsrc, id, d);

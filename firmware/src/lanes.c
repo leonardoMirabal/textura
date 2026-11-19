@@ -32,7 +32,12 @@
 #include "tx_core_ring.h"
 
 #define LN_N TX_MIX_SLOTS                       /* lanes */
+#if LN_N > 4
+#define LN_QN 512u                              /* (more lanes: a scene's load queues each lane's engine, PRESET, TYPE,
+                                                 * level, pan ... at once; 128 would drop the last lanes') */
+#else
 #define LN_QN 128u                              /* queued events (a power of two) */
+#endif
 #ifdef LN_HQ
 /* LN_HQ: a desktop (the plugin, plugin/src/engine_unit.c, and the host build it is checked against): no CPU limit, so
  * nothing is thinned: the governor's pool has no end (it never takes a hero) and the grain delay plays every grain
@@ -154,7 +159,7 @@ static ln_out_t ln_out[LN_N] LN_POOL;
 static struct { uint32_t gv_us[2], busy_us, pipe_us; volatile uint8_t pipe_on; } __attribute__((aligned(64))) ln_c1t LN_POOL;
                                                 /* (the second core's own line: its job's grain voices and busy time;
                                                  * LN_PIPE: the mix end's us, and on while it runs it there) */
-#define LN_GV 4u                                /* the split's items past the lanes: the grain delay's voices, the echo
+#define LN_GV LN_N                              /* the split's items past the lanes: the grain delay's voices, the echo
                                                  * and the first half (LN_GV), the second half (LN_GV + 1) */
 
 #if defined(LN_CLOCK) && defined(LN_ISR_US)
