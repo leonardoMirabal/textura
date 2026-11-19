@@ -478,6 +478,17 @@ plugin-shots: plugin       ## the macOS window pictures the other systems' are c
 	rm -rf $(PLUGIN_BUILD)/shots-macos
 	python3 -I tools/plugin_gate.py --build $(PLUGIN_BUILD) --only gui --shots $(PLUGIN_BUILD)/shots-macos
 
+# The plugin's user manual (docs/PLUGIN-MANUAL.md) as a PDF: pandoc (or python3 markdown) and a headless Chromium
+# (.local/playwright, else Chrome). plugin-manual-shots remakes its pictures (docs/plugin/img) from the gate's.
+.PHONY: plugin-manual plugin-manual-shots
+plugin-manual:             ## build/plugin/pkg/Textura-Plugin-Manual.pdf (never committed)
+	sh tools/plugin_manual_pdf.sh
+
+plugin-manual-shots: plugin   ## docs/plugin/img/*.png from the window's headless pictures (needs Pillow)
+	rm -rf $(PLUGIN_BUILD)/shots-manual
+	python3 -I tools/plugin_gate.py --build $(PLUGIN_BUILD) --only gui --shots $(PLUGIN_BUILD)/shots-manual
+	python3 -I tools/plugin_manual_shots.py $(PLUGIN_BUILD)/shots-manual docs/plugin/img
+
 test-plugin-linux: plugin-linux plugin-shots   ## in Docker: the coroutine, tools/plugin_gate.py, the pictures, clap-validator, the VST3 validator
 	TXP_LINUX_ARCH=$(LINUX_ARCH) bash tools/plugin_linux.sh test
 	TXP_LINUX_ARCH=$(LINUX_ARCH) bash tools/plugin_linux.sh validate

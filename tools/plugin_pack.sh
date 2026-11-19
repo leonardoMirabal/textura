@@ -8,11 +8,13 @@
 # BUILD defaults to build/plugin/win-x86_64, build/plugin/linux-x86_64; OUT to build/plugin/pkg.
 # Every package carries the GPL (LICENSE.txt), the font's licence (OFL-InterTight.txt), the source offer
 # (SOURCE.txt), THIRD-PARTY-NOTICES.txt (the licence texts of what the binaries contain, from the pinned checkouts)
-# and INSTALL.txt (where the files go); the VST3 bundle carries the licences in Contents/Resources too.
+# and INSTALL.txt (where the files go); the VST3 bundle carries the licences in Contents/Resources too. The user
+# manual (Textura-Plugin-Manual.pdf) goes in when it has been made first (make plugin-manual; TXP_MANUAL=FILE).
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DEPS=${TXP_DEPS_DIR:-"$ROOT/.local/plugin-deps"}
 OFL="$ROOT/assets/fonts/OFL-InterTight.txt"
+MANUAL=${TXP_MANUAL:-"$ROOT/build/plugin/pkg/Textura-Plugin-Manual.pdf"}   # (tools/plugin_manual_pdf.sh)
 
 die() { echo "plugin_pack: $*" >&2; exit 1; }
 
@@ -20,6 +22,7 @@ notices() {   # DIR windows|linux: LICENSE.txt, OFL-InterTight.txt, SOURCE.txt, 
     mkdir -p "$1"
     cp "$ROOT/LICENSE" "$1/LICENSE.txt"
     cp "$OFL" "$1/OFL-InterTight.txt"
+    if [ -f "$MANUAL" ]; then cp "$MANUAL" "$1/"; fi   # (the user manual, when make plugin-manual has made it)
     cat > "$1/SOURCE.txt" <<EOF
 Textura is free software under the GNU General Public License, version 3 only (LICENSE.txt). It is based on Frodhes.
 Its complete source, the plugin's build files and the exact versions of every dependency (plugin/deps.lock) are at

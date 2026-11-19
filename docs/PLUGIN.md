@@ -12,6 +12,11 @@ binaries do not change.
 
 The plugin has its own window (below); hosts can still show their generic parameter view.
 
+**The user manual** is [PLUGIN-MANUAL.md](PLUGIN-MANUAL.md): install, the window, MIDI, lanes, saving, the
+differences from the FM-1. `make plugin-manual` prints it to `build/plugin/pkg/Textura-Plugin-Manual.pdf`
+(`tools/plugin_manual_pdf.sh`: pandoc or python3's markdown, then a headless Chromium); the zips carry it when it has
+been made first. Its pictures (`docs/plugin/img`) are the gate's window pictures: `make plugin-manual-shots`.
+
 ## Build
 
 Needs Xcode's command line tools and CMake 3.21 or newer (Ninja is used when installed). The third-party sources
