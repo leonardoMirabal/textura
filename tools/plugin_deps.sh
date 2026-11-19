@@ -6,20 +6,29 @@
 # is kept, anything else is fetched again. No network access happens in the CMake build itself.
 #   tools/plugin_deps.sh            everything (the libraries and the test tools)
 #   tools/plugin_deps.sh --libs     the libraries only (clap, clap-wrapper, the VST3 SDK, the AudioUnit SDK)
-# The test tools come in this system's build (a name@os line in deps.lock); TXP_DEPS_OS=macos,
-# linux or windows picks another system's.
+#   tools/plugin_deps.sh --tools    the test tools only
+# The test tools come in this system's build (a name@os line in deps.lock); TXP_DEPS_OS=macos, linux or windows
+# picks another system's, into <name>-<os> beside this system's (tools/plugin_linux.sh, plugin_win.sh run them).
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 LOCK="$ROOT/plugin/deps.lock"
 DEPS=${TXP_DEPS_DIR:-"$ROOT/.local/plugin-deps"}
 LIBS_ONLY=0
+TOOLS_ONLY=0
 [ "${1:-}" = "--libs" ] && LIBS_ONLY=1
-case "${TXP_DEPS_OS:-$(uname -s)}" in
-    Darwin|macos) OS=macos ;;
-    Linux|linux) OS=linux ;;
-    MINGW*|MSYS*|CYGWIN*|windows) OS=windows ;;
-    *) OS=unknown ;;
-esac
+[ "${1:-}" = "--tools" ] && TOOLS_ONLY=1
+os_of() {
+    case "$1" in
+        Darwin|macos) echo macos ;;
+        Linux|linux) echo linux ;;
+        MINGW*|MSYS*|CYGWIN*|windows) echo windows ;;
+        *) echo unknown ;;
+    esac
+}
+HOST_OS=$(os_of "$(uname -s)")
+OS=$(os_of "${TXP_DEPS_OS:-$(uname -s)}")
+SUFFIX=""
+[ "$OS" = "$HOST_OS" ] || SUFFIX="-$OS"
 sha256() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1"; else sha256sum "$1"; fi | cut -d' ' -f1; }
 mkdir -p "$DEPS"
 
@@ -51,7 +60,7 @@ arc_dep() {   # kind name url sha256 (a zip, unpacked as it is; a .tar.gz inside
     [ "$got" = "$4" ] || { echo "FAIL $2: sha256 $got, pinned $4"; exit 1; }
     (cd "$d" && unzip -q "$DEPS/_dl/$2/a.zip")
     for t in "$d"/*.tar.gz; do if [ -f "$t" ]; then (cd "$d" && tar -xzf "$t" && rm -f "$t"); fi; done
-    if [ "$OS" = macos ]; then xattr -dr com.apple.quarantine "$d" 2>/dev/null || true; fi
+    if [ "$HOST_OS" = macos ]; then xattr -dr com.apple.quarantine "$d" 2>/dev/null || true; fi
     echo "$4" > "$d/.sha256"
     rm -rf "$DEPS/_dl/$2"
     echo "ok    $2 $4 (fetched)"
@@ -59,9 +68,9 @@ arc_dep() {   # kind name url sha256 (a zip, unpacked as it is; a .tar.gz inside
 
 grep -v '^#' "$LOCK" | while read -r kind name url ref pin lic; do
     [ -n "${kind:-}" ] || continue
-    case $name in *@*) [ "${name#*@}" = "$OS" ] || continue; name=${name%@*} ;; esac
+    case $name in *@*) [ "${name#*@}" = "$OS" ] || continue; name=${name%@*}$SUFFIX ;; esac
     case $kind in
-    git) git_dep "$name" "$url" "$pin" ;;
+    git) [ $TOOLS_ONLY = 1 ] || git_dep "$name" "$url" "$pin" ;;
     zip) [ $LIBS_ONLY = 1 ] || arc_dep zip "$name" "$url" "$pin" ;;
     esac
 done

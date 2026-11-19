@@ -33,7 +33,9 @@ FM-1's app: the 16-lane plugin plays it sample for sample), sixteen-lane content
           to the host, the masks and the saved state (txp_clap_render --shot, --gui-test). --shots DIR keeps a copy of
           the two pictures there.
 
-  tools/plugin_gate.py [--build build/plugin] [--quick] [--only equal,hq,rates,state,cpu,gui] [--shots DIR]
+  tools/plugin_gate.py [--build build/plugin] [--quick] [--only equal,hq,rates,state,cpu,gui] [--shots DIR] [--wine]
+--wine: the Windows build under wine (tools/plugin_win.sh test, in its container): BUILD/txp_clap_render.exe and
+BUILD/bundles/CLAP/Textura.clap, every path handed to them as Z:/... (the host build stays native).
 Exit 0 when every check passes. Needs numpy and scipy for the rates (skipped without them)."""
 import argparse
 import hashlib
@@ -101,13 +103,19 @@ def host_render(host, script, out):
     return a, r.returncode
 
 
+WINE = False   # (--wine: the Windows test host under wine, its paths as Z:/...)
+
+
 def plug_render(exe, bundle, script, out, rate, test=True, extra=()):
     env = dict(os.environ)
     if test:
         env["TEXTURA_PLUGIN_TEST"] = "ms"
     else:
         env.pop("TEXTURA_PLUGIN_TEST", None)
-    r = run([exe, bundle, os.path.join(ROOT, script), out, "--rate", str(rate)] + list(extra), env=env, check=False)
+    cmd = [exe, bundle, os.path.join(ROOT, script), out, "--rate", str(rate)] + list(extra)
+    if WINE:   # (wine passes the environment on: TEXTURA_PLUGIN_TEST reaches the plugin)
+        cmd = ["wine"] + [("Z:" + a) if a.startswith("/") else a for a in cmd]
+    r = run(cmd, env=env, check=False)
     if r.returncode not in (0, 4):   # (4: --state-check's saved text differs; check_state looks closer)
         sys.stderr.write(r.stdout + r.stderr)
     return r
@@ -464,17 +472,19 @@ def check_cpu(args, exe, bundle, tmp):
 
 
 def main():
-    global args_quick
+    global args_quick, WINE
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", default="build/plugin")
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--only", default="equal,hq,rates,state,cpu,gui")
     ap.add_argument("--shots", default="")
+    ap.add_argument("--wine", action="store_true")
     args = ap.parse_args()
     args_quick = args.quick
+    WINE = args.wine
     build = os.path.join(ROOT, args.build)
-    exe = os.path.join(build, "txp_clap_render")
-    bundle = os.path.join(build, "bundles", "Textura.clap")
+    exe = os.path.join(build, "txp_clap_render" + (".exe" if WINE else ""))
+    bundle = os.path.join(build, "bundles", "CLAP" if WINE else "", "Textura.clap")
     tmp = os.path.join(build, "gate")
     os.makedirs(tmp, exist_ok=True)
     host = os.path.join(build, "textura-host-hq")

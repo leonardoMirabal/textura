@@ -1,7 +1,7 @@
 # Textura as a desktop plugin
 
-The FM-1 firmware as a CLAP, VST3 and Audio Unit (v2) instrument for macOS; the same tree builds a CLAP and VST3
-instrument for Windows and Linux (not built or tested yet). The plugin is the app itself, `firmware/src/textura.c`
+The FM-1 firmware as a CLAP, VST3 and Audio Unit (v2) instrument for macOS, and a CLAP and VST3 instrument for
+Windows (x64) and Linux (x86_64, aarch64), all built on a Mac (Windows cross-built, Linux in Docker). The plugin is the app itself, `firmware/src/textura.c`
 compiled over the browser emulator's platform (`web/web_hal.c`), so it plays what the FM-1 plays: the same sounds,
 parameters, presets and scenes. A desktop has no CPU limit like the FM-1's, so the plugin is the HQ build: the CPU
 governor never thins a lane and the grain delay plays every grain (`LN_HQ` in `firmware/src/lanes.c`).
@@ -27,6 +27,34 @@ The bundles are universal (Apple silicon and Intel, about 9 MB each); `make plug
 build folder builds arm64 only, faster. The architectures are fixed when a build folder is first configured. The
 build runs at low priority with 2 jobs (`PLUGIN_J`, `PLUGIN_NICE`). `make plugin` installs nothing.
 
+### Windows and Linux
+
+    make plugin-win           # build/plugin/win-x86_64/bundles/CLAP/Textura.clap, VST3/Textura.vst3, checked, zipped
+    make plugin-linux         # build/plugin/linux-x86_64/bundles/Textura.clap, Textura.vst3, checked, zipped
+    make plugin-all           # macOS, Windows and Linux
+    make test-plugin-linux    # in Docker: the coroutine, tools/plugin_gate.py, the window pictures, both validators
+    make test-plugin-win      # under wine in Docker: the coroutine, tools/plugin_gate.py --wine, clap-validator
+
+**Windows** is cross-built here with clang-cl and lld-link (`plugin/cmake/win-x64-clangcl.cmake`) against the
+Windows SDK and the MSVC C runtime, linked statically: the binaries need only Windows' own DLLs. `bash
+tools/plugin_win.sh setup` installs the toolchain once (Homebrew `llvm@20` and `lld@20`, `xwin` 0.10.0 and its copy of
+the SDK in `.local/win-toolchain`, about 630 MB; xwin accepts Microsoft's SDK licence for you, so read it first). On a
+Windows machine: `cmake -S plugin -B build/plugin -G Ninja -DCMAKE_TOOLCHAIN_FILE=plugin/cmake/win-x64-clangcl.cmake`
+from a Visual Studio x64 prompt with LLVM installed. `tools/plugin_win.sh check` checks the files are x86_64 PE,
+export the entry points and import only `kernel32`, `user32`, `gdi32` (and `ole32`, `shell32` for the VST3).
+
+**Linux** builds in Docker (`plugin/tests/docker/linux.Dockerfile`: Ubuntu 20.04, clang 12, lld, CMake 3.28.3), so
+the binaries run on glibc 2.31 and newer. They need only libc, libm, libpthread, libdl and libX11, and export only
+their entry points. `tools/plugin_linux.sh check` checks this, and that the stack is not executable.
+`TXP_LINUX_ARCH=aarch64` (or `make plugin-linux LINUX_ARCH=aarch64`) builds for 64-bit Arm. When Ubuntu's own mirrors
+fail, `TXP_APT_MIRROR=http://mirrors.edge.kernel.org/ubuntu/` builds the images from another one.
+
+### Packages
+
+`tools/plugin_pack.sh` (the `pack` step of the two scripts) writes `build/plugin/pkg/textura-plugin-windows-x64.zip`
+and `textura-plugin-linux-<arch>.zip`. Each holds the bundles, `INSTALL.txt` (where the files go), the GPL, the
+font's licence, the source offer and the third-party notices.
+
 ## Try it in a DAW
 
 Copy the bundle your host uses into your plug-in folder, clear the download flag, and rescan:
@@ -38,6 +66,11 @@ Copy the bundle your host uses into your plug-in folder, clear the download flag
 
 For the Audio Unit, `killall -9 AudioComponentRegistrar` makes macOS see it at once; `auval -v aumu Txt1 Txtr`
 checks it. To remove the plugin, delete the three bundles again.
+
+On Windows, copy `Textura.clap` into `C:\Program Files\Common Files\CLAP\` and the whole `Textura.vst3` folder into
+`C:\Program Files\Common Files\VST3\` (the files are not code-signed: Properties, Unblock if Windows marks them as
+downloaded). On Linux, copy `Textura.clap` into `~/.clap/` and `Textura.vst3` into `~/.vst3/`. Each zip's
+`INSTALL.txt` says the same.
 
 The plugin appears as **Textura** (vendor Textura), an instrument with a stereo output and a note input (MIDI or
 CLAP notes). Play it from a MIDI track as you would play the FM-1 over USB MIDI (docs/MANUAL.md, section 12):
@@ -127,7 +160,7 @@ licence goes into every bundle's `Contents/Resources` (Windows / Linux: next to 
 
 ## Parameters
 
-About 480 host parameters, by the app's own stable ids, so automation stays put across versions. An id is the
+478 host parameters, by the app's own stable ids, so automation stays put across versions. An id is the
 scope times 256 plus the index (`firmware/src/params.c`): lanes 1 .. 4 are scopes 0 .. 3, the FM-1's own; lanes
 5 .. 16 are scopes 16 .. 27 (ids 0x1000 .. 0x1BFF). The new globals take indices after the FM-1's (LANE 5 .. 16
 CHANNEL 68 .. 79, FX CHANNEL 80, LANES 81). No FM-1 id moved, so NRPN numbers and FM-1 scenes stay valid.
@@ -206,7 +239,12 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
   sound kept from the sound browser, a lane's channel and EFFECTS ON LOAD in SETTINGS, a colour, a drag in SPACE, a
   row) and checked against the parameters, the events sent to the host, the lane's sound, the mute and solo masks
   and the saved state (solo, lane, view, colour). `--shots DIR` keeps a copy of every picture.
-  `--shots DIR` keeps a copy of the two pictures.
+
+On Linux and Windows the same gate runs on that system's CLAP (`make test-plugin-linux`, `make test-plugin-win`;
+Windows under wine, which is not Windows: a pass there is a smoke test). The window pictures are then compared with
+macOS's (`make plugin-shots` makes those, `tools/plugin_shots_cmp.py` compares): each must be byte-identical, or at
+most 2 levels apart on at most 0.1 % of its pixels, since each system's C library may round `sinf` or `powf` in the
+last bit.
 
 The headless host is `build/plugin/txp_clap_render PLUGIN.clap SCRIPT OUT.wav [--rate HZ] [--block N]
 [--state-check] [--fuzz SEED] [--inactive] [--cpu-from MS] [--state-in FILE] [--state-out FILE] [--shot OUT.png]
@@ -223,9 +261,19 @@ Validators (after `make plugin-deps`):
         --validate build/plugin/bundles/Textura.vst3
     auval -strict -v aumu Txt1 Txtr                          # the Audio Unit, once installed (above)
 
-All four pass with 16 lanes: clap-validator (35 passed, 9 skipped for extensions the plugin does not have), the VST3 validator
-(47 tests), pluginval at strictness 10 (the VST3 and the Audio Unit, with the editor tests). `auval -strict` passes with one warning, "Preset name is not retained in retrieved class data": it comes from
-clap-wrapper's Audio Unit, which names the class data from its own field.
+The VST3 validator passes its 47 tests on macOS and Linux (x86_64 and aarch64), and pluginval at strictness 10
+passes on the VST3 (editor tests included). The Audio Unit's checks (`auval -strict`, pluginval) need it installed;
+`auval` gives one warning, "Preset name is not retained in retrieved class data", from clap-wrapper's Audio Unit,
+which names the class data from its own field.
+
+clap-validator (its Linux build is x86_64 only) passes 33 tests and skips 9 (extensions the plugin does not have) on
+macOS and Linux; under wine (`tools/plugin_win.sh validate` gives it the `bcryptprimitives.dll` wine 8 lacks) 32
+pass and 10 are skipped. Two fail on every system: `param-set-events` and `param-set-no-cookies`. Each sends one
+random value to every parameter at once, PRESET last, once by a flush to an instance never activated and once in a
+process call, then compares what the parameters read. A card of lane 1 that the random modulation matrix holds
+reads the scene's value after the flush but the sound's default after the process call: the scene load, the sound
+switch and the modulation's base meet in a different order on the two paths. A host loading a preset and setting
+modulated cards in the same instant would see the same difference.
 
 ## How it is built
 
@@ -241,6 +289,7 @@ clap-wrapper's Audio Unit, which names the class data from its own field.
 | `plugin/gui_mac.m`, `gui_win.c`, `gui_x11.c` | the platform views behind `plugin/gui_platform.h` (from Frodhes); `plugin/ui/`: frui's canvas and font (from Frodhes) |
 | `plugin/src/coro/` | the coroutine the app's main loop runs in (arm64 and x86_64 assembly; Windows: Fibers) |
 | `plugin/compat/` | `emscripten.h` for `web_hal.c`, and the Windows shims |
+| `tools/plugin_win.sh`, `tools/plugin_linux.sh`, `tools/plugin_pack.sh` | the Windows and Linux builds, checks, tests and zips (from Frodhes); `plugin/tests/docker/`: the Linux build, wine and clap-validator images |
 
 The engines (`engines/`) are linked once and shared by the 16 copies: they keep no state outside the instances the
 app hands them.

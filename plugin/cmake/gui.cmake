@@ -25,6 +25,12 @@ target_include_directories(textura_ui PUBLIC "${TXP_ROOT}/plugin" "${TXP_ROOT}/p
 target_link_libraries(textura_ui PUBLIC clap)
 target_compile_options(textura_ui PRIVATE $<$<COMPILE_LANGUAGE:C>:-O2 ${TXP_C_STD} ${TXP_C_WARN} ${TXP_C_WIN}>)
 set_target_properties(textura_ui PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# no fused multiply-adds (arm64 fuses by default, x86_64 cannot): the window's arithmetic the same on every system
+if(MSVC)
+    target_compile_options(textura_ui PRIVATE /clang:-ffp-contract=off)
+else()
+    target_compile_options(textura_ui PRIVATE -ffp-contract=off)
+endif()
 if(NOT MSVC)
     target_compile_options(textura_ui PRIVATE -fvisibility=hidden)
     target_link_libraries(textura_ui PUBLIC m)

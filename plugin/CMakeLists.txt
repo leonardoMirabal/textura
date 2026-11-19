@@ -4,8 +4,8 @@
 #   tools/plugin_deps.sh                                       the pinned dependencies into .local/plugin-deps
 #   cmake -S plugin -B build/plugin -G Ninja && cmake --build build/plugin      (or: make plugin)
 # The bundles land in build/plugin/bundles: Textura.clap, Textura.vst3, Textura.component. Nothing is installed.
-# Windows x64 and Linux x86_64 (CLAP + VST3): the same tree (plugin/cmake/win-x64-clangcl.cmake, linux_exports.map);
-# not built here yet.
+# Windows x64 and Linux x86_64 / aarch64 (CLAP + VST3): the same tree, cross-built from macOS (tools/plugin_win.sh:
+# clang-cl, plugin/cmake/win-x64-clangcl.cmake) and in Docker (tools/plugin_linux.sh); make plugin-win, plugin-linux.
 # The firmware build never sees this tree; this tree only reads firmware/src, firmware/gen, engines and web
 # (plugin/src/engine_unit.c includes firmware/src/textura.c unchanged, over web/web_hal.c).
 cmake_minimum_required(VERSION 3.21)
@@ -127,9 +127,9 @@ if(APPLE)
 else()   # (the CLAP is a single file there: the licence next to it; the VST3 is a bundle)
     add_custom_command(TARGET textura_clap POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TXP_OFL}" "$<TARGET_FILE_DIR:textura_clap>/")
-    add_custom_command(TARGET textura_vst3 POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${TXP_BUNDLES}/Textura.vst3/Contents/Resources"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TXP_OFL}" "${TXP_BUNDLES}/Textura.vst3/Contents/Resources/")
+    add_custom_command(TARGET textura_vst3 POST_BUILD   # (the module is Contents/<arch>-win or <arch>-linux/)
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:textura_vst3>/../Resources"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TXP_OFL}" "$<TARGET_FILE_DIR:textura_vst3>/../Resources/")
 endif()
 
 # ---- tests (make test-plugin): the coroutine, the headless CLAP host (tools/plugin_gate.py)

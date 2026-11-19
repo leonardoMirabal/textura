@@ -436,11 +436,8 @@ int main(int argc, char **argv)
 #else
     snprintf(bin, sizeof bin, "%s", plug);
 #endif
-    if (!(so = dlopen(bin, RTLD_NOW | RTLD_LOCAL))) { fprintf(stderr, "dlopen: %s\n", dlerror()); return 2; }
-    entry = dlsym(so, "clap_entry");
-    if (!entry || !entry->init(plug)) { fprintf(stderr, "no clap_entry\n"); return 2; }
-    fac = entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
-    if (shot) {                          /* (the plugin offers its test extension only so) */
+    if (shot) {                          /* (the plugin offers its test extension only so; set before
+                                          * the load: a Windows DLL's static CRT copies the environment then) */
 #ifdef _WIN32
         _putenv_s("TEXTURA_PLUGIN_GUI_SHOT", "1");
 #else
@@ -448,6 +445,10 @@ int main(int argc, char **argv)
 #endif
         if (shot_w < 400 || shot_w > 4800) shot_w = 1200;
     }
+    if (!(so = dlopen(bin, RTLD_NOW | RTLD_LOCAL))) { fprintf(stderr, "dlopen: %s\n", dlerror()); return 2; }
+    entry = dlsym(so, "clap_entry");
+    if (!entry || !entry->init(plug)) { fprintf(stderr, "no clap_entry\n"); return 2; }
+    fac = entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
     p = make(fac);
     if (state_in) {                      /* a project's state, before anything else */
         const clap_plugin_state_t *xs = p->get_extension(p, CLAP_EXT_STATE);

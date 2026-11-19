@@ -457,3 +457,31 @@ test-plugin: plugin        ## the coroutine; the plugin renders the host build's
                            ## other rates through the oversampler, the state read back, the CPU per host buffer, the window
 	$(PLUGIN_BUILD)/txp_test_coro
 	python3 -I tools/plugin_gate.py --build $(PLUGIN_BUILD)
+
+# Windows x64 (cross-built here: clang-cl + xwin, tools/plugin_win.sh setup once) and Linux (Docker; LINUX_ARCH=
+# x86_64 or aarch64): CLAP + VST3 in build/plugin/<os>-<arch>/bundles, the zips in build/plugin/pkg
+.PHONY: plugin-win plugin-linux plugin-all test-plugin-win test-plugin-linux plugin-shots
+LINUX_ARCH ?= x86_64
+plugin-win:                ## build/plugin/win-x86_64 (CLAP + VST3), checked, zipped: build/plugin/pkg/textura-plugin-windows-x64.zip
+	bash tools/plugin_win.sh build
+	bash tools/plugin_win.sh check
+	bash tools/plugin_win.sh pack
+
+plugin-linux:              ## build/plugin/linux-$(LINUX_ARCH) in Docker, checked, zipped: build/plugin/pkg/textura-plugin-linux-<arch>.zip
+	TXP_LINUX_ARCH=$(LINUX_ARCH) bash tools/plugin_linux.sh build
+	TXP_LINUX_ARCH=$(LINUX_ARCH) bash tools/plugin_linux.sh check
+	TXP_LINUX_ARCH=$(LINUX_ARCH) bash tools/plugin_linux.sh pack
+
+plugin-all: plugin plugin-win plugin-linux   ## macOS, Windows and Linux bundles
+
+plugin-shots: plugin       ## the macOS window pictures the other systems' are compared with: build/plugin/shots-macos
+	rm -rf $(PLUGIN_BUILD)/shots-macos
+	python3 -I tools/plugin_gate.py --build $(PLUGIN_BUILD) --only gui --shots $(PLUGIN_BUILD)/shots-macos
+
+test-plugin-linux: plugin-linux plugin-shots   ## in Docker: the coroutine, tools/plugin_gate.py, the pictures, clap-validator, the VST3 validator
+	TXP_LINUX_ARCH=$(LINUX_ARCH) bash tools/plugin_linux.sh test
+	TXP_LINUX_ARCH=$(LINUX_ARCH) bash tools/plugin_linux.sh validate
+
+test-plugin-win: plugin-win plugin-shots       ## under wine in Docker: the coroutine, tools/plugin_gate.py --wine, the pictures, clap-validator
+	bash tools/plugin_win.sh test
+	bash tools/plugin_win.sh validate
