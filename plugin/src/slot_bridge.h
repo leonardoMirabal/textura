@@ -268,6 +268,63 @@ static int sb_is_settled(void)
     for (k = 0; k < SC_N; k++) if (sc.gl_on[k] || sc.a_eng[k] != sc.eng[k] || sc.reswap[k]) return 0;
     return 1;
 }
+/* the engines: each sound's source by name, in the order the families first name them (txp_catalog_t eng) */
+static uint32_t sb_eng_of(const char *src, char (*names)[16], uint32_t *n, int add)
+{
+    uint32_t e;
+    for (e = 0; e < *n; e++) if (!strncmp(names[e], src, 15)) return e;
+    if (!add || *n >= TXP_ENG_MAX) return 0xFFu;
+    snprintf(names[*n], 16, "%s", src);
+    return (*n)++;
+}
+static char sb_engn[TXP_ENG_MAX][16];    /* (sb_boot: the engines in the catalog's order, for sb_ui) */
+static uint32_t sb_neng;
+static void sb_eng_list(void)
+{
+    uint32_t f, i;
+    sb_neng = 0;
+    for (f = 0; f < LS_N && f < TXP_FAM_MAX; f++)
+        for (i = 0; i < LS[f].n && i < TXP_SND_MAX; i++) (void)sb_eng_of(LS[f].s[i].src, sb_engn, &sb_neng, 1);
+}
+static void sb_catalog(txp_catalog_t *o)  /* constant tables only (any thread) */
+{
+    uint32_t f, i, k;
+    memset(o, 0, sizeof *o);
+    o->nfam = (uint8_t)(LS_N < TXP_FAM_MAX ? LS_N : TXP_FAM_MAX);
+    for (f = 0; f < o->nfam; f++) {
+        uint32_t n = LS[f].n < TXP_SND_MAX ? LS[f].n : TXP_SND_MAX, ne = o->neng;
+        snprintf(o->fam[f].name, sizeof o->fam[f].name, "%s", LS[f].name);
+        o->fam[f].n = (uint8_t)n;
+        for (i = 0; i < n; i++) {
+            snprintf(o->fam[f].s[i].name, sizeof o->fam[f].s[i].name, "%s", LS[f].s[i].name);
+            o->fam[f].s[i].eng = (uint8_t)sb_eng_of(LS[f].s[i].src, o->eng, &ne, 1);
+        }
+        o->neng = (uint8_t)ne;
+    }
+    o->npr = (uint8_t)(PR_N < TXP_PR_MAX ? PR_N : TXP_PR_MAX);
+    o->ncat = (uint8_t)(PR_NCAT < TXP_CAT_MAX ? PR_NCAT : TXP_CAT_MAX);
+    for (i = 0; i < o->npr; i++) {
+        snprintf(o->pr[i], sizeof o->pr[i], "%s", pr_name(i));
+        for (k = 0; k < 4u; k++) {
+            pr_lane_v_t l;
+            pr_lane(i, k, &l);
+            o->prl[i][k].fi = l.fam < 0 ? 0xFFu : (uint8_t)l.fam; o->prl[i][k].si = l.snd < 0 ? 0xFFu : (uint8_t)l.snd;
+            o->prl[i][k].cnt = l.cnt; o->prl[i][k].act = l.act; o->prl[i][k].vol = l.vol; o->prl[i][k].pan = l.pan;
+            o->prl[i][k].mute = l.mute;
+        }
+    }
+    for (i = 0; i < o->ncat; i++) {
+        snprintf(o->cat[i], sizeof o->cat[i], "%s", pr_cat_name(i));
+        o->cat_at[i] = (uint8_t)pr_cat_first(i);
+    }
+    o->cat_at[o->ncat] = (uint8_t)o->npr;
+}
+static uint8_t sb_card127(uint32_t id, int32_t v)   /* a card's value onto 0 .. 127 (as its CC) */
+{
+    int32_t h = p_hi(id);
+    v = h <= 0 ? 0 : h == 127 ? v : (v * 127 + h / 2) / h;
+    return (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+}
 static void sb_ui(txp_ui_snap_t *u)       /* what the window shows (the app's thread) */
 {
     uint32_t k, i;
@@ -275,19 +332,55 @@ static void sb_ui(txp_ui_snap_t *u)       /* what the window shows (the app's th
     u->nlane = sc_nlane;
     u->edited = scn_edited;
     u->solo = sbx.solo;
+    u->scene = scn_cur;
+    u->land = sc.fam;
+    u->fx_yours = (uint8_t)(scn_fx_mine && scn_fx_mode == SCN_FX_SMART);
     if (scn_cur != 0xFF && scn_cur < SCN_N) { char nm[20]; scn_name_of(scn_cur, nm); snprintf(u->preset, sizeof u->preset, "%s", nm); }
+    for (i = 0; i < SCN_NU && i < TXP_USER_N; i++)
+        if (scn_meta[i].used) { u->user |= (uint16_t)(1u << i); snprintf(u->uname[i], sizeof u->uname[i], "%.12s", scn_meta[i].name); }
+    for (i = 0; i < TX_LFO_N && i < TXP_LFO_N; i++) {   /* the LFOs: their values now, routed ones named by their
+                                          * first route */
+        uint32_t s;
+        u->lfo[i] = (int16_t)(mod_lfo[i].out > 32767 ? 32767 : mod_lfo[i].out < -32767 ? -32767 : mod_lfo[i].out);
+        for (s = 0; s < MOD_NS; s++)
+            if (mslot[s].src == MS_LFO1 + i && mslot[s].tgt && mslot[s].depth != 100u) {
+                char t[40];
+                u->lfo_on |= (uint8_t)(1u << i);
+                mod_tgt_text(mslot[s].tgt, t);
+                snprintf(u->lfo_to[i], sizeof u->lfo_to[i], "%s", t);
+                break;
+            }
+    }
     for (k = 0; k < SC_N; k++) {
         txp_ui_lane_t *l = &u->lane[k];
+        uint32_t ls = P_LS(k);
+        int32_t v;
         l->ch = nt_lch[k];
-        l->dist = 0xFF;
+        l->dist = 0xFF; l->fi = l->si = l->eng = 0xFF;
         if (sc.snd[k] < 0) continue;
         l->used = 1;
         l->mute = sc.mute[k];
+        l->run = sc.run[k];
+        l->fi = sc.lf[k]; l->si = (uint8_t)sc.snd[k];
+        {
+            uint32_t ne = sb_neng;
+            l->eng = (uint8_t)sb_eng_of(LS[sc.lf[k]].s[sc.snd[k]].src, sb_engn, &ne, 0);
+        }
         snprintf(l->snd, sizeof l->snd, "%s", sc_sound_name(k));
         snprintf(l->fam, sizeof l->fam, "%s", LS[sc.lf[k]].name);
         {
             p_cards_t *c = p_cards(k);
             for (i = 0; i < c->n; i++) if (sc_eq(c->lab[i], "DIST")) { l->dist = (uint8_t)i; break; }
+        }
+        l->lpan = sc.pan[k];
+        if (mod_live(PID(ls, PL_PAN), &v)) { l->modm |= TXP_MOD_PAN; l->lpan = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v); }
+        if (mod_holds(PID(ls, PL_LEVEL))) l->modm |= TXP_MOD_LEVEL;
+        if (mod_holds(PID(ls, PL_COUNT))) l->modm |= TXP_MOD_COUNT;
+        if (mod_holds(PID(ls, PL_ACTIVE))) l->modm |= TXP_MOD_ACTIVE;
+        if (l->dist != 0xFF) {
+            uint32_t id = PID(ls, PL_CARD0 + l->dist);
+            l->ldist = sb_card127(id, p_get(id));
+            if (mod_live(id, &v)) { l->modm |= TXP_MOD_DIST; l->ldist = sb_card127(id, v); }
         }
     }
 }
@@ -501,6 +594,19 @@ static void sb_events(int timed)
         } else if (e->kind == TXP_EV_SOLO) {
             sbx.solo = (uint16_t)e->v;
             sbx.rev++;
+        } else if (e->kind == TXP_EV_SOUND) {   /* (as the FM-1's sound browser: an audition, or EDIT keeping it) */
+            uint32_t f = (uint32_t)(e->v >> 4) & 0xFFu, i = (uint32_t)e->v & 15u;
+            if (ln.qw - ln.qr >= LN_QN / 2u) { sbx.st.ring_wait++; sbx.ev_wait = 1; return; }   /* (as a parameter) */
+            if (e->a < SC_N && f < LS_N && i < LS[f].n) {
+                sc_sound_set(e->a, f, i);
+                if (e->v & TXP_SND_KEEP) scn_touch();
+            }
+            sbx.rev++;
+        } else if (e->kind == TXP_EV_LOAD) {   /* (as the FM-1's presets list: EDIT) */
+            if (e->v >= TXP_LOAD_LS && (uint32_t)(e->v - TXP_LOAD_LS) < LS_N) ui_land_go((uint32_t)(e->v - TXP_LOAD_LS));
+            else if (e->v >= 0 && (uint32_t)e->v < SCN_N && ((uint32_t)e->v < SCN_NF || scn_meta[e->v - SCN_NF].used))
+                scn_pb_go((uint32_t)e->v, e->a & 1u);
+            sbx.rev++;
         } else if (e->kind == TXP_EV_RESET || e->kind == TXP_EV_RELEASE) sb_notes_off();
         atomic_store_explicit(&sbx.qr, r + 1u, memory_order_release);
     }
@@ -605,6 +711,7 @@ static int sb_boot(void)
     if (!sbx.stack) return -1;
     memset(sbx.stack, 0, SB_STACK);       /* (every page touched now, not on the audio thread) */
     if (!sbx.ntab) sb_tab_make();
+    sb_eng_list();
     sbx.last_fact = 0;
     coro_init(&sbx.co, sbx.stack, SB_STACK, sb_entry, 0);
     coro_resume(&sbx.co);                 /* app_main up to its first poll */

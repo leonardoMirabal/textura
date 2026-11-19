@@ -7,8 +7,9 @@
  *
  * The window's writes: host parameters (a lane's LEVEL, PAN and cards, LANES, PRESET: the app's own ids, values 0 ..
  * hi as the host sees them), a lane's mute (the app's own: a scene keeps it) and the SOLO (the plugin's own: lanes
- * soloed play, the others are shut; saved with the project). The window's own state, saved with the project too: its
- * width and the selected lane. */
+ * soloed play, the others are shut; saved with the project), a lane's sound from the sound browser and a scene or
+ * landscape from the presets browser (the FM-1 browsers' own calls: slot_bridge.h). The window's own state, saved with
+ * the project too: its width, the selected lane, the place's view and the engines' colours. */
 #ifndef TXP_UI_H
 #define TXP_UI_H
 #include <stdint.h>
@@ -18,6 +19,13 @@
 #define TXP_ID_LANE(k, i) (((uint32_t)(k) < 4u ? (uint32_t)(k) : 12u + (uint32_t)(k)) << 8 | (uint32_t)(i))
 enum { TXP_PL_SOUND = 0, TXP_PL_COUNT = 1, TXP_PL_ACTIVE = 2, TXP_PL_LEVEL = 3, TXP_PL_PAN = 4, TXP_PL_CARD0 = 8 };
 #define TXP_ID_LANES (4u << 8 | 81u)       /* LANES: the lanes in use - 1 (params.c PG_NLANE) */
+#define TXP_ID_GLOB(i) (4u << 8 | (uint32_t)(i))   /* a global (params.c PG_*) */
+enum { TXP_PG_SCNTEMPO = 37, TXP_PG_SCNFX = 38, TXP_PG_GAMOUNT = 56, TXP_PG_GTYPE, TXP_PG_GSHIFT, TXP_PG_SCALE,
+       TXP_PG_ROOT, TXP_PG_SELCH, TXP_PG_LCH0, TXP_PG_SCMODE = TXP_PG_LCH0 + 4, TXP_PG_TRANS, TXP_PG_LCH4,
+       TXP_PG_CHG = TXP_PG_LCH4 + 12, TXP_PG_NLANE };
+#define TXP_ID_LCH(k) TXP_ID_GLOB((k) < 4 ? TXP_PG_LCH0 + (k) : TXP_PG_LCH4 + (k) - 4)   /* lane k's MIDI channel */
+#define TXP_ID_MODCC (7u << 8 | 64u)      /* MOD CC (params.c P_MAT, mod.c MQ_CC) */
+#define TXP_COL_N 11                      /* the engines' colours (gui_core.c's palette; 0 bone, the default) */
 
 typedef struct txp_plugin txp_core;      /* one plugin instance */
 struct clap_plugin;
@@ -39,6 +47,16 @@ void txp_ui_mutes(const txp_core *c, uint32_t *mute, uint32_t *solo);   /* the m
 uint32_t txp_ui_act(const txp_core *c, uint8_t (*ev)[TXP_LANES], uint8_t (*pk)[TXP_LANES], uint32_t n);   /* bridge.h */
 int txp_ui_win_w(const txp_core *c);                  /* the window's width saved (0: the default) */
 void txp_ui_win_w_set(txp_core *c, int w);
+void txp_ui_win_resize(txp_core *c, int w);           /* the window asks its host for that width (SETTINGS: SIZE) */
+/* the sound browser: lane's sound set to family fam's sound snd (an audition; keep: the choice, the scene edited) */
+void txp_ui_sound(txp_core *c, int lane, int fam, int snd, int keep);
+/* the presets browser: a scene loaded (0 .. 115: F001 .. U16; TXP_LOAD_LS + n: landscape n), with_fx: its effects too */
+void txp_ui_load(txp_core *c, int what, int with_fx);
+int txp_ui_col(const txp_core *c, int eng);           /* an engine's colour (0 .. TXP_COL_N - 1; 0 bone) */
+void txp_ui_col_set(txp_core *c, int eng, int col);
+void txp_ui_col_reset(txp_core *c);
+int txp_ui_view(const txp_core *c);                   /* the place's view: 0 MAP, 1 SPACE (saved with the project) */
+void txp_ui_view_set(txp_core *c, int v);
 int txp_ui_sel(const txp_core *c);                    /* the selected lane, 0 .. 15 */
 void txp_ui_sel_set(txp_core *c, int k);
 #endif

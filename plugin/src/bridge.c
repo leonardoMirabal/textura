@@ -85,6 +85,14 @@ const txp_param_t *txp_params(uint32_t *n)
     if (n) *n = pn;
     return ptab;
 }
+static txp_catalog_t cat_tab;
+static pthread_once_t cat_once = PTHREAD_ONCE_INIT;
+static void cat_make(void) { SLOT[0]->catalog(&cat_tab); }
+const txp_catalog_t *txp_catalog(void)
+{
+    pthread_once(&cat_once, cat_make);
+    return &cat_tab;
+}
 int txp_param_index(uint32_t id)
 {
     uint32_t i;

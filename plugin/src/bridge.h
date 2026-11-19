@@ -38,7 +38,13 @@
 
 enum { TXP_EV_MIDI = 1, TXP_EV_PARAM, TXP_EV_RESET, TXP_EV_RELEASE,
        TXP_EV_MUTE,                      /* the window's M: lane a muted (v 1) or not (the app's own mute: scape.c) */
-       TXP_EV_SOLO };                    /* the window's S: the lanes soloed, v a mask (the plugin's own: slot_bridge.h) */
+       TXP_EV_SOLO,                      /* the window's S: the lanes soloed, v a mask (the plugin's own: slot_bridge.h) */
+       TXP_EV_SOUND,                     /* the sound browser: lane a gets family v >> 4's sound v & 15 (the FM-1
+                                          * browser's sc_sound_set); v | TXP_SND_KEEP: kept (the scene is edited) */
+       TXP_EV_LOAD };                    /* the presets browser: v a scene (0 .. 115: F001 .. U16) or TXP_LOAD_LS +
+                                          * a landscape; a 1: with its effects (the FM-1's EDIT again on the one loaded) */
+#define TXP_SND_KEEP 0x1000
+#define TXP_LOAD_LS 0x100
 #define TXP_LANES 16u                    /* the lanes a slot has (TX_MIX_SLOTS: plugin/cmake/slots.cmake) */
 #define TXP_ACT_N 2048u                  /* the activity ring: app blocks (11.9 s), a power of two */
 
@@ -58,16 +64,52 @@ typedef struct {
     uint8_t mute;                        /* the app's mute (a scene keeps it) */
     uint8_t ch;                          /* its MIDI channel: 0 OFF, 1 .. 16 */
     uint8_t dist;                        /* the card named DIST of its sound (0 .. 7), 0xFF none */
+    uint8_t fi, si;                      /* its family and sound (txp_catalog_t), 0xFF none */
+    uint8_t eng;                         /* its engine (txp_catalog_t eng), 0xFF none */
+    uint8_t run;                         /* it plays (HOW MANY not OFF) */
+    uint8_t modm;                        /* what the modulation moves now (TXP_MOD_*) */
+    uint8_t lpan, ldist;                 /* PAN and DIST as the modulation has them now (0 .. 127) */
     char snd[24];                        /* the sound's name ("campfire"), "" none */
     char fam[16];                        /* its family ("Fire") */
 } txp_ui_lane_t;
+enum { TXP_MOD_LEVEL = 1, TXP_MOD_PAN = 2, TXP_MOD_COUNT = 4, TXP_MOD_ACTIVE = 8, TXP_MOD_DIST = 16 };
+#define TXP_LFO_N 8u
+#define TXP_USER_N 16u
 typedef struct {
     uint8_t nlane;                       /* LANES: 1 .. 16 */
     uint8_t edited;                      /* the scene was changed since its load or save */
     uint16_t solo;                       /* the lanes soloed (bit k: lane k + 1; 0 none) */
     char preset[24];                     /* the scene loaded last ("F003 GARDEN RAIN"), "" none */
+    uint8_t scene;                       /* its number (0 .. 115), 0xFF none (a landscape: land) */
+    uint8_t land;                        /* the landscape (its family) */
+    uint8_t fx_yours;                    /* EFFECTS ON LOAD is SMART and the effects were changed since the load */
+    uint8_t lfo_on;                      /* the LFOs routed (bit n: LFO n + 1 has a route with a depth) */
+    int16_t lfo[TXP_LFO_N];              /* each LFO's value now (Q15, bipolar) */
+    char lfo_to[TXP_LFO_N][24];          /* its first route's target ("L1 PAN") */
+    uint16_t user;                       /* the user scenes saved (bit n: U01 + n) */
+    char uname[TXP_USER_N][13];          /* their names */
     txp_ui_lane_t lane[TXP_LANES];
 } txp_ui_snap_t;
+
+/* the app's constant tables the window shows (families and sounds, the engines, the factory presets): the same for every
+ * slot, from constant tables only (any thread) */
+#define TXP_FAM_MAX 10u
+#define TXP_SND_MAX 12u
+#define TXP_ENG_MAX 64u
+#define TXP_PR_MAX 100u
+#define TXP_CAT_MAX 10u
+typedef struct {
+    uint8_t nfam;
+    struct { char name[16]; uint8_t n; struct { char name[24]; uint8_t eng; } s[TXP_SND_MAX]; } fam[TXP_FAM_MAX];
+    uint8_t neng;
+    char eng[TXP_ENG_MAX][16];           /* an engine's name ("fire", "stone cloud") */
+    uint8_t npr, ncat;
+    char pr[TXP_PR_MAX][12];             /* F001 .. : the factory presets' names */
+    char cat[TXP_CAT_MAX][16];           /* their categories, cat_at[c] .. cat_at[c + 1] - 1 */
+    uint8_t cat_at[TXP_CAT_MAX + 1u];
+    struct { uint8_t fi, si, cnt, act, vol, pan, mute; } prl[TXP_PR_MAX][4];   /* a preset's four lanes (fi 0xFF: empty;
+                                          * cnt HOW MANY 0 .. 6, act HOW ACTIVE 0 .. 8) */
+} txp_catalog_t;
 
 /* what the main thread may read of a slot: published by the audio side (a sequence lock) */
 typedef struct {
@@ -109,6 +151,7 @@ typedef struct {
      * into ev (each lane's engine events in the block, 255 at most) and pk (its peak: 0 silent, 1 .. 255 = -72 .. 0
      * dBFS, before its mute); returns the blocks rendered so far (the newest is that count - 1) */
     uint32_t (*act)(uint8_t (*ev)[TXP_LANES], uint8_t (*pk)[TXP_LANES], uint32_t n);
+    void (*catalog)(txp_catalog_t *out); /* the constant tables (any thread) */
 } txp_slot_api_t;
 
 #define TXP_SLOT_DECL(n) extern const txp_slot_api_t txp_slot_##n;
@@ -122,6 +165,7 @@ const txp_param_t *txp_params(uint32_t *n);   /* the host parameters (the same f
 int txp_param_index(uint32_t id);             /* its place in the table, -1 none */
 int txp_param_text(uint32_t idx, double v, char *out, uint32_t n);
 int txp_param_parse(uint32_t idx, const char *text, double *out);
+const txp_catalog_t *txp_catalog(void);       /* the app's constant tables (the same for every instance) */
 txp_inst_t *txp_inst_new(void);          /* main thread; a slot claimed (none free: the instance stays silent) */
 void txp_inst_free(txp_inst_t *in);
 int txp_inst_slot(const txp_inst_t *in);

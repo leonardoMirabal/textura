@@ -57,7 +57,7 @@ static const clap_plugin_descriptor_t DESC = {
 };
 
 #define UQ 1024u                         /* the window's writes waiting for the audio side (a power of two) */
-enum { UQ_BEGIN, UQ_VALUE, UQ_END, UQ_MUTE, UQ_SOLO };
+enum { UQ_BEGIN, UQ_VALUE, UQ_END, UQ_MUTE, UQ_SOLO, UQ_SOUND, UQ_LOAD };
 typedef struct { uint8_t type; uint32_t id; int32_t v; } uq_ev_t;
 #define PEND_S 0.3                       /* the window's own value wins this long after its write (then the app's) */
 
@@ -90,7 +90,8 @@ typedef struct txp_plugin {
     double pend_mt[TXP_LANES], pend_st;
     uint8_t pend_m[TXP_LANES];
     uint16_t pend_s;
-    int win_w, sel;
+    int win_w, sel, view;
+    uint8_t col[TXP_ENG_MAX];            /* each engine's colour (txp_ui.h TXP_COL_N: 0 bone), saved with the project */
     int shot;                            /* TEXTURA_PLUGIN_GUI_SHOT set: the tests' extension (gui_shot.h) */
 } txp_plugin_t;
 
@@ -217,13 +218,47 @@ static int st_key(const char *j, const char *key, int *v)   /* "key":"N" in a fl
     *v = atoi(q + strlen(pat));
     return 0;
 }
+/* "col": the engines' colours, "name:colour;..." (only those not bone; an engine this build has not is skipped) */
+static int st_col_put(const txp_plugin_t *p, char *o, int room)
+{
+    const txp_catalog_t *c = txp_catalog();
+    int n = 0;
+    uint32_t e;
+    if (room < 16) { o[0] = '}'; o[1] = 0; return 1; }
+    n += snprintf(o + n, (size_t)(room - n), ",\"col\":\"");
+    for (e = 0; e < c->neng && n < room - 40; e++)
+        if (p->col[e]) n += snprintf(o + n, (size_t)(room - n), "%s:%u;", c->eng[e], (unsigned)p->col[e]);
+    n += snprintf(o + n, (size_t)(room - n), "\"}");
+    return n;
+}
+static void st_col_get(txp_plugin_t *p, const char *j)
+{
+    const txp_catalog_t *c = txp_catalog();
+    const char *q = strstr(j, "\"col\":\""), *end;
+    memset(p->col, 0, sizeof p->col);
+    if (!q) return;
+    q += 7;
+    end = strchr(q, '"');
+    while (end && q < end) {
+        const char *colon = strchr(q, ':'), *semi = strchr(q, ';');
+        uint32_t e;
+        if (!colon || !semi || colon > semi || semi > end) break;
+        for (e = 0; e < c->neng; e++)
+            if (strlen(c->eng[e]) == (size_t)(colon - q) && !strncmp(c->eng[e], q, (size_t)(colon - q))) {
+                int v = atoi(colon + 1);
+                p->col[e] = (uint8_t)(v > 0 && v < TXP_COL_N ? v : 0);
+            }
+        q = semi + 1;
+    }
+}
 static bool st_save(const clap_plugin_t *plugin, const clap_ostream_t *s)
 {
     txp_plugin_t *p = plugin->plugin_data;
     static _Thread_local char buf[TXP_STATE_MAX];
-    int n = txp_inst_state_get(p->in, buf, TXP_STATE_MAX - 64), done = 0;
+    int n = txp_inst_state_get(p->in, buf, TXP_STATE_MAX - 2048), done = 0;
     if (n < 2 || buf[n - 1] != '}') return false;
-    n += snprintf(buf + n - 1, 64, ",\"win\":\"%d\",\"sel\":\"%d\"}", p->win_w, p->sel) - 1;
+    n += snprintf(buf + n - 1, 64, ",\"win\":\"%d\",\"sel\":\"%d\",\"view\":\"%d\"}", p->win_w, p->sel, p->view) - 1;
+    n += st_col_put(p, buf + n - 1, TXP_STATE_MAX - n) - 1;
     while (done < n) {
         int64_t w = s->write(s, buf + done, (uint64_t)(n - done));
         if (w <= 0) return false;
@@ -240,10 +275,13 @@ static bool st_load(const clap_plugin_t *plugin, const clap_istream_t *s)
     buf[got] = 0;
     if (txp_inst_state_set(p->in, buf)) { say(p, CLAP_LOG_WARNING, "Textura: the saved state could not be read"); return false; }
     {   /* the window's (a state of before has none: the default size, lane 1) */
-        int w = 0, k = 0;
+        int w = 0, k = 0, vw = 0;
         (void)st_key(buf, "win", &w);
         (void)st_key(buf, "sel", &k);
+        (void)st_key(buf, "view", &vw);
         p->sel = k >= 0 && k < (int)TXP_LANES ? k : 0;
+        p->view = vw == 1;
+        st_col_get(p, buf);
         w = w >= TXG_MIN_W && w <= TXG_MAX_W ? w : 0;
         if (w != p->win_w) { p->win_w = w; txg_clap_size_changed(p->gui); }
     }
@@ -529,8 +567,9 @@ static void uq_drain(txp_plugin_t *p, const clap_output_events_t *out, int timed
         if (e->type == UQ_VALUE) {
             if ((i = txp_param_index(e->id)) >= 0) p->host_view[i] = e->v;
             if (timed) txp_inst_param(p->in, 0, e->id, e->v); else txp_inst_param_now(p->in, e->id, e->v);
-        } else if (e->type == UQ_MUTE || e->type == UQ_SOLO) {
-            int k = e->type == UQ_MUTE ? TXP_EV_MUTE : TXP_EV_SOLO;
+        } else if (e->type >= UQ_MUTE) {
+            int k = e->type == UQ_MUTE ? TXP_EV_MUTE : e->type == UQ_SOLO ? TXP_EV_SOLO : e->type == UQ_SOUND ? TXP_EV_SOUND
+                  : TXP_EV_LOAD;
             if (timed) txp_inst_event(p->in, 0, k, e->id, e->v); else txp_inst_event_now(p->in, k, e->id, e->v);
         }
         atomic_store_explicit(&p->uqr, ++r, memory_order_release);
@@ -627,6 +666,34 @@ void txp_ui_mutes(const txp_core *c, uint32_t *mute, uint32_t *solo)
 uint32_t txp_ui_act(const txp_core *c, uint8_t (*ev)[TXP_LANES], uint8_t (*pk)[TXP_LANES], uint32_t n)
 {
     return txp_inst_act(c->in, ev, pk, n);
+}
+void txp_ui_sound(txp_core *c, int lane, int fam, int snd, int keep)
+{
+    if (lane < 0 || lane >= (int)TXP_LANES || fam < 0 || fam > 15 || snd < 0 || snd > 15) return;
+    uq_put(c, UQ_SOUND, (uint32_t)lane, fam << 4 | snd | (keep ? TXP_SND_KEEP : 0));
+    if (keep) ui_dirty(c);
+}
+void txp_ui_load(txp_core *c, int what, int with_fx)
+{
+    if (what < 0) return;
+    uq_put(c, UQ_LOAD, with_fx ? 1u : 0u, what);
+    ui_dirty(c);
+}
+int txp_ui_col(const txp_core *c, int eng) { return eng >= 0 && eng < (int)TXP_ENG_MAX ? c->col[eng] : 0; }
+void txp_ui_col_set(txp_core *c, int eng, int col)
+{
+    if (eng < 0 || eng >= (int)TXP_ENG_MAX || col < 0 || col >= TXP_COL_N || c->col[eng] == col) return;
+    c->col[eng] = (uint8_t)col;
+    ui_dirty(c);
+}
+void txp_ui_col_reset(txp_core *c) { memset(c->col, 0, sizeof c->col); ui_dirty(c); }
+int txp_ui_view(const txp_core *c) { return c->view; }
+void txp_ui_view_set(txp_core *c, int v) { if (c->view != (v == 1)) { c->view = v == 1; ui_dirty(c); } }
+void txp_ui_win_resize(txp_core *c, int w)
+{
+    txp_ui_win_w_set(c, w == TXG_W ? 0 : w);
+    txg_clap_size_changed(c->gui);
+    ui_dirty(c);
 }
 int txp_ui_win_w(const txp_core *c) { return c->win_w; }
 void txp_ui_win_w_set(txp_core *c, int w) { c->win_w = w >= TXG_MIN_W && w <= TXG_MAX_W ? w : 0; }
