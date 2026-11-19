@@ -4,11 +4,14 @@
  * float WAV, the latency's frames dropped (the output starts at the app's own frame 0).
  *
  *   txp_clap_render PLUGIN.clap SCRIPT OUT.wav [--rate HZ] [--block N] [--keep-latency] [--state-check] [--cpu-from MS]
+ *                   [--fuzz SEED] [--inactive] [--state-in FILE] [--state-out FILE]
  *
  * --rate     the host's rate (44100 by default); --block  frames a process call (512)
  * --fuzz SEED  before the activation, every automatable parameter at a random value (one flush)
  * --inactive  no activation and no render (with --state-check: the state of an instance never activated)
  * --cpu-from MS  time only the process calls from that millisecond on (after a scene's load)
+ * --state-in FILE  a state loaded before the activation (and the fuzz), as a host restoring a project
+ * --state-out FILE  the state saved after the render (or without one, --inactive)
  * --state-check  after the render: save the state, load it into a second instance, check every parameter reads
  *            back the same (exit 3 when not) and that it saves the same text again (exit 4 when not: both kept as
  *            OUT.wav.state1, .state2)
@@ -110,6 +113,7 @@ int main(int argc, char **argv)
     const char *plug, *script, *out;
     double rate = 44100.0;
     uint32_t block = 512, keep = 0, state_check = 0, i, lat, total, nproc = 0, ei = 0, cpu_from = 0, fuzz = 0, inactive = 0;
+    const char *state_in = 0, *state_out = 0;
     char bin[1024];
     void *so;
     const clap_plugin_entry_t *entry;
@@ -121,7 +125,7 @@ int main(int argc, char **argv)
     static evl_t evl;
     clap_input_events_t in = { &evl, el_size, el_get };
     clap_output_events_t on = { 0, ol_push };
-    if (argc < 4) { fprintf(stderr, "usage: txp_clap_render PLUGIN.clap SCRIPT OUT.wav [--rate HZ] [--block N] [--keep-latency] [--state-check] [--cpu-from MS] [--fuzz SEED] [--inactive]\n"); return 1; }
+    if (argc < 4) { fprintf(stderr, "usage: txp_clap_render PLUGIN.clap SCRIPT OUT.wav [--rate HZ] [--block N] [--keep-latency] [--state-check] [--cpu-from MS] [--fuzz SEED] [--inactive] [--state-in FILE] [--state-out FILE]\n"); return 1; }
     plug = argv[1]; script = argv[2]; out = argv[3];
     for (i = 4; i < (uint32_t)argc; i++) {
         if (!strcmp(argv[i], "--rate") && i + 1 < (uint32_t)argc) rate = atof(argv[++i]);
@@ -129,6 +133,8 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--cpu-from") && i + 1 < (uint32_t)argc) cpu_from = (uint32_t)atoi(argv[++i]);
         else if (!strcmp(argv[i], "--fuzz") && i + 1 < (uint32_t)argc) fuzz = (uint32_t)atoi(argv[++i]);
         else if (!strcmp(argv[i], "--inactive")) inactive = 1;
+        else if (!strcmp(argv[i], "--state-in") && i + 1 < (uint32_t)argc) state_in = argv[++i];
+        else if (!strcmp(argv[i], "--state-out") && i + 1 < (uint32_t)argc) state_out = argv[++i];
         else if (!strcmp(argv[i], "--keep-latency")) keep = 1;
         else if (!strcmp(argv[i], "--state-check")) state_check = 1;
     }
@@ -149,6 +155,19 @@ int main(int argc, char **argv)
     if (!entry || !entry->init(plug)) { fprintf(stderr, "no clap_entry\n"); return 2; }
     fac = entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
     p = make(fac);
+    if (state_in) {                      /* a project's state, before anything else */
+        const clap_plugin_state_t *xs = p->get_extension(p, CLAP_EXT_STATE);
+        mem_t m = {0, 0, 0};
+        clap_istream_t is = { &m, is_read };
+        FILE *f = fopen(state_in, "rb");
+        char tmp[4096];
+        size_t k;
+        if (!f) { perror(state_in); return 1; }
+        while ((k = fread(tmp, 1, sizeof tmp, f)) > 0) { m.b = realloc(m.b, m.n + k); memcpy(m.b + m.n, tmp, k); m.n += k; }
+        fclose(f);
+        if (!xs || !xs->load(p, &is)) { fprintf(stderr, "state: %s did not load\n", state_in); return 3; }
+        free(m.b);
+    }
     if (fuzz) {                          /* every automatable parameter at a random value, before the activation (a
                                           * flush on the main thread: as clap-validator's state tests do) */
         const clap_plugin_params_t *xp = p->get_extension(p, CLAP_EXT_PARAMS);
@@ -220,6 +239,16 @@ int main(int argc, char **argv)
                rate, t_sum / (nproc ? nproc : 1), 100.0 * t_sum / (nproc ? nproc : 1) / dur, t_max, 100.0 * t_max / dur);
     }
 states:
+    if (state_out) {
+        const clap_plugin_state_t *xs = p->get_extension(p, CLAP_EXT_STATE);
+        mem_t m = {0, 0, 0};
+        clap_ostream_t os = { &m, os_write };
+        FILE *f;
+        if (!xs || !xs->save(p, &os) || !(f = fopen(state_out, "wb"))) { fprintf(stderr, "state: save failed\n"); return 3; }
+        fwrite(m.b, 1, m.n, f);
+        fclose(f);
+        free(m.b);
+    }
     if (state_check) {
         const clap_plugin_state_t *xs = p->get_extension(p, CLAP_EXT_STATE);
         const clap_plugin_params_t *xp = p->get_extension(p, CLAP_EXT_PARAMS);

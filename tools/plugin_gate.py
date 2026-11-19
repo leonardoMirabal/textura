@@ -2,12 +2,17 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """The desktop plugin plays what the FM-1 plays (make test-plugin).
 
-The plugin is the app compiled unchanged (plugin/src/engine_unit.c), so its render of a MIDI script must be the host
-build's render of the same script (tests/host.c), built with the same switch (LN_HQ: no CPU limit, nothing thinned).
+The plugin is the app compiled unchanged (plugin/src/engine_unit.c) with 16 lanes (plugin/cmake/slots.cmake
+TXP_LANES), so its render of a MIDI script must be the host build's render of the same script (tests/host.c), built
+with the same switch (LN_HQ: no CPU limit, nothing thinned): four-lane content against the four-lane host build (the
+FM-1's app: the 16-lane plugin plays it sample for sample), sixteen-lane content against the 16-lane host build.
 
   equal   44.1 kHz, the plugin's test time (TEXTURA_PLUGIN_TEST=ms: the host build's events-per-millisecond order):
           after the latency, the plugin's output is the host build's, sample for sample (the host writes 16 bits with
-          a clip: the plugin's float x 32768, clipped the same way, must be equal)
+          a clip: the plugin's float x 32768, clipped the same way, must be equal). stop, lanes, hq, presets (every
+          factory preset, not with --quick): against the four-lane build; lanes16 (sixteen lanes playing, every
+          channel, then a factory preset over them: lanes 5 .. 16 empty again), against the 16-lane build, whose
+          expects must pass too
   rates   48, 96 and 88.2 kHz (the oversampler) and 32 kHz (the sinc), the test time: the host build's render taken to
           that rate offline (a long polyphase filter) against the plugin's: the residual under -90 dB of the signal
           below 12 kHz (or a quarter of the rate; the two resamplers' own filters differ in their transition bands)
@@ -15,10 +20,13 @@ build's render of the same script (tests/host.c), built with the same switch (LN
           without --quick also presets: every factory preset by program change)
   hq      the host build with LN_HQ plays plugin/tests/scripts/hq.txt: the governor's pool has no end, nothing is cut
   state   the shipped time (exact): a render, its state saved and loaded into a second instance, every parameter
-          reads back the same and the state saves the same again; and an instance never activated, every parameter
-          set at random by a flush (as clap-validator does), the same
+          reads back the same and the state saves the same again (four lanes, and sixteen lanes playing); an instance
+          never activated, every parameter set at random by a flush (as clap-validator does), the same; and a state
+          of the four-lane plugin (plugin/tests/fixtures/state_v1.json: version 1, the FM-1's scene record) loads into
+          lanes 1 .. 4, the others empty, LANES 4, its records and settings as they were
   cpu     the shipped time at 48 kHz, 512-frame buffers: average and worst time per process call for heavy 4-lane
-          scenes (every lane at HOW MANY and HOW ACTIVE 127, the grain delay at all its grains, the reverb up)
+          scenes (every lane at HOW MANY and HOW ACTIVE 127, the grain delay at all its grains, the reverb up), and
+          for sixteen heavy lanes (the four heaviest presets' lanes side by side, by a state)
 
   tools/plugin_gate.py [--build build/plugin] [--quick] [--only equal,hq,rates,state,cpu]
 Exit 0 when every check passes. Needs numpy and scipy for the rates (skipped without them)."""
@@ -32,6 +40,8 @@ from array import array
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = ["tests/scripts/stop.txt", "plugin/tests/scripts/lanes.txt", "plugin/tests/scripts/hq.txt"]
+SCRIPTS16 = ["plugin/tests/scripts/lanes16.txt"]   # (against the 16-lane host build)
+V1_STATE = "plugin/tests/fixtures/state_v1.json"   # (the four-lane plugin's state: F034 WATERFALL, a card, effects)
 LONG = ["tests/scripts/presets.txt"]   # (not with --quick: every factory preset, 400 s)
 HOST_SRC = ["firmware/src/textura.c"]
 CFLAGS = ["-O2", "-Wall", "-Wno-unused-function", "-DDINGHY_HOST", "-DLN_HQ", '-DAPP_VER="dev"',
@@ -48,7 +58,7 @@ def run(cmd, env=None, check=True):
     return r
 
 
-def host_build(out):
+def host_build(out, lanes=4):
     eng = sorted(os.path.join("engines", f) for f in os.listdir(os.path.join(ROOT, "engines")) if f.endswith(".c"))
     deps = [os.path.join(ROOT, d) for d in eng + ["tests/host.c", "web/web_hal.c"]]
     for d in ("firmware/src", "firmware/gen", "engines"):
@@ -56,7 +66,8 @@ def host_build(out):
     if os.path.exists(out) and os.path.getmtime(out) > max(os.path.getmtime(d) for d in deps):
         return
     cc = os.environ.get("CC", "cc")
-    run(["nice", "-n", "15", cc] + CFLAGS + ["-o", out] + HOST_SRC + eng + ["-lm"])
+    lanes_def = [] if lanes == 4 else ["-DTX_MIX_SLOTS=%du" % lanes]
+    run(["nice", "-n", "15", cc] + CFLAGS + lanes_def + ["-o", out] + HOST_SRC + eng + ["-lm"])
 
 
 def read_wav(path):
@@ -119,11 +130,14 @@ def compare(h, p):
         return n, diff, first, peak
 
 
-def check_equal(args, host, exe, bundle, tmp):
+def check_equal(args, host, host16, exe, bundle, tmp):
     ok = True
-    for s in SCRIPTS + ([] if args.quick else LONG):
+    for s in SCRIPTS + SCRIPTS16 + ([] if args.quick else LONG):
         name = os.path.basename(s)[:-4]
-        h, hrc = host_render(host, s, os.path.join(tmp, "host-" + name))
+        h, hrc = host_render(host16 if s in SCRIPTS16 else host, s, os.path.join(tmp, "host-" + name))
+        if s in SCRIPTS16 and hrc != 0:
+            print("FAIL  equal %s: the 16-lane host build failed %d of the script's expects" % (name, hrc))
+            ok = False
         r = plug_render(exe, bundle, s, os.path.join(tmp, "plug-" + name + ".wav"), 44100)
         if r.returncode != 0:
             print("FAIL  equal %s: the plugin's render exited %d" % (name, r.returncode))
@@ -133,8 +147,9 @@ def check_equal(args, host, exe, bundle, tmp):
         n, diff, first, peak = compare(h, p)
         lat = re.search(r"latency (\d+)", r.stdout)
         good = diff == 0 and n > 44100 and peak > 0
-        line = "%s  equal %-7s %d frames (latency %s), peak %d, %d samples differ" % (
-            "ok  " if good else "FAIL", name, n // 2, lat.group(1) if lat else "?", peak, diff)
+        line = "%s  equal %-7s %d frames (latency %s), peak %d, %d samples differ%s" % (
+            "ok  " if good else "FAIL", name, n // 2, lat.group(1) if lat else "?", peak, diff,
+            " (16 lanes; the host build's expects passed)" if s in SCRIPTS16 and hrc == 0 else "")
         if first >= 0:
             line += ", the first at frame %d" % (first // 2)
         print(line)
@@ -191,7 +206,8 @@ def check_rates(args, host, exe, bundle, tmp):
     return ok
 
 
-SCN_STEP, SCN_RUN = 24, 28   # scenes.c scn_t: step[4] (HOW ACTIVE) and run[4] at these bytes (4 lanes)
+SCN_LANES = 16                # the plugin's lanes (plugin/cmake/slots.cmake TXP_LANES)
+SCN_STEP, SCN_RUN = 16 + 2 * SCN_LANES, 16 + 3 * SCN_LANES   # scenes.c scn_t (version 2): step[] (HOW ACTIVE), run[]
 
 
 def scene_bytes(path):
@@ -211,18 +227,35 @@ def state_ok(r, out):
     a, ha = scene_bytes(out + ".state1")
     b, hb = scene_bytes(out + ".state2")
     bad = [i for i in range(max(len(a), len(b))) if i >= len(a) or i >= len(b) or a[i] != b[i]]
-    ok_i = [i for i in bad if SCN_STEP <= i < SCN_STEP + 4 and a[SCN_RUN + i - SCN_STEP] == 0
+    ok_i = [i for i in bad if SCN_STEP <= i < SCN_STEP + SCN_LANES and a[SCN_RUN + i - SCN_STEP] == 0
             and b[SCN_RUN + i - SCN_STEP] == 0]
     good = ha == hb and len(a) == len(b) and len(ok_i) == len(bad)
     return good, " (saved again: %d bytes differ, %d of them a stopped lane's HOW ACTIVE)" % (len(bad), len(ok_i))
 
 
+def lanes16_hold(tmp):
+    """lanes16.txt up to its factory preset: sixteen lanes playing when it ends (its state saves sixteen)"""
+    sp = os.path.join(tmp, "lanes16-hold.txt")
+    with open(os.path.join(ROOT, SCRIPTS16[0])) as f, open(sp, "w") as o:
+        for line in f:
+            w = line.split()
+            if len(w) >= 3 and w[1] == "midi" and w[2] == "0xC0" and int(w[0]) > 2000:
+                o.write("%d end\n" % (int(w[0]) - 100))
+                break
+            o.write(line)
+    return sp
+
+
 def check_state(args, exe, bundle, tmp):
-    out = os.path.join(tmp, "plug-state.wav")
-    r = plug_render(exe, bundle, SCRIPTS[1], out, 48000, test=False, extra=["--state-check"])
-    m = re.search(r"state (\d+) bytes, saved again \w+( \w+)?, (\d+) parameters, (\d+) differ", r.stdout)
-    good, note = state_ok(r, out)
-    print("%s  state: %s%s" % ("ok  " if good else "FAIL", m.group(0) if m else (r.stdout + r.stderr).strip(), note))
+    good = True
+    for what, script in (("state", SCRIPTS[1]), ("state, 16 lanes playing", lanes16_hold(tmp))):
+        out = os.path.join(tmp, "plug-state.wav" if what == "state" else "plug-state16.wav")
+        r = plug_render(exe, bundle, script, out, 48000, test=False, extra=["--state-check"])
+        m = re.search(r"state (\d+) bytes, saved again \w+( \w+)?, (\d+) parameters, (\d+) differ", r.stdout)
+        g, note = state_ok(r, out)
+        print("%s  %s: %s%s" % ("ok  " if g else "FAIL", what, m.group(0) if m else (r.stdout + r.stderr).strip(), note))
+        good = good and g
+    good = check_v1(exe, bundle, tmp) and good
     end = os.path.join(tmp, "end.txt")
     with open(end, "w") as f:
         f.write("100 end\n")
@@ -236,6 +269,111 @@ def check_state(args, exe, bundle, tmp):
             "ok  " if g else "FAIL", seed, m.group(0) if m else (r.stdout + r.stderr).strip(), note))
         good = good and g
     return good
+
+
+V1 = dict(snd=16, cnt=20, step=24, run=28, vol=32, pan=36, nrec=40, lfam=42, rec=44)   # scenes.c scn_v1_t (4 lanes)
+V2 = dict(snd=16, cnt=16 + SCN_LANES, step=16 + 2 * SCN_LANES, run=16 + 3 * SCN_LANES, vol=16 + 4 * SCN_LANES,
+          pan=16 + 5 * SCN_LANES, lf=16 + 6 * SCN_LANES, mute=16 + 7 * SCN_LANES, nrec=20 + 7 * SCN_LANES,
+          rec=24 + 7 * SCN_LANES)    # scenes.c scn_t, version 2
+
+
+def records(b, at, n):
+    return sorted((b[at + 4 * i] | b[at + 4 * i + 1] << 8, int.from_bytes(b[at + 4 * i + 2:at + 4 * i + 4], "little", signed=True))
+                  for i in range(n))
+
+
+def check_v1(exe, bundle, tmp):
+    """the four-lane plugin's state (version 1) into the 16-lane plugin: lanes 1 .. 4 as it had them, the others
+    empty, LANES 4, the same records and settings; then saved, it loads and saves the same again"""
+    out = os.path.join(tmp, "plug-v1.wav")
+    st = os.path.join(tmp, "plug-v1.json")
+    end = os.path.join(tmp, "end3000.txt")
+    with open(end, "w") as f:
+        f.write("3000 end\n")
+    r = plug_render(exe, bundle, end, out, 48000, test=False,
+                    extra=["--state-in", os.path.join(ROOT, V1_STATE), "--state-out", st, "--state-check"])
+    g_rt, note = state_ok(r, out)
+    a, ha = scene_bytes(os.path.join(ROOT, V1_STATE))
+    try:
+        b, hb = scene_bytes(st)
+    except (OSError, ValueError):
+        b, hb = b"", ""
+    bad = []
+    if len(a) != 1020 or a[0] != 1:
+        bad.append("the fixture is not a version 1 record")
+    elif len(b) != 2040 or b[0] != 2:
+        bad.append("saved: not a version 2 record (%d bytes)" % len(b))
+    else:
+        if b[2] != a[2]:
+            bad.append("landscape %d, not %d" % (b[2], a[2]))
+        if b[3] != 4:
+            bad.append("LANES %d, not 4" % (b[3] + 0))
+        mute = int.from_bytes(b[V2["mute"]:V2["mute"] + 4], "little")
+        lfam = a[V1["lfam"]] | a[V1["lfam"] + 1] << 8
+        for k in range(SCN_LANES):
+            snd = b[V2["snd"] + k] - 256 if b[V2["snd"] + k] > 127 else b[V2["snd"] + k]
+            if k >= 4:
+                if snd != -1 or b[V2["run"] + k] or mute >> k & 1:
+                    bad.append("lane %d not empty" % (k + 1))
+                continue
+            for f in ("snd", "run", "vol", "pan") + (("cnt", "step") if a[V1["run"] + k] else ()):
+                if b[V2[f] + k] != a[V1[f] + k]:
+                    bad.append("lane %d %s %d, not %d" % (k + 1, f, b[V2[f] + k], a[V1[f] + k]))
+            if snd >= 0 and b[V2["lf"] + k] != (lfam >> 4 * k & 15):
+                bad.append("lane %d family %d, not %d" % (k + 1, b[V2["lf"] + k], lfam >> 4 * k & 15))
+            if (mute >> k & 1) != (a[3] >> k & 1):
+                bad.append("lane %d mute" % (k + 1))
+        ra = records(a, V1["rec"], a[V1["nrec"]] | a[V1["nrec"] + 1] << 8)
+        rb = records(b, V2["rec"], b[V2["nrec"]] | b[V2["nrec"] + 1] << 8)
+        if ra != rb:
+            bad.append("records: %d, not the fixture's %d (%s)" % (len(rb), len(ra), sorted(set(ra) ^ set(rb))[:4]))
+        sa = dict(x.split("=") for x in re.search(r'"set":"([^"]*)"', ha).group(1).split(","))
+        sb = dict(x.split("=") for x in re.search(r'"set":"([^"]*)"', hb).group(1).split(","))
+        if any(sb.get(k) != v for k, v in sa.items()):
+            bad.append("settings: %s" % [k for k, v in sa.items() if sb.get(k) != v])
+        if '"textura":"2"' not in hb:
+            bad.append("saved: not \"textura\":\"2\"")
+    good = not bad and g_rt
+    print("%s  state of before (version 1, four lanes) into 16 lanes: %s%s" % (
+        "ok  " if good else "FAIL", "lanes 1 .. 4 as saved, 5 .. 16 empty, LANES 4, %d records, settings kept" % (
+            len(records(a, V1["rec"], a[V1["nrec"]] | a[V1["nrec"] + 1] << 8)) if len(a) == 1020 else 0)
+        if not bad else "; ".join(bad[:6]), "" if g_rt else ", saved again: " + (r.stdout + r.stderr).strip()[-300:] + note))
+    return good
+
+
+def heavy16_state(exe, bundle, tmp):
+    """a state with sixteen heavy lanes: the four heaviest presets' lanes side by side (each preset loaded and saved
+    by the plugin, its lanes put at 4j .. 4j + 3), every one at HOW MANY and HOW ACTIVE their most, LANES 16"""
+    scenes = []
+    for prog in HEAVY:
+        sp = os.path.join(tmp, "pc-%d.txt" % prog)
+        with open(sp, "w") as f:
+            f.write("200 midi 0xC0 %d 0\n2500 end\n" % prog)
+        st = os.path.join(tmp, "pc-%d.json" % prog)
+        plug_render(exe, bundle, sp, os.path.join(tmp, "pc-%d.wav" % prog), 48000, test=False, extra=["--state-out", st])
+        scenes.append(scene_bytes(st))
+    b = bytearray(scenes[0][0])
+    for j, (s, _) in enumerate(scenes):
+        for k in range(4):
+            d = 4 * j + k
+            for f in ("snd", "vol", "pan", "lf"):
+                b[V2[f] + d] = s[V2[f] + k]
+            on = s[V2["snd"] + k] < 128
+            b[V2["cnt"] + d], b[V2["step"] + d], b[V2["run"] + d] = (6, 14, 1) if on else (0, 0, 0)
+    b[3] = SCN_LANES
+    b[V2["mute"]:V2["mute"] + 4] = bytes(4)
+    n = b[V2["nrec"]] | b[V2["nrec"] + 1] << 8
+    keep = [r for r in records(b, V2["rec"], n) if (r[0] >> 8) not in (0, 1, 2, 3)]   # (no lane's card: lanes moved)
+    rec = bytearray()
+    for i, v in keep:
+        rec += i.to_bytes(2, "little") + v.to_bytes(2, "little", signed=True)
+    b[V2["nrec"]:V2["nrec"] + 2] = len(keep).to_bytes(2, "little")
+    b[V2["rec"]:] = bytes(rec) + bytes(len(b) - V2["rec"] - len(rec))
+    path = os.path.join(tmp, "heavy16.json")
+    hdr = scenes[0][1]
+    with open(path, "w") as f:
+        f.write(hdr + '"scene":"' + b.hex() + '"}')
+    return path
 
 
 def heavy_script(path, prog):
@@ -262,6 +400,19 @@ def check_cpu(args, exe, bundle, tmp):
                         extra=["--block", "512", "--cpu-from", "5000"])
         m = re.search(r"cpu .*", r.stdout)
         print("info  cpu F%03d (4 lanes at 127, grain delay full): %s" % (prog + 1, m.group(0) if m else "?"))
+    st = heavy16_state(exe, bundle, tmp)
+    sp = os.path.join(tmp, "heavy16.txt")
+    with open(sp, "w") as f:
+        for cc, v in ((102, 90), (105, 127), (104, 90), (91, 100), (86, 110)):
+            f.write("1000 midi 0xB4 %d %d\n" % (cc, v))
+        for ch in range(16):
+            f.write("%d midi 0x%X %d 110\n" % (2000 + 150 * ch, 0x90 + ch, 40 + 3 * ch))
+        f.write("%d end\n" % (14000 if args.quick else 24000))
+    r = plug_render(exe, bundle, sp, os.path.join(tmp, "heavy16.wav"), 48000, test=False,
+                    extra=["--block", "512", "--cpu-from", "5000", "--state-in", st])
+    m = re.search(r"cpu .*", r.stdout)
+    print("info  cpu 16 heavy lanes (F012, F034, F074, F015 side by side, all at their most, grain delay full): %s" % (
+        m.group(0) if m else "? " + (r.stdout + r.stderr)[-300:]))
     return True
 
 
@@ -279,12 +430,15 @@ def main():
     tmp = os.path.join(build, "gate")
     os.makedirs(tmp, exist_ok=True)
     host = os.path.join(build, "textura-host-hq")
+    host16 = os.path.join(build, "textura-host-hq16")
     only = args.only.split(",")
     if "equal" in only or "rates" in only or "hq" in only:
         host_build(host)
+    if "equal" in only:
+        host_build(host16, lanes=SCN_LANES)
     ok = True
     if "equal" in only:
-        ok = check_equal(args, host, exe, bundle, tmp) and ok
+        ok = check_equal(args, host, host16, exe, bundle, tmp) and ok
     if "hq" in only:
         ok = check_hq(args, host, tmp) and ok
     if "rates" in only:

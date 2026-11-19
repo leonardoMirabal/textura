@@ -30,9 +30,9 @@
 
 #define TXP_SLOTS 16u                    /* the slots: the instances that can play at once */
 #define TXP_FS 44100u                    /* the app's rate: always */
-#define TXP_NPARAM_MAX 512u              /* the host's parameters (slot_bridge.h sb_params: about 300) */
+#define TXP_NPARAM_MAX 1024u             /* the host's parameters (slot_bridge.h sb_params: about 480 with 16 lanes) */
 #define TXP_STATE_MAX 8192               /* the state's JSON text (slot_bridge.h) */
-#define TXP_ID_OWN0 0x10000u             /* the plugin's own parameters: not the app's ids (those are < 0x800) */
+#define TXP_ID_OWN0 0x10000u             /* the plugin's own parameters: not the app's ids (those are < 0x1C00) */
 #define TXP_ID_PRESET (TXP_ID_OWN0 + 0u) /* PRESET: F001 .. F100 (a program change on channel 1) */
 #define TXP_LAT_MS 10u                   /* the ms test mode's pre-roll (bridge.c) */
 

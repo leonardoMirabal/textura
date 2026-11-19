@@ -16,19 +16,23 @@
  * (sb_putx): step 2 hands over only the events for the next block to render, and step 5 runs before step 4, so they
  * act from that block's start (the lanes take their queue at each block's start, as on the FM-1).
  *
+ * The app runs with SC_N lanes (16: TX_MIX_SLOTS, plugin/cmake/slots.cmake), LANES of them in use (params.c PG_NLANE:
+ * 4 at the start; a sound put on a lane past it takes it up; lowered, the lanes past it are emptied). Lanes 1 .. 4 keep
+ * the FM-1's ids (scopes 0 .. 3), lanes 5 .. 16 are scopes 16 .. 27 (params.c P_LS).
+ *
  * The host's parameters (sb_params): the app's own, by their stable ids (params.c), the same for every lane: SOUND,
  * HOW MANY, HOW ACTIVE, LEVEL, PAN, the eight cards (0 .. 127 onto the card's range, as their CC: what a card turns
  * depends on the lane's sound), GROOVE's PART and CYCLE; the effects on the mix (GRAIN DELAY and its SYNC, REVERB,
- * COMPRESSOR, DRIVE, FILTER), GROOVE, the keys' SCALE, MIDI IN's channels, EFFECTS ON LOAD; the eight LFOs, the
- * envelopes, the followers, the matrix and MOD CC; and the plugin's own PRESET (F001 .. F100, a program change on
- * channel 1). The FM-1's tempo, clock, screen and status settings are not host parameters: the host's tempo leads
- * (step 6) when it gives one.
+ * COMPRESSOR, DRIVE, FILTER), GROOVE, the keys' SCALE, MIDI IN's channels (each lane's, SELECTED CH, FX CHANNEL),
+ * LANES, EFFECTS ON LOAD; the eight LFOs, the envelopes, the followers, the matrix and MOD CC; and the plugin's own
+ * PRESET (F001 .. F100, a program change on channel 1). The FM-1's tempo, clock, screen and status settings are not
+ * host parameters: the host's tempo leads (step 6) when it gives one.
  *
- * The state: what a user scene keeps (scenes.c scn_capture: the landscape, each lane's sound, HOW MANY, HOW ACTIVE,
- * level, pan, mute and cards, the effects, the modulation, GROOVE, the tempo), the scene loaded last, and the settings
- * that are parameters (the keys' SCALE, MIDI IN, EFFECTS ON LOAD, PRESETS CHANGE TEMPO). Loaded, it is applied as a
- * scene with its effects (scn_apply, scn_fx_force); outside processing the slot runs until the load is done
- * (sb_settle), so the values read back at once are the state's. Nothing is written to disk: the user scenes' bank
+ * The state: what a user scene keeps (scenes.c scn_capture: the landscape, LANES, each lane's sound, HOW MANY, HOW
+ * ACTIVE, level, pan, mute and cards, the effects, the modulation, GROOVE, the tempo), the scene loaded last, and the
+ * settings that are parameters (the keys' SCALE, MIDI IN, EFFECTS ON LOAD, PRESETS CHANGE TEMPO). Loaded, it is
+ * applied as a scene with its effects (scn_apply, scn_fx_force); outside processing the slot runs until the load is
+ * done (sb_settle), so the values read back at once are the state's. Nothing is written to disk: the user scenes' bank
  * stays in memory (the FM-1's SAVE has no key here yet). */
 #include <stdatomic.h>
 #include <time.h>
@@ -40,20 +44,25 @@
 #define SB_HOST_RING 64u                 /* web_hal.c's mq[] */
 #define SB_PUB_EVERY 8u                  /* steps between two publications of the values */
 #define SB_SETTLE_MS 6000u               /* sb_settle's longest run (scenes.c SCN_STUCK_MS) */
-#define SB_NSET 11u                      /* the settings in the state */
+#define SB_NSET 24u                      /* the settings in the state */
 #define SB_SCN_HEX (2u * sizeof(scn_t))
-_Static_assert(SB_SCN_HEX + 512u < TXP_STATE_MAX, "the state fits bridge.h TXP_STATE_MAX");
+#define SB_SCN_V1_HEX (2u * sizeof(scn_v1_t))   /* (a state of before: the FM-1's four-lane scene record) */
+_Static_assert(SB_SCN_HEX + 1024u < TXP_STATE_MAX, "the state fits bridge.h TXP_STATE_MAX");
 
 typedef struct { uint8_t kind, x; uint32_t at, a; int32_t v; } sb_ev_t;   /* x: at is an app frame x 256 (exact) */
 static const uint8_t SB_SET_IDX[SB_NSET] = { PG_SCNFX, PG_SCNTEMPO, PG_SCMODE, PG_SCALE, PG_ROOT, PG_TRANS, PG_SELCH,
-                                             PG_LCH0, PG_LCH0 + 1, PG_LCH0 + 2, PG_LCH0 + 3 };
-typedef char sb_set_lanes[SC_N == 4u ? 1 : -1];   /* (SB_SET_IDX names four lanes' channels) */
+                                             PG_LCH0, PG_LCH0 + 1, PG_LCH0 + 2, PG_LCH0 + 3,
+                                             PG_LCH4, PG_LCH4 + 1, PG_LCH4 + 2, PG_LCH4 + 3, PG_LCH4 + 4, PG_LCH4 + 5,
+                                             PG_LCH4 + 6, PG_LCH4 + 7, PG_LCH4 + 8, PG_LCH4 + 9, PG_LCH4 + 10,
+                                             PG_LCH4 + 11, PG_CHG };
+typedef char sb_set_lanes[SC_N == 16u ? 1 : -1];   /* (SB_SET_IDX names sixteen lanes' channels) */
 
 static struct {
     coro_t co;
     void *stack;
     int booted;
     uint32_t ms, owed;
+    int ev_wait;                         /* sb_events left host events waiting for room (the next step goes on) */
     int exact;                           /* the step's order (bridge.h: Time): 1 exact, 0 ms */
     int32_t fifo[2u * SB_FIFO];
     uint32_t fr, fw;
@@ -116,18 +125,19 @@ static void sb_tab_make(void)
     for (f = 0; f < LS_N; f++) if (LS[f].n > smax) smax = LS[f].n;
     sb_tab_add(TXP_ID_PRESET, PR_N - 1u, 0, 1, "Scenes", "", "PRESET");
     for (k = 0; k < SC_N; k++) {
+        uint32_t s = P_LS(k);
         snprintf(mod, sizeof mod, "Lane %u", (unsigned)k + 1u);
         snprintf(pfx, sizeof pfx, "L%u ", (unsigned)k + 1u);
         for (i = 0; i <= PL_PAN; i++) {
-            uint32_t id = PID(k, i), hi = i == PL_SOUND ? smax - 1u : (uint32_t)p_hi(id);
+            uint32_t id = PID(s, i), hi = i == PL_SOUND ? smax - 1u : (uint32_t)p_hi(id);
             sb_tab_add(id, hi, 0, i == PL_SOUND || i == PL_COUNT || i == PL_ACTIVE, mod, pfx, LL[i]);
         }
         for (i = 0; i < SCD_MAX; i++) {
             snprintf(nm, sizeof nm, "CARD %u", (unsigned)i + 1u);
-            sb_tab_add(PID(k, PL_CARD0 + i), 127u, 1, 0, mod, pfx, nm);
+            sb_tab_add(PID(s, PL_CARD0 + i), 127u, 1, 0, mod, pfx, nm);
         }
-        sb_tab_add(PID(k, PL_GPART), (uint32_t)p_hi(PID(k, PL_GPART)), 0, 1, mod, pfx, "GROOVE PART");
-        sb_tab_add(PID(k, PL_GCYC), (uint32_t)p_hi(PID(k, PL_GCYC)), 0, 1, mod, pfx, "GROOVE CYCLE");
+        sb_tab_add(PID(s, PL_GPART), (uint32_t)p_hi(PID(s, PL_GPART)), 0, 1, mod, pfx, "GROOVE PART");
+        sb_tab_add(PID(s, PL_GCYC), (uint32_t)p_hi(PID(s, PL_GCYC)), 0, 1, mod, pfx, "GROOVE CYCLE");
     }
     for (i = 0; i < 256u; i++) {
         uint32_t id = PID(P_GLOBAL, i);
@@ -140,7 +150,8 @@ static void sb_tab_make(void)
         else if (i >= PG_MF0 && i < PG_GRV0) { m = "Filter"; px = "FILTER "; }
         else if (i >= PG_GRV0 && i <= PG_GSHIFT) { m = "Groove"; px = "GROOVE "; }
         else if (i == PG_SCALE || i == PG_ROOT || i == PG_SCMODE || i == PG_TRANS) { m = "Keys"; px = "KEYS "; }
-        else if (i == PG_SELCH || (i >= PG_LCH0 && i < PG_LCH0 + SC_N)) { m = "MIDI"; px = "MIDI "; }
+        else if (i == PG_SELCH || i == PG_CHG || p_lch_lane(i) >= 0) { m = "MIDI"; px = "MIDI "; }
+        else if (i == PG_NLANE) { m = "Lanes"; px = ""; }
         else { m = "Scenes"; px = ""; }
         sb_tab_add(id, (uint32_t)p_hi(id), 0, p_kind(id) != PK_AMOUNT, m, px, p_lab(id));
     }
@@ -173,7 +184,7 @@ static uint32_t sb_params(txp_param_t *tab, uint32_t max)
     memcpy(tab, sbx.tab, n * sizeof *tab);
     return n;
 }
-static int sb_is_card(uint32_t id) { return P_SCOPE(id) < SC_N && P_IDX(id) >= PL_CARD0 && P_IDX(id) < PL_CARD0 + SCD_MAX; }
+static int sb_is_card(uint32_t id) { return P_IS_LANE(P_SCOPE(id)) && P_IDX(id) >= PL_CARD0 && P_IDX(id) < PL_CARD0 + SCD_MAX; }
 /* a value's text, from constant tables only (the main thread asks while the audio thread runs the app): the formats
  * whose text is the value's alone (params.c p_text_v); -1 for the rest (the host shows the number) */
 static int sb_text(uint32_t id, int32_t v, char *buf, uint32_t n)
@@ -188,8 +199,8 @@ static int sb_text(uint32_t id, int32_t v, char *buf, uint32_t n)
         snprintf(buf, n, "%s", nm);
         return 0;
     }
-    if (P_MODS(s) || s > P_GLOBAL) return -1;
-    if (s < SC_N && !(i == PL_COUNT || i == PL_ACTIVE || i == PL_PAN || i == PL_GPART || i == PL_GCYC)) return -1;
+    if (P_MODS(s) || (s > P_GLOBAL && !P_IS_LANE(s))) return -1;
+    if (P_IS_LANE(s) && !(i == PL_COUNT || i == PL_ACTIVE || i == PL_PAN || i == PL_GPART || i == PL_GCYC)) return -1;
     f = p_fmt(id);
     if (f == F_SOUND || f == F_MS_GD || f == F_STATUS) return -1;
     if (v < 0 || v > p_hi(id)) return -1;
@@ -201,9 +212,13 @@ static int32_t sb_value(const txp_param_t *p)   /* a host parameter's value now 
 {
     int32_t v, h;
     if (p->id == TXP_ID_PRESET) return sbx.last_fact;
-    if (P_SCOPE(p->id) < SC_N && P_IDX(p->id) == PL_COUNT) {   /* HOW MANY under a modulation: the user's value, as a
-                                          * scene keeps it (scenes.c scn_capture), not the one the matrix moves it to */
-        uint32_t k = P_SCOPE(p->id);
+    if (P_IS_LANE(P_SCOPE(p->id)) && P_IDX(p->id) != PL_GPART && P_IDX(p->id) != PL_GCYC && sc.snd[P_LANE_OF(P_SCOPE(p->id))] < 0)
+        return P_IDX(p->id) == PL_PAN ? 64 : P_IDX(p->id) == PL_LEVEL ? 100 : 0;   /* an empty lane: what it plays, nothing
+                                          * (its pan and cards of before are no part of a scene: a state loaded into another
+                                          * instance would read others) */
+    if (P_IS_LANE(P_SCOPE(p->id)) && P_IDX(p->id) == PL_COUNT) {   /* HOW MANY under a modulation: the user's value,
+                                          * as a scene keeps it (scenes.c scn_capture), not the one the matrix moves it to */
+        uint32_t k = P_LANE_OF(P_SCOPE(p->id));
         if (m_cb_ok[k] && sc.run[k] && m_cbase[k]) return m_cbase[k];
     }
     if (!p->scaled) return p_get(p->id);
@@ -212,7 +227,7 @@ static int32_t sb_value(const txp_param_t *p)   /* a host parameter's value now 
     {   /* a card the user has not set: its default. On the FM-1's page a hosted engine's card shows the engine's value
          * now, which the sound's own curves move (params.c p_card_get); to the host that would be a parameter moving
          * by itself, and a second instance loading the same state would read another value */
-        p_cards_t *c = p_cards(P_SCOPE(p->id));
+        p_cards_t *c = p_cards(P_LANE_OF(P_SCOPE(p->id)));
         uint32_t i = P_IDX(p->id) - PL_CARD0;
         if (i < c->n && c->cv[i] == 0xFF) v = c->def[i];
     }
@@ -275,8 +290,10 @@ static void sb_capture(void)             /* the state as it plays now, for sb_st
     atomic_store_explicit(&sbx.cap_seq, q + 2u, memory_order_release);
 }
 
-/* ---- the state: {"textura":"1","cur":"N","set":"I=V,...","scene":"<scn_t, hex>"} (the scene record as the FM-1's
- * user bank keeps it, scenes.c scn_t: its version inside; a later firmware's records load as a scene of before does) */
+/* ---- the state: {"textura":"2","cur":"N","set":"I=V,...","scene":"<scn_t, hex>"} (the scene record as the user bank
+ * keeps it, scenes.c scn_t: version 2, SC_N lanes and LANES; a later firmware's records load as a scene of before
+ * does). A state of before, "textura":"1" (the four-lane plugin's: its scene the FM-1's record, version 1), loads
+ * into lanes 1 .. 4, the others empty (scenes.c scn_from_v1) */
 static const char SB_HEX[] = "0123456789abcdef";
 static const char *sb_json_str(const char *j, const char *key, uint32_t *len)   /* "key":"value" in a flat object */
 {
@@ -313,7 +330,7 @@ static int sb_state_get(char *buf, int n, int fresh)   /* fresh: ask the audio s
         q2 = atomic_load_explicit(&sbx.cap_seq, memory_order_relaxed);
         if (q1 == q2) break;
     }
-    o += sprintf(o, "{\"textura\":\"1\",\"cur\":\"%u\",\"set\":\"", (unsigned)cur);
+    o += sprintf(o, "{\"textura\":\"2\",\"cur\":\"%u\",\"set\":\"", (unsigned)cur);
     for (i = 0; i < SB_NSET; i++) o += sprintf(o, "%s%u=%d", i ? "," : "", (unsigned)PID(P_GLOBAL, SB_SET_IDX[i]), set[i]);
     o += sprintf(o, "\",\"scene\":\"");
     for (i = 0; i < sizeof s; i++) { *o++ = SB_HEX[((const uint8_t *)&s)[i] >> 4]; *o++ = SB_HEX[((const uint8_t *)&s)[i] & 15u]; }
@@ -326,15 +343,20 @@ static int sb_state_set(const char *j)   /* into the mailbox; sb_state_apply app
     uint32_t lv = 0, ls = 0, lc = 0, lt = 0, i;
     const char *v = j ? sb_json_str(j, "textura", &lv) : 0, *s = j ? sb_json_str(j, "scene", &ls) : 0;
     const char *c = j ? sb_json_str(j, "cur", &lc) : 0, *t = j ? sb_json_str(j, "set", &lt) : 0;
-    int expect = 0;
+    int expect = 0, v1;
     scn_t x;
-    if (!v || lv != 1u || v[0] != '1' || !s || ls != SB_SCN_HEX) { sbx.st.state_bad++; return -1; }
-    for (i = 0; i < sizeof x; i++) {
+    static scn_v1_t x1;                  /* (the main thread's alone) */
+    uint8_t *b8;
+    if (!v || lv != 1u || (v[0] != '1' && v[0] != '2') || !s) { sbx.st.state_bad++; return -1; }
+    v1 = v[0] == '1';
+    if (ls != (v1 ? SB_SCN_V1_HEX : SB_SCN_HEX)) { sbx.st.state_bad++; return -1; }
+    b8 = v1 ? (uint8_t *)&x1 : (uint8_t *)&x;
+    for (i = 0; i < ls / 2u; i++) {
         int a = sb_hexv(s[2u * i]), b = sb_hexv(s[2u * i + 1u]);
         if (a < 0 || b < 0) { sbx.st.state_bad++; return -1; }
-        ((uint8_t *)&x)[i] = (uint8_t)(a << 4 | b);
+        b8[i] = (uint8_t)(a << 4 | b);
     }
-    if (x.ver != SCN_VER || x.nrec > SCN_REC_MAX) { sbx.st.state_bad++; return -1; }
+    if (v1 ? scn_from_v1(&x, &x1) : (x.ver != SCN_VER || x.nrec > SCN_REC_MAX)) { sbx.st.state_bad++; return -1; }
     while (!atomic_compare_exchange_weak(&sbx.st_flag, &expect, 1)) {
         if (expect == 3) { sbx.st.state_bad++; return -1; }   /* (being applied right now: the host may retry) */
         if (expect != 0 && expect != 2) expect = 0;
@@ -401,6 +423,7 @@ static void sb_notes_off(void) { while (nt_mn) nt_mq_off(0); }   /* every MIDI n
  * full MIDI ring makes the rest wait a millisecond) */
 static void sb_events(int timed)
 {
+    sbx.ev_wait = 0;
     for (;;) {
         uint32_t r = atomic_load_explicit(&sbx.qr, memory_order_relaxed);
         sb_ev_t *e;
@@ -412,10 +435,16 @@ static void sb_events(int timed)
         } else if (timed && e->at && (int32_t)(e->at - sbx.ms) > 0) return;
         if (e->kind == TXP_EV_MIDI) {
             uint8_t st = (uint8_t)e->a, d1 = (uint8_t)(e->a >> 8) & 127u, d2 = (uint8_t)(e->a >> 16) & 127u;
-            if (mq_w - mq_r >= SB_HOST_RING) { sbx.st.ring_wait++; return; }   /* the rest wait a millisecond */
+            if (mq_w - mq_r >= SB_HOST_RING) { sbx.st.ring_wait++; sbx.ev_wait = 1; return; }   /* the rest wait a
+                                                 * millisecond */
             web_midi(st, d1, d2);
             sbx.st.midi++;
         } else if (e->kind == TXP_EV_PARAM) {
+            /* the engines' queue (lanes.c LN_QN) half full: the rest wait for the next step. A value can send a lane
+             * several events (a SOUND: its engine, PRESET, TYPE, its cards), and the app drops what finds the queue
+             * full (scape.c sc_sync counts it sent): a host's flush of every parameter, 16 lanes' worth, would lose
+             * a lane's PRESET, its source never playing the sound's own engine. Scene loads wait the same way */
+            if (ln.qw - ln.qr >= LN_QN / 2u) { sbx.st.ring_wait++; sbx.ev_wait = 1; return; }
             sb_param_set(e->a, e->v);
             sbx.st.params++; sbx.rev++;
         } else if (e->kind == TXP_EV_RESET || e->kind == TXP_EV_RELEASE) sb_notes_off();
@@ -459,7 +488,7 @@ static void sb_settle(void)              /* main thread, not processing: run unt
 {
     uint32_t n;
     for (n = 0; n < SB_SETTLE_MS; n++) {
-        if (n >= 2u && atomic_load(&sbx.st_flag) == 0 && sb_is_settled()) break;
+        if (n >= 2u && atomic_load(&sbx.st_flag) == 0 && !sbx.ev_wait && sb_is_settled()) break;
         sb_step();
     }
     sbx.fr = sbx.fw;

@@ -6,8 +6,11 @@
 # grains). Before the archive is written, plugin/cmake/nm_check.cmake fails the build if any slot object defines a
 # global symbol other than its table txp_slot_<N> (two copies of the app must never share a symbol).
 set(TXP_SLOTS 16)
-# the app's build switches (tools/plugin_gate.py builds the host render with the same LN_HQ)
-set(TXP_ENGINE_DEFS LN_HQ=1 "APP_VER=\"${TXP_VERSION}\"")
+# the app's build switches (tools/plugin_gate.py builds the host render with the same LN_HQ): the HQ build, with
+# TXP_LANES lanes (engines/tx_core_mix.h TX_MIX_SLOTS: the FM-1 has 4; the engines' library takes the same number,
+# their mix's struct holds that many slots)
+set(TXP_LANES 16)
+set(TXP_ENGINE_DEFS LN_HQ=1 TX_MIX_SLOTS=${TXP_LANES}u "APP_VER=\"${TXP_VERSION}\"")
 if(MSVC)
     set(TXP_ENGINE_FLAGS -O2 ${TXP_C_STD} /W3 -Wno-unused-function -Wno-unused-variable ${TXP_C_WIN})
 else()
@@ -43,6 +46,7 @@ add_library(textura_engine STATIC
     ${_txp_coro_src}
     ${_txp_eng_src}
     ${_txp_objs})
+target_compile_definitions(textura_engine PRIVATE TX_MIX_SLOTS=${TXP_LANES}u)
 target_include_directories(textura_engine PUBLIC "${TXP_ROOT}/plugin/src"
                            PRIVATE "${TXP_ROOT}/engines" ${TXP_C_WIN_INC})
 target_compile_options(textura_engine PRIVATE $<$<COMPILE_LANGUAGE:C>:${TXP_ENGINE_FLAGS}>)
