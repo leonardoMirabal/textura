@@ -24,8 +24,7 @@ Four lanes play at once. **SEL** turns the keys into a pitched keyboard for the 
 OCT+ then shift the octave.
 
 **[Try it in your browser](https://leonardomirabal.github.io/textura/)** before you install: the same firmware, with
-the FM-1's screen, knobs and keys, played from your computer keyboard or a MIDI keyboard. The page goes live with
-Textura's first public release.
+the FM-1's screen, knobs and keys, played from your computer keyboard or a MIDI keyboard.
 
 <table align="center">
   <tr>
@@ -76,9 +75,9 @@ at any time: see below.
 1. Download the newest `.fwsc` file from the [release page](https://github.com/leonardoMirabal/textura/releases).
 2. Connect the FM-1 with USB and install it in one of these ways:
    - **In the browser** (Chrome or Edge): the [emulator page](https://leonardomirabal.github.io/textura/#install)'s
-     **Install on your FM-1** finds the FM-1 and installs the newest release (live with the first public release).
-   - **The Firmware Hub** (once Textura is listed there): install and update from the FM-1's firmware catalogue in
-     the browser.
+     **Install on your FM-1** finds the FM-1 and installs the newest release.
+   - **[The Firmware Hub](https://thefirmwarehub.com/firmware/textura/)**: install and update from the FM-1's firmware
+     catalogue in the browser.
    - **FM-1 Loader**: put the `.fwsc` file in the folder it watches, and install it from there.
    - **From a terminal**, in a copy of this repository:
      ```sh
@@ -96,8 +95,8 @@ Loader, or Frodhes' own installer. The USB rescue (OCT− held at power-on) work
 | Where | What it is |
 |---|---|
 | [Releases](https://github.com/leonardoMirabal/textura/releases) | Every version's `.fwsc` package and its release notes |
-| [The Firmware Hub](https://thefirmwarehub.com/) | The FM-1's firmware catalogue: install and update from one place (once Textura is listed) |
-| [Web emulator](https://leonardomirabal.github.io/textura/) | Play Textura in the browser before you install it (live with the first public release) |
+| [The Firmware Hub](https://thefirmwarehub.com/firmware/textura/) | The FM-1's firmware catalogue: install and update from one place |
+| [Web emulator](https://leonardomirabal.github.io/textura/) | Play Textura in the browser before you install it |
 
 ## Status
 
