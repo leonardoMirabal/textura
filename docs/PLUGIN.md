@@ -273,7 +273,7 @@ random value to every parameter at once, PRESET last, once by a flush to an inst
 process call, then compares what the parameters read. A card of lane 1 that the random modulation matrix holds
 reads the scene's value after the flush but the sound's default after the process call: the scene load, the sound
 switch and the modulation's base meet in a different order on the two paths. A host loading a preset and setting
-modulated cards in the same instant would see the same difference.
+modulated cards in the same instant would see the same difference. This is a known limit for now.
 
 ## How it is built
 
