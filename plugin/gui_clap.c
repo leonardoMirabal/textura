@@ -292,5 +292,19 @@ static bool s_lane(const clap_plugin_t *plugin, int k, int *fam, int *snd)
     *fam = sn.ui.lane[k].fi; *snd = sn.ui.lane[k].si;
     return true;
 }
-static const txg_gui_shot_t EXT_SHOT = { s_tick, s_grab, s_input, s_headless, s_find, s_masks, s_lane };
+static int s_sel(const clap_plugin_t *plugin)
+{
+    txg_clap_t *c = GUI(plugin);
+    txp_snap_t sn;
+    return !c || txp_ui_snap(c->pc, &sn) ? -1 : (int)sn.ui.sel;
+}
+static bool s_comp(const clap_plugin_t *plugin, int *in10, int *out10, int *gr10)
+{
+    txg_clap_t *c = GUI(plugin);
+    txp_snap_t sn;
+    if (!c || txp_ui_snap(c->pc, &sn)) return false;
+    *in10 = sn.ui.comp_in10; *out10 = sn.ui.comp_out10; *gr10 = sn.ui.comp_gr10;
+    return true;
+}
+static const txg_gui_shot_t EXT_SHOT = { s_tick, s_grab, s_input, s_headless, s_find, s_masks, s_lane, s_sel, s_comp };
 const void *txg_clap_shot_ext(void) { return &EXT_SHOT; }

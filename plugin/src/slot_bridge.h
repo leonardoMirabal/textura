@@ -128,6 +128,13 @@ static struct {
     int32_t opk;
     int16_t odb10;                       /* (the output's peak published last: 1000 + dB x 10; 0 none yet) */
     uint32_t opk_blk;
+    /* the compressor's meters since the last publication: its detector's power (its input, Q26 full scale), that
+     * through its gain (its output), its gain reduction (power log2 Q12); published last (dB x 10, as txp_ui_snap_t) */
+    float cin_pk, cout_pk;
+    int32_t cgr_pk;
+    int16_t cin10, cout10, cgr10;
+    const scn_t *ap_seen;                /* the scene applied last that sb_scene_mem saw (and when) */
+    uint32_t ap_seen_t;
     int16_t ptx_v[TXP_NPARAM_MAX];
     uint32_t ptx_n;
 } sbx;
@@ -375,14 +382,25 @@ static void sb_ui(txp_ui_snap_t *u)       /* what the window shows (the app's th
     u->any_run = (uint8_t)sc_any_run();
     u->saving = scn_sv_on;
     u->undo = (uint8_t)(scn_undo_ok || scn_su.on);
-    u->comp_gr10 = (int16_t)(pv_glob[PG_COMP0 + TX_CP_ON] ? tx_comp_gr_db10(&ln.mix.comp) : 0);
     if (sbx.st.blocks != sbx.opk_blk) {  /* (the peak since the last publish that had blocks: a publish with none, a
                                           * flush's, keeps the last) */
         float db = sbx.opk > 0 ? 20.0f * log10f((float)sbx.opk * (1.0f / 32768.0f)) : -90.0f;
         sbx.odb10 = (int16_t)(1000 + (db < -90.0f ? -900 : db > 30.0f ? 300 : (int)lroundf(db * 10.0f)));
         sbx.opk = 0;
         sbx.opk_blk = sbx.st.blocks;
+        /* the compressor's: its most since then (COMP off: none) */
+        db = sbx.cin_pk > 0.0f ? 10.0f * log10f(sbx.cin_pk * (1.0f / 67108864.0f)) : -90.0f;
+        sbx.cin10 = (int16_t)(db < -90.0f ? -900 : db > 30.0f ? 300 : (int)lroundf(db * 10.0f));
+        db = sbx.cout_pk > 0.0f ? 10.0f * log10f(sbx.cout_pk * (1.0f / 67108864.0f)) : -90.0f;
+        sbx.cout10 = (int16_t)(db < -90.0f ? -900 : db > 30.0f ? 300 : (int)lroundf(db * 10.0f));
+        sbx.cgr10 = (int16_t)((sbx.cgr_pk * 10 + 680) / 1361);   /* (tx_comp_gr_db10's) */
+        sbx.cin_pk = sbx.cout_pk = 0.0f;
+        sbx.cgr_pk = 0;
     }
+    if (!pv_glob[PG_COMP0 + TX_CP_ON]) sbx.cin10 = sbx.cout10 = -900, sbx.cgr10 = 0;
+    u->comp_gr10 = sbx.cgr10;
+    u->comp_in10 = sbx.cin10;
+    u->comp_out10 = sbx.cout10;
     u->out_db10 = (int16_t)(sbx.odb10 ? sbx.odb10 - 1000 : -900);
     for (i = 0; i < 64u && i < PGX_LANE; i++) {
         uint32_t id = PID(P_GLOBAL, i);
@@ -421,6 +439,7 @@ static void sb_ui(txp_ui_snap_t *u)       /* what the window shows (the app's th
         l->used = 1;
         l->mute = sc.mute[k];
         l->run = sc.run[k];
+        if (!sc.run[k] && sc.mem_cnt[k]) { l->mcnt = sc.mem_cnt[k]; l->mact = (uint8_t)(sc_act_of(sc.mem_step[k]) + 1u); }
         l->fi = sc.lf[k]; l->si = (uint8_t)sc.snd[k];
         {
             uint32_t ne = sb_neng;
@@ -799,9 +818,12 @@ static void sb_events(int timed)
         } else if (e->kind == TXP_EV_SEL) {   /* (as a black key: the lane the keys and SELECTED CH play) */
             if (e->a < SC_N) sc_select(e->a);
             sbx.rev++;
-        } else if (e->kind == TXP_EV_REC) {   /* (as the FM-1's REC pressed once: ui.c ui_rec, without its taps) */
+        } else if (e->kind == TXP_EV_REC) {   /* (as the FM-1's REC pressed once: ui.c ui_rec, without its taps; the
+                                          * selected lane kept: the FM-1's landscape start picks lane 1) */
             int run = sc_any_run();
+            uint8_t sel = sc.sel;
             sc_all_toggle();
+            if (sel < SC_N && sc.snd[sel] >= 0) sc.sel = sel;
             scn_touch();
             (void)tempo_transport(!run);
             sbx.rev++;
@@ -882,6 +904,20 @@ static uint32_t sb_act(uint8_t (*ev)[TXP_LANES], uint8_t (*pk)[TXP_LANES], uint3
     }
     return c;
 }
+/* a scene just applied (a load, the project's state, an undo): its lanes it keeps stopped with a HOW MANY of their own
+ * (saved after STOP ALL) remembered as STOP ALL remembers them, so PLAY ALL brings each one back as it was (the app
+ * clears that memory on a load: the FM-1's REC then starts the landscape's first three lanes instead) */
+static void sb_scene_mem(void)
+{
+    uint32_t k;
+    if (!scn_ap_stage || (scn_ap == sbx.ap_seen && scn_ap_t == sbx.ap_seen_t)) return;
+    sbx.ap_seen = scn_ap; sbx.ap_seen_t = scn_ap_t;
+    for (k = 0; k < SC_N; k++)
+        if (scn_ap->snd[k] >= 0 && sc.snd[k] >= 0 && !scn_ap->run[k] && !sc.run[k] && scn_ap->cnt[k] && !sc.mem_cnt[k]) {
+            sc.mem_cnt[k] = (uint8_t)(scn_ap->cnt[k] < LS_NCNT ? scn_ap->cnt[k] : LS_NCNT - 1u);
+            sc.mem_step[k] = (uint8_t)(scn_ap->step[k] < 1u ? 1u : scn_ap->step[k] > SC_STEPS ? SC_STEPS : scn_ap->step[k]);
+        }
+}
 static void sb_pass(void)                /* one pass of the app: the FM-1 keys as held now, then those let go */
 {
     fm1_in.notes = sbx.kmask;
@@ -889,6 +925,7 @@ static void sb_pass(void)                /* one pass of the app: the FM-1 keys a
     sbx.kmask &= ~sbx.koff;
     sbx.koff = 0;
     sb_solo();
+    sb_scene_mem();
 }
 static void sb_step(void)
 {
@@ -896,6 +933,7 @@ static void sb_step(void)
     sbx.st.steps++;
     sb_events(1);
     sb_state_apply();
+    sb_scene_mem();
     if (sbx.exact) sb_pass();            /* (exact: the events just handed over go into this step's block) */
     sbx.owed += TXP_FS;
     while (sbx.owed >= 1000u * HALF_FRAMES) {
@@ -910,6 +948,15 @@ static void sb_step(void)
             sbx.fifo[2u * w + 1u] = blk[2u * i + 1u];
             if (a > sbx.opk) sbx.opk = a;
             if (b > sbx.opk) sbx.opk = b;
+        }
+        {   /* the compressor's meters: read off its own state (tx_core_comp.h), the block's most */
+            const tx_comp_t *cp = &ln.mix.comp;
+            if (cp->on && pv_glob[PG_COMP0 + TX_CP_ON]) {
+                float det = (float)(cp->ef > cp->es ? cp->ef : cp->es), gn = (float)cp->g * (1.0f / 16384.0f);
+                if (det > sbx.cin_pk) sbx.cin_pk = det;
+                if (det * gn * gn > sbx.cout_pk) sbx.cout_pk = det * gn * gn;
+                if (cp->gr > sbx.cgr_pk) sbx.cgr_pk = cp->gr;
+            }
         }
         sbx.fw += HALF_FRAMES;
         sbx.st.blocks++;

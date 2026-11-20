@@ -26,6 +26,8 @@ PICK = {   # the gate's picture -> the manual's
     "gui4-lfo": "lfo",
     "gui4-env": "env-follow",
     "gui4-matrix": "matrix",
+    "gui4-comp": "compressor",
+    "gui4-stopped": "stopped",
     "gui4-save": "save",
     "960x600": "window-960x600",
 }

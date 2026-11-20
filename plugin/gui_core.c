@@ -43,7 +43,7 @@ static const char *const PAL_N[TXP_COL_N] = { "BONE", "EMBER", "AMBER", "SAND", 
 #define PH_H 46.f                        /* the place's head: MAP | SPACE, the selected lane */
 #define HDR_H 26.f                       /* the rows' column names */
 #define ROW_H 40.f                       /* a lane's row */
-#define DR_H 136.f                       /* the drawer: the selected lane's cards */
+#define DR_H 150.f                       /* the drawer: the selected lane's cards */
 #define FX_H 148.f                       /* the strip: the effects in signal order, the movement */
 #define MAP_ANG 1.3962634f               /* PAN at either end: 80 degrees off the middle */
 #define MAP_R0 0.12f                     /* DIST 0's distance (the nearest ring: 0.25) */
@@ -116,6 +116,10 @@ struct txg {
     uint32_t actn, actn_drawn, sig, sig_drawn;
     int16_t lfoh[TXP_LFO_N][LFO_H];      /* the LFOs' values, a tick each (the newest last) */
     int lfo_seen;
+    /* COMP's meters as drawn (dB, txg_tick's ballistics), the input's peak held (and its ticks left); changed since
+     * the last paint (a repaint of the activity's regions) */
+    float cm_in, cm_out, cm_gr, cm_pk, cm_drawn[4];
+    int cm_hold, cm_dirty;
     int drawn;                           /* the canvas holds a whole draw */
     /* the colour picker (over anything): the engine it colours, -1 closed; where it opens */
     int pick, pick_x, pick_y;
@@ -425,14 +429,16 @@ static void short_name(const txp_param_t *p, char *o, size_t n)
     if (!strcmp(o, "COMP")) snprintf(o, n, "ON");
 }
 
-/* a hint in two lines at most (words wrapped; what does not fit ends in "...") */
-static void hint2(txg_t *g, frui_canvas *c, float x, float y, float w, const char *s)
+/* a hint wrapped into lines lines at most, lh apart (what does not fit ends in "...": the whole hint shows on hover,
+ * hint_tip); 1 if it was cut */
+static int hintn(txg_t *g, frui_canvas *c, float x, float y, float w, const char *s, int lines, float lh, uint32_t col)
 {
-    char ln[2][160];
+    char ln[160];
     const char *p = s;
-    for (int l = 0; l < 2; l++) {
+    int cut_any = 0;
+    for (int l = 0; l < lines; l++) {
         size_t n = 0, cut = 0;
-        ln[l][0] = 0;
+        ln[0] = 0;
         while (*p == ' ') p++;
         while (p[n]) {
             char t[160];
@@ -446,59 +452,136 @@ static void hint2(txg_t *g, frui_canvas *c, float x, float y, float w, const cha
             while (p[n] == ' ') n++;
         }
         if (!cut && p[0]) for (cut = 0; p[cut] && p[cut] != ' ' && cut < 40; cut++) {}   /* (a word longer than the line) */
-        memcpy(ln[l], p, cut); ln[l][cut] = 0;
+        memcpy(ln, p, cut); ln[cut] = 0;
         p += cut;
         while (*p == ' ') p++;
-        if (l == 1 && *p) {              /* (more: the last line ends in "...") */
-            size_t m = strlen(ln[1]);
-            while (m > 0 && TW(g, 9.5f, 450.f, 0.f, 0, ln[1]) + TW(g, 9.5f, 450.f, 0.f, 0, "...") > w) ln[1][--m] = 0;
-            while (m > 0 && ln[1][m - 1] == ' ') ln[1][--m] = 0;
-            strcat(ln[1], "...");
+        if (l == lines - 1 && *p) {      /* (more: the last line ends in "...") */
+            size_t m = strlen(ln);
+            while (m > 0 && TW(g, 9.5f, 450.f, 0.f, 0, ln) + TW(g, 9.5f, 450.f, 0.f, 0, "...") > w) ln[--m] = 0;
+            while (m > 0 && ln[m - 1] == ' ') ln[--m] = 0;
+            strcat(ln, "...");
+            cut_any = 1;
         }
-        TX(g, c, x, y + 11.f * (float)l, 9.5f, 450.f, 0.f, 0, C_DIM, ln[l]);
+        if (c) TX(g, c, x, y + lh * (float)l, 9.5f, 450.f, 0.f, 0, col, ln);
         if (!*p) break;
     }
+    return cut_any;
 }
-/* ---- a value: its name, its text and (an amount) its fill; drag, wheel, double-click (its default), a click steps a
- * choice. hint: a line under it (the drawer's cards) */
+static void hint2(txg_t *g, frui_canvas *c, float x, float y, float w, const char *s) { (void)hintn(g, c, x, y, w, s, 2, 11.f, C_DIM); }
+/* ---- a value: its name, its text and its control. An amount: a fader (a track, its filled part, a handle; the
+ * rows' VOL's look), its live place in red while the modulation moves it. A choice: its value between steppers
+ * (< >). Drag, wheel, double-click (its default); a click steps a choice. hint: lines under it (the drawer's cards; cut:
+ * the whole of it on hover) */
 static int is_bip(uint32_t id)           /* drawn from the middle: PAN, a route's DEPTH, TRANSPOSE */
 {
     int k = lane_of_id(id);
     return (k >= 0 && (id & 0xFFu) == TXP_PL_PAN) || ((id >> 8) == 7u && (id & 0xFFu) < 64u && (id & 3u) == 2u) ||
            id == TXP_ID_GLOB(TXP_PG_TRANS);
 }
+static int is_choice(const txp_param_t *p) { return p->is_enum || p->hi < 20; }
+static void chevron(txg_t *g, frui_canvas *c, float x, float yc, int dir, uint32_t col)   /* < (dir -1) or > (+1) */
+{
+    LN(g, c, x - 2.f * (float)dir, yc - 3.5f, x + 2.f * (float)dir, yc, 1.3f, col);
+    LN(g, c, x + 2.f * (float)dir, yc, x - 2.f * (float)dir, yc + 3.5f, 1.3f, col);
+}
+/* a fader: x .. x + w, its track centred at yc (v, live: 0 .. hi; live -1: not moved; f0 its zero: 0 or the middle) */
+static void fader(txg_t *g, frui_canvas *c, float x, float yc, float w, float f, float f0, float live, int big)
+{
+    float th = big ? 4.f : 3.f, hw = big ? 8.f : 7.f, hh = big ? 12.f : 10.f, hx;
+    f = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
+    RR(g, c, x, yc - th * 0.5f, w, th, th * 0.5f, C_FAINT);
+    if (fabsf(f - f0) * w >= 0.5f) RR(g, c, x + w * fminf(f0, f), yc - th * 0.5f, w * fabsf(f - f0), th, th * 0.5f, frui_alpha(C_INK, 0.85f));
+    if (f0 > 0.f) R(g, c, x + w * f0 - 0.5f, yc - th, 1.f, th * 2.f, C_DIM);   /* (a bipolar one: its middle) */
+    if (live >= 0.f) {                   /* (where the modulation has it now) */
+        float lx = x + w * (live < 0.f ? 0.f : live > 1.f ? 1.f : live);
+        RR(g, c, x + w * fminf(f, live), yc - th * 0.5f, fmaxf(w * fabsf(live - f), 1.f), th, th * 0.5f, frui_alpha(C_RED, 0.55f));
+        RR(g, c, lx - 1.5f, yc - hh * 0.5f + 1.f, 3.f, hh - 2.f, 1.5f, C_RED);
+    }
+    hx = x + w * f - hw * 0.5f;
+    RR(g, c, hx, yc - hh * 0.5f, hw, hh, 2.f, C_INK);
+    R(g, c, hx + hw * 0.5f - 0.5f, yc - hh * 0.5f + 3.f, 1.f, hh - 6.f, C_DIM);   /* (its grip) */
+}
 static void pcell(txg_t *g, frui_canvas *c, float x, float y, float w, float h, uint32_t id, const char *lab, const char *hint)
 {
     const txp_param_t *p = pinfo(id);
     char t[40], nm[40];
-    int v, hi, live, m, amount;
-    float f, f0, ty, nw;
+    int v, hi, live, m, ch;
+    float ty, nw, tcy;
     if (!p) return;
     v = txp_ui_get(g->c, id); hi = p->hi;
     m = pmod(g, id, &live);
-    amount = !p->is_enum && hi >= 20;
+    ch = is_choice(p);
     RR(g, c, x, y, w, h, 2.f, C_WELL);
-    if (amount && hi > 0) {
-        f = (float)(live >= 0 ? live : v) / (float)hi;
-        f = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
-        f0 = is_bip(id) ? 0.5f : 0.f;
-        R(g, c, x + w * fminf(f0, f), y, w * fabsf(f - f0), h, 0x0EEBE6E1u);
-        R(g, c, x + w * fminf(f0, f), y + h - 2.f, fmaxf(w * fabsf(f - f0), 2.f), 2.f, m ? C_RED : frui_alpha(C_INK, 0.75f));
-    } else if (hi >= 1 && hi <= 16) {    /* a choice: its place among its options, a tick under it */
-        float sw = w / (float)(hi + 1);
-        R(g, c, x + sw * (float)v, y + h - 2.f, sw, 2.f, m ? C_RED : frui_alpha(C_INK, 0.6f));
-    }
     if (!lab) { short_name(p, nm, sizeof nm); lab = nm; }
-    ty = hint ? y + 15.f : y + h * 0.5f + CAP(g, 10.5f) * 0.5f;
+    /* the text line: the name at the left, the value at the right; under it the fader (an amount) */
+    tcy = hint ? y + h - 6.f : y + h - fmaxf(6.f, h * 0.25f);
+    if (hint) ty = y + 14.f;
+    else if (ch) ty = y + h * 0.5f + CAP(g, 10.5f) * 0.5f;
+    else ty = fminf(tcy - 7.f, y + (tcy - y) * 0.5f + CAP(g, 10.5f) * 0.5f);
+    vtext(g, id, t, sizeof t);
     clipL(g, c, x, y, w, h);
     nw = 9.f;
     if (m) nw += TX(g, c, x + nw, ty, 10.5f, 700.f, 0.f, 0, C_RED, "~ ");
-    LBL(g, c, x + nw, ty, 10.5f, C_INK, lab);
-    vtext(g, id, t, sizeof t);
+    if (lab[0]) LBL(g, c, x + nw, ty, 10.5f, C_INK, lab);
+    if (ch && hi >= 1) {                 /* a choice: < its value > (the arrows step it) */
+        float tw = TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t), bw = tw + 34.f, bh = fminf(h - 6.f, 18.f), bx = x + w - 4.f - bw,
+              byc = hint ? ty - CAP(g, 11.f) * 0.5f : y + h * 0.5f;
+        if (bx < x + 4.f) { bx = x + 4.f; bw = w - 8.f; }
+        RR(g, c, bx, byc - bh * 0.5f, bw, bh, 2.f, C_SEG);
+        if (m) R(g, c, bx + 2.f, byc + bh * 0.5f - 1.5f, bw - 4.f, 1.5f, C_RED);
+        chevron(g, c, bx + 8.f, byc, -1, C_DIM);
+        chevron(g, c, bx + bw - 8.f, byc, 1, C_DIM);
+        TX(g, c, bx + (bw - tw) * 0.5f, byc + CAP(g, 11.f) * 0.5f, 11.f, 500.f, 0.f, FRUI_TNUM, m ? C_RED : C_INK, t);
+        if (hint && hint[0]) (void)hintn(g, c, x + 9.f, y + 27.f, w - 18.f, hint, (int)((h - 20.f) / 10.5f), 10.5f, C_DIM);
+        frui_clip_reset(c);
+        wid_add2(g, TXG_W_PARAM, (int)id, id, 0, x, y, w, h);
+        wid_add2(g, TXG_W_STEP, (int)id, id, -1, bx, byc - bh * 0.5f, 16.f, bh);
+        wid_add2(g, TXG_W_STEP, (int)id, id, 1, bx + bw - 16.f, byc - bh * 0.5f, 16.f, bh);
+        return;
+    }
     TX(g, c, x + w - 8.f - TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t), ty, 11.f, 500.f, 0.f, FRUI_TNUM, m ? C_RED : C_INK, t);
-    if (hint && hint[0]) hint2(g, c, x + 9.f, y + 30.f, w - 18.f, hint);
+    if (hint && hint[0]) {
+        int lines = (int)((tcy - 6.f - (y + 27.f)) / 10.5f) + 1;
+        if (hintn(g, 0, x + 9.f, y + 27.f, w - 18.f, hint, lines < 1 ? 1 : lines, 10.5f, C_DIM)) wid_add2(g, TXG_W_TIP, (int)id, id, 0, x, y, w, h);
+        (void)hintn(g, c, x + 9.f, y + 27.f, w - 18.f, hint, lines < 1 ? 1 : lines, 10.5f, C_DIM);
+    }
     frui_clip_reset(c);
+    if (hi > 0) {
+        float fx = x + 10.f, fw = w - 20.f, f = (float)v / (float)hi;
+        fader(g, c, fx, tcy, fw, f, is_bip(id) ? 0.5f : 0.f, m && live >= 0 ? (float)live / (float)hi : -1.f, h >= 30.f);
+    }
     wid_add2(g, TXG_W_PARAM, (int)id, id, 0, x, y, w, h);
+}
+/* the whole hint of a card it cut, over the window while the pointer is on the card */
+static void hint_tip(txg_t *g, frui_canvas *c)
+{
+    const char *s = 0;
+    float r[4];
+    int k, i;
+    if (g->hover_kind != TXG_W_TIP || g->ov != OV_NONE || g->pick >= 0) return;
+    if (!txg_find(g, TXG_W_TIP, g->hover_lane, r)) return;
+    k = lane_of_id((uint32_t)g->hover_lane); i = (int)((uint32_t)g->hover_lane & 0xFFu) - TXP_PL_CARD0;
+    if (k < 0 || i < 0 || i >= (int)TXP_CARD_N || !used(g, k)) return;
+    s = card_hint(g->sn.ui.lane[k].snd, g->sn.ui.card[k].lab[i]);
+    if (!s || !s[0]) return;
+    {
+        float w = fmaxf(r[2] + 40.f, 280.f), x = r[0] - 20.f, n, h, y;
+        if (x + w > g->W - 8.f) x = g->W - 8.f - w;
+        if (x < 8.f) x = 8.f;
+        n = 1.f;
+        {   /* (its lines: as many as it needs) */
+            int l = 1;
+            while (l < 12 && hintn(g, 0, 0.f, 0.f, w - 24.f, s, l, 12.f, C_INK)) l++;
+            n = (float)l;
+        }
+        h = 30.f + 12.f * n;
+        y = r[1] - h - 6.f;
+        if (y < TOP_H + 4.f) y = r[1] + r[3] + 6.f;
+        frui_rrect_shadow(c, x * g->S, y * g->S, w * g->S, h * g->S, 4.f * g->S, 12.f * g->S, 0x90000000u);
+        RR(g, c, x, y, w, h, 4.f, C_BTN); RRS(g, c, x, y, w, h, 4.f, C_DIM);
+        LBL(g, c, x + 12.f, y + 17.f, 9.5f, C_DIM, g->sn.ui.card[k].lab[i]);
+        (void)hintn(g, c, x + 12.f, y + 32.f, w - 24.f, s, (int)n, 12.f, C_INK);
+    }
 }
 
 /* ---- the parts */
@@ -917,8 +1000,21 @@ static void steps(txg_t *g, frui_canvas *c, int k, int act, float x, float yc, i
     snprintf(lab, sizeof lab, "%s%s", m ? "~ " : "", act ? "ACTIVE" : "MANY");
     LBL(g, c, x, yc - 4.f, 9.f, m ? C_RED : C_DIM, lab);
     TX(g, c, x + RW_STEP - TW(g, 10.5f, 500.f, 0.f, FRUI_TNUM, t), yc - 4.f, 10.5f, 500.f, 0.f, FRUI_TNUM, v ? ink : C_FAINT, t);
-    for (int i = 0; i < n; i++)
-        R(g, c, x + (bw + 2.f) * (float)i, yc + 3.f, bw, 6.f, i < v ? (m ? C_RED : sel ? C_RED : ink) : C_FAINT);
+    {   /* (stopped by STOP ALL: the value PLAY ALL brings back, as outlined blocks and its text, dim) */
+        const txp_ui_lane_t *l = &g->sn.ui.lane[k];
+        int mem = !v && !l->run ? (act ? l->mact : l->mcnt) : 0;
+        if (mem) {
+            char mt[16];
+            ptext(id, mem, mt, sizeof mt);
+            TX(g, c, x + RW_STEP - TW(g, 10.5f, 500.f, 0.f, FRUI_TNUM, t) - 6.f - TW(g, 10.5f, 500.f, 0.f, FRUI_TNUM, mt), yc - 4.f, 10.5f,
+               500.f, 0.f, FRUI_TNUM, C_DIM, mt);
+        }
+        for (int i = 0; i < n; i++) {
+            float bx = x + (bw + 2.f) * (float)i;
+            R(g, c, bx, yc + 3.f, bw, 6.f, i < v ? (m ? C_RED : sel ? C_RED : ink) : C_FAINT);
+            if (i < mem) RRS(g, c, bx, yc + 3.f, bw, 6.f, 1.f, C_DIM);
+        }
+    }
     wid_add2(g, act ? TXG_W_ACT : TXG_W_MANY, k, id, 0, x - 2.f, yc - 14.f, RW_STEP + 4.f, 28.f);
 }
 static int rows_total(const txg_t *g) { return g->nlane + (g->nlane < (int)TXP_LANES ? 1 : 0); }
@@ -956,14 +1052,17 @@ static void draw_rows(txg_t *g, frui_canvas *c)
         float y = y0 + ROW_H * (float)(k - g->rtop), yc = y + ROW_H * 0.5f, mf = faded(g, k) ? 0.25f : 1.f, th = ROW_H - 12.f;
         int u = used(g, k), sel = k == g->sel, stopped = u && !l->run;
         uint32_t ink = u ? (mf < 1.f ? C_DIM : C_INK) : C_FAINT;
-        if (sel) { R(g, c, x0, y, x1 - x0, ROW_H, C_SEL); R(g, c, x0, y, 2.f, ROW_H, C_RED); }
+        if (sel) { R(g, c, x0, y, x1 - x0, ROW_H, C_SEL); R(g, c, x0, y, 3.f, ROW_H, C_RED); }
         R(g, c, x0, y + ROW_H - 1.f, x1 - x0, 1.f, C_LINE);
         wid_add(g, TXG_W_ROW, k, x0, y, x1 - x0, ROW_H);
         snprintf(t, sizeof t, "%d", k + 1);
-        TX(g, c, rc.num, yc + CAP(g, 11.f) * 0.5f, 11.f, 500.f, 0.f, FRUI_TNUM, sel ? C_RED : C_DIM, t);
+        TX(g, c, rc.num, yc + CAP(g, 11.f) * 0.5f, 11.f, sel ? 650.f : 500.f, 0.f, FRUI_TNUM, sel ? C_RED : C_DIM, t);
+        wid_add(g, TXG_W_SELDOT, k, x0 + 4.f, yc - 13.f, rc.dot + 7.f - x0 - 4.f, 26.f);   /* (the number and the dot:
+                                          * a click selects the lane; the name opens its sounds) */
+        if (sel) CI(g, c, rc.dot, yc, 4.5f, C_RED);   /* (the selected lane's dot: solid red) */
         if (u) {
             float a = glow(g, k), w;
-            CI(g, c, rc.dot, yc, 3.5f, frui_alpha(lane_col(g, k), (0.35f + 0.65f * a) * mf));
+            if (!sel) CI(g, c, rc.dot, yc, 3.5f, frui_alpha(lane_col(g, k), (0.35f + 0.65f * a) * mf));
             cap_name(nm, l->snd, sizeof nm);
             clipL(g, c, rc.name, y, rc.tl - rc.name - 8.f, ROW_H);
             w = TX(g, c, rc.name, yc - 1.f, 12.5f, 600.f, 0.f, 0, ink, nm);
@@ -978,7 +1077,7 @@ static void draw_rows(txg_t *g, frui_canvas *c)
         }
         draw_line(g, c, k, rc.tl, yc - th * 0.5f, rc.tlw, th, mf);
         if (stopped) {                   /* (a stopped lane: plain to see; HOW MANY or HOW ACTIVE starts it) */
-            const char *s = "STOPPED  \xC2\xB7  SET HOW MANY TO PLAY";
+            const char *s = l->mcnt ? "STOPPED  \xC2\xB7  PLAY ALL BRINGS IT BACK" : "STOPPED  \xC2\xB7  SET HOW MANY TO PLAY";
             if (TW(g, 9.5f, 620.f, 1.3f, 0, s) > rc.tlw - 16.f) s = "STOPPED";
             LBL(g, c, rc.tl + 8.f, yc + CAP(g, 9.5f) * 0.5f, 9.5f, C_DIM, s);
         }
@@ -1048,7 +1147,7 @@ static void draw_rows(txg_t *g, frui_canvas *c)
     }
 }
 
-/* ---- the drawer: the selected lane, its cards (name, value, what the card does), PAN, DIST, LEVEL, GROOVE */
+/* ---- the drawer: the selected lane, its cards (name, value, what the card does; DIST among them), PAN, LEVEL, GROOVE */
 static void draw_drawer(txg_t *g, frui_canvas *c)
 {
     const float y0 = g->dr_y, x1 = g->W;
@@ -1091,7 +1190,11 @@ static void draw_drawer(txg_t *g, frui_canvas *c)
     }
     ptext(TXP_ID_LANE(k, TXP_PL_COUNT), g->cnt[k], a, sizeof a);
     ptext(TXP_ID_LANE(k, TXP_PL_ACTIVE), g->act[k], b, sizeof b);
-    snprintf(t, sizeof t, "MANY %s  \xC2\xB7  ACTIVE %s  \xC2\xB7  VOL %d", a, b, g->level[k]);
+    if (!l->run && l->mcnt) {            /* (stopped by STOP ALL: what PLAY ALL brings back) */
+        ptext(TXP_ID_LANE(k, TXP_PL_COUNT), l->mcnt, a, sizeof a);
+        ptext(TXP_ID_LANE(k, TXP_PL_ACTIVE), l->mact, b, sizeof b);
+        snprintf(t, sizeof t, "PLAY ALL: MANY %s  \xC2\xB7  ACTIVE %s  \xC2\xB7  VOL %d", a, b, g->level[k]);
+    } else snprintf(t, sizeof t, "MANY %s  \xC2\xB7  ACTIVE %s  \xC2\xB7  VOL %d", a, b, g->level[k]);
     TX(g, c, x, y0 + 90.f, 10.5f, 450.f, 0.2f, FRUI_TNUM, l->run ? C_DIM : C_FAINT, t);
     if (l->ch) snprintf(t, sizeof t, "MIDI CH %d%s%s", l->ch, l->run ? "" : "  \xC2\xB7  STOPPED", (g->mute >> k & 1u) ? "  \xC2\xB7  MUTED" : "");
     else snprintf(t, sizeof t, "MIDI OFF%s%s", l->run ? "" : "  \xC2\xB7  STOPPED", (g->mute >> k & 1u) ? "  \xC2\xB7  MUTED" : "");
@@ -1107,38 +1210,93 @@ static void draw_drawer(txg_t *g, frui_canvas *c)
     }
     /* the lane's own: PAN, DIST, LEVEL, GROOVE's PART and CYCLE */
     {
-        float xx = x1 - 182.f, yy = y0 + 10.f, w = 166.f, h = 17.f;
-        pcell(g, c, xx, yy, w, h, TXP_ID_LANE(k, TXP_PL_PAN), "PAN", 0); yy += 20.f;
-        if (l->dist != 0xFF) { pcell(g, c, xx, yy, w, h, TXP_ID_LANE(k, TXP_PL_CARD0 + l->dist), "DIST", 0); yy += 20.f; }
-        pcell(g, c, xx, yy, w, h, TXP_ID_LANE(k, TXP_PL_LEVEL), "LEVEL", 0); yy += 20.f;
-        pcell(g, c, xx, yy, w, h, TXP_ID_LANE(k, 48), "GROOVE PART", 0); yy += 20.f;
+        float xx = x1 - 182.f, yy = y0 + 12.f, w = 166.f, h = 24.f;   /* (DIST: a card, there with its hint) */
+        pcell(g, c, xx, yy, w, h, TXP_ID_LANE(k, TXP_PL_PAN), "PAN", 0); yy += 32.f;
+        pcell(g, c, xx, yy, w, h, TXP_ID_LANE(k, TXP_PL_LEVEL), "LEVEL", 0); yy += 32.f;
+        pcell(g, c, xx, yy, w, h, TXP_ID_LANE(k, 48), "GROOVE PART", 0); yy += 32.f;
         pcell(g, c, xx, yy, w, h, TXP_ID_LANE(k, 49), "CYCLE", 0);
     }
 }
 
 /* ---- the strip: COMP, DRIVE, FILTER, DELAY, REVERB (the mix's chain, in its order), the movement */
+/* COMP's meters, off the app's compressor (txg_tick's ballistics: up fast, down ~24 dB/s, the input's peak held a
+ * second): its input (the detector's level), its output (through its gain), the gain reduction (from the right), on a
+ * dB scale; THR marked on the levels. Big (the expanded view): taller, and its curve with where the input is on it */
+#define CM_LO (-60.f)
+static float cm_x(float db) { float f = (db - CM_LO) / -CM_LO; return f < 0.f ? 0.f : f > 1.f ? 1.f : f; }
+static void comp_meter(txg_t *g, frui_canvas *c, float x, float y, float w, float h, int on)
+{
+    static const char *const LAB[3] = { "IN", "OUT", "GR" };
+    static const int SC[5] = { -60, -40, -20, -10, 0 };
+    int big = h >= 90.f;
+    float rh = big ? 12.f : 7.f, gap = big ? 12.f : 4.f, lw = big ? 30.f : 24.f, nw = big ? 52.f : 34.f, fs = big ? 10.f : 8.5f,
+          bx = x + lw, bw = w - lw - nw, thr = -40.f * (float)txp_ui_get(g->c, ID_CTHR) / 127.f, yy;
+    float val[3] = { g->cm_in, g->cm_out, g->cm_gr };
+    wid_add(g, TXG_W_CMETER, -1, x, y, w, 3.f * rh + 2.f * gap);
+    for (int i = 0; i < 3; i++) {
+        char t[16];
+        uint32_t ink = on ? C_INK : C_FAINT;
+        yy = y + (rh + gap) * (float)i;
+        LBL(g, c, x, yy + rh * 0.5f + CAP(g, fs) * 0.5f, fs, on ? C_DIM : C_FAINT, LAB[i]);
+        RR(g, c, bx, yy, bw, rh, 1.5f, C_WELL);
+        for (int j = 1; j < 4; j++) R(g, c, bx + bw * cm_x((float)SC[j]), yy, 1.f, rh, C_LINE);   /* (the scale's marks) */
+        if (i < 2) {
+            float f = on ? cm_x(val[i]) : 0.f;
+            if (f > 0.f) RR(g, c, bx, yy, bw * f, rh, 1.5f, frui_alpha(ink, i ? 0.85f : 0.6f));
+            if (on && i == 0 && g->cm_pk > CM_LO) R(g, c, bx + bw * cm_x(g->cm_pk) - 1.f, yy, 2.f, rh, C_INK);   /* (the peak held) */
+            R(g, c, bx + bw * cm_x(thr) - 0.5f, yy - 2.f, 1.f, rh + 4.f, on ? C_DIM : C_FAINT);   /* (THR) */
+            if (!on) snprintf(t, sizeof t, "OFF");
+            else if (val[i] <= -89.f) snprintf(t, sizeof t, "-inf");
+            else snprintf(t, sizeof t, "%.1f", val[i]);
+        } else {                           /* the gain reduction: from the right, 24 dB the whole width */
+            float f = on ? val[2] / 24.f : 0.f;
+            f = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
+            if (f > 0.f) RR(g, c, bx + bw * (1.f - f), yy, bw * f, rh, 1.5f, ink);
+            if (!on) snprintf(t, sizeof t, "OFF"); else snprintf(t, sizeof t, "-%.1f", val[2] < 0.f ? 0.f : val[2]);
+        }
+        TX(g, c, x + w - TW(g, fs + 1.f, 500.f, 0.f, FRUI_TNUM, t), yy + rh * 0.5f + CAP(g, fs + 1.f) * 0.5f, fs + 1.f, 500.f, 0.f,
+           FRUI_TNUM, on ? C_INK : C_FAINT, t);
+    }
+    yy = y + 3.f * rh + 2.f * gap + (big ? 14.f : 9.f);   /* the scale: dBFS (the gain reduction: 0 .. 24 dB) */
+    for (int j = 0; j < 5; j++) {
+        char t[8];
+        float tx;
+        if (j == 3 && !big) continue;    /* (-10: its mark only, beside 0) */
+        snprintf(t, sizeof t, "%d", SC[j]);
+        tx = bx + bw * cm_x((float)SC[j]) - TW(g, big ? 9.f : 7.5f, 450.f, 0.f, FRUI_TNUM, t) * (j == 0 ? 0.f : j == 4 ? 1.f : 0.5f);
+        TX(g, c, tx, yy, big ? 9.f : 7.5f, 450.f, 0.f, FRUI_TNUM, C_FAINT, t);
+    }
+    if (big) {                           /* its curve (out over in, -60 .. 0 dBFS), the input on it now */
+        float cy0 = yy + 14.f, ch = y + h - cy0, cw = fminf(ch, bw), cx = bx, px = 0.f, py = 0.f;
+        int ri = txp_param_index(ID_CRATIO);
+        float ratio = 2.f;
+        if (ri >= 0 && g->sn.ptx[ri][0]) ratio = (float)atof(g->sn.ptx[ri]);
+        if (ratio < 1.f) ratio = 1.f;
+        if (ch < 40.f) return;
+        RR(g, c, cx, cy0, cw, ch, 2.f, C_WELL);
+        LN(g, c, cx, cy0 + ch, cx + cw, cy0, lw1(g), C_LINE);
+        for (int i = 0; i <= 40; i++) {
+            float din = CM_LO + -CM_LO * (float)i / 40.f, dout = din > thr ? thr + (din - thr) / ratio : din,
+                  xx = cx + cw * cm_x(din), yy2 = cy0 + ch - ch * cm_x(dout);
+            if (i) LN(g, c, px, py, xx, yy2, g->S < 1.5f ? 1.2f / g->S : 1.f, on ? C_INK : C_FAINT);
+            px = xx; py = yy2;
+        }
+        if (on && g->cm_in > CM_LO) {
+            float din = g->cm_in, dout = din > thr ? thr + (din - thr) / ratio : din;
+            CI(g, c, cx + cw * cm_x(din), cy0 + ch - ch * cm_x(dout), 3.5f, C_INK);
+        }
+        TX(g, c, cx + cw + 10.f, cy0 + 12.f, 9.5f, 450.f, 0.f, 0, C_DIM, "OUT over IN, dBFS");
+        TX(g, c, cx + cw + 10.f, cy0 + 26.f, 9.5f, 450.f, 0.f, 0, C_DIM, "the dot: the input now");
+    }
+}
 static float hz_x(float v127) { return v127 / 127.f; }   /* the FILTER's steps are log Hz already (params.c F_HZ_*) */
 static void viz(txg_t *g, frui_canvas *c, int sec, float x, float y, float w, float h, int on)
 {
     uint32_t ink = on ? C_INK : C_FAINT;
     float lw2 = g->S < 1.5f ? 1.2f / g->S : 1.f, px = 0.f, py = 0.f;
     R(g, c, x, y + h - 1.f, w, 1.f, C_LINE);
-    if (sec == SEC_COMP) {                /* the gain reduction now, under the threshold's mark */
-        float gr = (float)g->sn.ui.comp_gr10 / 10.f, f = gr / 18.f, thr = (float)txp_ui_get(g->c, ID_CTHR) / 127.f;
-        f = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
-        LBL(g, c, x, y + 12.f, 9.f, C_DIM, "GAIN REDUCTION");
-        RR(g, c, x, y + 20.f, w, 6.f, 2.f, C_WELL);
-        if (f > 0.f) RR(g, c, x + w * (1.f - f), y + 20.f, w * f, 6.f, 2.f, ink);
-        {
-            char t[16];
-            snprintf(t, sizeof t, "-%.1f dB", gr);
-            TX(g, c, x + w - TW(g, 10.5f, 500.f, 0.f, FRUI_TNUM, t), y + 12.f, 10.5f, 500.f, 0.f, FRUI_TNUM, ink, t);
-        }
-        for (int i = 0; i <= 24; i++) {  /* the curve: flat, then bent at THR */
-            float a = (float)i / 24.f, b = a < 1.f - thr ? a : (1.f - thr) + (a - (1.f - thr)) * 0.3f, xx = x + a * w, yy = y + h - 3.f - b * (h - 34.f);
-            if (i) LN(g, c, px, py, xx, yy, lw2, ink);
-            px = xx; py = yy;
-        }
+    if (sec == SEC_COMP) {                /* its meters: in, out, the gain reduction (live, the app's compressor) */
+        comp_meter(g, c, x, y, w, h, on);
     } else if (sec == SEC_DRIVE) {        /* its curve: the more AMOUNT, the harder the bend */
         float amt = (float)txp_ui_get(g->c, ID_DAMT) / 127.f, k = 1.f + amt * 8.f;
         for (int i = 0; i <= 32; i++) {
@@ -1238,7 +1396,7 @@ static void draw_strip(txg_t *g, frui_canvas *c)
         hx = ix + 11.f + LBL(g, c, ix + 11.f, y0 + 17.f + CAP(g, 12.f) * 0.5f, 12.f, on ? C_INK : C_DIM, SEC_NAME[s]);
         LBL(g, c, x + w - 12.f - LBLW(g, 9.f, "ALL \xE2\x80\xBA"), y0 + 17.f + CAP(g, 9.f) * 0.5f, 9.f, C_DIM, "ALL \xE2\x80\xBA");
         wid_add(g, TXG_W_FXOPEN, s, x + 1.f, y0 + 4.f, w - 2.f, 26.f);
-        if (s == SEC_COMP) {             /* (COMP's own switch: its ON) */
+        if (s == SEC_COMP) {             /* (COMP's own switch: its ON; a click turns it) */
             const char *t = on ? "ON" : "OFF";
             float tw = LBLW(g, 9.f, t) + 12.f, tx = hx + 10.f;
             RR(g, c, tx, y0 + 9.f, tw, 16.f, 2.f, on ? C_SEG : C_WELL); RRS(g, c, tx, y0 + 9.f, tw, 16.f, 2.f, C_LINE);
@@ -1249,16 +1407,16 @@ static void draw_strip(txg_t *g, frui_canvas *c)
             static const uint32_t K[5][4] = { { ID_CTHR, ID_CRATIO, 0, 0 }, { ID_DAMT, ID_DTYPE, 0, 0 },
                                               { ID_FHP, ID_FLP, ID_FRES, ID_FSLOPE }, { ID_GMIX, ID_GTIME, 0, 0 },
                                               { ID_RTYPE, ID_RMIX, 0, 0 } };
-            viz(g, c, s, ix, y0 + 32.f, iw, 42.f, on);
+            viz(g, c, s, ix, y0 + 32.f, iw, 46.f, on);
             if (s == SEC_FILTER) {
                 float hw = (iw - 6.f) * 0.5f;
-                pcell(g, c, ix, y0 + 82.f, hw, 20.f, K[s][0], "HIGH PASS", 0);
-                pcell(g, c, ix + hw + 6.f, y0 + 82.f, hw, 20.f, K[s][1], "LOW PASS", 0);
-                pcell(g, c, ix, y0 + 108.f, hw, 20.f, K[s][2], 0, 0);
-                pcell(g, c, ix + hw + 6.f, y0 + 108.f, hw, 20.f, K[s][3], 0, 0);
+                pcell(g, c, ix, y0 + 86.f, hw, 24.f, K[s][0], "HIGH PASS", 0);
+                pcell(g, c, ix + hw + 6.f, y0 + 86.f, hw, 24.f, K[s][1], "LOW PASS", 0);
+                pcell(g, c, ix, y0 + 116.f, hw, 24.f, K[s][2], 0, 0);
+                pcell(g, c, ix + hw + 6.f, y0 + 116.f, hw, 24.f, K[s][3], 0, 0);
             } else {
-                pcell(g, c, ix, y0 + 82.f, iw, 20.f, K[s][0], 0, 0);
-                pcell(g, c, ix, y0 + 108.f, iw, 20.f, K[s][1], 0, 0);
+                pcell(g, c, ix, y0 + 86.f, iw, 24.f, K[s][0], 0, 0);
+                pcell(g, c, ix, y0 + 116.f, iw, 24.f, K[s][1], 0, 0);
             }
         } else {                         /* the movement: the LFOs routed (else LFO 1, 2), each traced, its RATE */
             int shown = 0, more = 0, pick[2] = { -1, -1 };
@@ -1281,7 +1439,7 @@ static void draw_strip(txg_t *g, frui_canvas *c)
                 LBL(g, c, ix, yy + 9.f, 9.5f, routed ? C_RED : C_DIM, t);
                 frui_clip_reset(c);
                 lfo_trace(g, c, n, ix, yy + 13.f, iw * 0.5f - 6.f, 20.f, routed ? C_RED : C_DIM);
-                pcell(g, c, ix + iw * 0.5f, yy + 14.f, iw * 0.5f, 18.f, ID_LFO(n, LP_RATE), "RATE", 0);
+                pcell(g, c, ix + iw * 0.5f, yy + 11.f, iw * 0.5f, 24.f, ID_LFO(n, LP_RATE), "RATE", 0);
                 lfo_route(g, n, rt, sizeof rt);   /* its route: the target, the depth */
                 clipL(g, c, ix, yy + 34.f, iw, 14.f);
                 TX(g, c, ix, yy + 44.f, 10.f, 600.f, 0.2f, FRUI_TNUM, routed ? C_RED : C_FAINT, routed ? rt : "not routed");
@@ -1881,7 +2039,7 @@ static void draw_fx(txg_t *g, frui_canvas *c)
         float colw = (g->W - 48.f) / 2.f, rh = fminf((bh - 46.f) / 8.f, 40.f);
         LBL(g, c, 16.f, by + 12.f, 12.f, C_INK, "MATRIX");
         TX(g, c, 100.f, by + 12.f, 11.5f, 450.f, 0.f, 0, C_DIM, "A source moves a target by DEPTH; SPREAD offsets each lane's.");
-        pcell(g, c, g->W - 16.f - 200.f, by, 200.f, 20.f, TXP_ID_MODCC, "MOD CC", 0);
+        pcell(g, c, g->W - 16.f - 200.f, by - 4.f, 200.f, 28.f, TXP_ID_MODCC, "MOD CC", 0);
         for (int s = 0; s < 16; s++) {   /* (the columns named once over each half; the cells their values alone) */
             float cx = 16.f + (colw + 16.f) * (float)(s / 8), cy = by + 46.f + rh * (float)(s % 8), w1 = 52.f,
                   ws = (colw - w1 - 3.f * 6.f) * 0.27f, wt = (colw - w1 - 3.f * 6.f) * 0.39f, wd = (colw - w1 - 3.f * 6.f) * 0.17f;
@@ -1976,6 +2134,7 @@ static void draw_all(txg_t *g, frui_canvas *c)
         draw_strip(g, c);
         if (g->ov == OV_SAVE) draw_save(g, c);
     }
+    hint_tip(g, c);
     draw_picker(g, c);
 }
 
@@ -2014,6 +2173,25 @@ int txg_tick(txg_t *g)
             g->lfoh[n][LFO_H - 1] = g->sn.ui.lfo[n];
         }
     g->lfo_seen = 1;
+    {   /* COMP's meters: a VU's ballistics on the app's values (its most since the last publication): up fast (half the
+         * way a tick), down 0.8 dB a tick (~24 dB/s); the input's peak held ~1 s; the gain reduction up at once */
+        float t[3] = { (float)g->sn.ui.comp_in10 / 10.f, (float)g->sn.ui.comp_out10 / 10.f, (float)g->sn.ui.comp_gr10 / 10.f };
+        float *d[3] = { &g->cm_in, &g->cm_out, &g->cm_gr };
+        if (!g->drawn) { for (int i = 0; i < 3; i++) *d[i] = t[i]; g->cm_pk = t[0]; g->cm_hold = 30; }
+        else {
+            for (int i = 0; i < 2; i++) {
+                if (t[i] > *d[i]) *d[i] += (t[i] - *d[i]) * 0.55f; else *d[i] = fmaxf(t[i], *d[i] - 0.8f);
+                if (*d[i] - t[i] < 0.05f && *d[i] > t[i]) *d[i] = t[i];
+            }
+            if (t[2] > g->cm_gr) g->cm_gr = t[2]; else g->cm_gr = fmaxf(t[2], g->cm_gr - 0.5f);
+            if (t[0] >= g->cm_pk) { g->cm_pk = t[0]; g->cm_hold = 30; }
+            else if (g->cm_hold > 0) g->cm_hold--;
+            else g->cm_pk = fmaxf(t[0], g->cm_pk - 0.8f);
+        }
+        if (fabsf(g->cm_in - g->cm_drawn[0]) >= 0.05f || fabsf(g->cm_out - g->cm_drawn[1]) >= 0.05f ||
+            fabsf(g->cm_gr - g->cm_drawn[2]) >= 0.05f || fabsf(g->cm_pk - g->cm_drawn[3]) >= 0.05f)
+            g->cm_dirty = 1;
+    }
     if (g->sb_pend > 0 && --g->sb_pend == 0 && g->ov == OV_SND && g->sn.ui.lane[g->sb_lane].run)   /* (an audition
                                           * waited for the keys to rest) */
         txp_ui_sound(g->c, g->sb_lane, g->sb_cf, g->sb_ci, 0);
@@ -2025,7 +2203,7 @@ int txg_tick(txg_t *g)
         u = g->sn.ui;
         for (k = 0; k < (int)TXP_LANES; k++) { u.lane[k].lpan = u.lane[k].ldist = 0; memset(u.card[k].live, 0, sizeof u.card[k].live); }
         memset(u.lfo, 0, sizeof u.lfo);
-        u.comp_gr10 = 0; u.out_db10 = 0;
+        u.comp_gr10 = u.comp_in10 = u.comp_out10 = 0; u.out_db10 = 0;
         h = fnv(h, &u, sizeof u);
     }
     h = fnv(h, g->sn.pv, sizeof g->sn.pv);
@@ -2056,7 +2234,7 @@ int txg_tick(txg_t *g)
         h = fnv(h, gv, sizeof gv);
     }
     g->sig = h;
-    return !g->drawn || g->sig != g->sig_drawn || g->actn != g->actn_drawn;
+    return !g->drawn || g->sig != g->sig_drawn || g->actn != g->actn_drawn || g->cm_dirty;
 }
 
 /* ---- painting: a whole repaint, or only what moves with the activity (frui's base clip: the same pixels as a whole
@@ -2077,17 +2255,20 @@ static int paint_into(txg_t *g, frui_canvas *c)
 {
     int full = !g->drawn || c->px != g->last_px || c->w != g->last_w || c->h != g->last_h || g->sig != g->sig_drawn;
     fit(g, c->w, c->h);
-    if (full || (g->actn != g->actn_drawn && g->ov == OV_FX && g->pick < 0)) {
+    int moved = g->actn != g->actn_drawn || g->cm_dirty;
+    if (full || (moved && g->ov == OV_FX && g->pick < 0)) {
         frui_clip_base(c, 0, 0, c->w, c->h);
         draw_all(g, c);
-    } else if (g->actn != g->actn_drawn && (g->ov == OV_NONE || g->ov == OV_SAVE) && g->pick < 0) {
+    } else if (moved && (g->ov == OV_NONE || g->ov == OV_SAVE) && g->pick < 0) {
         rcol_t rc = rcols(g);
         region(g, c, 0, TOP_H, g->PW, g->dr_y);
         region(g, c, rc.dot - 8.f, TOP_H + HDR_H, rc.tl + rc.tlw + 1.f, g->dr_y);
         region(g, c, 0, g->dr_y, g->W, g->H);
         region(g, c, meter_x(g) - 2.f, 0, meter_x(g) + 104.f, TOP_H - 1.f);
         frui_clip_base(c, 0, 0, c->w, c->h);
-    } else { g->actn_drawn = g->actn; return 0; }
+    } else { g->actn_drawn = g->actn; g->cm_dirty = 0; return 0; }
+    g->cm_drawn[0] = g->cm_in; g->cm_drawn[1] = g->cm_out; g->cm_drawn[2] = g->cm_gr; g->cm_drawn[3] = g->cm_pk;
+    g->cm_dirty = 0;
     g->drawn = 1;
     g->last_px = c->px; g->last_w = c->w; g->last_h = c->h;
     g->sig_drawn = g->sig;
@@ -2149,7 +2330,7 @@ static const wid_t *hit(const txg_t *g, float x, float y)   /* the last-drawn co
     if (best) return best;
     for (int i = g->nw - 1; i >= 0; i--) {
         const wid_t *w = &g->w[i];
-        if (w->kind == TXG_W_DOT || w->kind == TXG_W_PLACE || w->kind == TXG_W_MAPR) continue;
+        if (w->kind == TXG_W_DOT || w->kind == TXG_W_PLACE || w->kind == TXG_W_MAPR || w->kind == TXG_W_CMETER || w->kind == TXG_W_TIP) continue;
         if (x >= w->r[0] && x < w->r[0] + w->r[2] && y >= w->r[1] && y < w->r[1] + w->r[3]) {
             if (w->kind == TXG_W_ROW || w->kind == TXG_W_ROWS) { if (!best || best->kind == TXG_W_ROWS) best = w; continue; }   /* (a row:
                                           * only when nothing in it is hit) */
@@ -2442,7 +2623,11 @@ int txg_input(txg_t *g, const frg_input *e)
             break;
         case TXG_W_SWATCH: txp_ui_col_set(g->c, (int)w->id, w->v); break;
         case TXG_W_COLRESET: txp_ui_col_reset(g->c); break;
-        case TXG_W_ROW: select_lane(g, k); break;
+        case TXG_W_ROW: case TXG_W_SELDOT: select_lane(g, k); break;
+        case TXG_W_STEP:                 /* a choice's < >: the previous, the next */
+            if (lane_of_id(w->id) >= 0) select_lane(g, lane_of_id(w->id));
+            step_param(g, w->id, w->v, 1);
+            break;
         case TXG_W_MUTE: txp_ui_mute(g->c, (uint32_t)k, !(g->mute >> k & 1u)); g->mute ^= 1u << k; break;
         case TXG_W_SOLO: {
             uint32_t m = g->solo ^ (1u << k);
@@ -2503,7 +2688,11 @@ int txg_input(txg_t *g, const frg_input *e)
         w = hit(g, e->x, e->y);
         {
             int hk = 0, hl = -1;
+            float r[4];
             if (w && (w->kind == TXG_W_ADD || w->kind == TXG_W_DOT || w->kind == TXG_W_LIST)) { hk = w->kind; hl = w->lane; }
+            else if (w && w->kind == TXG_W_PARAM && txg_find(g, TXG_W_TIP, w->lane, r) && e->x >= r[0] && e->x < r[0] + r[2] &&
+                     e->y >= r[1] && e->y < r[1] + r[3]) { hk = TXG_W_TIP; hl = w->lane; }   /* (a card whose hint was
+                                          * cut: all of it shows) */
             if (hk != g->hover_kind || hl != g->hover_lane) { g->hover_kind = hk; g->hover_lane = hl; return 1; }
         }
         return 0;
@@ -2529,7 +2718,7 @@ int txg_input(txg_t *g, const frg_input *e)
             if (g->pb_top < 0) g->pb_top = 0;
             return 3;
         }
-        if (w && (w->kind == TXG_W_FIELD || w->kind == TXG_W_SEG || w->kind == TXG_W_PARAM || w->kind == TXG_W_MANY || w->kind == TXG_W_ACT)) {
+        if (w && (w->kind == TXG_W_FIELD || w->kind == TXG_W_SEG || w->kind == TXG_W_PARAM || w->kind == TXG_W_STEP || w->kind == TXG_W_MANY || w->kind == TXG_W_ACT)) {
             const txp_param_t *p = pinfo(w->id);
             int d = e->wheel > 0.f ? 1 : -1;
             if (p && !choice(w->id) && p->hi >= 100 && fabsf(e->wheel) >= 1.f) d *= 2;

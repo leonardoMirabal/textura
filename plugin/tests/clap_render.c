@@ -216,7 +216,7 @@ static void gui_wait(void) { struct timespec ts = { 0, 350000000 }; nanosleep(&t
 /* gui_core.h's controls the tests click (its enum's values) */
 enum { W_ROW = 1, W_VOL, W_MUTE, W_SOLO, W_DOT, W_LUP = 9, W_SET = 10, W_VMAP = 13, W_VSPACE, W_PRESET, W_SND, W_COLDOT,
        W_SWATCH, W_SEG = 26, W_FIELD = 27, W_PARAM = 30, W_MANY, W_ACT, W_REC, W_UNDO, W_SAVE, W_FXOPEN, W_FXTAB, W_SLOT,
-       W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR };
+       W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER };
 #define ID_KEYS 0x10001u                 /* (bridge.h TXP_ID_KEYS) */
 static int gui_hit(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, int lane)   /* a click on a control */
 {
@@ -269,10 +269,18 @@ static int gui_views(const clap_plugin_t *p, const txg_gui_shot_t *xs, const cha
     rc |= gui_png(p, xs, png, "env");
     if (!gui_hit(p, xs, W_FXTAB, 14)) return 5;   /* the matrix */
     rc |= gui_png(p, xs, png, "matrix");
+    if (!gui_hit(p, xs, W_FXTAB, 0)) return 5;    /* COMP: its meters, its curve */
+    rc |= gui_png(p, xs, png, "comp");
     gui_key(p, xs, FRK_ESCAPE);
     if (!gui_hit(p, xs, W_SAVE, -1)) return 5;    /* SAVE's panel */
     rc |= gui_png(p, xs, png, "save");
     gui_key(p, xs, FRK_ESCAPE);
+    if (!gui_hit(p, xs, W_REC, -1)) return 5;     /* STOP ALL (what PLAY ALL brings back shown), PLAY ALL */
+    gui_wait(); gui_flush(p); xs->tick(p);
+    rc |= gui_png(p, xs, png, "stopped");
+    if (!gui_hit(p, xs, W_REC, -1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    rc |= gui_png(p, xs, png, "replay");
     return rc;
 }
 static void gui_wheel(const clap_plugin_t *p, const txg_gui_shot_t *xs, float x, float y, float d)
@@ -365,6 +373,73 @@ static int gui_test5(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* step
     gui_key(p, xs, FRK_ESCAPE);
     return bad;
 }
+static int gui_steps(const clap_plugin_t *p, const txg_gui_shot_t *xs, int act, int k, int v)   /* HOW MANY / HOW ACTIVE:
+                                          * lane k's block v clicked */
+{
+    float r[4];
+    if (!xs->find(p, act ? W_ACT : W_MANY, k, r)) { fprintf(stderr, "gui: no HOW %s on lane %d\n", act ? "ACTIVE" : "MANY", k + 1); return 0; }
+    gui_click(p, xs, r[0] + 2.f + (r[2] - 4.f) * (((float)v - 0.5f) / (act ? 9.f : 6.f)), r[1] + r[3] * 0.5f, 0);
+    return 1;
+}
+static int gui_test5b(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* step 5b: STOP ALL / PLAY ALL keep the lanes'
+                                          * own HOW MANY / HOW ACTIVE and the selected lane; the selection by the row's
+                                          * dot and number */
+{
+    int bad = 0, run_m, run_a, sel;
+    /* lane 2 MANY 4 / ACTIVE 6 (the blocks, set twice: a block that is the top lit one again is one less) */
+    if (gui_value(p, LANE_ID(1, 1)) != 4.0 && !gui_steps(p, xs, 0, 1, 4)) return 5;
+    if (gui_value(p, LANE_ID(1, 2)) != 6.0 && !gui_steps(p, xs, 1, 1, 6)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    if (gui_value(p, LANE_ID(1, 1)) != 4.0 || gui_value(p, LANE_ID(1, 2)) != 6.0) {
+        fprintf(stderr, "gui: lane 2 not MANY 4 / ACTIVE 6 (%g / %g)\n", gui_value(p, LANE_ID(1, 1)), gui_value(p, LANE_ID(1, 2)));
+        return 5;
+    }
+    /* lane 3 selected by its dot, then lane 4 by its number, then lane 3 by its dot again */
+    if (!gui_hit(p, xs, W_SELDOT, 2)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    sel = xs->sel(p);
+    if (!gui_hit(p, xs, W_SELDOT, 3)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    printf("gui select: the dot of lane 3 -> lane %d, of lane 4 -> lane %d\n", sel + 1, xs->sel(p) + 1);
+    if (sel != 2 || xs->sel(p) != 3) { fprintf(stderr, "gui: the row's dot did not select its lane\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_SELDOT, 2)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    /* STOP ALL, PLAY ALL: lane 2 back at MANY 4 / ACTIVE 6, lane 3 still selected */
+    if (!gui_hit(p, xs, W_REC, -1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    run_m = (int)gui_value(p, LANE_ID(1, 1)); run_a = (int)gui_value(p, LANE_ID(1, 2));
+    printf("gui STOP ALL: lane 2 MANY %d / ACTIVE %d, lane %d selected\n", run_m, run_a, xs->sel(p) + 1);
+    if (run_m != 0 || xs->sel(p) != 2) { fprintf(stderr, "gui: STOP ALL\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_REC, -1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    run_m = (int)gui_value(p, LANE_ID(1, 1)); run_a = (int)gui_value(p, LANE_ID(1, 2));
+    printf("gui PLAY ALL: lane 2 MANY %d / ACTIVE %d, lane %d selected\n", run_m, run_a, xs->sel(p) + 1);
+    if (run_m != 4 || run_a != 6 || xs->sel(p) != 2) { fprintf(stderr, "gui: PLAY ALL did not bring lane 2 back as it was\n"); bad = 1; }
+    {   /* the same through the project's state: STOP ALL, saved, loaded again (the app forgets what REC remembered),
+         * PLAY ALL: lane 2 back as it was */
+        const clap_plugin_state_t *st = p->get_extension(p, CLAP_EXT_STATE);
+        mem_t m = {0, 0, 0};
+        clap_ostream_t os = { &m, os_write };
+        clap_istream_t is = { &m, is_read };
+        if (!gui_hit(p, xs, W_REC, -1)) return 5;
+        gui_wait(); gui_flush(p); xs->tick(p);
+        if (!st || !st->save(p, &os)) { fprintf(stderr, "gui: state save failed\n"); return 5; }
+        m.at = 0;
+        if (!st->load(p, &is)) { fprintf(stderr, "gui: state load failed\n"); free(m.b); return 5; }
+        free(m.b);
+        for (int i = 0; i < 4; i++) { gui_wait(); gui_flush(p); xs->tick(p); }
+        run_m = (int)gui_value(p, LANE_ID(1, 1));
+        if (!gui_hit(p, xs, W_REC, -1)) return 5;
+        gui_wait(); gui_flush(p); xs->tick(p);
+        printf("gui STOP ALL, the state saved and loaded (lane 2 MANY %d), PLAY ALL: lane 2 MANY %g / ACTIVE %g, lane %d selected\n",
+               run_m, gui_value(p, LANE_ID(1, 1)), gui_value(p, LANE_ID(1, 2)), xs->sel(p) + 1);
+        if (run_m != 0 || gui_value(p, LANE_ID(1, 1)) != 4.0 || gui_value(p, LANE_ID(1, 2)) != 6.0 || xs->sel(p) != 2) {
+            fprintf(stderr, "gui: PLAY ALL after the state's load did not bring lane 2 back\n");
+            bad = 1;
+        }
+    }
+    return bad;
+}
 static int gui_test3b(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* the browsers, SETTINGS, a colour, SPACE */
 {
     int bad = 0, f0 = -1, s0 = -1, f1 = -1, s1 = -1;
@@ -454,6 +529,17 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int
             return 5;
         }
     }
+    if (test) {                          /* the compressor's meters: live off the render's end (COMP on in the gate's run) */
+        int in10 = -900, out10 = -900, gr10 = 0;
+        float r[4];
+        if (!xs->comp(p, &in10, &out10, &gr10)) return 5;
+        printf("gui COMP meters: in %.1f dB, out %.1f dB, gain reduction %.1f dB\n", in10 / 10.0, out10 / 10.0, gr10 / 10.0);
+        if (gui_value(p, 4u << 8 | 26u) > 0.5 && (in10 <= -900 || out10 <= -900 || gr10 <= 0)) {
+            fprintf(stderr, "gui: the compressor's meters are not fed\n");
+            bad = 1;
+        }
+        if (!xs->find(p, W_CMETER, -1, r)) { fprintf(stderr, "gui: no compressor meter in the strip\n"); bad = 1; }
+    }
     if (png && gui_views(p, xs, png)) return 5;
     if (test) {                          /* the controls do what they say (inactive: each write applied at its flush) */
         float r[4];
@@ -496,6 +582,7 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int
         if (lanes0 < 15u && v1 != lanes0 + 1.0) { fprintf(stderr, "gui: LANES +\n"); bad = 1; }
         if (gui_test3b(p, xs)) bad = 1;
         if (gui_test5(p, xs)) bad = 1;
+        if (gui_test5b(p, xs)) bad = 1;
         if (xs->find(p, 1 /* TXG_W_ROW */, 2, r)) gui_click(p, xs, r[0] + 30.f, r[1] + r[3] * 0.5f, 0);   /* (lane 3 selected) */
     }
     return bad ? 5 : 0;

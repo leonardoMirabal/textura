@@ -123,14 +123,17 @@ From top to bottom:
 
 - **The top bar**: the preset, SAVE, UNDO, PLAY ALL, LANES, the output level, SETTINGS.
 - **The place** (left) and **the lanes** (right): where each sound stands, and one row for each lane.
-- **The drawer**: the selected lane's sound, all its cards, and its PAN, DIST, LEVEL and groove.
+- **The drawer**: the selected lane's sound, all its cards (DIST among them), and its PAN, LEVEL and groove.
 - **The strip**: the effects in signal order (COMP, DRIVE, FILTER, DELAY, REVERB) and the movement (the LFOs).
   Every section opens to all its parameters.
 
-Every value in the window works the same way: **drag** it (up or right raises it; hold Shift for fine steps), turn
-the **mouse wheel** over it, or **double-click** it for its default (a card: the sound's own value). A choice (a type,
-a shape, ON / OFF) also steps on a **click** (Alt-click steps back). Each drag is one undo step in your DAW, and is
-recorded when your DAW records automation.
+Every value in the window works the same way. An amount is a **fader**: its name and value over a track, the part up
+to the value filled, a handle at the value (a bipolar one, as PAN or a route's DEPTH, fills from its middle). While an
+LFO moves it, its name and value turn red with a `~`, and a red mark on the track shows where the LFO has it now. A
+choice (a type, a shape, a sync, ON / OFF) shows its value between **<** and **>**: click an arrow for the previous or
+the next. Any value: **drag** it (up or right raises it; hold Shift for fine steps), turn the **mouse wheel** over it,
+or **double-click** it for its default (a card: the sound's own value). A choice also steps on a **click** (Alt-click
+steps back). Each drag is one undo step in your DAW, and is recorded when your DAW records automation.
 
 ### The top bar
 
@@ -141,7 +144,7 @@ recorded when your DAW records automation.
 | **The scene** | The preset's code and name (`F009 RAIN & FIRE`), a user preset (`U01 ...`) or the landscape (`L01 WATER`). A `*` after the name: you changed something since it loaded. At the right, how many lanes it uses. Click it for the [presets browser](#the-presets-browser). |
 | **SAVE** | Saves what plays as a user preset, U01 to U16 ([SAVE](#save)). |
 | **UNDO** | Undoes the last preset load or sound kept; click again to redo it. As the FM-1's UNDO. Dim when there is nothing to undo. |
-| **PLAY ALL / STOP ALL** | Stops every lane, or starts them again, as the FM-1's REC. It turns white when every lane is stopped (a landscape's start). Space bar does the same. |
+| **PLAY ALL / STOP ALL** | STOP ALL stops every lane and remembers each one's HOW MANY and HOW ACTIVE; PLAY ALL brings each lane back with its own (see [a stopped lane](#the-lanes)). The selected lane stays selected. As the FM-1's REC. It turns white when every lane is stopped (a landscape's start). Space bar does the same. |
 | **LANES − / +** | How many lanes are in use, 1 to 16 ([lanes](#7-lanes)). |
 | **LEVEL** | The output's peak now, in dB. Red near 0 dB. |
 | **SETTINGS** | Opens [SETTINGS](#settings). Click again to close. |
@@ -184,7 +187,7 @@ scroll: turn the mouse wheel over them. A row shows, left to right:
 
 | Column | What it shows |
 | --- | --- |
-| **#** | The lane's number (red when selected) and its engine's colour. |
+| **#** | The lane's number and a dot in its engine's colour. The **selected lane**'s dot is solid red, its number red, its row lit with a red edge. Click the number or the dot to select the lane. |
 | **SOUND** | The sound and its family. Click the name for the [sound browser](#the-sound-browser). |
 | **EVENTS** | The lane's **event line**: the last 6 seconds. A bar for each moment with events, as high as their loudness, over a faint band for the lane's level. A stopped lane reads **STOPPED**. |
 | **HOW MANY** | How many sources the cloud has: six blocks for **1 2 4 10 19 32**; none lit is **OFF**. Click a block for that many (the top lit block again: one less, so the first block again is OFF). Drag along the blocks, or turn the wheel. |
@@ -195,11 +198,20 @@ scroll: turn the mouse wheel over them. A row shows, left to right:
 | **M** | Mute. The lane goes silent but keeps playing, so it comes back at once. A preset keeps it, as on the FM-1. |
 | **S** | Solo. While any lane is soloed, only the soloed lanes play. Alt-, Cmd- or Ctrl-click solos one lane alone (click it again that way to clear). The project keeps it. |
 
-Click a row to select its lane. LEVEL is the sound's, as on the FM-1: two lanes playing the same sound share it.
+Click a row (its number, its dot, or anywhere but a control) to select its lane; the sound's name opens the sound
+browser. The up and down arrow keys select too. LEVEL is the sound's, as on the FM-1: two lanes playing the same sound
+share it.
 
-**A stopped lane** reads **STOPPED** across its event line, with its HOW MANY and HOW ACTIVE at OFF. A landscape
-starts with all four lanes stopped, as on the FM-1: the window says **ALL LANES STOPPED** under the rows and PLAY ALL
-turns white. Press **PLAY ALL**, or set a lane's HOW MANY or HOW ACTIVE: that starts it.
+**A stopped lane** reads **STOPPED** across its event line, with its HOW MANY and HOW ACTIVE at OFF. After **STOP
+ALL**, each lane's own values stay beside the OFF, dim, with outlined blocks, and the drawer says `PLAY ALL: MANY 4 ·
+ACTIVE 6`: **PLAY ALL** brings each lane back with exactly those. They are kept with the project and in a user
+preset, so a project saved stopped plays the same again. A lane that had none (a landscape loads its lanes OFF) stays
+stopped on PLAY ALL; if no lane has any, PLAY ALL does what the FM-1's REC does: the landscape's start, its first
+three lanes at HOW MANY 2, 1 and 1 at the rarest HOW ACTIVE (the selected lane stays selected here). A landscape starts
+with all four lanes stopped, as on the FM-1: the window says **ALL LANES STOPPED** under the rows and PLAY ALL turns
+white. Press **PLAY ALL**, or set a lane's HOW MANY or HOW ACTIVE: that starts it.
+
+![After STOP ALL: each lane's HOW MANY and HOW ACTIVE kept beside the OFF, for PLAY ALL](plugin/img/stopped.png)
 
 ### The drawer
 
@@ -209,11 +221,12 @@ Under the place and the rows, the **drawer** shows the selected lane:
 
 - **At the left**: **LANE n · FAMILY**, the sound in large letters (click it for the sound browser), the engine's
   colour (click it for the picker), and a line with MANY, ACTIVE, VOL and the lane's MIDI channel, STOPPED or MUTED.
-- **In the middle**: **every card** of the sound, up to eight, four to a row. Each card shows its name, its value in
-  its own unit, and what it does (the FM-1 manual's line for it). A card an LFO moves now is red, with `~` before
-  its name.
-- **At the right**: the lane's **PAN**, **DIST** (where the sound has one), **LEVEL**, and its groove **PART** and
-  **CYCLE** ([the groove](MANUAL.md#the-groove)).
+- **In the middle**: **every card** of the sound, up to eight, four to a row, each a fader. Each card shows its name,
+  its value in its own unit, and what it does (the FM-1 manual's line for it, wrapped to the card; one too long for
+  it shows whole when the mouse rests on the card). A card an LFO moves now is red, with `~` before its name. The
+  sound's **DIST** card is here too (the MAP's near and far).
+- **At the right**: the lane's **PAN**, **LEVEL**, and its groove **PART** and **CYCLE**
+  ([the groove](MANUAL.md#the-groove)).
 
 ### The strip
 
@@ -224,7 +237,7 @@ section has a dot (lit while it acts), a small picture and its two main values:
 
 | Section | Picture | In the strip | All of it (click the header) |
 | --- | --- | --- | --- |
-| **COMP** | Its gain reduction now, and its curve | ON / OFF, THR, RATIO | COMP, THR, ATTACK, REL, RATIO, MAKEUP |
+| **COMP** | Its meters, live: **IN** (its input level), **OUT** (its output), **GR** (the gain reduction, from the right, 24 dB the width), in dBFS with THR marked | ON / OFF, THR, RATIO | COMP, THR, ATTACK, REL, RATIO, MAKEUP; bigger meters and its curve, a dot where the input is on it now |
 | **DRIVE** | Its curve | AMOUNT, TYPE | AMOUNT, TONE, MIX, TYPE |
 | **FILTER** | Its response, HIGH PASS then LOW PASS (dashed marks; red while an LFO moves one) | HIGH PASS, LOW PASS (in Hz), RESONANCE, SLOPE | the same |
 | **DELAY** | Its echoes | MIX, TIME | MIX, TIME, FEEDBACK, GRAINS, SIZE, SPRAY, PITCH, REVERSE, SPREAD, TONE, GRAIN, FREEZE, SYNC, MOD, MOD RATE, INTERVALS |
@@ -234,6 +247,12 @@ section has a dot (lit while it acts), a small picture and its two main values:
 **Click a section's header** (or **ALL ›**) to open it over the place and the lanes: a tab for each effect, **LFO 1**
 to **LFO 8**, **ENV · FOLLOW** and **MATRIX**. The strip stays under it. Click the header again, **CLOSE** or Esc to
 close. What each effect parameter does: [the effects](MANUAL.md#7-the-effects) in the FM-1 manual.
+
+The COMP meters read the app's compressor itself: IN is the level its detector follows, OUT that level through its
+gain (the make-up counted), GR its gain reduction. They rise fast and fall about 24 dB a second; IN keeps its peak
+for a second. COMP off: they read OFF. Quiet lanes under THR show no gain reduction: lower THR to hear it act.
+
+![COMP open: its meters (IN, OUT, GR) and its curve, the dot where the input is now](plugin/img/compressor.png)
 
 ### The movement
 

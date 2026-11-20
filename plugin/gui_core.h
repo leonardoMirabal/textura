@@ -15,7 +15,7 @@
  *               fan out and share a label. SPACE: the same place in perspective. At its head the selected lane.
  *   lanes       (right, scrolling) one row a lane in use: its number, the sound and family, its event line, HOW MANY
  *               (six blocks) and HOW ACTIVE (nine), PAN, its MIDI channel, VOL, M and S; ADD LANE under the last.
- *   drawer      the selected lane: its sound, every card (name, value, hint), PAN, DIST, LEVEL, GROOVE PART, CYCLE
+ *   drawer      the selected lane: its sound, every card (name, value, hint; DIST among them), PAN, LEVEL, GROOVE PART, CYCLE
  *   strip       COMP, DRIVE, FILTER, DELAY, REVERB (each a picture and its main values) and the movement (two LFOs);
  *               a section's header opens the expanded view: every parameter of each effect, LFO 1 .. 8, ENV and
  *               FOLLOW, the matrix and MOD CC
@@ -42,7 +42,10 @@ enum { TXG_W_NONE, TXG_W_ROW, TXG_W_VOL, TXG_W_MUTE, TXG_W_SOLO, TXG_W_DOT, TXG_
         * the rows' area (the wheel scrolls it) */
        TXG_W_PARAM, TXG_W_MANY, TXG_W_ACT, TXG_W_REC, TXG_W_UNDO, TXG_W_SAVE, TXG_W_FXOPEN, TXG_W_FXTAB, TXG_W_SLOT,
        TXG_W_SAVEGO, TXG_W_NAME, TXG_W_TEMPO, TXG_W_ROWS,
-       TXG_W_PLACE, TXG_W_MAPR };   /* (never hit: the place's area and the map's half circle, for the tests) */
+       TXG_W_PLACE, TXG_W_MAPR,    /* (never hit: the place's area and the map's half circle, for the tests) */
+       /* step 5b: a row's dot and number (selects its lane), a choice's steppers (lane: its id; v -1 or +1), the
+        * compressor's meter (never hit: for the tests) */
+       TXG_W_SELDOT, TXG_W_STEP, TXG_W_CMETER, TXG_W_TIP };   /* (TIP: a card whose hint was cut: hovered, all of it) */
 
 typedef struct txg txg_t;
 txg_t *txg_new(txp_core *c);             /* NULL: out of memory or the font did not load */

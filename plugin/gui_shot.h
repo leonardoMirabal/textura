@@ -27,5 +27,10 @@ typedef struct {
     bool (*masks)(const clap_plugin_t *plugin, uint32_t *mute, uint32_t *solo);
     /* lane k's sound as the app shows it: its family and its sound there (false: the lane is empty) */
     bool (*lane)(const clap_plugin_t *plugin, int k, int *fam, int *snd);
+    /* the app's selected lane as it published it last (0 .. 15; -1 none) */
+    int (*sel)(const clap_plugin_t *plugin);
+    /* the compressor's meters as the app published them last: its input and output levels (dBFS x 10, -900 silence)
+     * and its gain reduction (dB x 10) */
+    bool (*comp)(const clap_plugin_t *plugin, int *in10, int *out10, int *gr10);
 } txg_gui_shot_t;
 #endif

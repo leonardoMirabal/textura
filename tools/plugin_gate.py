@@ -407,10 +407,14 @@ args_quick = False
 
 
 GUI = [("gui4", "plugin/tests/scripts/gui4.txt"), ("gui16", "plugin/tests/scripts/gui16.txt")]
+GUI_COMP = ["--param", "0x41a=1", "--param", "0x41b=127", "--param", "0x41e=4"]   # gui4: COMP on, THR -40 dBFS,
+#                                         6:1 (its meters live in the pictures; the gui test checks they are fed)
 
 
-GUI_VIEWS = ("", "space", "sounds", "presets", "settings", "colour", "fx", "lfo", "env", "matrix", "save")   # clap_render
-#                                        --shot: x.png, x-space.png ... (the strip expanded: DELAY, LFO 1, ENV, the matrix)
+GUI_VIEWS = ("", "space", "sounds", "presets", "settings", "colour", "fx", "lfo", "env", "matrix", "comp", "save",
+             "stopped", "replay")   # clap_render
+#                                        --shot: x.png, x-space.png ... (the strip expanded: DELAY, LFO 1, ENV, the matrix,
+#                                        COMP; STOP ALL, then PLAY ALL)
 GUI_SIZES = ((1200, 720), (1950, 1210), (1440, 1080), (960, 600))   # real DAW window sizes: the MAP round in its place
 
 
@@ -436,7 +440,7 @@ def check_gui(args, exe, bundle, tmp):
     for w, h in GUI_SIZES:   # every view at each size (the map's own check: clap_render's "gui map")
         png = os.path.join(tmp, "size-%dx%d.png" % (w, h))
         r = plug_render(exe, bundle, GUI[0][1], os.path.join(tmp, "size.wav"), 44100, test=False,
-                        extra=["--shot", png, "--shot-w", str(w), "--shot-h", str(h)])
+                        extra=GUI_COMP + ["--shot", png, "--shot-w", str(w), "--shot-h", str(h)])
         m = re.search(r"gui map: .*", r.stdout)
         good = r.returncode == 0 and os.path.exists(png) and m is not None
         print("%s  gui %d x %d: %s" % ("ok  " if good else "FAIL", w, h, m.group(0)[9:] if m else (r.stdout + r.stderr)[-300:]))
@@ -449,7 +453,8 @@ def check_gui(args, exe, bundle, tmp):
         for run_i in range(2):
             png = os.path.join(tmp, "%s-%d.png" % (name, run_i))
             r = plug_render(exe, bundle, script, os.path.join(tmp, name + ".wav"), 44100, test=False,
-                            extra=["--shot", png] + (["--gui-test"] if run_i == 1 and name == "gui4" else []))
+                            extra=(GUI_COMP if name == "gui4" else []) + ["--shot", png] +
+                            (["--gui-test"] if run_i == 1 and name == "gui4" else []))
             good = r.returncode == 0 and os.path.exists(png)
             if not good:
                 sys.stderr.write(r.stdout + r.stderr)

@@ -80,6 +80,8 @@ typedef struct {
     uint8_t run;                         /* it plays (HOW MANY not OFF) */
     uint8_t modm;                        /* what the modulation moves now (TXP_MOD_*) */
     uint8_t lpan, ldist;                 /* PAN and DIST as the modulation has them now (0 .. 127) */
+    uint8_t mcnt, mact;                  /* stopped by STOP ALL: the HOW MANY and HOW ACTIVE PLAY ALL brings back
+                                          * (0: none remembered) */
     char snd[24];                        /* the sound's name ("campfire"), "" none */
     char fam[16];                        /* its family ("Fire") */
 } txp_ui_lane_t;
@@ -111,7 +113,10 @@ typedef struct {
     uint8_t any_run;                     /* a lane plays (REC: all stopped) */
     uint8_t saving;                      /* a user scene being saved */
     uint8_t undo;                        /* an undo is there (a load, or a sound kept) */
-    int16_t comp_gr10;                   /* the compressor's gain reduction now, dB x 10 (0: none, or off) */
+    int16_t comp_gr10;                   /* the compressor's gain reduction now, dB x 10 (0: none, or off): its most
+                                          * since the last publication */
+    int16_t comp_in10, comp_out10;       /* its input (its detector's level) and output levels, their most since the
+                                          * last publication, dBFS x 10 (-900: silence, or COMP off) */
     int16_t out_db10;                    /* the output's peak since the last publication, dBFS x 10 (-900: silence) */
     uint32_t gmod[2];                    /* the globals (scope 4, index i < 64) the modulation moves now: bit i */
     uint8_t lfo_mod;                     /* the LFOs whose RATE or LEVEL the modulation moves now (bit n) */

@@ -114,13 +114,15 @@ own (bone until you choose one). The macOS view is built and tested; the Windows
 
 Every host parameter has a place in the window (nothing is automation only), and every value there works one way:
 drag (up or right raises; shift: fine), the wheel, a double-click for the default (a card: its sound's own), a click
-steps a choice. A value's text is the app's own (its page's: `4.2 kHz`, `229 ms`); the host is told every write,
+steps a choice. An amount is drawn as a fader (track, filled part, handle; the rows' VOL's look; bipolar ones from the
+middle; the modulation's live place a red mark on it); a choice as its value between < > steppers (`TXG_W_STEP`). A
+value's text is the app's own (its page's: `4.2 kHz`, `229 ms`); the host is told every write,
 with a gesture around a drag.
 
 - **Top bar**: TEXTURA, the previous / next factory scene and the scene's name (`*` when edited; click it for the
   presets browser), **SAVE** (the scene into a user scene U01 .. U16, named; kept in the project's state), **UNDO**
-  (the app's: the last load or sound kept; again: redo), **PLAY ALL / STOP ALL** (the FM-1's REC; white while every
-  lane is stopped), LANES - / +, the output's peak (dB), SETTINGS.
+  (the app's: the last load or sound kept; again: redo), **PLAY ALL / STOP ALL** (the FM-1's REC, `sc_all_toggle`;
+  white while every lane is stopped; the selected lane kept), LANES - / +, the output's peak (dB), SETTINGS.
 - **The place** (left, about a third of the width): **MAP** or **SPACE**, the selected lane's number, family, sound
   (the sound browser) and colour dot (the picker) at its head. MAP: a half circle, the listener at its centre, L, R
   and FAR inside the place; a dot's angle is the lane's PAN, its distance the sound's **DIST card** (a hollow dot
@@ -128,17 +130,25 @@ with a gesture around a drag.
   (`1 Rain on water · 2 · 3 · 4`); a label goes to the first place clear of the dots, the other labels and the edges,
   or is left out (the selected lane's always shows). SPACE: the same place in perspective, each lane's events of the
   last 6 seconds drifting toward the horizon; a drag on the ground moves a lane.
-- **Lanes** (right, scrolling): one row a lane in use, ADD LANE under them. A row: number and colour, sound and family
+- **Lanes** (right, scrolling): one row a lane in use, ADD LANE under them. A row: number and colour dot (solid red
+  for the selected lane; a click on either selects it, `TXG_W_SELDOT`), sound and family
   (the sound browser), the **event line**, **HOW MANY** (six blocks, 1 2 4 10 19 32, none lit OFF; a click on a block
   sets that many, on the top lit one one less), **HOW ACTIVE** (nine blocks), PAN, CH (OFF, 1 .. 16), **VOL**, **M**,
   **S**. A stopped lane reads STOPPED across its event line; a landscape's start (all four stopped, as on the FM-1)
   adds ALL LANES STOPPED under the rows. HOW MANY or HOW ACTIVE starts a lane (the app's own: `sc_count`, `sc_step`).
+  After STOP ALL a lane shows what PLAY ALL brings back (the app's `sc.mem_cnt` / `mem_step`, published as
+  `txp_ui_lane_t` `mcnt` / `mact`) as outlined blocks. A scene applied with lanes stopped that have a HOW MANY of their
+  own (a project or user scene saved after STOP ALL) gets that memory back (`slot_bridge.h` `sb_scene_mem`: the app
+  clears it on a load), so PLAY ALL brings them back; with none anywhere PLAY ALL is the FM-1's landscape start
+  (lanes 1 .. 3 at HOW MANY 2 / 1 / 1, the rarest HOW ACTIVE).
 - **Drawer** (the selected lane): its sound, colour, MANY / ACTIVE / VOL and channel; **every card** of the sound (up
   to `SCD_MAX`, 8) with its name, its value in its unit, and its hint (the FM-1 manual's line for that card:
-  `plugin/card_hints.h`, made from `docs/MANUAL.md` section 5 by `tools/plugin_card_hints.py`); PAN, DIST, LEVEL,
-  GROOVE PART and CYCLE. A value the modulation moves now is red with a `~`.
-- **Strip** (bottom): COMP, DRIVE, FILTER, DELAY, REVERB in the mix's order, each with its picture (gain reduction,
-  drive curve, the filter's response with HIGH PASS then LOW PASS marked, the echoes, the tail) and its main values;
+  `plugin/card_hints.h`, made from `docs/MANUAL.md` section 5 by `tools/plugin_card_hints.py`; wrapped to three lines,
+  a longer one whole on hover, `TXG_W_TIP`), DIST among them; PAN, LEVEL, GROOVE PART and CYCLE. A value the
+  modulation moves now is red with a `~`.
+- **Strip** (bottom): COMP, DRIVE, FILTER, DELAY, REVERB in the mix's order, each with its picture (COMP's meters:
+  IN, OUT and GR read off the app's compressor every app block, `tx_comp_t` `ef` / `es`, `g`, `gr`, their most since
+  the last publication, with a VU's ballistics in `txg_tick`; the expanded COMP adds its curve), drive curve, the filter's response with HIGH PASS then LOW PASS marked, the echoes, the tail) and its main values;
   then MOVEMENT, two LFOs (the routed ones first) with shape, trace, RATE and route. A section's header opens the
   **expanded view** over the place and the rows: a tab for each effect (all its parameters), LFO 1 .. 8 (trace,
   NOW, ROUTES, its ten parameters), ENV · FOLLOW (ENV 1 and 2, FOLLOW 1 and 2) and MATRIX (MOD 1 .. 16: SOURCE,
