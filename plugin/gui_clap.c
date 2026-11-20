@@ -68,8 +68,8 @@ static double px_scale(const txg_clap_t *c)
 }
 static void saved_size(txg_clap_t *c)       /* the size last set (saved with the project) */
 {
-    int w = txp_ui_win_w(c->pc);
-    uint32_t ww = (uint32_t)(w > 0 ? w : TXG_W), hh = (uint32_t)(w > 0 ? w : TXG_W);
+    int w = txp_ui_win_w(c->pc), h = txp_ui_win_h(c->pc);
+    uint32_t ww = (uint32_t)(w > 0 ? w : TXG_W), hh = (uint32_t)(h > 0 ? h : (int)ww * TXG_H / TXG_W);
     txg_fit_size(&ww, &hh);
     c->w = ww; c->h = hh;
 }
@@ -142,7 +142,7 @@ static bool g_get_resize_hints(const clap_plugin_t *plugin, clap_gui_resize_hint
     (void)plugin;
     hints->can_resize_horizontally = true;
     hints->can_resize_vertically = true;
-    hints->preserve_aspect_ratio = true;
+    hints->preserve_aspect_ratio = false;   /* (any aspect: the place stays round, the rows take the rest) */
     hints->aspect_ratio_width = TXG_W;
     hints->aspect_ratio_height = TXG_H;
     return true;
@@ -167,8 +167,9 @@ static bool g_set_size(const clap_plugin_t *plugin, uint32_t width, uint32_t hei
     w = (uint32_t)lround(width / k); h = (uint32_t)lround(height / k);
     txg_fit_size(&w, &h);
     c->w = w; c->h = h;
-    txp_ui_win_w_set(c->pc, w == TXG_W ? 0 : (int)w);
-    if (c->view) frg_view_resize(c->view, (int)width, (int)height);   /* (the host's size: the view fits the aspect) */
+    txp_ui_win_w_set(c->pc, w == TXG_W && h == TXG_H ? 0 : (int)w);
+    txp_ui_win_h_set(c->pc, w == TXG_W && h == TXG_H ? 0 : (int)h);
+    if (c->view) frg_view_resize(c->view, (int)width, (int)height);
     return true;
 }
 static bool g_set_parent(const clap_plugin_t *plugin, const clap_window_t *window)

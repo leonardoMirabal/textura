@@ -8,8 +8,9 @@
  * The window's writes: host parameters (a lane's LEVEL, PAN and cards, LANES, PRESET: the app's own ids, values 0 ..
  * hi as the host sees them), a lane's mute (the app's own: a scene keeps it) and the SOLO (the plugin's own: lanes
  * soloed play, the others are shut; saved with the project), a lane's sound from the sound browser and a scene or
- * landscape from the presets browser (the FM-1 browsers' own calls: slot_bridge.h). The window's own state, saved with
- * the project too: its width, the selected lane, the place's view and the engines' colours. */
+ * landscape from the presets browser (the FM-1 browsers' own calls: slot_bridge.h), the selected lane (the app's own),
+ * REC, UNDO, SAVE into a user scene and the app's tempo. The window's own state, saved with the project too: its size,
+ * the place's view and the engines' colours. */
 #ifndef TXP_UI_H
 #define TXP_UI_H
 #include <stdint.h>
@@ -47,6 +48,8 @@ void txp_ui_mutes(const txp_core *c, uint32_t *mute, uint32_t *solo);   /* the m
 uint32_t txp_ui_act(const txp_core *c, uint8_t (*ev)[TXP_LANES], uint8_t (*pk)[TXP_LANES], uint32_t n);   /* bridge.h */
 int txp_ui_win_w(const txp_core *c);                  /* the window's width saved (0: the default) */
 void txp_ui_win_w_set(txp_core *c, int w);
+int txp_ui_win_h(const txp_core *c);                  /* its height saved (0: the width's 5:3) */
+void txp_ui_win_h_set(txp_core *c, int h);
 void txp_ui_win_resize(txp_core *c, int w);           /* the window asks its host for that width (SETTINGS: SIZE) */
 /* the sound browser: lane's sound set to family fam's sound snd (an audition; keep: the choice, the scene edited) */
 void txp_ui_sound(txp_core *c, int lane, int fam, int snd, int keep);
@@ -57,6 +60,13 @@ void txp_ui_col_set(txp_core *c, int eng, int col);
 void txp_ui_col_reset(txp_core *c);
 int txp_ui_view(const txp_core *c);                   /* the place's view: 0 MAP, 1 SPACE (saved with the project) */
 void txp_ui_view_set(txp_core *c, int v);
-int txp_ui_sel(const txp_core *c);                    /* the selected lane, 0 .. 15 */
+int txp_ui_sel(const txp_core *c);                    /* the selected lane, 0 .. 15: the app's own (the keys' and
+                                                       * SELECTED CH's), so the window and the keys pick the same */
 void txp_ui_sel_set(txp_core *c, int k);
+void txp_ui_rec(txp_core *c);                         /* every lane stopped / started again (the FM-1's REC) */
+void txp_ui_undo(txp_core *c);                        /* the last load or sound kept undone; again: redone */
+/* the scene that plays saved into user scene slot (0 .. 15: U01 .. U16), named (11 characters: A .. Z, 0 .. 9, space
+ * - & ' .; empty: the landscape's name); kept with the project */
+void txp_ui_save(txp_core *c, int slot, const char *name);
+void txp_ui_tempo(txp_core *c, int bpm10);            /* the app's own tempo (BPM x 10; the host's leads) */
 #endif

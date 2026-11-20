@@ -57,7 +57,7 @@ static const clap_plugin_descriptor_t DESC = {
 };
 
 #define UQ 1024u                         /* the window's writes waiting for the audio side (a power of two) */
-enum { UQ_BEGIN, UQ_VALUE, UQ_END, UQ_MUTE, UQ_SOLO, UQ_SOUND, UQ_LOAD };
+enum { UQ_BEGIN, UQ_VALUE, UQ_END, UQ_EV };   /* UQ_EV + k: the slot's event TXP_EV_* k (bridge.h), id its a */
 typedef struct { uint8_t type; uint32_t id; int32_t v; } uq_ev_t;
 #define PEND_S 0.3                       /* the window's own value wins this long after its write (then the app's) */
 
@@ -87,10 +87,10 @@ typedef struct txp_plugin {
     _Atomic uint32_t uqw, uqr;
     double *pend_t;
     int32_t *pend_v;
-    double pend_mt[TXP_LANES], pend_st;
+    double pend_mt[TXP_LANES], pend_st, pend_selt;
     uint8_t pend_m[TXP_LANES];
     uint16_t pend_s;
-    int win_w, sel, view;
+    int win_w, win_h, sel, view;                /* (sel: the window's last choice, until the app shows it: pend_selt) */
     uint8_t col[TXP_ENG_MAX];            /* each engine's colour (txp_ui.h TXP_COL_N: 0 bone), saved with the project */
     int shot;                            /* TEXTURA_PLUGIN_GUI_SHOT set: the tests' extension (gui_shot.h) */
 } txp_plugin_t;
@@ -111,7 +111,7 @@ static bool p_info(const clap_plugin_t *plugin, uint32_t index, clap_param_info_
     memset(info, 0, sizeof *info);
     info->id = d->id;
     info->flags = CLAP_PARAM_IS_STEPPED | (d->is_enum ? CLAP_PARAM_IS_ENUM : 0) |
-                  (d->id == TXP_ID_PRESET ? 0 : CLAP_PARAM_IS_AUTOMATABLE);   /* (PRESET is a choice, not a curve) */
+                  (d->id >= TXP_ID_OWN0 ? 0 : CLAP_PARAM_IS_AUTOMATABLE);   /* (PRESET and KEYS are choices, not curves) */
     snprintf(info->name, sizeof info->name, "%s", d->name);
     snprintf(info->module, sizeof info->module, "%s", d->module);
     info->min_value = 0.0;
@@ -207,8 +207,8 @@ static uint32_t lat_get(const clap_plugin_t *plugin)
 }
 static const clap_plugin_latency_t EXT_LATENCY = { lat_get };
 
-/* the state: the slot's (slot_bridge.h) and the window's own, "win" (its width, 0: the default) and "sel" (the lane
- * selected), added before the closing brace (a build of before reads past them) */
+/* the state: the slot's (slot_bridge.h: the selected lane is the app's, "sel", in it) and the window's own, "win" (its
+ * width, 0: the default), "view" and "col", added before the closing brace (a build of before reads past them) */
 static int st_key(const char *j, const char *key, int *v)   /* "key":"N" in a flat object: 0 found */
 {
     char pat[16];
@@ -257,7 +257,7 @@ static bool st_save(const clap_plugin_t *plugin, const clap_ostream_t *s)
     static _Thread_local char buf[TXP_STATE_MAX];
     int n = txp_inst_state_get(p->in, buf, TXP_STATE_MAX - 2048), done = 0;
     if (n < 2 || buf[n - 1] != '}') return false;
-    n += snprintf(buf + n - 1, 64, ",\"win\":\"%d\",\"sel\":\"%d\",\"view\":\"%d\"}", p->win_w, p->sel, p->view) - 1;
+    n += snprintf(buf + n - 1, 64, ",\"win\":\"%d\",\"winh\":\"%d\",\"view\":\"%d\"}", p->win_w, p->win_h, p->view) - 1;
     n += st_col_put(p, buf + n - 1, TXP_STATE_MAX - n) - 1;
     while (done < n) {
         int64_t w = s->write(s, buf + done, (uint64_t)(n - done));
@@ -274,16 +274,17 @@ static bool st_load(const clap_plugin_t *plugin, const clap_istream_t *s)
     while (got < (int64_t)sizeof buf - 1 && (r = s->read(s, buf + got, (uint64_t)(sizeof buf - 1 - (size_t)got))) > 0) got += r;
     buf[got] = 0;
     if (txp_inst_state_set(p->in, buf)) { say(p, CLAP_LOG_WARNING, "Textura: the saved state could not be read"); return false; }
-    {   /* the window's (a state of before has none: the default size, lane 1) */
-        int w = 0, k = 0, vw = 0;
+    {   /* the window's (a state of before has none: the default size, the MAP) */
+        int w = 0, h = 0, vw = 0;
         (void)st_key(buf, "win", &w);
-        (void)st_key(buf, "sel", &k);
+        (void)st_key(buf, "winh", &h);
         (void)st_key(buf, "view", &vw);
-        p->sel = k >= 0 && k < (int)TXP_LANES ? k : 0;
+        p->pend_selt = 0.0;
         p->view = vw == 1;
         st_col_get(p, buf);
         w = w >= TXG_MIN_W && w <= TXG_MAX_W ? w : 0;
-        if (w != p->win_w) { p->win_w = w; txg_clap_size_changed(p->gui); }
+        h = h >= TXG_MIN_H && h <= TXG_MAX_H ? h : 0;
+        if (w != p->win_w || h != p->win_h) { p->win_w = w; p->win_h = h; txg_clap_size_changed(p->gui); }
     }
     if (!p->active) { if (p->hparams) p->hparams->rescan(p->host, CLAP_PARAM_RESCAN_VALUES); }
     else {                               /* applied by the audio thread's next steps: re-read the values after it */
@@ -567,9 +568,8 @@ static void uq_drain(txp_plugin_t *p, const clap_output_events_t *out, int timed
         if (e->type == UQ_VALUE) {
             if ((i = txp_param_index(e->id)) >= 0) p->host_view[i] = e->v;
             if (timed) txp_inst_param(p->in, 0, e->id, e->v); else txp_inst_param_now(p->in, e->id, e->v);
-        } else if (e->type >= UQ_MUTE) {
-            int k = e->type == UQ_MUTE ? TXP_EV_MUTE : e->type == UQ_SOLO ? TXP_EV_SOLO : e->type == UQ_SOUND ? TXP_EV_SOUND
-                  : TXP_EV_LOAD;
+        } else if (e->type >= UQ_EV) {
+            int k = e->type - UQ_EV;
             if (timed) txp_inst_event(p->in, 0, k, e->id, e->v); else txp_inst_event_now(p->in, k, e->id, e->v);
         }
         atomic_store_explicit(&p->uqr, ++r, memory_order_release);
@@ -632,14 +632,14 @@ void txp_ui_mute(txp_core *c, uint32_t lane, int on)
     if (lane >= TXP_LANES) return;
     c->pend_m[lane] = (uint8_t)(on != 0);
     c->pend_mt[lane] = mono_s();
-    uq_put(c, UQ_MUTE, lane, on != 0);
+    uq_put(c, UQ_EV + TXP_EV_MUTE, lane, on != 0);
     ui_dirty(c);
 }
 void txp_ui_solo(txp_core *c, uint32_t mask)
 {
     c->pend_s = (uint16_t)mask;
     c->pend_st = mono_s();
-    uq_put(c, UQ_SOLO, 0, (int32_t)(mask & 0xFFFFu));
+    uq_put(c, UQ_EV + TXP_EV_SOLO, 0, (int32_t)(mask & 0xFFFFu));
     ui_dirty(c);
 }
 void txp_ui_mutes(const txp_core *c, uint32_t *mute, uint32_t *solo)
@@ -670,13 +670,13 @@ uint32_t txp_ui_act(const txp_core *c, uint8_t (*ev)[TXP_LANES], uint8_t (*pk)[T
 void txp_ui_sound(txp_core *c, int lane, int fam, int snd, int keep)
 {
     if (lane < 0 || lane >= (int)TXP_LANES || fam < 0 || fam > 15 || snd < 0 || snd > 15) return;
-    uq_put(c, UQ_SOUND, (uint32_t)lane, fam << 4 | snd | (keep ? TXP_SND_KEEP : 0));
+    uq_put(c, UQ_EV + TXP_EV_SOUND, (uint32_t)lane, fam << 4 | snd | (keep ? TXP_SND_KEEP : 0));
     if (keep) ui_dirty(c);
 }
 void txp_ui_load(txp_core *c, int what, int with_fx)
 {
     if (what < 0) return;
-    uq_put(c, UQ_LOAD, with_fx ? 1u : 0u, what);
+    uq_put(c, UQ_EV + TXP_EV_LOAD, with_fx ? 1u : 0u, what);
     ui_dirty(c);
 }
 int txp_ui_col(const txp_core *c, int eng) { return eng >= 0 && eng < (int)TXP_ENG_MAX ? c->col[eng] : 0; }
@@ -692,13 +692,53 @@ void txp_ui_view_set(txp_core *c, int v) { if (c->view != (v == 1)) { c->view = 
 void txp_ui_win_resize(txp_core *c, int w)
 {
     txp_ui_win_w_set(c, w == TXG_W ? 0 : w);
+    c->win_h = 0;                        /* (SETTINGS' sizes: the 5:3 of that width) */
     txg_clap_size_changed(c->gui);
     ui_dirty(c);
 }
 int txp_ui_win_w(const txp_core *c) { return c->win_w; }
 void txp_ui_win_w_set(txp_core *c, int w) { c->win_w = w >= TXG_MIN_W && w <= TXG_MAX_W ? w : 0; }
-int txp_ui_sel(const txp_core *c) { return c->sel; }
-void txp_ui_sel_set(txp_core *c, int k) { if (k >= 0 && k < (int)TXP_LANES) c->sel = k; }
+int txp_ui_win_h(const txp_core *c) { return c->win_h; }
+void txp_ui_win_h_set(txp_core *c, int h) { c->win_h = h >= TXG_MIN_H && h <= TXG_MAX_H ? h : 0; }
+int txp_ui_sel(const txp_core *c)        /* the app's (the window's own choice until the app shows it) */
+{
+    txp_core *w = (txp_core *)c;
+    static txp_snap_t sn;                /* (the main thread's alone) */
+    int s = txp_ui_snap(c, &sn) == 0 ? sn.ui.sel : 0;
+    if (w->pend_selt > 0.0) {
+        if (s == w->sel || mono_s() - w->pend_selt >= PEND_S) w->pend_selt = 0.0;
+        else s = w->sel;
+    }
+    return s >= 0 && s < (int)TXP_LANES ? s : 0;
+}
+void txp_ui_sel_set(txp_core *c, int k)
+{
+    if (k < 0 || k >= (int)TXP_LANES) return;
+    c->sel = k;
+    c->pend_selt = mono_s();
+    uq_put(c, UQ_EV + TXP_EV_SEL, (uint32_t)k, 0);
+    ui_dirty(c);
+}
+void txp_ui_rec(txp_core *c) { uq_put(c, UQ_EV + TXP_EV_REC, 0, 0); ui_dirty(c); }
+void txp_ui_undo(txp_core *c) { uq_put(c, UQ_EV + TXP_EV_UNDO, 0, 0); ui_dirty(c); }
+void txp_ui_save(txp_core *c, int slot, const char *name)
+{
+    uint32_t i;
+    char nm[12] = {0};
+    if (slot < 0 || slot >= (int)TXP_USER_N) return;
+    snprintf(nm, sizeof nm, "%s", name ? name : "");
+    for (i = 0; i < 11u; i += 4u)        /* (its letters, four an event; then the save) */
+        uq_put(c, UQ_EV + TXP_EV_NAME, i, (int32_t)((uint32_t)(uint8_t)nm[i] | (uint32_t)(uint8_t)nm[i + 1u] << 8 |
+                                                    (uint32_t)(uint8_t)nm[i + 2u] << 16 | (i + 3u < 11u ? (uint32_t)(uint8_t)nm[i + 3u] << 24 : 0u)));
+    uq_put(c, UQ_EV + TXP_EV_SAVE, (uint32_t)slot, 0);
+    ui_dirty(c);
+}
+void txp_ui_tempo(txp_core *c, int bpm10)
+{
+    if (bpm10 < 400 || bpm10 > 2400) return;
+    uq_put(c, UQ_EV + TXP_EV_TEMPO, 0, bpm10);
+    ui_dirty(c);
+}
 
 /* the entry's three functions (plugin/src/clap_entry.cpp exports clap_entry from them in every format) */
 bool txp_entry_init(const char *path) { (void)path; return true; }

@@ -18,6 +18,7 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#include <math.h>
 #include <windows.h>
 #include <windowsx.h>
 #include <stdio.h>
@@ -148,7 +149,8 @@ static int mods_now(void)
 }
 static void to_logical(const frg_view *v, int px, int py, float *x, float *y)
 {
-    float s = v->w > 0 ? (float)TXG_W / (float)v->w : 1.f;    /* frui draws the layout at w / TXG_W */
+    float s = v->w > 0 && v->h > 0 ? 1.f / fmaxf(1e-3f, fminf((float)v->w / (float)TXG_W, (float)v->h / (float)TXG_H)) : 1.f;   /* (frui draws
+                                          * the layout at min(w / TXG_W, h / TXG_H): any aspect) */
     *x = ((float)px + 0.5f) * s;
     *y = ((float)py + 0.5f) * s;
 }

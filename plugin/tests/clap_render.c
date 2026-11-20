@@ -215,7 +215,9 @@ static void gui_wait(void) { struct timespec ts = { 0, 350000000 }; nanosleep(&t
 #define ID_PRESET 0x10000u               /* (bridge.h TXP_ID_PRESET) */
 /* gui_core.h's controls the tests click (its enum's values) */
 enum { W_ROW = 1, W_VOL, W_MUTE, W_SOLO, W_DOT, W_LUP = 9, W_SET = 10, W_VMAP = 13, W_VSPACE, W_PRESET, W_SND, W_COLDOT,
-       W_SWATCH, W_SEG = 26, W_FIELD = 27 };
+       W_SWATCH, W_SEG = 26, W_FIELD = 27, W_PARAM = 30, W_MANY, W_ACT, W_REC, W_UNDO, W_SAVE, W_FXOPEN, W_FXTAB, W_SLOT,
+       W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR };
+#define ID_KEYS 0x10001u                 /* (bridge.h TXP_ID_KEYS) */
 static int gui_hit(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, int lane)   /* a click on a control */
 {
     float r[4];
@@ -259,7 +261,109 @@ static int gui_views(const clap_plugin_t *p, const txg_gui_shot_t *xs, const cha
         rc |= gui_png(p, xs, png, "colour");
         gui_key(p, xs, FRK_ESCAPE);
     }
+    if (!gui_hit(p, xs, W_FXOPEN, 3)) return 5;   /* the strip's DELAY expanded: every parameter */
+    rc |= gui_png(p, xs, png, "fx");
+    if (!gui_hit(p, xs, W_FXTAB, 5)) return 5;    /* LFO 1 */
+    rc |= gui_png(p, xs, png, "lfo");
+    if (!gui_hit(p, xs, W_FXTAB, 13)) return 5;   /* ENV, FOLLOW */
+    rc |= gui_png(p, xs, png, "env");
+    if (!gui_hit(p, xs, W_FXTAB, 14)) return 5;   /* the matrix */
+    rc |= gui_png(p, xs, png, "matrix");
+    gui_key(p, xs, FRK_ESCAPE);
+    if (!gui_hit(p, xs, W_SAVE, -1)) return 5;    /* SAVE's panel */
+    rc |= gui_png(p, xs, png, "save");
+    gui_key(p, xs, FRK_ESCAPE);
     return rc;
+}
+static void gui_wheel(const clap_plugin_t *p, const txg_gui_shot_t *xs, float x, float y, float d)
+{
+    frg_input e;
+    memset(&e, 0, sizeof e);
+    e.kind = FRG_WHEEL; e.x = x; e.y = y; e.wheel = d;
+    xs->input(p, &e);
+    gui_flush(p);
+    xs->tick(p);
+}
+static void gui_drag(const clap_plugin_t *p, const txg_gui_shot_t *xs, float x, float y, float dx, float dy, int dbl)
+{
+    frg_input e;
+    memset(&e, 0, sizeof e);
+    e.kind = dbl ? FRG_DOUBLE : FRG_DOWN; e.button = FRG_LEFT; e.x = x; e.y = y;
+    xs->input(p, &e);
+    if (!dbl) { e.kind = FRG_MOVE; e.x += dx * 0.5f; e.y += dy * 0.5f; xs->input(p, &e); e.x = x + dx; e.y = y + dy; xs->input(p, &e); }
+    e.kind = FRG_UP;
+    xs->input(p, &e);
+    gui_flush(p);
+    xs->tick(p);
+}
+static int gui_param_wheel(const clap_plugin_t *p, const txg_gui_shot_t *xs, uint32_t id, float d, const char *what)
+{   /* a value's cell under the wheel: the value moved */
+    float r[4];
+    double v0, v1;
+    if (!xs->find(p, W_PARAM, (int)id, r)) { fprintf(stderr, "gui: no cell for %s (%#x)\n", what, id); return 1; }
+    v0 = gui_value(p, id);
+    gui_wheel(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, d);
+    v1 = gui_value(p, id);
+    printf("gui %s: %g -> %g\n", what, v0, v1);
+    if (v1 == v0) { fprintf(stderr, "gui: %s did not move\n", what); return 1; }
+    return 0;
+}
+static int gui_test5(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* step 5: HOW MANY / ACTIVE, the drawer, the
+                                          * strip and its expanded view, KEYS, SAVE */
+{
+    int bad = 0;
+    float r[4];
+    double v0, v1;
+    /* HOW MANY: lane 1's third block (4); HOW ACTIVE: its fifth (5) */
+    {   /* (a block that is not the top lit one: that one again is one less) */
+        int tm = gui_value(p, LANE_ID(0, 1)) == 3.0 ? 4 : 3, ta = gui_value(p, LANE_ID(0, 2)) == 5.0 ? 6 : 5;
+        if (!xs->find(p, W_MANY, 0, r)) { fprintf(stderr, "gui: no HOW MANY on lane 1\n"); return 5; }
+        gui_click(p, xs, r[0] + 2.f + (r[2] - 4.f) * (((float)tm - 0.5f) / 6.f), r[1] + r[3] * 0.5f, 0);
+        if (!xs->find(p, W_ACT, 0, r)) { fprintf(stderr, "gui: no HOW ACTIVE on lane 1\n"); return 5; }
+        gui_click(p, xs, r[0] + 2.f + (r[2] - 4.f) * (((float)ta - 0.5f) / 9.f), r[1] + r[3] * 0.5f, 0);
+        v0 = gui_value(p, LANE_ID(0, 1)); v1 = gui_value(p, LANE_ID(0, 2));
+        printf("gui HOW MANY %g, HOW ACTIVE %g (blocks %d, %d)\n", v0, v1, tm, ta);
+        if (v0 != (double)tm || v1 != (double)ta) { fprintf(stderr, "gui: the HOW MANY / HOW ACTIVE blocks\n"); bad = 1; }
+    }
+    /* the drawer: lane 1's first card dragged up, then a double-click puts its sound's own value back */
+    if (!xs->find(p, W_PARAM, (int)LANE_ID(0, 8), r)) { fprintf(stderr, "gui: no card 1 in the drawer\n"); return 5; }
+    v0 = gui_value(p, LANE_ID(0, 8));
+    gui_drag(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 0.f, v0 > 64.0 ? 50.f : -50.f, 0);
+    v1 = gui_value(p, LANE_ID(0, 8));
+    gui_drag(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 0.f, 0.f, 1);
+    printf("gui card 1: %g -> %g -> %g (double-click)\n", v0, v1, gui_value(p, LANE_ID(0, 8)));
+    if (v1 == v0 || gui_value(p, LANE_ID(0, 8)) != v0) { fprintf(stderr, "gui: the drawer's card\n"); bad = 1; }
+    bad |= gui_param_wheel(p, xs, LANE_ID(0, 48), 1.f, "GROOVE PART");
+    /* the strip: FILTER's HIGH PASS; expanded: DELAY's SPRAY, LFO 1's RATE, MOD 1's SOURCE, ENV 1's ATTACK */
+    bad |= gui_param_wheel(p, xs, 4u << 8 | 52u, 1.f, "HIGH PASS");
+    if (!gui_hit(p, xs, W_FXOPEN, 3)) return 5;
+    bad |= gui_param_wheel(p, xs, 4u << 8 | 5u, 1.f, "GRAIN SPRAY");
+    if (!gui_hit(p, xs, W_FXTAB, 5)) return 5;
+    bad |= gui_param_wheel(p, xs, 5u << 8 | 1u, 1.f, "LFO 1 RATE");
+    if (!gui_hit(p, xs, W_FXTAB, 13)) return 5;
+    bad |= gui_param_wheel(p, xs, 6u << 8 | 1u, 1.f, "ENV 1 ATTACK");
+    if (!gui_hit(p, xs, W_FXTAB, 14)) return 5;
+    if (!xs->find(p, W_PARAM, 7 << 8 | 0, r)) { fprintf(stderr, "gui: no MOD 1 SOURCE\n"); return 5; }
+    v0 = gui_value(p, 7u << 8);
+    gui_click(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 0);
+    printf("gui MOD 1 SOURCE: %g -> %g (a click)\n", v0, gui_value(p, 7u << 8));
+    if (gui_value(p, 7u << 8) == v0) { fprintf(stderr, "gui: MOD 1 SOURCE\n"); bad = 1; }
+    bad |= gui_param_wheel(p, xs, 7u << 8 | 64u, 1.f, "MOD CC");
+    gui_key(p, xs, FRK_ESCAPE);
+    /* SETTINGS: KEYS to FM-1 KEYS */
+    if (!gui_hit(p, xs, W_SET, -1)) return 5;
+    if (!gui_hit(p, xs, W_SEG, (int)((ID_KEYS & 0xFFFFu) << 8 | 1u))) return 5;
+    gui_key(p, xs, FRK_ESCAPE);
+    printf("gui KEYS: %g\n", gui_value(p, ID_KEYS));
+    if (gui_value(p, ID_KEYS) != 1.0) { fprintf(stderr, "gui: KEYS\n"); bad = 1; }
+    /* SAVE: user preset U01 named TEST */
+    if (!gui_hit(p, xs, W_SAVE, -1)) return 5;
+    if (!gui_hit(p, xs, W_SLOT, 0)) return 5;
+    for (const char *t = "TEST"; *t; t++) gui_key(p, xs, *t);
+    gui_key(p, xs, FRK_RETURN);
+    for (int i = 0; i < 8; i++) { gui_wait(); gui_flush(p); xs->tick(p); }
+    gui_key(p, xs, FRK_ESCAPE);
+    return bad;
 }
 static int gui_test3b(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* the browsers, SETTINGS, a colour, SPACE */
 {
@@ -318,14 +422,14 @@ static int gui_test3b(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* the
     if (!(v1 < v0)) { fprintf(stderr, "gui: the SPACE drag did not move PAN\n"); bad = 1; }
     return bad;
 }
-static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int test)
+static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int test)
 {
     const txg_gui_shot_t *xs = p->get_extension(p, TXG_EXT_GUI_SHOT);
     const uint32_t *px;
     int w, h, bad = 0;
     uint32_t i, ncol = 0, ink = 0;
     static uint8_t seen[1u << 21];       /* (24-bit colours, a bit each) */
-    if (!xs || !xs->headless(p, pw, pw * 3 / 5)) { fprintf(stderr, "gui: no headless window\n"); return 5; }
+    if (!xs || !xs->headless(p, pw, ph)) { fprintf(stderr, "gui: no headless window\n"); return 5; }
     xs->tick(p);
     if (!xs->grab(p, 0, &px, &w, &h)) { fprintf(stderr, "gui: nothing painted\n"); return 5; }
     for (i = 0; i < (uint32_t)(w * h); i++) {
@@ -336,6 +440,20 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int test)
     printf("gui %d x %d, %u colours, %u bright pixels\n", w, h, ncol, ink);
     if (png && png_write(png, px, w, h)) return 5;
     if (ncol < 40u || ink < (uint32_t)(w * h) / 400u) { fprintf(stderr, "gui: the window looks empty\n"); return 5; }
+    {   /* the MAP at this size: a half circle (one scale both ways: round), its L R FAR YOU inside the place */
+        float pl[4], mr[4];
+        double sx, sy;
+        if (!xs->find(p, W_PLACE, -1, pl) || !xs->find(p, W_MAPR, -1, mr)) { fprintf(stderr, "gui: no place / map\n"); return 5; }
+        sx = (double)w / 1200.0; sy = (double)h / 720.0;
+        sx = sx < sy ? sx : sy;          /* (the window's scale: canvas pixels a logical pixel, both ways) */
+        printf("gui map: radius %.0f px, round (%.0f x %.0f px), in the place %.0f x %.0f\n", mr[3] * sx, mr[2] * sx,
+               mr[3] * sx * 2.0, pl[2] * sx, pl[3] * sx);
+        if (mr[2] < 2.f * mr[3] - 0.5f || mr[2] > 2.f * mr[3] + 0.5f || mr[3] < 100.f || mr[0] - 20.f < pl[0] ||
+            mr[0] + mr[2] + 20.f > pl[0] + pl[2] || mr[1] - 20.f < pl[1] + 46.f || mr[1] + mr[3] + 30.f > pl[1] + pl[3]) {
+            fprintf(stderr, "gui: the map is not round inside the place with its labels\n");
+            return 5;
+        }
+    }
     if (png && gui_views(p, xs, png)) return 5;
     if (test) {                          /* the controls do what they say (inactive: each write applied at its flush) */
         float r[4];
@@ -377,6 +495,7 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int test)
         printf("gui LANES %u -> %g\n", lanes0 + 1u, v1 + 1.0);
         if (lanes0 < 15u && v1 != lanes0 + 1.0) { fprintf(stderr, "gui: LANES +\n"); bad = 1; }
         if (gui_test3b(p, xs)) bad = 1;
+        if (gui_test5(p, xs)) bad = 1;
         if (xs->find(p, 1 /* TXG_W_ROW */, 2, r)) gui_click(p, xs, r[0] + 30.f, r[1] + r[3] * 0.5f, 0);   /* (lane 3 selected) */
     }
     return bad ? 5 : 0;
@@ -396,7 +515,9 @@ int main(int argc, char **argv)
     double rate = 44100.0;
     uint32_t block = 512, keep = 0, state_check = 0, i, lat, total, nproc = 0, ei = 0, cpu_from = 0, fuzz = 0, inactive = 0;
     const char *state_in = 0, *state_out = 0, *shot = 0;
-    int shot_w = 1200, gui_test = 0;
+    int shot_w = 1200, shot_h = 0, gui_test = 0, list = 0;
+    uint32_t set_id[16], np_set = 0, get_id[16], n_get = 0;
+    double set_v[16];
     char bin[1024];
     void *so;
     const clap_plugin_entry_t *entry;
@@ -423,6 +544,13 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--gui-test")) gui_test = 1;
         else if (!strcmp(argv[i], "--keep-latency")) keep = 1;
         else if (!strcmp(argv[i], "--state-check")) state_check = 1;
+        else if (!strcmp(argv[i], "--shot-h") && i + 1 < (uint32_t)argc) shot_h = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--list")) list = 1;
+        else if (!strcmp(argv[i], "--get") && i + 1 < (uint32_t)argc && n_get < 16u) get_id[n_get++] = (uint32_t)strtoul(argv[++i], 0, 0);
+        else if (!strcmp(argv[i], "--param") && i + 1 < (uint32_t)argc && np_set < 16u) {
+            char *eq = strchr(argv[++i], '=');
+            if (eq) { set_id[np_set] = (uint32_t)strtoul(argv[i], 0, 0); set_v[np_set++] = atof(eq + 1); }
+        }
     }
     if (block < 1 || block > 8192) block = 512;
     read_script(script);
@@ -450,6 +578,16 @@ int main(int argc, char **argv)
     if (!entry || !entry->init(plug)) { fprintf(stderr, "no clap_entry\n"); return 2; }
     fac = entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
     p = make(fac);
+    if (list) {                          /* the host parameters: id, range, module, name */
+        const clap_plugin_params_t *xp = p->get_extension(p, CLAP_EXT_PARAMS);
+        for (i = 0; i < xp->count(p); i++) {
+            clap_param_info_t inf;
+            xp->get_info(p, i, &inf);
+            printf("%#x\t%g\t%s\t%s\n", inf.id, inf.max_value, inf.module, inf.name);
+        }
+        p->destroy(p);
+        return 0;
+    }
     if (state_in) {                      /* a project's state, before anything else */
         const clap_plugin_state_t *xs = p->get_extension(p, CLAP_EXT_STATE);
         mem_t m = {0, 0, 0};
@@ -482,6 +620,21 @@ int main(int argc, char **argv)
             k++;
         }
         fz_n = k;
+        pin.size = fz_size; pin.get = fz_get;
+        xp->flush(p, &pin, &on);
+    }
+    if (np_set) {                        /* --param ID=V: set before the activation (a flush on the main thread) */
+        const clap_plugin_params_t *xp = p->get_extension(p, CLAP_EXT_PARAMS);
+        static clap_event_param_value_t pe[16];
+        clap_input_events_t pin = { pe, 0, 0 };
+        for (i = 0; i < np_set; i++) {
+            memset(&pe[i], 0, sizeof pe[i]);
+            pe[i].header.size = sizeof pe[i]; pe[i].header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            pe[i].header.type = CLAP_EVENT_PARAM_VALUE;
+            pe[i].param_id = set_id[i]; pe[i].note_id = -1; pe[i].port_index = -1; pe[i].channel = -1; pe[i].key = -1;
+            pe[i].value = set_v[i];
+        }
+        fz_n = np_set;
         pin.size = fz_size; pin.get = fz_get;
         xp->flush(p, &pin, &on);
     }
@@ -535,24 +688,26 @@ int main(int argc, char **argv)
     }
 states:
     if (shot) {
-        int rc = gui_shot(p, shot, shot_w, gui_test);
+        int rc = gui_shot(p, shot, shot_w, shot_h > 0 ? shot_h : shot_w * 3 / 5, gui_test);
         if (!rc && gui_test) {           /* the window's writes in the saved state: the solo, the selected lane */
             const clap_plugin_state_t *xs = p->get_extension(p, CLAP_EXT_STATE);
             mem_t m = {0, 0, 0};
             clap_ostream_t os = { &m, os_write };
             if (!xs || !xs->save(p, &os)) { fprintf(stderr, "gui: state save failed\n"); return 5; }
             m.b = realloc(m.b, m.n + 1); m.b[m.n] = 0;
-            printf("gui state: solo %s, sel %s, view %s, colour %s\n", strstr(m.b, "\"solo\":\"4\"") ? "saved" : "MISSING",
+            printf("gui state: solo %s, sel %s, view %s, colour %s, keys %s, user U01 %s\n", strstr(m.b, "\"solo\":\"4\"") ? "saved" : "MISSING",
                    strstr(m.b, "\"sel\":\"2\"") ? "saved" : "MISSING", strstr(m.b, "\"view\":\"1\"") ? "saved" : "MISSING",
-                   strstr(m.b, ":6;") ? "saved" : "MISSING");
+                   strstr(m.b, ":6;") ? "saved" : "MISSING", strstr(m.b, "\"keys\":\"1\"") ? "saved" : "MISSING",
+                   strstr(m.b, "\"umask\":\"1\"") ? "saved" : "MISSING");
             if (!strstr(m.b, "\"solo\":\"4\"") || !strstr(m.b, "\"sel\":\"2\"") || !strstr(m.b, "\"view\":\"1\"") ||
-                !strstr(m.b, ":6;"))
+                !strstr(m.b, ":6;") || !strstr(m.b, "\"keys\":\"1\"") || !strstr(m.b, "\"umask\":\"1\""))
                 rc = 5;
             free(m.b);
         }
         if (rc) { p->destroy(p); return rc; }
         printf("gui ok\n");
     }
+    for (i = 0; i < n_get; i++) printf("param %#x = %g\n", get_id[i], gui_value(p, get_id[i]));   /* --get ID: a value at the end */
     if (state_out) {
         const clap_plugin_state_t *xs = p->get_extension(p, CLAP_EXT_STATE);
         mem_t m = {0, 0, 0};

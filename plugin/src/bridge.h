@@ -31,9 +31,13 @@
 #define TXP_SLOTS 16u                    /* the slots: the instances that can play at once */
 #define TXP_FS 44100u                    /* the app's rate: always */
 #define TXP_NPARAM_MAX 1024u             /* the host's parameters (slot_bridge.h sb_params: about 480 with 16 lanes) */
-#define TXP_STATE_MAX 8192               /* the state's JSON text (slot_bridge.h) */
+#define TXP_STATE_MAX 81920              /* the state's JSON text (slot_bridge.h): the scene, the settings and the user
+                                          * scenes U01 .. U16 (each one's record in hex, 4 kB) */
 #define TXP_ID_OWN0 0x10000u             /* the plugin's own parameters: not the app's ids (those are < 0x1C00) */
 #define TXP_ID_PRESET (TXP_ID_OWN0 + 0u) /* PRESET: F001 .. F100 (a program change on channel 1) */
+#define TXP_ID_KEYS (TXP_ID_OWN0 + 1u)   /* KEYS: what SELECTED CH's notes F3 .. G5 do: 0 PLAY (they play the selected
+                                          * lane, as sent: the default), 1 FM-1 KEYS (the FM-1's keys in LANDSCAPE mode)
+                                          * (slot_bridge.h sb_keys) */
 #define TXP_LAT_MS 10u                   /* the ms test mode's pre-roll (bridge.c) */
 
 enum { TXP_EV_MIDI = 1, TXP_EV_PARAM, TXP_EV_RESET, TXP_EV_RELEASE,
@@ -41,8 +45,15 @@ enum { TXP_EV_MIDI = 1, TXP_EV_PARAM, TXP_EV_RESET, TXP_EV_RELEASE,
        TXP_EV_SOLO,                      /* the window's S: the lanes soloed, v a mask (the plugin's own: slot_bridge.h) */
        TXP_EV_SOUND,                     /* the sound browser: lane a gets family v >> 4's sound v & 15 (the FM-1
                                           * browser's sc_sound_set); v | TXP_SND_KEEP: kept (the scene is edited) */
-       TXP_EV_LOAD };                    /* the presets browser: v a scene (0 .. 115: F001 .. U16) or TXP_LOAD_LS +
+       TXP_EV_LOAD,                      /* the presets browser: v a scene (0 .. 115: F001 .. U16) or TXP_LOAD_LS +
                                           * a landscape; a 1: with its effects (the FM-1's EDIT again on the one loaded) */
+       TXP_EV_SEL,                       /* the selected lane: a (the app's own: SELECTED CH's notes, the keys) */
+       TXP_EV_REC,                       /* every lane and the transport stopped / started (the FM-1's REC) */
+       TXP_EV_UNDO,                      /* the last load or sound kept undone; again: redone (the FM-1's SAVE held) */
+       TXP_EV_NAME,                      /* a user scene's name for TXP_EV_SAVE: its characters a .. a + 3 in v, low
+                                          * byte first */
+       TXP_EV_SAVE,                      /* the scene that plays saved into user scene a (0 .. 15: U01 .. U16) */
+       TXP_EV_TEMPO };                   /* the app's own tempo: v BPM x 10 (the host's leads when it gives one) */
 #define TXP_SND_KEEP 0x1000
 #define TXP_LOAD_LS 0x100
 #define TXP_LANES 16u                    /* the lanes a slot has (TX_MIX_SLOTS: plugin/cmake/slots.cmake) */
@@ -73,6 +84,14 @@ typedef struct {
     char fam[16];                        /* its family ("Fire") */
 } txp_ui_lane_t;
 enum { TXP_MOD_LEVEL = 1, TXP_MOD_PAN = 2, TXP_MOD_COUNT = 4, TXP_MOD_ACTIVE = 8, TXP_MOD_DIST = 16 };
+#define TXP_CARD_N 8u                    /* a sound's cards at most (params.c SCD_MAX) */
+typedef struct {                         /* a lane's cards (its sound's), for the window's drawer */
+    uint8_t n;                           /* how many */
+    uint8_t mod;                         /* bit i: card i is moved by the modulation now */
+    uint8_t live[TXP_CARD_N];            /* each one as the modulation has it now (0 .. 127, as its host value) */
+    uint8_t def[TXP_CARD_N];             /* its sound's own value (0 .. 127: a double-click) */
+    char lab[TXP_CARD_N][9];             /* their names ("DIST") */
+} txp_ui_cards_t;
 #define TXP_LFO_N 8u
 #define TXP_USER_N 16u
 typedef struct {
@@ -88,7 +107,16 @@ typedef struct {
     char lfo_to[TXP_LFO_N][24];          /* its first route's target ("L1 PAN") */
     uint16_t user;                       /* the user scenes saved (bit n: U01 + n) */
     char uname[TXP_USER_N][13];          /* their names */
+    uint8_t sel;                         /* the app's selected lane (scape.c sc.sel) */
+    uint8_t any_run;                     /* a lane plays (REC: all stopped) */
+    uint8_t saving;                      /* a user scene being saved */
+    uint8_t undo;                        /* an undo is there (a load, or a sound kept) */
+    int16_t comp_gr10;                   /* the compressor's gain reduction now, dB x 10 (0: none, or off) */
+    int16_t out_db10;                    /* the output's peak since the last publication, dBFS x 10 (-900: silence) */
+    uint32_t gmod[2];                    /* the globals (scope 4, index i < 64) the modulation moves now: bit i */
+    uint8_t lfo_mod;                     /* the LFOs whose RATE or LEVEL the modulation moves now (bit n) */
     txp_ui_lane_t lane[TXP_LANES];
+    txp_ui_cards_t card[TXP_LANES];
 } txp_ui_snap_t;
 
 /* the app's constant tables the window shows (families and sounds, the engines, the factory presets): the same for every
@@ -119,6 +147,9 @@ typedef struct {
     uint8_t settled;                     /* no load, glide or engine switch under way */
     uint16_t tempo10;                    /* the app's tempo (BPM x 10) */
     txp_ui_snap_t ui;
+    /* each host parameter's value as the app shows it now (its page's text: "4.2 kHz", "L12", "1/8", "LFO 2"; a card
+     * in its sound's own unit), the table's order; refreshed as the values change (all of them every 32nd time) */
+    char ptx[TXP_NPARAM_MAX][16];
 } txp_snap_t;
 
 typedef struct {

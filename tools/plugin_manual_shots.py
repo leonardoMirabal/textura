@@ -22,6 +22,12 @@ PICK = {   # the gate's picture -> the manual's
     "gui4-presets": "preset-browser",
     "gui4-settings": "settings",
     "gui4-colour": "colour-picker",
+    "gui4-fx": "effects",
+    "gui4-lfo": "lfo",
+    "gui4-env": "env-follow",
+    "gui4-matrix": "matrix",
+    "gui4-save": "save",
+    "960x600": "window-960x600",
 }
 
 

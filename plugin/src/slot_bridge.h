@@ -32,10 +32,19 @@
  * ACTIVE, level, pan, mute and cards, the effects, the modulation, GROOVE, the tempo), the scene loaded last, and the
  * settings that are parameters (the keys' SCALE, MIDI IN, EFFECTS ON LOAD, PRESETS CHANGE TEMPO). Loaded, it is
  * applied as a scene with its effects (scn_apply, scn_fx_force); outside processing the slot runs until the load is
- * done (sb_settle), so the values read back at once are the state's. Nothing is written to disk: the user scenes' bank
- * stays in memory (the FM-1's SAVE has no key here yet). The plugin's SOLO (the window's S: no FM-1 has it) is in the
+ * done (sb_settle), so the values read back at once are the state's. Nothing is written to disk: the user scenes
+ * U01 .. U16 (the window's SAVE: scenes.c scn_save_start, as the FM-1's save mode) live in the slot's flash window
+ * (web_hal.c) and go with the state ("user": each saved one's record), so they stay with the project; a state loaded
+ * puts its own bank back (none in it: no user scene). The plugin's SOLO (the window's S: no FM-1 has it) is in the
  * state too ("solo"): the lanes soloed play, the others are shut at the mix as a mute shuts them (lanes.c ln_gate,
- * sb_solo), and the app's own mutes stay as they are (a scene keeps those).
+ * sb_solo), and the app's own mutes stay as they are (a scene keeps those). So are the selected lane ("sel", the app's
+ * own: scape.c sc.sel) and KEYS ("keys").
+ *
+ * KEYS (the plugin's own parameter, TXP_ID_KEYS): PLAY (the default) leaves every note to the app (notes.c nt_midi: on
+ * SELECTED CH the selected lane plays it, as sent); FM-1 KEYS makes SELECTED CH's notes F3 .. G5 (53 .. 79) the FM-1's
+ * 27 keys in LANDSCAPE mode (web_hal.c fm1_in.notes, read by notes.c nt_poll: the black keys' groups select lanes
+ * 1 .. 4, held 600 ms they mute it, F3 .. E4 HOW MANY, F4 .. G5 HOW ACTIVE), and the black keys above G5 (G#5, A#5,
+ * C#6 .. A#7: twelve) select lanes 5 .. 16 (sb_keys).
  *
  * The window (plugin/gui_core.c) reads what each lane plays (txp_ui_snap_t, published with the values) and the lanes'
  * activity: after every app block each lane's engine events and peak (lanes.c ln.lev, ln.lpk) go into a ring of
@@ -54,7 +63,9 @@
 #define SB_NSET 24u                      /* the settings in the state */
 #define SB_SCN_HEX (2u * sizeof(scn_t))
 #define SB_SCN_V1_HEX (2u * sizeof(scn_v1_t))   /* (a state of before: the FM-1's four-lane scene record) */
-_Static_assert(SB_SCN_HEX + 1024u < TXP_STATE_MAX, "the state fits bridge.h TXP_STATE_MAX");
+#define SB_USER_HEX (SCN_NU * 2u * sizeof(scn_t))   /* the user scenes, all sixteen saved */
+_Static_assert(SB_SCN_HEX + SB_USER_HEX + 2048u < TXP_STATE_MAX, "the state fits bridge.h TXP_STATE_MAX");
+#define SB_KEY0 53u                      /* KEYS: F3, the FM-1's first key (notes.c) */
 
 typedef struct { uint8_t kind, x; uint32_t at, a; int32_t v; } sb_ev_t;   /* x: at is an app frame x 256 (exact) */
 static const uint8_t SB_SET_IDX[SB_NSET] = { PG_SCNFX, PG_SCNTEMPO, PG_SCMODE, PG_SCALE, PG_ROOT, PG_TRANS, PG_SELCH,
@@ -101,6 +112,24 @@ static struct {
     /* the activity ring (sb_act): one entry an app block */
     uint8_t act_ev[TXP_ACT_N][TXP_LANES], act_pk[TXP_ACT_N][TXP_LANES];
     _Atomic uint32_t act_n;
+    /* KEYS (sb_keys): the mode, the FM-1 keys held (web_hal.c fm1_in.notes), those let go (cleared after a pass) */
+    uint8_t keys, cap_keys;
+    int8_t st_keys;                      /* (the mailbox's: -1 none in it) */
+    uint32_t kmask, koff;
+    /* the selected lane in the state (the mailbox's: -1 none in it) */
+    uint8_t cap_sel;
+    int8_t st_sel;
+    /* the user scenes in the state: the mailbox's (st_umask -1: no "user" in it) and the capture's */
+    int32_t st_umask;
+    uint16_t cap_umask;
+    scn_t st_user[SCN_NU], cap_user[SCN_NU];
+    char save_nm[12];                    /* TXP_EV_NAME: the next save's name */
+    /* the output's peak since the last publication (Q15), the texts' values and their refresh count (sb_publish) */
+    int32_t opk;
+    int16_t odb10;                       /* (the output's peak published last: 1000 + dB x 10; 0 none yet) */
+    uint32_t opk_blk;
+    int16_t ptx_v[TXP_NPARAM_MAX];
+    uint32_t ptx_n;
 } sbx;
 typedef char sb_ui_lanes[SC_N == TXP_LANES ? 1 : -1];
 
@@ -192,6 +221,7 @@ static void sb_tab_make(void)
         sb_tab_add(id, (uint32_t)mod_hi(id), 0, mod_choice(id), "Matrix", pfx, mod_lab(id));
     }
     sb_tab_add(PID(P_MAT, MQ_CC), (uint32_t)mod_hi(PID(P_MAT, MQ_CC)), 0, 0, "Matrix", "", "MOD CC");
+    sb_tab_add(TXP_ID_KEYS, 1u, 0, 1, "MIDI", "MIDI ", "KEYS");
 }
 static uint32_t sb_params(txp_param_t *tab, uint32_t max)
 {
@@ -216,6 +246,11 @@ static int sb_text(uint32_t id, int32_t v, char *buf, uint32_t n)
         snprintf(buf, n, "%s", nm);
         return 0;
     }
+    if (id == TXP_ID_KEYS) {
+        if (v < 0 || v > 1) return -1;
+        snprintf(buf, n, "%s", v ? "FM-1 KEYS" : "PLAY");
+        return 0;
+    }
     if (P_MODS(s) || (s > P_GLOBAL && !P_IS_LANE(s))) return -1;
     if (P_IS_LANE(s) && !(i == PL_COUNT || i == PL_ACTIVE || i == PL_PAN || i == PL_GPART || i == PL_GCYC)) return -1;
     f = p_fmt(id);
@@ -229,6 +264,7 @@ static int32_t sb_value(const txp_param_t *p)   /* a host parameter's value now 
 {
     int32_t v, h;
     if (p->id == TXP_ID_PRESET) return sbx.last_fact;
+    if (p->id == TXP_ID_KEYS) return sbx.keys;
     if (P_IS_LANE(P_SCOPE(p->id)) && P_IDX(p->id) != PL_GPART && P_IDX(p->id) != PL_GCYC && sc.snd[P_LANE_OF(P_SCOPE(p->id))] < 0)
         return P_IDX(p->id) == PL_PAN ? 64 : P_IDX(p->id) == PL_LEVEL ? 100 : 0;   /* an empty lane: what it plays, nothing
                                           * (its pan and cards of before are no part of a scene: a state loaded into another
@@ -256,6 +292,10 @@ static void sb_param_set(uint32_t id, int32_t v)   /* a host parameter written, 
         if (v >= 0 && v < (int32_t)PR_N) { (void)pr_load((uint32_t)v); sbx.last_fact = (uint8_t)v; }
         return;
     }
+    if (id == TXP_ID_KEYS) {             /* (the keys held let go: none stays down in the other mode) */
+        if ((v != 0) != sbx.keys) { sbx.koff |= sbx.kmask; sbx.keys = (uint8_t)(v != 0); }
+        return;
+    }
     if (id >= TXP_ID_OWN0 || !p_valid(id)) return;
     if (sb_is_card(id)) p_midi_set(id, p_scale7(id, (uint32_t)(v < 0 ? 0 : v > 127 ? 127 : v)));
     else p_midi_set(id, v);
@@ -265,7 +305,7 @@ static void sb_param_set(uint32_t id, int32_t v)   /* a host parameter written, 
 static int sb_is_settled(void)
 {
     uint32_t k;
-    if (scn_busy() || scn_gl_n || scn_cand != 0xFF) return 0;
+    if (scn_busy() || scn_gl_n || scn_cand != 0xFF || scn_sv_on) return 0;   /* (a SAVE written to its end too) */
     for (k = 0; k < SC_N; k++) if (sc.gl_on[k] || sc.a_eng[k] != sc.eng[k] || sc.reswap[k]) return 0;
     return 1;
 }
@@ -331,6 +371,25 @@ static void sb_ui(txp_ui_snap_t *u)       /* what the window shows (the app's th
     uint32_t k, i;
     memset(u, 0, sizeof *u);
     u->nlane = sc_nlane;
+    u->sel = sc.sel;
+    u->any_run = (uint8_t)sc_any_run();
+    u->saving = scn_sv_on;
+    u->undo = (uint8_t)(scn_undo_ok || scn_su.on);
+    u->comp_gr10 = (int16_t)(pv_glob[PG_COMP0 + TX_CP_ON] ? tx_comp_gr_db10(&ln.mix.comp) : 0);
+    if (sbx.st.blocks != sbx.opk_blk) {  /* (the peak since the last publish that had blocks: a publish with none, a
+                                          * flush's, keeps the last) */
+        float db = sbx.opk > 0 ? 20.0f * log10f((float)sbx.opk * (1.0f / 32768.0f)) : -90.0f;
+        sbx.odb10 = (int16_t)(1000 + (db < -90.0f ? -900 : db > 30.0f ? 300 : (int)lroundf(db * 10.0f)));
+        sbx.opk = 0;
+        sbx.opk_blk = sbx.st.blocks;
+    }
+    u->out_db10 = (int16_t)(sbx.odb10 ? sbx.odb10 - 1000 : -900);
+    for (i = 0; i < 64u && i < PGX_LANE; i++) {
+        uint32_t id = PID(P_GLOBAL, i);
+        if ((p_fx_desc(id) || p_gx(id)) && mod_holds(id)) u->gmod[i / 32u] |= 1u << (i % 32u);
+    }
+    for (i = 0; i < TX_LFO_N && i < TXP_LFO_N; i++)
+        if (mod_holds(PID(P_LFO, i * 16u + TX_LP_RATE)) || mod_holds(PID(P_LFO, i * 16u + TX_LP_LEVEL))) u->lfo_mod |= (uint8_t)(1u << i);
     u->edited = scn_edited;
     u->solo = sbx.solo;
     u->scene = scn_cur;
@@ -371,7 +430,16 @@ static void sb_ui(txp_ui_snap_t *u)       /* what the window shows (the app's th
         snprintf(l->fam, sizeof l->fam, "%s", LS[sc.lf[k]].name);
         {
             p_cards_t *c = p_cards(k);
+            txp_ui_cards_t *cd = &u->card[k];
             for (i = 0; i < c->n; i++) if (sc_eq(c->lab[i], "DIST")) { l->dist = (uint8_t)i; break; }
+            cd->n = (uint8_t)(c->n < TXP_CARD_N ? c->n : TXP_CARD_N);
+            for (i = 0; i < cd->n; i++) {  /* (the drawer: names, the sound's own values, what the modulation moves) */
+                uint32_t id = PID(ls, PL_CARD0 + i);
+                snprintf(cd->lab[i], sizeof cd->lab[i], "%s", c->lab[i] ? c->lab[i] : "");
+                cd->def[i] = sb_card127(id, c->def[i]);
+                cd->live[i] = sb_card127(id, p_get(id));
+                if (mod_live(id, &v)) { cd->mod |= (uint8_t)(1u << i); cd->live[i] = sb_card127(id, v); }
+            }
         }
         l->lpan = sc.pan[k];
         if (mod_live(PID(ls, PL_PAN), &v)) { l->modm |= TXP_MOD_PAN; l->lpan = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v); }
@@ -393,6 +461,26 @@ static void sb_publish(void)
     atomic_store_explicit(&sbx.pub_seq, q + 1u, memory_order_relaxed);
     atomic_thread_fence(memory_order_release);
     for (i = 0; i < sbx.ntab; i++) sbx.pub.pv[i] = (int16_t)sb_value(&sbx.tab[i]);
+    {   /* the values' texts, as the app's pages write them: those that moved, all of them every 32nd time (a text
+         * that follows another value: a RATE its SYNC, a TARGET its lane's sound) */
+        int all = sbx.ptx_n++ % 32u == 0u;
+        for (i = 0; i < sbx.ntab; i++) {
+            const txp_param_t *p = &sbx.tab[i];
+            char t[32];
+            const char *un;
+            int32_t v = sbx.pub.pv[i];
+            if (!all && v == sbx.ptx_v[i]) continue;
+            sbx.ptx_v[i] = (int16_t)v;
+            t[0] = 0;
+            if (p->id >= TXP_ID_OWN0) { if (sb_text(p->id, v, t, sizeof t)) snprintf(t, sizeof t, "%d", (int)v); }
+            else if (P_IS_LANE(P_SCOPE(p->id)) && P_IDX(p->id) != PL_GPART && P_IDX(p->id) != PL_GCYC && sc.snd[P_LANE_OF(P_SCOPE(p->id))] < 0) {}
+            else if (p_valid(p->id)) {
+                un = p_text(p->id, t);
+                if (un) { size_t n = strlen(t); snprintf(t + n, sizeof t - n, " %s", un); }
+            }
+            snprintf(sbx.pub.ptx[i], sizeof sbx.pub.ptx[i], "%s", t);
+        }
+    }
     sb_ui(&sbx.pub.ui);
     sbx.pub.scene = scn_cur;
     sbx.pub.settled = (uint8_t)sb_is_settled();
@@ -421,12 +509,19 @@ static void sb_capture(void)             /* the state as it plays now, for sb_st
     scn_capture(&sbx.cap_scn);
     sbx.cap_cur = scn_cur;
     sbx.cap_solo = sbx.solo;
+    sbx.cap_keys = sbx.keys;
+    sbx.cap_sel = sc.sel;
+    sbx.cap_umask = 0;
+    for (i = 0; i < SCN_NU; i++)         /* (the user scenes: each saved one's record, as the bank holds it) */
+        if (scn_meta[i].used && !scn_read(i, &sbx.cap_user[i])) sbx.cap_umask |= (uint16_t)(1u << i);
     for (i = 0; i < SB_NSET; i++) sbx.cap_set[i] = (int16_t)p_get(PID(P_GLOBAL, SB_SET_IDX[i]));
     atomic_store_explicit(&sbx.cap_seq, q + 2u, memory_order_release);
 }
 
-/* ---- the state: {"textura":"2","cur":"N","set":"I=V,...","solo":"M","scene":"<scn_t, hex>"} (M: the SOLO's lanes, a
- * mask, absent in a state of before: none; the scene record as the user bank
+/* ---- the state: {"textura":"2","cur":"N","set":"I=V,...","solo":"M","keys":"K","sel":"S","umask":"U",
+ * "user":"<scn_t, hex, each saved one in order>","scene":"<scn_t, hex>"} (M: the SOLO's lanes, a mask, absent in a
+ * state of before: none; K KEYS, S the selected lane, U the user scenes saved, a mask: absent, the defaults and no user
+ * scene; the scene record as the user bank
  * keeps it, scenes.c scn_t: version 2, SC_N lanes and LANES; a later firmware's records load as a scene of before
  * does). A state of before, "textura":"1" (the four-lane plugin's: its scene the FM-1's record, version 1), loads
  * into lanes 1 .. 4, the others empty (scenes.c scn_from_v1) */
@@ -444,15 +539,21 @@ static const char *sb_json_str(const char *j, const char *key, uint32_t *len)   
     *len = (uint32_t)(q - p);
     return p;
 }
+static char *sb_hex_put(char *o, const void *p, uint32_t n)
+{
+    for (uint32_t i = 0; i < n; i++) { *o++ = SB_HEX[((const uint8_t *)p)[i] >> 4]; *o++ = SB_HEX[((const uint8_t *)p)[i] & 15u]; }
+    return o;
+}
 static int sb_state_get(char *buf, int n, int fresh)   /* fresh: ask the audio side for a capture first (processing) */
 {
     scn_t s;
-    uint8_t cur;
-    uint16_t solo;
+    uint8_t cur, keys, sel;
+    uint16_t solo, um;
     int16_t set[SB_NSET];
     char *o = buf;
     uint32_t i;
-    if (n < (int)(SB_SCN_HEX + 512u)) return -1;
+    static _Thread_local scn_t user[SCN_NU];
+    if (n < (int)(SB_SCN_HEX + SB_USER_HEX + 1024u)) return -1;
     if (fresh) {                         /* the next step captures (a host that stops calling process: the last one) */
         uint32_t c0 = atomic_load(&sbx.cap_seq);
         struct timespec ts = { 0, 1000000 };
@@ -463,16 +564,29 @@ static int sb_state_get(char *buf, int n, int fresh)   /* fresh: ask the audio s
         uint32_t q1 = atomic_load_explicit(&sbx.cap_seq, memory_order_acquire), q2;
         if (q1 & 1u) continue;
         s = sbx.cap_scn; cur = sbx.cap_cur; solo = sbx.cap_solo; memcpy(set, sbx.cap_set, sizeof set);
+        keys = sbx.cap_keys; sel = sbx.cap_sel; um = sbx.cap_umask;
+        for (i = 0; i < SCN_NU; i++) if (um >> i & 1u) user[i] = sbx.cap_user[i];
         atomic_thread_fence(memory_order_acquire);
         q2 = atomic_load_explicit(&sbx.cap_seq, memory_order_relaxed);
         if (q1 == q2) break;
     }
     o += sprintf(o, "{\"textura\":\"2\",\"cur\":\"%u\",\"set\":\"", (unsigned)cur);
     for (i = 0; i < SB_NSET; i++) o += sprintf(o, "%s%u=%d", i ? "," : "", (unsigned)PID(P_GLOBAL, SB_SET_IDX[i]), set[i]);
-    o += sprintf(o, "\",\"solo\":\"%u\",\"scene\":\"", (unsigned)solo);
-    for (i = 0; i < sizeof s; i++) { *o++ = SB_HEX[((const uint8_t *)&s)[i] >> 4]; *o++ = SB_HEX[((const uint8_t *)&s)[i] & 15u]; }
+    o += sprintf(o, "\",\"solo\":\"%u\",\"keys\":\"%u\",\"sel\":\"%u\",\"umask\":\"%u\",\"user\":\"", (unsigned)solo,
+                 (unsigned)keys, (unsigned)sel, (unsigned)um);
+    for (i = 0; i < SCN_NU; i++) if (um >> i & 1u) o = sb_hex_put(o, &user[i], sizeof user[i]);
+    o += sprintf(o, "\",\"scene\":\"");
+    o = sb_hex_put(o, &s, sizeof s);
     o += sprintf(o, "\"}");
     return (int)(o - buf);
+}
+static int32_t sb_json_num(const char *j, const char *key, int32_t none)   /* "key":"N" (absent or not a number: none) */
+{
+    uint32_t l = 0, i, n = 0;
+    const char *p = j ? sb_json_str(j, key, &l) : 0;
+    if (!p || !l || l > 6u) return none;
+    for (i = 0; i < l; i++) { if (p[i] < '0' || p[i] > '9') return none; n = n * 10u + (uint32_t)(p[i] - '0'); }
+    return (int32_t)n;
 }
 static int sb_hexv(char c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1; }
 static int sb_state_set(const char *j)   /* into the mailbox; sb_state_apply applies it between two passes */
@@ -496,9 +610,37 @@ static int sb_state_set(const char *j)   /* into the mailbox; sb_state_apply app
         b8[i] = (uint8_t)(a << 4 | b);
     }
     if (v1 ? scn_from_v1(&x, &x1) : (x.ver != SCN_VER || x.nrec > SCN_REC_MAX)) { sbx.st.state_bad++; return -1; }
-    while (!atomic_compare_exchange_weak(&sbx.st_flag, &expect, 1)) {
-        if (expect == 3) { sbx.st.state_bad++; return -1; }   /* (being applied right now: the host may retry) */
-        if (expect != 0 && expect != 2) expect = 0;
+    {   /* the user scenes (a state without them, or one unreadable: none) */
+        static scn_t ux[SCN_NU];         /* (the main thread's alone) */
+        int32_t um = sb_json_num(j, "umask", -1);
+        uint32_t lu = 0, at = 0;
+        const char *u = sb_json_str(j, "user", &lu);
+        uint32_t m = um > 0 ? (uint32_t)um & 0xFFFFu : 0u, cnt = 0;
+        for (i = 0; i < SCN_NU; i++) cnt += m >> i & 1u;
+        if (!u || lu != cnt * 2u * sizeof(scn_t)) m = 0;
+        for (i = 0; i < SCN_NU && m; i++) {
+            uint8_t *b = (uint8_t *)&ux[i];
+            if (!(m >> i & 1u)) continue;
+            for (uint32_t q = 0; q < sizeof(scn_t); q++, at += 2u) {
+                int a = sb_hexv(u[at]), c2 = sb_hexv(u[at + 1u]);
+                if (a < 0 || c2 < 0) { m = 0; break; }
+                b[q] = (uint8_t)(a << 4 | c2);
+            }
+            if (m && (ux[i].ver != SCN_VER || !ux[i].used || ux[i].nrec > SCN_REC_MAX)) m &= ~(1u << i);
+        }
+        um = (int32_t)m;
+        expect = 0;
+        while (!atomic_compare_exchange_weak(&sbx.st_flag, &expect, 1)) {
+            if (expect == 3) { sbx.st.state_bad++; return -1; }   /* (being applied right now: the host may retry) */
+            if (expect != 0 && expect != 2) expect = 0;
+        }
+        sbx.st_umask = um;
+        for (i = 0; i < SCN_NU; i++) if (m >> i & 1u) sbx.st_user[i] = ux[i];
+        sbx.st_keys = (int8_t)(sb_json_num(j, "keys", -1) == 1 ? 1 : sb_json_num(j, "keys", -1) == 0 ? 0 : -1);
+        {
+            int32_t se = sb_json_num(j, "sel", -1);
+            sbx.st_sel = (int8_t)(se >= 0 && se < (int32_t)SC_N ? se : -1);
+        }
     }
     sbx.st_scn = x;
     sbx.st_cur = 0xFF;
@@ -521,19 +663,42 @@ static int sb_state_set(const char *j)   /* into the mailbox; sb_state_apply app
     atomic_store(&sbx.st_flag, 2);
     return 0;
 }
+/* the user scenes' bank put back as a state has it (m: those saved): both copies erased, copy A written whole (its
+ * records, then its header, as scn_bank.c writes one), then read as at the boot (scenes.c scn_bank_load) */
+static void sb_user_put(uint32_t m)
+{
+    static scn_t z;                      /* (an empty slot: zeros, as scn_chunk writes one) */
+    uint32_t i, c = 0xFFFFFFFFu;
+    scn_hdr_t h;
+    for (i = 0; i < 2u * SCN_BANK_SECT; i++) (void)fl_window_erase(SCN_BANK_A + i * 0x1000u);
+    if (m) {
+        for (i = 0; i < SCN_NU; i++) {
+            const scn_t *s = m >> i & 1u ? &sbx.st_user[i] : &z;
+            (void)fl_window_write(SCN_BANK_A + sizeof h + i * SCN_SLOT, s, SCN_SLOT);
+            c = scn_crc(c, (const uint8_t *)s, SCN_SLOT);
+        }
+        h.magic = SCN_MAGIC; h.seq = 1u; h.len = SCN_NU * SCN_SLOT; h.crc = ~c;
+        (void)fl_window_write(SCN_BANK_A, &h, sizeof h);
+    }
+    scn_bank_load();
+}
 static void sb_state_apply(void)
 {
     int expect = 2;
     uint32_t i;
-    if (atomic_load(&sbx.st_flag) != 2 || scn_busy()) return;   /* (a load running reads its own scene: after it) */
+    if (atomic_load(&sbx.st_flag) != 2 || scn_busy() || scn_sv_on) return;   /* (a load running reads its own scene:
+                                          * after it; a save running writes the bank: after it) */
     if (!atomic_compare_exchange_strong(&sbx.st_flag, &expect, 3)) return;
     for (i = 0; i < SB_NSET; i++) if (sbx.st_set[i] >= 0) p_set(PID(P_GLOBAL, SB_SET_IDX[i]), sbx.st_set[i]);
+    sb_user_put(sbx.st_umask > 0 ? (uint32_t)sbx.st_umask : 0u);
+    if ((sbx.st_keys == 1) != sbx.keys) { sbx.koff |= sbx.kmask; sbx.keys = sbx.st_keys == 1; }
     sbx.ap_scn = sbx.st_scn;
     scn_cand = 0xFF;                     /* (a program change still waiting: the state comes after it) */
     scn_fx_force = 1;                    /* (its effects too, whatever EFFECTS ON LOAD says) */
     for (i = 0; i < sbx.ap_scn.nrec; i++) /* (its tempo: whatever PRESETS CHANGE TEMPO says; the host's leads) */
         if (sbx.ap_scn.r[i].id == PID(P_GLOBAL, PG_FINE)) (void)tempo_set10((uint32_t)(sbx.ap_scn.r[i].v + 400));
     scn_apply(&sbx.ap_scn, sbx.st_cur);
+    if (sbx.st_sel >= 0) sc_select((uint32_t)sbx.st_sel);
     sbx.solo = (uint16_t)(sbx.st_solo > 0 ? sbx.st_solo : 0);   /* (a state without one: no lane soloed) */
     if (sbx.st_cur < SCN_NF) sbx.last_fact = sbx.st_cur;
     sbx.st.state_ok++; sbx.rev++;
@@ -560,7 +725,29 @@ static uint32_t sb_room(void)
 {
     return SB_Q - (atomic_load_explicit(&sbx.qw, memory_order_relaxed) - atomic_load_explicit(&sbx.qr, memory_order_acquire));
 }
-static void sb_notes_off(void) { while (nt_mn) nt_mq_off(0); }   /* every MIDI note let go (notes.c) */
+static void sb_notes_off(void) { while (nt_mn) nt_mq_off(0); sbx.koff |= sbx.kmask; }   /* every MIDI note let go
+                                          * (notes.c), every FM-1 key too */
+/* KEYS = FM-1 KEYS: a note on SELECTED CH taken as the FM-1's keys (1), or left to the app (0). F3 .. G5 press and let
+ * go the key (the app reads it at its next pass; one let go before it: a pass later); the black keys above G5 select
+ * lanes 5 .. 16; a note off whose key is not held (a note played before the mode changed) is the app's */
+static int sb_keys(uint8_t st, uint8_t d1, uint8_t d2)
+{
+    uint32_t ch = st & 15u, ty = st & 0xF0u, on = ty == 0x90u && d2 > 0u;
+    if (!sbx.keys || !nt_selch || ch + 1u != nt_selch || (ty != 0x90u && ty != 0x80u)) return 0;
+    if (d1 >= SB_KEY0 && d1 < SB_KEY0 + TX_NKEYS) {
+        uint32_t b = 1u << (d1 - SB_KEY0);
+        if (on) { sbx.kmask |= b; sbx.koff &= ~b; return 1; }
+        if (sbx.kmask & b) { sbx.koff |= b; return 1; }
+        return 0;
+    }
+    if (d1 >= SB_KEY0 + TX_NKEYS && on && (0x54Au >> (d1 % 12u) & 1u)) {   /* (C# D# F# G# A#) */
+        uint32_t n = 0, x;
+        for (x = SB_KEY0 + TX_NKEYS; x <= d1; x++) n += 0x54Au >> (x % 12u) & 1u;
+        if (n >= 1u && 3u + n < SC_N) sc_select(3u + n);
+        return 1;
+    }
+    return 0;
+}
 /* apply the queued events; timed: only those due by sbx.ms, an exact one only for the next block to render (and a
  * full MIDI ring makes the rest wait a millisecond) */
 static void sb_events(int timed)
@@ -579,7 +766,8 @@ static void sb_events(int timed)
             uint8_t st = (uint8_t)e->a, d1 = (uint8_t)(e->a >> 8) & 127u, d2 = (uint8_t)(e->a >> 16) & 127u;
             if (mq_w - mq_r >= SB_HOST_RING) { sbx.st.ring_wait++; sbx.ev_wait = 1; return; }   /* the rest wait a
                                                  * millisecond */
-            web_midi(st, d1, d2);
+            if (sb_keys(st, d1, d2)) sbx.rev++;
+            else web_midi(st, d1, d2);
             sbx.st.midi++;
         } else if (e->kind == TXP_EV_PARAM) {
             /* the engines' queue (lanes.c LN_QN) half full: the rest wait for the next step. A value can send a lane
@@ -607,6 +795,35 @@ static void sb_events(int timed)
             if (e->v >= TXP_LOAD_LS && (uint32_t)(e->v - TXP_LOAD_LS) < LS_N) ui_land_go((uint32_t)(e->v - TXP_LOAD_LS));
             else if (e->v >= 0 && (uint32_t)e->v < SCN_N && ((uint32_t)e->v < SCN_NF || scn_meta[e->v - SCN_NF].used))
                 scn_pb_go((uint32_t)e->v, e->a & 1u);
+            sbx.rev++;
+        } else if (e->kind == TXP_EV_SEL) {   /* (as a black key: the lane the keys and SELECTED CH play) */
+            if (e->a < SC_N) sc_select(e->a);
+            sbx.rev++;
+        } else if (e->kind == TXP_EV_REC) {   /* (as the FM-1's REC pressed once: ui.c ui_rec, without its taps) */
+            int run = sc_any_run();
+            sc_all_toggle();
+            scn_touch();
+            (void)tempo_transport(!run);
+            sbx.rev++;
+        } else if (e->kind == TXP_EV_UNDO) {   /* (as SAVE held: scenes.c) */
+            if (scn_su.on) scn_snd_undo(); else scn_undo();
+            sbx.rev++;
+        } else if (e->kind == TXP_EV_NAME) {   /* (four characters, the save mode's alphabet: others a space) */
+            for (uint32_t i = 0; i < 4u && e->a + i < 11u; i++) {
+                char ch = (char)((uint32_t)e->v >> (8u * i) & 0xFFu);
+                if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 32);
+                sbx.save_nm[e->a + i] = ch && strchr(SCN_CHARS, ch) ? ch : ' ';
+            }
+        } else if (e->kind == TXP_EV_SAVE) {   /* (as the save mode's SAVE: scenes.c scn_save_start) */
+            if (e->a < SCN_NU && !scn_sv_on && !scn_busy()) {
+                uint32_t i;
+                for (i = 0; i < 11u; i++) scn_nm[i] = sbx.save_nm[i] ? sbx.save_nm[i] : ' ';
+                scn_save_start(e->a);
+                memset(sbx.save_nm, 0, sizeof sbx.save_nm);
+            }
+            sbx.rev++;
+        } else if (e->kind == TXP_EV_TEMPO) {   /* (the app's own: the host's leads, sb_tempo) */
+            if (e->v >= 400 && e->v <= 2400) { (void)tempo_set10((uint32_t)e->v); scn_touch(); }
             sbx.rev++;
         } else if (e->kind == TXP_EV_RESET || e->kind == TXP_EV_RELEASE) sb_notes_off();
         atomic_store_explicit(&sbx.qr, r + 1u, memory_order_release);
@@ -665,14 +882,21 @@ static uint32_t sb_act(uint8_t (*ev)[TXP_LANES], uint8_t (*pk)[TXP_LANES], uint3
     }
     return c;
 }
+static void sb_pass(void)                /* one pass of the app: the FM-1 keys as held now, then those let go */
+{
+    fm1_in.notes = sbx.kmask;
+    coro_resume(&sbx.co);
+    sbx.kmask &= ~sbx.koff;
+    sbx.koff = 0;
+    sb_solo();
+}
 static void sb_step(void)
 {
     sbx.ms++;
     sbx.st.steps++;
     sb_events(1);
     sb_state_apply();
-    if (sbx.exact) { coro_resume(&sbx.co); sb_solo(); }   /* (exact: the events just handed over go into this step's
-                                          * block) */
+    if (sbx.exact) sb_pass();            /* (exact: the events just handed over go into this step's block) */
     sbx.owed += TXP_FS;
     while (sbx.owed >= 1000u * HALF_FRAMES) {
         static int32_t blk[2u * HALF_FRAMES];
@@ -681,14 +905,17 @@ static void sb_step(void)
         app_audio(blk, HALF_FRAMES);     /* (APP_OUT_WRITTEN: every sample written) */
         for (i = 0; i < HALF_FRAMES; i++) {
             uint32_t w = (sbx.fw + i) & (SB_FIFO - 1u);
+            int32_t a = blk[2u * i] < 0 ? -blk[2u * i] : blk[2u * i], b = blk[2u * i + 1u] < 0 ? -blk[2u * i + 1u] : blk[2u * i + 1u];
             sbx.fifo[2u * w] = blk[2u * i];
             sbx.fifo[2u * w + 1u] = blk[2u * i + 1u];
+            if (a > sbx.opk) sbx.opk = a;
+            if (b > sbx.opk) sbx.opk = b;
         }
         sbx.fw += HALF_FRAMES;
         sbx.st.blocks++;
         sb_act_put();
     }
-    if (!sbx.exact) { coro_resume(&sbx.co); sb_solo(); }
+    if (!sbx.exact) sb_pass();
     sb_tempo();
     if (sbx.rev != sbx.pub_rev || ++sbx.pub_n >= SB_PUB_EVERY) sb_publish();
     if (atomic_load_explicit(&sbx.cap_req, memory_order_acquire)) { atomic_store(&sbx.cap_req, 0); sb_capture(); }

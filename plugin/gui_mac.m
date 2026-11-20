@@ -11,6 +11,7 @@
  * its own code. Manual reference counting (no ARC). */
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
+#include <math.h>
 #include <objc/message.h>
 #include <objc/runtime.h>
 #include <stdio.h>
@@ -75,7 +76,6 @@ static void layout(frg_view *v)
     double s = backing(v), lw = b.size.width, lh = b.size.height;
     int pw, ph;
     if (lw < 1.0 || lh < 1.0) return;
-    if (lh * TXG_W > lw * TXG_H) lh = lw * TXG_H / TXG_W; else lw = lh * TXG_W / TXG_H;   /* (the layout's aspect) */
     pw = (int)lround(lw * s); ph = (int)lround(lh * s);
     if (pw != v->pw || ph != v->ph || !v->px) {
         uint32_t *px = calloc((size_t)pw * (size_t)ph, 4);
@@ -116,7 +116,7 @@ static void mouse(id self, NSEvent *e, int kind, int button)
     if (!v || v->pw < 1) return;
     memset(&in, 0, sizeof in);
     p = [self convertPoint:[e locationInWindow] fromView:nil];
-    k = (float)(TXG_W / (v->pw / backing(v)));      /* logical px per point */
+    k = (float)(backing(v) / fmin(v->pw / (double)TXG_W, v->ph / (double)TXG_H));   /* logical px per point (any aspect) */
     in.kind = kind; in.button = button; in.mods = mods_of(e);
     in.x = (float)p.x * k; in.y = (float)p.y * k;    /* (flipped: y from the top) */
     if (kind == FRG_DOWN && button == FRG_LEFT && (in.mods & FRG_CTRL)) in.button = FRG_RIGHT;   /* control-click */
@@ -147,7 +147,7 @@ static void m_scroll(id self, SEL s, NSEvent *e)
     if (!v || v->pw < 1) return;
     memset(&in, 0, sizeof in);
     p = [self convertPoint:[e locationInWindow] fromView:nil];
-    k = (float)(TXG_W / (v->pw / backing(v)));
+    k = (float)(backing(v) / fmin(v->pw / (double)TXG_W, v->ph / (double)TXG_H));
     n = (float)[e scrollingDeltaY];
     if ([e hasPreciseScrollingDeltas]) n /= 16.f;   /* a trackpad's pixels: about one notch each 16 */
     if ([e isDirectionInvertedFromDevice]) n = -n;  /* (natural scrolling: up on the knob is still up) */

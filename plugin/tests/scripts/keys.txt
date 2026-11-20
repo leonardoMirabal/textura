@@ -1,0 +1,13 @@
+# KEYS = FM-1 KEYS (tools/plugin_gate.py gui: --param 0x10001=1, 8 lanes): notes on SELECTED CH (1) are the FM-1's keys.
+# C#4 (the second black group) selects lane 2; C4 (the fifth white key, of F3 .. E4) sets its HOW MANY to step 4 (10);
+# A4 (the third white key of F4 .. G5) its HOW ACTIVE to 3; G#5 (the first black key past G5) selects lane 5
+1500 midi 0xC0 8 0
+3000 midi 0x90 61 100
+3100 midi 0x80 61 0
+3500 midi 0x90 60 100
+3600 midi 0x80 60 0
+4000 midi 0x90 69 100
+4100 midi 0x80 69 0
+5000 midi 0x90 80 100
+5100 midi 0x80 80 0
+6000 end

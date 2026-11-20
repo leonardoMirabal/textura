@@ -13,6 +13,7 @@
  *               none), 4/5 the wheel, motion, leave, keys (XLookupString) once the view has the focus (a click
  *               takes it, as the other platforms)
  * (From Frodhes' plugin/gui_x11.c: Textura's layout size, gui_size.h.) */
+#include <math.h>
 #include <X11/Xlib.h>
 #include <X11/Xresource.h>
 #include <X11/Xutil.h>
@@ -161,7 +162,8 @@ static void send(frg_view *v, frg_input *e)
 }
 static void at(const frg_view *v, int px, int py, frg_input *e)
 {
-    float s = v->w > 0 ? (float)TXG_W / (float)v->w : 1.f;
+    float s = v->w > 0 && v->h > 0 ? 1.f / fmaxf(1e-3f, fminf((float)v->w / (float)TXG_W, (float)v->h / (float)TXG_H)) : 1.f;   /* (frui draws
+                                          * the layout at min(w / TXG_W, h / TXG_H): any aspect) */
     e->x = ((float)px + 0.5f) * s;
     e->y = ((float)py + 0.5f) * s;
 }

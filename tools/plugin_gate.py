@@ -409,11 +409,41 @@ args_quick = False
 GUI = [("gui4", "plugin/tests/scripts/gui4.txt"), ("gui16", "plugin/tests/scripts/gui16.txt")]
 
 
-GUI_VIEWS = ("", "space", "sounds", "presets", "settings", "colour")   # clap_render --shot: x.png, x-space.png ...
+GUI_VIEWS = ("", "space", "sounds", "presets", "settings", "colour", "fx", "lfo", "env", "matrix", "save")   # clap_render
+#                                        --shot: x.png, x-space.png ... (the strip expanded: DELAY, LFO 1, ENV, the matrix)
+GUI_SIZES = ((1200, 720), (1950, 1210), (1440, 1080), (960, 600))   # real DAW window sizes: the MAP round in its place
 
 
 def check_gui(args, exe, bundle, tmp):
     ok = True
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "plugin_card_hints.py"), "--check"],
+                       capture_output=True, text=True)
+    print("%s  gui card hints: %s" % ("ok  " if r.returncode == 0 else "FAIL", (r.stdout + r.stderr).strip()))
+    ok = ok and r.returncode == 0
+    # KEYS = FM-1 KEYS: SELECTED CH's notes are the FM-1's keys (plugin/tests/scripts/keys.txt): lane 2 picked by its
+    # black keys, its HOW MANY and HOW ACTIVE by the white ones, lane 5 by the first black key past G5; the app's
+    # selected lane (the window's too) in the state
+    st = os.path.join(tmp, "keys.json")
+    r = plug_render(exe, bundle, "plugin/tests/scripts/keys.txt", os.path.join(tmp, "keys.wav"), 44100, test=False,
+                    extra=["--param", "0x10001=1", "--param", "0x451=7", "--get", "0x101", "--get", "0x102",
+                           "--state-out", st])
+    got = dict(re.findall(r"param (0x[0-9a-f]+) = (\S+)", r.stdout))
+    sel = re.search(r'"sel":"(\d+)"', open(st).read()).group(1) if os.path.exists(st) else "?"
+    good = r.returncode == 0 and got.get("0x101") == "4" and got.get("0x102") == "3" and sel == "4"
+    print("%s  gui KEYS = FM-1 KEYS: lane 2 HOW MANY %s, HOW ACTIVE %s, then lane %s selected" % (
+        "ok  " if good else "FAIL", got.get("0x101"), got.get("0x102"), int(sel) + 1 if sel.isdigit() else sel))
+    ok = ok and good
+    for w, h in GUI_SIZES:   # every view at each size (the map's own check: clap_render's "gui map")
+        png = os.path.join(tmp, "size-%dx%d.png" % (w, h))
+        r = plug_render(exe, bundle, GUI[0][1], os.path.join(tmp, "size.wav"), 44100, test=False,
+                        extra=["--shot", png, "--shot-w", str(w), "--shot-h", str(h)])
+        m = re.search(r"gui map: .*", r.stdout)
+        good = r.returncode == 0 and os.path.exists(png) and m is not None
+        print("%s  gui %d x %d: %s" % ("ok  " if good else "FAIL", w, h, m.group(0)[9:] if m else (r.stdout + r.stderr)[-300:]))
+        ok = ok and good
+        if good and args.shots:
+            os.makedirs(args.shots, exist_ok=True)
+            shutil.copy(png, os.path.join(args.shots, "textura-window-%dx%d.png" % (w, h)))
     for name, script in GUI:
         shas = []
         for run_i in range(2):
