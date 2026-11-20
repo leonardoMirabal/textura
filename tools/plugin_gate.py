@@ -356,6 +356,22 @@ def check_v1(exe, bundle, tmp):
     return good
 
 
+def check_param_ids(exe, bundle, tmp):
+    """the host parameters' ids, ranges and modules are as they were (automation and saved projects hold ids; the
+    names are free to change): plugin/tests/fixtures/param_ids.txt, from --list"""
+    keys = os.path.join(tmp, "end3000.txt")
+    with open(keys, "w") as f:
+        f.write("3000 end\n")
+    r = plug_render(exe, bundle, keys, os.path.join(tmp, "plug-list.wav"), 48000, extra=["--list"])
+    now = [ln.split("\t")[:3] for ln in r.stdout.splitlines() if ln.count("\t") >= 3]
+    with open(os.path.join(ROOT, "plugin/tests/fixtures/param_ids.txt")) as f:
+        was = [ln.rstrip("\n").split("\t") for ln in f if ln.strip()]
+    good = r.returncode == 0 and now == was
+    print("%s  host parameter ids, ranges and modules unchanged (%d of %d)" % (
+        "ok  " if good else "FAIL", sum(a == b for a, b in zip(now, was)), len(was)))
+    return good
+
+
 def heavy16_state(exe, bundle, tmp):
     """a state with sixteen heavy lanes: the four heaviest presets' lanes side by side (each preset loaded and saved
     by the plugin, its lanes put at 4j .. 4j + 3), every one at HOW MANY and HOW ACTIVE their most, LANES 16"""
@@ -539,6 +555,7 @@ def main():
         ok = check_rates(args, host, exe, bundle, tmp) and ok
     if "state" in only:
         ok = check_state(args, exe, bundle, tmp) and ok
+        ok = check_param_ids(exe, bundle, tmp) and ok
     if "gui" in only:
         ok = check_gui(args, exe, bundle, tmp) and ok
     if "cpu" in only:

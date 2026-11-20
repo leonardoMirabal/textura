@@ -1703,7 +1703,7 @@ static void draw_sounds(txg_t *g, frui_canvas *c)
         int e = snd_eng(g, g->sb_cf, g->sb_ci);
         R(g, c, g->W - OV_PREV, OV_Y0, 1.f, g->H - OV_Y0, C_LINE);
         y = OV_Y0 + 24.f;
-        snprintf(t, sizeof t, "%s  \xC2\xB7  ENGINE %s", g->sb_cf >= 0 ? g->cat->fam[g->sb_cf].name : "", e >= 0 && e < g->cat->neng ? g->cat->eng[e] : "");
+        snprintf(t, sizeof t, "%s  \xC2\xB7  SOURCE %s", g->sb_cf >= 0 ? g->cat->fam[g->sb_cf].name : "", e >= 0 && e < g->cat->neng ? g->cat->eng[e] : "");
         upper(t, t, sizeof t);
         LBL(g, c, px, y, 10.5f, C_DIM, t);
         upper(nm, snd_name(g, g->sb_cf, g->sb_ci), sizeof nm);
@@ -2094,9 +2094,9 @@ static void draw_settings(txg_t *g, frui_canvas *c)
         snprintf(t, sizeof t, "HQ build  \xC2\xB7  %d lanes  \xC2\xB7  any size: drag the corner", (int)TXP_LANES);
         TX(g, c, x, y + 11.f, 12.f, 450.f, 0.f, 0, C_DIM, t);
     }
-    /* ENGINE COLOURS: the engines the lanes play (the whole last column) */
+    /* SOURCE COLOURS: the sources the lanes run on (the whole last column) */
     x = 3.f * gw + pad; y = OV_Y0 + 8.f;
-    group(g, c, x, y, "ENGINE COLOURS", "Bone at first; a colour follows its engine.");
+    group(g, c, x, y, "SOURCE COLOURS", "Bone at first; a colour follows its source.");
     y += 56.f;
     {
         int seen[TXP_ENG_MAX] = {0}, n = 0;
@@ -2114,7 +2114,7 @@ static void draw_settings(txg_t *g, frui_canvas *c)
             wid_add2(g, TXG_W_COLDOT, -1, (uint32_t)e, 0, x, cy, iw, 20.f);
             n++;
         }
-        if (!n) TX(g, c, x, y + 14.f, 12.f, 450.f, 0.f, 0, C_DIM, "No lane plays a sound.");
+        if (!n) TX(g, c, x, y + 14.f, 12.f, 450.f, 0.f, 0, C_DIM, "No lane has an engine.");
         y = g->H - 44.f;
         button(g, c, x, y, 170.f, 26.f, "RESET ALL TO BONE", 0);
         wid_add(g, TXG_W_COLRESET, -1, x, y, 170.f, 26.f);

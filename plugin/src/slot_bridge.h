@@ -178,7 +178,7 @@ static int sb_glob_hidden(uint32_t i)    /* the FM-1's own settings: the tempo, 
 }
 static void sb_tab_make(void)
 {
-    static const char *const LL[] = {"SOUND", "HOW MANY", "HOW ACTIVE", "LEVEL", "PAN"};
+    static const char *const LL[] = {"ENGINE", "HOW MANY", "HOW ACTIVE", "LEVEL", "PAN"};
     uint32_t k, i, f, smax = 0;
     char mod[24], pfx[16], nm[24];
     sbx.ntab = 0;

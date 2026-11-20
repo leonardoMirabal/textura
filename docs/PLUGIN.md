@@ -96,8 +96,8 @@ The host's tempo leads when it gives one (the FM-1's own tempo otherwise).
 
 ## Lanes
 
-LANES (1 .. 16, a parameter) is the number of lanes in use. A lane past it is empty: no sound, no engine, no CPU.
-Raising LANES adds empty lanes; a SOUND set on lane n (from the host or by CC 20 on its channel) raises it to n.
+LANES (1 .. 16, a parameter) is the number of lanes in use. A lane past it is empty: no engine, no CPU.
+Raising LANES adds empty lanes; an ENGINE set on lane n (from the host or by CC 20 on its channel) raises it to n.
 Lowering it empties the lanes past it: each stops, its cards go back, and its engine rings out and is let go.
 
 A factory preset, a landscape's start or an FM-1 scene fills lanes 1 .. 4 exactly as the FM-1 does and sets LANES to
@@ -108,7 +108,7 @@ A factory preset, a landscape's start or an FM-1 scene fills lanes 1 .. 4 exactl
 One resizable window, 1200 x 720 points by default, any shape from 840 to 2400 points wide and 504 to 1800 high,
 drawn at the screen's own resolution (Retina: twice the points). The layout scales evenly by the smaller of width /
 1200 and height / 720 and gives the rest to the lanes, so the MAP stays round at any size. Dark and nearly
-monochrome: red marks only the selection, what is on (the solo) and what an LFO moves; each engine has a colour of its
+monochrome: red marks only the selection, what is on (the solo) and what an LFO moves; each source has a colour of its
 own (bone until you choose one). The macOS view is built and tested; the Windows and Linux views (`plugin/gui_win.c`,
 `plugin/gui_x11.c`) are built and their pictures checked headless, not yet tried on a real desktop.
 
@@ -175,7 +175,7 @@ with a gesture around a drag.
 - **SETTINGS**: MIDI IN (each lane's channel; FX CHANNEL; SELECTED CH; MOD CC; **KEYS**: PLAY or FM-1 KEYS), SCALE
   (MODE, SCALE, ROOT, TRANSPOSE), TIMING (the app's tempo, a BPM and a 0.1 BPM step, the host's leading; GROOVE, its
   AMOUNT and SHIFT), LOADING (EFFECTS ON LOAD, PRESETS CHANGE TEMPO, LANES), WINDOW (SIZE 100 .. 200 %, the view) and
-  ENGINE COLOURS.
+  SOURCE COLOURS.
 - **KEYS** (a plugin parameter, `MIDI KEYS`, 0x10001, not automatable): **PLAY** (default) leaves SELECTED CH's notes
   to the app (`nt_midi`: the selected lane plays them as sent). **FM-1 KEYS** takes F3 .. G5 on SELECTED CH as the
   FM-1's 27 keys (`fm1_in.notes`, read by `nt_poll` in its LANDSCAPE mode): black groups select lanes 1 .. 4 (held
@@ -184,7 +184,7 @@ with a gesture around a drag.
   FM-1 itself plays USB MIDI notes as sent (its LANDSCAPE keys are its own keys).
 - **The selected lane** is the app's own (`sc.sel`): the window shows it and sets it (an event the slot applies), so
   a lane picked by the keys is the window's too, and the state saves it.
-- **Colours**: eleven, none red. A colour belongs to an engine, not a lane.
+- **Colours**: eleven, none red. A colour belongs to a source (the physical model engines run on), not a lane.
 
 The window reads what the audio side last published (each lane's events and peak per app block, the lanes' names,
 channels and cards, each parameter's text, the modulation's state, the output's peak) and never waits on the audio
@@ -205,10 +205,10 @@ CHANNEL 68 .. 79, FX CHANNEL 80, LANES 81). No FM-1 id moved, so NRPN numbers an
 
 - **PRESET**: F001 .. F100 (not automatable: it loads a whole scene, as a program change does).
 - **MIDI KEYS** (0x10001, the plugin's own): PLAY or FM-1 KEYS ([the window](#the-window)); not automatable.
-- **Lane 1 .. 16**: SOUND, HOW MANY, HOW ACTIVE, LEVEL, PAN, CARD 1 .. 8, GROOVE PART, GROOVE CYCLE. A card's meaning
-  depends on the lane's sound; its host value is 0 .. 127 onto the card's own range, as its CC. A card the user has
+- **Lane 1 .. 16**: ENGINE, HOW MANY, HOW ACTIVE, LEVEL, PAN, CARD 1 .. 8, GROOVE PART, GROOVE CYCLE. A card's meaning
+  depends on the lane's engine; its host value is 0 .. 127 onto the card's own range, as its CC. A card the user has
   not set shows its default to the host. An empty lane shows neutral values (LEVEL 100, PAN centre, the rest 0).
-  LEVEL is the sound's, as on the FM-1: lanes playing one sound share it.
+  LEVEL is the engine's, as on the FM-1: lanes playing one engine share it.
 - **LANES**.
 - **Effects**: the grain delay, reverb, compressor, drive and filter, as on their pages.
 - **Groove, keys (scale), MIDI IN channels (lanes 1 .. 16, FX CHANNEL), EFFECTS ON LOAD**.
@@ -218,12 +218,12 @@ CHANNEL 68 .. 79, FX CHANNEL 80, LANES 81). No FM-1 id moved, so NRPN numbers an
 The FM-1's tempo, clock, screen and status settings are not host parameters.
 
 A change the app makes itself (a CC, a program change, a scene load) goes back to the host as a parameter change.
-Set SOUND and a card of the new sound in separate steps: a new sound starts from its own cards, so a card value sent
-together with the SOUND change is replaced by the new sound's default (as on the FM-1).
+Set ENGINE and a card of the new engine in separate steps: a new engine starts from its own cards, so a card value sent
+together with the ENGINE change is replaced by the new engine's default (as on the FM-1).
 
 ## State
 
-A host project keeps what a user scene keeps (the landscape, each lane's sound, HOW MANY, HOW ACTIVE, level, pan,
+A host project keeps what a user scene keeps (the landscape, each lane's engine, HOW MANY, HOW ACTIVE, level, pan,
 mute and cards, the effects, the modulation, the groove, the tempo), the scene loaded last, and the settings that are
 parameters (scale, MIDI IN, EFFECTS ON LOAD, PRESETS CHANGE TEMPO). It loads as a scene with its effects. Nothing is
 written to disk by the plugin: the user scene bank (U01 .. U16, the window's SAVE) is kept in the state.
@@ -234,9 +234,9 @@ empty, LANES 4. The state also keeps the solo (`"solo"`, the lanes soloed as a b
 app's selected lane (`"sel"`), the user scenes (`"umask"`, the slots saved as a bit mask, and `"user"`, each saved
 slot's record in hex, in slot order: the FM-1's own scene records, written back into the session's bank on load),
 the window's size (`"win"` and `"winh"`, 0 when at the default), the place's view (`"view"`, 1 for SPACE) and the
-engines' colours (`"col"`, `"engine name:colour;..."` for the engines not bone; an engine a build has not is
+sources' colours (`"col"`, `"source name:colour;..."` for the sources not bone; a source a build has not is
 skipped). These keys are optional: a state without them (an older project) loads with no solo, KEYS PLAY, lane 1, no
-user scenes, the default window, the MAP and all engines bone. The state stays version 2.
+user scenes, the default window, the MAP and all sources bone. The state stays version 2.
 
 ## Sample rates and latency
 
@@ -258,7 +258,7 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
   for sample: a lane stopped, notes and CCs on every lane and channel 5 with two presets, a heavy 4-lane scene, and
   every factory preset (`--quick` skips the presets). The plugin has 16 lanes, the host build 4, so this also shows
   that 4-lane content plays in a 16-lane instance exactly as on the FM-1. `lanes16`: the plugin against the 16-lane
-  host build (`textura-host-hq16`): sixteen lanes given sounds by MIDI, each on its own channel, notes on all
+  host build (`textura-host-hq16`): sixteen lanes given engines by MIDI, each on its own channel, notes on all
   sixteen channels, an NRPN on lane 12, the effects on channel 5, then a factory preset over them (lanes 5 .. 16
   emptied, LANES back to 4).
 - **hq**: the host build with `LN_HQ` plays the heavy scene with the governor's pool unlimited and no lane cut.
@@ -323,7 +323,7 @@ macOS and Linux; under wine (`tools/plugin_win.sh validate` gives it the `bcrypt
 pass and 10 are skipped. Two fail on every system: `param-set-events` and `param-set-no-cookies`. Each sends one
 random value to every parameter at once, PRESET last, once by a flush to an instance never activated and once in a
 process call, then compares what the parameters read. A card of lane 1 that the random modulation matrix holds
-reads the scene's value after the flush but the sound's default after the process call: the scene load, the sound
+reads the scene's value after the flush but the engine's default after the process call: the scene load, the engine
 switch and the modulation's base meet in a different order on the two paths. A host loading a preset and setting
 modulated cards in the same instant would see the same difference. This is a known limit for now.
 
