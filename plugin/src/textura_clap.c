@@ -673,6 +673,21 @@ void txp_ui_sound(txp_core *c, int lane, int fam, int snd, int keep)
     uq_put(c, UQ_EV + TXP_EV_SOUND, (uint32_t)lane, fam << 4 | snd | (keep ? TXP_SND_KEEP : 0));
     if (keep) ui_dirty(c);
 }
+void txp_ui_preview(txp_core *c, int lane, int fam, int snd, int cnt, int act, int force)
+{
+    if (lane < 0 || lane >= (int)TXP_LANES || fam < 0 || fam > 15 || snd < 0 || snd > 15) return;
+    cnt = cnt < 0 ? 0 : cnt > 15 ? 15 : cnt;
+    act = act < 0 ? 0 : act > 15 ? 15 : act;
+    uq_put(c, UQ_EV + TXP_EV_PREVIEW, (uint32_t)lane, TXP_PV_PLAY | fam << 4 | snd | cnt << 8 | act << 12 | (force ? TXP_PV_FORCE : 0));
+}
+void txp_ui_preview_end(txp_core *c, int lane, int fam, int snd, int keep, int vals)
+{
+    if (lane < 0 || lane >= (int)TXP_LANES) return;
+    fam = fam < 0 || fam > 15 ? 15 : fam;
+    snd = snd < 0 || snd > 15 ? 15 : snd;
+    uq_put(c, UQ_EV + TXP_EV_PREVIEW, (uint32_t)lane, TXP_PV_END | fam << 4 | snd | (keep ? TXP_PV_KEEP : 0) | (vals ? TXP_PV_VALS : 0));
+    if (keep) ui_dirty(c);
+}
 void txp_ui_load(txp_core *c, int what, int with_fx)
 {
     if (what < 0) return;

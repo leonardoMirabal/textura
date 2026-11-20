@@ -67,7 +67,6 @@ enum { PB_USER = 100, PB_LAND = 101 };   /* the presets browser's banks past the
 /* the strip's sections, in signal order (the expanded view's tabs: these, LFO 1 .. 8, ENV and FOLLOW, the matrix) */
 enum { SEC_COMP, SEC_DRIVE, SEC_FILTER, SEC_DELAY, SEC_REVERB, SEC_MOVE, SEC_N };
 enum { TAB_LFO0 = SEC_MOVE, TAB_ENV = TAB_LFO0 + 8, TAB_MAT, TAB_N };
-static const char *const SEC_MOD[5] = { "Compressor", "Drive", "Filter", "Grain delay", "Reverb" };
 static const char *const SEC_NAME[SEC_N] = { "COMP", "DRIVE", "FILTER", "DELAY", "REVERB", "MOVEMENT" };
 static const float SEC_WT[SEC_N] = { 1.f, 1.f, 1.6f, 1.f, 1.f, 1.3f };
 /* the effects' ids (params.c: the globals' scope 4) */
@@ -106,6 +105,7 @@ struct txg {
     float S;                             /* canvas pixels a logical pixel */
     /* the layout now (lay): the logical size, the place's width, the drawer's and the strip's tops, the map, SPACE */
     float W, H, PW, dr_y, fx_y, mcx, mcy, mr, sp_y0, sp_y1, sp_hz;
+    float dr_h;                          /* the drawer's height: the lane's (DR_H), or an effect's drawer's (fxd_h) */
     int rtop, rvis;                      /* the rows: the first shown, how many fit */
     /* what is drawn */
     txp_snap_t sn;
@@ -126,6 +126,9 @@ struct txg {
     /* the sound browser: its lane, the family shown, the cursor (family, sound), the lane's kept sound, the search, an
      * audition waiting (ticks) */
     int sb_lane, sb_fam, sb_cf, sb_ci, sb_kf, sb_ki, sb_pend, sb_top;
+    /* its preview: under way (the window asked for it), its HOW MANY (1 .. 6) and HOW ACTIVE (1 .. 9), set by the user
+     * (then a lane that plays takes them too, and KEEP keeps them) */
+    int pv_on, pv_cnt, pv_act, pv_user;
     /* the presets browser: the bank shown (a category, PB_USER, PB_LAND), the cursor (a scene, TXP_LOAD_LS + n) */
     int pb_bank, pb_cur, pb_top;
     char q[24];                          /* a browser's search (typed) */
@@ -145,6 +148,9 @@ struct txg {
     int nw;
     frg_client cl;
 };
+
+static void pv_play(txg_t *g);
+static void sb_close(txg_t *g, int keep);
 
 /* ---- drawing helpers (logical coordinates) */
 static void wid_add2(txg_t *g, int kind, int lane, uint32_t id, int v, float x, float y, float w, float h)
@@ -215,6 +221,17 @@ static void button(txg_t *g, frui_canvas *c, float x, float y, float w, float h,
     RRS(g, c, x, y, w, h, 3.f, pri ? C_INK : C_LINE);
     LBL(g, c, x + (w - LBLW(g, 11.f, t)) * 0.5f, y + h * 0.5f + CAP(g, 11.f) * 0.5f, 11.f, pri ? C_PANEL : C_INK, t);
 }
+/* CHANGE: a lane's sound browser (TXG_W_SND, lane k), a small labelled button; lit when hovered or on (the selected
+ * lane's) */
+static void chg_button(txg_t *g, frui_canvas *c, int k, float x, float y, float w, float h, const char *t, int on)
+{
+    int hot = g->hover_kind == TXG_W_SND && g->hover_lane == k;
+    float fs = h < 18.f ? 8.5f : 9.5f;
+    RR(g, c, x, y, w, h, 2.f, hot ? C_SEG : C_BTN);
+    RRS(g, c, x, y, w, h, 2.f, hot || on ? C_DIM : C_LINE);
+    LBL(g, c, x + (w - LBLW(g, fs, t)) * 0.5f, y + h * 0.5f + CAP(g, fs) * 0.5f, fs, hot || on ? C_INK : C_DIM, t);
+    wid_add(g, TXG_W_SND, k, x, y, w, h);
+}
 static void dashed(txg_t *g, frui_canvas *c, float x, float y0, float y1, uint32_t col)   /* a dashed upright line */
 {
     for (float y = y0; y < y1; y += 5.f) LN(g, c, x, y, x, fminf(y + 2.5f, y1), 1.f, col);
@@ -227,14 +244,27 @@ static uint32_t fnv(uint32_t h, const void *p, size_t n)
     return h;
 }
 
-/* ---- the layout: the place at the left (round at any size), the rows beside it, the drawer and the strip under both */
+/* ---- the layout: the place at the left (round at any size), the rows beside it, the drawer and the strip under both.
+ * An effect's drawer (OV_FX) rises from the strip in the lane drawer's place, as tall as it needs: the place and the
+ * rows above it get the rest (the rows scroll) */
+#define FXD_BODY 164.f                   /* an effect's drawer: its picture and its values */
+#define FXD_TABS 34.f                    /* MOVEMENT's: its tabs over its body */
+#define FXD_ENV (12.f + 16.f + 4.f * 30.f + 3.f * 6.f + 12.f)
+#define FXD_MAT (12.f + 14.f + 8.f * 30.f + 8.f)
+static float fxd_h(int tab)
+{
+    if (tab < SEC_MOVE) return FXD_BODY;
+    if (tab < TAB_ENV) return FXD_TABS + FXD_BODY;
+    return FXD_TABS + (tab == TAB_ENV ? FXD_ENV : FXD_MAT);
+}
 static void lay(txg_t *g)
 {
     float top = TOP_H + PH_H, bot, room;
     g->PW = floorf(g->W * 0.3667f);
     g->PW = g->PW < 400.f ? 400.f : g->PW > 640.f ? 640.f : g->PW;
     g->fx_y = g->H - FX_H;
-    g->dr_y = g->fx_y - DR_H;
+    g->dr_h = g->ov == OV_FX ? fxd_h(g->fx_tab) : DR_H;
+    g->dr_y = g->fx_y - g->dr_h;
     bot = g->dr_y;
     room = bot - top - 52.f;             /* (FAR over the outer ring, YOU under you) */
     g->mr = fminf((g->PW - 72.f) * 0.5f, room);
@@ -248,7 +278,8 @@ static void lay(txg_t *g)
 }
 /* a row's columns (x from the window's left): the name, the event line, MANY, ACTIVE, PAN, CH, VOL, M S */
 typedef struct { float num, dot, name, tl, tlw, many, act, pan, ch, vol, ms; } rcol_t;
-#define RW_NAME 140.f
+#define RW_NAME 164.f
+#define RW_CHG 50.f                      /* a row's CHANGE (the sound browser), under its sound's name */
 #define RW_STEP 84.f
 #define RW_PAN 40.f
 #define RW_CH 34.f
@@ -431,7 +462,7 @@ static void short_name(const txp_param_t *p, char *o, size_t n)
 
 /* a hint wrapped into lines lines at most, lh apart (what does not fit ends in "...": the whole hint shows on hover,
  * hint_tip); 1 if it was cut */
-static int hintn(txg_t *g, frui_canvas *c, float x, float y, float w, const char *s, int lines, float lh, uint32_t col)
+static int wrapn(txg_t *g, frui_canvas *c, float x, float y, float w, const char *s, int lines, float lh, float sz, uint32_t col)
 {
     char ln[160];
     const char *p = s;
@@ -446,7 +477,7 @@ static int hintn(txg_t *g, frui_canvas *c, float x, float y, float w, const char
             while (p[e] && p[e] != ' ') e++;
             if (e >= sizeof t - 4) break;
             memcpy(t, p, e); t[e] = 0;
-            if (TW(g, 9.5f, 450.f, 0.f, 0, t) > w) break;
+            if (TW(g, sz, 450.f, 0.f, 0, t) > w) break;
             cut = e;
             n = e;
             while (p[n] == ' ') n++;
@@ -457,17 +488,20 @@ static int hintn(txg_t *g, frui_canvas *c, float x, float y, float w, const char
         while (*p == ' ') p++;
         if (l == lines - 1 && *p) {      /* (more: the last line ends in "...") */
             size_t m = strlen(ln);
-            while (m > 0 && TW(g, 9.5f, 450.f, 0.f, 0, ln) + TW(g, 9.5f, 450.f, 0.f, 0, "...") > w) ln[--m] = 0;
+            while (m > 0 && TW(g, sz, 450.f, 0.f, 0, ln) + TW(g, sz, 450.f, 0.f, 0, "...") > w) ln[--m] = 0;
             while (m > 0 && ln[m - 1] == ' ') ln[--m] = 0;
             strcat(ln, "...");
             cut_any = 1;
         }
-        if (c) TX(g, c, x, y + lh * (float)l, 9.5f, 450.f, 0.f, 0, col, ln);
+        if (c) TX(g, c, x, y + lh * (float)l, sz, 450.f, 0.f, 0, col, ln);
         if (!*p) break;
     }
     return cut_any;
 }
-static void hint2(txg_t *g, frui_canvas *c, float x, float y, float w, const char *s) { (void)hintn(g, c, x, y, w, s, 2, 11.f, C_DIM); }
+static int hintn(txg_t *g, frui_canvas *c, float x, float y, float w, const char *s, int lines, float lh, uint32_t col)
+{
+    return wrapn(g, c, x, y, w, s, lines, lh, 9.5f, col);
+}
 /* ---- a value: its name, its text and its control. An amount: a fader (a track, its filled part, a handle; the
  * rows' VOL's look), its live place in red while the modulation moves it. A choice: its value between steppers
  * (< >). Drag, wheel, double-click (its default); a click steps a choice. hint: lines under it (the drawer's cards; cut:
@@ -505,7 +539,7 @@ static void pcell(txg_t *g, frui_canvas *c, float x, float y, float w, float h, 
 {
     const txp_param_t *p = pinfo(id);
     char t[40], nm[40];
-    int v, hi, live, m, ch;
+    int v, hi, live, m, ch, stack = 0;
     float ty, nw, tcy;
     if (!p) return;
     v = txp_ui_get(g->c, id); hi = p->hi;
@@ -519,6 +553,11 @@ static void pcell(txg_t *g, frui_canvas *c, float x, float y, float w, float h, 
     else if (ch) ty = y + h * 0.5f + CAP(g, 10.5f) * 0.5f;
     else ty = fminf(tcy - 7.f, y + (tcy - y) * 0.5f + CAP(g, 10.5f) * 0.5f);
     vtext(g, id, t, sizeof t);
+    if (ch && hi >= 1 && !hint && h >= 34.f &&  /* (a choice too wide for its name beside it: the name above, the value under) */
+        x + w - 4.f - (TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t) + 34.f) < x + 9.f + (m ? 14.f : 0.f) + LBLW(g, 10.5f, lab) + 6.f) {
+        stack = 1;
+        ty = y + 6.f + CAP(g, 10.5f);
+    }
     clipL(g, c, x, y, w, h);
     nw = 9.f;
     if (m) nw += TX(g, c, x + nw, ty, 10.5f, 700.f, 0.f, 0, C_RED, "~ ");
@@ -526,6 +565,10 @@ static void pcell(txg_t *g, frui_canvas *c, float x, float y, float w, float h, 
     if (ch && hi >= 1) {                 /* a choice: < its value > (the arrows step it) */
         float tw = TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t), bw = tw + 34.f, bh = fminf(h - 6.f, 18.f), bx = x + w - 4.f - bw,
               byc = hint ? ty - CAP(g, 11.f) * 0.5f : y + h * 0.5f;
+        if (stack) {
+            bh = fminf(18.f, y + h - 4.f - (ty + 5.f));
+            bx = x + 9.f; bw = fminf(bw, w - 18.f); byc = ty + 5.f + bh * 0.5f;
+        }
         if (bx < x + 4.f) { bx = x + 4.f; bw = w - 8.f; }
         RR(g, c, bx, byc - bh * 0.5f, bw, bh, 2.f, C_SEG);
         if (m) R(g, c, bx + 2.f, byc + bh * 0.5f - 1.5f, bw - 4.f, 1.5f, C_RED);
@@ -722,26 +765,26 @@ static void draw_view_switch(txg_t *g, frui_canvas *c)
     wid_add(g, TXG_W_VMAP, -1, x, y, wm, h);
     wid_add(g, TXG_W_VSPACE, -1, x + wm, y, ws, h);
 }
-/* the selected lane at the place's head: its number and family, its sound (a click: the sound browser), its engine's
- * colour (a click: the picker) */
+/* the selected lane at the place's head: its number and family, its sound and CHANGE (the sound browser), its
+ * engine's colour (a click: the picker) */
 static void draw_place_head(txg_t *g, frui_canvas *c)
 {
     int k = g->sel;
     const txp_ui_lane_t *l = &g->sn.ui.lane[k];
-    float x = 158.f, y = TOP_H + 8.f, w;
+    float x = 158.f, y = TOP_H + 8.f, w, room = g->PW - x - 40.f - RW_CHG - 30.f;
     char t[48], nm[32];
     snprintf(t, sizeof t, "LANE %d%s%s", k + 1, used(g, k) ? "  \xC2\xB7  " : "", used(g, k) ? l->fam : "");
     upper(t, t, sizeof t);
     LBL(g, c, x, y + 10.f, 10.f, C_RED, t);
-    clipL(g, c, x, y, g->PW - x - 40.f, 40.f);
+    clipL(g, c, x, y, room, 40.f);
     if (used(g, k)) { cap_name(nm, l->snd, sizeof nm); w = TX(g, c, x, y + 29.f, 15.f, 650.f, 0.2f, 0, (g->mute >> k & 1u) ? C_DIM : C_INK, nm); }
-    else w = TX(g, c, x, y + 29.f, 15.f, 600.f, 0.2f, 0, C_FAINT, "Empty: choose a sound");
+    else w = TX(g, c, x, y + 29.f, 15.f, 600.f, 0.2f, 0, C_FAINT, "Empty lane");
     frui_clip_reset(c);
-    if (w > g->PW - x - 60.f) w = g->PW - x - 60.f;
-    caret(g, c, x + w + 10.f, y + 24.f, C_DIM);
-    wid_add(g, TXG_W_SND, k, x - 4.f, y + 14.f, w + 22.f, 22.f);
+    if (w > room) w = room;
+    chg_button(g, c, k, x + w + 10.f, y + 16.f, RW_CHG, 17.f, used(g, k) ? "CHANGE" : "CHOOSE", 0);
+    w += 10.f + RW_CHG;
     if (used(g, k)) {
-        float xx = x + w + 28.f;
+        float xx = x + w + 18.f;
         CI(g, c, xx, y + 24.f, 5.f, lane_col(g, k));
         RI(g, c, xx, y + 24.f, 7.5f, 1.f, g->pick >= 0 && g->pick == l->eng ? C_INK : C_FAINT);
         wid_add2(g, TXG_W_COLDOT, k, (uint32_t)l->eng, 0, xx - 10.f, y + 14.f, 20.f, 20.f);
@@ -1057,23 +1100,27 @@ static void draw_rows(txg_t *g, frui_canvas *c)
         wid_add(g, TXG_W_ROW, k, x0, y, x1 - x0, ROW_H);
         snprintf(t, sizeof t, "%d", k + 1);
         TX(g, c, rc.num, yc + CAP(g, 11.f) * 0.5f, 11.f, sel ? 650.f : 500.f, 0.f, FRUI_TNUM, sel ? C_RED : C_DIM, t);
-        wid_add(g, TXG_W_SELDOT, k, x0 + 4.f, yc - 13.f, rc.dot + 7.f - x0 - 4.f, 26.f);   /* (the number and the dot:
-                                          * a click selects the lane; the name opens its sounds) */
+        wid_add(g, TXG_W_SELDOT, k, x0 + 4.f, yc - 13.f, rc.dot + 7.f - x0 - 4.f, 26.f);   /* (the number and the dot;
+                                          * the rest of the row selects too: TXG_W_ROW) */
         if (sel) CI(g, c, rc.dot, yc, 4.5f, C_RED);   /* (the selected lane's dot: solid red) */
-        if (u) {
-            float a = glow(g, k), w;
-            if (!sel) CI(g, c, rc.dot, yc, 3.5f, frui_alpha(lane_col(g, k), (0.35f + 0.65f * a) * mf));
-            cap_name(nm, l->snd, sizeof nm);
-            clipL(g, c, rc.name, y, rc.tl - rc.name - 8.f, ROW_H);
-            w = TX(g, c, rc.name, yc - 1.f, 12.5f, 600.f, 0.f, 0, ink, nm);
-            TX(g, c, rc.name, yc + 12.f, 10.f, 450.f, 0.3f, 0, C_DIM, l->fam);
+        {   /* the sound's name, its family, CHANGE under the name's end (the row itself: a click selects the lane) */
+            float nw = rc.tl - rc.name - 8.f, bx = rc.name + nw - RW_CHG;
+            if (u) {
+                float a = glow(g, k);
+                if (!sel) CI(g, c, rc.dot, yc, 3.5f, frui_alpha(lane_col(g, k), (0.35f + 0.65f * a) * mf));
+                cap_name(nm, l->snd, sizeof nm);
+                clipL(g, c, rc.name, y, nw, ROW_H);
+                TX(g, c, rc.name, yc - 1.f, 12.5f, 600.f, 0.f, 0, ink, nm);
+                frui_clip_reset(c);
+                clipL(g, c, rc.name, y, nw - RW_CHG - 6.f, ROW_H);
+                TX(g, c, rc.name, yc + 12.f, 10.f, 450.f, 0.3f, 0, C_DIM, l->fam);
+            } else {
+                clipL(g, c, rc.name, y, nw - RW_CHG - 6.f, ROW_H);
+                TX(g, c, rc.name, yc + CAP(g, 12.f) * 0.5f, 12.f, 450.f, 0.3f, 0, C_FAINT, "empty");
+            }
             frui_clip_reset(c);
             clipL(g, c, x0, y0, x1 - x0, g->dr_y - y0);
-            if (w > rc.tl - rc.name - 8.f) w = rc.tl - rc.name - 8.f;
-            wid_add(g, TXG_W_SND, k, rc.name - 2.f, yc - 13.f, w + 6.f, 17.f);
-        } else {
-            TX(g, c, rc.name, yc + CAP(g, 12.f) * 0.5f, 12.f, 450.f, 0.3f, 0, C_FAINT, "empty");
-            wid_add(g, TXG_W_SND, k, rc.name - 2.f, yc - 9.f, 44.f, 18.f);
+            chg_button(g, c, k, bx, u ? yc + 2.f : yc - 7.f, RW_CHG, 14.f, u ? "CHANGE" : "CHOOSE", sel);
         }
         draw_line(g, c, k, rc.tl, yc - th * 0.5f, rc.tlw, th, mf);
         if (stopped) {                   /* (a stopped lane: plain to see; HOW MANY or HOW ACTIVE starts it) */
@@ -1162,21 +1209,16 @@ static void draw_drawer(txg_t *g, frui_canvas *c)
     upper(t, t, sizeof t);
     LBL(g, c, x, y0 + 21.f, 10.5f, C_RED, t);
     if (!used(g, k)) {
-        float w = TX(g, c, x, y0 + 48.f, 22.f, 700.f, 1.1f, 0, C_FAINT, "EMPTY");
-        caret(g, c, x + w + 10.f, y0 + 40.f, C_FAINT);
-        wid_add(g, TXG_W_SND, k, x - 4.f, y0 + 26.f, w + 22.f, 28.f);
-        TX(g, c, cx0, y0 + 40.f, 12.5f, 450.f, 0.f, 0, C_DIM, "No sound on this lane: click EMPTY (or its row's name) to choose one.");
+        TX(g, c, x, y0 + 48.f, 22.f, 700.f, 1.1f, 0, C_FAINT, "EMPTY");
+        chg_button(g, c, k, x, y0 + 118.f, 130.f, 20.f, "CHOOSE SOUND", 1);
+        TX(g, c, cx0, y0 + 40.f, 12.5f, 450.f, 0.f, 0, C_DIM, "No sound on this lane: CHOOSE SOUND (or the row's CHOOSE) picks one.");
         return;
     }
     upper(nm, l->snd, sizeof nm);
     clipL(g, c, x, y0, cx0 - x - 16.f, DR_H);
-    {
-        float w = TX(g, c, x, y0 + 48.f, 22.f, 700.f, 1.1f, 0, (g->mute >> k & 1u) ? C_DIM : C_INK, nm);
-        frui_clip_reset(c);
-        if (w > cx0 - x - 40.f) w = cx0 - x - 40.f;
-        caret(g, c, x + w + 10.f, y0 + 40.f, C_DIM);
-        wid_add(g, TXG_W_SND, k, x - 4.f, y0 + 26.f, w + 22.f, 28.f);
-    }
+    TX(g, c, x, y0 + 48.f, 22.f, 700.f, 1.1f, 0, (g->mute >> k & 1u) ? C_DIM : C_INK, nm);
+    frui_clip_reset(c);
+    chg_button(g, c, k, x, y0 + 118.f, 130.f, 20.f, "CHANGE SOUND", 1);
     if (l->eng < g->cat->neng) {
         char en[24];
         upper(en, g->cat->eng[l->eng], sizeof en);
@@ -1221,14 +1263,14 @@ static void draw_drawer(txg_t *g, frui_canvas *c)
 /* ---- the strip: COMP, DRIVE, FILTER, DELAY, REVERB (the mix's chain, in its order), the movement */
 /* COMP's meters, off the app's compressor (txg_tick's ballistics: up fast, down ~24 dB/s, the input's peak held a
  * second): its input (the detector's level), its output (through its gain), the gain reduction (from the right), on a
- * dB scale; THR marked on the levels. Big (the expanded view): taller, and its curve with where the input is on it */
+ * dB scale; THR marked on the levels. Big (the effect's drawer): taller (its curve beside it: comp_curve) */
 #define CM_LO (-60.f)
 static float cm_x(float db) { float f = (db - CM_LO) / -CM_LO; return f < 0.f ? 0.f : f > 1.f ? 1.f : f; }
 static void comp_meter(txg_t *g, frui_canvas *c, float x, float y, float w, float h, int on)
 {
     static const char *const LAB[3] = { "IN", "OUT", "GR" };
     static const int SC[5] = { -60, -40, -20, -10, 0 };
-    int big = h >= 90.f;
+    int big = h >= 70.f;
     float rh = big ? 12.f : 7.f, gap = big ? 12.f : 4.f, lw = big ? 30.f : 24.f, nw = big ? 52.f : 34.f, fs = big ? 10.f : 8.5f,
           bx = x + lw, bw = w - lw - nw, thr = -40.f * (float)txp_ui_get(g->c, ID_CTHR) / 127.f, yy;
     float val[3] = { g->cm_in, g->cm_out, g->cm_gr };
@@ -1266,28 +1308,30 @@ static void comp_meter(txg_t *g, frui_canvas *c, float x, float y, float w, floa
         tx = bx + bw * cm_x((float)SC[j]) - TW(g, big ? 9.f : 7.5f, 450.f, 0.f, FRUI_TNUM, t) * (j == 0 ? 0.f : j == 4 ? 1.f : 0.5f);
         TX(g, c, tx, yy, big ? 9.f : 7.5f, 450.f, 0.f, FRUI_TNUM, C_FAINT, t);
     }
-    if (big) {                           /* its curve (out over in, -60 .. 0 dBFS), the input on it now */
-        float cy0 = yy + 14.f, ch = y + h - cy0, cw = fminf(ch, bw), cx = bx, px = 0.f, py = 0.f;
-        int ri = txp_param_index(ID_CRATIO);
-        float ratio = 2.f;
-        if (ri >= 0 && g->sn.ptx[ri][0]) ratio = (float)atof(g->sn.ptx[ri]);
-        if (ratio < 1.f) ratio = 1.f;
-        if (ch < 40.f) return;
-        RR(g, c, cx, cy0, cw, ch, 2.f, C_WELL);
-        LN(g, c, cx, cy0 + ch, cx + cw, cy0, lw1(g), C_LINE);
-        for (int i = 0; i <= 40; i++) {
-            float din = CM_LO + -CM_LO * (float)i / 40.f, dout = din > thr ? thr + (din - thr) / ratio : din,
-                  xx = cx + cw * cm_x(din), yy2 = cy0 + ch - ch * cm_x(dout);
-            if (i) LN(g, c, px, py, xx, yy2, g->S < 1.5f ? 1.2f / g->S : 1.f, on ? C_INK : C_FAINT);
-            px = xx; py = yy2;
-        }
-        if (on && g->cm_in > CM_LO) {
-            float din = g->cm_in, dout = din > thr ? thr + (din - thr) / ratio : din;
-            CI(g, c, cx + cw * cm_x(din), cy0 + ch - ch * cm_x(dout), 3.5f, C_INK);
-        }
-        TX(g, c, cx + cw + 10.f, cy0 + 12.f, 9.5f, 450.f, 0.f, 0, C_DIM, "OUT over IN, dBFS");
-        TX(g, c, cx + cw + 10.f, cy0 + 26.f, 9.5f, 450.f, 0.f, 0, C_DIM, "the dot: the input now");
+}
+/* COMP's curve (out over in, -60 .. 0 dBFS; THR and RATIO the app's), the input on it now (the effect's drawer) */
+static void comp_curve(txg_t *g, frui_canvas *c, float cx, float cy0, float cw, float ch, int on)
+{
+    float thr = -40.f * (float)txp_ui_get(g->c, ID_CTHR) / 127.f, px = 0.f, py = 0.f, ratio = 2.f;
+    int ri = txp_param_index(ID_CRATIO);
+    if (ri >= 0 && g->sn.ptx[ri][0]) ratio = (float)atof(g->sn.ptx[ri]);
+    if (ratio < 1.f) ratio = 1.f;
+    RR(g, c, cx, cy0, cw, ch, 2.f, C_WELL);
+    RRS(g, c, cx, cy0, cw, ch, 2.f, C_LINE);
+    LN(g, c, cx, cy0 + ch, cx + cw, cy0, lw1(g), C_LINE);
+    dashed(g, c, cx + cw * cm_x(thr), cy0 + 2.f, cy0 + ch - 2.f, C_FAINT);
+    for (int i = 0; i <= 40; i++) {
+        float din = CM_LO + -CM_LO * (float)i / 40.f, dout = din > thr ? thr + (din - thr) / ratio : din,
+              xx = cx + cw * cm_x(din), yy2 = cy0 + ch - ch * cm_x(dout);
+        if (i) LN(g, c, px, py, xx, yy2, g->S < 1.5f ? 1.4f / g->S : 1.2f, on ? C_INK : C_FAINT);
+        px = xx; py = yy2;
     }
+    if (on && g->cm_in > CM_LO) {
+        float din = g->cm_in, dout = din > thr ? thr + (din - thr) / ratio : din;
+        CI(g, c, cx + cw * cm_x(din), cy0 + ch - ch * cm_x(dout), 3.5f, C_INK);
+    }
+    TX(g, c, cx + 5.f, cy0 + 11.f, 8.5f, 450.f, 0.f, 0, C_FAINT, "OUT");
+    TX(g, c, cx + cw - 5.f - TW(g, 8.5f, 450.f, 0.f, 0, "IN"), cy0 + ch - 5.f, 8.5f, 450.f, 0.f, 0, C_FAINT, "IN");
 }
 static float hz_x(float v127) { return v127 / 127.f; }   /* the FILTER's steps are log Hz already (params.c F_HZ_*) */
 static void viz(txg_t *g, frui_canvas *c, int sec, float x, float y, float w, float h, int on)
@@ -1391,10 +1435,13 @@ static void draw_strip(txg_t *g, frui_canvas *c)
         int on = sec_on(g, s), open = g->ov == OV_FX && (s < SEC_MOVE ? g->fx_tab == s : g->fx_tab >= TAB_LFO0);
         if (s) R(g, c, x, y0, 1.f, FX_H, C_LINE);
         if (open) { R(g, c, x + 1.f, y0 + 1.f, w - 1.f, FX_H - 1.f, C_SEL); R(g, c, x + 1.f, y0 + 1.f, w - 1.f, 2.f, C_RED); }
-        /* the head: its dot, its name (a click: every parameter of it), "ALL" */
+        /* the head: its dot, its name (a click: its drawer, every parameter of it), "ALL" (open: "CLOSE") */
         CI(g, c, ix + 2.5f, y0 + 17.f, 2.6f, on ? (s == SEC_MOVE ? C_RED : C_INK) : C_FAINT);
         hx = ix + 11.f + LBL(g, c, ix + 11.f, y0 + 17.f + CAP(g, 12.f) * 0.5f, 12.f, on ? C_INK : C_DIM, SEC_NAME[s]);
-        LBL(g, c, x + w - 12.f - LBLW(g, 9.f, "ALL \xE2\x80\xBA"), y0 + 17.f + CAP(g, 9.f) * 0.5f, 9.f, C_DIM, "ALL \xE2\x80\xBA");
+        {
+            const char *at = open ? "CLOSE \xC3\x97" : "ALL \xE2\x80\xBA";
+            LBL(g, c, x + w - 12.f - LBLW(g, 9.f, at), y0 + 17.f + CAP(g, 9.f) * 0.5f, 9.f, open ? C_INK : C_DIM, at);
+        }
         wid_add(g, TXG_W_FXOPEN, s, x + 1.f, y0 + 4.f, w - 2.f, 26.f);
         if (s == SEC_COMP) {             /* (COMP's own switch: its ON; a click turns it) */
             const char *t = on ? "ON" : "OFF";
@@ -1518,32 +1565,63 @@ static void sb_items(txg_t *g)           /* the sound browser's list: the family
     } else
         for (int i = 0; i < g->cat->fam[g->sb_fam].n && g->nitems < LIST_MAX; i++) g->items[g->nitems++] = g->sb_fam << 4 | i;
 }
-static int sb_auditioning(const txg_t *g)   /* the lane plays the cursor's sound, not its kept one */
+/* a sound's line: its engine's first sentence in the manual (docs/MANUAL.md section 5, card_hints.h TXH_ENG) */
+static const char *snd_desc(const char *snd)
 {
-    const txp_ui_lane_t *l = &g->sn.ui.lane[g->sb_lane];
-    return l->used && l->fi == g->sb_cf && l->si == g->sb_ci && !(g->sb_cf == g->sb_kf && g->sb_ci == g->sb_ki);
+    const char *eng = 0;
+    size_t i;
+    for (i = 0; i < sizeof TXH_SND / sizeof TXH_SND[0] && !eng; i++) if (!strcmp(TXH_SND[i].snd, snd)) eng = TXH_SND[i].eng;
+    for (i = 0; eng && i < sizeof TXH_ENG / sizeof TXH_ENG[0]; i++) if (!strcmp(TXH_ENG[i].eng, eng)) return TXH_ENG[i].desc;
+    return "A sound of its own, computed as it plays.";
+}
+static void play_mark(txg_t *g, frui_canvas *c, float x, float yc, float s, uint32_t col)   /* a small play triangle */
+{
+    frui_path p;
+    frui_path_init(&p);
+    frui_path_move(&p, x * g->S, (yc - s) * g->S);
+    frui_path_line(&p, (x + s * 1.6f) * g->S, yc * g->S);
+    frui_path_line(&p, x * g->S, (yc + s) * g->S);
+    frui_path_fill(c, &p, col);
+    frui_path_free(&p);
+}
+/* the preview's HOW MANY (lane 0) or HOW ACTIVE (1): its value between steppers */
+static void pv_step(txg_t *g, frui_canvas *c, int act, float x, float y, float w)
+{
+    char t[16];
+    float h = 26.f, bw = 74.f, bx = x + w - bw, yc = y + h * 0.5f, tw;
+    ptext(TXP_ID_LANE(0, act ? TXP_PL_ACTIVE : TXP_PL_COUNT), act ? g->pv_act : g->pv_cnt, t, sizeof t);
+    RR(g, c, x, y, w, h, 2.f, C_WELL);
+    LBL(g, c, x + 9.f, yc + CAP(g, 10.f) * 0.5f, 10.f, C_INK, act ? "ACTIVE" : "MANY");
+    RR(g, c, bx, y + 4.f, bw - 4.f, h - 8.f, 2.f, C_SEG);
+    chevron(g, c, bx + 8.f, yc, -1, C_DIM);
+    chevron(g, c, bx + bw - 12.f, yc, 1, C_DIM);
+    tw = TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t);
+    TX(g, c, bx + (bw - 4.f - tw) * 0.5f, yc + CAP(g, 11.f) * 0.5f, 11.f, 500.f, 0.f, FRUI_TNUM, g->pv_user ? C_INK : C_DIM, t);
+    wid_add2(g, TXG_W_PVSTEP, act, 0, -1, bx, y, 18.f, h);
+    wid_add2(g, TXG_W_PVSTEP, act, 0, 1, bx + bw - 22.f, y, 22.f, h);
 }
 static void draw_sounds(txg_t *g, frui_canvas *c)
 {
-    char t[64], nm[32];
+    char t[96], nm[32];
     int k = g->sb_lane, tot = 0, cur = -1;
+    const txp_ui_lane_t *l = &g->sn.ui.lane[k];
     float y, lx = OV_NAV, lw = g->W - OV_NAV - OV_PREV, rows = (g->H - OV_Y0 - 12.f) / OV_RH;
     for (int f = 0; f < g->cat->nfam; f++) tot += g->cat->fam[f].n;
     snprintf(t, sizeof t, "LANE %d", k + 1);
     snprintf(nm, sizeof nm, "Type to search %d sounds", tot);
     ov_header(g, c, "SOUND FOR", t, 1, nm);
-    if (sb_auditioning(g)) {
+    if (g->pv_on) {                      /* (the header: the preview under way) */
         char a[32];
         float x = 18.f + TW(g, 17.f, 700.f, 2.4f, 0, "SOUND FOR") + 8.f + TW(g, 17.f, 700.f, 2.4f, 0, t) + 28.f;
         upper(a, snd_name(g, g->sb_cf, g->sb_ci), sizeof a);
-        snprintf(nm, sizeof nm, "HEARING ON LANE %d: %s", k + 1, a);
-        CI(g, c, x, TOP_H + 23.f, 3.f, C_RED);
-        TX(g, c, x + 9.f, TOP_H + 23.f + CAP(g, 11.f) * 0.5f, 11.f, 500.f, 0.3f, 0, C_INK, nm);
+        snprintf(t, sizeof t, "PREVIEW ON LANE %d: %s", k + 1, a);
+        play_mark(g, c, x - 2.f, TOP_H + 23.f, 4.5f, C_RED);
+        TX(g, c, x + 11.f, TOP_H + 23.f + CAP(g, 11.f) * 0.5f, 11.f, 500.f, 0.3f, 0, C_INK, t);
     }
     /* the families */
     R(g, c, OV_NAV - 1.f, OV_Y0, 1.f, g->H - OV_Y0, C_LINE);
     for (int f = 0; f < g->cat->nfam; f++) nav_item(g, c, OV_Y0 + 6.f + 28.f * (float)f, g->cat->fam[f].name, g->cat->fam[f].n, !g->q[0] && f == g->sb_fam, f);
-    /* the sounds */
+    /* the sounds (the one the lane plays now: >) */
     sb_items(g);
     for (int j = 0; j < g->nitems; j++) if (g->items[j] == (g->sb_cf << 4 | g->sb_ci)) cur = j;
     list_view(g, cur, rows);
@@ -1553,11 +1631,12 @@ static void draw_sounds(txg_t *g, frui_canvas *c)
     if (!g->nitems) TX(g, c, lx + 16.f, OV_Y0 + 30.f, 12.5f, 450.f, 0.f, 0, C_DIM, "No sound has that name.");
     for (int j = g->sb_top; j < g->nitems && (float)(j - g->sb_top) < rows; j++) {
         int f = g->items[j] >> 4, i = g->items[j] & 15, m = lane_of_snd(g, f, i), e = snd_eng(g, f, i);
-        int kept = f == g->sb_kf && i == g->sb_ki, cu = j == cur;
+        int kept = f == g->sb_kf && i == g->sb_ki, cu = j == cur, plays = l->used && l->run && l->fi == f && l->si == i;
         float ry = OV_Y0 + 4.f + OV_RH * (float)(j - g->sb_top), yc = ry + OV_RH * 0.5f, x;
         if (g->hover_kind == TXG_W_LIST && g->hover_lane == j) R(g, c, lx, ry, lw, OV_RH, C_HOV);
         if (kept) { R(g, c, lx, ry, lw, OV_RH, C_NAV); R(g, c, lx, ry, 2.f, OV_RH, C_RED); }
         if (cu) RRS(g, c, lx + 1.f, ry + 1.f, lw - 2.f, OV_RH - 2.f, 2.f, C_DIM);
+        if (plays) play_mark(g, c, lx + 6.f, yc, 3.5f, C_RED);
         snprintf(t, sizeof t, "%02d", i + 1);
         TX(g, c, lx + 16.f, yc + CAP(g, 11.f) * 0.5f, 11.f, 450.f, 0.f, FRUI_TNUM, kept ? C_RED : C_DIM, t);
         CI(g, c, lx + 52.f, yc, 3.5f, eng_col(g, e));
@@ -1579,7 +1658,8 @@ static void draw_sounds(txg_t *g, frui_canvas *c)
         wid_add(g, TXG_W_LIST, j, lx, ry, lw, OV_RH);
     }
     frui_clip_reset(c);
-    /* the preview: the cursor's sound, its engine's colour, KEEP / CLOSE */
+    /* the right: the cursor's sound, its line, what plays on the lane (its events, its level), PREVIEW with its HOW
+     * MANY and HOW ACTIVE, the engine's colour, KEEP / CLOSE */
     {
         float px = g->W - OV_PREV + 16.f, pw = OV_PREV - 32.f;
         int e = snd_eng(g, g->sb_cf, g->sb_ci);
@@ -1592,13 +1672,56 @@ static void draw_sounds(txg_t *g, frui_canvas *c)
         clipL(g, c, px, y, pw, 50.f);
         TX(g, c, px, y + 36.f, 28.f, 700.f, 1.1f, 0, C_INK, nm);
         frui_clip_reset(c);
-        y += 62.f;
-        snprintf(t, sizeof t, "Moving through the list plays each sound on lane %d", k + 1);
-        TX(g, c, px, y, 12.f, 450.f, 0.f, 0, C_DIM, t);
-        TX(g, c, px, y + 17.f, 12.f, 450.f, 0.f, 0, C_DIM, "while it plays, as on the FM-1. KEEP to stay;");
-        TX(g, c, px, y + 34.f, 12.f, 450.f, 0.f, 0, C_DIM, "CLOSE puts the old sound back.");
-        y += 70.f;
-        if (e >= 0) {
+        y += 58.f;
+        (void)wrapn(g, c, px, y, pw, snd_desc(snd_name(g, g->sb_cf, g->sb_ci)), 3, 15.f, 11.5f, C_INK);
+        y += 52.f;
+        {   /* what the lane plays now: its sound, its events, its level */
+            float lh = 40.f, f = 0.f;
+            int pk = 0;
+            if (l->used && l->run) {
+                char a[32];
+                cap_name(a, l->snd, sizeof a);
+                snprintf(t, sizeof t, "LANE %d PLAYS  \xC2\xB7  ", k + 1);
+                upper(t, t, sizeof t);
+                play_mark(g, c, px, y - 3.5f, 3.5f, C_RED);
+                clipL(g, c, px, y - 12.f, pw, 16.f);
+                TX(g, c, px + 10.f + LBL(g, c, px + 10.f, y, 10.f, C_DIM, t), y, 11.f, 600.f, 0.f, 0, C_INK, a);
+                frui_clip_reset(c);
+            } else {
+                snprintf(t, sizeof t, "LANE %d %s", k + 1, l->used ? "IS STOPPED: PREVIEW PLAYS IT" : "IS EMPTY: PREVIEW PLAYS IT");
+                LBL(g, c, px, y, 10.f, C_DIM, t);
+            }
+            draw_line(g, c, k, px, y + 8.f, pw - 56.f, lh, 1.f);
+            for (uint32_t b = NBLK - GLOW_BLK; b < NBLK; b++) if (g->pk[b][k] > pk) pk = g->pk[b][k];
+            f = (float)pk / 255.f;
+            RR(g, c, px + pw - 48.f, y + 8.f, 8.f, lh, 2.f, C_WELL);
+            if (f > 0.f) RR(g, c, px + pw - 48.f, y + 8.f + lh * (1.f - f), 8.f, lh * f, 2.f, f > 0.97f ? C_RED : C_INK);
+            if (pk) snprintf(t, sizeof t, "%.0f", (double)(-72.f + 72.f * (float)(pk - 1) / 254.f)); else snprintf(t, sizeof t, "-inf");
+            TX(g, c, px + pw - TW(g, 10.f, 500.f, 0.f, FRUI_TNUM, t), y + 22.f, 10.f, 500.f, 0.f, FRUI_TNUM, C_INK, t);
+            TX(g, c, px + pw - TW(g, 8.5f, 450.f, 0.f, 0, "dB"), y + 36.f, 8.5f, 450.f, 0.f, 0, C_DIM, "dB");
+            y += lh + 22.f;
+        }
+        {   /* PREVIEW (play / stop), its HOW MANY and HOW ACTIVE */
+            float bw = 120.f, h = 30.f;
+            int hot = g->hover_kind == TXG_W_PREVIEW;
+            RR(g, c, px, y, bw, h, 3.f, g->pv_on ? C_SEG : hot ? C_INK : C_BTN);
+            RRS(g, c, px, y, bw, h, 3.f, g->pv_on ? C_RED : C_INK);
+            if (g->pv_on) R(g, c, px + 14.f, y + h * 0.5f - 4.5f, 9.f, 9.f, C_INK);
+            else play_mark(g, c, px + 14.f, y + h * 0.5f, 5.f, hot ? C_PANEL : C_INK);
+            LBL(g, c, px + 32.f, y + h * 0.5f + CAP(g, 11.f) * 0.5f, 11.f, !g->pv_on && hot ? C_PANEL : C_INK, g->pv_on ? "STOP" : "PREVIEW");
+            wid_add(g, TXG_W_PREVIEW, -1, px, y, bw, h);
+            y += h + 10.f;
+            LBL(g, c, px, y + 8.f, 9.5f, C_DIM, l->used && l->run && !g->pv_user ? "WHEN STOPPED, PREVIEW AT" : "PREVIEW AT");
+            pv_step(g, c, 0, px, y + 16.f, (pw - 8.f) * 0.5f);
+            pv_step(g, c, 1, px + (pw - 8.f) * 0.5f + 8.f, y + 16.f, (pw - 8.f) * 0.5f);
+            y += 54.f;
+        }
+        snprintf(t, sizeof t, "A click or the arrows play a sound on lane %d, started if", k + 1);
+        TX(g, c, px, y, 11.f, 450.f, 0.f, 0, C_DIM, t);
+        TX(g, c, px, y + 15.f, 11.f, 450.f, 0.f, 0, C_DIM, "stopped. KEEP keeps it; CLOSE puts the lane back");
+        TX(g, c, px, y + 30.f, 11.f, 450.f, 0.f, 0, C_DIM, "as it was (sound, cards, stopped or playing).");
+        y += 52.f;
+        if (e >= 0 && y + 24.f < g->H - 64.f) {
             char en[24];
             upper(en, g->cat->eng[e], sizeof en);
             snprintf(t, sizeof t, "%s COLOUR, IN EVERY PRESET", en);
@@ -1959,89 +2082,253 @@ static void draw_settings(txg_t *g, frui_canvas *c)
         wid_add(g, TXG_W_COLRESET, -1, x, y, 170.f, 26.f);
     }
 }
-/* ---- the expanded strip: every parameter of a section (its tabs: the effects in their order, LFO 1 .. 8, ENV and
- * FOLLOW, the matrix), over the place and the rows; the strip stays under it */
-static void fx_cells(txg_t *g, frui_canvas *c, const char *mod, float x, float y, float w, int cols, float ch)
+/* ---- an effect's drawer: it rises from the strip over the lane's drawer (the place and the rows stay above it): at
+ * the left a large picture, live (COMP's meters and curve, DRIVE's curve, FILTER's response in Hz, DELAY's echoes and
+ * grains, REVERB's tail); at the right every parameter of the effect in groups by purpose. MOVEMENT's: its tabs (LFO
+ * 1 .. 8, ENV and FOLLOW, the matrix) over the same */
+typedef struct { const char *t; int n; uint32_t id[8]; } grp_t;
+/* groups: their values in columns of rows (filled down), each group as many columns as it needs, named over them */
+static void groups(txg_t *g, frui_canvas *c, const grp_t *gr, int ng, int rows, float x, float y, float w, float h)
 {
-    uint32_t n, i;
-    const txp_param_t *t = txp_params(&n);
-    int j = 0;
-    float cw = (w - (float)(cols - 1) * 8.f) / (float)cols;
-    for (i = 0; i < n; i++) {
-        if (strcmp(t[i].module, mod)) continue;
-        pcell(g, c, x + (cw + 8.f) * (float)(j % cols), y + (ch + 8.f) * (float)(j / cols), cw, ch, t[i].id, 0, 0);
-        j++;
+    int cols = 0, gaps = 0;
+    float cw, ch, xx = x;
+    for (int i = 0; i < ng; i++) { int gc = (gr[i].n + rows - 1) / rows; cols += gc; gaps += gc - 1; }
+    cw = (w - 18.f * (float)(ng - 1) - 6.f * (float)gaps) / (float)(cols > 0 ? cols : 1);
+    ch = (h - 16.f - 6.f * (float)(rows - 1)) / (float)rows;
+    ch = ch > 60.f ? 60.f : ch;
+    for (int i = 0; i < ng; i++) {
+        int gc = (gr[i].n + rows - 1) / rows;
+        float gw = cw * (float)gc + 6.f * (float)(gc - 1);
+        LBL(g, c, xx, y + 9.f, 9.5f, C_DIM, gr[i].t);
+        R(g, c, xx + LBLW(g, 9.5f, gr[i].t) + 8.f, y + 5.f, fmaxf(gw - LBLW(g, 9.5f, gr[i].t) - 8.f, 0.f), 1.f, C_LINE);
+        for (int j = 0; j < gr[i].n; j++)
+            pcell(g, c, xx + (cw + 6.f) * (float)(j / rows), y + 16.f + (ch + 6.f) * (float)(j % rows), cw, ch, gr[i].id[j], 0, 0);
+        xx += gw + 18.f;
     }
 }
-static void draw_fx(txg_t *g, frui_canvas *c)
+static void fxd_title(txg_t *g, frui_canvas *c, float x, float y, float w, const char *name, uint32_t col, const char *why)
 {
-    static const char *const TABN[TAB_N] = { "COMP", "DRIVE", "FILTER", "DELAY", "REVERB", "LFO 1", "LFO 2", "LFO 3", "LFO 4",
-                                             "LFO 5", "LFO 6", "LFO 7", "LFO 8", "ENV \xC2\xB7 FOLLOW", "MATRIX" };
-    float y0 = TOP_H, y1 = g->fx_y, x = 16.f, by = y0 + 50.f, bh = y1 - by - 12.f;
-    char t[64];
-    int tab = g->fx_tab;
-    R(g, c, 0, y0, g->W, y1 - y0, C_OVL);
-    R(g, c, 0, y0 + 40.f, g->W, 1.f, C_LINE);
-    for (int i = 0; i < TAB_N; i++) {   /* the tabs */
-        float w = LBLW(g, 10.5f, TABN[i]) + 18.f;
-        int on = i == tab, lit = i >= TAB_LFO0 && i < TAB_ENV && (g->sn.ui.lfo_on >> (i - TAB_LFO0) & 1u);
-        if (i == TAB_LFO0 || i == TAB_ENV) x += 10.f;
-        RR(g, c, x, y0 + 9.f, w, 22.f, 2.f, on ? C_SEG : C_PANEL); RRS(g, c, x, y0 + 9.f, w, 22.f, 2.f, C_LINE);
-        if (on) R(g, c, x + 1.f, y0 + 29.f, w - 2.f, 2.f, C_RED);
-        LBL(g, c, x + 9.f, y0 + 20.f + CAP(g, 10.5f) * 0.5f, 10.5f, on ? C_INK : lit ? C_RED : C_DIM, TABN[i]);
-        wid_add(g, TXG_W_FXTAB, i, x, y0 + 9.f, w, 22.f);
-        x += w + 4.f;
+    float nw = LBL(g, c, x, y + 10.f, 12.f, col, name);
+    clipL(g, c, x + nw + 12.f, y - 2.f, w - nw - 12.f, 16.f);
+    TX(g, c, x + nw + 12.f, y + 10.f, 10.f, 450.f, 0.f, 0, C_DIM, why);
+    frui_clip_reset(c);
+}
+/* the large pictures: as the strip's (viz), with their numbers */
+static void graph_big(txg_t *g, frui_canvas *c, int sec, float x, float y, float w, float h, int on)
+{
+    char t[40];
+    uint32_t ink = on ? C_INK : C_FAINT;
+    float lw2 = g->S < 1.5f ? 1.4f / g->S : 1.2f, px = 0.f, py = 0.f;
+    if (sec == SEC_COMP) {               /* the meters, the curve beside them */
+        float cs = fminf(h, w * 0.36f);
+        comp_meter(g, c, x, y + 4.f, w - cs - 18.f, 80.f, on);
+        comp_curve(g, c, x + w - cs, y, cs, cs, on);
+        return;
     }
-    button(g, c, g->W - 96.f, y0 + 7.f, 80.f, 26.f, "CLOSE", 0);
-    wid_add(g, TXG_W_CLOSE, -1, g->W - 96.f, y0 + 7.f, 80.f, 26.f);
-    if (tab < SEC_MOVE) {                /* an effect: its picture, every parameter */
-        static const char *const WHY[5] = { "The mix's compressor: the lanes together, before the drive.",
-                                            "Saturation on the mix: AMOUNT, its TONE and MIX, five TYPEs.",
-                                            "HIGH PASS then LOW PASS on the mix (real cutoffs), RESONANCE, SLOPE.",
-                                            "The grain delay: echoes cut into grains, pitched, sprayed, frozen.",
-                                            "The reverb: its TYPE, DECAY and SIZE; SHIMMER pitches its tail." };
-        float vw = 300.f;
-        LBL(g, c, 16.f, by + 12.f, 12.f, C_INK, SEC_NAME[tab]);
-        hint2(g, c, 16.f, by + 30.f, vw - 32.f, WHY[tab]);
-        RR(g, c, 16.f, by + 56.f, vw - 16.f, fminf(bh - 66.f, 160.f), 2.f, C_WELL);
-        viz(g, c, tab, 28.f, by + 68.f, vw - 40.f, fminf(bh - 90.f, 136.f), sec_on(g, tab));
-        fx_cells(g, c, SEC_MOD[tab], vw + 16.f, by, g->W - vw - 32.f, 4, 34.f);
-    } else if (tab < TAB_ENV) {          /* an LFO: its trace, its routes, every parameter */
+    if (sec == SEC_DRIVE) {              /* the curve over the straight line (no drive), the input at the bottom */
+        float amt = (float)txp_ui_get(g->c, ID_DAMT) / 127.f, k = 1.f + amt * 8.f, cs = fminf(h, w * 0.5f), cx = x;
+        RR(g, c, cx, y, cs, cs, 2.f, C_WELL);
+        LN(g, c, cx, y + cs, cx + cs, y, lw1(g), C_LINE);
+        LN(g, c, cx, y + cs * 0.5f, cx + cs, y + cs * 0.5f, lw1(g), C_FAINT);
+        for (int i = 0; i <= 48; i++) {
+            float a = (float)i / 24.f - 1.f, b = tanhf(a * k) / tanhf(k), xx = cx + (a + 1.f) * 0.5f * cs, yy = y + cs * 0.5f - b * cs * 0.46f;
+            if (i) LN(g, c, px, py, xx, yy, lw2, ink);
+            px = xx; py = yy;
+        }
+        {
+            static const uint32_t ID[4] = { ID_DAMT, ID_DTONE, ID_DMIX, ID_DTYPE };
+            static const char *const N[4] = { "AMOUNT", "TONE", "MIX", "TYPE" };
+            for (int i = 0; i < 4; i++) {
+                vtext(g, ID[i], t, sizeof t);
+                LBL(g, c, cx + cs + 16.f, y + 14.f + 18.f * (float)i, 9.f, C_DIM, N[i]);
+                TX(g, c, cx + cs + 80.f, y + 14.f + 18.f * (float)i, 11.f, 500.f, 0.f, FRUI_TNUM, ink, t);
+            }
+        }
+        return;
+    }
+    RR(g, c, x, y, w, h, 2.f, C_WELL);
+    if (sec == SEC_FILTER) {             /* the response: HIGH PASS then LOW PASS, RESONANCE at each cutoff, in Hz */
+        static const float GF[4] = { 100.f, 1000.f, 10000.f, 0.f };
+        static const char *const GN[3] = { "100", "1k", "10k" };
+        int hp = txp_ui_get(g->c, ID_FHP), lp = txp_ui_get(g->c, ID_FLP), sl = txp_ui_get(g->c, ID_FSLOPE), live;
+        int mh = pmod(g, ID_FHP, &live), ml = pmod(g, ID_FLP, &live);
+        float res = (float)txp_ui_get(g->c, ID_FRES) / 127.f, st = 0.10f + 0.06f * (float)sl, ix = x + 8.f, iw = w - 16.f,
+              iy = y + 18.f, ih = h - 34.f, xh = ix + iw * hz_x((float)hp), xl = ix + iw * hz_x((float)lp);
+        for (int i = 0; i < 3; i++) {    /* (the decades: 20 Hz .. 20 kHz, log) */
+            float gx = ix + iw * log10f(GF[i] / 20.f) / 3.f;
+            R(g, c, gx, iy, 1.f, ih, C_LINE);
+            TX(g, c, gx - TW(g, 8.5f, 450.f, 0.f, 0, GN[i]) * 0.5f, y + h - 5.f, 8.5f, 450.f, 0.f, 0, C_FAINT, GN[i]);
+        }
+        TX(g, c, ix, y + h - 5.f, 8.5f, 450.f, 0.f, 0, C_FAINT, "20");
+        TX(g, c, ix + iw - TW(g, 8.5f, 450.f, 0.f, 0, "20k"), y + h - 5.f, 8.5f, 450.f, 0.f, 0, C_FAINT, "20k");
+        for (int i = 0; i <= 96; i++) {
+            float a = (float)i / 96.f, att = 0.f, bump = 0.f, yy;
+            if (hp > 0) {
+                float d = hz_x((float)hp) - a;
+                if (d > 0.f) att += d / st;
+                bump += res * expf(-d * d * 900.f);
+            }
+            if (lp < 127) {
+                float d = a - hz_x((float)lp);
+                if (d > 0.f) att += d / st;
+                bump += res * expf(-d * d * 900.f);
+            }
+            att = att > 1.f ? 1.f : att;
+            yy = iy + ih * 0.22f + att * ih * 0.78f - bump * ih * 0.2f;
+            if (i) LN(g, c, px, py, ix + a * iw, yy, lw2, C_INK);
+            px = ix + a * iw; py = yy;
+        }
+        if (hp > 0) {
+            dashed(g, c, xh, iy, iy + ih, mh ? C_RED : C_DIM);
+            vtext(g, ID_FHP, t, sizeof t);
+            TX(g, c, fminf(xh + 4.f, ix + iw - TW(g, 9.5f, 500.f, 0.f, FRUI_TNUM, t)), y + 12.f, 9.5f, 500.f, 0.f, FRUI_TNUM, mh ? C_RED : C_INK, t);
+        }
+        if (lp < 127) {
+            dashed(g, c, xl, iy, iy + ih, ml ? C_RED : C_DIM);
+            vtext(g, ID_FLP, t, sizeof t);
+            TX(g, c, fmaxf(xl - 4.f - TW(g, 9.5f, 500.f, 0.f, FRUI_TNUM, t), ix), y + 12.f, 9.5f, 500.f, 0.f, FRUI_TNUM, ml ? C_RED : C_INK, t);
+        }
+        if (hp <= 0 && lp >= 127) TX(g, c, ix, y + 12.f, 9.5f, 450.f, 0.f, 0, C_DIM, "Both open: the mix passes as it is.");
+    } else if (sec == SEC_DELAY) {       /* the echoes: spaced by TIME, fading by FEEDBACK, each a cloud of GRAINS */
+        float tm = (float)txp_ui_get(g->c, ID_GTIME) / 133.f, fb = (float)txp_ui_get(g->c, ID_GFB) / 127.f,
+              ng = (float)txp_ui_get(g->c, G_ID(3)), spr = (float)txp_ui_get(g->c, G_ID(5)) / 127.f,
+              mix = (float)txp_ui_get(g->c, ID_GMIX) / 127.f, sp = 10.f + tm * 54.f, a = 1.f, ix = x + 10.f, base = y + h - 16.f;
+        int n = 0;
+        uint32_t r = 0x9E3779B9u;
+        LN(g, c, ix, base, x + w - 8.f, base, lw1(g), C_LINE);
+        for (float xx = ix; xx < x + w - 8.f && a > 0.03f; xx += sp, n++) {
+            float hh = (h - 40.f) * a;
+            int k = n ? 1 + (int)(ng / 3.f) : 1;
+            R(g, c, xx, base - hh, 2.f, hh, frui_alpha(ink, n ? 0.6f + 0.4f * mix : 1.f));
+            for (int i = 1; n && i < k; i++) {   /* (the grains round the echo: SPRAY spreads them) */
+                float o;
+                r = r * 1664525u + 1013904223u;
+                o = ((float)(r >> 8) / 16777216.f - 0.5f) * sp * (0.2f + 0.8f * spr);
+                R(g, c, xx + o, base - hh * 0.55f, 1.f, hh * 0.55f, frui_alpha(ink, 0.4f * (0.6f + 0.4f * mix)));
+            }
+            a *= 0.35f + 0.6f * fb;
+        }
+        vtext(g, ID_GTIME, t, sizeof t);
+        LBL(g, c, ix, y + 14.f, 9.f, C_DIM, "TIME");
+        TX(g, c, ix + 40.f, y + 14.f, 10.5f, 500.f, 0.f, FRUI_TNUM, ink, t);
+        vtext(g, ID_GFB, t, sizeof t);
+        LBL(g, c, ix + 120.f, y + 14.f, 9.f, C_DIM, "FEEDBACK");
+        TX(g, c, ix + 190.f, y + 14.f, 10.5f, 500.f, 0.f, FRUI_TNUM, ink, t);
+        vtext(g, G_ID(3), t, sizeof t);
+        LBL(g, c, ix + 250.f, y + 14.f, 9.f, C_DIM, "GRAINS");
+        TX(g, c, ix + 306.f, y + 14.f, 10.5f, 500.f, 0.f, FRUI_TNUM, ink, t);
+    } else if (sec == SEC_REVERB) {      /* its tail: after PREDELAY, as long as DECAY, as dense as SIZE */
+        float dc = (float)txp_ui_get(g->c, ID_RDECAY) / 127.f, pd = (float)txp_ui_get(g->c, G_ID(20)) / 127.f,
+              sz = (float)txp_ui_get(g->c, G_ID(21)) / 127.f, ix = x + 10.f, iw = w - 20.f, base = y + h - 16.f, hh = h - 40.f,
+              x0 = ix + iw * 0.12f * pd;
+        uint32_t r = 0x2545F491u;
+        LN(g, c, ix, base, ix + iw, base, lw1(g), C_LINE);
+        R(g, c, ix, base - hh, 2.f, hh, ink);   /* (the sound itself) */
+        for (int i = 0; i < 160; i++) {  /* (its reflections, thinning out) */
+            float a = (float)i / 160.f, e = expf(-a * (7.f - 6.f * dc)), xx = x0 + a * (ix + iw - x0), v;
+            r = r * 1664525u + 1013904223u;
+            v = 0.45f + 0.55f * (float)(r >> 8) / 16777216.f;
+            if ((r >> 4 & 7u) > (uint32_t)(2.f + 5.f * sz)) continue;
+            R(g, c, xx, base - hh * e * v, 1.f, hh * e * v, frui_alpha(ink, 0.35f));
+        }
+        px = x0; py = base - hh;
+        for (int i = 1; i <= 60; i++) {
+            float a = (float)i / 60.f, e = expf(-a * (7.f - 6.f * dc)), xx = x0 + a * (ix + iw - x0), yy = base - e * hh;
+            LN(g, c, px, py, xx, yy, lw2, ink);
+            px = xx; py = yy;
+        }
+        vtext(g, ID_RDECAY, t, sizeof t);
+        LBL(g, c, ix + iw * 0.4f, y + 14.f, 9.f, C_DIM, "DECAY");
+        TX(g, c, ix + iw * 0.4f + 50.f, y + 14.f, 10.5f, 500.f, 0.f, FRUI_TNUM, ink, t);
+        vtext(g, ID_RTYPE, t, sizeof t);
+        LBL(g, c, ix + iw * 0.4f, y + 30.f, 9.f, C_DIM, "TYPE");
+        TX(g, c, ix + iw * 0.4f + 50.f, y + 30.f, 10.5f, 500.f, 0.f, 0, ink, t);
+    }
+}
+static void draw_fxd(txg_t *g, frui_canvas *c)
+{
+    static const char *const TABN[TAB_N] = { "", "", "", "", "", "LFO 1", "LFO 2", "LFO 3", "LFO 4", "LFO 5", "LFO 6", "LFO 7",
+                                             "LFO 8", "ENV \xC2\xB7 FOLLOW", "MATRIX" };
+    static const char *const WHY[5] = { "The mix's compressor: the lanes together, before the drive.",
+                                        "Saturation on the mix: how much, its colour.",
+                                        "HIGH PASS then LOW PASS on the mix, at real cutoffs.",
+                                        "The grain delay: echoes cut into grains, pitched, sprayed, frozen.",
+                                        "The reverb: its space, its colour, its mix." };
+    const float y0 = g->dr_y, y1 = g->fx_y, x1 = g->W;
+    float by = y0, gw = floorf(g->W * 0.28f);
+    int tab = g->fx_tab;
+    char t[64];
+    gw = gw < 280.f ? 280.f : gw > 520.f ? 520.f : gw;
+    R(g, c, 0, y0, x1, y1 - y0, C_DRAW);
+    R(g, c, 0, y0, x1, 1.f, C_LINE);
+    wid_add(g, TXG_W_FXD, tab, 0, y0, x1, y1 - y0);
+    if (tab >= SEC_MOVE) {               /* MOVEMENT: its tabs */
+        float x = 16.f;
+        for (int i = TAB_LFO0; i < TAB_N; i++) {
+            float w = LBLW(g, 10.5f, TABN[i]) + 18.f;
+            int on = i == tab, lit = i < TAB_ENV && (g->sn.ui.lfo_on >> (i - TAB_LFO0) & 1u);
+            if (i == TAB_ENV) x += 10.f;
+            RR(g, c, x, y0 + 8.f, w, 22.f, 2.f, on ? C_SEG : C_PANEL); RRS(g, c, x, y0 + 8.f, w, 22.f, 2.f, C_LINE);
+            if (on) R(g, c, x + 1.f, y0 + 28.f, w - 2.f, 2.f, C_RED);
+            LBL(g, c, x + 9.f, y0 + 19.f + CAP(g, 10.5f) * 0.5f, 10.5f, on ? C_INK : lit ? C_RED : C_DIM, TABN[i]);
+            wid_add(g, TXG_W_FXTAB, i, x, y0 + 8.f, w, 22.f);
+            x += w + 4.f;
+        }
+        if (tab == TAB_MAT) {
+            TX(g, c, x + 14.f, y0 + 19.f + CAP(g, 10.5f) * 0.5f, 10.5f, 450.f, 0.f, 0, C_DIM, "A source moves a target by DEPTH; SPREAD offsets each lane's.");
+            pcell(g, c, x1 - 16.f - 200.f, y0 + 5.f, 200.f, 26.f, TXP_ID_MODCC, "MOD CC", 0);
+        }
+        by = y0 + FXD_TABS;
+    }
+    if (tab < SEC_MOVE) {                /* an effect: its picture, its values in groups */
+        static const grp_t G[5][4] = {
+            { { "LEVEL", 2, { ID_CTHR, G_ID(31) } }, { "TIME", 2, { G_ID(28), G_ID(29) } }, { "SHAPE", 2, { ID_CRATIO, ID_CON } } },
+            { { "AMOUNT", 2, { ID_DAMT, ID_DMIX } }, { "COLOUR", 2, { ID_DTONE, ID_DTYPE } } },
+            { { "CUTOFF", 2, { ID_FHP, ID_FLP } }, { "SHAPE", 2, { ID_FRES, ID_FSLOPE } } },
+            { { "TIME", 4, { ID_GTIME, ID_GFB, G_ID(12), G_ID(11) } }, { "GRAINS", 5, { G_ID(3), G_ID(4), G_ID(5), G_ID(8), G_ID(7) } },
+              { "COLOUR", 6, { G_ID(6), G_ID(15), G_ID(9), G_ID(10), G_ID(13), G_ID(14) } }, { "MIX", 1, { ID_GMIX } } },
+            { { "SPACE", 3, { G_ID(21), ID_RDECAY, G_ID(20) } }, { "COLOUR", 5, { G_ID(19), G_ID(23), G_ID(24), G_ID(25), G_ID(22) } },
+              { "TYPE \xC2\xB7 MIX", 2, { ID_RTYPE, ID_RMIX } } } };
+        static const int NG[5] = { 3, 2, 2, 4, 3 }, ROWS[5] = { 2, 2, 2, 3, 3 };
+        fxd_title(g, c, 16.f, by + 12.f, gw, SEC_NAME[tab], C_INK, WHY[tab]);
+        graph_big(g, c, tab, 16.f, by + 38.f, gw, y1 - 12.f - (by + 38.f), sec_on(g, tab));
+        groups(g, c, G[tab], NG[tab], ROWS[tab], gw + 40.f, by + 12.f, x1 - gw - 56.f, y1 - 12.f - (by + 12.f));
+    } else if (tab < TAB_ENV) {          /* an LFO: its trace, NOW, its routes; its values in groups */
         int n = tab - TAB_LFO0, routed = (int)(g->sn.ui.lfo_on >> n & 1u), nr = 0;
-        float vw = 300.f, yy;
+        float yy;
+        grp_t G[3] = { { "WAVE", 4, { ID_LFO(n, LP_SHAPE), ID_LFO(n, LP_WIDTH), ID_LFO(n, LP_PHASE), ID_LFO(n, LP_JITTER) } },
+                       { "TIME", 4, { ID_LFO(n, LP_RATE), ID_LFO(n, LP_SYNC), ID_LFO(n, LP_FADE), ID_LFO(n, LP_RESTART) } },
+                       { "OUTPUT", 2, { ID_LFO(n, LP_MODE), ID_LFO(n, LP_LEVEL) } } };
         snprintf(t, sizeof t, "LFO %d", n + 1);
-        LBL(g, c, 16.f, by + 12.f, 12.f, routed ? C_RED : C_INK, t);
-        RR(g, c, 16.f, by + 24.f, vw - 16.f, 70.f, 2.f, C_WELL);
-        lfo_trace(g, c, n, 26.f, by + 32.f, vw - 36.f, 54.f, routed ? C_RED : C_DIM);
+        fxd_title(g, c, 16.f, by + 12.f, gw - 70.f, t, routed ? C_RED : C_INK, routed ? "" : "not routed");
         snprintf(t, sizeof t, "NOW %+d %%", (int)lroundf((float)g->sn.ui.lfo[n] * 100.f / 32767.f));   /* (read only) */
-        LBL(g, c, vw - TW(g, 10.f, 620.f, 1.4f, 0, t), by + 12.f, 10.f, routed ? C_RED : C_DIM, t);
-        yy = by + 116.f;
-        LBL(g, c, 16.f, yy, 10.f, C_DIM, "ROUTES (THE MATRIX)");
-        for (int s = 0; s < 16; s++) {   /* the matrix slots it drives */
+        LBL(g, c, 16.f + gw - TW(g, 10.f, 620.f, 1.4f, 0, t), by + 22.f, 10.f, routed ? C_RED : C_DIM, t);
+        RR(g, c, 16.f, by + 32.f, gw, 64.f, 2.f, C_WELL);
+        lfo_trace(g, c, n, 26.f, by + 38.f, gw - 20.f, 52.f, routed ? C_RED : C_DIM);
+        yy = by + 112.f;
+        for (int s = 0; s < 16 && nr < 3; s++) {   /* the matrix slots it drives */
             int i = txp_param_index(ID_MAT(s, 0)), it = txp_param_index(ID_MAT(s, 1)), id = txp_param_index(ID_MAT(s, 2));
             if (i < 0 || g->sn.pv[i] != n + 1 || it < 0 || !g->sn.pv[it]) continue;
             snprintf(t, sizeof t, "MOD %d  \xE2\x86\x92  %s  %s", s + 1, g->sn.ptx[it], id >= 0 ? g->sn.ptx[id] : "");
-            TX(g, c, 16.f, yy + 20.f + 17.f * (float)nr, 11.5f, 500.f, 0.f, FRUI_TNUM, C_RED, t);
+            clipL(g, c, 16.f, yy - 12.f + 16.f * (float)nr, gw, 16.f);
+            TX(g, c, 16.f, yy + 16.f * (float)nr, 11.f, 500.f, 0.f, FRUI_TNUM, C_RED, t);
+            frui_clip_reset(c);
             nr++;
         }
-        if (!nr) TX(g, c, 16.f, yy + 20.f, 11.5f, 450.f, 0.f, 0, C_DIM, "Not routed: set a matrix slot's SOURCE to it.");
-        snprintf(t, sizeof t, "LFO %d", n + 1);
-        fx_cells(g, c, t, vw + 16.f, by, g->W - vw - 32.f, 4, 34.f);
-    } else if (tab == TAB_ENV) {         /* the envelopes and the followers: a column each */
+        if (!nr) TX(g, c, 16.f, yy, 11.f, 450.f, 0.f, 0, C_DIM, "Set a MATRIX slot's SOURCE to it.");
+        groups(g, c, G, 3, 2, gw + 40.f, by + 12.f, x1 - gw - 56.f, y1 - 12.f - (by + 12.f));
+    } else if (tab == TAB_ENV) {         /* the envelopes and the followers: a group each */
+        grp_t G[4];
         static const char *const M[4] = { "ENV 1", "ENV 2", "FOLLOW 1", "FOLLOW 2" };
-        float cw = (g->W - 32.f - 3.f * 16.f) / 4.f;
-        for (int i = 0; i < 4; i++) {
-            float cx = 16.f + (cw + 16.f) * (float)i;
-            LBL(g, c, cx, by + 12.f, 12.f, C_INK, M[i]);
-            fx_cells(g, c, M[i], cx, by + 24.f, cw, 1, 28.f);
+        for (int m = 0; m < 4; m++) {
+            G[m].t = M[m]; G[m].n = m < 2 ? 8 : 4;
+            for (int p = 0; p < G[m].n; p++) G[m].id[p] = 6u << 8 | (uint32_t)m * 16u | (uint32_t)p;
         }
-    } else {                             /* the matrix: sixteen slots, SOURCE TARGET DEPTH SPREAD; MOD CC */
-        float colw = (g->W - 48.f) / 2.f, rh = fminf((bh - 46.f) / 8.f, 40.f);
-        LBL(g, c, 16.f, by + 12.f, 12.f, C_INK, "MATRIX");
-        TX(g, c, 100.f, by + 12.f, 11.5f, 450.f, 0.f, 0, C_DIM, "A source moves a target by DEPTH; SPREAD offsets each lane's.");
-        pcell(g, c, g->W - 16.f - 200.f, by - 4.f, 200.f, 28.f, TXP_ID_MODCC, "MOD CC", 0);
+        groups(g, c, G, 4, 4, 16.f, by + 12.f, x1 - 32.f, y1 - 12.f - (by + 12.f));
+    } else {                             /* the matrix: sixteen slots, SOURCE TARGET DEPTH SPREAD */
+        float colw = (x1 - 48.f) / 2.f, rh = 30.f;
         for (int s = 0; s < 16; s++) {   /* (the columns named once over each half; the cells their values alone) */
-            float cx = 16.f + (colw + 16.f) * (float)(s / 8), cy = by + 46.f + rh * (float)(s % 8), w1 = 52.f,
+            float cx = 16.f + (colw + 16.f) * (float)(s / 8), cy = by + 26.f + rh * (float)(s % 8), w1 = 52.f,
                   ws = (colw - w1 - 3.f * 6.f) * 0.27f, wt = (colw - w1 - 3.f * 6.f) * 0.39f, wd = (colw - w1 - 3.f * 6.f) * 0.17f;
             int is = txp_param_index(ID_MAT(s, 0)), it = txp_param_index(ID_MAT(s, 1)), on = is >= 0 && it >= 0 && g->sn.pv[is] && g->sn.pv[it];
             if (s % 8 == 0) {
@@ -2051,11 +2338,11 @@ static void draw_fx(txg_t *g, frui_canvas *c)
                 LBL(g, c, cx + w1 + ws + wt + wd + 27.f, cy - 8.f, 9.5f, C_DIM, "SPREAD");
             }
             snprintf(t, sizeof t, "MOD %d", s + 1);
-            LBL(g, c, cx, cy + (rh - 8.f) * 0.5f + CAP(g, 10.f) * 0.5f, 10.f, on ? C_RED : C_DIM, t);
-            pcell(g, c, cx + w1, cy, ws, rh - 8.f, ID_MAT(s, 0), "", 0);
-            pcell(g, c, cx + w1 + ws + 6.f, cy, wt, rh - 8.f, ID_MAT(s, 1), "", 0);
-            pcell(g, c, cx + w1 + ws + wt + 12.f, cy, wd, rh - 8.f, ID_MAT(s, 2), "", 0);
-            pcell(g, c, cx + w1 + ws + wt + wd + 18.f, cy, wd, rh - 8.f, ID_MAT(s, 3), "", 0);
+            LBL(g, c, cx, cy + (rh - 6.f) * 0.5f + CAP(g, 10.f) * 0.5f, 10.f, on ? C_RED : C_DIM, t);
+            pcell(g, c, cx + w1, cy, ws, rh - 6.f, ID_MAT(s, 0), "", 0);
+            pcell(g, c, cx + w1 + ws + 6.f, cy, wt, rh - 6.f, ID_MAT(s, 1), "", 0);
+            pcell(g, c, cx + w1 + ws + wt + 12.f, cy, wd, rh - 6.f, ID_MAT(s, 2), "", 0);
+            pcell(g, c, cx + w1 + ws + wt + wd + 18.f, cy, wd, rh - 6.f, ID_MAT(s, 3), "", 0);
         }
     }
 }
@@ -2129,8 +2416,8 @@ static void draw_all(txg_t *g, frui_canvas *c)
     else if (g->ov == OV_SND) draw_sounds(g, c);
     else if (g->ov == OV_PRE) draw_presets(g, c);
     else {
-        if (g->ov == OV_FX) draw_fx(g, c);
-        else { draw_rows(g, c); draw_place(g, c); draw_drawer(g, c); }
+        draw_rows(g, c); draw_place(g, c);
+        if (g->ov == OV_FX) draw_fxd(g, c); else draw_drawer(g, c);
         draw_strip(g, c);
         if (g->ov == OV_SAVE) draw_save(g, c);
     }
@@ -2192,9 +2479,8 @@ int txg_tick(txg_t *g)
             fabsf(g->cm_gr - g->cm_drawn[2]) >= 0.05f || fabsf(g->cm_pk - g->cm_drawn[3]) >= 0.05f)
             g->cm_dirty = 1;
     }
-    if (g->sb_pend > 0 && --g->sb_pend == 0 && g->ov == OV_SND && g->sn.ui.lane[g->sb_lane].run)   /* (an audition
-                                          * waited for the keys to rest) */
-        txp_ui_sound(g->c, g->sb_lane, g->sb_cf, g->sb_ci, 0);
+    if (g->sb_pend > 0 && --g->sb_pend == 0 && g->ov == OV_SND) pv_play(g);   /* (a preview waited for the keys to
+                                          * rest) */
     if (g->sv_wait > 0) g->sv_wait--;
     /* the signature of what is drawn but the live values: the values the modulation moves now, the meters and the LFOs
      * are drawn with the activity (the partial repaint), not here */
@@ -2217,7 +2503,8 @@ int txg_tick(txg_t *g)
     h = fnv(h, &g->drag, sizeof g->drag); h = fnv(h, &g->rtop, sizeof g->rtop); h = fnv(h, &g->fx_tab, sizeof g->fx_tab);
     h = fnv(h, &g->sn.tempo10, sizeof g->sn.tempo10);
     {
-        int v[9] = { g->sb_fam, g->sb_cf << 8 | g->sb_ci, g->sb_top, g->pb_bank, g->pb_cur, g->pb_top, g->sv_slot, g->sv_wait > 0, txp_ui_win_w(g->c) };
+        int v[13] = { g->sb_fam, g->sb_cf << 8 | g->sb_ci, g->sb_top, g->pb_bank, g->pb_cur, g->pb_top, g->sv_slot, g->sv_wait > 0, txp_ui_win_w(g->c),
+                      g->pv_on, g->pv_cnt, g->pv_act, g->pv_user };
         h = fnv(h, v, sizeof v);
         h = fnv(h, g->q, sizeof g->q);
         h = fnv(h, g->sv_name, sizeof g->sv_name);
@@ -2256,10 +2543,13 @@ static int paint_into(txg_t *g, frui_canvas *c)
     int full = !g->drawn || c->px != g->last_px || c->w != g->last_w || c->h != g->last_h || g->sig != g->sig_drawn;
     fit(g, c->w, c->h);
     int moved = g->actn != g->actn_drawn || g->cm_dirty;
-    if (full || (moved && g->ov == OV_FX && g->pick < 0)) {
+    if (full) {
         frui_clip_base(c, 0, 0, c->w, c->h);
         draw_all(g, c);
-    } else if (moved && (g->ov == OV_NONE || g->ov == OV_SAVE) && g->pick < 0) {
+    } else if (moved && g->ov == OV_SND && g->pick < 0) {   /* (the sound browser: its preview's event line, meter) */
+        region(g, c, g->W - OV_PREV + 1.f, OV_Y0, g->W, g->H);
+        frui_clip_base(c, 0, 0, c->w, c->h);
+    } else if (moved && (g->ov == OV_NONE || g->ov == OV_SAVE || g->ov == OV_FX) && g->pick < 0) {
         rcol_t rc = rcols(g);
         region(g, c, 0, TOP_H, g->PW, g->dr_y);
         region(g, c, rc.dot - 8.f, TOP_H + HDR_H, rc.tl + rc.tlw + 1.f, g->dr_y);
@@ -2330,7 +2620,8 @@ static const wid_t *hit(const txg_t *g, float x, float y)   /* the last-drawn co
     if (best) return best;
     for (int i = g->nw - 1; i >= 0; i--) {
         const wid_t *w = &g->w[i];
-        if (w->kind == TXG_W_DOT || w->kind == TXG_W_PLACE || w->kind == TXG_W_MAPR || w->kind == TXG_W_CMETER || w->kind == TXG_W_TIP) continue;
+        if (w->kind == TXG_W_DOT || w->kind == TXG_W_PLACE || w->kind == TXG_W_MAPR || w->kind == TXG_W_CMETER || w->kind == TXG_W_TIP ||
+            w->kind == TXG_W_FXD) continue;
         if (x >= w->r[0] && x < w->r[0] + w->r[2] && y >= w->r[1] && y < w->r[1] + w->r[3]) {
             if (w->kind == TXG_W_ROW || w->kind == TXG_W_ROWS) { if (!best || best->kind == TXG_W_ROWS) best = w; continue; }   /* (a row:
                                           * only when nothing in it is hit) */
@@ -2419,28 +2710,45 @@ static void sb_open(txg_t *g, int k)
 {
     const txp_ui_lane_t *l = &g->sn.ui.lane[k];
     select_lane(g, k);
+    if (g->ov == OV_SND) sb_close(g, 0);
     g->ov = OV_SND; g->pick = -1; g->q[0] = 0; g->sb_top = 0; g->sb_pend = 0;
     g->sb_lane = k;
     g->sb_kf = l->used ? l->fi : -1; g->sb_ki = l->used ? l->si : -1;
     g->sb_cf = l->used ? l->fi : (g->sn.ui.land < g->cat->nfam ? g->sn.ui.land : 0);
     g->sb_ci = l->used ? l->si : 0;
     g->sb_fam = g->sb_cf;
+    g->pv_on = 0; g->pv_user = 0;
+}
+/* the preview (slot_bridge.h sb_pv_*): the cursor's sound on the lane, always heard (a stopped lane started at the
+ * preview's HOW MANY / HOW ACTIVE); stopped: the lane as it was */
+static void pv_play(txg_t *g)
+{
+    g->sb_pend = 0;
+    txp_ui_preview(g->c, g->sb_lane, g->sb_cf, g->sb_ci, g->pv_cnt, g->pv_act, g->pv_user);
+    g->pv_on = 1;
+}
+static void pv_stop(txg_t *g)
+{
+    g->sb_pend = 0;
+    if (g->pv_on) txp_ui_preview_end(g->c, g->sb_lane, g->sb_kf, g->sb_ki, 0, 0);
+    g->pv_on = 0;
 }
 static void sb_close(txg_t *g, int keep)
 {
     const txp_ui_lane_t *l = &g->sn.ui.lane[g->sb_lane];
     g->sb_pend = 0;
-    if (keep) {                          /* (the cursor's sound on the lane: a stopped lane gets it stopped) */
-        if (!(g->sb_cf == g->sb_kf && g->sb_ci == g->sb_ki) || !l->used) txp_ui_sound(g->c, g->sb_lane, g->sb_cf, g->sb_ci, 1);
-    } else if (g->sb_kf >= 0 && l->used && !(l->fi == g->sb_kf && l->si == g->sb_ki))
-        txp_ui_sound(g->c, g->sb_lane, g->sb_kf, g->sb_ki, 0);   /* (an audition ends: the kept sound back) */
+    if (keep) {                          /* (the cursor's sound kept; the lane otherwise as it was: stopped stays stopped,
+                                          * unless the preview's HOW MANY / HOW ACTIVE were set) */
+        if (g->pv_on || !(g->sb_cf == g->sb_kf && g->sb_ci == g->sb_ki) || !l->used)
+            txp_ui_preview_end(g->c, g->sb_lane, g->sb_cf, g->sb_ci, 1, g->pv_on && g->pv_user);
+    } else pv_stop(g);                   /* (CLOSE: the lane exactly as it was) */
+    g->pv_on = 0;
     g->ov = OV_NONE; g->q[0] = 0;
 }
-static void sb_cursor(txg_t *g, int f, int i, int now)   /* the cursor on a sound: heard on the lane while it plays */
+static void sb_cursor(txg_t *g, int f, int i, int now)   /* the cursor on a sound: previewed on the lane */
 {
     g->sb_cf = f; g->sb_ci = i;
-    if (!g->sn.ui.lane[g->sb_lane].run) return;
-    if (now) { g->sb_pend = 0; txp_ui_sound(g->c, g->sb_lane, f, i, 0); }
+    if (now) pv_play(g);
     else g->sb_pend = 12;                /* (the keys: heard once they rest, ~0.4 s, as on the FM-1) */
 }
 static void pb_open(txg_t *g)
@@ -2510,7 +2818,7 @@ static int ov_key(txg_t *g, const frg_input *e)   /* the keys while an overlay i
         if (ch > 0 && ch < 0x7F && strchr("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-&'. ", ch) && m < 11u) { g->sv_name[m] = (char)ch; g->sv_name[m + 1] = 0; return 3; }
         return 0;
     }
-    if (g->ov == OV_SET || g->ov == OV_FX) return 0;
+    if (g->ov == OV_SET) return 0;
     if (e->key == FRK_UP || e->key == FRK_DOWN) { list_move(g, e->key == FRK_UP ? -1 : 1); return 3; }
     if (e->key == FRK_PGUP || e->key == FRK_PGDN) { list_move(g, e->key == FRK_PGUP ? -10 : 10); return 3; }
     if ((e->key == FRK_LEFT || e->key == FRK_RIGHT) && !g->q[0]) {   /* the next family / bank */
@@ -2535,7 +2843,7 @@ static int ov_key(txg_t *g, const frg_input *e)   /* the keys while an overlay i
     if (e->key >= 0x20 && e->key < 0x7F && n + 1 < sizeof g->q) {
         g->q[n] = (char)e->key; g->q[n + 1] = 0;
         g->sb_top = g->pb_top = 0;
-        if (g->ov == OV_SND) { sb_items(g); if (g->nitems) { g->sb_cf = g->items[0] >> 4; g->sb_ci = g->items[0] & 15; } }
+        if (g->ov == OV_SND) { sb_items(g); if (g->nitems) sb_cursor(g, g->items[0] >> 4, g->items[0] & 15, 0); }
         else { pb_items(g); if (g->nitems) g->pb_cur = g->items[0]; }
         return 3;
     }
@@ -2624,13 +2932,23 @@ int txg_input(txg_t *g, const frg_input *e)
         case TXG_W_SWATCH: txp_ui_col_set(g->c, (int)w->id, w->v); break;
         case TXG_W_COLRESET: txp_ui_col_reset(g->c); break;
         case TXG_W_ROW: case TXG_W_SELDOT: select_lane(g, k); break;
+        case TXG_W_PREVIEW: if (g->pv_on) pv_stop(g); else pv_play(g); break;
+        case TXG_W_PVSTEP: {             /* the preview's HOW MANY (1 .. 6) / HOW ACTIVE (1 .. 9): set, heard at once */
+            int *v = k ? &g->pv_act : &g->pv_cnt, hi = k ? 9 : 6;
+            *v += w->v;
+            *v = *v < 1 ? 1 : *v > hi ? hi : *v;
+            g->pv_user = 1;
+            if (g->pv_on) pv_play(g);
+            break;
+        }
         case TXG_W_STEP:                 /* a choice's < >: the previous, the next */
             if (lane_of_id(w->id) >= 0) select_lane(g, lane_of_id(w->id));
             step_param(g, w->id, w->v, 1);
             break;
-        case TXG_W_MUTE: txp_ui_mute(g->c, (uint32_t)k, !(g->mute >> k & 1u)); g->mute ^= 1u << k; break;
+        case TXG_W_MUTE: select_lane(g, k); txp_ui_mute(g->c, (uint32_t)k, !(g->mute >> k & 1u)); g->mute ^= 1u << k; break;
         case TXG_W_SOLO: {
             uint32_t m = g->solo ^ (1u << k);
+            select_lane(g, k);
             if (e->mods & (FRG_ALT | FRG_CMD | FRG_CTRL)) m = g->solo == (1u << k) ? 0u : 1u << k;   /* (alone) */
             txp_ui_solo(g->c, m); g->solo = m;
             break;
@@ -2655,6 +2973,7 @@ int txg_input(txg_t *g, const frg_input *e)
         }
         case TXG_W_PARAM:
             if (lane_of_id(w->id) >= 0) select_lane(g, lane_of_id(w->id));
+            else for (int j = 0; j < g->nlane; j++) if (w->id == TXP_ID_LCH(j)) select_lane(g, j);   /* (a row's CH) */
             if (e->kind == FRG_DOUBLE) { int d = p_default(g, w->id); if (d >= 0) set_param(g, w->id, d); break; }
             g->drag = TXG_W_PARAM; g->drag_id = w->id; g->drag_v0 = txp_ui_get(g->c, w->id);
             g->drag_x0 = e->x; g->drag_y0 = e->y; g->drag_moved = 0; g->drag_begun = 0;
@@ -2689,7 +3008,8 @@ int txg_input(txg_t *g, const frg_input *e)
         {
             int hk = 0, hl = -1;
             float r[4];
-            if (w && (w->kind == TXG_W_ADD || w->kind == TXG_W_DOT || w->kind == TXG_W_LIST)) { hk = w->kind; hl = w->lane; }
+            if (w && (w->kind == TXG_W_ADD || w->kind == TXG_W_DOT || w->kind == TXG_W_LIST || w->kind == TXG_W_SND ||
+                      w->kind == TXG_W_PREVIEW)) { hk = w->kind; hl = w->lane; }
             else if (w && w->kind == TXG_W_PARAM && txg_find(g, TXG_W_TIP, w->lane, r) && e->x >= r[0] && e->x < r[0] + r[2] &&
                      e->y >= r[1] && e->y < r[1] + r[3]) { hk = TXG_W_TIP; hl = w->lane; }   /* (a card whose hint was
                                           * cut: all of it shows) */
@@ -2743,7 +3063,8 @@ int txg_input(txg_t *g, const frg_input *e)
     case FRG_KEY:
         if (g->ov || g->pick >= 0) {
             if (!g->ov && e->key == FRK_ESCAPE) { g->pick = -1; return 3; }
-            if (g->ov) return ov_key(g, e);
+            if (g->ov && (g->ov != OV_FX || e->key == FRK_ESCAPE || g->pick >= 0)) return ov_key(g, e);   /* (an effect's
+                                          * drawer: the lanes' keys still work) */
         }
         if (e->key == FRK_UP && g->sel > 0) { select_lane(g, g->sel - 1); return 3; }
         if (e->key == FRK_DOWN && g->sel + 1 < g->nlane) { select_lane(g, g->sel + 1); return 3; }
@@ -2798,6 +3119,7 @@ txg_t *txg_new(txp_core *c)
     g->pick = -1;
     g->sb_kf = g->sb_ki = -1;
     g->pb_cur = -1;
+    g->pv_cnt = 2; g->pv_act = 4;        /* (the preview: a few, fairly calm) */
     g->sel_seen = -1;
     g->view = txp_ui_view(c);
     fit(g, TXG_W, TXG_H);

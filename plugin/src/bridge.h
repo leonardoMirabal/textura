@@ -53,8 +53,18 @@ enum { TXP_EV_MIDI = 1, TXP_EV_PARAM, TXP_EV_RESET, TXP_EV_RELEASE,
        TXP_EV_NAME,                      /* a user scene's name for TXP_EV_SAVE: its characters a .. a + 3 in v, low
                                           * byte first */
        TXP_EV_SAVE,                      /* the scene that plays saved into user scene a (0 .. 15: U01 .. U16) */
-       TXP_EV_TEMPO };                   /* the app's own tempo: v BPM x 10 (the host's leads when it gives one) */
+       TXP_EV_TEMPO,                     /* the app's own tempo: v BPM x 10 (the host's leads when it gives one) */
+       TXP_EV_PREVIEW };                 /* the sound browser's preview on lane a (slot_bridge.h sb_pv_*): v TXP_PV_PLAY
+                                          * | family << 4 | sound | HOW MANY << 8 | HOW ACTIVE << 12 (| TXP_PV_FORCE:
+                                          * those even on a lane that plays), or TXP_PV_END | family << 4 | sound
+                                          * (| TXP_PV_KEEP: that sound kept; | TXP_PV_VALS: and the preview's HOW MANY
+                                          * and HOW ACTIVE); the lane as it was before the preview otherwise */
 #define TXP_SND_KEEP 0x1000
+#define TXP_PV_PLAY 0x1000000
+#define TXP_PV_END 0x2000000
+#define TXP_PV_FORCE 0x10000
+#define TXP_PV_KEEP 0x10000
+#define TXP_PV_VALS 0x20000
 #define TXP_LOAD_LS 0x100
 #define TXP_LANES 16u                    /* the lanes a slot has (TX_MIX_SLOTS: plugin/cmake/slots.cmake) */
 #define TXP_ACT_N 2048u                  /* the activity ring: app blocks (11.9 s), a power of two */

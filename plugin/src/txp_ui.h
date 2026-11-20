@@ -53,6 +53,11 @@ void txp_ui_win_h_set(txp_core *c, int h);
 void txp_ui_win_resize(txp_core *c, int w);           /* the window asks its host for that width (SETTINGS: SIZE) */
 /* the sound browser: lane's sound set to family fam's sound snd (an audition; keep: the choice, the scene edited) */
 void txp_ui_sound(txp_core *c, int lane, int fam, int snd, int keep);
+/* its preview: family fam's sound snd heard on lane (a stopped lane started at HOW MANY cnt 1 .. 6, HOW ACTIVE act
+ * 1 .. 9; force: a lane that plays too), and its end: the lane as it was before it, or (keep) with fam's snd kept
+ * (vals: the preview's HOW MANY and HOW ACTIVE too); slot_bridge.h sb_pv_* */
+void txp_ui_preview(txp_core *c, int lane, int fam, int snd, int cnt, int act, int force);
+void txp_ui_preview_end(txp_core *c, int lane, int fam, int snd, int keep, int vals);
 /* the presets browser: a scene loaded (0 .. 115: F001 .. U16; TXP_LOAD_LS + n: landscape n), with_fx: its effects too */
 void txp_ui_load(txp_core *c, int what, int with_fx);
 int txp_ui_col(const txp_core *c, int eng);           /* an engine's colour (0 .. TXP_COL_N - 1; 0 bone) */

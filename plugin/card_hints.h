@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* The cards' hints for the plugin window's drawer (gui_core.c card_hint): generated from docs/MANUAL.md
- * section 5 by tools/plugin_card_hints.py; do not edit (make test-plugin checks it is current). */
+ * section 5 by tools/plugin_card_hints.py; do not edit (make test-plugin checks it is current). The engines'
+ * first sentences: the sound browser's line for a sound (gui_core.c snd_desc). */
 #ifndef TXP_CARD_HINTS_H
 #define TXP_CARD_HINTS_H
 static const struct { const char *snd, *eng; } TXH_SND[] = {
@@ -346,5 +347,45 @@ static const struct { const char *eng, *card, *hint; } TXH_CARD[] = {
     { "Wild birds", "CHURR", "The nightjar: how long each churr lasts" },
     { "Wild birds", "SWITCH", "The nightjar: how often its churr changes pitch" },
     { "Wild birds", "BOOMS", "The bittern: booms in a bout, few .. many" },
+};
+static const struct { const char *eng, *desc; } TXH_ENG[] = {
+    { "Rain on water", "Raindrops falling on a pond or a lake." },
+    { "Waves", "Waves breaking on a beach: the crash, the long wash up the shore and the backwash draining through sand or shingle." },
+    { "Water drops", "Single drops falling into water." },
+    { "Drips", "Water dripping from a height into a pool: a cave ceiling or the eaves of a roof." },
+    { "Streams", "Running water: thousands of small bubbles bursting near the surface, from a trickle to a rushing waterfall." },
+    { "Stones", "Stones knocking together or dropped on the ground, each its own size and ring." },
+    { "Rockfall", "A block of rock falling from a cliff: the silence of the fall, the impact, then the fragments tumbling down the slope." },
+    { "Ringing rocks", "Stones struck like a xylophone: slabs, bars and boulders of different stones, each ringing with its own tones." },
+    { "Gravel", "Stones rattling against each other in a heap: footsteps on a path, a shaken box." },
+    { "Marbles", "A ball rolling on a surface: a marble on a table, a pebble on a stone slab." },
+    { "Sand", "Sand pouring through a narrow opening and landing on a hand, a pile, a tray, glass or a tube." },
+    { "Singing dune", "A dune's sand sliding down in an avalanche until it sings: a low, humming tone from the grains moving together." },
+    { "Minerals", "Stone specimens held in the hand and struck, knocked together or rubbed." },
+    { "Stone friction", "One stone rubbed over another: a smooth rub, a scratch or a grind, and the groan when it sticks and slips." },
+    { "Stone clinks", "Pieces of stone clinking against each other or on the ground, played freely from the keys." },
+    { "Ice", "Ice that rings, tinkles and fizzes as it melts: icicles, cubes in a glass, frost, snow underfoot." },
+    { "Lake ice", "The ice of a frozen lake cracking: the crack's sound runs through the ice and arrives as a sweeping, singing \"pew\", then as a boom." },
+    { "Glass", "Glass breaking or clinking: a pane smashing on the floor, bottles touching, shards settling." },
+    { "Fire", "A wood fire: the roar of the flames, flickering in the draught, and the crackles and pops of the wood as its moisture and resin burst." },
+    { "Flame", "A single flame, as a candle, a gas jet or a torch: its soft roar and flicker, and the wick's sputter." },
+    { "Sparks", "Electric sparks jumping a gap: sharp ticks and cracks, and the fizz of a corona." },
+    { "Wood", "Wood bending under a load: it creaks, crackles and finally snaps." },
+    { "Rain stick", "A tube full of seeds turned over: the seeds fall through the pins inside in a long patter." },
+    { "Crumpled paper", "A sheet crushed in the hand: foil, paper, dry leaves or snow, each its own crackle." },
+    { "Wind", "Wind as it blows through things: grass, needles, leaves, around rocks and over open ground." },
+    { "Wind chimes", "Tubes hanging in the wind, struck by a clapper as it gusts." },
+    { "Rain and hail on surfaces", "Rain, hail or sleet falling on something: leaves, a tent, wood, a window or a metal roof." },
+    { "Storm", "A whole thunderstorm in one sound: rain, wind and lightning together." },
+    { "Thunder", "One thunderclap after a flash: the crack nearby, the long rolling rumble far away." },
+    { "Thunder sheet", "A big steel sheet shaken or struck, as theatres made thunder: it rings and builds into a roaring crash." },
+    { "Spring echo", "The echoes of a long metal spring: each echo a descending, laser-like chirp." },
+    { "Crickets", "Crickets chirping or trilling, each its own pitch and pace, faster in warm air." },
+    { "Cicadas", "Cicadas buzzing: each cicada's tymbal clicks fast and rings, in long songs." },
+    { "Katydids and grasshoppers", "Katydids rasping and grasshoppers scraping their legs on their wings." },
+    { "Bees", "Bees and other insects hovering: the hum of their wingbeats, changing as they move." },
+    { "Cicada up close", "One cicada, close, with all the parts of its song to shape, played freely from the keys." },
+    { "Songbirds", "Birds that sing: each has its own repertoire of song types and varies them, as the real bird does." },
+    { "Wild birds", "Birds by their calls: each calls its own way, in series, bouts or drumming." },
 };
 #endif

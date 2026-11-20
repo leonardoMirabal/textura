@@ -123,16 +123,16 @@ with a gesture around a drag.
   presets browser), **SAVE** (the scene into a user scene U01 .. U16, named; kept in the project's state), **UNDO**
   (the app's: the last load or sound kept; again: redo), **PLAY ALL / STOP ALL** (the FM-1's REC, `sc_all_toggle`;
   white while every lane is stopped; the selected lane kept), LANES - / +, the output's peak (dB), SETTINGS.
-- **The place** (left, about a third of the width): **MAP** or **SPACE**, the selected lane's number, family, sound
-  (the sound browser) and colour dot (the picker) at its head. MAP: a half circle, the listener at its centre, L, R
+- **The place** (left, about a third of the width): **MAP** or **SPACE**, the selected lane's number, family, sound,
+  CHANGE (the sound browser) and colour dot (the picker) at its head. MAP: a half circle, the listener at its centre, L, R
   and FAR inside the place; a dot's angle is the lane's PAN, its distance the sound's **DIST card** (a hollow dot
   when it has none: then a drag moves PAN only). Lanes on one spot fan out a few pixels and share a label
   (`1 Rain on water · 2 · 3 · 4`); a label goes to the first place clear of the dots, the other labels and the edges,
   or is left out (the selected lane's always shows). SPACE: the same place in perspective, each lane's events of the
   last 6 seconds drifting toward the horizon; a drag on the ground moves a lane.
 - **Lanes** (right, scrolling): one row a lane in use, ADD LANE under them. A row: number and colour dot (solid red
-  for the selected lane; a click on either selects it, `TXG_W_SELDOT`), sound and family
-  (the sound browser), the **event line**, **HOW MANY** (six blocks, 1 2 4 10 19 32, none lit OFF; a click on a block
+  for the selected lane), sound and family with a **CHANGE** button (the sound browser; CHOOSE on an empty lane,
+  `TXG_W_SND`), the **event line**, **HOW MANY** (six blocks, 1 2 4 10 19 32, none lit OFF; a click on a block
   sets that many, on the top lit one one less), **HOW ACTIVE** (nine blocks), PAN, CH (OFF, 1 .. 16), **VOL**, **M**,
   **S**. A stopped lane reads STOPPED across its event line; a landscape's start (all four stopped, as on the FM-1)
   adds ALL LANES STOPPED under the rows. HOW MANY or HOW ACTIVE starts a lane (the app's own: `sc_count`, `sc_step`).
@@ -140,8 +140,10 @@ with a gesture around a drag.
   `txp_ui_lane_t` `mcnt` / `mact`) as outlined blocks. A scene applied with lanes stopped that have a HOW MANY of their
   own (a project or user scene saved after STOP ALL) gets that memory back (`slot_bridge.h` `sb_scene_mem`: the app
   clears it on a load), so PLAY ALL brings them back; with none anywhere PLAY ALL is the FM-1's landscape start
-  (lanes 1 .. 3 at HOW MANY 2 / 1 / 1, the rarest HOW ACTIVE).
-- **Drawer** (the selected lane): its sound, colour, MANY / ACTIVE / VOL and channel; **every card** of the sound (up
+  (lanes 1 .. 3 at HOW MANY 2 / 1 / 1, the rarest HOW ACTIVE). A click anywhere on a row selects its lane (the name
+  too: it no longer opens the browser); the row's controls (HOW MANY, HOW ACTIVE, PAN, CH, VOL, M, S) select it as
+  well.
+- **Drawer** (the selected lane): its sound, colour, MANY / ACTIVE / VOL and channel, CHANGE SOUND; **every card** of the sound (up
   to `SCD_MAX`, 8) with its name, its value in its unit, and its hint (the FM-1 manual's line for that card:
   `plugin/card_hints.h`, made from `docs/MANUAL.md` section 5 by `tools/plugin_card_hints.py`; wrapped to three lines,
   a longer one whole on hover, `TXG_W_TIP`), DIST among them; PAN, LEVEL, GROOVE PART and CYCLE. A value the
@@ -149,13 +151,24 @@ with a gesture around a drag.
 - **Strip** (bottom): COMP, DRIVE, FILTER, DELAY, REVERB in the mix's order, each with its picture (COMP's meters:
   IN, OUT and GR read off the app's compressor every app block, `tx_comp_t` `ef` / `es`, `g`, `gr`, their most since
   the last publication, with a VU's ballistics in `txg_tick`; the expanded COMP adds its curve), drive curve, the filter's response with HIGH PASS then LOW PASS marked, the echoes, the tail) and its main values;
-  then MOVEMENT, two LFOs (the routed ones first) with shape, trace, RATE and route. A section's header opens the
-  **expanded view** over the place and the rows: a tab for each effect (all its parameters), LFO 1 .. 8 (trace,
-  NOW, ROUTES, its ten parameters), ENV · FOLLOW (ENV 1 and 2, FOLLOW 1 and 2) and MATRIX (MOD 1 .. 16: SOURCE,
-  TARGET, DEPTH, SPREAD; MOD CC).
+  then MOVEMENT, two LFOs (the routed ones first) with shape, trace, RATE and route. A section's header (or ALL ›) opens its
+  **drawer** in place of the lane's drawer, sized to its content (`fxd_h`); the place and the rows stay above it and
+  work (they scroll). The open section has a red top edge and reads CLOSE ×; another section switches it, CLOSE or
+  Esc closes it. Inside: a large live picture at the left (COMP: big IN / OUT / GR meters and its transfer curve;
+  DRIVE: its curve; FILTER: HIGH PASS then LOW PASS over 20 Hz .. 20 kHz with each cutoff's Hz; DELAY: echoes from
+  TIME, FEEDBACK and GRAINS; REVERB: its tail), at the right every parameter in small titled groups (`grp_t`,
+  `groups`). MOVEMENT's drawer has the tabs LFO 1 .. 8 (trace, NOW, ROUTES, its ten parameters), ENV · FOLLOW (ENV 1
+  and 2, FOLLOW 1 and 2) and MATRIX (MOD 1 .. 16: SOURCE, TARGET, DEPTH, SPREAD; MOD CC).
 - **Sound browser**: the families and their sounds from the app's own tables, each with its engine. Type to search;
-  arrows, left / right for the family. As on the FM-1 the sound under the cursor plays on the lane while it plays;
-  **KEEP** keeps it, **CLOSE** puts the old one back.
+  arrows, left / right for the family. The sound under the cursor (a click, the arrows once they rest, ▶ PREVIEW)
+  **always plays on the lane**, a stopped one too: the window sends `TXP_EV_PREVIEW` (`txp_ui_preview`), and the slot
+  (`slot_bridge.h` `sb_pv_play`) saves the lane's state once (sound, HOW MANY / ACTIVE, PLAY ALL's memory, mute,
+  cards), sets the sound and, when the lane is stopped, starts it at the preview's MANY / ACTIVE (2 / 4; steppers in
+  the panel). **CLOSE** (`txp_ui_preview_end`) puts it all back, the cards once the old engine is in (`sb_pv_cards`);
+  **KEEP** keeps the sound and the lane's own state (stopped stays stopped unless the preview's MANY / ACTIVE were
+  set). The right panel: the sound's one line (`TXH_ENG` in `plugin/card_hints.h`, the first sentence of each
+  engine's text in `docs/MANUAL.md` section 5), the lane's live event line and level, the preview controls. ▶ marks
+  the row the lane plays. A project saved during a preview saves the preview's state.
 - **Presets browser**: USER (when any), the factory presets by category, the landscapes. The preview shows the
   preset's lanes and plan; **LOAD** loads it the FM-1's way. EFFECTS ON LOAD and PRESETS CHANGE TEMPO under it.
 - **SETTINGS**: MIDI IN (each lane's channel; FX CHANNEL; SELECTED CH; MOD CC; **KEYS**: PLAY or FM-1 KEYS), SCALE
@@ -261,12 +274,16 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
 - **gui**: the window without a native view (headless): `plugin/tests/scripts/gui4.txt` (four lanes) and `gui16.txt`
   (sixteen) played, then the window painted to a PNG in two separate runs. Both runs must give the same bytes, and
   the picture must not be empty. Each run also paints SPACE, the sound browser, the presets browser, SETTINGS and
-  the colour picker, the strip expanded (DELAY, LFO 1, ENV · FOLLOW, MATRIX) and SAVE (`OUT-space.png` ...; all
+  the colour picker, the effect drawers (DELAY, COMP, FILTER, REVERB, LFO 1, ENV · FOLLOW, MATRIX), SAVE, a preview on
+  a stopped lane and the rows with lane 3 selected (`OUT-space.png` ...; all
   must be the same bytes twice too; `gui4.txt` routes three LFOs so the red shows: a lane's PAN, a card, LOW PASS).
   Then the window's controls are used (M, S, VOL, a map dot, LANES +, a preset loaded from the browser, a sound kept
   from the sound browser, a lane's channel and EFFECTS ON LOAD in SETTINGS, a colour, a drag in SPACE, HOW MANY and
   HOW ACTIVE blocks, a card dragged and double-clicked back, GROOVE PART, the strip's HIGH PASS, a parameter in each
-  expanded tab, a matrix SOURCE click, MOD CC, KEYS, a SAVE into U01, a row) and checked against the parameters,
+  expanded tab, a matrix SOURCE click, MOD CC, KEYS, a SAVE into U01, a row; each effect drawer with all its
+  parameters, the rows usable above it, switching and closing; a preview on a stopped lane, its MANY step, CLOSE
+  restoring sound, HOW MANY and a card, KEEP keeping the sound with the lane stopped, PLAY ALL's memory intact; a click
+  on a row's name and event line selecting, M selecting, CHANGE opening the browser) and checked against the parameters,
   the events sent to the host, the lane's sound, the mute and solo masks and the saved state (solo, lane, view,
   colour, keys, the user scene). The window at 1200 x 720, 1950 x 1210, 1440 x 1080 and 960 x 600: the MAP a half
   circle (one scale both ways) with its labels inside the place. KEYS = FM-1 KEYS (`plugin/tests/scripts/keys.txt`):

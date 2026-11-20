@@ -216,13 +216,16 @@ static void gui_wait(void) { struct timespec ts = { 0, 350000000 }; nanosleep(&t
 /* gui_core.h's controls the tests click (its enum's values) */
 enum { W_ROW = 1, W_VOL, W_MUTE, W_SOLO, W_DOT, W_LUP = 9, W_SET = 10, W_VMAP = 13, W_VSPACE, W_PRESET, W_SND, W_COLDOT,
        W_SWATCH, W_SEG = 26, W_FIELD = 27, W_PARAM = 30, W_MANY, W_ACT, W_REC, W_UNDO, W_SAVE, W_FXOPEN, W_FXTAB, W_SLOT,
-       W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER };
+       W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER, W_TIP, W_PREVIEW, W_PVSTEP, W_FXD };
+enum { W_CLOSE = 11, W_LIST = 23, W_KEEP = 24 };
 #define ID_KEYS 0x10001u                 /* (bridge.h TXP_ID_KEYS) */
 static int gui_hit(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, int lane)   /* a click on a control */
 {
     float r[4];
     if (!xs->find(p, kind, lane, r)) { fprintf(stderr, "gui: no control %d (%d)\n", kind, lane); return 0; }
-    gui_click(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 0);
+    if (kind == W_FXOPEN) gui_click(p, xs, r[0] + r[2] - 24.f, r[1] + r[3] * 0.5f, 0);   /* (a section's head: at its ALL,
+                                          * clear of COMP's own ON) */
+    else gui_click(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 0);
     return 1;
 }
 static int gui_png(const clap_plugin_t *p, const txg_gui_shot_t *xs, const char *png, const char *tag)   /* the window
@@ -261,16 +264,20 @@ static int gui_views(const clap_plugin_t *p, const txg_gui_shot_t *xs, const cha
         rc |= gui_png(p, xs, png, "colour");
         gui_key(p, xs, FRK_ESCAPE);
     }
-    if (!gui_hit(p, xs, W_FXOPEN, 3)) return 5;   /* the strip's DELAY expanded: every parameter */
+    if (!gui_hit(p, xs, W_FXOPEN, 3)) return 5;   /* the strip's DELAY: its drawer, every parameter */
     rc |= gui_png(p, xs, png, "fx");
-    if (!gui_hit(p, xs, W_FXTAB, 5)) return 5;    /* LFO 1 */
+    if (!gui_hit(p, xs, W_FXOPEN, 0)) return 5;   /* COMP: its meters, its curve */
+    rc |= gui_png(p, xs, png, "comp");
+    if (!gui_hit(p, xs, W_FXOPEN, 2)) return 5;   /* FILTER: its response in Hz */
+    rc |= gui_png(p, xs, png, "filter");
+    if (!gui_hit(p, xs, W_FXOPEN, 4)) return 5;   /* REVERB: its tail */
+    rc |= gui_png(p, xs, png, "reverb");
+    if (!gui_hit(p, xs, W_FXOPEN, 5)) return 5;   /* MOVEMENT: LFO 1 */
     rc |= gui_png(p, xs, png, "lfo");
     if (!gui_hit(p, xs, W_FXTAB, 13)) return 5;   /* ENV, FOLLOW */
     rc |= gui_png(p, xs, png, "env");
     if (!gui_hit(p, xs, W_FXTAB, 14)) return 5;   /* the matrix */
     rc |= gui_png(p, xs, png, "matrix");
-    if (!gui_hit(p, xs, W_FXTAB, 0)) return 5;    /* COMP: its meters, its curve */
-    rc |= gui_png(p, xs, png, "comp");
     gui_key(p, xs, FRK_ESCAPE);
     if (!gui_hit(p, xs, W_SAVE, -1)) return 5;    /* SAVE's panel */
     rc |= gui_png(p, xs, png, "save");
@@ -278,9 +285,20 @@ static int gui_views(const clap_plugin_t *p, const txg_gui_shot_t *xs, const cha
     if (!gui_hit(p, xs, W_REC, -1)) return 5;     /* STOP ALL (what PLAY ALL brings back shown), PLAY ALL */
     gui_wait(); gui_flush(p); xs->tick(p);
     rc |= gui_png(p, xs, png, "stopped");
+    if (!gui_hit(p, xs, W_SND, sel < 16 ? sel : 0) || !gui_hit(p, xs, W_LIST, 2)) return 5;   /* the preview on a lane
+                                          * stopped: its third sound */
+    gui_wait(); gui_flush(p); xs->tick(p);
+    rc |= gui_png(p, xs, png, "preview");
+    gui_key(p, xs, FRK_ESCAPE);
+    gui_wait(); gui_flush(p); xs->tick(p);
     if (!gui_hit(p, xs, W_REC, -1)) return 5;
     gui_wait(); gui_flush(p); xs->tick(p);
     rc |= gui_png(p, xs, png, "replay");
+    if (!gui_hit(p, xs, W_SELDOT, 2)) return 5;   /* the rows, lane 3 selected (then the lane before again) */
+    gui_wait(); gui_flush(p); xs->tick(p);
+    rc |= gui_png(p, xs, png, "rows");
+    if (!gui_hit(p, xs, W_SELDOT, sel < 16 ? sel : 0)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
     return rc;
 }
 static void gui_wheel(const clap_plugin_t *p, const txg_gui_shot_t *xs, float x, float y, float d)
@@ -346,7 +364,7 @@ static int gui_test5(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* step
     bad |= gui_param_wheel(p, xs, 4u << 8 | 52u, 1.f, "HIGH PASS");
     if (!gui_hit(p, xs, W_FXOPEN, 3)) return 5;
     bad |= gui_param_wheel(p, xs, 4u << 8 | 5u, 1.f, "GRAIN SPRAY");
-    if (!gui_hit(p, xs, W_FXTAB, 5)) return 5;
+    if (!gui_hit(p, xs, W_FXOPEN, 5)) return 5;
     bad |= gui_param_wheel(p, xs, 5u << 8 | 1u, 1.f, "LFO 1 RATE");
     if (!gui_hit(p, xs, W_FXTAB, 13)) return 5;
     bad |= gui_param_wheel(p, xs, 6u << 8 | 1u, 1.f, "ENV 1 ATTACK");
@@ -438,6 +456,145 @@ static int gui_test5b(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* ste
             bad = 1;
         }
     }
+    return bad;
+}
+/* ---- step 5c */
+static int gui_open_fx(const clap_plugin_t *p, const txg_gui_shot_t *xs, int want)   /* the drawer open: its tab (-1 none) */
+{
+    float r[4];
+    xs->tick(p);
+    for (int t = 0; t < 15; t++) if (xs->find(p, W_FXD, t, r)) return want < 0 ? 0 : want == 5 ? t >= 5 : t == want;
+    return want < 0;
+}
+static int gui_test5c_drawer(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* each effect's drawer: opens from the
+                                          * strip with all its parameters, switches, closes (CLOSE, Esc); the lanes stay
+                                          * usable above it */
+{
+    static const char *const MOD[5] = { "Compressor", "Drive", "Filter", "Grain delay", "Reverb" };
+    const clap_plugin_params_t *xp = p->get_extension(p, CLAP_EXT_PARAMS);
+    uint32_t np = xp->count(p);
+    int bad = 0, s0 = xs->sel(p);
+    float r[4], d[4];
+    for (int s = 0; s < 6; s++) {
+        int miss = 0, n = 0, sel1;
+        if (!gui_hit(p, xs, W_FXOPEN, s)) return 5;
+        if (!gui_open_fx(p, xs, s)) { fprintf(stderr, "gui: section %d's drawer did not open\n", s); bad = 1; continue; }
+        if (s < 5)
+            for (uint32_t i = 0; i < np; i++) {   /* (every parameter of the effect in its drawer) */
+                clap_param_info_t inf;
+                xp->get_info(p, i, &inf);
+                if (strcmp(inf.module, MOD[s])) continue;
+                n++;
+                if (!xs->find(p, W_PARAM, (int)inf.id, r)) { fprintf(stderr, "gui: %s not in %s's drawer\n", inf.name, MOD[s]); miss++; }
+            }
+        /* the lanes above it: lane 2 selected by its row, its HOW MANY there */
+        xs->find(p, W_FXD, s < 5 ? s : 5, d);
+        for (int t = 5; s == 5 && t < 15; t++) if (xs->find(p, W_FXD, t, d)) break;
+        if (!xs->find(p, W_ROW, 1, r) || r[1] + r[3] > d[1] + 0.5f || !xs->find(p, W_MANY, 1, r)) {
+            fprintf(stderr, "gui: lane 2's row not above section %d's drawer\n", s);
+            bad = 1;
+        }
+        if (!gui_hit(p, xs, W_SELDOT, s % 2 ? 1 : 0)) return 5;
+        gui_wait(); gui_flush(p); xs->tick(p);
+        sel1 = xs->sel(p);
+        printf("gui drawer %d: open, %d of %d parameters in it, lane %d selected under it\n", s, n - miss, n, sel1 + 1);
+        if (miss || sel1 != (s % 2 ? 1 : 0) || !gui_open_fx(p, xs, s)) { fprintf(stderr, "gui: section %d's drawer\n", s); bad = 1; }
+    }
+    if (!gui_hit(p, xs, W_FXOPEN, 2) || !gui_open_fx(p, xs, 2)) bad = 1;   /* switched to FILTER, then closed by it */
+    if (!gui_hit(p, xs, W_FXOPEN, 2) || !gui_open_fx(p, xs, -1)) { fprintf(stderr, "gui: the drawer's CLOSE\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_FXOPEN, 4)) return 5;
+    gui_key(p, xs, FRK_ESCAPE);
+    if (!gui_open_fx(p, xs, -1)) { fprintf(stderr, "gui: Esc did not close the drawer\n"); bad = 1; }
+    printf("gui drawer: switched, closed by its section, closed by Esc\n");
+    if (!gui_hit(p, xs, W_SELDOT, s0)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    return bad;
+}
+static int gui_test5c_preview(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* the sound browser's preview plays on
+                                          * a stopped lane; CLOSE puts it back exactly (sound, stopped, HOW MANY, the
+                                          * memory of PLAY ALL, a card); KEEP keeps the sound, the lane stopped */
+{
+    int bad = 0, f0, s0, f1, s1, f2, s2;
+    double card0, card1, m0, a0, mp, cardb;
+    float r[4];
+    const int k = 1;
+    /* lane 2 playing at MANY 4 / ACTIVE 6 (gui_test5b's), a card set, then STOP ALL */
+    if (!gui_hit(p, xs, W_SELDOT, k)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    if (!xs->find(p, W_PARAM, (int)LANE_ID(k, 8), r)) { fprintf(stderr, "gui: no card 1 for lane 2\n"); return 5; }
+    gui_wheel(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 1.f);
+    gui_wheel(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 1.f);
+    gui_wait(); gui_flush(p); xs->tick(p);
+    card0 = gui_value(p, LANE_ID(k, 8));
+    m0 = gui_value(p, LANE_ID(k, 1)); a0 = gui_value(p, LANE_ID(k, 2));
+    if (!gui_hit(p, xs, W_REC, -1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    if (!xs->lane(p, k, &f0, &s0) || gui_value(p, LANE_ID(k, 1)) != 0.0) { fprintf(stderr, "gui: lane 2 not stopped\n"); return 5; }
+    /* the browser: a click on another sound plays it */
+    if (!gui_hit(p, xs, W_SND, k)) return 5;
+    if (!xs->find(p, W_KEEP, -1, r)) { fprintf(stderr, "gui: CHANGE did not open the sound browser\n"); return 5; }
+    if (!gui_hit(p, xs, W_LIST, s0 == 3 ? 4 : 3)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    (void)xs->lane(p, k, &f1, &s1);
+    mp = gui_value(p, LANE_ID(k, 1));
+    printf("gui preview: lane 2 stopped (%d.%d), a click: %d.%d plays at HOW MANY %g\n", f0, s0, f1, s1, mp);
+    if ((f1 == f0 && s1 == s0) || mp < 1.0) { fprintf(stderr, "gui: the preview did not play on the stopped lane\n"); bad = 1; }
+    /* PREVIEW's HOW MANY one down (its < ): heard at once */
+    if (!gui_hit(p, xs, W_PVSTEP, 0)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    printf("gui preview: its HOW MANY one down: lane 2 at %g\n", gui_value(p, LANE_ID(k, 1)));
+    if (gui_value(p, LANE_ID(k, 1)) != mp - 1.0) { fprintf(stderr, "gui: the preview's HOW MANY\n"); bad = 1; }
+    /* CLOSE: lane 2 exactly as it was */
+    if (!gui_hit(p, xs, W_CLOSE, -1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    (void)xs->lane(p, k, &f2, &s2);
+    card1 = gui_value(p, LANE_ID(k, 8));
+    printf("gui preview CLOSE: lane 2 %d.%d, HOW MANY %g, card 1 %g (was %d.%d, 0, %g)\n", f2, s2, gui_value(p, LANE_ID(k, 1)), card1,
+           f0, s0, card0);
+    if (f2 != f0 || s2 != s0 || gui_value(p, LANE_ID(k, 1)) != 0.0 || card1 != card0) { fprintf(stderr, "gui: CLOSE did not put lane 2 back\n"); bad = 1; }
+    /* KEEP: the sound kept, the lane still stopped */
+    if (!gui_hit(p, xs, W_SND, k)) return 5;
+    if (!gui_hit(p, xs, W_LIST, s0 == 3 ? 4 : 3)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    if (!gui_hit(p, xs, W_KEEP, -1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    (void)xs->lane(p, k, &f2, &s2);
+    cardb = gui_value(p, LANE_ID(k, 1));
+    printf("gui preview KEEP: lane 2 %d.%d, HOW MANY %g\n", f2, s2, cardb);
+    if (f2 != f1 || s2 != s1 || cardb != 0.0) { fprintf(stderr, "gui: KEEP did not keep the sound on the stopped lane\n"); bad = 1; }
+    /* PLAY ALL: lane 2 back at its own HOW MANY / HOW ACTIVE (what STOP ALL remembered survived the preview) */
+    if (!gui_hit(p, xs, W_REC, -1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    printf("gui preview: PLAY ALL, lane 2 MANY %g / ACTIVE %g (was %g / %g)\n", gui_value(p, LANE_ID(k, 1)), gui_value(p, LANE_ID(k, 2)), m0, a0);
+    if (gui_value(p, LANE_ID(k, 1)) != m0 || gui_value(p, LANE_ID(k, 2)) != a0) { fprintf(stderr, "gui: PLAY ALL after the preview\n"); bad = 1; }
+    return bad;
+}
+static int gui_test5c_rows(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* a click anywhere on a row selects its
+                                          * lane, its name does not open the browser, CHANGE does */
+{
+    int bad = 0, sel;
+    float r[4], n[4];
+    if (!xs->find(p, W_ROW, 3, r) || !xs->find(p, W_SND, 3, n)) { fprintf(stderr, "gui: no row / CHANGE for lane 4\n"); return 5; }
+    gui_click(p, xs, n[0] - 60.f, r[1] + r[3] * 0.3f, 0);   /* (on its name) */
+    gui_wait(); gui_flush(p); xs->tick(p);
+    sel = xs->sel(p);
+    printf("gui row: a click on lane 4's name selects lane %d, the browser %s\n", sel + 1, xs->find(p, W_KEEP, -1, n) ? "OPEN" : "closed");
+    if (sel != 3 || xs->find(p, W_KEEP, -1, n)) { fprintf(stderr, "gui: the name opened the browser or did not select\n"); bad = 1; }
+    if (!xs->find(p, W_ROW, 2, r) || !xs->find(p, W_SND, 2, n)) return 5;
+    gui_click(p, xs, n[0] + n[2] + 24.f, r[1] + r[3] * 0.5f, 0);   /* (on its event line, past CHANGE: no control) */
+    gui_wait(); gui_flush(p); xs->tick(p);
+    printf("gui row: a click on lane 3's event line selects lane %d\n", xs->sel(p) + 1);
+    if (xs->sel(p) != 2) { fprintf(stderr, "gui: the row's space did not select\n"); bad = 1; }
+    if (!gui_hit(p, xs, 3 /* TXG_W_MUTE */, 1)) return 5;   /* (M on lane 2: it selects lane 2 too; M again) */
+    gui_wait(); gui_flush(p); xs->tick(p);
+    sel = xs->sel(p);
+    if (!gui_hit(p, xs, 3, 1)) return 5;
+    printf("gui row: M on lane 2 selects lane %d\n", sel + 1);
+    if (sel != 1) { fprintf(stderr, "gui: M did not select its lane\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_SND, 3)) return 5;   /* CHANGE: the browser */
+    printf("gui row: CHANGE on lane 4 opens the browser: %s\n", xs->find(p, W_KEEP, -1, n) ? "yes" : "NO");
+    if (!xs->find(p, W_KEEP, -1, n)) { fprintf(stderr, "gui: CHANGE did not open the browser\n"); bad = 1; }
+    gui_key(p, xs, FRK_ESCAPE);
     return bad;
 }
 static int gui_test3b(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* the browsers, SETTINGS, a colour, SPACE */
@@ -583,6 +740,9 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int
         if (gui_test3b(p, xs)) bad = 1;
         if (gui_test5(p, xs)) bad = 1;
         if (gui_test5b(p, xs)) bad = 1;
+        if (gui_test5c_drawer(p, xs)) bad = 1;
+        if (gui_test5c_preview(p, xs)) bad = 1;
+        if (gui_test5c_rows(p, xs)) bad = 1;
         if (xs->find(p, 1 /* TXG_W_ROW */, 2, r)) gui_click(p, xs, r[0] + 30.f, r[1] + r[3] * 0.5f, 0);   /* (lane 3 selected) */
     }
     return bad ? 5 : 0;

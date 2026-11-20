@@ -139,6 +139,14 @@ static struct {
     uint32_t ptx_n;
 } sbx;
 typedef char sb_ui_lanes[SC_N == TXP_LANES ? 1 : -1];
+/* the sound browser's preview (TXP_EV_PREVIEW, sb_pv_play / sb_pv_end): the lane as it was before it (its sound, HOW
+ * MANY, HOW ACTIVE, playing or stopped, what PLAY ALL brings back, its mute, its cards set, LANES, the scene's edited
+ * mark), put back when the preview ends; its cards once its sound's engine is in again (card, from t) */
+static struct {
+    uint8_t on, k, used, f, i, run, cnt, step, mcnt, mstep, mute, nlane, edited, card;
+    uint8_t cv[SCD_MAX];
+    uint32_t t;
+} sbp;
 
 /* ---- the coroutine (web_hal.c platform_poll asks the clock, then yields) */
 static double move_now_ms(void) { return (double)sbx.ms + 1.0; }   /* (plugin/compat/emscripten.h: the pass after it
@@ -312,7 +320,8 @@ static void sb_param_set(uint32_t id, int32_t v)   /* a host parameter written, 
 static int sb_is_settled(void)
 {
     uint32_t k;
-    if (scn_busy() || scn_gl_n || scn_cand != 0xFF || scn_sv_on) return 0;   /* (a SAVE written to its end too) */
+    if (scn_busy() || scn_gl_n || scn_cand != 0xFF || scn_sv_on || sbp.card) return 0;   /* (a SAVE written to its end
+                                          * too, a preview's cards put back) */
     for (k = 0; k < SC_N; k++) if (sc.gl_on[k] || sc.a_eng[k] != sc.eng[k] || sc.reswap[k]) return 0;
     return 1;
 }
@@ -767,6 +776,83 @@ static int sb_keys(uint8_t st, uint8_t d1, uint8_t d2)
     }
     return 0;
 }
+/* ---- the sound browser's preview: the sound under the cursor always heard on the lane. A lane that plays plays it as
+ * it plays (as the FM-1's browser); a stopped lane (or all stopped) starts at the preview's HOW MANY and HOW ACTIVE, a
+ * muted one is unmuted, a lane outside the solo is heard. Its end puts the lane back as it was: its sound, HOW MANY,
+ * HOW ACTIVE, stopped or playing, what PLAY ALL brings back, its mute, its cards (once its engine is in again, as a
+ * scene's: scenes.c scn_apply_cards), an empty lane emptied again. KEEP keeps the sound, the rest as it was (stopped
+ * stays stopped) unless the preview's HOW MANY / HOW ACTIVE are kept too */
+static void sb_pv_runback(uint32_t k)    /* the lane playing or stopped as before, at its HOW MANY and HOW ACTIVE */
+{
+    if (sbp.run) { sc_count(k, sbp.cnt); sc_step(k, sbp.step); }
+    else { if (sc.run[k]) sc_start(k, 0); sc.cnt[k] = sbp.cnt; sc.step[k] = sbp.step; sc_sync(k); }
+    sc.mem_cnt[k] = sbp.mcnt; sc.mem_step[k] = sbp.mstep;
+    if (sc.snd[k] >= 0 && sc.mute[k] != sbp.mute) sc_mute(k, sbp.mute);
+}
+static void sb_pv_end(uint32_t k, int keep, int vals, uint32_t f, uint32_t i)
+{
+    int ok = k < SC_N && f < LS_N && i < LS[f].n;
+    if (!sbp.on || sbp.k != k) {          /* (no preview: KEEP as the FM-1's browser, the lane playing on as it was) */
+        if (keep && ok && !(sc.snd[k] == (int)i && sc.lf[k] == f)) { sc_sound_set(k, f, i); scn_touch(); }
+        return;
+    }
+    sbp.on = 0;
+    if (keep && ok) {
+        int moved = !(sbp.used && sbp.f == f && sbp.i == i);
+        sc_sound_set(k, f, i);
+        if (!vals) sb_pv_runback(k);
+        else if (sc.mute[k] != sbp.mute) sc_mute(k, sbp.mute);
+        if (moved || vals) scn_touch(); else scn_edited = sbp.edited;
+        return;
+    }
+    if (!sbp.used) {                     /* (an empty lane: empty again, LANES as it was) */
+        scn_lane_clear(k);
+        sc_nlane = sbp.nlane;
+    } else {
+        sc_sound_set(k, sbp.f, sbp.i);
+        sb_pv_runback(k);
+        for (uint32_t j = 0; j < SCD_MAX; j++) if (sbp.cv[j] != 0xFF) { sbp.card = 1; sbp.t = fm1_ms; }
+    }
+    scn_edited = sbp.edited;
+}
+static void sb_pv_play(uint32_t k, uint32_t f, uint32_t i, uint32_t cnt, uint32_t act, int force)
+{
+    if (k >= SC_N || f >= LS_N || i >= LS[f].n) return;
+    if (sbp.on && sbp.k != k) sb_pv_end(sbp.k, 0, 0, 0, 0);
+    if (!sbp.on) {                       /* (the lane as it is now: what the end puts back) */
+        int pend = sbp.card && sbp.k == k;   /* (its cards not back yet from a preview just ended: those still) */
+        sbp.on = 1; sbp.k = (uint8_t)k; sbp.used = sc.snd[k] >= 0;
+        sbp.f = sc.lf[k]; sbp.i = (uint8_t)(sc.snd[k] >= 0 ? sc.snd[k] : 0);
+        sbp.run = sc.run[k]; sbp.cnt = sc.cnt[k]; sbp.step = sc.step[k];
+        sbp.mcnt = sc.mem_cnt[k]; sbp.mstep = sc.mem_step[k]; sbp.mute = sc.mute[k];
+        sbp.nlane = sc_nlane; sbp.edited = scn_edited;
+        if (!pend) {
+            p_cards_t *c = sbp.used ? p_cards(k) : 0;
+            memset(sbp.cv, 0xFF, sizeof sbp.cv);
+            for (uint32_t j = 0; c && j < c->n && j < SCD_MAX; j++) sbp.cv[j] = c->cv[j];
+        }
+        sbp.card = 0;
+    }
+    sc_sound_set(k, f, i);
+    if (sc.mute[k]) sc_mute(k, 0);
+    if ((!sbp.run || force) && cnt) {
+        sc_count(k, cnt < LS_NCNT ? cnt : LS_NCNT - 1u);
+        sc_step(k, sc_act_step(act > 1u ? (act > LS_NACT ? LS_NACT : act) - 1u : 0u));
+    }
+}
+static void sb_pv_cards(void)            /* after an app pass: an ended preview's cards, once its engine is in */
+{
+    uint32_t k = sbp.k, j;
+    if (!sbp.card) return;
+    if (sbp.on || k >= SC_N || sc.snd[k] != (int)sbp.i || sc.lf[k] != sbp.f) { sbp.card = 0; return; }   /* (another
+                                          * sound since: its own cards) */
+    if (sc.a_eng[k] != sc.eng[k] || sc.reswap[k] || fm1_ms - sc.sel_t[k] < SCN_CARDS_MS || fm1_ms - sbp.t < 40u) return;
+    if (ln.qw - ln.qr >= LN_QN / 2u) return;
+    (void)p_cards(k);
+    for (j = 0; j < SCD_MAX; j++) if (sbp.cv[j] != 0xFF) p_set(PID(P_LS(k), PL_CARD0 + j), sbp.cv[j]);
+    sbp.card = 0;
+    sbx.rev++;
+}
 /* apply the queued events; timed: only those due by sbx.ms, an exact one only for the next block to render (and a
  * full MIDI ring makes the rest wait a millisecond) */
 static void sb_events(int timed)
@@ -847,6 +933,13 @@ static void sb_events(int timed)
         } else if (e->kind == TXP_EV_TEMPO) {   /* (the app's own: the host's leads, sb_tempo) */
             if (e->v >= 400 && e->v <= 2400) { (void)tempo_set10((uint32_t)e->v); scn_touch(); }
             sbx.rev++;
+        } else if (e->kind == TXP_EV_PREVIEW) {   /* (the sound browser's preview, sb_pv_play / sb_pv_end) */
+            uint32_t f = (uint32_t)(e->v >> 4) & 15u, i = (uint32_t)e->v & 15u;
+            if (ln.qw - ln.qr >= LN_QN / 2u) { sbx.st.ring_wait++; sbx.ev_wait = 1; return; }   /* (as a parameter) */
+            if (e->v & TXP_PV_PLAY)
+                sb_pv_play(e->a, f, i, (uint32_t)(e->v >> 8) & 15u, (uint32_t)(e->v >> 12) & 15u, (e->v & TXP_PV_FORCE) != 0);
+            else if (e->v & TXP_PV_END) sb_pv_end(e->a, (e->v & TXP_PV_KEEP) != 0, (e->v & TXP_PV_VALS) != 0, f, i);
+            sbx.rev++;
         } else if (e->kind == TXP_EV_RESET || e->kind == TXP_EV_RELEASE) sb_notes_off();
         atomic_store_explicit(&sbx.qr, r + 1u, memory_order_release);
     }
@@ -865,6 +958,7 @@ static void sb_tempo(void)               /* the host's tempo leads (none given: 
 static void sb_solo(void)
 {
     uint32_t k, live = (uint32_t)sbx.solo & ((1u << sc_nlane) - 1u);
+    if (live && sbp.on) live |= 1u << sbp.k;   /* (the sound browser's preview: heard) */
     if (!live && !sbx.solo_was) return;
     for (k = 0; k < SC_N; k++) {
         uint8_t open = (uint8_t)(!sc.mute[k] && (!live || (live >> k & 1u)));
@@ -926,6 +1020,7 @@ static void sb_pass(void)                /* one pass of the app: the FM-1 keys a
     sbx.koff = 0;
     sb_solo();
     sb_scene_mem();
+    sb_pv_cards();
 }
 static void sb_step(void)
 {
