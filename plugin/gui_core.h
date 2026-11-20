@@ -10,19 +10,19 @@
  *               SAVE (into a user scene, named), UNDO, PLAY ALL / STOP ALL (the FM-1's REC), LANES, the output's
  *               peak, SETTINGS
  *   place       (left) MAP: the place seen from above, you at the centre of a half circle: each lane a dot, its angle
- *               the lane's PAN, its distance the card named DIST of its sound (a sound without one: the middle ring,
+ *               the lane's PAN, its distance the card named DIST of its engine (an engine without one: the middle ring,
  *               a hollow dot); a dot glows with its lane's events; drag one to move it (PAN, DIST); lanes on one spot
  *               fan out and share a label. SPACE: the same place in perspective. At its head the selected lane.
- *   lanes       (right, scrolling) one row a lane in use: its number, the sound and family with CHANGE (the sound
+ *   lanes       (right, scrolling) one row a lane in use: its number, the engine and family with ENGINE (the engine
  *               browser), its event line, HOW MANY (six blocks) and HOW ACTIVE (nine), PAN, its MIDI channel, VOL, M
- *               and S; ADD LANE under the last. A click anywhere on a row selects its lane (its controls too).
- *   drawer      the selected lane: its sound (CHANGE SOUND), every card (name, value, hint; DIST among them), PAN,
+ *               and S and a square ENGINE button; ADD LANE under the last. A click anywhere on a row selects its lane (its controls too).
+ *   drawer      the selected lane: its engine (CHANGE ENGINE), every card (name, value, hint; DIST among them), PAN,
  *               LEVEL, GROOVE PART, CYCLE
  *   strip       COMP, DRIVE, FILTER, DELAY, REVERB (each a picture and its main values) and the movement (two LFOs);
  *               a section's header opens its drawer, which rises from the strip over the lane's drawer (the place
  *               and the rows stay, the rows scroll): a large live picture and every parameter of the effect in
  *               groups; MOVEMENT's has LFO 1 .. 8, ENV and FOLLOW, the matrix and MOD CC
- * Overlays: the sound browser, the presets browser, SETTINGS (MIDI IN with KEYS, SCALE, TIMING, LOADING, WINDOW,
+ * Overlays: the engine browser, the presets browser, SETTINGS (MIDI IN with KEYS, SCALE, TIMING, LOADING, WINDOW,
  * ENGINE COLOURS), SAVE's panel, the colour picker. A value (TXG_W_PARAM): drag, wheel, double-click for its default, a
  * click steps a choice. Red only marks the selected lane, what is on and what an LFO moves. Repaints: the whole window
  * when anything drawn but the activity changed, else only the place, the event lines, the drawer and strip and the
@@ -49,9 +49,11 @@ enum { TXG_W_NONE, TXG_W_ROW, TXG_W_VOL, TXG_W_MUTE, TXG_W_SOLO, TXG_W_DOT, TXG_
        /* step 5b: a row's dot and number (selects its lane), a choice's steppers (lane: its id; v -1 or +1), the
         * compressor's meter (never hit: for the tests) */
        TXG_W_SELDOT, TXG_W_STEP, TXG_W_CMETER, TXG_W_TIP,   /* (TIP: a card whose hint was cut: hovered, all of it) */
-       /* step 5c: the sound browser's PREVIEW (play / stop), its HOW MANY (lane 0) and HOW ACTIVE (1) steppers (v -1 or
+       /* step 5c: the engine browser's PREVIEW (play / stop), its HOW MANY (lane 0) and HOW ACTIVE (1) steppers (v -1 or
         * +1); the effect drawer's area (never hit: for the tests) */
-       TXG_W_PREVIEW, TXG_W_PVSTEP, TXG_W_FXD };
+       TXG_W_PREVIEW, TXG_W_PVSTEP, TXG_W_FXD,
+       /* step 5d: a row's square ENGINE button beside M and S (opens the engine browser, as TXG_W_SND does) */
+       TXG_W_SWAP };
 
 typedef struct txg txg_t;
 txg_t *txg_new(txp_core *c);             /* NULL: out of memory or the font did not load */

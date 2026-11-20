@@ -4,11 +4,11 @@
 **Textura as an instrument in your DAW: rain, streams, fire, sand and stones, ice, wood, wind, storms, insects and
 birds, computed live, on up to 16 lanes.**
 
-The Textura plugin is the FM-1 firmware running inside your music software. It plays the same 103 sounds, the same
+The Textura plugin is the FM-1 firmware running inside your music software. It plays the same 103 engines, the same
 presets and landscapes, and the same effects and modulation as the FM-1, from MIDI tracks, with a window of its own.
 It comes as CLAP, VST3 and Audio Unit for macOS, and as CLAP and VST3 for Windows and Linux.
 
-This manual covers what is new or different in the plugin. The sounds, the effects and the modulation work as on the
+This manual covers what is new or different in the plugin. The engines, the effects and the modulation work as on the
 FM-1: for them it links to the [FM-1 user manual](MANUAL.md).
 
 ![The plugin's window: the place and the lanes, the selected lane's drawer, the effects strip](plugin/img/window-4-lanes.png)
@@ -20,7 +20,7 @@ FM-1: for them it links to the [FM-1 user manual](MANUAL.md).
 3. [Your first sound](#3-your-first-sound)
 4. [The window](#4-the-window): [top bar](#the-top-bar), [MAP](#map), [SPACE](#space), [the lanes](#the-lanes),
    [the drawer](#the-drawer), [the strip](#the-strip), [the movement](#the-movement), [SAVE](#save),
-   [the sound browser](#the-sound-browser), [the presets browser](#the-presets-browser), [SETTINGS](#settings),
+   [the engine browser](#the-engine-browser), [the presets browser](#the-presets-browser), [SETTINGS](#settings),
    [keys: FM-1 KEYS or PLAY](#keys-fm-1-keys-or-play), [colours](#colours), [LFOs](#lfos),
    [keys and mouse](#keys-and-mouse)
 5. [Everything else: host parameters](#5-everything-else-host-parameters)
@@ -36,9 +36,9 @@ FM-1: for them it links to the [FM-1 user manual](MANUAL.md).
 
 - **An instrument plugin.** It appears as **Textura** (vendor Textura): a note input (MIDI or CLAP notes) and a
   stereo output. It makes its own sound; it does not process audio.
-- **The FM-1's sounds.** Every sound is a physical model computed live, never a recording. Each plays as a cloud of
+- **The FM-1's engines.** Every engine is a physical model computed live, never a recording. Each plays as a cloud of
   small events, and no two events are alike ([the idea](MANUAL.md#2-the-idea-landscapes-lanes-and-clouds)).
-- **Up to 16 lanes.** The FM-1 has 4. Each lane holds one sound, and each lane has its own MIDI channel.
+- **Up to 16 lanes.** The FM-1 has 4. Each lane holds one engine, and each lane has its own MIDI channel.
 - **The HQ build.** A computer has room the FM-1 does not, so nothing is ever thinned: every lane plays all its
   events and the grain delay plays every grain.
 - **Free and open.** GPL-3.0, like the firmware. No account, no licence key, no copy protection.
@@ -99,9 +99,9 @@ It needs only the system's own libraries (libc and libX11). It runs on Ubuntu 20
    then a preset, and press **LOAD**. Or use the **<** and **>** buttons beside the name to step through the
    factory presets. The preset's lanes start at once: the event lines start to move. No notes are needed. (A
    landscape starts stopped, as on the FM-1: press **PLAY ALL**.)
-3. **Move a sound.** Drag a dot on the MAP: left and right is its pan, up is farther away.
-4. **Change a sound.** Click **CHANGE** in a lane's row. The sound browser opens and plays each sound you move to on
-   that lane, even a stopped one. Press **KEEP ON LANE n** to keep it.
+3. **Move an engine.** Drag a dot on the MAP: left and right is its pan, up is farther away.
+4. **Change an engine.** Click **ENGINE** in a lane's row (or the square button at its right end). The engine browser
+   opens and plays each engine you move to on that lane, even a stopped one. Press **KEEP ON LANE n** to keep it.
 5. **Play it.** Notes on a lane's channel (lane n on channel n) play that lane as the FM-1's keys do in PLAY mode:
    each sound plays its own way, a note setting the size or pitch of its events.
 6. **Busier or calmer.** Click a lane's **HOW MANY** and **HOW ACTIVE** blocks. Click a lane to see all its cards
@@ -123,8 +123,8 @@ option), and what an LFO moves. Each engine can have a colour of its own ([colou
 From top to bottom:
 
 - **The top bar**: the preset, SAVE, UNDO, PLAY ALL, LANES, the output level, SETTINGS.
-- **The place** (left) and **the lanes** (right): where each sound stands, and one row for each lane.
-- **The drawer**: the selected lane's sound, all its cards (DIST among them), and its PAN, LEVEL and groove.
+- **The place** (left) and **the lanes** (right): where each engine stands, and one row for each lane.
+- **The drawer**: the selected lane's engine, all its cards (DIST among them), and its PAN, LEVEL and groove.
 - **The strip**: the effects in signal order (COMP, DRIVE, FILTER, DELAY, REVERB) and the movement (the LFOs).
   Every section opens to all its parameters.
 
@@ -133,7 +133,7 @@ to the value filled, a handle at the value (a bipolar one, as PAN or a route's D
 LFO moves it, its name and value turn red with a `~`, and a red mark on the track shows where the LFO has it now. A
 choice (a type, a shape, a sync, ON / OFF) shows its value between **<** and **>**: click an arrow for the previous or
 the next. Any value: **drag** it (up or right raises it; hold Shift for fine steps), turn the **mouse wheel** over it,
-or **double-click** it for its default (a card: the sound's own value). A choice also steps on a **click** (Alt-click
+or **double-click** it for its default (a card: the engine's own value). A choice also steps on a **click** (Alt-click
 steps back). Each drag is one undo step in your DAW, and is recorded when your DAW records automation.
 
 ### The top bar
@@ -144,7 +144,7 @@ steps back). Each drag is one undo step in your DAW, and is recorded when your D
 | **<** and **>** | The previous / next factory preset, F001 to F100 (after F100 comes F001). |
 | **The scene** | The preset's code and name (`F009 RAIN & FIRE`), a user preset (`U01 ...`) or the landscape (`L01 WATER`). A `*` after the name: you changed something since it loaded. At the right, how many lanes it uses. Click it for the [presets browser](#the-presets-browser). |
 | **SAVE** | Saves what plays as a user preset, U01 to U16 ([SAVE](#save)). |
-| **UNDO** | Undoes the last preset load or sound kept; click again to redo it. As the FM-1's UNDO. Dim when there is nothing to undo. |
+| **UNDO** | Undoes the last preset load or engine kept; click again to redo it. As the FM-1's UNDO. Dim when there is nothing to undo. |
 | **PLAY ALL / STOP ALL** | STOP ALL stops every lane and remembers each one's HOW MANY and HOW ACTIVE; PLAY ALL brings each lane back with its own (see [a stopped lane](#the-lanes)). The selected lane stays selected. As the FM-1's REC. It turns white when every lane is stopped (a landscape's start). Space bar does the same. |
 | **LANES − / +** | How many lanes are in use, 1 to 16 ([lanes](#7-lanes)). |
 | **LEVEL** | The output's peak now, in dB. Red near 0 dB. |
@@ -153,19 +153,19 @@ steps back). Each drag is one undo step in your DAW, and is recorded when your D
 ### MAP
 
 The MAP is the place seen from above: a half circle, **YOU** (the triangle) at its centre at the bottom, **L** and
-**R** at its sides and **FAR** at its top. Each lane is a dot with its number and its sound's name.
+**R** at its sides and **FAR** at its top. Each lane is a dot with its number and its engine's name.
 
 - **Left / right** is the lane's **PAN**.
-- **Near / far** is the sound's **DIST** card, its distance, where the sound has one. A sound without a DIST card
+- **Near / far** is the engine's **DIST** card, its distance, where the engine has one. An engine without a DIST card
   shows a hollow dot: then a drag moves its pan only.
-- **Drag a dot** to move the sound: PAN and DIST together.
+- **Drag a dot** to move the engine: PAN and DIST together.
 - A dot **glows** with the lane's last events. The selected lane has a red ring.
 - **Lanes on one spot** fan out a little, so each dot shows and can be taken, and share one label: `1 Rain on water ·
   2 · 3 · 4`. A label that would cover another label or a dot moves to the other side, or is left out.
 - With more than 8 lanes, a dot shows its number only. The selected lane and the one under the mouse show their names.
 
-**The selected lane** is named at the top of the place: **LANE n · FAMILY**, its sound, **CHANGE** (the
-[sound browser](#the-sound-browser)) and its engine's colour dot (click it for the [colour](#colours) picker).
+**The selected lane** is named at the top of the place: **LANE n · FAMILY**, its engine, **ENGINE ▾** (the
+[engine browser](#the-engine-browser)) and its engine's colour dot (click it for the [colour](#colours) picker).
 
 ### SPACE
 
@@ -189,7 +189,7 @@ scroll: turn the mouse wheel over them. A row shows, left to right:
 | Column | What it shows |
 | --- | --- |
 | **#** | The lane's number and a dot in its engine's colour. The **selected lane**'s dot is solid red, its number red, its row lit with a red edge. Click the number or the dot to select the lane. |
-| **SOUND** | The sound and its family, and **CHANGE**: it opens the [sound browser](#the-sound-browser) for the lane (**CHOOSE** on an empty lane). |
+| **ENGINE** | The lane's engine and its family (cut with `...` when long), and the **ENGINE ▾** button at the right end of the column: it selects the lane and opens the [engine browser](#the-engine-browser) for it. The button is the same on an empty lane. |
 | **EVENTS** | The lane's **event line**: the last 6 seconds. A bar for each moment with events, as high as their loudness, over a faint band for the lane's level. A stopped lane reads **STOPPED**. |
 | **HOW MANY** | How many sources the cloud has: six blocks for **1 2 4 10 19 32**; none lit is **OFF**. Click a block for that many (the top lit block again: one less, so the first block again is OFF). Drag along the blocks, or turn the wheel. |
 | **HOW ACTIVE** | How busy each source is: nine blocks, rare to busy. Click, drag and wheel as HOW MANY. |
@@ -198,10 +198,11 @@ scroll: turn the mouse wheel over them. A row shows, left to right:
 | **VOL** | The lane's **LEVEL**, 0 to 127. Drag it, turn the wheel over it, or double-click for 100. |
 | **M** | Mute. The lane goes silent but keeps playing, so it comes back at once. A preset keeps it, as on the FM-1. |
 | **S** | Solo. While any lane is soloed, only the soloed lanes play. Alt-, Cmd- or Ctrl-click solos one lane alone (click it again that way to clear). The project keeps it. |
+| **(square button)** | At the far right, beside M and S: the same as **ENGINE ▾**, the icon alone. It selects the lane and opens the engine browser for it. |
 
-A click anywhere on a row selects its lane, the sound's name too. The controls in it (HOW MANY, HOW ACTIVE, PAN, CH,
-VOL, M, S) work as they did and select the row as well. Only **CHANGE** opens the sound browser. The up and down arrow
-keys select too. LEVEL is the sound's, as on the FM-1: two lanes playing the same sound
+A click anywhere on a row selects its lane, the engine's name too. The controls in it (HOW MANY, HOW ACTIVE, PAN, CH,
+VOL, M, S) work as they did and select the row as well. Only the two ENGINE buttons open the engine browser. The up and down arrow
+keys select too. LEVEL is the engine's, as on the FM-1: two lanes playing the same engine
 share it.
 
 **A stopped lane** reads **STOPPED** across its event line, with its HOW MANY and HOW ACTIVE at OFF. After **STOP
@@ -221,12 +222,12 @@ white. Press **PLAY ALL**, or set a lane's HOW MANY or HOW ACTIVE: that starts i
 
 Under the place and the rows, the **drawer** shows the selected lane:
 
-- **At the left**: **LANE n · FAMILY**, the sound in large letters, the engine's colour (click it for the picker), a
-  line with MANY, ACTIVE, VOL and the lane's MIDI channel, STOPPED or MUTED, and **CHANGE SOUND** (the sound browser).
-- **In the middle**: **every card** of the sound, up to eight, four to a row, each a fader. Each card shows its name,
+- **At the left**: **LANE n · FAMILY**, the engine in large letters, the engine's colour (click it for the picker), a
+  line with MANY, ACTIVE, VOL and the lane's MIDI channel, STOPPED or MUTED, and **CHANGE ENGINE** (the engine browser).
+- **In the middle**: **every card** of the engine, up to eight, four to a row, each a fader. Each card shows its name,
   its value in its own unit, and what it does (the FM-1 manual's line for it, wrapped to the card; one too long for
   it shows whole when the mouse rests on the card). A card an LFO moves now is red, with `~` before its name. The
-  sound's **DIST** card is here too (the MAP's near and far).
+  engine's **DIST** card is here too (the MAP's near and far).
 - **At the right**: the lane's **PAN**, **LEVEL**, and its groove **PART** and **CYCLE**
   ([the groove](MANUAL.md#the-groove)).
 
@@ -297,34 +298,34 @@ and **SAVE**.
 - The user presets are **kept with the project**. Load them in the presets browser, **MINE: User**, or by program
   change 100 to 115.
 
-### The sound browser
+### The engine browser
 
-![The sound browser: the families, their sounds and each sound's engine](plugin/img/sound-browser.png)
+![The engine browser: the families and their engines](plugin/img/sound-browser.png)
 
-Opens from a lane's **CHANGE** button (in its row, at the top of the place, or **CHANGE SOUND** in the drawer), or
-with **Return** for the selected lane. The header reads **SOUND FOR LANE n**.
+Opens from a lane's **ENGINE** button (in its row, at the top of the place, or **CHANGE ENGINE** in the drawer), from
+the square button at the row's right end, or with **Return** for the selected lane. The header reads **ENGINE FOR LANE n**.
 
-- **Left**: the ten families, with how many sounds each has.
-- **Middle**: the family's sounds, each with its engine at the right. **L1** (L2 ...) marks the sounds lanes play now;
+- **Left**: the ten families, with how many engines each has.
+- **Middle**: the family's engines, each with its source at the right. **L1** (L2 ...) marks the engines lanes play now;
   **▶** marks the one the lane plays.
-- **Right**: the sound under the cursor: its family and engine, what it is in one line, the lane's live event line and
+- **Right**: the engine under the cursor: its family and engine, what it is in one line, the lane's live event line and
   level, **▶ PREVIEW** / **■ STOP**, the preview's **MANY** and **ACTIVE**, and the engine's colour row.
-- **Type** to search all 103 sounds by name, family or engine. Backspace deletes.
+- **Type** to search all 103 engines by name, family or engine. Backspace deletes.
 - **Up / down** move the cursor; **left / right** change the family; the wheel scrolls.
 
-**Every sound you move to plays on the lane**: a click at once, the arrow keys once they rest, or **▶ PREVIEW**. A
+**Every engine you move to plays on the lane**: a click at once, the arrow keys once they rest, or **▶ PREVIEW**. A
 stopped lane (or all lanes stopped) plays too: the lane starts at the preview's **MANY** and **ACTIVE** (2 and 4 at
 first; the arrows set them, heard at once). A lane that plays keeps its own HOW MANY and HOW ACTIVE. The header says
-**PREVIEW ON LANE n** and the sound's name. **■ STOP** stops the preview and puts the lane back.
+**PREVIEW ON LANE n** and the engine's name. **■ STOP** stops the preview and puts the lane back.
 
-- **KEEP ON LANE n** (Return, or a double-click) keeps the sound. The lane goes back to its own state: a stopped lane
+- **KEEP ON LANE n** (Return, or a double-click) keeps the engine. The lane goes back to its own state: a stopped lane
   stays stopped, unless you set the preview's MANY or ACTIVE, which it then keeps. The scene shows `*`.
-- **CLOSE** (Esc) puts the lane back exactly as it was: its sound, its cards, its HOW MANY and HOW ACTIVE, stopped
+- **CLOSE** (Esc) puts the lane back exactly as it was: its engine, its cards, its HOW MANY and HOW ACTIVE, stopped
   or playing.
 
-![Previewing on a stopped lane: the sound plays at MANY 2 · ACTIVE 4, its line and level live](plugin/img/sound-preview.png)
+![Previewing on a stopped lane: the engine plays at MANY 2 · ACTIVE 4, its line and level live](plugin/img/sound-preview.png)
 
-What each sound is and what its cards do: [the sounds](MANUAL.md#5-the-sounds) in the FM-1 manual.
+What each engine is and what its cards do: [the sounds](MANUAL.md#5-the-sounds) in the FM-1 manual.
 
 ### The presets browser
 
@@ -336,7 +337,7 @@ Opens from the scene name in the top bar.
   Coast, River & lake, Forest, Meadow, Night, Fire, Stone & sand, Ice & winter), and **START FROM**, the ten
   **Landscapes**.
 - **Middle**: the presets, each with its code and how many lanes it uses.
-- **Right**: the preview. Where its lanes stand, and each lane's sound with its HOW MANY and HOW ACTIVE.
+- **Right**: the preview. Where its lanes stand, and each lane's engine with its HOW MANY and HOW ACTIVE.
 - **Type** to search; **up / down** move; **left / right** go to the next family.
 - **LOAD** (Return, or a double-click) loads it. **CLOSE** (Esc) closes the browser.
 
@@ -395,12 +396,12 @@ lane picked by the keys is selected in the window (its row scrolls into view).
 
 ![The colour picker: eleven colours for the lane's engine](plugin/img/colour-picker.png)
 
-Every sound comes from an engine (the line under its name in the sound browser: rain on water, wind, fire ...). A
+Every sound comes from an engine (the line under its name in the engine browser: rain on water, wind, fire ...). A
 colour belongs to an **engine**, not to a lane: every sound of that engine, in every preset, takes it, for its dot,
 its event line and its row.
 
 - Click the colour dot of the selected lane (at the top of the place or in the drawer), a dot in ENGINE COLOURS, or
-  a colour in the sound browser.
+  a colour in the engine browser.
 - Eleven colours: **BONE** (the default), EMBER, AMBER, SAND, MOSS, SAGE, TEAL, ICE, SLATE, LILAC, ROSE. None is red:
   red is kept for the selection and the LFOs.
 - Click a colour to set it; click anywhere else (or Esc) to close the picker.
@@ -424,7 +425,7 @@ With the window focused and no panel open:
 | Key | What it does |
 | --- | --- |
 | **Up / down** | Select the previous / next lane |
-| **Return** | Open the selected lane's sound browser |
+| **Return** | Open the selected lane's engine browser |
 | **m** | Mute / unmute the selected lane |
 | **s** | Solo / unsolo the selected lane |
 | **v** | Switch MAP / SPACE |
@@ -501,7 +502,7 @@ The plugin listens as the FM-1 does over USB MIDI ([MIDI](MANUAL.md#12-midi) in 
 rows, Lanes in use in SETTINGS, or the LANES parameter.
 
 - **A lane past LANES is empty**: no sound, no engine, no CPU.
-- **Raising LANES** adds empty lanes. Give each one a sound with its sound browser.
+- **Raising LANES** adds empty lanes. Give each one an engine with its engine browser.
 - **A new lane starts stopped.** Set its HOW MANY or HOW ACTIVE (`L5 HOW MANY` ..., or CC 21 / CC 22 on its channel)
   to start it. HOW MANY at OFF stops it again; its last events ring out.
 - **A sound set on lane n** (from the DAW, or by CC 20 on its channel) raises LANES to n.
@@ -513,7 +514,7 @@ rows, Lanes in use in SETTINGS, or the LANES parameter.
 
 Your DAW saves the plugin with the project, and its own preset function saves it too. The plugin keeps:
 
-- what a user preset keeps on the FM-1: the landscape, each lane's sound, HOW MANY, HOW ACTIVE, level, pan, mute and
+- what a user preset keeps on the FM-1: the landscape, each lane's engine, HOW MANY, HOW ACTIVE, level, pan, mute and
   cards, the effects, the modulation, the groove and the tempo;
 - the preset loaded last, the scale, the MIDI channels, EFFECTS ON LOAD and PRESETS CHANGE TEMPO;
 - your user presets, U01 to U16 ([SAVE](#save));
@@ -564,7 +565,7 @@ opens: lanes 1 to 4 as saved, LANES 4.
 | **Lane channels** | LANE 1 to 4 CHANNEL | LANE 1 to 16 CHANNEL, FX CHANNEL |
 | **Tempo** | Its own, tap, MIDI clock in and out | The DAW's tempo leads; no MIDI clock |
 | **Saving** | U01 to U16 in flash, settings kept by themselves | SAVE: U01 to U16 in the project; the DAW's project or presets |
-| **Undo** | Hold SAVE | UNDO (a load, a sound kept); your DAW's undo for window edits (host parameter changes) |
+| **Undo** | Hold SAVE | UNDO (a load, an engine kept); your DAW's undo for window edits (host parameter changes) |
 | **Sample rate** | 44.1 kHz | Any; 44.1 kHz inside |
 | **Screen colour, clock, status line** | DISPLAY, MIDI CLOCK pages | Not in the plugin |
 | **Look** | One accent colour | Dark, red for selection and LFOs, a colour per engine |

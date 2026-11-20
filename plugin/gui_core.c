@@ -123,7 +123,7 @@ struct txg {
     int drawn;                           /* the canvas holds a whole draw */
     /* the colour picker (over anything): the engine it colours, -1 closed; where it opens */
     int pick, pick_x, pick_y;
-    /* the sound browser: its lane, the family shown, the cursor (family, sound), the lane's kept sound, the search, an
+    /* the engine browser: its lane, the family shown, the cursor (family, sound), the lane's kept sound, the search, an
      * audition waiting (ticks) */
     int sb_lane, sb_fam, sb_cf, sb_ci, sb_kf, sb_ki, sb_pend, sb_top;
     /* its preview: under way (the window asked for it), its HOW MANY (1 .. 6) and HOW ACTIVE (1 .. 9), set by the user
@@ -221,16 +221,57 @@ static void button(txg_t *g, frui_canvas *c, float x, float y, float w, float h,
     RRS(g, c, x, y, w, h, 3.f, pri ? C_INK : C_LINE);
     LBL(g, c, x + (w - LBLW(g, 11.f, t)) * 0.5f, y + h * 0.5f + CAP(g, 11.f) * 0.5f, 11.f, pri ? C_PANEL : C_INK, t);
 }
-/* CHANGE: a lane's sound browser (TXG_W_SND, lane k), a small labelled button; lit when hovered or on (the selected
- * lane's) */
-static void chg_button(txg_t *g, frui_canvas *c, int k, float x, float y, float w, float h, const char *t, int on)
+/* the engine browser's buttons: a swap icon (two opposite arrows, drawn), centred on (x, y), s wide */
+static void swap_icon(txg_t *g, frui_canvas *c, float x, float y, float s, uint32_t col)
 {
-    int hot = g->hover_kind == TXG_W_SND && g->hover_lane == k;
-    float fs = h < 18.f ? 8.5f : 9.5f;
-    RR(g, c, x, y, w, h, 2.f, hot ? C_SEG : C_BTN);
-    RRS(g, c, x, y, w, h, 2.f, hot || on ? C_DIM : C_LINE);
-    LBL(g, c, x + (w - LBLW(g, fs, t)) * 0.5f, y + h * 0.5f + CAP(g, fs) * 0.5f, fs, hot || on ? C_INK : C_DIM, t);
-    wid_add(g, TXG_W_SND, k, x, y, w, h);
+    float hw = s * 0.5f, a = 2.4f;
+    LN(g, c, x - hw, y - 2.6f, x + hw, y - 2.6f, 1.2f, col);
+    LN(g, c, x + hw, y - 2.6f, x + hw - a, y - 2.6f - a, 1.2f, col);
+    LN(g, c, x + hw, y - 2.6f, x + hw - a, y - 2.6f + a, 1.2f, col);
+    LN(g, c, x - hw, y + 2.6f, x + hw, y + 2.6f, 1.2f, col);
+    LN(g, c, x - hw, y + 2.6f, x - hw + a, y + 2.6f - a, 1.2f, col);
+    LN(g, c, x - hw, y + 2.6f, x - hw + a, y + 2.6f + a, 1.2f, col);
+}
+static void caret_dn(txg_t *g, frui_canvas *c, float x, float y, uint32_t col)   /* a small down triangle, centred */
+{
+    frui_path p;
+    frui_path_init(&p);
+    frui_path_move(&p, (x - 3.5f) * g->S, (y - 2.f) * g->S);
+    frui_path_line(&p, (x + 3.5f) * g->S, (y - 2.f) * g->S);
+    frui_path_line(&p, x * g->S, (y + 2.5f) * g->S);
+    frui_path_fill(c, &p, col);
+    frui_path_free(&p);
+}
+/* a button as the top bar's SAVE / UNDO: ink on a filled box with a line, lit when hovered. t: a label (the swap icon,
+ * the label, a down caret) or none (the icon alone, centred); it opens lane k's engine browser (kind TXG_W_SND or
+ * TXG_W_SWAP) */
+static void chg_button(txg_t *g, frui_canvas *c, int kind, int k, float x, float y, float w, float h, const char *t)
+{
+    int hot = g->hover_kind == kind && g->hover_lane == k;
+    float yc = y + h * 0.5f, fs = w < 100.f ? 9.5f : 10.5f;
+    RR(g, c, x, y, w, h, 3.f, hot ? C_SEG : C_BTN);
+    RRS(g, c, x, y, w, h, 3.f, hot ? C_DIM : C_LINE);
+    if (t) {
+        float lw = LBLW(g, fs, t), tw = 10.f + 5.f + lw + 5.f + 7.f, x0 = x + (w - tw) * 0.5f;
+        swap_icon(g, c, x0 + 5.f, yc, 10.f, C_INK);
+        LBL(g, c, x0 + 15.f, yc + CAP(g, fs) * 0.5f, fs, C_INK, t);
+        caret_dn(g, c, x0 + tw - 3.5f, yc, C_INK);
+    } else swap_icon(g, c, x + w * 0.5f, yc, 10.f, C_INK);
+    wid_add(g, kind, k, x, y, w, h);
+}
+/* a text cut to fit w with "..." (on a character boundary), as the font draws it: size, weight, tracking */
+static void ell(txg_t *g, char *d, size_t n, const char *s, float w, float size, float wt, float track)
+{
+    size_t l;
+    snprintf(d, n, "%s", s);
+    if (TW(g, size, wt, track, 0, d) <= w) return;
+    for (l = strlen(d); l > 0; l--) {
+        if (((unsigned char)d[l] & 0xC0u) == 0x80u) continue;
+        d[l] = 0;
+        if (l + 3 < n) memcpy(d + l, "...", 4);
+        if (TW(g, size, wt, track, 0, d) <= w) return;
+        d[l] = 0;
+    }
 }
 static void dashed(txg_t *g, frui_canvas *c, float x, float y0, float y1, uint32_t col)   /* a dashed upright line */
 {
@@ -276,23 +317,24 @@ static void lay(txg_t *g)
     g->rvis = (int)floorf((g->dr_y - TOP_H - HDR_H) / ROW_H);
     if (g->rvis < 1) g->rvis = 1;
 }
-/* a row's columns (x from the window's left): the name, the event line, MANY, ACTIVE, PAN, CH, VOL, M S */
-typedef struct { float num, dot, name, tl, tlw, many, act, pan, ch, vol, ms; } rcol_t;
-#define RW_NAME 164.f
-#define RW_CHG 50.f                      /* a row's CHANGE (the sound browser), under its sound's name */
-#define RW_STEP 84.f
+/* a row's columns (x from the window's left): the engine's name, the event line, MANY, ACTIVE, PAN, CH, VOL, M S, the square ENGINE button */
+typedef struct { float num, dot, name, tl, tlw, many, act, pan, ch, vol, ms, sw; } rcol_t;
+#define RW_NAME 226.f
+#define RW_CHG 76.f                      /* a row's ENGINE button (the engine browser), at the right end of the ENGINE column */
+#define RW_STEP 78.f
 #define RW_PAN 40.f
 #define RW_CH 34.f
-#define RW_VOL 92.f
+#define RW_VOL 80.f
 #define RW_MS 48.f
-#define R_GAP 10.f
+#define R_GAP 8.f
 static rcol_t rcols(const txg_t *g)
 {
     rcol_t r;
     float x0 = g->PW, right = g->W - 14.f;
     r.num = x0 + 14.f; r.dot = x0 + 36.f; r.name = x0 + 46.f;
     r.tl = x0 + 16.f + RW_NAME + R_GAP;
-    r.ms = right - RW_MS;
+    r.sw = right - 22.f;                 /* (the square ENGINE button, as M and S) */
+    r.ms = r.sw - 4.f - RW_MS;
     r.vol = r.ms - R_GAP - RW_VOL;
     r.ch = r.vol - R_GAP - RW_CH;
     r.pan = r.ch - R_GAP - RW_PAN;
@@ -765,7 +807,7 @@ static void draw_view_switch(txg_t *g, frui_canvas *c)
     wid_add(g, TXG_W_VMAP, -1, x, y, wm, h);
     wid_add(g, TXG_W_VSPACE, -1, x + wm, y, ws, h);
 }
-/* the selected lane at the place's head: its number and family, its sound and CHANGE (the sound browser), its
+/* the selected lane at the place's head: its number and family, its engine and ENGINE (the engine browser), its
  * engine's colour (a click: the picker) */
 static void draw_place_head(txg_t *g, frui_canvas *c)
 {
@@ -781,7 +823,7 @@ static void draw_place_head(txg_t *g, frui_canvas *c)
     else w = TX(g, c, x, y + 29.f, 15.f, 600.f, 0.2f, 0, C_FAINT, "Empty lane");
     frui_clip_reset(c);
     if (w > room) w = room;
-    chg_button(g, c, k, x + w + 10.f, y + 16.f, RW_CHG, 17.f, used(g, k) ? "CHANGE" : "CHOOSE", 0);
+    chg_button(g, c, TXG_W_SND, k, x + w + 10.f, y + 14.f, RW_CHG, 22.f, "ENGINE");
     w += 10.f + RW_CHG;
     if (used(g, k)) {
         float xx = x + w + 18.f;
@@ -1076,9 +1118,9 @@ static void draw_rows(txg_t *g, frui_canvas *c)
     {   /* the columns' names */
         float yb = TOP_H + HDR_H * 0.5f + CAP(g, 10.f) * 0.5f;
         LBL(g, c, rc.num, yb, 10.f, C_DIM, "#");
-        LBL(g, c, rc.name, yb, 10.f, C_DIM, "SOUND");
+        LBL(g, c, rc.name, yb, 10.f, C_DIM, "ENGINE");
         LBL(g, c, rc.tl, yb, 10.f, C_DIM, "EVENTS");
-        LBL(g, c, rc.tl + rc.tlw - TW(g, 10.f, 620.f, 1.4f, 0, "6 S"), yb, 10.f, C_FAINT, "6 S");
+        if (rc.tlw >= TW(g, 10.f, 620.f, 1.4f, 0, "EVENTS") + 2.f * TW(g, 10.f, 620.f, 1.4f, 0, "6 S") + 8.f) LBL(g, c, rc.tl + rc.tlw - TW(g, 10.f, 620.f, 1.4f, 0, "6 S"), yb, 10.f, C_FAINT, "6 S");
         LBL(g, c, rc.many, yb, 10.f, C_DIM, "HOW MANY");
         LBL(g, c, rc.act, yb, 10.f, C_DIM, "HOW ACTIVE");
         LBL(g, c, rc.pan, yb, 10.f, C_DIM, "PAN");
@@ -1103,24 +1145,19 @@ static void draw_rows(txg_t *g, frui_canvas *c)
         wid_add(g, TXG_W_SELDOT, k, x0 + 4.f, yc - 13.f, rc.dot + 7.f - x0 - 4.f, 26.f);   /* (the number and the dot;
                                           * the rest of the row selects too: TXG_W_ROW) */
         if (sel) CI(g, c, rc.dot, yc, 4.5f, C_RED);   /* (the selected lane's dot: solid red) */
-        {   /* the sound's name, its family, CHANGE under the name's end (the row itself: a click selects the lane) */
-            float nw = rc.tl - rc.name - 8.f, bx = rc.name + nw - RW_CHG;
+        {   /* the engine's name and family (cut with "..." before the button), ENGINE at the right end of the column (the
+             * row itself: a click selects the lane) */
+            float nw = rc.tl - rc.name - 8.f, tw = nw - RW_CHG - 8.f, bh = ROW_H - 12.f;
             if (u) {
                 float a = glow(g, k);
                 if (!sel) CI(g, c, rc.dot, yc, 3.5f, frui_alpha(lane_col(g, k), (0.35f + 0.65f * a) * mf));
                 cap_name(nm, l->snd, sizeof nm);
-                clipL(g, c, rc.name, y, nw, ROW_H);
-                TX(g, c, rc.name, yc - 1.f, 12.5f, 600.f, 0.f, 0, ink, nm);
-                frui_clip_reset(c);
-                clipL(g, c, rc.name, y, nw - RW_CHG - 6.f, ROW_H);
-                TX(g, c, rc.name, yc + 12.f, 10.f, 450.f, 0.3f, 0, C_DIM, l->fam);
-            } else {
-                clipL(g, c, rc.name, y, nw - RW_CHG - 6.f, ROW_H);
-                TX(g, c, rc.name, yc + CAP(g, 12.f) * 0.5f, 12.f, 450.f, 0.3f, 0, C_FAINT, "empty");
-            }
-            frui_clip_reset(c);
-            clipL(g, c, x0, y0, x1 - x0, g->dr_y - y0);
-            chg_button(g, c, k, bx, u ? yc + 2.f : yc - 7.f, RW_CHG, 14.f, u ? "CHANGE" : "CHOOSE", sel);
+                ell(g, t, sizeof t, nm, tw, 12.5f, 600.f, 0.f);
+                TX(g, c, rc.name, yc - 1.f, 12.5f, 600.f, 0.f, 0, ink, t);
+                ell(g, t, sizeof t, l->fam, tw, 10.f, 450.f, 0.3f);
+                TX(g, c, rc.name, yc + 12.f, 10.f, 450.f, 0.3f, 0, C_DIM, t);
+            } else TX(g, c, rc.name, yc + CAP(g, 12.f) * 0.5f, 12.f, 450.f, 0.3f, 0, C_FAINT, "empty");
+            chg_button(g, c, TXG_W_SND, k, rc.name + nw - RW_CHG, yc - bh * 0.5f, RW_CHG, bh, "ENGINE");
         }
         draw_line(g, c, k, rc.tl, yc - th * 0.5f, rc.tlw, th, mf);
         if (stopped) {                   /* (a stopped lane: plain to see; HOW MANY or HOW ACTIVE starts it) */
@@ -1169,6 +1206,7 @@ static void draw_rows(txg_t *g, frui_canvas *c)
                s ? 0xFFFFFFFFu : u ? C_DIM : C_FAINT, "S");
             if (u) { wid_add(g, TXG_W_MUTE, k, rc.ms, by, 22.f, 22.f); wid_add(g, TXG_W_SOLO, k, rc.ms + 26.f, by, 22.f, 22.f); }
         }
+        chg_button(g, c, TXG_W_SWAP, k, rc.sw, yc - 11.f, 22.f, 22.f, 0);   /* (the same, the icon alone) */
     }
     if (g->nlane < (int)TXP_LANES && g->nlane >= g->rtop && g->nlane < g->rtop + g->rvis) {   /* ADD LANE */
         float y = y0 + ROW_H * (float)(g->nlane - g->rtop), yc = y + ROW_H * 0.5f;
@@ -1210,15 +1248,15 @@ static void draw_drawer(txg_t *g, frui_canvas *c)
     LBL(g, c, x, y0 + 21.f, 10.5f, C_RED, t);
     if (!used(g, k)) {
         TX(g, c, x, y0 + 48.f, 22.f, 700.f, 1.1f, 0, C_FAINT, "EMPTY");
-        chg_button(g, c, k, x, y0 + 118.f, 130.f, 20.f, "CHOOSE SOUND", 1);
-        TX(g, c, cx0, y0 + 40.f, 12.5f, 450.f, 0.f, 0, C_DIM, "No sound on this lane: CHOOSE SOUND (or the row's CHOOSE) picks one.");
+        chg_button(g, c, TXG_W_SND, k, x, y0 + 116.f, 156.f, 26.f, "CHOOSE ENGINE");
+        TX(g, c, cx0, y0 + 40.f, 12.5f, 450.f, 0.f, 0, C_DIM, "No engine on this lane: CHOOSE ENGINE (or the row's ENGINE button) picks one.");
         return;
     }
     upper(nm, l->snd, sizeof nm);
     clipL(g, c, x, y0, cx0 - x - 16.f, DR_H);
     TX(g, c, x, y0 + 48.f, 22.f, 700.f, 1.1f, 0, (g->mute >> k & 1u) ? C_DIM : C_INK, nm);
     frui_clip_reset(c);
-    chg_button(g, c, k, x, y0 + 118.f, 130.f, 20.f, "CHANGE SOUND", 1);
+    chg_button(g, c, TXG_W_SND, k, x, y0 + 116.f, 156.f, 26.f, "CHANGE ENGINE");
     if (l->eng < g->cat->neng) {
         char en[24];
         upper(en, g->cat->eng[l->eng], sizeof en);
@@ -1244,7 +1282,7 @@ static void draw_drawer(txg_t *g, frui_canvas *c)
     /* the cards: four a row */
     {
         float gap = 6.f, cw = (cx1 - cx0 - 3.f * gap) / 4.f, ch = (DR_H - 24.f - gap) / 2.f;
-        if (!cd->n) TX(g, c, cx0, y0 + 40.f, 12.5f, 450.f, 0.f, 0, C_DIM, "This sound has no cards.");
+        if (!cd->n) TX(g, c, cx0, y0 + 40.f, 12.5f, 450.f, 0.f, 0, C_DIM, "This engine has no cards.");
         for (int i = 0; i < cd->n && i < (int)TXP_CARD_N; i++) {
             float xx = cx0 + (cw + gap) * (float)(i % 4), yy = y0 + 12.f + (ch + gap) * (float)(i / 4);
             pcell(g, c, xx, yy, cw, ch, TXP_ID_LANE(k, TXP_PL_CARD0 + i), cd->lab[i], card_hint(l->snd, cd->lab[i]));
@@ -1553,7 +1591,7 @@ static void list_view(txg_t *g, int cur, float rows)   /* the window over the li
     if (cur < g->sb_top) g->sb_top = cur;
     if (cur >= g->sb_top + vis) g->sb_top = cur - vis + 1;
 }
-static void sb_items(txg_t *g)           /* the sound browser's list: the family's sounds, or the search's (f << 4 | i) */
+static void sb_items(txg_t *g)           /* the engine browser's list: the family's sounds, or the search's (f << 4 | i) */
 {
     g->nitems = 0;
     if (g->q[0]) {
@@ -1572,7 +1610,7 @@ static const char *snd_desc(const char *snd)
     size_t i;
     for (i = 0; i < sizeof TXH_SND / sizeof TXH_SND[0] && !eng; i++) if (!strcmp(TXH_SND[i].snd, snd)) eng = TXH_SND[i].eng;
     for (i = 0; eng && i < sizeof TXH_ENG / sizeof TXH_ENG[0]; i++) if (!strcmp(TXH_ENG[i].eng, eng)) return TXH_ENG[i].desc;
-    return "A sound of its own, computed as it plays.";
+    return "An engine of its own, computed as it plays.";
 }
 static void play_mark(txg_t *g, frui_canvas *c, float x, float yc, float s, uint32_t col)   /* a small play triangle */
 {
@@ -1608,11 +1646,11 @@ static void draw_sounds(txg_t *g, frui_canvas *c)
     float y, lx = OV_NAV, lw = g->W - OV_NAV - OV_PREV, rows = (g->H - OV_Y0 - 12.f) / OV_RH;
     for (int f = 0; f < g->cat->nfam; f++) tot += g->cat->fam[f].n;
     snprintf(t, sizeof t, "LANE %d", k + 1);
-    snprintf(nm, sizeof nm, "Type to search %d sounds", tot);
-    ov_header(g, c, "SOUND FOR", t, 1, nm);
+    snprintf(nm, sizeof nm, "Type to search %d engines", tot);
+    ov_header(g, c, "ENGINE FOR", t, 1, nm);
     if (g->pv_on) {                      /* (the header: the preview under way) */
         char a[32];
-        float x = 18.f + TW(g, 17.f, 700.f, 2.4f, 0, "SOUND FOR") + 8.f + TW(g, 17.f, 700.f, 2.4f, 0, t) + 28.f;
+        float x = 18.f + TW(g, 17.f, 700.f, 2.4f, 0, "ENGINE FOR") + 8.f + TW(g, 17.f, 700.f, 2.4f, 0, t) + 28.f;
         upper(a, snd_name(g, g->sb_cf, g->sb_ci), sizeof a);
         snprintf(t, sizeof t, "PREVIEW ON LANE %d: %s", k + 1, a);
         play_mark(g, c, x - 2.f, TOP_H + 23.f, 4.5f, C_RED);
@@ -1628,7 +1666,7 @@ static void draw_sounds(txg_t *g, frui_canvas *c)
     if (g->sb_top > g->nitems - (int)rows) g->sb_top = g->nitems - (int)rows;
     if (g->sb_top < 0) g->sb_top = 0;
     clipL(g, c, lx, OV_Y0, lw, g->H - OV_Y0);
-    if (!g->nitems) TX(g, c, lx + 16.f, OV_Y0 + 30.f, 12.5f, 450.f, 0.f, 0, C_DIM, "No sound has that name.");
+    if (!g->nitems) TX(g, c, lx + 16.f, OV_Y0 + 30.f, 12.5f, 450.f, 0.f, 0, C_DIM, "No engine has that name.");
     for (int j = g->sb_top; j < g->nitems && (float)(j - g->sb_top) < rows; j++) {
         int f = g->items[j] >> 4, i = g->items[j] & 15, m = lane_of_snd(g, f, i), e = snd_eng(g, f, i);
         int kept = f == g->sb_kf && i == g->sb_ki, cu = j == cur, plays = l->used && l->run && l->fi == f && l->si == i;
@@ -1716,10 +1754,10 @@ static void draw_sounds(txg_t *g, frui_canvas *c)
             pv_step(g, c, 1, px + (pw - 8.f) * 0.5f + 8.f, y + 16.f, (pw - 8.f) * 0.5f);
             y += 54.f;
         }
-        snprintf(t, sizeof t, "A click or the arrows play a sound on lane %d, started if", k + 1);
+        snprintf(t, sizeof t, "A click or the arrows play an engine on lane %d, started if", k + 1);
         TX(g, c, px, y, 11.f, 450.f, 0.f, 0, C_DIM, t);
         TX(g, c, px, y + 15.f, 11.f, 450.f, 0.f, 0, C_DIM, "stopped. KEEP keeps it; CLOSE puts the lane back");
-        TX(g, c, px, y + 30.f, 11.f, 450.f, 0.f, 0, C_DIM, "as it was (sound, cards, stopped or playing).");
+        TX(g, c, px, y + 30.f, 11.f, 450.f, 0.f, 0, C_DIM, "as it was (engine, cards, stopped or playing).");
         y += 52.f;
         if (e >= 0 && y + 24.f < g->H - 64.f) {
             char en[24];
@@ -2546,7 +2584,7 @@ static int paint_into(txg_t *g, frui_canvas *c)
     if (full) {
         frui_clip_base(c, 0, 0, c->w, c->h);
         draw_all(g, c);
-    } else if (moved && g->ov == OV_SND && g->pick < 0) {   /* (the sound browser: its preview's event line, meter) */
+    } else if (moved && g->ov == OV_SND && g->pick < 0) {   /* (the engine browser: its preview's event line, meter) */
         region(g, c, g->W - OV_PREV + 1.f, OV_Y0, g->W, g->H);
         frui_clip_base(c, 0, 0, c->w, c->h);
     } else if (moved && (g->ov == OV_NONE || g->ov == OV_SAVE || g->ov == OV_FX) && g->pick < 0) {
@@ -2924,7 +2962,7 @@ int txg_input(txg_t *g, const frg_input *e)
         case TXG_W_VIEWSEL: g->view = w->v; txp_ui_view_set(g->c, w->v); break;
         case TXG_W_VMAP: g->view = 0; txp_ui_view_set(g->c, 0); break;
         case TXG_W_VSPACE: g->view = 1; txp_ui_view_set(g->c, 1); break;
-        case TXG_W_SND: sb_open(g, k); break;
+        case TXG_W_SND: case TXG_W_SWAP: sb_open(g, k); break;
         case TXG_W_COLDOT:
             if ((int)w->id < 0 || (int)w->id >= g->cat->neng) break;
             g->pick = (int)w->id; g->pick_x = (int)w->r[0]; g->pick_y = (int)(w->r[1] + w->r[3] + 6.f);
@@ -3009,7 +3047,7 @@ int txg_input(txg_t *g, const frg_input *e)
             int hk = 0, hl = -1;
             float r[4];
             if (w && (w->kind == TXG_W_ADD || w->kind == TXG_W_DOT || w->kind == TXG_W_LIST || w->kind == TXG_W_SND ||
-                      w->kind == TXG_W_PREVIEW)) { hk = w->kind; hl = w->lane; }
+                      w->kind == TXG_W_SWAP || w->kind == TXG_W_PREVIEW)) { hk = w->kind; hl = w->lane; }
             else if (w && w->kind == TXG_W_PARAM && txg_find(g, TXG_W_TIP, w->lane, r) && e->x >= r[0] && e->x < r[0] + r[2] &&
                      e->y >= r[1] && e->y < r[1] + r[3]) { hk = TXG_W_TIP; hl = w->lane; }   /* (a card whose hint was
                                           * cut: all of it shows) */
@@ -3053,7 +3091,7 @@ int txg_input(txg_t *g, const frg_input *e)
             step_param(g, id, d, 0);
             return 3;
         }
-        if (w && (w->kind == TXG_W_ROW || w->kind == TXG_W_ROWS || w->kind == TXG_W_SND || w->kind == TXG_W_MUTE || w->kind == TXG_W_SOLO || w->kind == TXG_W_ADD)) {
+        if (w && (w->kind == TXG_W_ROW || w->kind == TXG_W_ROWS || w->kind == TXG_W_SND || w->kind == TXG_W_SWAP || w->kind == TXG_W_MUTE || w->kind == TXG_W_SOLO || w->kind == TXG_W_ADD)) {
             int t0 = g->rtop;            /* (the rows: scrolled) */
             g->rtop += e->wheel > 0.f ? -1 : 1;
             rows_clamp(g);
@@ -3068,7 +3106,7 @@ int txg_input(txg_t *g, const frg_input *e)
         }
         if (e->key == FRK_UP && g->sel > 0) { select_lane(g, g->sel - 1); return 3; }
         if (e->key == FRK_DOWN && g->sel + 1 < g->nlane) { select_lane(g, g->sel + 1); return 3; }
-        if (e->key == FRK_RETURN) { sb_open(g, g->sel); return 3; }   /* (the selected lane's sound browser) */
+        if (e->key == FRK_RETURN) { sb_open(g, g->sel); return 3; }   /* (the selected lane's engine browser) */
         if ((e->key == 'm' || e->key == 'M') && used(g, g->sel)) { txp_ui_mute(g->c, (uint32_t)g->sel, !(g->mute >> g->sel & 1u)); g->mute ^= 1u << g->sel; return 3; }
         if ((e->key == 's' || e->key == 'S') && used(g, g->sel)) { g->solo ^= 1u << g->sel; txp_ui_solo(g->c, g->solo); return 3; }
         if (e->key == 'v' || e->key == 'V') { g->view = !g->view; txp_ui_view_set(g->c, g->view); return 3; }

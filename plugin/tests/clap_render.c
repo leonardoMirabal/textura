@@ -216,7 +216,7 @@ static void gui_wait(void) { struct timespec ts = { 0, 350000000 }; nanosleep(&t
 /* gui_core.h's controls the tests click (its enum's values) */
 enum { W_ROW = 1, W_VOL, W_MUTE, W_SOLO, W_DOT, W_LUP = 9, W_SET = 10, W_VMAP = 13, W_VSPACE, W_PRESET, W_SND, W_COLDOT,
        W_SWATCH, W_SEG = 26, W_FIELD = 27, W_PARAM = 30, W_MANY, W_ACT, W_REC, W_UNDO, W_SAVE, W_FXOPEN, W_FXTAB, W_SLOT,
-       W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER, W_TIP, W_PREVIEW, W_PVSTEP, W_FXD };
+       W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER, W_TIP, W_PREVIEW, W_PVSTEP, W_FXD, W_SWAP };
 enum { W_CLOSE = 11, W_LIST = 23, W_KEEP = 24 };
 #define ID_KEYS 0x10001u                 /* (bridge.h TXP_ID_KEYS) */
 static int gui_hit(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, int lane)   /* a click on a control */
@@ -570,18 +570,18 @@ static int gui_test5c_preview(const clap_plugin_t *p, const txg_gui_shot_t *xs) 
     return bad;
 }
 static int gui_test5c_rows(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* a click anywhere on a row selects its
-                                          * lane, its name does not open the browser, CHANGE does */
+                                          * lane, its name does not open the browser, its two ENGINE buttons do */
 {
     int bad = 0, sel;
-    float r[4], n[4];
-    if (!xs->find(p, W_ROW, 3, r) || !xs->find(p, W_SND, 3, n)) { fprintf(stderr, "gui: no row / CHANGE for lane 4\n"); return 5; }
+    float r[4], n[4], sw[4];
+    if (!xs->find(p, W_ROW, 3, r) || !xs->find(p, W_SND, 3, n)) { fprintf(stderr, "gui: no row / ENGINE button for lane 4\n"); return 5; }
     gui_click(p, xs, n[0] - 60.f, r[1] + r[3] * 0.3f, 0);   /* (on its name) */
     gui_wait(); gui_flush(p); xs->tick(p);
     sel = xs->sel(p);
     printf("gui row: a click on lane 4's name selects lane %d, the browser %s\n", sel + 1, xs->find(p, W_KEEP, -1, n) ? "OPEN" : "closed");
     if (sel != 3 || xs->find(p, W_KEEP, -1, n)) { fprintf(stderr, "gui: the name opened the browser or did not select\n"); bad = 1; }
     if (!xs->find(p, W_ROW, 2, r) || !xs->find(p, W_SND, 2, n)) return 5;
-    gui_click(p, xs, n[0] + n[2] + 24.f, r[1] + r[3] * 0.5f, 0);   /* (on its event line, past CHANGE: no control) */
+    gui_click(p, xs, n[0] + n[2] + 24.f, r[1] + r[3] * 0.5f, 0);   /* (on its event line, past the ENGINE button: no control) */
     gui_wait(); gui_flush(p); xs->tick(p);
     printf("gui row: a click on lane 3's event line selects lane %d\n", xs->sel(p) + 1);
     if (xs->sel(p) != 2) { fprintf(stderr, "gui: the row's space did not select\n"); bad = 1; }
@@ -591,9 +591,19 @@ static int gui_test5c_rows(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /
     if (!gui_hit(p, xs, 3, 1)) return 5;
     printf("gui row: M on lane 2 selects lane %d\n", sel + 1);
     if (sel != 1) { fprintf(stderr, "gui: M did not select its lane\n"); bad = 1; }
-    if (!gui_hit(p, xs, W_SND, 3)) return 5;   /* CHANGE: the browser */
-    printf("gui row: CHANGE on lane 4 opens the browser: %s\n", xs->find(p, W_KEEP, -1, n) ? "yes" : "NO");
-    if (!xs->find(p, W_KEEP, -1, n)) { fprintf(stderr, "gui: CHANGE did not open the browser\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_SND, 3)) return 5;   /* ENGINE: the browser */
+    printf("gui row: ENGINE on lane 4 opens the browser: %s\n", xs->find(p, W_KEEP, -1, n) ? "yes" : "NO");
+    if (!xs->find(p, W_KEEP, -1, n)) { fprintf(stderr, "gui: ENGINE did not open the browser\n"); bad = 1; }
+    gui_key(p, xs, FRK_ESCAPE);
+    gui_wait(); gui_flush(p); xs->tick(p);
+    /* the square one beside M and S: lane 2's (selects it, opens its browser); both buttons on every row, as tall as the row less its padding */
+    if (!xs->find(p, W_ROW, 1, r) || !xs->find(p, W_SND, 1, n) || !xs->find(p, W_SWAP, 1, sw)) { fprintf(stderr, "gui: no ENGINE buttons for lane 2\n"); return 5; }
+    printf("gui row: lane 2's ENGINE button %gx%g, its square one %gx%g (row %g)\n", n[2], n[3], sw[2], sw[3], r[3]);
+    if (n[3] < r[3] - 12.f - 0.01f || n[2] < 60.f || sw[2] != sw[3] || sw[0] < n[0] + n[2]) { fprintf(stderr, "gui: the ENGINE buttons are too small or misplaced\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_SWAP, 1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    printf("gui row: the square ENGINE button on lane 2 selects lane %d and opens the browser: %s\n", xs->sel(p) + 1, xs->find(p, W_KEEP, -1, n) ? "yes" : "NO");
+    if (xs->sel(p) != 1 || !xs->find(p, W_KEEP, -1, n)) { fprintf(stderr, "gui: the square ENGINE button did not open the browser\n"); bad = 1; }
     gui_key(p, xs, FRK_ESCAPE);
     return bad;
 }
