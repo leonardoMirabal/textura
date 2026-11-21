@@ -116,7 +116,8 @@ Your DAW saves all of it with the project ([saving](#8-saving)).
 One window, 1200 × 720 at 100 %. Drag its corner to any size from 840 to 2400 wide and 504 to 1800 high, at any
 shape: the window scales evenly, the MAP stays round, and a taller or wider window gives the lanes more room. It is
 dark and nearly monochrome on purpose. **Red marks only three things**: what is selected, what is on (a solo, a chosen
-option), and what an LFO moves. Each source can have a colour of its own ([colours](#colours)).
+option), and what a source (an LFO, an envelope, a follower) moves. Each engine can have a colour of its own
+([colours](#colours)).
 
 ![The window at 960 × 600: the same layout, smaller; the MAP stays round](plugin/img/window-960x600.png)
 
@@ -130,7 +131,8 @@ From top to bottom:
 
 Every value in the window works the same way. An amount is a **fader**: its name and value over a track, the part up
 to the value filled, a handle at the value (a bipolar one, as PAN or a route's DEPTH, fills from its middle). While an
-LFO moves it, its name and value turn red with a `~`, and a red mark on the track shows where the LFO has it now. A
+source moves it, its name turns red, a faint red band on the track shows how far its sources reach, a red tick shows
+where they have it now, and small red tags under it name each source ([the movement](#the-movement)). A
 choice (a type, a shape, a sync, ON / OFF) shows its value between **<** and **>**: click an arrow for the previous or
 the next. Any value: **drag** it (up or right raises it; hold Shift for fine steps), turn the **mouse wheel** over it,
 or **double-click** it for its default (a card: the engine's own value). A choice also steps on a **click** (Alt-click
@@ -194,7 +196,7 @@ scroll: turn the mouse wheel over them. A row shows, left to right:
 | **(STOP / PLAY)** | A square button before HOW MANY, with no header. A playing lane shows a stop square: click it to stop that lane (HOW MANY and HOW ACTIVE go to OFF, as STOP ALL does, and the lane remembers them). A stopped lane shows a red play triangle: click it to play the lane again with the values it remembered, or, if it has none, as PLAY ALL starts a lane (HOW MANY 2, 1 or 1 for lanes 1 to 3, 1 for the others, at the rarest HOW ACTIVE). It selects the lane, as M and S do. On an empty lane it is dim and does nothing. STOP ALL and PLAY ALL work with it: PLAY ALL brings a lane you stopped back as it was. |
 | **HOW MANY** | How many event makers the cloud has: six blocks for **1 2 4 10 19 32**; none lit is **OFF**. Click a block for that many (the top lit block again: one less, so the first block again is OFF). Drag along the blocks, or turn the wheel. |
 | **HOW ACTIVE** | How busy each event maker is: nine blocks, rare to busy. Click, drag and wheel as HOW MANY. |
-| **PAN** | The lane's pan (`L24`, `C`, `R16`). Drag it, wheel, double-click for the centre. Red with a `~` while an LFO moves it. |
+| **PAN** | The lane's pan (`L24`, `C`, `R16`). Drag it, wheel, double-click for the centre. Red with a `~` while a source moves it; its tags under it ([the movement](#the-movement)). |
 | **CH** | The MIDI channel the lane listens on, OFF or 1 to 16. A click steps it ([MIDI](#6-midi)). |
 | **VOL** | The lane's **LEVEL**, 0 to 127. Drag it, turn the wheel over it, or double-click for 100. |
 | **M** | Mute. The lane goes silent but keeps playing, so it comes back at once. A preset keeps it, as on the FM-1. |
@@ -223,7 +225,7 @@ its play triangle is red, the others play on, and PLAY ALL still brings lane 2 b
 
 ### The drawer
 
-![The drawer: the selected lane's cards, one moved by an LFO](plugin/img/window-4-lanes.png)
+![The drawer: the selected lane's cards, moved ones red with their tags](plugin/img/window-4-lanes.png)
 
 Under the place and the rows, the **drawer** shows the selected lane:
 
@@ -231,7 +233,7 @@ Under the place and the rows, the **drawer** shows the selected lane:
   line with MANY, ACTIVE, VOL and the lane's MIDI channel, STOPPED or MUTED, **CHANGE ENGINE** (the engine browser) and **STOP LANE** / **PLAY LANE**: the row's STOP / PLAY button again.
 - **In the middle**: **every card** of the engine, up to eight, four to a row, each a fader. Each card shows its name,
   its value in its own unit, and what it does (the FM-1 manual's line for it, wrapped to the card; one too long for
-  it shows whole when the mouse rests on the card). A card an LFO moves now is red, with `~` before its name. The
+  it shows whole when the mouse rests on the card). A card a source moves has a red name, its reach and live tick, and a tag for each source. The
   engine's **DIST** card is here too (the MAP's near and far).
 - **At the right**: the lane's **PAN**, **LEVEL**, and its groove **PART** and **CYCLE**
   ([the groove](MANUAL.md#the-groove)).
@@ -248,7 +250,7 @@ section has a dot (lit while it acts), a small picture and its two main values:
 | **FILTER** | Its response, HIGH PASS then LOW PASS (dashed marks; red while an LFO moves one) | HIGH PASS, LOW PASS (in Hz), RESONANCE, SLOPE | Its response from 20 Hz to 20 kHz, each cutoff marked with its Hz. CUTOFF: HIGH PASS, LOW PASS · SHAPE: RESONANCE, SLOPE |
 | **DELAY** | Its echoes | MIX, TIME | Its echoes: spaced by TIME, fading by FEEDBACK, each a cloud of GRAINS. TIME: TIME, FEEDBACK, SYNC, FREEZE · GRAINS: GRAINS, SIZE, SPRAY, SPREAD, REVERSE · COLOUR: PITCH, INTERVALS, TONE, GRAIN, MOD, MOD RATE · MIX |
 | **REVERB** | Its tail | TYPE, MIX | Its tail: after PREDELAY, as long as DECAY, as dense as SIZE. SPACE: SIZE, DECAY, PREDELAY · COLOUR: TONE, LOWCUT, SHIMMER, SHIFT, MOD · TYPE, MIX |
-| **MOVEMENT** | Two LFOs (the routed ones first): each one's shape, its live trace, its RATE, its route | RATE | [the movement](#the-movement) |
+| **MOVEMENT** | Two source tiles (the connected ones first): each one's grip, name, kind, live trace and how many controls it moves | a click on a tile: its mode | [the movement](#the-movement) |
 
 **Click a section's header** (or **ALL ›**) to open its **drawer**. It rises from the strip in place of the lane's
 drawer: a large live picture at the left, every parameter of the effect at the right in small titled groups. The place
@@ -271,18 +273,73 @@ for a second. COMP off: they read OFF. Quiet lanes under THR show no gain reduct
 
 ### The movement
 
-![The MOVEMENT drawer on LFO 1: its trace, its routes and its ten parameters](plugin/img/lfo.png)
+Twelve **sources** can move the window's controls: **LFO 1** to **LFO 8**, **ENV 1**, **ENV 2**, **FOLLOW 1** and
+**FOLLOW 2**. A **link** is one source moving one control by an amount, from -100 % to +100 % of the control's range.
+The app holds 16 links (its matrix). You connect sources to controls in a **source's mode**.
 
-- **LFO 1** to **LFO 8**: the trace of the last seconds (red when routed), its value **NOW**, its **ROUTES** (the
-  matrix slots it drives, each with its target and depth), and all ten parameters: SHAPE (SINE, TRI, SAW UP,
-  SAW DN, SQUARE, PULSE, S&H, SMOOTH, DRIFT, GUSTS, CHAOS, STEPS), RATE, SYNC, MODE, PHASE, WIDTH, JITTER, FADE,
-  RESTART, LEVEL. A tab is red while its LFO is routed.
-- **ENV · FOLLOW**: **ENV 1** and **ENV 2** (TRIGGER, ATTACK, DECAY, RELEASE, SUSTAIN, CURVE, VARY, LOOP) and
-  **FOLLOW 1** and **FOLLOW 2** (INPUT, ATTACK, RELEASE, GAIN).
+#### A source's mode
+
+![LFO 1's mode: the red bar, the controls LFO 1 can move outlined, the ones it moves red with their amount](plugin/img/movement-mode.png)
+
+1. **Click a source's tile**: one of the two in the strip's MOVEMENT, the large one in an LFO's tab, or one over each
+   envelope and follower in ENV · FOLLOW. The window enters **LFO 1 MODE**: a red bar under the top bar says so,
+   with **CLEAR LFO 1** and **DONE**. The rest of the window moves down; the bar never covers a control.
+2. Every control LFO 1 can move gets a thin red outline. One it cannot move is dimmed (a choice such as a TYPE or
+   ON, the MIDI channel, and the lane values of lanes 5 to 16, which the matrix reaches only as ALL LANES).
+3. **Drag a control.** You do not change its value: you set how far LFO 1 moves it. The value's handle turns grey,
+   and a red reach runs from the value to a red end handle where the pointer is; the control's number shows the
+   amount (`+25%`, or a dim `0%`). Left of the value is a negative amount. The fader is its own depth control, on
+   the same scale: nothing larger than the control appears. The mouse wheel sets it in 4 % steps (1 % with Shift).
+   HOW MANY and HOW ACTIVE show the reach on their blocks; a choice shows it under its value.
+4. The link is made on the first drag, in the first free slot of the matrix. Drag back to the value (or near it),
+   or **double-click** the control, and the link is removed. When all 16 slots are in use, a line says so and
+   nothing changes.
+5. **CLEAR LFO 1** removes all of LFO 1's links. **DONE**, **Esc**, or a click on the tile again leaves the mode.
+
+![A drag in LFO 1's mode: LOW PASS moved down by 33 %, its value kept](plugin/img/movement-drag.png)
+
+A short line over the rows says what each change did (`LFO 1 moves LANE 1 LEVEL by +25%.`), or why a control
+cannot be moved.
+
+#### Outside the mode
+
+![At rest: the moved controls red, their reach and live tick on the fader, a tag under each](plugin/img/movement-links.png)
+
+- **A control a source moves** has a red name, a faint red band on its fader (how far all its links reach) and a red
+  tick that moves with the sources. A row's VOL and PAN, HOW MANY and HOW ACTIVE, a drawer card, an effect's value:
+  all the same.
+- **Small red tags** under it (`~ LFO 1 +25%`; `ALL` for a link on ALL LANES) say which sources move it.
+  **Click a tag** to enter that source's mode. A source without a tile (velocity, a CC, ...) opens the MATRIX tab.
+- **Each tile** says **moves 3 controls** or **not connected**, and traces its source live.
+- **Shortcut: drag a tile's grip** (the red box of six dots) onto a control. The link is made at +25 % (one it had
+  is kept) and the source's mode opens, ready to set the amount.
+- **Right-click a control** (Control-click on a Mac): **Move with LFO 1** ... **Move with FOLLOW 2** enters that
+  source's mode (a new link starts at +25 %; the menu shows the amounts it has), **Remove movement** removes the
+  control's links. A control no source can move says so.
+- **CLEAR ALL MOVEMENT**, at the right of the MOVEMENT drawer's tabs, asks once (**Remove all 5 links? CLEAR /
+  KEEP**).
+- **UNDO** in the top bar undoes the window's link changes first, one at a time (CLEAR ALL included), then the app's
+  own undo. Every link is three host parameters (a matrix slot's SOURCE, TARGET and DEPTH): your DAW records them,
+  its own undo sees them, and the project keeps them.
+
+![The right-click menu on LEVEL: Move with each source, its amount, Remove movement](plugin/img/movement-menu.png)
+
+#### The MOVEMENT drawer
+
+![The MOVEMENT drawer on LFO 1: its tile, what it moves and its ten parameters](plugin/img/lfo.png)
+
+- **LFO 1** to **LFO 8**: the LFO's tile (its grip, the trace of the last seconds, red when it moves something; a
+  click: its mode), how many controls it moves, its value **NOW**, what it moves (each target with its amount), and
+  all ten parameters: SHAPE (SINE, TRI, SAW UP, SAW DN, SQUARE, PULSE, S&H, SMOOTH, DRIFT, GUSTS, CHAOS, STEPS), RATE,
+  SYNC, MODE, PHASE, WIDTH, JITTER, FADE, RESTART, LEVEL. A tab is red while its LFO is routed.
+- **ENV · FOLLOW**: a tile for each source over its parameters: **ENV 1** and **ENV 2** (TRIGGER, ATTACK, DECAY,
+  RELEASE, SUSTAIN, CURVE, VARY, LOOP) and **FOLLOW 1** and **FOLLOW 2** (INPUT, ATTACK, RELEASE, GAIN).
 - **MATRIX**: the 16 slots, **MOD 1** to **MOD 16**, each with SOURCE, TARGET, DEPTH and SPREAD (a slot in use is
-  red), and **MOD CC** (the CC the matrix's CC source reads).
+  red), and **MOD CC** (the CC the matrix's CC source reads). Everything a source's mode does is here as plain
+  slots, editable, with the sources the tiles do not have (velocity, mod wheel, aftertouch, CC, ACTIVE, RANDOM,
+  CONSTANT), ALL LANES targets and SPREAD.
 
-![ENV · FOLLOW: the two envelopes and the two followers](plugin/img/env-follow.png)
+![ENV · FOLLOW: a tile for each envelope and follower over its parameters](plugin/img/env-follow.png)
 
 ![The matrix: sixteen routes and MOD CC](plugin/img/matrix.png)
 
@@ -414,12 +471,12 @@ source, in every preset, takes it, for its dot, its event line and its row.
 
 ### LFOs
 
-What an LFO moves is red, everywhere in the window:
+What a source moves is red, everywhere in the window:
 
-- **In the strip's MOVEMENT**: two LFOs, the routed ones first, each with its shape, live trace and first route
-  (`L3 PAN +60 %`: lane 3's pan, 60 %). `+n` says how many more are routed.
-- **A value an LFO moves now** is red, with a `~` before it: a card in the drawer, a row's PAN and VOL, HOW MANY and
-  HOW ACTIVE, an effect's value (the FILTER's dashed mark).
+- **In the strip's MOVEMENT**: two source tiles, the connected ones first, each with its grip, kind, live trace and
+  how many controls it moves. `+n` in the header says how many more sources are connected.
+- **A value a source moves** has a red name, its reach and live tick on its fader, and a red tag for each source
+  ([the movement](#the-movement)); a row's PAN reads `~R12` while it moves.
 - **On the MAP and in SPACE** a small red point and line show where the LFO has the lane right now; the white dot is
   where you put it.
 
@@ -435,6 +492,7 @@ With the window focused and no panel open:
 | **s** | Solo / unsolo the selected lane |
 | **v** | Switch MAP / SPACE |
 | **Space** | PLAY ALL / STOP ALL |
+| **Esc** | Close the right-click menu; leave a source's mode |
 
 In a browser: type to search, **up / down** (Page Up / Page Down: 10 at a time), **left / right** for the family,
 **Return** to keep or load, **Esc** to close. In SAVE: type the name, **Return** saves, **Esc** closes. Some DAWs

@@ -375,6 +375,15 @@ static void sb_catalog(txp_catalog_t *o)  /* constant tables only (any thread) *
         o->cat_at[i] = (uint8_t)pr_cat_first(i);
     }
     o->cat_at[o->ncat] = (uint8_t)o->npr;
+    o->nmt = (uint8_t)(MT_N < TXP_MT_MAX ? MT_N : TXP_MT_MAX);   /* the matrix's targets (mod.c's own functions) */
+    for (i = 0; i < o->nmt; i++) {
+        o->mt_lane[i] = !i || mod_tgt_retired(i) ? 0xFFu : (uint8_t)mod_tgt_lanes(i);
+        o->mt_learn[i] = (uint8_t)!(i < MT_GRAIN0 && mod_tgt_drv(i) < TX_DR_NP);
+        for (k = 0; k < TXP_LANES; k++) {
+            uint32_t id = mod_tgt_pid(i, k);
+            o->mt_id[i][k] = (uint16_t)(id == NOID_P ? 0xFFFFu : id);
+        }
+    }
 }
 static uint8_t sb_card127(uint32_t id, int32_t v)   /* a card's value onto 0 .. 127 (as its CC) */
 {
@@ -414,6 +423,10 @@ static void sb_ui(txp_ui_snap_t *u)       /* what the window shows (the app's th
     for (i = 0; i < 64u && i < PGX_LANE; i++) {
         uint32_t id = PID(P_GLOBAL, i);
         if ((p_fx_desc(id) || p_gx(id)) && mod_holds(id)) u->gmod[i / 32u] |= 1u << (i % 32u);
+    }
+    for (i = 0; i < TX_ENV_N + TX_FOL_N && i < 4u; i++) {   /* the envelopes and followers now (the window's traces) */
+        int32_t v = mod_ext[ME_ENV1 + i];
+        u->envf[i] = (int16_t)(v < 0 ? 0 : v > 32767 ? 32767 : v);
     }
     for (i = 0; i < TX_LFO_N && i < TXP_LFO_N; i++)
         if (mod_holds(PID(P_LFO, i * 16u + TX_LP_RATE)) || mod_holds(PID(P_LFO, i * 16u + TX_LP_LEVEL))) u->lfo_mod |= (uint8_t)(1u << i);

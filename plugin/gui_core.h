@@ -18,13 +18,17 @@
  *               and S and a square ENGINE button; ADD LANE under the last. A click anywhere on a row selects its lane (its controls too).
  *   drawer      the selected lane: its engine (CHANGE ENGINE), every card (name, value, hint; DIST among them), PAN,
  *               LEVEL, GROOVE PART, CYCLE
- *   strip       COMP, DRIVE, FILTER, DELAY, REVERB (each a picture and its main values) and the movement (two LFOs);
+ *   strip       COMP, DRIVE, FILTER, DELAY, REVERB (each a picture and its main values) and the movement (two sources);
  *               a section's header opens its drawer, which rises from the strip over the lane's drawer (the place
  *               and the rows stay, the rows scroll): a large live picture and every parameter of the effect in
  *               groups; MOVEMENT's has LFO 1 .. 8, ENV and FOLLOW, the matrix and MOD CC
  * Overlays: the engine browser, the presets browser, SETTINGS (MIDI IN with KEYS, SCALE, TIMING, LOADING, WINDOW,
  * ENGINE COLOURS), SAVE's panel, the colour picker. A value (TXG_W_PARAM): drag, wheel, double-click for its default, a
- * click steps a choice. Red only marks the selected lane, what is on and what an LFO moves. Repaints: the whole window
+ * click steps a choice. Red only marks the selected lane, what is on and what an LFO moves.
+ * The movement: a source's tile (LFO, ENV, FOLLOW) clicked: its mode (a red bar over the content): a drag on a control sets
+ * how far the source moves it (a matrix slot: SOURCE, TARGET, DEPTH), its value untouched; outside the mode a moved
+ * control is red, with its reach, its live place and a tag per link; a source's grip dropped on a control, the
+ * right-click menu, CLEAR, CLEAR ALL MOVEMENT and UNDO do the same through the matrix's host parameters. Repaints: the whole window
  * when anything drawn but the activity changed, else only the place, the event lines, the drawer and strip and the
  * meter (frui's base clip: the same pixels as a whole repaint). */
 #ifndef TXG_CORE_H
@@ -55,7 +59,14 @@ enum { TXG_W_NONE, TXG_W_ROW, TXG_W_VOL, TXG_W_MUTE, TXG_W_SOLO, TXG_W_DOT, TXG_
        /* step 5d: a row's square ENGINE button beside M and S (opens the engine browser, as TXG_W_SND does) */
        TXG_W_SWAP,    /* (no longer drawn: the row's one icon button is TXG_W_SND) */
        /* step 5f: a lane's STOP / PLAY, in its row (lane k) and in the drawer (the selected lane) */
-       TXG_W_LRUN, TXG_W_DRUN };
+       TXG_W_LRUN, TXG_W_DRUN,
+       /* step 5g, the movement: a source's tile (lane: its matrix SOURCE, mod.c MS_*: LFO 1 .. 8 = 1 .. 8, ENV 1 .. 2 = 16,
+        * 17, FOLLOW 1 .. 2 = 18, 19), its grip (dragged onto a control: a link), a control's tag (lane: the control's id,
+        * v the source), the source mode's bar (never hit; lane: the source), its CLEAR and DONE, the right-click menu
+        * (lane: its item, 0 .. 11 the sources in tile order, 12 Remove movement, -1 its panel), CLEAR ALL MOVEMENT, its
+        * CLEAR and KEEP, the message line (never hit), a control the mode's source cannot move (never hit; lane: its id) */
+       TXG_W_SRC, TXG_W_GRIP, TXG_W_TAG, TXG_W_MBAR, TXG_W_MCLEAR, TXG_W_MDONE, TXG_W_MENU, TXG_W_CLRALL, TXG_W_CLRYES,
+       TXG_W_CLRNO, TXG_W_MSG, TXG_W_NOMOVE, TXG_W_MAMT };
 
 typedef struct txg txg_t;
 txg_t *txg_new(txp_core *c);             /* NULL: out of memory or the font did not load */

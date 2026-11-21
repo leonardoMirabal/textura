@@ -108,16 +108,36 @@ A factory preset, a landscape's start or an FM-1 scene fills lanes 1 .. 4 exactl
 One resizable window, 1200 x 720 points by default, any shape from 840 to 2400 points wide and 504 to 1800 high,
 drawn at the screen's own resolution (Retina: twice the points). The layout scales evenly by the smaller of width /
 1200 and height / 720 and gives the rest to the lanes, so the MAP stays round at any size. Dark and nearly
-monochrome: red marks only the selection, what is on (the solo) and what an LFO moves; each source has a colour of its
-own (bone until you choose one). The macOS view is built and tested; the Windows and Linux views (`plugin/gui_win.c`,
+monochrome: red marks only the selection, what is on (the solo) and what a modulation source moves; each engine has a
+colour of its own (bone until you choose one). The macOS view is built and tested; the Windows and Linux views (`plugin/gui_win.c`,
 `plugin/gui_x11.c`) are built and their pictures checked headless, not yet tried on a real desktop.
 
 Every host parameter has a place in the window (nothing is automation only), and every value there works one way:
 drag (up or right raises; shift: fine), the wheel, a double-click for the default (a card: its engine's own), a click
 steps a choice. An amount is drawn as a fader (track, filled part, handle; the rows' VOL's look; bipolar ones from the
-middle; the modulation's live place a red mark on it); a choice as its value between < > steppers (`TXG_W_STEP`). A
-value's text is the app's own (its page's: `4.2 kHz`, `229 ms`); the host is told every write,
-with a gesture around a drag.
+middle; moved by sources: a red name, their combined reach as a faint red band, their live place as a red tick, a red
+tag per link under it); a choice as its value between < > steppers (`TXG_W_STEP`). A value's text is the app's own
+(its page's: `4.2 kHz`, `229 ms`); the host is told every write, with a gesture around a drag.
+
+**The movement** (links between sources and controls) uses the app's own matrix, nothing new: its 16 slots (SOURCE,
+TARGET, DEPTH 0 .. 200 with 100 none, SPREAD; host ids `7 << 8 | slot x 4 + q`) and its one target list. The bridge's
+catalog carries the target list (`txp_catalog_t` `nmt`, `mt_lane`: a lane 0 .. 3, 4 ALL LANES, 5 global; `mt_id`: the
+host parameter a target moves on each lane; `mt_learn`: not a legacy entry; filled by `slot_bridge.h` `sb_catalog`
+from `mod.c`), and the snapshot the envelopes' and followers' values (`txp_ui_snap_t` `envf`). A control's target is
+the one the app's own MOD learn would pick; a link is a slot with a source, a target and a depth. The window's 12
+sources are LFO 1 .. 8, ENV 1 .. 2 and FOLLOW 1 .. 2, each with a tile (`src_tile_draw`: a grip, its kind, its live
+trace, `moves N controls` / `not connected`). A click on a tile enters the source's **mode** (`g->msrc`): a red bar
+under the top bar (`draw_mbar`: CLEAR <SOURCE>, DONE; the content moves down by `MB_H`, `g->ct`), the controls the
+source can move outlined, the others dimmed and refused (`mode_marks`, `TXG_W_NOMOVE`; a choice, a lane past the
+fourth, which the matrix reaches only as ALL LANES), and a drag on a control sets the source's amount instead of the
+value (`mamt_at`: the reach's end where the pointer is on the control's own track, `wid_t` `t0`, `tw`; the wheel 4 %,
+shift 1 %; a double-click removes; ~0 at release frees the slot). Outside the mode: a control's tags enter their
+source's mode (`TXG_W_TAG`), a tile's grip dropped on a control makes a link at +25 % and opens the mode
+(`TXG_W_GRIP`), the right-click menu offers Move with each source and Remove movement (`draw_menu`, `TXG_W_MENU`),
+and CLEAR ALL MOVEMENT asks once (`TXG_W_CLRALL`, `TXG_W_CLRYES`, `TXG_W_CLRNO`). Every change is a host parameter's
+write (a new link in the first empty slot, spread 0; a full matrix: a message, nothing written); the window keeps the
+matrix before each change (`lh_push`, 32 back) and UNDO undoes those first (`lh_undo`), then the app's own; a matrix
+change from anywhere else (a preset, the host) forgets them.
 
 - **Top bar**: TEXTURA, the previous / next factory scene and the scene's name (`*` when edited; click it for the
   presets browser), **SAVE** (the scene into a user scene U01 .. U16, named; kept in the project's state), **UNDO**
@@ -161,14 +181,15 @@ with a gesture around a drag.
 - **Strip** (bottom): COMP, DRIVE, FILTER, DELAY, REVERB in the mix's order, each with its picture (COMP's meters:
   IN, OUT and GR read off the app's compressor every app block, `tx_comp_t` `ef` / `es`, `g`, `gr`, their most since
   the last publication, with a VU's ballistics in `txg_tick`; the expanded COMP adds its curve), drive curve, the filter's response with HIGH PASS then LOW PASS marked, the echoes, the tail) and its main values;
-  then MOVEMENT, two LFOs (the routed ones first) with shape, trace, RATE and route. A section's header (or ALL ›) opens its
+  then MOVEMENT, two source tiles (the connected ones first; `+n` more). A section's header (or ALL ›) opens its
   **drawer** in place of the lane's drawer, sized to its content (`fxd_h`); the place and the rows stay above it and
   work (they scroll). The open section has a red top edge and reads CLOSE ×; another section switches it, CLOSE or
   Esc closes it. Inside: a large live picture at the left (COMP: big IN / OUT / GR meters and its transfer curve;
   DRIVE: its curve; FILTER: HIGH PASS then LOW PASS over 20 Hz .. 20 kHz with each cutoff's Hz; DELAY: echoes from
   TIME, FEEDBACK and GRAINS; REVERB: its tail), at the right every parameter in small titled groups (`grp_t`,
-  `groups`). MOVEMENT's drawer has the tabs LFO 1 .. 8 (trace, NOW, ROUTES, its ten parameters), ENV · FOLLOW (ENV 1
-  and 2, FOLLOW 1 and 2) and MATRIX (MOD 1 .. 16: SOURCE, TARGET, DEPTH, SPREAD; MOD CC).
+  `groups`). MOVEMENT's drawer has the tabs LFO 1 .. 8 (the LFO's tile, NOW, what it moves, its ten parameters), ENV ·
+  FOLLOW (a tile over each of ENV 1 and 2, FOLLOW 1 and 2, their parameters) and MATRIX (MOD 1 .. 16: SOURCE, TARGET,
+  DEPTH, SPREAD; MOD CC), and CLEAR ALL MOVEMENT at the right of the tabs.
 - **Engine browser** (the header reads ENGINE FOR LANE n): the families and their engines from the app's own tables, each with its source. Type to search;
   arrows, left / right for the family. The engine under the cursor (a click, the arrows once they rest, ▶ PREVIEW)
   **always plays on the lane**, a stopped one too: the window sends `TXP_EV_PREVIEW` (`txp_ui_preview`), and the slot
@@ -284,7 +305,8 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
 - **gui**: the window without a native view (headless): `plugin/tests/scripts/gui4.txt` (four lanes) and `gui16.txt`
   (sixteen) played, then the window painted to a PNG in two separate runs. Both runs must give the same bytes, and
   the picture must not be empty. Each run also paints SPACE, the engine browser, the presets browser, SETTINGS and
-  the colour picker, the effect drawers (DELAY, COMP, FILTER, REVERB, LFO 1, ENV · FOLLOW, MATRIX), SAVE, a preview on
+  the colour picker, the movement (LFO 1's mode, a drag in it, the links at rest, the right-click menu), the effect
+  drawers (DELAY, COMP, FILTER, REVERB, LFO 1, ENV · FOLLOW, MATRIX), SAVE, a preview on
   a stopped lane and the rows with lane 3 selected (`OUT-space.png` ...; all
   must be the same bytes twice too; `gui4.txt` routes three LFOs so the red shows: a lane's PAN, a card, LOW PASS).
   Then the window's controls are used (M, S, VOL, a map dot, LANES +, a preset loaded from the browser, an engine kept
@@ -293,7 +315,7 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
   expanded tab, a matrix SOURCE click, MOD CC, KEYS, a SAVE into U01, a row; each effect drawer with all its
   parameters, the rows usable above it, switching and closing; a preview on a stopped lane, its MANY step, CLOSE
   restoring engine, HOW MANY and a card, KEEP keeping the engine with the lane stopped, PLAY ALL's memory intact; a click
-  on a row's name and event line selecting, M selecting, a row's one ENGINE icon button selecting its lane and opening the browser; each lane's STOP / PLAY, in its row and in the drawer, sharing STOP ALL / PLAY ALL's memory, and nothing on an empty lane) and checked against the parameters,
+  on a row's name and event line selecting, M selecting, a row's one ENGINE icon button selecting its lane and opening the browser; each lane's STOP / PLAY, in its row and in the drawer, sharing STOP ALL / PLAY ALL's memory, and nothing on an empty lane; the movement: a tile entering its source's mode, a drag setting the amount with the value kept, the wheel, a double-click removing, a control no source moves dimmed and refusing, CLEAR <SOURCE>, DONE, Esc, the tile again, the right-click menu's Move with and Remove movement, a tag entering its mode, a grip dropped on a control, CLEAR ALL then UNDO, a full matrix refused with a message, a link kept through the state) and checked against the parameters,
   the events sent to the host, the lane's engine, the mute and solo masks and the saved state (solo, lane, view,
   colour, keys, the user scene). The window at 1200 x 720, 1950 x 1210, 1440 x 1080 and 960 x 600: the MAP a half
   circle (one scale both ways) with its labels inside the place. KEYS = FM-1 KEYS (`plugin/tests/scripts/keys.txt`):

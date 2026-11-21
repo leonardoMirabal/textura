@@ -132,6 +132,7 @@ typedef struct {
     int16_t out_db10;                    /* the output's peak since the last publication, dBFS x 10 (-900: silence) */
     uint32_t gmod[2];                    /* the globals (scope 4, index i < 64) the modulation moves now: bit i */
     uint8_t lfo_mod;                     /* the LFOs whose RATE or LEVEL the modulation moves now (bit n) */
+    int16_t envf[4];                     /* ENV 1, ENV 2, FOLLOW 1, FOLLOW 2 now (Q15, 0 .. 32767: the matrix's sources) */
     txp_ui_lane_t lane[TXP_LANES];
     txp_ui_cards_t card[TXP_LANES];
 } txp_ui_snap_t;
@@ -143,6 +144,7 @@ typedef struct {
 #define TXP_ENG_MAX 64u
 #define TXP_PR_MAX 100u
 #define TXP_CAT_MAX 10u
+#define TXP_MT_MAX 160u                  /* the matrix's targets at most (mod.c MT_N: 138) */
 typedef struct {
     uint8_t nfam;
     struct { char name[16]; uint8_t n; struct { char name[24]; uint8_t eng; } s[TXP_SND_MAX]; } fam[TXP_FAM_MAX];
@@ -154,6 +156,13 @@ typedef struct {
     uint8_t cat_at[TXP_CAT_MAX + 1u];
     struct { uint8_t fi, si, cnt, act, vol, pan, mute; } prl[TXP_PR_MAX][4];   /* a preset's four lanes (fi 0xFF: empty;
                                           * cnt HOW MANY 0 .. 6, act HOW ACTIVE 0 .. 8) */
+    /* the modulation matrix's TARGET list (mod.c mod_tgt_*), for the window's links: target T (1 .. nmt - 1) is on
+     * lane mt_lane[T] (0 .. 3), on ALL LANES (4) or a global (5); 0xFF: none (T 0, a retired one); mt_id[T][k] the host
+     * parameter it is on lane k (a global: the same id on every k; 0xFFFF none); mt_learn[T]: the target the app's own
+     * mod learn picks for that parameter (mod_tgt_of: not an older entry kept for the scenes) */
+    uint8_t nmt;
+    uint8_t mt_lane[TXP_MT_MAX], mt_learn[TXP_MT_MAX];
+    uint16_t mt_id[TXP_MT_MAX][TXP_LANES];
 } txp_catalog_t;
 
 /* what the main thread may read of a slot: published by the audio side (a sequence lock) */

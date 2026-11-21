@@ -31,7 +31,12 @@ PICK = {   # the gate's picture -> the manual's
     "gui4-reverb": "reverb",
     "gui4-preview": "engine-preview",
     "gui4-stopped": "stopped",
-    "gui4-lane-stopped": "lane-stopped",    "gui4-save": "save",
+    "gui4-lane-stopped": "lane-stopped",
+    "gui4-save": "save",
+    "gui4-mode": "movement-mode",
+    "gui4-drag": "movement-drag",
+    "gui4-links": "movement-links",
+    "gui4-menu": "movement-menu",
     "960x600": "window-960x600",
 }
 

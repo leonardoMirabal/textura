@@ -28,6 +28,10 @@ extern const unsigned long txg_font_text_len;
 #define C_HOV 0xFF1A1818u
 #define C_NAV 0xFF1B1919u
 #define C_DRAW 0xFF131212u
+#define C_REDBG 0xFF2A1715u                /* a control a source moves, in its mode */
+#define C_GREY 0xFF6D6863u                 /* a value in a source's mode (its fill) */
+#define C_GREYH 0xFF8F8983u                /* (its handle) */
+#define C_MENU 0xFF232120u
 
 /* the engines' colours (txp_ui.h TXP_COL_N; 0 bone, every engine's at the start). No red: red is the selection's and
  * the LFOs' */
@@ -58,7 +62,10 @@ static const char *const PAL_N[TXP_COL_N] = { "BONE", "EMBER", "AMBER", "SAND", 
 #define OV_NAV 190.f
 #define OV_PREV 320.f
 #define OV_RH 28.f
-#define LFO_H 48                         /* the LFOs' traces: the last 48 ticks */
+#define LFO_H 48                         /* the sources' traces: the last 48 ticks */
+#define SRC_N 12                         /* the sources a tile shows: LFO 1 .. 8, ENV 1 .. 2, FOLLOW 1 .. 2 */
+#define MB_H 36.f                        /* a source's mode: its bar over the content */
+#define LH_N 32                          /* the links' undo: the matrix as it was, this many times back */
 #define MAX_W 900
 #define LIST_MAX 128
 
@@ -92,7 +99,8 @@ static const float SEC_WT[SEC_N] = { 1.f, 1.f, 1.6f, 1.f, 1.f, 1.3f };
 #define ID_MAT(s, q) (7u << 8 | (uint32_t)(s) * 4u | (uint32_t)(q))
 enum { LP_SHAPE, LP_RATE, LP_SYNC, LP_MODE, LP_PHASE, LP_WIDTH, LP_JITTER, LP_FADE, LP_RESTART, LP_LEVEL };
 
-typedef struct { int kind, lane; uint32_t id; int v; float r[4]; } wid_t;
+typedef struct { int kind, lane; uint32_t id; int v; float r[4], t0, tw; } wid_t;   /* (t0, tw: its track, a source's mode's
+                                          * drag: a fader's, else its own width) */
 
 struct txg {
     txp_core *c;
@@ -114,7 +122,7 @@ struct txg {
     int level[TXP_LANES], pan[TXP_LANES], dist[TXP_LANES], cnt[TXP_LANES], act[TXP_LANES], col[TXP_LANES];
     uint8_t ev[NBLK][TXP_LANES], pk[NBLK][TXP_LANES];
     uint32_t actn, actn_drawn, sig, sig_drawn;
-    int16_t lfoh[TXP_LFO_N][LFO_H];      /* the LFOs' values, a tick each (the newest last) */
+    int16_t lfoh[SRC_N][LFO_H];          /* the sources' values, a tick each (the newest last; SRCS' order) */
     int lfo_seen;
     /* COMP's meters as drawn (dB, txg_tick's ballistics), the input's peak held (and its ticks left); changed since
      * the last paint (a repaint of the activity's regions) */
@@ -144,6 +152,16 @@ struct txg {
     int drag_v0, drag_begun, drag_moved, drag_fine;
     float drag_x0, drag_y0, drag_rx, drag_rw;
     int hover_kind, hover_lane;
+    /* the movement: the source mode (its matrix SOURCE, 0 none), the content's top (under the mode's bar), a message
+     * (ticks it shows), the control dragged in the mode (its id, its value 0 .. 1), the grip dragged (where, the control
+     * under it and its rectangle), the right-click menu (its control, where), CLEAR ALL's question, the links' undo (the
+     * matrix as it was, the matrix as the window last knew it: another change clears the undo) */
+    int msrc, msg_t, menu_on, clr_ask, lh_n;
+    float ct, mv_f, gx, gy, menu_x, menu_y, gover_r[4];
+    uint32_t mv_id, gover, menu_id, lh_key;
+    char msg[112];
+    int16_t lh[LH_N][16][4], mx_known[16][4];
+    int tag_below;                       /* (the strip's cells: their tags under them) */
     wid_t w[MAX_W];
     int nw;
     frg_client cl;
@@ -158,9 +176,12 @@ static void wid_add2(txg_t *g, int kind, int lane, uint32_t id, int v, float x, 
     if (g->nw >= MAX_W) return;
     g->w[g->nw].kind = kind; g->w[g->nw].lane = lane; g->w[g->nw].id = id; g->w[g->nw].v = v;
     g->w[g->nw].r[0] = x; g->w[g->nw].r[1] = y; g->w[g->nw].r[2] = w; g->w[g->nw].r[3] = h;
+    g->w[g->nw].t0 = x; g->w[g->nw].tw = w;
     g->nw++;
 }
 static void wid_add(txg_t *g, int kind, int lane, float x, float y, float w, float h) { wid_add2(g, kind, lane, 0, 0, x, y, w, h); }
+static void wid_track(txg_t *g, float t0, float tw) { if (g->nw > 0) { g->w[g->nw - 1].t0 = t0; g->w[g->nw - 1].tw = tw; } }   /* (the
+                                          * control just added: its track) */
 static void R(txg_t *g, frui_canvas *c, float x, float y, float w, float h, uint32_t col)
 {
     frui_rect(c, x * g->S, y * g->S, w * g->S, h * g->S, col);
@@ -315,7 +336,7 @@ static uint32_t fnv(uint32_t h, const void *p, size_t n)
  * rows above it get the rest (the rows scroll) */
 #define FXD_BODY 164.f                   /* an effect's drawer: its picture and its values */
 #define FXD_TABS 34.f                    /* MOVEMENT's: its tabs over its body */
-#define FXD_ENV (12.f + 16.f + 4.f * 30.f + 3.f * 6.f + 12.f)
+#define FXD_ENV (12.f + 48.f + 16.f + 4.f * 30.f + 3.f * 6.f + 12.f)
 #define FXD_MAT (12.f + 14.f + 8.f * 30.f + 8.f)
 static float fxd_h(int tab)
 {
@@ -325,7 +346,9 @@ static float fxd_h(int tab)
 }
 static void lay(txg_t *g)
 {
-    float top = TOP_H + PH_H, bot, room;
+    float top, bot, room;
+    g->ct = TOP_H + (g->msrc ? MB_H : 0.f);   /* (a source's mode: its bar over the content, which moves down) */
+    top = g->ct + PH_H;
     g->PW = floorf(g->W * 0.3667f);
     g->PW = g->PW < 400.f ? 400.f : g->PW > 640.f ? 640.f : g->PW;
     g->fx_y = g->H - FX_H;
@@ -339,7 +362,7 @@ static void lay(txg_t *g)
     g->sp_y0 = top + 14.f;
     g->sp_y1 = bot - 18.f;
     g->sp_hz = g->sp_y0 + (g->sp_y1 - g->sp_y0) * 0.1f;
-    g->rvis = (int)floorf((g->dr_y - TOP_H - HDR_H) / ROW_H);
+    g->rvis = (int)floorf((g->dr_y - g->ct - HDR_H) / ROW_H);
     if (g->rvis < 1) g->rvis = 1;
 }
 /* a row's columns (x from the window's left): the engine's name (the square ENGINE button after it), the event line, STOP / PLAY, MANY, ACTIVE, PAN, CH, VOL, M S */
@@ -581,55 +604,227 @@ static int is_bip(uint32_t id)           /* drawn from the middle: PAN, a route'
            id == TXP_ID_GLOB(TXP_PG_TRANS);
 }
 static int is_choice(const txp_param_t *p) { return p->is_enum || p->hi < 20; }
+/* ---- the movement: the matrix's links seen per control. The matrix (mod.c): 16 slots, each a SOURCE, a TARGET (an
+ * index into the app's one list of targets, txp_catalog_t mt_*), a DEPTH (0 .. 200: -100 .. +100 %, 100 none) and a
+ * SPREAD, all host parameters. A link: a slot with a source, a target and a depth. The window's sources (its tiles):
+ * LFO 1 .. 8, ENV 1 .. 2, FOLLOW 1 .. 2 (mod.c MS_*). Every change is a host parameter's (the project keeps it, the host's
+ * undo sees it); the window's own undo keeps the matrix as it was before each change (UNDO) */
+#define MX_N 16
+static const int SRCS[SRC_N] = { 1, 2, 3, 4, 5, 6, 7, 8, 16, 17, 18, 19 };
+static void src_name(int s, char *o, size_t n)
+{
+    static const char *const X[7] = { "VELOCITY", "MOD WHEEL", "AFTERTOUCH", "CC", "ACTIVE", "RANDOM", "CONSTANT" };
+    if (s >= 1 && s <= 8) snprintf(o, n, "LFO %d", s);
+    else if (s == 16 || s == 17) snprintf(o, n, "ENV %d", s - 15);
+    else if (s == 18 || s == 19) snprintf(o, n, "FOLLOW %d", s - 17);
+    else if (s >= 9 && s <= 15) snprintf(o, n, "%s", X[s - 9]);
+    else snprintf(o, n, "NONE");
+}
+static int src_tile(int s) { return (s >= 1 && s <= 8) || (s >= 16 && s <= 19); }
+static int src_row(int s) { return s <= 8 ? s - 1 : s - 8; }   /* (its place in SRCS, lfoh) */
+static float src_now(const txg_t *g, int s)   /* its value now: an LFO -1 .. 1, ENV and FOLLOW 0 .. 1; others 0 */
+{
+    if (s >= 1 && s <= 8) return (float)g->sn.ui.lfo[s - 1] / 32767.f;
+    if (s >= 16 && s <= 19) return (float)g->sn.ui.envf[s - 16] / 32767.f;
+    return 0.f;
+}
+static int mx(const txg_t *g, int s, int q) { return txp_ui_get(g->c, ID_MAT(s, q)); }
+static int mx_used(const txg_t *g, int s) { return mx(g, s, 0) > 0 && mx(g, s, 1) > 0; }   /* (held: mod.c mod_learn) */
+static int mx_link(const txg_t *g, int s) { return mx_used(g, s) && mx(g, s, 2) != 100; }
+static int src_links(const txg_t *g, int src) { int n = 0; for (int s = 0; s < MX_N; s++) n += mx_link(g, s) && mx(g, s, 0) == src; return n; }
+static int all_links(const txg_t *g) { int n = 0; for (int s = 0; s < MX_N; s++) n += mx_link(g, s); return n; }
+/* the target a source moves parameter id by (the app's own mod learn's: mod.c mod_tgt_of), 0 none; why: 1 a choice, 2 a
+ * lane past the fourth (the matrix reaches those only as ALL LANES), 3 the matrix has no such target */
+static int ctl_tgt(const txg_t *g, uint32_t id, int *why)
+{
+    const txp_catalog_t *ct = g->cat;
+    int k = lane_of_id(id), i = (int)(id & 0xFFu);
+    const txp_param_t *p = pinfo(id);
+    if (why) *why = p && is_choice(p) ? 1 : 3;
+    if (!p || id >= TXP_ID_OWN0 || (id >> 8) == 7u) return 0;
+    if (k >= 0) {
+        if (!used(g, k)) return 0;
+        if (i >= TXP_PL_CARD0 && i < TXP_PL_CARD0 + (int)TXP_CARD_N) {   /* (a card that is a choice: TYPE, PRESET) */
+            const txp_ui_cards_t *cd = &g->sn.ui.card[k];
+            int j = i - TXP_PL_CARD0;
+            if (j >= cd->n || !strcmp(cd->lab[j], "TYPE") || !strcmp(cd->lab[j], "PRESET")) { if (why) *why = 1; return 0; }
+        }
+        if (k >= 4 && (i == TXP_PL_LEVEL || i == TXP_PL_PAN || i == TXP_PL_COUNT || i == TXP_PL_ACTIVE ||
+                       (i >= TXP_PL_CARD0 && i < TXP_PL_CARD0 + (int)TXP_CARD_N))) { if (why) *why = 2; return 0; }
+    }
+    for (int T = 1; T < ct->nmt; T++) {
+        int l = ct->mt_lane[T];
+        if (l == 0xFF || l == 4 || !ct->mt_learn[T] || (l < 4 && l != k)) continue;
+        if (ct->mt_id[T][k < 0 ? 0 : k] == id) return T;
+    }
+    return 0;
+}
+static int tgt_hits(const txg_t *g, int T, uint32_t id)   /* target T moves parameter id (ALL LANES: every lane's) */
+{
+    const txp_catalog_t *ct = g->cat;
+    int k = lane_of_id(id), l;
+    if (T <= 0 || T >= ct->nmt || (l = ct->mt_lane[T]) == 0xFF) return 0;
+    if (l < 4) return k == l && ct->mt_id[T][l] == id;
+    if (l == 4) return k >= 0 && ct->mt_id[T][k] == id;
+    return k < 0 && ct->mt_id[T][0] == id;
+}
+typedef struct { int src, amt, all, slot; } lk_t;
+static int ctl_links(const txg_t *g, uint32_t id, lk_t *o)   /* the links that move parameter id (MX_N at most) */
+{
+    int n = 0;
+    for (int s = 0; s < MX_N; s++) {
+        int T;
+        if (!mx_link(g, s) || !tgt_hits(g, (T = mx(g, s, 1)), id)) continue;
+        o[n].src = mx(g, s, 0); o[n].amt = mx(g, s, 2) - 100; o[n].all = g->cat->mt_lane[T] == 4; o[n].slot = s;
+        n++;
+    }
+    return n;
+}
+static int link_slot(const txg_t *g, int src, int T)   /* the slot holding src -> T (any depth), -1 none */
+{
+    for (int s = 0; s < MX_N; s++) if (mx(g, s, 0) == src && mx(g, s, 1) == T) return s;
+    return -1;
+}
+static int link_amt(const txg_t *g, int src, uint32_t id)   /* how far src moves id now (%), by id's own target */
+{
+    int T = ctl_tgt(g, id, 0), s = T ? link_slot(g, src, T) : -1;
+    return s >= 0 ? mx(g, s, 2) - 100 : 0;
+}
+/* the range its links reach round value f (0 .. 1): an LFO both ways, an envelope or a follower its own way */
+static void ctl_reach(const lk_t *lk, int n, float f, float *lo, float *hi)
+{
+    *lo = *hi = f;
+    for (int i = 0; i < n; i++) {
+        float a = (float)lk[i].amt / 100.f;
+        if (lk[i].src >= 1 && lk[i].src <= 8) { *lo -= fabsf(a); *hi += fabsf(a); }
+        else if (a > 0.f) *hi += a; else *lo += a;
+    }
+    *lo = *lo < 0.f ? 0.f : *lo > 1.f ? 1.f : *lo;
+    *hi = *hi < 0.f ? 0.f : *hi > 1.f ? 1.f : *hi;
+}
+static float ctl_live(const txg_t *g, const lk_t *lk, int n, float f)   /* where its links have it now (0 .. 1) */
+{
+    for (int i = 0; i < n; i++) f += (float)lk[i].amt / 100.f * src_now(g, lk[i].src);
+    return f < 0.f ? 0.f : f > 1.f ? 1.f : f;
+}
+/* a control's name in a message ("FILTER LOW PASS", "LANE 2 GUST") */
+static void ctl_name(const txg_t *g, uint32_t id, char *o, size_t n)
+{
+    int k = lane_of_id(id), i = (int)(id & 0xFFu);
+    const txp_param_t *p = pinfo(id);
+    if (k >= 0) {
+        static const char *const L[5] = { "ENGINE", "HOW MANY", "HOW ACTIVE", "LEVEL", "PAN" };
+        if (i < 5) snprintf(o, n, "LANE %d %s", k + 1, L[i]);
+        else if (i >= TXP_PL_CARD0 && i < TXP_PL_CARD0 + (int)TXP_CARD_N && g->sn.ui.card[k].lab[i - TXP_PL_CARD0][0])
+            snprintf(o, n, "LANE %d %s", k + 1, g->sn.ui.card[k].lab[i - TXP_PL_CARD0]);
+        else snprintf(o, n, "LANE %d %s", k + 1, p ? p->name : "");
+        return;
+    }
+    if (p) upper(o, p->name, n); else snprintf(o, n, "IT");
+}
+static void say(txg_t *g, const char *s) { snprintf(g->msg, sizeof g->msg, "%s", s); g->msg_t = 150; }   /* (~5 s) */
+/* a control's tags: "~ LFO 1 +25%" a link (ALL: on ALL LANES), as many as fit in wmax from x, then "+2" (none fit: "~ 2");
+ * each one a click: its source's mode. fs: the size; the count of links */
+static int tags_draw(txg_t *g, frui_canvas *c, uint32_t id, float x, float yb, float wmax, float fs)
+{
+    lk_t lk[MX_N];
+    int n = ctl_links(g, id, lk), i;
+    float xx = x, tw;
+    char t[40], nm[16];
+    for (i = 0; i < n; i++) {
+        src_name(lk[i].src, nm, sizeof nm);
+        snprintf(t, sizeof t, "~ %s %+d%%%s", nm, lk[i].amt, lk[i].all ? " ALL" : "");
+        tw = TW(g, fs, 620.f, fs * 0.08f, 0, t);
+        if (xx + tw > x + wmax) break;
+        TX(g, c, xx, yb, fs, 620.f, fs * 0.08f, 0, C_RED, t);
+        wid_add2(g, TXG_W_TAG, (int)id, id, lk[i].src, xx - 2.f, yb - fs - 1.f, tw + 4.f, fs + 5.f);
+        xx += tw + 8.f;
+    }
+    if (i < n) {                         /* (the rest: their number) */
+        snprintf(t, sizeof t, i ? "+%d" : "~ %d", n - i);
+        tw = TW(g, fs, 620.f, fs * 0.08f, 0, t);
+        if (xx + tw <= x + wmax + 0.5f) {
+            TX(g, c, xx, yb, fs, 620.f, fs * 0.08f, 0, C_RED, t);
+            wid_add2(g, TXG_W_TAG, (int)id, id, lk[i].src, xx - 2.f, yb - fs - 1.f, tw + 4.f, fs + 5.f);
+        }
+    }
+    return n;
+}
+/* a fader in a source's mode: the value greyed, the source's reach in red from it to where the source pushes it (amt:
+ * -1 .. 1 of the whole range), ending in a red handle (th: the track's thickness, hw x hh: the handle) */
+static void fader_mode(txg_t *g, frui_canvas *c, float x, float yc, float w, float f, float f0, float amt, float th, float hw, float hh)
+{
+    float e;
+    f = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
+    e = f + amt; e = e < 0.f ? 0.f : e > 1.f ? 1.f : e;
+    RR(g, c, x, yc - th * 0.5f, w, th, th * 0.5f, C_FAINT);
+    if (fabsf(f - f0) * w >= 0.5f) RR(g, c, x + w * fminf(f0, f), yc - th * 0.5f, w * fabsf(f - f0), th, th * 0.5f, C_GREY);
+    if (fabsf(e - f) * w >= 0.5f) RR(g, c, x + w * fminf(f, e), yc - th * 0.5f - 1.f, w * fabsf(e - f), th + 2.f, th * 0.5f + 1.f, C_RED);
+    RR(g, c, x + w * f - hw * 0.5f, yc - hh * 0.5f, hw, hh, 2.f, C_GREYH);
+    if (amt != 0.f) {
+        RR(g, c, x + w * e - hw * 0.5f - 1.f, yc - hh * 0.5f - 1.f, hw + 2.f, hh + 2.f, 2.f, C_RED);
+        RRS(g, c, x + w * e - hw * 0.5f - 1.f, yc - hh * 0.5f - 1.f, hw + 2.f, hh + 2.f, 2.f, C_INK);
+    }
+}
+static void amt_text(char *t, size_t n, int amt) { if (amt) snprintf(t, n, "%+d%%", amt); else snprintf(t, n, "0%%"); }
 static void chevron(txg_t *g, frui_canvas *c, float x, float yc, int dir, uint32_t col)   /* < (dir -1) or > (+1) */
 {
     LN(g, c, x - 2.f * (float)dir, yc - 3.5f, x + 2.f * (float)dir, yc, 1.3f, col);
     LN(g, c, x + 2.f * (float)dir, yc, x - 2.f * (float)dir, yc + 3.5f, 1.3f, col);
 }
-/* a fader: x .. x + w, its track centred at yc (v, live: 0 .. hi; live -1: not moved; f0 its zero: 0 or the middle) */
-static void fader(txg_t *g, frui_canvas *c, float x, float yc, float w, float f, float f0, float live, int big)
+/* a fader: x .. x + w, its track centred at yc (f, live: 0 .. 1; live -1: not moved; f0 its zero: 0 or the middle); lo ..
+ * hi: the reach of the sources that move it (a faint red band behind the track; lo > hi: none), live their red tick */
+static void fader(txg_t *g, frui_canvas *c, float x, float yc, float w, float f, float f0, float live, int big, float lo, float hi)
 {
     float th = big ? 4.f : 3.f, hw = big ? 8.f : 7.f, hh = big ? 12.f : 10.f, hx;
     f = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
+    if (hi > lo && (hi - lo) * w >= 0.5f) RR(g, c, x + w * lo, yc - th * 0.5f - 1.5f, w * (hi - lo), th + 3.f, th * 0.5f + 1.5f, frui_alpha(C_RED, 0.35f));
     RR(g, c, x, yc - th * 0.5f, w, th, th * 0.5f, C_FAINT);
     if (fabsf(f - f0) * w >= 0.5f) RR(g, c, x + w * fminf(f0, f), yc - th * 0.5f, w * fabsf(f - f0), th, th * 0.5f, frui_alpha(C_INK, 0.85f));
     if (f0 > 0.f) R(g, c, x + w * f0 - 0.5f, yc - th, 1.f, th * 2.f, C_DIM);   /* (a bipolar one: its middle) */
-    if (live >= 0.f) {                   /* (where the modulation has it now) */
-        float lx = x + w * (live < 0.f ? 0.f : live > 1.f ? 1.f : live);
-        RR(g, c, x + w * fminf(f, live), yc - th * 0.5f, fmaxf(w * fabsf(live - f), 1.f), th, th * 0.5f, frui_alpha(C_RED, 0.55f));
-        RR(g, c, lx - 1.5f, yc - hh * 0.5f + 1.f, 3.f, hh - 2.f, 1.5f, C_RED);
-    }
     hx = x + w * f - hw * 0.5f;
     RR(g, c, hx, yc - hh * 0.5f, hw, hh, 2.f, C_INK);
     R(g, c, hx + hw * 0.5f - 0.5f, yc - hh * 0.5f + 3.f, 1.f, hh - 6.f, C_DIM);   /* (its grip) */
+    if (live >= 0.f) {                   /* (where the sources have it now: a red tick) */
+        float lx = x + w * (live < 0.f ? 0.f : live > 1.f ? 1.f : live);
+        RR(g, c, lx - 1.5f, yc - hh * 0.5f + 1.f, 3.f, hh - 2.f, 1.5f, C_RED);
+    }
 }
+/* a value: its name, its text and its control (above). Moved by a source: its name red, the reach and the live tick on
+ * its fader, a tag per link (in the cell above its fader when there is room, else beside its name; the strip's: under
+ * the cell). In a source's mode (g->msrc) a control the source can move shows the source's link instead: its amount
+ * for the text, the reach on its fader (fader_mode), red when linked */
 static void pcell(txg_t *g, frui_canvas *c, float x, float y, float w, float h, uint32_t id, const char *lab, const char *hint)
 {
     const txp_param_t *p = pinfo(id);
     char t[40], nm[40];
-    int v, hi, live, m, ch, stack = 0;
-    float ty, nw, tcy;
+    int v, hi, live, m, ch, stack = 0, T, amt = 0, nl;
+    float ty, nw, tcy, tagy = 0.f, rh = 0.f;
+    lk_t lk[MX_N];
     if (!p) return;
     v = txp_ui_get(g->c, id); hi = p->hi;
+    T = g->msrc ? ctl_tgt(g, id, 0) : 0;
+    nl = g->msrc ? 0 : ctl_links(g, id, lk);
     m = pmod(g, id, &live);
+    if (T) amt = link_amt(g, g->msrc, id);
     ch = is_choice(p);
-    RR(g, c, x, y, w, h, 2.f, C_WELL);
+    RR(g, c, x, y, w, h, 2.f, amt ? C_REDBG : C_WELL);
+    if (amt) RRS(g, c, x, y, w, h, 2.f, C_RED);
     if (!lab) { short_name(p, nm, sizeof nm); lab = nm; }
     /* the text line: the name at the left, the value at the right; under it the fader (an amount) */
     tcy = hint ? y + h - 6.f : y + h - fmaxf(6.f, h * 0.25f);
     if (hint) ty = y + 14.f;
     else if (ch) ty = y + h * 0.5f + CAP(g, 10.5f) * 0.5f;
     else ty = fminf(tcy - 7.f, y + (tcy - y) * 0.5f + CAP(g, 10.5f) * 0.5f);
-    vtext(g, id, t, sizeof t);
+    if (T) amt_text(t, sizeof t, amt); else vtext(g, id, t, sizeof t);
     if (ch && hi >= 1 && !hint && h >= 34.f &&  /* (a choice too wide for its name beside it: the name above, the value under) */
-        x + w - 4.f - (TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t) + 34.f) < x + 9.f + (m ? 14.f : 0.f) + LBLW(g, 10.5f, lab) + 6.f) {
+        x + w - 4.f - (TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t) + 34.f) < x + 9.f + LBLW(g, 10.5f, lab) + 6.f) {
         stack = 1;
         ty = y + 6.f + CAP(g, 10.5f);
     }
     clipL(g, c, x, y, w, h);
     nw = 9.f;
-    if (m) nw += TX(g, c, x + nw, ty, 10.5f, 700.f, 0.f, 0, C_RED, "~ ");
-    if (lab[0]) LBL(g, c, x + nw, ty, 10.5f, C_INK, lab);
+    if (lab[0]) nw += LBL(g, c, x + nw, ty, 10.5f, (m || nl) && !g->msrc ? C_RED : C_INK, lab);
     if (ch && hi >= 1) {                 /* a choice: < its value > (the arrows step it) */
         float tw = TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t), bw = tw + 34.f, bh = fminf(h - 6.f, 18.f), bx = x + w - 4.f - bw,
               byc = hint ? ty - CAP(g, 11.f) * 0.5f : y + h * 0.5f;
@@ -639,29 +834,56 @@ static void pcell(txg_t *g, frui_canvas *c, float x, float y, float w, float h, 
         }
         if (bx < x + 4.f) { bx = x + 4.f; bw = w - 8.f; }
         RR(g, c, bx, byc - bh * 0.5f, bw, bh, 2.f, C_SEG);
-        if (m) R(g, c, bx + 2.f, byc + bh * 0.5f - 1.5f, bw - 4.f, 1.5f, C_RED);
+        if ((m || nl) && !g->msrc) R(g, c, bx + 2.f, byc + bh * 0.5f - 1.5f, bw - 4.f, 1.5f, C_RED);
+        if (T && amt) {                  /* (in the mode: the reach from the middle of the box) */
+            float e = fmaxf(-1.f, fminf(1.f, (float)amt / 100.f));
+            R(g, c, bx + bw * 0.5f + fminf(0.f, e) * (bw * 0.5f - 2.f), byc + bh * 0.5f - 2.f, fabsf(e) * (bw * 0.5f - 2.f), 2.f, C_RED);
+        }
         chevron(g, c, bx + 8.f, byc, -1, C_DIM);
         chevron(g, c, bx + bw - 8.f, byc, 1, C_DIM);
-        TX(g, c, bx + (bw - tw) * 0.5f, byc + CAP(g, 11.f) * 0.5f, 11.f, 500.f, 0.f, FRUI_TNUM, m ? C_RED : C_INK, t);
+        TX(g, c, bx + (bw - tw) * 0.5f, byc + CAP(g, 11.f) * 0.5f, 11.f, T ? 700.f : 500.f, 0.f, FRUI_TNUM, T ? (amt ? C_RED : C_FAINT) : C_INK, t);
         if (hint && hint[0]) (void)hintn(g, c, x + 9.f, y + 27.f, w - 18.f, hint, (int)((h - 20.f) / 10.5f), 10.5f, C_DIM);
         frui_clip_reset(c);
         wid_add2(g, TXG_W_PARAM, (int)id, id, 0, x, y, w, h);
+        wid_track(g, bx, bw);
         wid_add2(g, TXG_W_STEP, (int)id, id, -1, bx, byc - bh * 0.5f, 16.f, bh);
         wid_add2(g, TXG_W_STEP, (int)id, id, 1, bx + bw - 16.f, byc - bh * 0.5f, 16.f, bh);
+        if (nl && g->tag_below) (void)tags_draw(g, c, id, x + 2.f, y + h + 9.f, w - 2.f, 8.5f);
+        else if (nl) { float tx0 = x + nw + 8.f; (void)tags_draw(g, c, id, tx0, ty, bx - 6.f - tx0, 9.f); }
         return;
     }
-    TX(g, c, x + w - 8.f - TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t), ty, 11.f, 500.f, 0.f, FRUI_TNUM, m ? C_RED : C_INK, t);
+    {
+        float tw = TW(g, 11.f, T ? 700.f : 500.f, 0.f, FRUI_TNUM, t);
+        TX(g, c, x + w - 8.f - tw, ty, 11.f, T ? 700.f : 500.f, 0.f, FRUI_TNUM, T ? (amt ? C_RED : C_FAINT) : C_INK, t);
+        rh = tw;
+    }
     if (hint && hint[0]) {
-        int lines = (int)((tcy - 10.f - (y + 27.f)) / 10.5f) + 1;   /* (the last line clear of the fader's handle) */
-        if (hintn(g, 0, x + 9.f, y + 27.f, w - 18.f, hint, lines < 1 ? 1 : lines, 10.5f, C_DIM)) wid_add2(g, TXG_W_TIP, (int)id, id, 0, x, y, w, h);
-        (void)hintn(g, c, x + 9.f, y + 27.f, w - 18.f, hint, lines < 1 ? 1 : lines, 10.5f, C_DIM);
+        int lines = (int)((tcy - 10.f - (y + 27.f)) / 10.5f) + 1;   /* (the last line clear of the fader's handle; with
+                                          * tags: theirs) */
+        int hl = nl && lines > 1 ? lines - 1 : lines;
+        if (hintn(g, 0, x + 9.f, y + 27.f, w - 18.f, hint, hl < 1 ? 1 : hl, 10.5f, C_DIM) || hl < lines) wid_add2(g, TXG_W_TIP, (int)id, id, 0, x, y, w, h);
+        (void)hintn(g, c, x + 9.f, y + 27.f, w - 18.f, hint, hl < 1 ? 1 : hl, 10.5f, C_DIM);
+        if (nl && lines > 1) tagy = y + 27.f + 10.5f * (float)(lines - 1);   /* (where its tags go) */
     }
     frui_clip_reset(c);
     if (hi > 0) {
-        float fx = x + 10.f, fw = w - 20.f, f = (float)v / (float)hi;
-        fader(g, c, fx, tcy, fw, f, is_bip(id) ? 0.5f : 0.f, m && live >= 0 ? (float)live / (float)hi : -1.f, h >= 30.f);
+        float fx = x + 10.f, fw = w - 20.f, f = (float)v / (float)hi, f0 = is_bip(id) ? 0.5f : 0.f;
+        int big = h >= 30.f;
+        if (T) fader_mode(g, c, fx, tcy, fw, f, f0, (float)amt / 100.f, big ? 4.f : 3.f, big ? 8.f : 7.f, big ? 12.f : 10.f);
+        else {
+            float rlo = 1.f, rhi = 0.f, lv = m && live >= 0 ? (float)live / (float)hi : -1.f;
+            if (nl) { ctl_reach(lk, nl, f, &rlo, &rhi); if (lv < 0.f) lv = ctl_live(g, lk, nl, f); }
+            fader(g, c, fx, tcy, fw, f, f0, lv, big, rlo, rhi);
+        }
     }
     wid_add2(g, TXG_W_PARAM, (int)id, id, 0, x, y, w, h);
+    if (hi > 0) wid_track(g, x + 10.f, w - 20.f);
+    if (nl) {                            /* its tags: above the fader, under the cell (the strip) or beside the name */
+        if (tagy > 0.f) (void)tags_draw(g, c, id, x + 9.f, tagy, w - 18.f, 9.f);
+        else if (g->tag_below) (void)tags_draw(g, c, id, x + 2.f, y + h + 9.f, w - 2.f, 8.5f);
+        else if (!hint && h >= 44.f) (void)tags_draw(g, c, id, x + 9.f, ty + 13.f, w - 18.f, 9.f);
+        else { float tx0 = x + nw + 8.f; (void)tags_draw(g, c, id, tx0, ty, x + w - 8.f - rh - 8.f - tx0, 9.f); }
+    }
 }
 /* the whole hint of a card it cut, over the window while the pointer is on the card */
 static void hint_tip(txg_t *g, frui_canvas *c)
@@ -687,7 +909,7 @@ static void hint_tip(txg_t *g, frui_canvas *c)
         }
         h = 30.f + 12.f * n;
         y = r[1] - h - 6.f;
-        if (y < TOP_H + 4.f) y = r[1] + r[3] + 6.f;
+        if (y < g->ct + 4.f) y = r[1] + r[3] + 6.f;
         frui_rrect_shadow(c, x * g->S, y * g->S, w * g->S, h * g->S, 4.f * g->S, 12.f * g->S, 0x90000000u);
         RR(g, c, x, y, w, h, 4.f, C_BTN); RRS(g, c, x, y, w, h, 4.f, C_DIM);
         LBL(g, c, x + 12.f, y + 17.f, 9.5f, C_DIM, g->sn.ui.card[k].lab[i]);
@@ -759,7 +981,7 @@ static void draw_top(txg_t *g, frui_canvas *c)
     LBL(g, c, xs + (60.f - LBLW(g, 11.f, "SAVE")) * 0.5f, yc + CAP(g, 11.f) * 0.5f, 11.f, C_INK, "SAVE");
     wid_add(g, TXG_W_SAVE, -1, xs, y, 60.f, h);
     RR(g, c, xu, y, 60.f, h, 3.f, C_BTN); RRS(g, c, xu, y, 60.f, h, 3.f, C_LINE);
-    LBL(g, c, xu + (60.f - LBLW(g, 11.f, "UNDO")) * 0.5f, yc + CAP(g, 11.f) * 0.5f, 11.f, g->sn.ui.undo ? C_INK : C_FAINT, "UNDO");
+    LBL(g, c, xu + (60.f - LBLW(g, 11.f, "UNDO")) * 0.5f, yc + CAP(g, 11.f) * 0.5f, 11.f, g->sn.ui.undo || g->lh_n ? C_INK : C_FAINT, "UNDO");
     wid_add(g, TXG_W_UNDO, -1, xu, y, 60.f, h);
     {
         int run = g->sn.ui.any_run, stopped = !run && any_used(g);
@@ -821,7 +1043,7 @@ static void map_arc(txg_t *g, frui_canvas *c, float r, uint32_t col)   /* the up
 static int n_used(const txg_t *g) { int n = 0; for (int k = 0; k < g->nlane; k++) n += used(g, k); return n; }
 static void draw_view_switch(txg_t *g, frui_canvas *c)
 {
-    float x = 16.f, y = TOP_H + 12.f, wm = 58.f, ws = 66.f, h = 24.f, xo = g->view ? x + wm : x, wo = g->view ? ws : wm;
+    float x = 16.f, y = g->ct + 12.f, wm = 58.f, ws = 66.f, h = 24.f, xo = g->view ? x + wm : x, wo = g->view ? ws : wm;
     RR(g, c, x, y, wm + ws, h, 3.f, C_PANEL);
     R(g, c, xo, y, wo, h, C_SEG);
     R(g, c, xo, y + h - 2.f, wo, 2.f, C_RED);
@@ -839,7 +1061,7 @@ static void draw_place_head(txg_t *g, frui_canvas *c)
 {
     int k = g->sel;
     const txp_ui_lane_t *l = &g->sn.ui.lane[k];
-    float x = 158.f, y = TOP_H + 8.f, w, room = g->PW - x - 40.f - RW_CHG - 30.f;
+    float x = 158.f, y = g->ct + 8.f, w, room = g->PW - x - 40.f - RW_CHG - 30.f;
     char t[48], nm[32];
     snprintf(t, sizeof t, "LANE %d%s%s", k + 1, used(g, k) ? "  \xC2\xB7  " : "", used(g, k) ? l->fam : "");
     upper(t, t, sizeof t);
@@ -1067,9 +1289,9 @@ static void draw_space(txg_t *g, frui_canvas *c)
 }
 static void draw_place(txg_t *g, frui_canvas *c)
 {
-    R(g, c, 0, TOP_H, g->PW, g->dr_y - TOP_H, C_WELL);
-    R(g, c, g->PW - 1.f, TOP_H, 1.f, g->dr_y - TOP_H, C_LINE);
-    wid_add(g, TXG_W_PLACE, -1, 0, TOP_H, g->PW, g->dr_y - TOP_H);   /* (the tests: the place, the map's half circle) */
+    R(g, c, 0, g->ct, g->PW, g->dr_y - g->ct, C_WELL);
+    R(g, c, g->PW - 1.f, g->ct, 1.f, g->dr_y - g->ct, C_LINE);
+    wid_add(g, TXG_W_PLACE, -1, 0, g->ct, g->PW, g->dr_y - g->ct);   /* (the tests: the place, the map's half circle) */
     wid_add(g, TXG_W_MAPR, -1, g->mcx - g->mr, g->mcy - g->mr, 2.f * g->mr, g->mr);
     draw_view_switch(g, c);
     draw_place_head(g, c);
@@ -1104,16 +1326,27 @@ static void draw_line(txg_t *g, frui_canvas *c, int k, float x, float y, float w
 static void steps(txg_t *g, frui_canvas *c, int k, int act, float x, float yc, int sel, uint32_t ink)
 {
     uint32_t id = TXP_ID_LANE(k, act ? TXP_PL_ACTIVE : TXP_PL_COUNT);
-    int n = act ? 9 : 6, v = act ? g->act[k] : g->cnt[k], live, m = pmod(g, id, &live);
+    int n = act ? 9 : 6, v = act ? g->act[k] : g->cnt[k], live, m = pmod(g, id, &live), T = g->msrc ? ctl_tgt(g, id, 0) : 0,
+        amt = T ? link_amt(g, g->msrc, id) : 0, hi = txp_ui_hi(id), e0 = 0, e1 = 0;
     float bw = (RW_STEP - 2.f * (float)(n - 1)) / (float)n;
     char t[16], lab[24];
-    ptext(id, v, t, sizeof t);
-    snprintf(lab, sizeof lab, "%s%s", m ? "~ " : "", act ? "ACTIVE" : "MANY");
-    LBL(g, c, x, yc - 4.f, 9.f, m ? C_RED : C_DIM, lab);
-    TX(g, c, x + RW_STEP - TW(g, 10.5f, 500.f, 0.f, FRUI_TNUM, t), yc - 4.f, 10.5f, 500.f, 0.f, FRUI_TNUM, v ? ink : C_FAINT, t);
+    lk_t lk[MX_N];
+    int nl = g->msrc ? 0 : ctl_links(g, id, lk);
+    if (T) amt_text(t, sizeof t, amt); else ptext(id, v, t, sizeof t);
+    if (T && amt) {                      /* (in the mode: the blocks the source's reach covers, red) */
+        int e = (int)lroundf(((float)v / (float)(hi > 0 ? hi : 1) + (float)amt / 100.f) * (float)n);
+        e = e < 0 ? 0 : e > n ? n : e;
+        e0 = e < v ? e : v; e1 = e < v ? v : e;
+        RR(g, c, x - 2.f, yc - 14.f, RW_STEP + 4.f, 28.f, 2.f, C_REDBG);
+        RRS(g, c, x - 2.f, yc - 14.f, RW_STEP + 4.f, 28.f, 2.f, C_RED);
+    }
+    snprintf(lab, sizeof lab, "%s", act ? "ACTIVE" : "MANY");
+    LBL(g, c, x, yc - 4.f, 9.f, (m || nl) && !g->msrc ? C_RED : C_DIM, lab);
+    TX(g, c, x + RW_STEP - TW(g, 10.5f, T ? 700.f : 500.f, 0.f, FRUI_TNUM, t), yc - 4.f, 10.5f, T ? 700.f : 500.f, 0.f, FRUI_TNUM,
+       T ? (amt ? C_RED : C_FAINT) : v ? ink : C_FAINT, t);
     {   /* (stopped by STOP ALL: the value PLAY ALL brings back, as outlined blocks and its text, dim) */
         const txp_ui_lane_t *l = &g->sn.ui.lane[k];
-        int mem = !v && !l->run ? (act ? l->mact : l->mcnt) : 0;
+        int mem = !v && !l->run && !T ? (act ? l->mact : l->mcnt) : 0;
         if (mem) {
             char mt[16];
             ptext(id, mem, mt, sizeof mt);
@@ -1122,11 +1355,15 @@ static void steps(txg_t *g, frui_canvas *c, int k, int act, float x, float yc, i
         }
         for (int i = 0; i < n; i++) {
             float bx = x + (bw + 2.f) * (float)i;
-            R(g, c, bx, yc + 3.f, bw, 6.f, i < v ? (m ? C_RED : sel ? C_RED : ink) : C_FAINT);
+            uint32_t bc = i < v ? (m ? C_RED : sel ? C_RED : ink) : C_FAINT;
+            if (T) bc = i >= e0 && i < e1 ? C_RED : i < v ? C_GREY : C_FAINT;
+            R(g, c, bx, yc + 3.f, bw, 6.f, bc);
             if (i < mem) RRS(g, c, bx, yc + 3.f, bw, 6.f, 1.f, C_DIM);
         }
     }
     wid_add2(g, act ? TXG_W_ACT : TXG_W_MANY, k, id, 0, x - 2.f, yc - 14.f, RW_STEP + 4.f, 28.f);
+    wid_track(g, x, RW_STEP);
+    if (nl) (void)tags_draw(g, c, id, x, yc + 18.5f, RW_STEP + 4.f, 8.f);
 }
 static int rows_total(const txg_t *g) { return g->nlane + (g->nlane < (int)TXP_LANES ? 1 : 0); }
 static void rows_clamp(txg_t *g)
@@ -1138,11 +1375,11 @@ static void rows_clamp(txg_t *g)
 static void draw_rows(txg_t *g, frui_canvas *c)
 {
     const rcol_t rc = rcols(g);
-    const float x0 = g->PW, y0 = TOP_H + HDR_H, x1 = g->W;
+    const float x0 = g->PW, y0 = g->ct + HDR_H, x1 = g->W;
     char t[48], nm[32];
     rows_clamp(g);
     {   /* the columns' names */
-        float yb = TOP_H + HDR_H * 0.5f + CAP(g, 10.f) * 0.5f;
+        float yb = g->ct + HDR_H * 0.5f + CAP(g, 10.f) * 0.5f;
         LBL(g, c, rc.num, yb, 10.f, C_DIM, "#");
         LBL(g, c, rc.name, yb, 10.f, C_DIM, "ENGINE");
         LBL(g, c, rc.tl, yb, 10.f, C_DIM, "EVENTS");
@@ -1198,14 +1435,23 @@ static void draw_rows(txg_t *g, frui_canvas *c)
         if (u) {
             steps(g, c, k, 0, rc.many, yc, sel, ink);
             steps(g, c, k, 1, rc.act, yc, sel, ink);
-            {   /* PAN (a drag moves it; red while an LFO does) */
+            {   /* PAN (a drag moves it; red while a source does; in a source's mode: the source's amount) */
                 uint32_t id = TXP_ID_LANE(k, TXP_PL_PAN);
-                int live, m = pmod(g, id, &live);
+                int live, m = pmod(g, id, &live), T = g->msrc ? ctl_tgt(g, id, 0) : 0, amt = T ? link_amt(g, g->msrc, id) : 0;
+                lk_t lk[MX_N];
+                int nl = g->msrc ? 0 : ctl_links(g, id, lk);
                 char a[16];
-                ptext(id, m && live >= 0 ? live : g->pan[k], a, sizeof a);
-                if (m) { snprintf(t, sizeof t, "~%s", a); snprintf(a, sizeof a, "%s", t); }
-                TX(g, c, rc.pan, yc + CAP(g, 12.f) * 0.5f, 12.f, 500.f, 0.f, FRUI_TNUM, m ? C_RED : ink, a);
+                if (T) {
+                    amt_text(a, sizeof a, amt);
+                    if (amt) { RR(g, c, rc.pan - 4.f, yc - 12.f, RW_PAN + 4.f, 24.f, 2.f, C_REDBG); RRS(g, c, rc.pan - 4.f, yc - 12.f, RW_PAN + 4.f, 24.f, 2.f, C_RED); }
+                    TX(g, c, rc.pan, yc + CAP(g, 12.f) * 0.5f, 12.f, 700.f, 0.f, FRUI_TNUM, amt ? C_RED : C_FAINT, a);
+                } else {
+                    ptext(id, m && live >= 0 ? live : g->pan[k], a, sizeof a);
+                    if (m) { snprintf(t, sizeof t, "~%s", a); snprintf(a, sizeof a, "%s", t); }
+                    TX(g, c, rc.pan, yc + CAP(g, 12.f) * 0.5f, 12.f, 500.f, 0.f, FRUI_TNUM, m || nl ? C_RED : ink, a);
+                }
                 wid_add2(g, TXG_W_PARAM, (int)id, id, 0, rc.pan - 4.f, yc - 12.f, RW_PAN + 4.f, 24.f);
+                if (nl) (void)tags_draw(g, c, id, rc.pan, yc + 17.f, RW_PAN + R_GAP + RW_CH, 8.f);   /* (under CH too) */
             }
         }
         {   /* the channel (a click: the next; the lane's own, SETTINGS: MIDI IN too) */
@@ -1214,16 +1460,34 @@ static void draw_rows(txg_t *g, frui_canvas *c)
             TX(g, c, rc.ch, yc + CAP(g, 12.f) * 0.5f, 12.f, 500.f, 0.f, FRUI_TNUM, u ? C_INK : C_FAINT, t);
             wid_add2(g, TXG_W_PARAM, (int)id, id, 0, rc.ch - 4.f, yc - 12.f, RW_CH + 4.f, 24.f);
         }
-        if (u) {   /* VOL (red while an LFO moves it) */
+        if (u) {   /* VOL (red while a source moves it: its reach, its live tick, its tags; in a source's mode: the
+                    * source's amount and reach) */
+            uint32_t id = TXP_ID_LANE(k, TXP_PL_LEVEL);
             float v = (float)g->level[k] / 127.f, ty = yc + 3.f;
-            uint32_t kc = (l->modm & TXP_MOD_LEVEL) ? C_RED : mf < 1.f ? C_DIM : C_INK;
-            snprintf(t, sizeof t, "%s%d", (l->modm & TXP_MOD_LEVEL) ? "~ " : "", g->level[k]);
-            TX(g, c, rc.vol + RW_VOL - TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t), yc - 5.f, 11.f, 500.f, 0.f, FRUI_TNUM,
-               (l->modm & TXP_MOD_LEVEL) ? C_RED : ink, t);
-            RR(g, c, rc.vol, ty, RW_VOL, 4.f, 2.f, C_FAINT);
-            RR(g, c, rc.vol, ty, RW_VOL * v, 4.f, 2.f, mf < 1.f ? C_DIM : C_INK);
-            RR(g, c, rc.vol + RW_VOL * v - 4.f, ty - 4.f, 8.f, 12.f, 2.f, kc);
-            wid_add(g, TXG_W_VOL, k, rc.vol - 4.f, yc - 14.f, RW_VOL + 8.f, 28.f);
+            int T = g->msrc ? ctl_tgt(g, id, 0) : 0, amt = T ? link_amt(g, g->msrc, id) : 0, mod = (l->modm & TXP_MOD_LEVEL) != 0;
+            lk_t lk[MX_N];
+            int nl = g->msrc ? 0 : ctl_links(g, id, lk);
+            if (T) {
+                amt_text(t, sizeof t, amt);
+                if (amt) { RR(g, c, rc.vol - 4.f, yc - 14.f, RW_VOL + 8.f, 28.f, 2.f, C_REDBG); RRS(g, c, rc.vol - 4.f, yc - 14.f, RW_VOL + 8.f, 28.f, 2.f, C_RED); }
+                TX(g, c, rc.vol + RW_VOL - TW(g, 11.f, 700.f, 0.f, FRUI_TNUM, t), yc - 5.f, 11.f, 700.f, 0.f, FRUI_TNUM, amt ? C_RED : C_FAINT, t);
+                fader_mode(g, c, rc.vol, ty + 2.f, RW_VOL, v, 0.f, (float)amt / 100.f, 4.f, 8.f, 12.f);
+            } else {
+                snprintf(t, sizeof t, "%d", g->level[k]);
+                TX(g, c, rc.vol + RW_VOL - TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t), yc - 5.f, 11.f, 500.f, 0.f, FRUI_TNUM, mod || nl ? C_RED : ink, t);
+                if (nl) {                /* (its reach, behind the track) */
+                    float lo, hi;
+                    ctl_reach(lk, nl, v, &lo, &hi);
+                    if (hi > lo) RR(g, c, rc.vol + RW_VOL * lo, ty - 1.5f, RW_VOL * (hi - lo), 7.f, 3.5f, frui_alpha(C_RED, 0.35f));
+                }
+                RR(g, c, rc.vol, ty, RW_VOL, 4.f, 2.f, C_FAINT);
+                RR(g, c, rc.vol, ty, RW_VOL * v, 4.f, 2.f, mf < 1.f ? C_DIM : C_INK);
+                RR(g, c, rc.vol + RW_VOL * v - 4.f, ty - 4.f, 8.f, 12.f, 2.f, mf < 1.f ? C_DIM : C_INK);
+                if (nl) RR(g, c, rc.vol + RW_VOL * ctl_live(g, lk, nl, v) - 1.5f, ty - 3.f, 3.f, 10.f, 1.5f, C_RED);
+            }
+            wid_add2(g, TXG_W_VOL, k, id, 0, rc.vol - 4.f, yc - 14.f, RW_VOL + 8.f, 28.f);
+            wid_track(g, rc.vol, RW_VOL);
+            if (nl) (void)tags_draw(g, c, id, rc.vol, yc + 18.5f, RW_VOL + 8.f, 8.f);
         }
         {   /* M, S */
             float by = yc - 11.f;
@@ -1464,33 +1728,79 @@ static int sec_on(const txg_t *g, int s)  /* the section does something (its dot
     }
     return g->sn.ui.lfo_on != 0;
 }
-static void lfo_trace(txg_t *g, frui_canvas *c, int n, float x, float y, float w, float h, uint32_t col)
+/* a source's trace: its last LFO_H ticks (row: SRCS' order; an LFO about the middle, an envelope or a follower from the
+ * bottom) */
+static void lfo_trace(txg_t *g, frui_canvas *c, int row, float x, float y, float w, float h, uint32_t col)
 {
     float px = 0.f, py = 0.f, lw = g->S < 1.5f ? 1.f / g->S : 0.9f;
+    int bip = row < 8;
     R(g, c, x, y + h - 1.f, w, 1.f, C_FAINT);
     for (int i = 0; i < LFO_H; i++) {
-        float xx = x + w * (float)i / (float)(LFO_H - 1), yy = y + h - 2.f - ((float)g->lfoh[n][i] / 32767.f * 0.5f + 0.5f) * (h - 4.f);
+        float v = (float)g->lfoh[row][i] / 32767.f, xx = x + w * (float)i / (float)(LFO_H - 1),
+              yy = y + h - 2.f - (bip ? v * 0.5f + 0.5f : v) * (h - 4.f);
         if (i) LN(g, c, px, py, xx, yy, lw * 1.2f, col);
         px = xx; py = yy;
     }
     CI(g, c, px, py, 2.2f, col);
 }
-static void lfo_route(const txg_t *g, int n, char *o, size_t on)   /* LFO n's routes: "L3 PAN +60 %" ("+2": more) */
+/* a source's grip (2 x 3 dots in a red box): dragged onto a control, a link at +25 % and the source's mode */
+static void grip(txg_t *g, frui_canvas *c, int src, float x, float y, float s)
 {
-    int first = -1, more = 0;
-    o[0] = 0;
-    for (int s = 0; s < 16; s++) {
-        int is = txp_param_index(ID_MAT(s, 0)), it = txp_param_index(ID_MAT(s, 1));
-        if (is < 0 || it < 0 || g->sn.pv[is] != n + 1 || !g->sn.pv[it]) continue;
-        if (first < 0) first = s; else more++;
+    RRS(g, c, x, y, s, s, 3.f, C_RED);
+    for (int r = 0; r < 3; r++)
+        for (int q = 0; q < 2; q++) CI(g, c, x + s * 0.5f + ((float)q - 0.5f) * s * 0.27f, y + s * 0.5f + (float)(r - 1) * s * 0.23f, 1.25f, C_RED);
+    wid_add(g, TXG_W_GRIP, src, x - 3.f, y - 3.f, s + 6.f, s + 6.f);
+}
+/* "moves 2 controls" / "not connected" */
+static void src_count(const txg_t *g, int src, char *o, size_t n)
+{
+    int k = src_links(g, src);
+    if (k) snprintf(o, n, "moves %d control%s", k, k > 1 ? "s" : ""); else snprintf(o, n, "not connected");
+}
+/* what a source is set to: an LFO its SHAPE, an envelope its TRIGGER, a follower its INPUT */
+static void src_kind(const txg_t *g, int src, char *o, size_t n)
+{
+    uint32_t id = src <= 8 ? ID_LFO(src - 1, LP_SHAPE) : src <= 17 ? (6u << 8 | (uint32_t)(src - 16) * 16u) : (6u << 8 | (32u + (uint32_t)(src - 18) * 16u));
+    int i = txp_param_index(id);
+    snprintf(o, n, "%s", i >= 0 ? g->sn.ptx[i] : "");
+}
+/* a source's tile: its grip, its name and kind, its live trace, how many controls it moves; a click: its mode (again:
+ * out of it). In its mode: red */
+static void src_tile_draw(txg_t *g, frui_canvas *c, int src, float x, float y, float w, float h)
+{
+    int on = g->msrc == src, hot = g->hover_kind == TXG_W_SRC && g->hover_lane == src, n = src_links(g, src);
+    char nm[16], kd[24], t[48];
+    float gs = h >= 46.f ? 20.f : 18.f, tx = x + 8.f + gs + 8.f;
+    RR(g, c, x, y, w, h, 3.f, on ? C_REDBG : C_WELL);
+    if (on || hot) RRS(g, c, x, y, w, h, 3.f, on ? C_RED : frui_alpha(C_RED, 0.6f));
+    wid_add(g, TXG_W_SRC, src, x, y, w, h);
+    grip(g, c, src, x + 8.f, y + (h >= 46.f ? 8.f : (h - gs) * 0.5f), gs);
+    src_name(src, nm, sizeof nm);
+    src_kind(g, src, kd, sizeof kd);
+    clipL(g, c, x, y, h >= 46.f ? w - 4.f : w * 0.55f - 6.f, h);
+    tx += LBL(g, c, tx, y + 15.f, 9.5f, C_RED, nm) + 7.f;
+    if (tx + LBLW(g, 8.5f, kd) <= x + (h >= 46.f ? w - 8.f : w * 0.55f - 6.f)) LBL(g, c, tx, y + 15.f, 8.5f, C_DIM, kd);   /* (its kind
+                                          * where it fits) */
+    src_count(g, src, t, sizeof t);
+    if (h >= 46.f) {                     /* (tall: the trace across, the count under it) */
+        lfo_trace(g, c, src_row(src), x + 8.f + gs + 8.f, y + 20.f, w - gs - 26.f, 16.f, n ? C_RED : C_DIM);
+        TX(g, c, x + 8.f + gs + 8.f, y + h - 6.f, 9.5f, 450.f, 0.f, 0, C_DIM, t);
+    } else {                             /* (low: the count under the name, the trace at the right) */
+        TX(g, c, x + 8.f + gs + 8.f, y + h - 7.f, 9.5f, 450.f, 0.f, 0, C_DIM, t);
+        frui_clip_reset(c);
+        lfo_trace(g, c, src_row(src), x + w * 0.55f, y + 7.f, w * 0.45f - 10.f, h - 14.f, n ? C_RED : C_DIM);
     }
-    if (first >= 0) {
-        int it = txp_param_index(ID_MAT(first, 1)), id = txp_param_index(ID_MAT(first, 2));
-        size_t l;
-        snprintf(o, on, "%s  %s", g->sn.ptx[it], id >= 0 ? g->sn.ptx[id] : "");
-        l = strlen(o);
-        if (more) snprintf(o + l, on - l, "  +%d", more);
-    } else snprintf(o, on, "%s", g->sn.ui.lfo_to[n]);
+    frui_clip_reset(c);
+}
+/* an LFO's own well in its drawer: its grip, its trace (a click: its mode) */
+static void src_well(txg_t *g, frui_canvas *c, int src, float x, float y, float w, float h)
+{
+    int on = g->msrc == src, hot = g->hover_kind == TXG_W_SRC && g->hover_lane == src;
+    RR(g, c, x, y, w, h, 2.f, on ? C_REDBG : C_WELL);
+    if (on || hot) RRS(g, c, x, y, w, h, 2.f, on ? C_RED : frui_alpha(C_RED, 0.6f));
+    wid_add(g, TXG_W_SRC, src, x, y, w, h);
+    grip(g, c, src, x + 8.f, y + 8.f, 20.f);
+    lfo_trace(g, c, src_row(src), x + 38.f, y + 6.f, w - 48.f, h - 12.f, src_links(g, src) ? C_RED : C_DIM);
 }
 static void draw_strip(txg_t *g, frui_canvas *c)
 {
@@ -1523,45 +1833,31 @@ static void draw_strip(txg_t *g, frui_canvas *c)
             static const uint32_t K[5][4] = { { ID_CTHR, ID_CRATIO, 0, 0 }, { ID_DAMT, ID_DTYPE, 0, 0 },
                                               { ID_FHP, ID_FLP, ID_FRES, ID_FSLOPE }, { ID_GMIX, ID_GTIME, 0, 0 },
                                               { ID_RTYPE, ID_RMIX, 0, 0 } };
-            viz(g, c, s, ix, y0 + 32.f, iw, 46.f, on);
+            viz(g, c, s, ix, y0 + 32.f, iw, 34.f, on);
+            g->tag_below = 1;            /* (a cell's tags under it: the 12 px over the next) */
             if (s == SEC_FILTER) {
                 float hw = (iw - 6.f) * 0.5f;
-                pcell(g, c, ix, y0 + 86.f, hw, 24.f, K[s][0], "HIGH PASS", 0);
-                pcell(g, c, ix + hw + 6.f, y0 + 86.f, hw, 24.f, K[s][1], "LOW PASS", 0);
-                pcell(g, c, ix, y0 + 116.f, hw, 24.f, K[s][2], 0, 0);
-                pcell(g, c, ix + hw + 6.f, y0 + 116.f, hw, 24.f, K[s][3], 0, 0);
+                pcell(g, c, ix, y0 + 74.f, hw, 24.f, K[s][0], "HIGH PASS", 0);
+                pcell(g, c, ix + hw + 6.f, y0 + 74.f, hw, 24.f, K[s][1], "LOW PASS", 0);
+                pcell(g, c, ix, y0 + 110.f, hw, 24.f, K[s][2], 0, 0);
+                pcell(g, c, ix + hw + 6.f, y0 + 110.f, hw, 24.f, K[s][3], 0, 0);
             } else {
-                pcell(g, c, ix, y0 + 86.f, iw, 24.f, K[s][0], 0, 0);
-                pcell(g, c, ix, y0 + 116.f, iw, 24.f, K[s][1], 0, 0);
+                pcell(g, c, ix, y0 + 74.f, iw, 24.f, K[s][0], 0, 0);
+                pcell(g, c, ix, y0 + 110.f, iw, 24.f, K[s][1], 0, 0);
             }
-        } else {                         /* the movement: the LFOs routed (else LFO 1, 2), each traced, its RATE */
+            g->tag_below = 0;
+        } else {                         /* the movement: two sources, those connected first (else LFO 1, 2): their
+                                          * tiles (a click: the source's mode; the grip: dragged onto a control) */
             int shown = 0, more = 0, pick[2] = { -1, -1 };
-            for (int n = 0; n < (int)TXP_LFO_N; n++)
-                if (g->sn.ui.lfo_on >> n & 1u) { if (shown < 2) pick[shown++] = n; else more++; }
-            for (int n = 0; shown < 2 && n < (int)TXP_LFO_N; n++) if (n != pick[0]) pick[shown++] = n;
+            for (int i = 0; i < SRC_N; i++)
+                if (src_links(g, SRCS[i]) || g->msrc == SRCS[i]) { if (shown < 2) pick[shown++] = SRCS[i]; else more++; }
+            for (int i = 0; shown < 2 && i < SRC_N; i++) if (SRCS[i] != pick[0]) pick[shown++] = SRCS[i];
             if (more) {
                 char t[8];
                 snprintf(t, sizeof t, "+%d", more);
                 LBL(g, c, hx + 8.f, y0 + 17.f + CAP(g, 10.f) * 0.5f, 10.f, C_RED, t);
             }
-            for (int i = 0; i < 2; i++) {
-                int n = pick[i], routed = (int)(g->sn.ui.lfo_on >> n & 1u);
-                float yy = y0 + 36.f + 52.f * (float)i;
-                char t[64], sh[24], rt[48];
-                int si = txp_param_index(ID_LFO(n, LP_SHAPE));
-                snprintf(sh, sizeof sh, "%s", si >= 0 ? g->sn.ptx[si] : "");
-                snprintf(t, sizeof t, "LFO %d  \xC2\xB7  %s", n + 1, sh);   /* (its number and shape, as the mockup) */
-                clipL(g, c, ix, yy, iw, 14.f);
-                LBL(g, c, ix, yy + 9.f, 9.5f, routed ? C_RED : C_DIM, t);
-                frui_clip_reset(c);
-                lfo_trace(g, c, n, ix, yy + 13.f, iw * 0.5f - 6.f, 20.f, routed ? C_RED : C_DIM);
-                pcell(g, c, ix + iw * 0.5f, yy + 11.f, iw * 0.5f, 24.f, ID_LFO(n, LP_RATE), "RATE", 0);
-                lfo_route(g, n, rt, sizeof rt);   /* its route: the target, the depth */
-                clipL(g, c, ix, yy + 34.f, iw, 14.f);
-                TX(g, c, ix, yy + 44.f, 10.f, 600.f, 0.2f, FRUI_TNUM, routed ? C_RED : C_FAINT, routed ? rt : "not routed");
-                frui_clip_reset(c);
-                wid_add2(g, TXG_W_FXTAB, TAB_LFO0 + n, 0, 0, ix, yy, iw * 0.5f - 6.f, 46.f);
-            }
+            for (int i = 0; i < 2; i++) src_tile_draw(g, c, pick[i], ix, y0 + 34.f + 56.f * (float)i, iw, 50.f);
         }
         x += w;
     }
@@ -2157,6 +2453,18 @@ static void draw_settings(txg_t *g, frui_canvas *c)
  * 1 .. 8, ENV and FOLLOW, the matrix) over the same */
 typedef struct { const char *t; int n; uint32_t id[8]; } grp_t;
 /* groups: their values in columns of rows (filled down), each group as many columns as it needs, named over them */
+static void groups_x(const grp_t *gr, int ng, int rows, float x, float w, float *gx, float *gw)
+{
+    int cols = 0, gaps = 0;
+    float cw, xx = x;
+    for (int i = 0; i < ng; i++) { int gc = (gr[i].n + rows - 1) / rows; cols += gc; gaps += gc - 1; }
+    cw = (w - 18.f * (float)(ng - 1) - 6.f * (float)gaps) / (float)(cols > 0 ? cols : 1);
+    for (int i = 0; i < ng; i++) {
+        int gc = (gr[i].n + rows - 1) / rows;
+        gx[i] = xx; gw[i] = cw * (float)gc + 6.f * (float)(gc - 1);
+        xx += gw[i] + 18.f;
+    }
+}
 static void groups(txg_t *g, frui_canvas *c, const grp_t *gr, int ng, int rows, float x, float y, float w, float h)
 {
     int cols = 0, gaps = 0;
@@ -2343,9 +2651,38 @@ static void draw_fxd(txg_t *g, frui_canvas *c)
             wid_add(g, TXG_W_FXTAB, i, x, y0 + 8.f, w, 22.f);
             x += w + 4.f;
         }
-        if (tab == TAB_MAT) {
-            TX(g, c, x + 14.f, y0 + 19.f + CAP(g, 10.5f) * 0.5f, 10.5f, 450.f, 0.f, 0, C_DIM, "A source moves a target by DEPTH; SPREAD offsets each lane's.");
-            pcell(g, c, x1 - 16.f - 200.f, y0 + 5.f, 200.f, 26.f, TXP_ID_MODCC, "MOD CC", 0);
+        {   /* CLEAR ALL MOVEMENT (at the right; MATRIX: left of MOD CC), asked first */
+            int na = all_links(g);
+            float rx = tab == TAB_MAT ? x1 - 16.f - 200.f - 12.f : x1 - 16.f, bh = 22.f, by0 = y0 + 8.f, lx;
+            if (g->clr_ask && na) {
+                char q[48];
+                float wk = LBLW(g, 9.5f, "KEEP") + 20.f, wc = LBLW(g, 9.5f, "CLEAR") + 20.f, wq;
+                snprintf(q, sizeof q, "Remove all %d link%s?", na, na > 1 ? "s" : "");
+                wq = TW(g, 10.5f, 500.f, 0.f, 0, q);
+                lx = rx - wk - 6.f - wc - 10.f - wq;
+                TX(g, c, lx, by0 + bh * 0.5f + CAP(g, 10.5f) * 0.5f, 10.5f, 500.f, 0.f, 0, C_INK, q);
+                RRS(g, c, rx - wk - 6.f - wc, by0, wc, bh, 2.f, C_RED);
+                LBL(g, c, rx - wk - 6.f - wc + 10.f, by0 + bh * 0.5f + CAP(g, 9.5f) * 0.5f, 9.5f, C_RED, "CLEAR");
+                wid_add(g, TXG_W_CLRYES, -1, rx - wk - 6.f - wc, by0, wc, bh);
+                RRS(g, c, rx - wk, by0, wk, bh, 2.f, C_LINE);
+                LBL(g, c, rx - wk + 10.f, by0 + bh * 0.5f + CAP(g, 9.5f) * 0.5f, 9.5f, C_INK, "KEEP");
+                wid_add(g, TXG_W_CLRNO, -1, rx - wk, by0, wk, bh);
+            } else {
+                const char *ct = "CLEAR ALL MOVEMENT";
+                float wb = LBLW(g, 9.5f, ct) + 20.f;
+                int hot = na && g->hover_kind == TXG_W_CLRALL;
+                lx = rx - wb;
+                if (hot) RR(g, c, lx, by0, wb, bh, 2.f, C_REDBG);
+                RRS(g, c, lx, by0, wb, bh, 2.f, na ? C_RED : frui_alpha(C_RED, 0.3f));
+                LBL(g, c, lx + 10.f, by0 + bh * 0.5f + CAP(g, 9.5f) * 0.5f, 9.5f, na ? C_RED : frui_alpha(C_RED, 0.3f), ct);
+                if (na) wid_add(g, TXG_W_CLRALL, -1, lx, by0, wb, bh);
+            }
+            if (tab == TAB_MAT) {
+                const char *mt = "A source moves a target by DEPTH; SPREAD offsets each lane's.";
+                if (x + 14.f + TW(g, 10.5f, 450.f, 0.f, 0, mt) < lx - 12.f)
+                    TX(g, c, x + 14.f, y0 + 19.f + CAP(g, 10.5f) * 0.5f, 10.5f, 450.f, 0.f, 0, C_DIM, mt);
+                pcell(g, c, x1 - 16.f - 200.f, y0 + 5.f, 200.f, 26.f, TXP_ID_MODCC, "MOD CC", 0);
+            }
         }
         by = y0 + FXD_TABS;
     }
@@ -2363,28 +2700,34 @@ static void draw_fxd(txg_t *g, frui_canvas *c)
         graph_big(g, c, tab, 16.f, by + 38.f, gw, y1 - 12.f - (by + 38.f), sec_on(g, tab));
         groups(g, c, G[tab], NG[tab], ROWS[tab], gw + 40.f, by + 12.f, x1 - gw - 56.f, y1 - 12.f - (by + 12.f));
     } else if (tab < TAB_ENV) {          /* an LFO: its trace, NOW, its routes; its values in groups */
-        int n = tab - TAB_LFO0, routed = (int)(g->sn.ui.lfo_on >> n & 1u), nr = 0;
+        int n = tab - TAB_LFO0, nl = src_links(g, n + 1), nr = 0;
         float yy;
+        char cn[32];
         grp_t G[3] = { { "WAVE", 4, { ID_LFO(n, LP_SHAPE), ID_LFO(n, LP_WIDTH), ID_LFO(n, LP_PHASE), ID_LFO(n, LP_JITTER) } },
                        { "TIME", 4, { ID_LFO(n, LP_RATE), ID_LFO(n, LP_SYNC), ID_LFO(n, LP_FADE), ID_LFO(n, LP_RESTART) } },
                        { "OUTPUT", 2, { ID_LFO(n, LP_MODE), ID_LFO(n, LP_LEVEL) } } };
         snprintf(t, sizeof t, "LFO %d", n + 1);
-        fxd_title(g, c, 16.f, by + 12.f, gw - 70.f, t, routed ? C_RED : C_INK, routed ? "" : "not routed");
+        src_count(g, n + 1, cn, sizeof cn);
+        fxd_title(g, c, 16.f, by + 12.f, gw - 70.f, t, nl ? C_RED : C_INK, cn);
         snprintf(t, sizeof t, "NOW %+d %%", (int)lroundf((float)g->sn.ui.lfo[n] * 100.f / 32767.f));   /* (read only) */
-        LBL(g, c, 16.f + gw - TW(g, 10.f, 620.f, 1.4f, 0, t), by + 22.f, 10.f, routed ? C_RED : C_DIM, t);
-        RR(g, c, 16.f, by + 32.f, gw, 64.f, 2.f, C_WELL);
-        lfo_trace(g, c, n, 26.f, by + 38.f, gw - 20.f, 52.f, routed ? C_RED : C_DIM);
+        LBL(g, c, 16.f + gw - TW(g, 10.f, 620.f, 1.4f, 0, t), by + 22.f, 10.f, nl ? C_RED : C_DIM, t);
+        src_well(g, c, n + 1, 16.f, by + 32.f, gw, 64.f);
         yy = by + 112.f;
-        for (int s = 0; s < 16 && nr < 3; s++) {   /* the matrix slots it drives */
-            int i = txp_param_index(ID_MAT(s, 0)), it = txp_param_index(ID_MAT(s, 1)), id = txp_param_index(ID_MAT(s, 2));
-            if (i < 0 || g->sn.pv[i] != n + 1 || it < 0 || !g->sn.pv[it]) continue;
-            snprintf(t, sizeof t, "MOD %d  \xE2\x86\x92  %s  %s", s + 1, g->sn.ptx[it], id >= 0 ? g->sn.ptx[id] : "");
+        for (int s = 0; s < 16 && nr < 3; s++) {   /* what it moves (the matrix's slots) */
+            int it = txp_param_index(ID_MAT(s, 1));
+            if (!mx_link(g, s) || mx(g, s, 0) != n + 1 || it < 0) continue;
+            snprintf(t, sizeof t, "\xE2\x86\x92  %s  %+d%%", g->sn.ptx[it], mx(g, s, 2) - 100);
             clipL(g, c, 16.f, yy - 12.f + 16.f * (float)nr, gw, 16.f);
             TX(g, c, 16.f, yy + 16.f * (float)nr, 11.f, 500.f, 0.f, FRUI_TNUM, C_RED, t);
             frui_clip_reset(c);
             nr++;
         }
-        if (!nr) TX(g, c, 16.f, yy, 11.f, 450.f, 0.f, 0, C_DIM, "Set a MATRIX slot's SOURCE to it.");
+        if (!nr) {
+            clipL(g, c, 16.f, yy - 12.f, gw, 32.f);
+            TX(g, c, 16.f, yy, 11.f, 450.f, 0.f, 0, C_DIM, "Click the tile for its mode, or drag its grip");
+            TX(g, c, 16.f, yy + 16.f, 11.f, 450.f, 0.f, 0, C_DIM, "onto a control.");
+            frui_clip_reset(c);
+        }
         groups(g, c, G, 3, 2, gw + 40.f, by + 12.f, x1 - gw - 56.f, y1 - 12.f - (by + 12.f));
     } else if (tab == TAB_ENV) {         /* the envelopes and the followers: a group each */
         grp_t G[4];
@@ -2393,7 +2736,12 @@ static void draw_fxd(txg_t *g, frui_canvas *c)
             G[m].t = M[m]; G[m].n = m < 2 ? 8 : 4;
             for (int p = 0; p < G[m].n; p++) G[m].id[p] = 6u << 8 | (uint32_t)m * 16u | (uint32_t)p;
         }
-        groups(g, c, G, 4, 4, 16.f, by + 12.f, x1 - 32.f, y1 - 12.f - (by + 12.f));
+        {   /* (each source's tile over its group: a click its mode, its grip) */
+            float gx[4], gwd[4];
+            groups_x(G, 4, 4, 16.f, x1 - 32.f, gx, gwd);
+            for (int m = 0; m < 4; m++) src_tile_draw(g, c, 16 + m, gx[m], by + 12.f, gwd[m], 40.f);
+        }
+        groups(g, c, G, 4, 4, 16.f, by + 12.f + 48.f, x1 - 32.f, y1 - 12.f - (by + 12.f + 48.f));
     } else {                             /* the matrix: sixteen slots, SOURCE TARGET DEPTH SPREAD */
         float colw = (x1 - 48.f) / 2.f, rh = 30.f;
         for (int s = 0; s < 16; s++) {   /* (the columns named once over each half; the cells their values alone) */
@@ -2475,6 +2823,130 @@ static void draw_picker(txg_t *g, frui_canvas *c)
     LBL(g, c, x + 12.f, y + 20.f, 10.f, C_DIM, t);
     swatches(g, c, x + 11.f, y + 31.f, g->pick);
 }
+/* a source's mode: its bar under the top bar (the content under it): "LFO 1 MODE", what to do (or the message), CLEAR
+ * LFO 1, DONE */
+static void draw_mbar(txg_t *g, frui_canvas *c)
+{
+    const float y = TOP_H, h = MB_H, yc = y + h * 0.5f;
+    char nm[16], t[64], hint[112];
+    float x = 18.f, rx = g->W - 16.f, wd, wc = 0.f;
+    int n = src_links(g, g->msrc);
+    src_name(g->msrc, nm, sizeof nm);
+    R(g, c, 0, y, g->W, h, C_RED);
+    wid_add(g, TXG_W_MBAR, g->msrc, 0, y, g->W, h);
+    snprintf(t, sizeof t, "%s MODE", nm);
+    x += LBL(g, c, x, yc + CAP(g, 12.f) * 0.5f, 12.f, 0xFFFFFFFFu, t) + 10.f;
+    x += TX(g, c, x, yc + CAP(g, 12.f) * 0.5f, 12.f, 700.f, 0.f, 0, 0xD9FFFFFFu, "\xC2\xB7") + 10.f;
+    /* DONE, CLEAR <SOURCE> (only while it moves something) at the right */
+    wd = LBLW(g, 10.f, "DONE") + 24.f;
+    RRS(g, c, rx - wd, y + 6.f, wd, h - 12.f, 3.f, g->hover_kind == TXG_W_MDONE ? 0xFFFFFFFFu : 0x99FFFFFFu);
+    LBL(g, c, rx - wd + 12.f, yc + CAP(g, 10.f) * 0.5f, 10.f, 0xFFFFFFFFu, "DONE");
+    wid_add(g, TXG_W_MDONE, g->msrc, rx - wd, y + 6.f, wd, h - 12.f);
+    snprintf(t, sizeof t, "CLEAR %s", nm);   /* (nothing to clear: dim) */
+    wc = LBLW(g, 10.f, t) + 24.f;
+    RRS(g, c, rx - wd - 8.f - wc, y + 6.f, wc, h - 12.f, 3.f, !n ? 0x4DFFFFFFu : g->hover_kind == TXG_W_MCLEAR ? 0xFFFFFFFFu : 0x99FFFFFFu);
+    LBL(g, c, rx - wd - 8.f - wc + 12.f, yc + CAP(g, 10.f) * 0.5f, 10.f, n ? 0xFFFFFFFFu : 0x4DFFFFFFu, t);
+    if (n) wid_add(g, TXG_W_MCLEAR, g->msrc, rx - wd - 8.f - wc, y + 6.f, wc, h - 12.f);
+    wc += 8.f;
+    snprintf(hint, sizeof hint, "Drag a control to set how far %s moves it. Double-click removes.", nm);
+    clipL(g, c, x, y, rx - wd - wc - 12.f - x, h);
+    TX(g, c, x, yc + CAP(g, 12.f) * 0.5f, 12.f, 500.f, 0.f, 0, 0xF2FFFFFFu, hint);
+    frui_clip_reset(c);
+}
+/* the message: a line over the rows' head (~5 s) */
+static void draw_msg(txg_t *g, frui_canvas *c)
+{
+    float x = g->PW + 10.f, y = g->ct + 2.f, w = TW(g, 11.f, 500.f, 0.f, 0, g->msg) + 24.f, h = HDR_H - 4.f;
+    if (w > g->W - x - 12.f) w = g->W - x - 12.f;
+    RR(g, c, x, y, w, h, 3.f, C_BTN); RRS(g, c, x, y, w, h, 3.f, C_RED);
+    clipL(g, c, x, y, w - 8.f, h);
+    TX(g, c, x + 12.f, y + h * 0.5f + CAP(g, 11.f) * 0.5f, 11.f, 500.f, 0.f, 0, C_INK, g->msg);
+    frui_clip_reset(c);
+    wid_add(g, TXG_W_MSG, 1, x, y, w, h);
+}
+/* which controls the mode's source can move: those that cannot dim (marked TXG_W_NOMOVE), those it does not move yet
+ * get a thin red outline (those it moves are red already). The matrix's own cells, MOD CC: as they are */
+static int mode_skip(uint32_t id) { return (id >> 8) == 7u || id >= TXP_ID_OWN0; }
+static void mode_marks(txg_t *g, frui_canvas *c)
+{
+    int n = g->nw;
+    for (int i = 0; i < n; i++) {
+        const wid_t w = g->w[i];
+        uint32_t id = w.id;
+        if (w.kind == TXG_W_VOL) id = TXP_ID_LANE(w.lane, TXP_PL_LEVEL);
+        else if (w.kind != TXG_W_PARAM && w.kind != TXG_W_MANY && w.kind != TXG_W_ACT) continue;
+        if (!id || mode_skip(id)) continue;
+        if (!ctl_tgt(g, id, 0)) {
+            R(g, c, w.r[0], w.r[1], w.r[2], w.r[3], frui_alpha(C_PANEL, 0.7f));
+            wid_add2(g, TXG_W_NOMOVE, (int)id, id, 0, w.r[0], w.r[1], w.r[2], w.r[3]);
+        } else if (!link_amt(g, g->msrc, id)) RRS(g, c, w.r[0], w.r[1], w.r[2], w.r[3], 2.f, frui_alpha(C_RED, 0.35f));
+    }
+}
+/* the right-click menu: MOVE WITH the sources (a click: that source's mode, a link at +25 % if it had none), REMOVE
+ * MOVEMENT; a control no source can move: why */
+#define MN_W 230.f
+#define MN_IH 22.f
+static float menu_h(const txg_t *g, int tgt) { (void)g; return tgt ? 4.f + MN_IH * (float)SRC_N + 9.f + MN_IH + 4.f : 4.f + MN_IH + 4.f; }
+static void draw_menu(txg_t *g, frui_canvas *c)
+{
+    int why, T = ctl_tgt(g, g->menu_id, &why);
+    float h = menu_h(g, T), x = g->menu_x, y = g->menu_y;
+    char nm[48], t[96], sn[16];
+    x = x + MN_W > g->W - 8.f ? g->W - 8.f - MN_W : x;
+    y = y + h > g->H - 8.f ? g->H - 8.f - h : y;
+    y = y < TOP_H + 4.f ? TOP_H + 4.f : y;
+    wid_add(g, TXG_W_MENU, -1, x, y, MN_W, h);
+    frui_rrect_shadow(c, x * g->S, y * g->S, MN_W * g->S, h * g->S, 4.f * g->S, 14.f * g->S, 0x90000000u);
+    RR(g, c, x, y, MN_W, h, 5.f, C_MENU); RRS(g, c, x, y, MN_W, h, 5.f, C_LINE);
+    ctl_name(g, g->menu_id, nm, sizeof nm);
+    clipL(g, c, x, y, MN_W - 6.f, h);
+    if (!T) {                            /* (why, on hover too: the refusal's message) */
+        (void)why;
+        snprintf(t, sizeof t, "%s cannot be moved", nm);
+        TX(g, c, x + 14.f, y + 4.f + MN_IH * 0.5f + CAP(g, 11.5f) * 0.5f, 11.5f, 500.f, 0.f, 0, C_FAINT, t);
+        frui_clip_reset(c);
+        return;
+    }
+    for (int i = 0; i < SRC_N; i++) {
+        float iy = y + 4.f + MN_IH * (float)i;
+        int a = link_amt(g, SRCS[i], g->menu_id), hot = g->hover_kind == TXG_W_MENU && g->hover_lane == i;
+        if (hot) RR(g, c, x + 4.f, iy, MN_W - 8.f, MN_IH, 3.f, 0xFF34312Fu);
+        src_name(SRCS[i], sn, sizeof sn);
+        snprintf(t, sizeof t, "Move with %s", sn);
+        TX(g, c, x + 14.f, iy + MN_IH * 0.5f + CAP(g, 11.5f) * 0.5f, 11.5f, 500.f, 0.f, 0, C_INK, t);
+        if (a) {
+            snprintf(t, sizeof t, "%+d%%", a);
+            TX(g, c, x + MN_W - 14.f - TW(g, 11.5f, 500.f, 0.f, FRUI_TNUM, t), iy + MN_IH * 0.5f + CAP(g, 11.5f) * 0.5f, 11.5f, 500.f, 0.f, FRUI_TNUM, C_DIM, t);
+        }
+        wid_add(g, TXG_W_MENU, i, x + 4.f, iy, MN_W - 8.f, MN_IH);
+    }
+    {
+        float sy = y + 4.f + MN_IH * (float)SRC_N + 4.f, iy = sy + 5.f;
+        lk_t lk[MX_N];
+        int nl = ctl_links(g, g->menu_id, lk), own = 0, hot = g->hover_kind == TXG_W_MENU && g->hover_lane == SRC_N;
+        for (int i = 0; i < nl; i++) own += !lk[i].all;
+        R(g, c, x + 8.f, sy, MN_W - 16.f, 1.f, C_LINE);
+        if (hot && own) RR(g, c, x + 4.f, iy, MN_W - 8.f, MN_IH, 3.f, 0xFF34312Fu);
+        TX(g, c, x + 14.f, iy + MN_IH * 0.5f + CAP(g, 11.5f) * 0.5f, 11.5f, 500.f, 0.f, 0, own ? C_INK : C_FAINT, "Remove movement");
+        if (own) wid_add(g, TXG_W_MENU, SRC_N, x + 4.f, iy, MN_W - 8.f, MN_IH);
+    }
+    frui_clip_reset(c);
+}
+/* a grip dragged: the source's name at the pointer, the control under it outlined (red: it can be moved) */
+static void draw_ghost(txg_t *g, frui_canvas *c)
+{
+    char nm[16];
+    float w;
+    if (g->gover) {
+        int T = ctl_tgt(g, g->gover, 0);
+        RR(g, c, g->gover_r[0], g->gover_r[1], g->gover_r[2], g->gover_r[3], 2.f, T ? frui_alpha(C_RED, 0.14f) : frui_alpha(C_PANEL, 0.6f));
+        RRS(g, c, g->gover_r[0], g->gover_r[1], g->gover_r[2], g->gover_r[3], 2.f, T ? C_RED : C_DIM);
+    }
+    src_name(g->drag_lane, nm, sizeof nm);
+    w = LBLW(g, 10.f, nm) + 20.f;
+    RR(g, c, g->gx + 12.f, g->gy + 12.f, w, 22.f, 3.f, C_RED);
+    LBL(g, c, g->gx + 22.f, g->gy + 23.f + CAP(g, 10.f) * 0.5f, 10.f, 0xFFFFFFFFu, nm);
+}
 static void draw_all(txg_t *g, frui_canvas *c)
 {
     g->nw = 0;
@@ -2488,7 +2960,11 @@ static void draw_all(txg_t *g, frui_canvas *c)
         draw_rows(g, c); draw_place(g, c);
         if (g->ov == OV_FX) draw_fxd(g, c); else draw_drawer(g, c);
         draw_strip(g, c);
+        if (g->msrc) { mode_marks(g, c); draw_mbar(g, c); }
+        if (g->msg_t > 0) draw_msg(g, c);
+        if (g->drag == TXG_W_GRIP && g->drag_moved) draw_ghost(g, c);
         if (g->ov == OV_SAVE) draw_save(g, c);
+        if (g->menu_on) draw_menu(g, c);
     }
     hint_tip(g, c);
     draw_picker(g, c);
@@ -2521,14 +2997,21 @@ int txg_tick(txg_t *g)
         g->dist[k] = l->dist != 0xFF ? txp_ui_get(g->c, TXP_ID_LANE(k, TXP_PL_CARD0 + l->dist)) : -1;
     }
     g->actn = txp_ui_act(g->c, g->ev, g->pk, NBLK);
-    if (g->actn != actn0 || !g->drawn)   /* the LFOs' traces: a value a tick while the app plays */
-        for (int n = 0; n < (int)TXP_LFO_N; n++) {
-            if (!g->drawn && !g->lfo_seen) for (int i = 0; i < LFO_H; i++) g->lfoh[n][i] = g->sn.ui.lfo[n];   /* (the first:
-                                          * a flat trace at the value now) */
+    if (g->actn != actn0 || !g->drawn)   /* the sources' traces: a value a tick while the app plays */
+        for (int n = 0; n < SRC_N; n++) {
+            int16_t v = n < 8 ? g->sn.ui.lfo[n] : g->sn.ui.envf[n - 8];
+            if (!g->drawn && !g->lfo_seen) for (int i = 0; i < LFO_H; i++) g->lfoh[n][i] = v;   /* (the first: a flat
+                                          * trace at the value now) */
             memmove(g->lfoh[n], g->lfoh[n] + 1, (LFO_H - 1) * sizeof g->lfoh[n][0]);
-            g->lfoh[n][LFO_H - 1] = g->sn.ui.lfo[n];
+            g->lfoh[n][LFO_H - 1] = v;
         }
     g->lfo_seen = 1;
+    if (g->msg_t > 0) g->msg_t--;
+    {   /* the links' undo: the matrix changed by anything but the window (a preset, the host): forgotten */
+        int16_t now[16][4];
+        for (int s = 0; s < 16; s++) for (int q = 0; q < 4; q++) now[s][q] = (int16_t)mx(g, s, q);
+        if (memcmp(now, g->mx_known, sizeof now)) { g->lh_n = 0; memcpy(g->mx_known, now, sizeof now); }
+    }
     {   /* COMP's meters: a VU's ballistics on the app's values (its most since the last publication): up fast (half the
          * way a tick), down 0.8 dB a tick (~24 dB/s); the input's peak held ~1 s; the gain reduction up at once */
         float t[3] = { (float)g->sn.ui.comp_in10 / 10.f, (float)g->sn.ui.comp_out10 / 10.f, (float)g->sn.ui.comp_gr10 / 10.f };
@@ -2558,6 +3041,7 @@ int txg_tick(txg_t *g)
         u = g->sn.ui;
         for (k = 0; k < (int)TXP_LANES; k++) { u.lane[k].lpan = u.lane[k].ldist = 0; memset(u.card[k].live, 0, sizeof u.card[k].live); }
         memset(u.lfo, 0, sizeof u.lfo);
+        memset(u.envf, 0, sizeof u.envf);
         u.comp_gr10 = u.comp_in10 = u.comp_out10 = 0; u.out_db10 = 0;
         h = fnv(h, &u, sizeof u);
     }
@@ -2577,6 +3061,16 @@ int txg_tick(txg_t *g)
         h = fnv(h, v, sizeof v);
         h = fnv(h, g->q, sizeof g->q);
         h = fnv(h, g->sv_name, sizeof g->sv_name);
+    }
+    {   /* the movement: the mode, the message, the menu, a grip dragged, CLEAR ALL's question, the undo, the matrix */
+        int v[12 + 64], n = 0;
+        int gd = g->drag == TXG_W_GRIP && g->drag_moved;
+        v[n++] = g->msrc; v[n++] = g->msg_t > 0; v[n++] = g->menu_on; v[n++] = (int)g->menu_x; v[n++] = (int)g->menu_y;
+        v[n++] = (int)g->menu_id; v[n++] = gd ? (int)g->gx : 0; v[n++] = gd ? (int)g->gy : 0; v[n++] = gd ? (int)g->gover : 0;
+        v[n++] = g->clr_ask; v[n++] = g->lh_n; v[n++] = g->drag_lane;
+        for (int s = 0; s < 16; s++) for (int q = 0; q < 4; q++) v[n++] = mx(g, s, q);
+        h = fnv(h, v, sizeof v);
+        if (g->msg_t > 0) h = fnv(h, g->msg, sizeof g->msg);
     }
     if (g->ov == OV_SET || g->ov == OV_PRE) {   /* (the settings they show: the window's own writes too) */
         static const int GL[] = { TXP_PG_SCNTEMPO, TXP_PG_SCNFX, TXP_PG_GAMOUNT, TXP_PG_GTYPE, TXP_PG_GSHIFT, TXP_PG_SCALE,
@@ -2620,8 +3114,9 @@ static int paint_into(txg_t *g, frui_canvas *c)
         frui_clip_base(c, 0, 0, c->w, c->h);
     } else if (moved && (g->ov == OV_NONE || g->ov == OV_SAVE || g->ov == OV_FX) && g->pick < 0) {
         rcol_t rc = rcols(g);
-        region(g, c, 0, TOP_H, g->PW, g->dr_y);
-        region(g, c, rc.dot - 8.f, TOP_H + HDR_H, rc.tl + rc.tlw + 1.f, g->dr_y);
+        region(g, c, 0, g->ct, g->PW, g->dr_y);
+        region(g, c, rc.dot - 8.f, g->ct + HDR_H, rc.tl + rc.tlw + 1.f, g->dr_y);
+        region(g, c, rc.many - 4.f, g->ct + HDR_H, rc.ms - 2.f, g->dr_y);   /* (the rows' values: their live red marks) */
         region(g, c, 0, g->dr_y, g->W, g->H);
         region(g, c, meter_x(g) - 2.f, 0, meter_x(g) + 104.f, TOP_H - 1.f);
         frui_clip_base(c, 0, 0, c->w, c->h);
@@ -2667,6 +3162,16 @@ static const wid_t *hit(const txg_t *g, float x, float y)   /* the last-drawn co
 {
     const wid_t *best = 0;
     float bd = 1e9f;
+    if (g->menu_on) {                    /* (the right-click menu: its items, else nothing) */
+        for (int i = g->nw - 1; i >= 0; i--) {
+            const wid_t *w = &g->w[i];
+            if (w->kind == TXG_W_MENU && x >= w->r[0] && x < w->r[0] + w->r[2] && y >= w->r[1] && y < w->r[1] + w->r[3]) {
+                if (w->lane >= 0) return w;
+                if (!best) best = w;
+            }
+        }
+        return best;
+    }
     if (g->pick >= 0 || g->ov == OV_SAVE) {
         for (int i = g->nw - 1; i >= 0; i--) {
             const wid_t *w = &g->w[i];
@@ -2690,7 +3195,7 @@ static const wid_t *hit(const txg_t *g, float x, float y)   /* the last-drawn co
     for (int i = g->nw - 1; i >= 0; i--) {
         const wid_t *w = &g->w[i];
         if (w->kind == TXG_W_DOT || w->kind == TXG_W_PLACE || w->kind == TXG_W_MAPR || w->kind == TXG_W_CMETER || w->kind == TXG_W_TIP ||
-            w->kind == TXG_W_FXD) continue;
+            w->kind == TXG_W_FXD || w->kind == TXG_W_MBAR || w->kind == TXG_W_MSG || w->kind == TXG_W_NOMOVE || w->kind == TXG_W_MENU) continue;
         if (x >= w->r[0] && x < w->r[0] + w->r[2] && y >= w->r[1] && y < w->r[1] + w->r[3]) {
             if (w->kind == TXG_W_ROW || w->kind == TXG_W_ROWS) { if (!best || best->kind == TXG_W_ROWS) best = w; continue; }   /* (a row:
                                           * only when nothing in it is hit) */
@@ -2709,6 +3214,82 @@ static void step_param(txg_t *g, uint32_t id, int d, int wrap)
     txp_ui_begin(g->c, id); txp_ui_set(g->c, id, v); txp_ui_end(g->c, id);
 }
 static void set_param(txg_t *g, uint32_t id, int v) { txp_ui_begin(g->c, id); txp_ui_set(g->c, id, v); txp_ui_end(g->c, id); }
+static void lh_push(txg_t *g)            /* the matrix as it is, kept for UNDO */
+{
+    if (g->lh_n == LH_N) { memmove(g->lh[0], g->lh[1], (LH_N - 1) * sizeof g->lh[0]); g->lh_n--; }
+    for (int s = 0; s < 16; s++) for (int q = 0; q < 4; q++) g->lh[g->lh_n][s][q] = (int16_t)mx(g, s, q);
+    g->lh_n++;
+}
+static void lh_undo(txg_t *g)            /* the matrix back as it was before the last change (DEPTH first) */
+{
+    static const int Q[4] = { 2, 0, 1, 3 };
+    if (!g->lh_n) return;
+    g->lh_n--;
+    for (int s = 0; s < 16; s++)
+        for (int j = 0; j < 4; j++) if (mx(g, s, Q[j]) != g->lh[g->lh_n][s][Q[j]]) set_param(g, ID_MAT(s, Q[j]), g->lh[g->lh_n][s][Q[j]]);
+}
+static void slot_clear(txg_t *g, int s)  /* a slot freed (mod.c: no source, no target, no depth) */
+{
+    set_param(g, ID_MAT(s, 2), 100); set_param(g, ID_MAT(s, 0), 0); set_param(g, ID_MAT(s, 1), 0);
+}
+static int link_make(txg_t *g, int src, int T)   /* the slot of src -> T, made in the first free one (full: said, -1) */
+{
+    int s = link_slot(g, src, T);
+    if (s >= 0) return s;
+    for (s = 0; s < MX_N && (mx(g, s, 0) || mx(g, s, 1)); s++) {}
+    if (s >= MX_N) { say(g, "All 16 links are in use. Remove one first (CLEAR, or the MATRIX tab)."); return -1; }
+    set_param(g, ID_MAT(s, 2), 100); set_param(g, ID_MAT(s, 3), 0); set_param(g, ID_MAT(s, 0), src); set_param(g, ID_MAT(s, 1), T);
+    return s;
+}
+static void say_link(txg_t *g, int src, uint32_t id, int amt)
+{
+    char sn[16], nm[48], t[112];
+    src_name(src, sn, sizeof sn); ctl_name(g, id, nm, sizeof nm);
+    if (amt) snprintf(t, sizeof t, "%s moves %s by %+d%%.", sn, nm, amt); else snprintf(t, sizeof t, "%s no longer moves %s.", sn, nm);
+    say(g, t);
+}
+static void say_refuse(txg_t *g, uint32_t id, int why)
+{
+    char nm[48], t[112];
+    ctl_name(g, id, nm, sizeof nm);
+    if (why == 1) snprintf(t, sizeof t, "%s cannot be moved: it is a choice.", nm);
+    else if (why == 2) snprintf(t, sizeof t, "%s: lanes 5 to 16 are moved only through ALL LANES (MATRIX tab).", nm);
+    else snprintf(t, sizeof t, "No source can move %s.", nm);
+    say(g, t);
+}
+static void link_to(txg_t *g, int src, uint32_t id, int amt)   /* src moves id by amt % (0: the link removed) */
+{
+    int T = ctl_tgt(g, id, 0), s;
+    if (!T) return;
+    s = link_slot(g, src, T);
+    if (amt > -2 && amt < 2) { if (s >= 0) slot_clear(g, s); say_link(g, src, id, 0); return; }
+    if (s < 0 && (s = link_make(g, src, T)) < 0) return;
+    set_param(g, ID_MAT(s, 2), 100 + amt);
+    say_link(g, src, id, amt);
+}
+static void src_clear(txg_t *g, int src)  /* every link of src removed */
+{
+    for (int s = 0; s < MX_N; s++) if (mx(g, s, 0) == src && (mx(g, s, 1) || mx(g, s, 2) != 100)) slot_clear(g, s);
+}
+static void mode_set(txg_t *g, int src) { g->msrc = src; g->menu_on = 0; g->clr_ask = 0; lay(g); }
+/* the mode's drag at x: the reach's end where the pointer is on the control's track (left of the value: less); the
+ * link made on the first amount, kept for UNDO before its first change */
+static void mamt_at(txg_t *g, float x)
+{
+    int a = (int)lroundf(((x - g->drag_rx) / g->drag_rw - g->mv_f) * 100.f);
+    a = a < -100 ? -100 : a > 100 ? 100 : a;
+    if (!g->drag_begun) {
+        int T = ctl_tgt(g, g->mv_id, 0), s = link_slot(g, g->msrc, T);
+        if (s < 0 && a > -2 && a < 2) return;
+        if (s >= 0 && mx(g, s, 2) - 100 == a) return;
+        lh_push(g);
+        if (s < 0 && (s = link_make(g, g->msrc, T)) < 0) { g->lh_n--; g->drag = 0; return; }
+        g->drag_id = (uint32_t)s;
+        txp_ui_begin(g->c, ID_MAT(s, 2)); g->drag_begun = 1;
+    }
+    txp_ui_set(g->c, ID_MAT((int)g->drag_id, 2), 100 + a);
+    say_link(g, g->msrc, g->mv_id, a > -2 && a < 2 ? 0 : a);
+}
 static int p_default(const txg_t *g, uint32_t id)   /* a double-click's value: a card its sound's own, PAN the middle */
 {
     int k = lane_of_id(id), i = (int)(id & 0xFFu);
@@ -2769,6 +3350,11 @@ static void drag_end(txg_t *g)
         if (g->drag_dist >= 0) txp_ui_end(g->c, TXP_ID_LANE(k, TXP_PL_CARD0 + g->drag_dist));
     } else if (g->drag == TXG_W_PARAM || g->drag == TXG_W_MANY || g->drag == TXG_W_ACT) {
         if (g->drag_begun) txp_ui_end(g->c, g->drag_id);
+    } else if (g->drag == TXG_W_MAMT && g->drag_begun) {   /* (the amount set: ~0 removes the link) */
+        int s = (int)g->drag_id, a = mx(g, s, 2) - 100;
+        txp_ui_end(g->c, ID_MAT(s, 2));
+        if (a > -2 && a < 2) slot_clear(g, s);
+        say_link(g, g->msrc, g->mv_id, a > -2 && a < 2 ? 0 : a);
     }
     g->drag = 0;
     g->drag_begun = 0;
@@ -2918,15 +3504,75 @@ static int ov_key(txg_t *g, const frg_input *e)   /* the keys while an overlay i
     }
     return 0;
 }
-int txg_input(txg_t *g, const frg_input *e)
+static int input_(txg_t *g, const frg_input *e)
 {
     const wid_t *w;
     int k;
     switch (e->kind) {
     case FRG_DOWN: case FRG_DOUBLE:
+        if (e->button == FRG_RIGHT && e->kind == FRG_DOWN) {   /* the right-click menu on a value */
+            if (g->drag) drag_end(g);
+            g->menu_on = 0;
+            w = hit(g, e->x, e->y);
+            if (g->pick >= 0 || (g->ov != OV_NONE && g->ov != OV_FX) || !w) return 3;
+            {
+                uint32_t id = w->kind == TXG_W_VOL ? TXP_ID_LANE(w->lane, TXP_PL_LEVEL) : w->id;
+                if ((w->kind == TXG_W_PARAM || w->kind == TXG_W_VOL || w->kind == TXG_W_MANY || w->kind == TXG_W_ACT ||
+                     w->kind == TXG_W_STEP || w->kind == TXG_W_TAG) && id && !mode_skip(id)) {
+                    g->menu_on = 1; g->menu_id = id; g->menu_x = e->x; g->menu_y = e->y;
+                }
+            }
+            return 3;
+        }
         if (e->button != FRG_LEFT) return 0;
         if (g->drag) drag_end(g);
         w = hit(g, e->x, e->y);
+        if (g->menu_on) {                /* the menu: an item, or anything else closes it */
+            g->menu_on = 0;
+            if (w && w->kind == TXG_W_MENU && w->lane >= 0 && w->lane < SRC_N) {
+                int src = SRCS[w->lane], T = ctl_tgt(g, g->menu_id, 0);
+                if (T && link_slot(g, src, T) < 0) {
+                    int s;
+                    lh_push(g);
+                    if ((s = link_make(g, src, T)) >= 0) { set_param(g, ID_MAT(s, 2), 125); say_link(g, src, g->menu_id, 25); }
+                    else g->lh_n--;
+                }
+                if (T) mode_set(g, src);
+            } else if (w && w->kind == TXG_W_MENU && w->lane == SRC_N) {   /* (its own links; ALL LANES' stay) */
+                lk_t lk[MX_N];
+                int nl = ctl_links(g, g->menu_id, lk), all = 0;
+                char nm[48], t[112];
+                lh_push(g);
+                for (int i = 0; i < nl; i++) { if (lk[i].all) all++; else slot_clear(g, lk[i].slot); }
+                ctl_name(g, g->menu_id, nm, sizeof nm);
+                if (all) snprintf(t, sizeof t, "%s: movement removed (ALL LANES links stay: MATRIX tab).", nm);
+                else snprintf(t, sizeof t, "%s: movement removed.", nm);
+                say(g, t);
+            }
+            return 3;
+        }
+        if (w && g->msrc) {              /* a source's mode: a value sets the source's amount on it */
+            uint32_t id = w->kind == TXG_W_VOL ? TXP_ID_LANE(w->lane, TXP_PL_LEVEL) : w->id;
+            if ((w->kind == TXG_W_PARAM || w->kind == TXG_W_VOL || w->kind == TXG_W_MANY || w->kind == TXG_W_ACT || w->kind == TXG_W_STEP) &&
+                id && !mode_skip(id) && g->pick < 0) {
+                int why, T = ctl_tgt(g, id, &why);
+                if (!T) { say_refuse(g, id, why); return 3; }
+                if (e->kind == FRG_DOUBLE) {
+                    if (link_amt(g, g->msrc, id)) { lh_push(g); link_to(g, g->msrc, id, 0); }
+                    return 3;
+                }
+                {
+                    const txp_param_t *pp = pinfo(id);
+                    int hi = pp ? pp->hi : 1;
+                    g->drag = TXG_W_MAMT; g->mv_id = id;
+                    g->mv_f = (float)txp_ui_get(g->c, id) / (float)(hi > 0 ? hi : 1);
+                    g->drag_begun = 0;
+                    g->drag_rx = w->t0; g->drag_rw = w->tw > 8.f ? w->tw : 8.f;
+                    mamt_at(g, e->x);
+                }
+                return 3;
+            }
+        }
         if (g->pick >= 0) {              /* the picker: a swatch, or anything else closes it */
             if (w && w->kind == TXG_W_SWATCH) { txp_ui_col_set(g->c, (int)w->id, w->v); return 3; }
             if (!w || w->kind != TXG_W_PICKER) g->pick = -1;
@@ -2945,16 +3591,43 @@ int txg_input(txg_t *g, const frg_input *e)
         case TXG_W_NEXT: step_param(g, TXP_ID_PRESET, 1, 1); break;
         case TXG_W_PRESET:
             if (g->ov == OV_PRE) g->ov = OV_NONE;
-            else { if (g->ov == OV_SND) sb_close(g, 0); pb_open(g); }
+            else { if (g->ov == OV_SND) sb_close(g, 0); mode_set(g, 0); pb_open(g); }
             break;
         case TXG_W_LDN: step_param(g, TXP_ID_LANES, -1, 0); break;
         case TXG_W_LUP: case TXG_W_ADD: step_param(g, TXP_ID_LANES, 1, 0); break;
         case TXG_W_SET:
             if (g->ov == OV_SND) sb_close(g, 0);
+            mode_set(g, 0);
             g->ov = g->ov == OV_SET ? OV_NONE : OV_SET; g->pick = -1; g->q[0] = 0;
             break;
-        case TXG_W_SAVE: if (g->ov == OV_SND) sb_close(g, 0); save_open(g); break;
-        case TXG_W_UNDO: txp_ui_undo(g->c); break;
+        case TXG_W_SAVE: if (g->ov == OV_SND) sb_close(g, 0); mode_set(g, 0); save_open(g); break;
+        case TXG_W_UNDO:                 /* (the links' first: the window's own undo of them) */
+            if (g->lh_n) { lh_undo(g); say(g, "Undone."); } else txp_ui_undo(g->c);
+            break;
+        case TXG_W_SRC: mode_set(g, g->msrc == k ? 0 : k); break;
+        case TXG_W_GRIP:                 /* (dragged onto a control: a link; a click: as the tile's) */
+            g->drag = TXG_W_GRIP; g->drag_lane = k; g->drag_x0 = g->gx = e->x; g->drag_y0 = g->gy = e->y; g->drag_moved = 0;
+            g->gover = 0;
+            break;
+        case TXG_W_TAG:
+            if (src_tile(w->v)) mode_set(g, w->v);
+            else { mode_set(g, 0); g->ov = OV_FX; g->fx_tab = TAB_MAT; }   /* (a source with no tile: the matrix) */
+            break;
+        case TXG_W_MCLEAR: {
+            char sn[16], t[48];
+            lh_push(g); src_clear(g, g->msrc);
+            src_name(g->msrc, sn, sizeof sn); snprintf(t, sizeof t, "%s cleared. UNDO brings it back.", sn); say(g, t);
+            break;
+        }
+        case TXG_W_MDONE: mode_set(g, 0); break;
+        case TXG_W_CLRALL: g->clr_ask = 1; break;
+        case TXG_W_CLRNO: g->clr_ask = 0; break;
+        case TXG_W_CLRYES:
+            lh_push(g);
+            for (int s = 0; s < MX_N; s++) if (mx(g, s, 0) || mx(g, s, 1) || mx(g, s, 2) != 100) slot_clear(g, s);
+            g->clr_ask = 0;
+            say(g, "All movement cleared. UNDO brings it back.");
+            break;
         case TXG_W_REC: txp_ui_rec(g->c); break;
         case TXG_W_SLOT: if (k >= 0 && k < (int)TXP_USER_N) { g->sv_slot = k; if (g->sn.ui.user >> k & 1u) snprintf(g->sv_name, sizeof g->sv_name, "%.11s", g->sn.ui.uname[k]); } if (e->kind == FRG_DOUBLE) save_go(g); break;
         case TXG_W_SAVEGO: save_go(g); break;
@@ -2993,7 +3666,7 @@ int txg_input(txg_t *g, const frg_input *e)
         case TXG_W_VIEWSEL: g->view = w->v; txp_ui_view_set(g->c, w->v); break;
         case TXG_W_VMAP: g->view = 0; txp_ui_view_set(g->c, 0); break;
         case TXG_W_VSPACE: g->view = 1; txp_ui_view_set(g->c, 1); break;
-        case TXG_W_SND: case TXG_W_SWAP: sb_open(g, k); break;
+        case TXG_W_SND: case TXG_W_SWAP: mode_set(g, 0); sb_open(g, k); break;
         case TXG_W_COLDOT:
             if ((int)w->id < 0 || (int)w->id >= g->cat->neng) break;
             g->pick = (int)w->id; g->pick_x = (int)w->r[0]; g->pick_y = (int)(w->r[1] + w->r[3] + 6.f);
@@ -3011,6 +3684,7 @@ int txg_input(txg_t *g, const frg_input *e)
             break;
         }
         case TXG_W_STEP:                 /* a choice's < >: the previous, the next */
+            if ((w->id >> 8) == 7u) lh_push(g);
             if (lane_of_id(w->id) >= 0) select_lane(g, lane_of_id(w->id));
             step_param(g, w->id, w->v, 1);
             break;
@@ -3046,6 +3720,7 @@ int txg_input(txg_t *g, const frg_input *e)
             break;
         }
         case TXG_W_PARAM:
+            if ((w->id >> 8) == 7u && w->id != TXP_ID_MODCC) lh_push(g);   /* (a matrix cell: its change undone by UNDO) */
             if (lane_of_id(w->id) >= 0) select_lane(g, lane_of_id(w->id));
             else for (int j = 0; j < g->nlane; j++) if (w->id == TXP_ID_LCH(j)) select_lane(g, j);   /* (a row's CH) */
             if (e->kind == FRG_DOUBLE) { int d = p_default(g, w->id); if (d >= 0) set_param(g, w->id, d); break; }
@@ -3069,6 +3744,19 @@ int txg_input(txg_t *g, const frg_input *e)
         }
         return 3;
     case FRG_MOVE:
+        if (g->drag == TXG_W_MAMT) { mamt_at(g, e->x); return 3; }   /* (the mode's amount) */
+        if (g->drag == TXG_W_GRIP) {
+            g->gx = e->x; g->gy = e->y;
+            if (!g->drag_moved && fabsf(e->x - g->drag_x0) + fabsf(e->y - g->drag_y0) < 4.f) return 0;
+            g->drag_moved = 1;
+            w = hit(g, e->x, e->y);
+            g->gover = 0;
+            if (w && (w->kind == TXG_W_PARAM || w->kind == TXG_W_VOL || w->kind == TXG_W_MANY || w->kind == TXG_W_ACT || w->kind == TXG_W_STEP)) {
+                uint32_t id = w->kind == TXG_W_VOL ? TXP_ID_LANE(w->lane, TXP_PL_LEVEL) : w->id;
+                if (id && !mode_skip(id)) { g->gover = id; memcpy(g->gover_r, w->r, sizeof g->gover_r); }
+            }
+            return 3;
+        }
         if (g->drag == TXG_W_VOL) { vol_at(g, g->drag_lane, e->x); return 3; }
         if (g->drag == TXG_W_DOT) { dot_at(g, g->drag_lane, e->x, e->y); return 3; }
         if (g->drag == TXG_W_PARAM) { param_drag(g, e->x, e->y); return 3; }
@@ -3083,7 +3771,11 @@ int txg_input(txg_t *g, const frg_input *e)
             int hk = 0, hl = -1;
             float r[4];
             if (w && (w->kind == TXG_W_ADD || w->kind == TXG_W_DOT || w->kind == TXG_W_LIST || w->kind == TXG_W_SND ||
-                      w->kind == TXG_W_LRUN || w->kind == TXG_W_DRUN || w->kind == TXG_W_PREVIEW)) { hk = w->kind; hl = w->lane; }
+                      w->kind == TXG_W_LRUN || w->kind == TXG_W_DRUN || w->kind == TXG_W_PREVIEW || w->kind == TXG_W_SRC ||
+                      w->kind == TXG_W_GRIP || w->kind == TXG_W_MENU || w->kind == TXG_W_CLRALL || w->kind == TXG_W_MDONE ||
+                      w->kind == TXG_W_MCLEAR)) {
+                hk = w->kind == TXG_W_GRIP ? TXG_W_SRC : w->kind; hl = w->lane;   /* (the grip lights its tile) */
+            }
             else if (w && w->kind == TXG_W_PARAM && txg_find(g, TXG_W_TIP, w->lane, r) && e->x >= r[0] && e->x < r[0] + r[2] &&
                      e->y >= r[1] && e->y < r[1] + r[3]) { hk = TXG_W_TIP; hl = w->lane; }   /* (a card whose hint was
                                           * cut: all of it shows) */
@@ -3091,6 +3783,27 @@ int txg_input(txg_t *g, const frg_input *e)
         }
         return 0;
     case FRG_UP:
+        if (g->drag == TXG_W_GRIP) {     /* dropped on a control: a link at +25 % (kept if it had one), the mode */
+            int src = g->drag_lane;
+            g->drag = 0;
+            if (!g->drag_moved) { mode_set(g, g->msrc == src ? 0 : src); return 3; }
+            if (g->gover) {
+                int why, T = ctl_tgt(g, g->gover, &why);
+                if (!T) say_refuse(g, g->gover, why);
+                else {
+                    if (link_slot(g, src, T) < 0) {
+                        int s;
+                        lh_push(g);
+                        if ((s = link_make(g, src, T)) >= 0) { set_param(g, ID_MAT(s, 2), 125); say_link(g, src, g->gover, 25); }
+                        else g->lh_n--;
+                    }
+                    mode_set(g, src);
+                }
+            }
+            g->gover = 0;
+            return 3;
+        }
+        if (g->drag == TXG_W_MAMT) { if (g->drag_begun) drag_end(g); else g->drag = 0; return 3; }
         if (g->drag == TXG_W_PARAM && !g->drag_moved && choice(g->drag_id)) {   /* a click on a choice: the next */
             g->drag = 0;
             step_param(g, g->drag_id, g->drag_rw < 0.f ? -1 : 1, 1);
@@ -3104,6 +3817,19 @@ int txg_input(txg_t *g, const frg_input *e)
         return 1;
     case FRG_WHEEL:
         w = hit(g, e->x, e->y);
+        if (g->msrc && w && (w->kind == TXG_W_PARAM || w->kind == TXG_W_VOL || w->kind == TXG_W_MANY || w->kind == TXG_W_ACT ||
+                                                  w->kind == TXG_W_STEP)) {   /* the mode: the amount, 4 % a step (shift: 1) */
+            uint32_t id = w->kind == TXG_W_VOL ? TXP_ID_LANE(w->lane, TXP_PL_LEVEL) : w->id;
+            if (id && !mode_skip(id)) {
+                int why, T = ctl_tgt(g, id, &why), a;
+                if (!T) { say_refuse(g, id, why); return 3; }
+                a = link_amt(g, g->msrc, id) + (e->wheel > 0.f ? 1 : -1) * ((e->mods & FRG_SHIFT) ? 1 : 4);
+                a = a < -100 ? -100 : a > 100 ? 100 : a;
+                lh_push(g);
+                link_to(g, g->msrc, id, a);
+                return 3;
+            }
+        }
         if (g->ov == OV_SND || g->ov == OV_PRE) {   /* a list: scrolled; a choice: stepped */
             int d = e->wheel > 0.f ? -1 : 1;
             if (w && w->kind == TXG_W_SEG) { step_param(g, w->id, -d, 0); return 3; }
@@ -3135,6 +3861,9 @@ int txg_input(txg_t *g, const frg_input *e)
         }
         return 0;
     case FRG_KEY:
+        if (e->key == FRK_ESCAPE && g->menu_on) { g->menu_on = 0; return 3; }
+        if (e->key == FRK_ESCAPE && g->clr_ask) { g->clr_ask = 0; return 3; }
+        if (e->key == FRK_ESCAPE && g->msrc && g->pick < 0 && (g->ov == OV_NONE || g->ov == OV_FX)) { mode_set(g, 0); return 3; }
         if (g->ov || g->pick >= 0) {
             if (!g->ov && e->key == FRK_ESCAPE) { g->pick = -1; return 3; }
             if (g->ov && (g->ov != OV_FX || e->key == FRK_ESCAPE || g->pick >= 0)) return ov_key(g, e);   /* (an effect's
@@ -3150,6 +3879,13 @@ int txg_input(txg_t *g, const frg_input *e)
         return 0;
     }
     return 0;
+}
+int txg_input(txg_t *g, const frg_input *e)
+{
+    int r = input_(g, e);
+    for (int s = 0; s < 16; s++) for (int q = 0; q < 4; q++) g->mx_known[s][q] = (int16_t)mx(g, s, q);   /* (the window's
+                                          * own changes: its undo stays) */
+    return r;
 }
 int txg_find(const txg_t *g, int kind, int lane, float r[4])
 {

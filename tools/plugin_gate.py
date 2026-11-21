@@ -427,9 +427,10 @@ GUI_COMP = ["--param", "0x41a=1", "--param", "0x41b=127", "--param", "0x41e=4"] 
 #                                         6:1 (its meters live in the pictures; the gui test checks they are fed)
 
 
-GUI_VIEWS = ("", "space", "sounds", "presets", "settings", "colour", "fx", "comp", "filter", "reverb", "lfo", "env",
+GUI_VIEWS = ("", "space", "sounds", "presets", "settings", "colour", "mode", "drag", "links", "menu", "fx", "comp", "filter", "reverb", "lfo", "env",
              "matrix", "save", "stopped", "preview", "replay", "rows", "lane-stopped", "rain")   # clap_render
-#                                        --shot: x.png, x-space.png ... (the effects' drawers: DELAY, COMP, FILTER, REVERB,
+#                                        --shot: x.png, x-space.png ... (the movement: LFO 1's mode, a drag in it, the
+#                                        links at rest, the right-click menu; the effects' drawers: DELAY, COMP, FILTER, REVERB,
 #                                        MOVEMENT's LFO 1, ENV, the matrix; STOP ALL, the sound browser's preview on a
 #                                        stopped lane, PLAY ALL; the rows with lane 3 selected; a lane stopped by its own
 #                                        button; Rain on a roof's drawer)

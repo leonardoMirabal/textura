@@ -216,7 +216,8 @@ static void gui_wait(void) { struct timespec ts = { 0, 350000000 }; nanosleep(&t
 /* gui_core.h's controls the tests click (its enum's values) */
 enum { W_ROW = 1, W_VOL, W_MUTE, W_SOLO, W_DOT, W_LUP = 9, W_SET = 10, W_VMAP = 13, W_VSPACE, W_PRESET, W_SND, W_COLDOT,
        W_SWATCH, W_SEG = 26, W_FIELD = 27, W_PARAM = 30, W_MANY, W_ACT, W_REC, W_UNDO, W_SAVE, W_FXOPEN, W_FXTAB, W_SLOT,
-       W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER, W_TIP, W_PREVIEW, W_PVSTEP, W_FXD, W_SWAP, W_LRUN, W_DRUN };
+       W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER, W_TIP, W_PREVIEW, W_PVSTEP, W_FXD, W_SWAP, W_LRUN, W_DRUN,
+       W_SRC, W_GRIP, W_TAG, W_MBAR, W_MCLEAR, W_MDONE, W_MENU, W_CLRALL, W_CLRYES, W_CLRNO, W_MSG, W_NOMOVE };
 enum { W_CLOSE = 11, W_LIST = 23, W_KEEP = 24 };
 #define ID_KEYS 0x10001u                 /* (bridge.h TXP_ID_KEYS) */
 static int gui_hit(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, int lane)   /* a click on a control */
@@ -241,6 +242,131 @@ static int gui_png(const clap_plugin_t *p, const txg_gui_shot_t *xs, const char 
     snprintf(path, sizeof path, "%.*s-%s.png", (int)n, png, tag);
     return png_write(path, px, w, h) ? 5 : 0;
 }
+static void gui_wheel(const clap_plugin_t *p, const txg_gui_shot_t *xs, float x, float y, float d);
+/* ---- step 5g's helpers: the movement (the matrix: 16 slots of SOURCE TARGET DEPTH SPREAD, 7 << 8 | slot x 4 + q) */
+#define MAT_ID(s, q) (7u << 8 | (uint32_t)(s) * 4u | (uint32_t)(q))
+static void gui_rclick(const clap_plugin_t *p, const txg_gui_shot_t *xs, float x, float y)   /* a right-click */
+{
+    frg_input e;
+    memset(&e, 0, sizeof e);
+    e.kind = FRG_DOWN; e.button = FRG_RIGHT; e.x = x; e.y = y;
+    xs->input(p, &e);
+    e.kind = FRG_UP;
+    xs->input(p, &e);
+    gui_flush(p);
+    xs->tick(p);
+}
+static void gui_ev(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, float x, float y)   /* one pointer event */
+{
+    frg_input e;
+    memset(&e, 0, sizeof e);
+    e.kind = kind; e.button = FRG_LEFT; e.x = x; e.y = y;
+    xs->input(p, &e);
+    if (kind == FRG_UP) gui_flush(p);
+    xs->tick(p);
+}
+static int gui_mode(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* the source whose mode is on (its bar), 0 none */
+{
+    static const int S[12] = { 1, 2, 3, 4, 5, 6, 7, 8, 16, 17, 18, 19 };
+    float r[4];
+    xs->tick(p);
+    for (int i = 0; i < 12; i++) if (xs->find(p, W_MBAR, S[i], r)) return S[i];
+    return 0;
+}
+static float gui_hx(const clap_plugin_t *p, uint32_t id, const float r[4])   /* a cell's fader: its handle's x */
+{
+    const clap_plugin_params_t *xp = p->get_extension(p, CLAP_EXT_PARAMS);
+    double mx = 127.0;
+    for (uint32_t i = 0; i < xp->count(p); i++) {
+        clap_param_info_t inf;
+        xp->get_info(p, i, &inf);
+        if (inf.id == id) mx = inf.max_value > 0.0 ? inf.max_value : 1.0;
+    }
+    return r[0] + 10.f + (r[2] - 20.f) * (float)(gui_value(p, id) / mx);
+}
+static int gui_mat(const clap_plugin_t *p, int s, int q) { return (int)gui_value(p, MAT_ID(s, q)); }
+static int gui_links(const clap_plugin_t *p)   /* the links in the matrix (a source, a target, a depth) */
+{
+    int n = 0;
+    for (int s = 0; s < 16; s++) n += gui_mat(p, s, 0) > 0 && gui_mat(p, s, 1) > 0 && gui_mat(p, s, 2) != 100;
+    return n;
+}
+static int gui_amt(const clap_plugin_t *p, int src)   /* src's one link: its amount (%), -999 none; more than one: -998 */
+{
+    int a = -999;
+    for (int s = 0; s < 16; s++)
+        if (gui_mat(p, s, 0) == src && gui_mat(p, s, 1) > 0 && gui_mat(p, s, 2) != 100) a = a == -999 ? gui_mat(p, s, 2) - 100 : -998;
+    return a;
+}
+static void gui_set(const clap_plugin_t *p, const uint32_t *id, const int *v, uint32_t n)   /* the host sets parameters */
+{
+    const clap_plugin_params_t *xp = p->get_extension(p, CLAP_EXT_PARAMS);
+    static clap_event_param_value_t pe[64];
+    clap_input_events_t pin = { pe, fz_size, fz_get };
+    clap_output_events_t on = { 0, ol_push };
+    for (uint32_t i = 0; i < n && i < 64u; i++) {
+        memset(&pe[i], 0, sizeof pe[i]);
+        pe[i].header.size = sizeof pe[i]; pe[i].header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        pe[i].header.type = CLAP_EVENT_PARAM_VALUE;
+        pe[i].param_id = id[i]; pe[i].note_id = -1; pe[i].port_index = -1; pe[i].channel = -1; pe[i].key = -1;
+        pe[i].value = v[i];
+    }
+    fz_n = n < 64u ? n : 64u;
+    xp->flush(p, &pin, &on);
+}
+static void gui_mat_clear(const clap_plugin_t *p)   /* every slot empty (the host's) */
+{
+    uint32_t id[64];
+    int v[64];
+    for (int s = 0; s < 16; s++) for (int q = 0; q < 4; q++) { id[s * 4 + q] = MAT_ID(s, q); v[s * 4 + q] = q == 2 ? 100 : 0; }
+    gui_set(p, id, v, 64);
+}
+/* the movement's pictures: LFO 1's mode (two links), a drag in it, the rest with links, the right-click menu (the
+ * selected lane's drawer: LEVEL, its first card; the strip's LOW PASS; LFO 2's grip onto lane 2's VOL) */
+static int gui_views5g(const clap_plugin_t *p, const txg_gui_shot_t *xs, const char *png)
+{
+    int rc = 0, k = xs->sel(p);
+    float r[4], d[4];
+    const uint32_t lev = LANE_ID(k, 3), card = LANE_ID(k, 8), lp = 4u << 8 | 53u;
+    if (!xs->find(p, W_PARAM, (int)lev, r)) { fprintf(stderr, "gui: no LEVEL in the drawer\n"); return 5; }
+    gui_rclick(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f);
+    if (!gui_hit(p, xs, W_MENU, 0)) return 5;     /* Move with LFO 1: +25 %, LFO 1's mode */
+    if (xs->find(p, W_PARAM, (int)card, r))
+        for (int i = 0; i < 4; i++) gui_wheel(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, -1.f);
+    rc |= gui_png(p, xs, png, "mode");
+    if (!xs->find(p, W_PARAM, (int)lp, r)) { fprintf(stderr, "gui: no LOW PASS in the strip\n"); return 5; }
+    {   /* (from its handle, a third of the track to the left: a negative amount) */
+        float hx = gui_hx(p, lp, r);
+        gui_ev(p, xs, FRG_DOWN, hx, r[1] + r[3] * 0.5f);
+        gui_ev(p, xs, FRG_MOVE, hx - 10.f, r[1] + r[3] * 0.5f);
+        gui_ev(p, xs, FRG_MOVE, hx - (r[2] - 20.f) * 0.33f, r[1] + r[3] * 0.5f);
+        rc |= gui_png(p, xs, png, "drag");
+        gui_ev(p, xs, FRG_UP, hx - (r[2] - 20.f) * 0.33f, r[1] + r[3] * 0.5f);
+    }
+    if (!gui_hit(p, xs, W_MDONE, 1)) return 5;
+    if (xs->find(p, W_GRIP, 2, d) && xs->find(p, W_VOL, k == 1 ? 0 : 1, r)) {   /* LFO 2's grip onto another lane's VOL */
+        gui_ev(p, xs, FRG_DOWN, d[0] + d[2] * 0.5f, d[1] + d[3] * 0.5f);
+        gui_ev(p, xs, FRG_MOVE, (d[0] + r[0]) * 0.5f, (d[1] + r[1]) * 0.5f);
+        gui_ev(p, xs, FRG_MOVE, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f);
+        gui_ev(p, xs, FRG_UP, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f);
+        gui_key(p, xs, FRK_ESCAPE);
+    }
+    gui_wait(); gui_flush(p);
+    for (int i = 0; i < 160; i++) xs->tick(p);   /* (its message gone) */
+    rc |= gui_png(p, xs, png, "links");
+    if (!xs->find(p, W_PARAM, (int)lev, r)) return 5;
+    gui_rclick(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f);
+    xs->tick(p);
+    if (xs->find(p, W_MENU, 2, d)) {             /* (the pointer on LFO 3: its row lit) */
+        frg_input e;
+        memset(&e, 0, sizeof e);
+        e.kind = FRG_MOVE; e.x = d[0] + 40.f; e.y = d[1] + d[3] * 0.5f;
+        xs->input(p, &e);
+    }
+    rc |= gui_png(p, xs, png, "menu");
+    gui_key(p, xs, FRK_ESCAPE);
+    return rc;
+}
 static int gui_views(const clap_plugin_t *p, const txg_gui_shot_t *xs, const char *png)   /* the other views' pictures:
                                           * SPACE, the sound browser, the presets browser, SETTINGS, the colour picker */
 {
@@ -264,6 +390,7 @@ static int gui_views(const clap_plugin_t *p, const txg_gui_shot_t *xs, const cha
         rc |= gui_png(p, xs, png, "colour");
         gui_key(p, xs, FRK_ESCAPE);
     }
+    rc |= gui_views5g(p, xs, png);
     if (!gui_hit(p, xs, W_FXOPEN, 3)) return 5;   /* the strip's DELAY: its drawer, every parameter */
     rc |= gui_png(p, xs, png, "fx");
     if (!gui_hit(p, xs, W_FXOPEN, 0)) return 5;   /* COMP: its meters, its curve */
@@ -724,6 +851,148 @@ static int gui_test5f(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* ste
     } else printf("gui empty lane: none in this window\n");
     return bad;
 }
+/* ---- step 5g: the movement. A source's mode (a tile), its amount set by a drag (the value kept), the wheel, a
+ * double-click; CLEAR <SOURCE>, DONE, Esc; the right-click menu; a control's tag; a grip dropped on a control; CLEAR ALL
+ * and UNDO; a control no source moves (dim, refused); the matrix full (said, nothing changed); the links in the state */
+static int gui_test5g(const clap_plugin_t *p, const txg_gui_shot_t *xs)
+{
+    int bad = 0, k = xs->sel(p), a, n;
+    float r[4], g[4];
+    double v0;
+    const uint32_t lev = LANE_ID(k, 3), pan = LANE_ID(k, 4), con = 4u << 8 | 26u;
+#define CHECK(c, ...) do { if (!(c)) { fprintf(stderr, "gui 5g: " __VA_ARGS__); fprintf(stderr, "\n"); bad = 1; } } while (0)
+    gui_mat_clear(p);
+    gui_wait(); gui_flush(p); xs->tick(p);
+    CHECK(gui_links(p) == 0, "the matrix not empty at the start");
+    /* A1: a tile (the strip's LFO 1) enters LFO 1's mode */
+    if (!gui_hit(p, xs, W_SRC, 1)) return 5;
+    printf("gui 5g: LFO 1's tile: mode %d\n", gui_mode(p, xs));
+    CHECK(gui_mode(p, xs) == 1, "the tile did not enter LFO 1's mode");
+    /* A3: a drag on the drawer's LEVEL sets LFO 1's amount, LEVEL itself unchanged */
+    if (!xs->find(p, W_PARAM, (int)lev, r)) { fprintf(stderr, "gui 5g: no LEVEL in the drawer\n"); return 5; }
+    v0 = gui_value(p, lev);
+    gui_drag(p, xs, gui_hx(p, lev, r), r[1] + r[3] * 0.5f, (r[2] - 20.f) * 0.3f, 0.f, 0);   /* (from its handle) */
+    gui_wait(); gui_flush(p); xs->tick(p);
+    a = gui_amt(p, 1);
+    printf("gui 5g: drag in the mode: LFO 1 moves LEVEL by %+d %%, LEVEL %g (was %g)\n", a, gui_value(p, lev), v0);
+    CHECK(a >= 20 && a <= 40 && gui_value(p, lev) == v0, "the drag did not set the amount alone");
+    gui_wheel(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 1.f);   /* the wheel: 4 % more */
+    printf("gui 5g: the wheel: %+d %% -> %+d %%\n", a, gui_amt(p, 1));
+    CHECK(gui_amt(p, 1) == a + 4, "the wheel's step");
+    /* A4: a double-click removes it */
+    gui_drag(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 0.f, 0.f, 1);
+    printf("gui 5g: double-click: links %d\n", gui_links(p));
+    CHECK(gui_links(p) == 0, "the double-click did not remove the link");
+    /* A2: a control no source moves (COMP's ON, a switch) is dimmed and refuses: the value kept, a message */
+    v0 = gui_value(p, con);
+    if (!xs->find(p, W_NOMOVE, (int)con, g)) { fprintf(stderr, "gui 5g: COMP ON not dimmed in the mode\n"); bad = 1; }
+    else {
+        gui_click(p, xs, g[0] + g[2] * 0.5f, g[1] + g[3] * 0.5f, 0);
+        printf("gui 5g: COMP ON in the mode: %g -> %g, a message %s\n", v0, gui_value(p, con), xs->find(p, W_MSG, 1, g) ? "yes" : "NO");
+        CHECK(gui_value(p, con) == v0 && xs->find(p, W_MSG, 1, g) && gui_links(p) == 0, "a control no source moves was not refused");
+    }
+    CHECK(!xs->find(p, W_NOMOVE, (int)lev, g), "LEVEL dimmed in the mode");
+    /* A5: CLEAR LFO 1 (two links), DONE; Esc; the tile again */
+    if (!xs->find(p, W_PARAM, (int)pan, g)) { fprintf(stderr, "gui 5g: no PAN in the drawer\n"); return 5; }
+    gui_wheel(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 1.f);
+    gui_wheel(p, xs, g[0] + g[2] * 0.5f, g[1] + g[3] * 0.5f, -1.f);
+    n = gui_links(p);
+    if (!gui_hit(p, xs, W_MCLEAR, 1)) return 5;
+    printf("gui 5g: CLEAR LFO 1: links %d -> %d\n", n, gui_links(p));
+    CHECK(n == 2 && gui_links(p) == 0, "CLEAR LFO 1");
+    if (!gui_hit(p, xs, W_MDONE, 1)) return 5;
+    CHECK(gui_mode(p, xs) == 0, "DONE did not leave the mode");
+    if (!gui_hit(p, xs, W_SRC, 2)) return 5;
+    a = gui_mode(p, xs);
+    gui_key(p, xs, FRK_ESCAPE);
+    printf("gui 5g: LFO 2's tile: mode %d, Esc: %d\n", a, gui_mode(p, xs));
+    CHECK(a == 2 && gui_mode(p, xs) == 0, "Esc did not leave the mode");
+    if (!gui_hit(p, xs, W_SRC, 1) || !gui_hit(p, xs, W_SRC, 1)) return 5;
+    CHECK(gui_mode(p, xs) == 0, "the tile again did not leave the mode");
+    /* B10: the right-click menu: Move with LFO 1 (+25 %, its mode), then Remove movement */
+    if (!xs->find(p, W_PARAM, (int)lev, r)) return 5;
+    gui_rclick(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f);
+    if (!gui_hit(p, xs, W_MENU, 0)) return 5;
+    printf("gui 5g: menu Move with LFO 1: %+d %%, mode %d\n", gui_amt(p, 1), gui_mode(p, xs));
+    CHECK(gui_amt(p, 1) == 25 && gui_mode(p, xs) == 1, "the menu's Move with");
+    if (!gui_hit(p, xs, W_MDONE, 1)) return 5;
+    /* B7: its tag enters LFO 1's mode */
+    if (!gui_hit(p, xs, W_TAG, (int)lev)) return 5;
+    printf("gui 5g: LEVEL's tag: mode %d\n", gui_mode(p, xs));
+    CHECK(gui_mode(p, xs) == 1, "the tag did not enter the mode");
+    gui_key(p, xs, FRK_ESCAPE);
+    if (!xs->find(p, W_PARAM, (int)lev, r)) return 5;
+    gui_rclick(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f);
+    if (!gui_hit(p, xs, W_MENU, 12)) return 5;
+    printf("gui 5g: menu Remove movement: links %d\n", gui_links(p));
+    CHECK(gui_links(p) == 0, "the menu's Remove movement");
+    /* B9: LFO 2's grip dropped on LEVEL: +25 %, LFO 2's mode */
+    if (!xs->find(p, W_GRIP, 2, g) || !xs->find(p, W_PARAM, (int)lev, r)) { fprintf(stderr, "gui 5g: no grip for LFO 2\n"); return 5; }
+    gui_ev(p, xs, FRG_DOWN, g[0] + g[2] * 0.5f, g[1] + g[3] * 0.5f);
+    gui_ev(p, xs, FRG_MOVE, (g[0] + r[0]) * 0.5f, (g[1] + r[1]) * 0.5f);
+    gui_ev(p, xs, FRG_MOVE, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f);
+    gui_ev(p, xs, FRG_UP, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f);
+    printf("gui 5g: LFO 2's grip on LEVEL: %+d %%, mode %d, LEVEL %g\n", gui_amt(p, 2), gui_mode(p, xs), gui_value(p, lev));
+    CHECK(gui_amt(p, 2) == 25 && gui_mode(p, xs) == 2, "the grip's drop");
+    gui_key(p, xs, FRK_ESCAPE);
+    /* B11: CLEAR ALL MOVEMENT (asked), then UNDO */
+    n = gui_links(p);
+    if (!gui_hit(p, xs, W_FXOPEN, 5) || !gui_hit(p, xs, W_CLRALL, -1) || !gui_hit(p, xs, W_CLRYES, -1)) return 5;
+    a = gui_links(p);
+    if (!gui_hit(p, xs, W_UNDO, -1)) return 5;
+    printf("gui 5g: CLEAR ALL: links %d -> %d, UNDO: %d (LFO 2 %+d %%)\n", n, a, gui_links(p), gui_amt(p, 2));
+    CHECK(n == 1 && a == 0 && gui_links(p) == 1 && gui_amt(p, 2) == 25, "CLEAR ALL / UNDO");
+    gui_key(p, xs, FRK_ESCAPE);
+    /* the matrix full (the host's 16 slots): the menu says so, nothing changes */
+    {
+        uint32_t id[64];
+        int v[64];
+        for (int s = 0; s < 16; s++) {
+            id[s * 4] = MAT_ID(s, 0); v[s * 4] = 15;       /* CONSTANT ... */
+            id[s * 4 + 1] = MAT_ID(s, 1); v[s * 4 + 1] = 137;   /* ... on GROOVE */
+            id[s * 4 + 2] = MAT_ID(s, 2); v[s * 4 + 2] = 101 + s;
+            id[s * 4 + 3] = MAT_ID(s, 3); v[s * 4 + 3] = 0;
+        }
+        gui_set(p, id, v, 64);
+        gui_wait(); gui_flush(p); xs->tick(p);
+        if (!xs->find(p, W_PARAM, (int)lev, r)) return 5;
+        gui_rclick(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f);
+        if (!gui_hit(p, xs, W_MENU, 0)) return 5;
+        a = 1;
+        for (int s = 0; s < 16; s++) a &= gui_mat(p, s, 0) == 15 && gui_mat(p, s, 1) == 137 && gui_mat(p, s, 2) == 101 + s;
+        printf("gui 5g: the matrix full: Move with LFO 1: unchanged %s, a message %s\n", a ? "yes" : "NO", xs->find(p, W_MSG, 1, g) ? "yes" : "NO");
+        CHECK(a && xs->find(p, W_MSG, 1, g), "the full matrix");
+        gui_key(p, xs, FRK_ESCAPE);
+        gui_mat_clear(p);
+        gui_wait(); gui_flush(p); xs->tick(p);
+    }
+    /* C14: the links in the project's state: saved, cleared, loaded: back */
+    {
+        const clap_plugin_state_t *st = p->get_extension(p, CLAP_EXT_STATE);
+        mem_t m = {0, 0, 0};
+        clap_ostream_t os = { &m, os_write };
+        clap_istream_t is = { &m, is_read };
+        if (!xs->find(p, W_PARAM, (int)lev, r)) return 5;
+        gui_rclick(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f);
+        if (!gui_hit(p, xs, W_MENU, 8)) return 5;   /* ENV 1 */
+        gui_key(p, xs, FRK_ESCAPE);
+        gui_wait(); gui_flush(p); xs->tick(p);
+        if (!st || !st->save(p, &os)) { fprintf(stderr, "gui 5g: state save failed\n"); return 5; }
+        gui_mat_clear(p);
+        gui_wait(); gui_flush(p); xs->tick(p);
+        n = gui_links(p);
+        m.at = 0;
+        if (!st->load(p, &is)) { fprintf(stderr, "gui 5g: state load failed\n"); free(m.b); return 5; }
+        free(m.b);
+        for (int i = 0; i < 4; i++) { gui_wait(); gui_flush(p); xs->tick(p); }
+        printf("gui 5g: ENV 1 on LEVEL saved, cleared (links %d), loaded: ENV 1 %+d %%\n", n, gui_amt(p, 16));
+        CHECK(n == 0 && gui_amt(p, 16) == 25, "the links through the state");
+    }
+    gui_mat_clear(p);
+    gui_wait(); gui_flush(p); xs->tick(p);
+#undef CHECK
+    return bad;
+}
 static int gui_test3b(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* the browsers, SETTINGS, a colour, SPACE */
 {
     int bad = 0, f0 = -1, s0 = -1, f1 = -1, s1 = -1;
@@ -871,6 +1140,7 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int
         if (gui_test5c_preview(p, xs)) bad = 1;
         if (gui_test5c_rows(p, xs)) bad = 1;
         if (gui_test5f(p, xs)) bad = 1;
+        if (gui_test5g(p, xs)) bad = 1;
         if (xs->find(p, 1 /* TXG_W_ROW */, 2, r)) gui_click(p, xs, r[0] + 30.f, r[1] + r[3] * 0.5f, 0);   /* (lane 3 selected) */
     }
     return bad ? 5 : 0;
