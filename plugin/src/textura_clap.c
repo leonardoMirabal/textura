@@ -734,6 +734,12 @@ void txp_ui_sel_set(txp_core *c, int k)
     uq_put(c, UQ_EV + TXP_EV_SEL, (uint32_t)k, 0);
     ui_dirty(c);
 }
+void txp_ui_lane_run(txp_core *c, uint32_t lane, int on)
+{
+    if (lane >= TXP_LANES) return;
+    uq_put(c, UQ_EV + TXP_EV_LANERUN, lane, on != 0);
+    ui_dirty(c);
+}
 void txp_ui_rec(txp_core *c) { uq_put(c, UQ_EV + TXP_EV_REC, 0, 0); ui_dirty(c); }
 void txp_ui_undo(txp_core *c) { uq_put(c, UQ_EV + TXP_EV_UNDO, 0, 0); ui_dirty(c); }
 void txp_ui_save(txp_core *c, int slot, const char *name)

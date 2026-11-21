@@ -68,6 +68,8 @@ void txp_ui_view_set(txp_core *c, int v);
 int txp_ui_sel(const txp_core *c);                    /* the selected lane, 0 .. 15: the app's own (the keys' and
                                                        * SELECTED CH's), so the window and the keys pick the same */
 void txp_ui_sel_set(txp_core *c, int k);
+void txp_ui_lane_run(txp_core *c, uint32_t lane, int on);   /* one lane stopped / played again (its own HOW MANY and
+                                                       * HOW ACTIVE remembered, as STOP ALL / PLAY ALL do) */
 void txp_ui_rec(txp_core *c);                         /* every lane stopped / started again (the FM-1's REC) */
 void txp_ui_undo(txp_core *c);                        /* the last load or sound kept undone; again: redone */
 /* the scene that plays saved into user scene slot (0 .. 15: U01 .. U16), named (11 characters: A .. Z, 0 .. 9, space

@@ -53,7 +53,9 @@ enum { TXG_W_NONE, TXG_W_ROW, TXG_W_VOL, TXG_W_MUTE, TXG_W_SOLO, TXG_W_DOT, TXG_
         * +1); the effect drawer's area (never hit: for the tests) */
        TXG_W_PREVIEW, TXG_W_PVSTEP, TXG_W_FXD,
        /* step 5d: a row's square ENGINE button beside M and S (opens the engine browser, as TXG_W_SND does) */
-       TXG_W_SWAP };
+       TXG_W_SWAP,    /* (no longer drawn: the row's one icon button is TXG_W_SND) */
+       /* step 5f: a lane's STOP / PLAY, in its row (lane k) and in the drawer (the selected lane) */
+       TXG_W_LRUN, TXG_W_DRUN };
 
 typedef struct txg txg_t;
 txg_t *txg_new(txp_core *c);             /* NULL: out of memory or the font did not load */

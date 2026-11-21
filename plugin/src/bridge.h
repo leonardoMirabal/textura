@@ -54,6 +54,8 @@ enum { TXP_EV_MIDI = 1, TXP_EV_PARAM, TXP_EV_RESET, TXP_EV_RELEASE,
                                           * byte first */
        TXP_EV_SAVE,                      /* the scene that plays saved into user scene a (0 .. 15: U01 .. U16) */
        TXP_EV_TEMPO,                     /* the app's own tempo: v BPM x 10 (the host's leads when it gives one) */
+       TXP_EV_LANERUN,                   /* the window's lane STOP / PLAY: lane a stopped (v 0) or played again (v 1), as
+                                          * STOP ALL / PLAY ALL do one lane, with the same memory (slot_bridge.h) */
        TXP_EV_PREVIEW };                 /* the sound browser's preview on lane a (slot_bridge.h sb_pv_*): v TXP_PV_PLAY
                                           * | family << 4 | sound | HOW MANY << 8 | HOW ACTIVE << 12 (| TXP_PV_FORCE:
                                           * those even on a lane that plays), or TXP_PV_END | family << 4 | sound

@@ -428,10 +428,11 @@ GUI_COMP = ["--param", "0x41a=1", "--param", "0x41b=127", "--param", "0x41e=4"] 
 
 
 GUI_VIEWS = ("", "space", "sounds", "presets", "settings", "colour", "fx", "comp", "filter", "reverb", "lfo", "env",
-             "matrix", "save", "stopped", "preview", "replay", "rows")   # clap_render
+             "matrix", "save", "stopped", "preview", "replay", "rows", "lane-stopped", "rain")   # clap_render
 #                                        --shot: x.png, x-space.png ... (the effects' drawers: DELAY, COMP, FILTER, REVERB,
 #                                        MOVEMENT's LFO 1, ENV, the matrix; STOP ALL, the sound browser's preview on a
-#                                        stopped lane, PLAY ALL; the rows with lane 3 selected)
+#                                        stopped lane, PLAY ALL; the rows with lane 3 selected; a lane stopped by its own
+#                                        button; Rain on a roof's drawer)
 GUI_SIZES = ((1200, 720), (1950, 1210), (1440, 1080), (960, 600))   # real DAW window sizes: the MAP round in its place
 
 

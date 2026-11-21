@@ -216,7 +216,7 @@ static void gui_wait(void) { struct timespec ts = { 0, 350000000 }; nanosleep(&t
 /* gui_core.h's controls the tests click (its enum's values) */
 enum { W_ROW = 1, W_VOL, W_MUTE, W_SOLO, W_DOT, W_LUP = 9, W_SET = 10, W_VMAP = 13, W_VSPACE, W_PRESET, W_SND, W_COLDOT,
        W_SWATCH, W_SEG = 26, W_FIELD = 27, W_PARAM = 30, W_MANY, W_ACT, W_REC, W_UNDO, W_SAVE, W_FXOPEN, W_FXTAB, W_SLOT,
-       W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER, W_TIP, W_PREVIEW, W_PVSTEP, W_FXD, W_SWAP };
+       W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER, W_TIP, W_PREVIEW, W_PVSTEP, W_FXD, W_SWAP, W_LRUN, W_DRUN };
 enum { W_CLOSE = 11, W_LIST = 23, W_KEEP = 24 };
 #define ID_KEYS 0x10001u                 /* (bridge.h TXP_ID_KEYS) */
 static int gui_hit(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, int lane)   /* a click on a control */
@@ -299,6 +299,23 @@ static int gui_views(const clap_plugin_t *p, const txg_gui_shot_t *xs, const cha
     rc |= gui_png(p, xs, png, "rows");
     if (!gui_hit(p, xs, W_SELDOT, sel < 16 ? sel : 0)) return 5;
     gui_wait(); gui_flush(p); xs->tick(p);
+    if (xs->find(p, W_LRUN, 1, r)) {     /* a lane stopped by its own button (lane 2), then played again */
+        if (!gui_hit(p, xs, W_LRUN, 1)) return 5;
+        gui_wait(); gui_flush(p); xs->tick(p);
+        rc |= gui_png(p, xs, png, "lane-stopped");
+        if (!gui_hit(p, xs, W_LRUN, 1)) return 5;
+        gui_wait(); gui_flush(p); xs->tick(p);
+    }
+    if (sel < 16) {                      /* Rain on a roof on that lane: its drawer's cards (then undone) */
+        const char *q = "rain on a roof";
+        if (!gui_hit(p, xs, W_SND, sel)) return 5;
+        for (; *q; q++) gui_key(p, xs, (int)*q);
+        gui_key(p, xs, FRK_RETURN);
+        gui_wait(); gui_flush(p); xs->tick(p);
+        rc |= gui_png(p, xs, png, "rain");
+        if (!gui_hit(p, xs, W_UNDO, -1)) return 5;
+        gui_wait(); gui_flush(p); xs->tick(p);
+    }
     return rc;
 }
 static void gui_wheel(const clap_plugin_t *p, const txg_gui_shot_t *xs, float x, float y, float d)
@@ -570,7 +587,7 @@ static int gui_test5c_preview(const clap_plugin_t *p, const txg_gui_shot_t *xs) 
     return bad;
 }
 static int gui_test5c_rows(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* a click anywhere on a row selects its
-                                          * lane, its name does not open the browser, its two ENGINE buttons do */
+                                          * lane, its name does not open the browser, its one ENGINE icon button does */
 {
     int bad = 0, sel;
     float r[4], n[4], sw[4];
@@ -581,7 +598,7 @@ static int gui_test5c_rows(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /
     printf("gui row: a click on lane 4's name selects lane %d, the browser %s\n", sel + 1, xs->find(p, W_KEEP, -1, n) ? "OPEN" : "closed");
     if (sel != 3 || xs->find(p, W_KEEP, -1, n)) { fprintf(stderr, "gui: the name opened the browser or did not select\n"); bad = 1; }
     if (!xs->find(p, W_ROW, 2, r) || !xs->find(p, W_SND, 2, n)) return 5;
-    gui_click(p, xs, n[0] + n[2] + 24.f, r[1] + r[3] * 0.5f, 0);   /* (on its event line, past the ENGINE button: no control) */
+    gui_click(p, xs, n[0] + n[2] + 14.f, r[1] + r[3] * 0.5f, 0);   /* (on its event line, past the ENGINE button: no control) */
     gui_wait(); gui_flush(p); xs->tick(p);
     printf("gui row: a click on lane 3's event line selects lane %d\n", xs->sel(p) + 1);
     if (xs->sel(p) != 2) { fprintf(stderr, "gui: the row's space did not select\n"); bad = 1; }
@@ -596,15 +613,115 @@ static int gui_test5c_rows(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /
     if (!xs->find(p, W_KEEP, -1, n)) { fprintf(stderr, "gui: ENGINE did not open the browser\n"); bad = 1; }
     gui_key(p, xs, FRK_ESCAPE);
     gui_wait(); gui_flush(p); xs->tick(p);
-    /* the square one beside M and S: lane 2's (selects it, opens its browser); both buttons on every row, as tall as the row less its padding */
-    if (!xs->find(p, W_ROW, 1, r) || !xs->find(p, W_SND, 1, n) || !xs->find(p, W_SWAP, 1, sw)) { fprintf(stderr, "gui: no ENGINE buttons for lane 2\n"); return 5; }
-    printf("gui row: lane 2's ENGINE button %gx%g, its square one %gx%g (row %g)\n", n[2], n[3], sw[2], sw[3], r[3]);
-    if (n[3] < r[3] - 12.f - 0.01f || n[2] < 60.f || sw[2] != sw[3] || sw[0] < n[0] + n[2]) { fprintf(stderr, "gui: the ENGINE buttons are too small or misplaced\n"); bad = 1; }
-    if (!gui_hit(p, xs, W_SWAP, 1)) return 5;
+    /* the one icon button: square, as tall as M and S, after the name (lane 2's: selects it, opens its browser) */
+    if (!xs->find(p, W_ROW, 1, r) || !xs->find(p, W_SND, 1, n)) { fprintf(stderr, "gui: no ENGINE button for lane 2\n"); return 5; }
+    printf("gui row: lane 2's ENGINE button %gx%g (row %g)\n", n[2], n[3], r[3]);
+    if (n[2] != n[3] || n[2] > 24.f || n[2] < 20.f || xs->find(p, W_SWAP, 1, sw)) { fprintf(stderr, "gui: the ENGINE button is not one small square\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_SND, 1)) return 5;
     gui_wait(); gui_flush(p); xs->tick(p);
-    printf("gui row: the square ENGINE button on lane 2 selects lane %d and opens the browser: %s\n", xs->sel(p) + 1, xs->find(p, W_KEEP, -1, n) ? "yes" : "NO");
-    if (xs->sel(p) != 1 || !xs->find(p, W_KEEP, -1, n)) { fprintf(stderr, "gui: the square ENGINE button did not open the browser\n"); bad = 1; }
+    printf("gui row: the ENGINE button on lane 2 selects lane %d and opens the browser: %s\n", xs->sel(p) + 1, xs->find(p, W_KEEP, -1, n) ? "yes" : "NO");
+    if (xs->sel(p) != 1 || !xs->find(p, W_KEEP, -1, n)) { fprintf(stderr, "gui: the ENGINE button did not open the browser\n"); bad = 1; }
     gui_key(p, xs, FRK_ESCAPE);
+    return bad;
+}
+static int gui_test5f(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* step 5f: a lane's own STOP / PLAY (row and
+                                          * drawer), sharing STOP ALL / PLAY ALL's memory */
+{
+    int bad = 0, k, nl = (int)gui_value(p, 4u << 8 | 81u) + 1, empty = -1;
+    double m0[4], a0[4], m1[4];
+    float r[4];
+    /* lane 2 MANY 4 / ACTIVE 6, lane 1 playing */
+    if (gui_value(p, LANE_ID(1, 1)) != 4.0 && !gui_steps(p, xs, 0, 1, 4)) return 5;
+    if (gui_value(p, LANE_ID(1, 2)) != 6.0 && !gui_steps(p, xs, 1, 1, 6)) return 5;
+    if (gui_value(p, LANE_ID(0, 1)) == 0.0 && !gui_steps(p, xs, 0, 0, 2)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    if (gui_value(p, LANE_ID(1, 1)) != 4.0 || gui_value(p, LANE_ID(1, 2)) != 6.0 || gui_value(p, LANE_ID(0, 1)) == 0.0) {
+        fprintf(stderr, "gui 5f: the lanes were not set up\n");
+        return 5;
+    }
+    for (k = 0; k < 4; k++) { m0[k] = gui_value(p, LANE_ID(k, 1)); a0[k] = gui_value(p, LANE_ID(k, 2)); }
+    /* the row's button stops lane 2 (only lane 2), again: back as it was */
+    if (!gui_hit(p, xs, W_LRUN, 1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    printf("gui lane STOP: lane 2 MANY %g (lane 1 %g, lane 3 %g)\n", gui_value(p, LANE_ID(1, 1)), gui_value(p, LANE_ID(0, 1)), gui_value(p, LANE_ID(2, 1)));
+    if (gui_value(p, LANE_ID(1, 1)) != 0.0 || gui_value(p, LANE_ID(0, 1)) != m0[0] || gui_value(p, LANE_ID(2, 1)) != m0[2]) {
+        fprintf(stderr, "gui: the lane's STOP\n");
+        bad = 1;
+    }
+    if (!gui_hit(p, xs, W_LRUN, 1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    printf("gui lane PLAY: lane 2 MANY %g / ACTIVE %g\n", gui_value(p, LANE_ID(1, 1)), gui_value(p, LANE_ID(1, 2)));
+    if (gui_value(p, LANE_ID(1, 1)) != m0[1] || gui_value(p, LANE_ID(1, 2)) != a0[1]) { fprintf(stderr, "gui: the lane's PLAY did not bring it back\n"); bad = 1; }
+    /* lane 2 stopped by its button, then STOP ALL, PLAY ALL: lane 2 back at its own values */
+    if (!gui_hit(p, xs, W_LRUN, 1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    if (!gui_hit(p, xs, W_REC, -1)) return 5;   /* STOP ALL */
+    gui_wait(); gui_flush(p); xs->tick(p);
+    if (!gui_hit(p, xs, W_REC, -1)) return 5;   /* PLAY ALL */
+    gui_wait(); gui_flush(p); xs->tick(p);
+    for (k = 0; k < 4; k++) m1[k] = gui_value(p, LANE_ID(k, 1));
+    printf("gui lane STOP, STOP ALL, PLAY ALL: lane 2 MANY %g / ACTIVE %g (was %g / %g)\n", m1[1], gui_value(p, LANE_ID(1, 2)), m0[1], a0[1]);
+    if (m1[1] != m0[1] || gui_value(p, LANE_ID(1, 2)) != a0[1] || m1[0] != m0[0]) { fprintf(stderr, "gui: PLAY ALL after a lane's STOP\n"); bad = 1; }
+    /* STOP ALL, then lane 2's own PLAY: only lane 2 plays; STOP ALL / PLAY ALL again bring every lane back */
+    if (!gui_hit(p, xs, W_REC, -1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    if (!gui_hit(p, xs, W_LRUN, 1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    printf("gui STOP ALL, lane 2 PLAY: lane 1 MANY %g, lane 2 MANY %g / ACTIVE %g, lane 3 MANY %g\n", gui_value(p, LANE_ID(0, 1)),
+           gui_value(p, LANE_ID(1, 1)), gui_value(p, LANE_ID(1, 2)), gui_value(p, LANE_ID(2, 1)));
+    if (gui_value(p, LANE_ID(1, 1)) != m0[1] || gui_value(p, LANE_ID(1, 2)) != a0[1] || gui_value(p, LANE_ID(0, 1)) != 0.0 ||
+        gui_value(p, LANE_ID(2, 1)) != 0.0) { fprintf(stderr, "gui: lane 2's PLAY after STOP ALL\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_REC, -1)) return 5;   /* STOP ALL (lane 2 plays) */
+    gui_wait(); gui_flush(p); xs->tick(p);
+    if (!gui_hit(p, xs, W_REC, -1)) return 5;   /* PLAY ALL: every lane as it was */
+    gui_wait(); gui_flush(p); xs->tick(p);
+    for (k = 0; k < 4; k++)
+        if (gui_value(p, LANE_ID(k, 1)) != m0[k] || gui_value(p, LANE_ID(k, 2)) != a0[k]) {
+            fprintf(stderr, "gui: PLAY ALL left lane %d at MANY %g / ACTIVE %g (was %g / %g)\n", k + 1, gui_value(p, LANE_ID(k, 1)),
+                    gui_value(p, LANE_ID(k, 2)), m0[k], a0[k]);
+            bad = 1;
+        }
+    /* the drawer's own button (the selected lane): stop, play */
+    if (!gui_hit(p, xs, W_SELDOT, 1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    if (!gui_hit(p, xs, W_DRUN, 1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    printf("gui drawer STOP LANE: lane 2 MANY %g\n", gui_value(p, LANE_ID(1, 1)));
+    if (gui_value(p, LANE_ID(1, 1)) != 0.0) { fprintf(stderr, "gui: the drawer's STOP LANE\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_DRUN, 1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    if (gui_value(p, LANE_ID(1, 1)) != m0[1] || gui_value(p, LANE_ID(1, 2)) != a0[1]) { fprintf(stderr, "gui: the drawer's PLAY LANE\n"); bad = 1; }
+    /* a lane with no memory (stopped by its button, the project saved and loaded: the app forgets what was remembered):
+     * its PLAY does what PLAY ALL does for it, MANY 1 / ACTIVE rarest (lane 2) */
+    if (!gui_hit(p, xs, W_LRUN, 1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    {
+        const clap_plugin_state_t *st = p->get_extension(p, CLAP_EXT_STATE);
+        mem_t m = {0, 0, 0};
+        clap_ostream_t os = { &m, os_write };
+        clap_istream_t is = { &m, is_read };
+        if (!st || !st->save(p, &os)) { fprintf(stderr, "gui: state save failed\n"); return 5; }
+        m.at = 0;
+        if (!st->load(p, &is)) { fprintf(stderr, "gui: state load failed\n"); free(m.b); return 5; }
+        free(m.b);
+        for (int i = 0; i < 4; i++) { gui_wait(); gui_flush(p); xs->tick(p); }
+    }
+    if (gui_value(p, LANE_ID(1, 1)) != 0.0) { fprintf(stderr, "gui: lane 2 not stopped after the state's load\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_LRUN, 1)) return 5;
+    gui_wait(); gui_flush(p); xs->tick(p);
+    printf("gui lane PLAY with no memory: lane 2 MANY %g / ACTIVE %g\n", gui_value(p, LANE_ID(1, 1)), gui_value(p, LANE_ID(1, 2)));
+    if (gui_value(p, LANE_ID(1, 1)) != 1.0 || gui_value(p, LANE_ID(1, 2)) != 1.0) { fprintf(stderr, "gui: PLAY with no memory\n"); bad = 1; }
+    /* an empty lane: its button is there, dim, and does nothing (not even the selection) */
+    for (k = 0; k < nl && k < 16; k++) { int f, s; if (!xs->lane(p, k, &f, &s)) { empty = k; break; } }
+    if (empty >= 0) {
+        int sel = xs->sel(p);
+        double v0 = gui_value(p, LANE_ID(empty, 1));
+        if (!xs->find(p, W_LRUN, empty, r)) { fprintf(stderr, "gui: no STOP / PLAY on the empty lane %d\n", empty + 1); return 5; }
+        gui_click(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 0);
+        gui_wait(); gui_flush(p); xs->tick(p);
+        printf("gui empty lane %d: STOP / PLAY does nothing: MANY %g -> %g, lane %d selected (was %d)\n", empty + 1, v0, gui_value(p, LANE_ID(empty, 1)), xs->sel(p) + 1, sel + 1);
+        if (gui_value(p, LANE_ID(empty, 1)) != v0 || xs->sel(p) != sel) { fprintf(stderr, "gui: the empty lane's button did something\n"); bad = 1; }
+    } else printf("gui empty lane: none in this window\n");
     return bad;
 }
 static int gui_test3b(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* the browsers, SETTINGS, a colour, SPACE */
@@ -753,6 +870,7 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int
         if (gui_test5c_drawer(p, xs)) bad = 1;
         if (gui_test5c_preview(p, xs)) bad = 1;
         if (gui_test5c_rows(p, xs)) bad = 1;
+        if (gui_test5f(p, xs)) bad = 1;
         if (xs->find(p, 1 /* TXG_W_ROW */, 2, r)) gui_click(p, xs, r[0] + 30.f, r[1] + r[3] * 0.5f, 0);   /* (lane 3 selected) */
     }
     return bad ? 5 : 0;

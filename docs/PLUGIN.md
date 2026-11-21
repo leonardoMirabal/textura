@@ -124,29 +124,38 @@ with a gesture around a drag.
   (the app's: the last load or engine kept; again: redo), **PLAY ALL / STOP ALL** (the FM-1's REC, `sc_all_toggle`;
   white while every lane is stopped; the selected lane kept), LANES - / +, the output's peak (dB), SETTINGS.
 - **The place** (left, about a third of the width): **MAP** or **SPACE**, the selected lane's number, family, engine,
-  ENGINE (the engine browser) and colour dot (the picker) at its head. MAP: a half circle, the listener at its centre, L, R
+  a small square swap-icon button (the engine browser) and colour dot (the picker) at its head. MAP: a half circle, the listener at its centre, L, R
   and FAR inside the place; a dot's angle is the lane's PAN, its distance the engine's **DIST card** (a hollow dot
   when it has none: then a drag moves PAN only). Lanes on one spot fan out a few pixels and share a label
   (`1 Rain on water · 2 · 3 · 4`); a label goes to the first place clear of the dots, the other labels and the edges,
   or is left out (the selected lane's always shows). SPACE: the same place in perspective, each lane's events of the
   last 6 seconds drifting toward the horizon; a drag on the ground moves a lane.
 - **Lanes** (right, scrolling): one row a lane in use, ADD LANE under them. A row: number and colour dot (solid red
-  for the selected lane), engine and family (cut with `...` before the button) with an **ENGINE ▾** button at the right end of the column
-  (a tall button, ink on a box as SAVE and UNDO: it selects the lane and opens the engine browser; the same on an empty
-  lane; `TXG_W_SND`), the **event line**, **HOW MANY** (six blocks, 1 2 4 10 19 32, none lit OFF; a click on a block
+  for the selected lane), engine and family (cut with `...` before the button) with a small square swap-icon button right after the
+  text (22 x 22, as M and S: it selects the lane and opens the engine browser; the same on an empty lane; `TXG_W_SND`,
+  the one engine button of a row), the **event line**, a square **STOP / PLAY** button (`TXG_W_LRUN`, no header; see
+  below), **HOW MANY** (six blocks, 1 2 4 10 19 32, none lit OFF; a click on a block
   sets that many, on the top lit one one less), **HOW ACTIVE** (nine blocks), PAN, CH (OFF, 1 .. 16), **VOL**, **M**,
-  **S** and a square icon button (`TXG_W_SWAP`, the ENGINE button's twin: the swap icon alone). A stopped lane reads STOPPED across its event line; a landscape's start (all four stopped, as on the FM-1)
+  **S**. A stopped lane reads STOPPED across its event line; a landscape's start (all four stopped, as on the FM-1)
   adds ALL LANES STOPPED under the rows. HOW MANY or HOW ACTIVE starts a lane (the app's own: `sc_count`, `sc_step`).
   After STOP ALL a lane shows what PLAY ALL brings back (the app's `sc.mem_cnt` / `mem_step`, published as
   `txp_ui_lane_t` `mcnt` / `mact`) as outlined blocks. A scene applied with lanes stopped that have a HOW MANY of their
   own (a project or user scene saved after STOP ALL) gets that memory back (`slot_bridge.h` `sb_scene_mem`: the app
   clears it on a load), so PLAY ALL brings them back; with none anywhere PLAY ALL is the FM-1's landscape start
-  (lanes 1 .. 3 at HOW MANY 2 / 1 / 1, the rarest HOW ACTIVE). A click anywhere on a row selects its lane (the name
-  too: it does not open the browser); the row's controls (HOW MANY, HOW ACTIVE, PAN, CH, VOL, M, S) select it as
-  well; only the two engine buttons open the browser.
-- **Drawer** (the selected lane): its engine, colour, MANY / ACTIVE / VOL and channel, CHANGE ENGINE; **every card** of the engine (up
+  (lanes 1 .. 3 at HOW MANY 2 / 1 / 1, the rarest HOW ACTIVE). The row's **STOP / PLAY** button (a stop square in ink
+  while the lane plays, a red play triangle while it is stopped, dim and inert on an empty lane) is STOP ALL / PLAY
+  ALL for one lane: `TXP_EV_LANERUN`, handled in `slot_bridge.h` with the app's own `sc_count` / `sc_step` and the
+  same memory (`sc.mem_cnt` / `mem_step`): a stop remembers the lane's HOW MANY and HOW ACTIVE, a play restores them,
+  or with none does what PLAY ALL does for a lane with no values (lanes 1 .. 3 at 2 / 1 / 1, any other lane 1, at the
+  rarest HOW ACTIVE). STOP ALL keeps what a lane's own stop remembered (the app would overwrite it with OFF), so PLAY
+  ALL brings that lane back as it was. The button selects its lane, as M and S do; on an empty lane it does nothing.
+  A click anywhere on a row selects its lane (the name
+  too: it does not open the browser); the row's controls (STOP / PLAY, HOW MANY, HOW ACTIVE, PAN, CH, VOL, M, S) select it as
+  well; only the engine button opens the browser.
+- **Drawer** (the selected lane): its engine, colour, MANY / ACTIVE / VOL and channel, CHANGE ENGINE and beside it **STOP LANE** / **PLAY LANE** (`TXG_W_DRUN`, the
+  row button's twin); **every card** of the engine (up
   to `SCD_MAX`, 8) with its name, its value in its unit, and its hint (the FM-1 manual's line for that card:
-  `plugin/card_hints.h`, made from `docs/MANUAL.md` section 5 by `tools/plugin_card_hints.py`; wrapped to three lines,
+  `plugin/card_hints.h`, made from `docs/MANUAL.md` section 5 by `tools/plugin_card_hints.py`; wrapped to the lines that fit above the fader, the last cut with `...`,
   a longer one whole on hover, `TXG_W_TIP`), DIST among them; PAN, LEVEL, GROOVE PART and CYCLE. A value the
   modulation moves now is red with a `~`.
 - **Strip** (bottom): COMP, DRIVE, FILTER, DELAY, REVERB in the mix's order, each with its picture (COMP's meters:
@@ -284,7 +293,7 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
   expanded tab, a matrix SOURCE click, MOD CC, KEYS, a SAVE into U01, a row; each effect drawer with all its
   parameters, the rows usable above it, switching and closing; a preview on a stopped lane, its MANY step, CLOSE
   restoring engine, HOW MANY and a card, KEEP keeping the engine with the lane stopped, PLAY ALL's memory intact; a click
-  on a row's name and event line selecting, M selecting, each of a row's two ENGINE buttons selecting its lane and opening the browser) and checked against the parameters,
+  on a row's name and event line selecting, M selecting, a row's one ENGINE icon button selecting its lane and opening the browser; each lane's STOP / PLAY, in its row and in the drawer, sharing STOP ALL / PLAY ALL's memory, and nothing on an empty lane) and checked against the parameters,
   the events sent to the host, the lane's engine, the mute and solo masks and the saved state (solo, lane, view,
   colour, keys, the user scene). The window at 1200 x 720, 1950 x 1210, 1440 x 1080 and 960 x 600: the MAP a half
   circle (one scale both ways) with its labels inside the place. KEYS = FM-1 KEYS (`plugin/tests/scripts/keys.txt`):

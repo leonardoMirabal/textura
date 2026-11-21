@@ -248,7 +248,7 @@ static void caret_dn(txg_t *g, frui_canvas *c, float x, float y, uint32_t col)  
 static void chg_button(txg_t *g, frui_canvas *c, int kind, int k, float x, float y, float w, float h, const char *t)
 {
     int hot = g->hover_kind == kind && g->hover_lane == k;
-    float yc = y + h * 0.5f, fs = w < 100.f ? 9.5f : 10.5f;
+    float yc = y + h * 0.5f, fs = w < 120.f ? 9.5f : 10.5f;
     RR(g, c, x, y, w, h, 3.f, hot ? C_SEG : C_BTN);
     RRS(g, c, x, y, w, h, 3.f, hot ? C_DIM : C_LINE);
     if (t) {
@@ -257,6 +257,31 @@ static void chg_button(txg_t *g, frui_canvas *c, int kind, int k, float x, float
         LBL(g, c, x0 + 15.f, yc + CAP(g, fs) * 0.5f, fs, C_INK, t);
         caret_dn(g, c, x0 + tw - 3.5f, yc, C_INK);
     } else swap_icon(g, c, x + w * 0.5f, yc, 10.f, C_INK);
+    wid_add(g, kind, k, x, y, w, h);
+}
+/* a lane's STOP / PLAY: a square as M and S (t: a label after the icon, or none: the icon alone). Playing: a stop square
+ * in ink; stopped: a play triangle in red; no engine: both dim, nothing to click (kind TXG_W_LRUN: the row's, TXG_W_DRUN:
+ * the drawer's) */
+static int used(const txg_t *g, int k);
+static void run_button(txg_t *g, frui_canvas *c, int kind, int k, float x, float y, float w, float h, const char *t)
+{
+    const txp_ui_lane_t *l = &g->sn.ui.lane[k];
+    int u = used(g, k), run = u && l->run, hot = u && g->hover_kind == kind && g->hover_lane == k;
+    float yc = y + h * 0.5f, ix = t ? x + 12.f : x + w * 0.5f;
+    uint32_t ic = !u ? C_FAINT : run ? C_INK : C_RED;
+    RR(g, c, x, y, w, h, 3.f, hot ? C_SEG : C_BTN);
+    RRS(g, c, x, y, w, h, 3.f, u ? (hot ? C_DIM : C_LINE) : 0x80262424u);
+    if (run) R(g, c, ix - 4.f, yc - 4.f, 8.f, 8.f, ic);
+    else {
+        frui_path p;
+        frui_path_init(&p);
+        frui_path_move(&p, (ix - 3.f) * g->S, (yc - 5.f) * g->S);
+        frui_path_line(&p, (ix + 5.f) * g->S, yc * g->S);
+        frui_path_line(&p, (ix - 3.f) * g->S, (yc + 5.f) * g->S);
+        frui_path_fill(c, &p, ic);
+        frui_path_free(&p);
+    }
+    if (t) LBL(g, c, x + 24.f, yc + CAP(g, 9.5f) * 0.5f, 9.5f, C_INK, t);
     wid_add(g, kind, k, x, y, w, h);
 }
 /* a text cut to fit w with "..." (on a character boundary), as the font draws it: size, weight, tracking */
@@ -317,10 +342,11 @@ static void lay(txg_t *g)
     g->rvis = (int)floorf((g->dr_y - TOP_H - HDR_H) / ROW_H);
     if (g->rvis < 1) g->rvis = 1;
 }
-/* a row's columns (x from the window's left): the engine's name, the event line, MANY, ACTIVE, PAN, CH, VOL, M S, the square ENGINE button */
-typedef struct { float num, dot, name, tl, tlw, many, act, pan, ch, vol, ms, sw; } rcol_t;
-#define RW_NAME 226.f
-#define RW_CHG 76.f                      /* a row's ENGINE button (the engine browser), at the right end of the ENGINE column */
+/* a row's columns (x from the window's left): the engine's name (the square ENGINE button after it), the event line, STOP / PLAY, MANY, ACTIVE, PAN, CH, VOL, M S */
+typedef struct { float num, dot, name, tl, tlw, run, many, act, pan, ch, vol, ms; } rcol_t;
+#define RW_NAME 204.f
+#define RW_CHG 22.f                      /* a row's ENGINE button (the engine browser): a square icon after the name */
+#define RW_RUN 22.f                      /* a row's STOP / PLAY, before HOW MANY */
 #define RW_STEP 78.f
 #define RW_PAN 40.f
 #define RW_CH 34.f
@@ -333,14 +359,14 @@ static rcol_t rcols(const txg_t *g)
     float x0 = g->PW, right = g->W - 14.f;
     r.num = x0 + 14.f; r.dot = x0 + 36.f; r.name = x0 + 46.f;
     r.tl = x0 + 16.f + RW_NAME + R_GAP;
-    r.sw = right - 22.f;                 /* (the square ENGINE button, as M and S) */
-    r.ms = r.sw - 4.f - RW_MS;
+    r.ms = right - RW_MS;
     r.vol = r.ms - R_GAP - RW_VOL;
     r.ch = r.vol - R_GAP - RW_CH;
     r.pan = r.ch - R_GAP - RW_PAN;
     r.act = r.pan - R_GAP - RW_STEP;
     r.many = r.act - R_GAP - RW_STEP;
-    r.tlw = r.many - R_GAP - r.tl;
+    r.run = r.many - R_GAP - RW_RUN;
+    r.tlw = r.run - R_GAP - r.tl;
     if (r.tlw < 40.f) r.tlw = 40.f;
     return r;
 }
@@ -626,7 +652,7 @@ static void pcell(txg_t *g, frui_canvas *c, float x, float y, float w, float h, 
     }
     TX(g, c, x + w - 8.f - TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t), ty, 11.f, 500.f, 0.f, FRUI_TNUM, m ? C_RED : C_INK, t);
     if (hint && hint[0]) {
-        int lines = (int)((tcy - 6.f - (y + 27.f)) / 10.5f) + 1;
+        int lines = (int)((tcy - 10.f - (y + 27.f)) / 10.5f) + 1;   /* (the last line clear of the fader's handle) */
         if (hintn(g, 0, x + 9.f, y + 27.f, w - 18.f, hint, lines < 1 ? 1 : lines, 10.5f, C_DIM)) wid_add2(g, TXG_W_TIP, (int)id, id, 0, x, y, w, h);
         (void)hintn(g, c, x + 9.f, y + 27.f, w - 18.f, hint, lines < 1 ? 1 : lines, 10.5f, C_DIM);
     }
@@ -823,7 +849,7 @@ static void draw_place_head(txg_t *g, frui_canvas *c)
     else w = TX(g, c, x, y + 29.f, 15.f, 600.f, 0.2f, 0, C_FAINT, "Empty lane");
     frui_clip_reset(c);
     if (w > room) w = room;
-    chg_button(g, c, TXG_W_SND, k, x + w + 10.f, y + 14.f, RW_CHG, 22.f, "ENGINE");
+    chg_button(g, c, TXG_W_SND, k, x + w + 10.f, y + 14.f, RW_CHG, 22.f, 0);
     w += 10.f + RW_CHG;
     if (used(g, k)) {
         float xx = x + w + 18.f;
@@ -1121,7 +1147,7 @@ static void draw_rows(txg_t *g, frui_canvas *c)
         LBL(g, c, rc.name, yb, 10.f, C_DIM, "ENGINE");
         LBL(g, c, rc.tl, yb, 10.f, C_DIM, "EVENTS");
         if (rc.tlw >= TW(g, 10.f, 620.f, 1.4f, 0, "EVENTS") + 2.f * TW(g, 10.f, 620.f, 1.4f, 0, "6 S") + 8.f) LBL(g, c, rc.tl + rc.tlw - TW(g, 10.f, 620.f, 1.4f, 0, "6 S"), yb, 10.f, C_FAINT, "6 S");
-        LBL(g, c, rc.many, yb, 10.f, C_DIM, "HOW MANY");
+        LBL(g, c, rc.many, yb, 10.f, C_DIM, "HOW MANY");   /* (STOP / PLAY: no header) */
         LBL(g, c, rc.act, yb, 10.f, C_DIM, "HOW ACTIVE");
         LBL(g, c, rc.pan, yb, 10.f, C_DIM, "PAN");
         LBL(g, c, rc.ch, yb, 10.f, C_DIM, "CH");
@@ -1147,17 +1173,21 @@ static void draw_rows(txg_t *g, frui_canvas *c)
         if (sel) CI(g, c, rc.dot, yc, 4.5f, C_RED);   /* (the selected lane's dot: solid red) */
         {   /* the engine's name and family (cut with "..." before the button), ENGINE at the right end of the column (the
              * row itself: a click selects the lane) */
-            float nw = rc.tl - rc.name - 8.f, tw = nw - RW_CHG - 8.f, bh = ROW_H - 12.f;
+            float nw = rc.tl - rc.name - 8.f, tw = nw - RW_CHG - 8.f, bx = rc.name;
             if (u) {
                 float a = glow(g, k);
                 if (!sel) CI(g, c, rc.dot, yc, 3.5f, frui_alpha(lane_col(g, k), (0.35f + 0.65f * a) * mf));
                 cap_name(nm, l->snd, sizeof nm);
                 ell(g, t, sizeof t, nm, tw, 12.5f, 600.f, 0.f);
-                TX(g, c, rc.name, yc - 1.f, 12.5f, 600.f, 0.f, 0, ink, t);
+                bx += TX(g, c, rc.name, yc - 1.f, 12.5f, 600.f, 0.f, 0, ink, t);
                 ell(g, t, sizeof t, l->fam, tw, 10.f, 450.f, 0.3f);
-                TX(g, c, rc.name, yc + 12.f, 10.f, 450.f, 0.3f, 0, C_DIM, t);
-            } else TX(g, c, rc.name, yc + CAP(g, 12.f) * 0.5f, 12.f, 450.f, 0.3f, 0, C_FAINT, "empty");
-            chg_button(g, c, TXG_W_SND, k, rc.name + nw - RW_CHG, yc - bh * 0.5f, RW_CHG, bh, "ENGINE");
+                {
+                    float fw = TX(g, c, rc.name, yc + 12.f, 10.f, 450.f, 0.3f, 0, C_DIM, t);
+                    if (rc.name + fw > bx) bx = rc.name + fw;
+                }
+            } else bx += TX(g, c, rc.name, yc + CAP(g, 12.f) * 0.5f, 12.f, 450.f, 0.3f, 0, C_FAINT, "empty");
+            bx = bx - rc.name > tw ? rc.name + tw : bx;   /* (the icon after the longer of the two texts) */
+            chg_button(g, c, TXG_W_SND, k, bx + 8.f, yc - 11.f, RW_CHG, 22.f, 0);
         }
         draw_line(g, c, k, rc.tl, yc - th * 0.5f, rc.tlw, th, mf);
         if (stopped) {                   /* (a stopped lane: plain to see; HOW MANY or HOW ACTIVE starts it) */
@@ -1206,7 +1236,7 @@ static void draw_rows(txg_t *g, frui_canvas *c)
                s ? 0xFFFFFFFFu : u ? C_DIM : C_FAINT, "S");
             if (u) { wid_add(g, TXG_W_MUTE, k, rc.ms, by, 22.f, 22.f); wid_add(g, TXG_W_SOLO, k, rc.ms + 26.f, by, 22.f, 22.f); }
         }
-        chg_button(g, c, TXG_W_SWAP, k, rc.sw, yc - 11.f, 22.f, 22.f, 0);   /* (the same, the icon alone) */
+        run_button(g, c, TXG_W_LRUN, k, rc.run, yc - 11.f, 22.f, 22.f, 0);
     }
     if (g->nlane < (int)TXP_LANES && g->nlane >= g->rtop && g->nlane < g->rtop + g->rvis) {   /* ADD LANE */
         float y = y0 + ROW_H * (float)(g->nlane - g->rtop), yc = y + ROW_H * 0.5f;
@@ -1256,7 +1286,8 @@ static void draw_drawer(txg_t *g, frui_canvas *c)
     clipL(g, c, x, y0, cx0 - x - 16.f, DR_H);
     TX(g, c, x, y0 + 48.f, 22.f, 700.f, 1.1f, 0, (g->mute >> k & 1u) ? C_DIM : C_INK, nm);
     frui_clip_reset(c);
-    chg_button(g, c, TXG_W_SND, k, x, y0 + 116.f, 156.f, 26.f, "CHANGE ENGINE");
+    chg_button(g, c, TXG_W_SND, k, x, y0 + 116.f, 112.f, 26.f, "CHANGE ENGINE");
+    run_button(g, c, TXG_W_DRUN, k, x + 116.f, y0 + 116.f, 88.f, 26.f, l->run ? "STOP LANE" : "PLAY LANE");
     if (l->eng < g->cat->neng) {
         char en[24];
         upper(en, g->cat->eng[l->eng], sizeof en);
@@ -2983,6 +3014,11 @@ int txg_input(txg_t *g, const frg_input *e)
             if (lane_of_id(w->id) >= 0) select_lane(g, lane_of_id(w->id));
             step_param(g, w->id, w->v, 1);
             break;
+        case TXG_W_LRUN: case TXG_W_DRUN:
+            if (!used(g, k)) break;      /* (no engine: nothing) */
+            select_lane(g, k);
+            txp_ui_lane_run(g->c, (uint32_t)k, !g->sn.ui.lane[k].run);
+            break;
         case TXG_W_MUTE: select_lane(g, k); txp_ui_mute(g->c, (uint32_t)k, !(g->mute >> k & 1u)); g->mute ^= 1u << k; break;
         case TXG_W_SOLO: {
             uint32_t m = g->solo ^ (1u << k);
@@ -3047,7 +3083,7 @@ int txg_input(txg_t *g, const frg_input *e)
             int hk = 0, hl = -1;
             float r[4];
             if (w && (w->kind == TXG_W_ADD || w->kind == TXG_W_DOT || w->kind == TXG_W_LIST || w->kind == TXG_W_SND ||
-                      w->kind == TXG_W_SWAP || w->kind == TXG_W_PREVIEW)) { hk = w->kind; hl = w->lane; }
+                      w->kind == TXG_W_LRUN || w->kind == TXG_W_DRUN || w->kind == TXG_W_PREVIEW)) { hk = w->kind; hl = w->lane; }
             else if (w && w->kind == TXG_W_PARAM && txg_find(g, TXG_W_TIP, w->lane, r) && e->x >= r[0] && e->x < r[0] + r[2] &&
                      e->y >= r[1] && e->y < r[1] + r[3]) { hk = TXG_W_TIP; hl = w->lane; }   /* (a card whose hint was
                                           * cut: all of it shows) */
@@ -3091,7 +3127,7 @@ int txg_input(txg_t *g, const frg_input *e)
             step_param(g, id, d, 0);
             return 3;
         }
-        if (w && (w->kind == TXG_W_ROW || w->kind == TXG_W_ROWS || w->kind == TXG_W_SND || w->kind == TXG_W_SWAP || w->kind == TXG_W_MUTE || w->kind == TXG_W_SOLO || w->kind == TXG_W_ADD)) {
+        if (w && (w->kind == TXG_W_ROW || w->kind == TXG_W_ROWS || w->kind == TXG_W_SND || w->kind == TXG_W_LRUN || w->kind == TXG_W_MUTE || w->kind == TXG_W_SOLO || w->kind == TXG_W_ADD)) {
             int t0 = g->rtop;            /* (the rows: scrolled) */
             g->rtop += e->wheel > 0.f ? -1 : 1;
             rows_clamp(g);

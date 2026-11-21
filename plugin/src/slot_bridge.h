@@ -908,10 +908,30 @@ static void sb_events(int timed)
                                           * selected lane kept: the FM-1's landscape start picks lane 1) */
             int run = sc_any_run();
             uint8_t sel = sc.sel;
+            uint8_t mc[SC_N], ms[SC_N];
+            memcpy(mc, sc.mem_cnt, sizeof mc); memcpy(ms, sc.mem_step, sizeof ms);
             sc_all_toggle();
+            if (run)                     /* (STOP ALL: a lane its own STOP had stopped keeps what that remembered) */
+                for (uint32_t k = 0; k < SC_N; k++)
+                    if (!sc.run[k] && mc[k] && sc.mem_cnt[k] == 0) { sc.mem_cnt[k] = mc[k]; sc.mem_step[k] = ms[k]; }
             if (sel < SC_N && sc.snd[sel] >= 0) sc.sel = sel;
             scn_touch();
             (void)tempo_transport(!run);
+            sbx.rev++;
+        } else if (e->kind == TXP_EV_LANERUN) {   /* (STOP ALL / PLAY ALL for one lane: sc_all_toggle's own steps) */
+            uint32_t k = e->a;
+            if (k < SC_N && sc.snd[k] >= 0) {
+                if (!e->v && sc.run[k]) {
+                    sc.mem_cnt[k] = (uint8_t)sc_cnt_of(k); sc.mem_step[k] = (uint8_t)sc_step_of(k);
+                    sc_count(k, 0);
+                    scn_touch();
+                } else if (e->v && !sc.run[k]) {
+                    static const uint8_t C[3] = {2, 1, 1};   /* (sc_start_landscape's: 2 / 1 / 1, the rarest ACTIVE) */
+                    if (sc.mem_cnt[k]) { sc_count(k, sc.mem_cnt[k]); sc_step(k, sc.mem_step[k]); }
+                    else { sc_count(k, k < 3u ? C[k] : 1u); sc_step(k, sc_act_step(0)); }
+                    scn_touch();
+                }
+            }
             sbx.rev++;
         } else if (e->kind == TXP_EV_UNDO) {   /* (as SAVE held: scenes.c) */
             if (scn_su.on) scn_snd_undo(); else scn_undo();

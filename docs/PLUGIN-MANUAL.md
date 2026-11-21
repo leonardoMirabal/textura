@@ -100,7 +100,7 @@ It needs only the system's own libraries (libc and libX11). It runs on Ubuntu 20
    factory presets. The preset's lanes start at once: the event lines start to move. No notes are needed. (A
    landscape starts stopped, as on the FM-1: press **PLAY ALL**.)
 3. **Move an engine.** Drag a dot on the MAP: left and right is its pan, up is farther away.
-4. **Change an engine.** Click **ENGINE** in a lane's row (or the square button at its right end). The engine browser
+4. **Change an engine.** Click the small swap-icon button after the engine's name in a lane's row. The engine browser
    opens and plays each engine you move to on that lane, even a stopped one. Press **KEEP ON LANE n** to keep it.
 5. **Play it.** Notes on a lane's channel (lane n on channel n) play that lane as the FM-1's keys do in PLAY mode:
    each engine plays its own way, a note setting the size or pitch of its events.
@@ -164,7 +164,7 @@ The MAP is the place seen from above: a half circle, **YOU** (the triangle) at i
   2 · 3 · 4`. A label that would cover another label or a dot moves to the other side, or is left out.
 - With more than 8 lanes, a dot shows its number only. The selected lane and the one under the mouse show their names.
 
-**The selected lane** is named at the top of the place: **LANE n · FAMILY**, its engine, **ENGINE ▾** (the
+**The selected lane** is named at the top of the place: **LANE n · FAMILY**, its engine, the swap-icon button (the
 [engine browser](#the-engine-browser)) and its source's colour dot (click it for the [colour](#colours) picker).
 
 ### SPACE
@@ -189,8 +189,9 @@ scroll: turn the mouse wheel over them. A row shows, left to right:
 | Column | What it shows |
 | --- | --- |
 | **#** | The lane's number and a dot in its engine's colour. The **selected lane**'s dot is solid red, its number red, its row lit with a red edge. Click the number or the dot to select the lane. |
-| **ENGINE** | The lane's engine and its family (cut with `...` when long), and the **ENGINE ▾** button at the right end of the column: it selects the lane and opens the [engine browser](#the-engine-browser) for it. The button is the same on an empty lane. |
+| **ENGINE** | The lane's engine and its family (cut with `...` when long), and, right after the text, a small square swap-icon button: it selects the lane and opens the [engine browser](#the-engine-browser) for it. The button is the same on an empty lane. |
 | **EVENTS** | The lane's **event line**: the last 6 seconds. A bar for each moment with events, as high as their loudness, over a faint band for the lane's level. A stopped lane reads **STOPPED**. |
+| **(STOP / PLAY)** | A square button before HOW MANY, with no header. A playing lane shows a stop square: click it to stop that lane (HOW MANY and HOW ACTIVE go to OFF, as STOP ALL does, and the lane remembers them). A stopped lane shows a red play triangle: click it to play the lane again with the values it remembered, or, if it has none, as PLAY ALL starts a lane (HOW MANY 2, 1 or 1 for lanes 1 to 3, 1 for the others, at the rarest HOW ACTIVE). It selects the lane, as M and S do. On an empty lane it is dim and does nothing. STOP ALL and PLAY ALL work with it: PLAY ALL brings a lane you stopped back as it was. |
 | **HOW MANY** | How many event makers the cloud has: six blocks for **1 2 4 10 19 32**; none lit is **OFF**. Click a block for that many (the top lit block again: one less, so the first block again is OFF). Drag along the blocks, or turn the wheel. |
 | **HOW ACTIVE** | How busy each event maker is: nine blocks, rare to busy. Click, drag and wheel as HOW MANY. |
 | **PAN** | The lane's pan (`L24`, `C`, `R16`). Drag it, wheel, double-click for the centre. Red with a `~` while an LFO moves it. |
@@ -198,10 +199,9 @@ scroll: turn the mouse wheel over them. A row shows, left to right:
 | **VOL** | The lane's **LEVEL**, 0 to 127. Drag it, turn the wheel over it, or double-click for 100. |
 | **M** | Mute. The lane goes silent but keeps playing, so it comes back at once. A preset keeps it, as on the FM-1. |
 | **S** | Solo. While any lane is soloed, only the soloed lanes play. Alt-, Cmd- or Ctrl-click solos one lane alone (click it again that way to clear). The project keeps it. |
-| **(square button)** | At the far right, beside M and S: the same as **ENGINE ▾**, the icon alone. It selects the lane and opens the engine browser for it. |
 
 A click anywhere on a row selects its lane, the engine's name too. The controls in it (HOW MANY, HOW ACTIVE, PAN, CH,
-VOL, M, S) work as they did and select the row as well. Only the two ENGINE buttons open the engine browser. The up and down arrow
+VOL, M, S, STOP / PLAY) work as they did and select the row as well. Only the swap-icon button opens the engine browser. The up and down arrow
 keys select too. LEVEL is the engine's, as on the FM-1: two lanes playing the same engine
 share it.
 
@@ -216,6 +216,11 @@ white. Press **PLAY ALL**, or set a lane's HOW MANY or HOW ACTIVE: that starts i
 
 ![After STOP ALL: each lane's HOW MANY and HOW ACTIVE kept beside the OFF, for PLAY ALL](plugin/img/stopped.png)
 
+**One lane** stops and plays with its own button, in its row and in the drawer. Below, lane 2 is stopped by its button:
+its play triangle is red, the others play on, and PLAY ALL still brings lane 2 back with its own values.
+
+![Lane 2 stopped by its own button](plugin/img/lane-stopped.png)
+
 ### The drawer
 
 ![The drawer: the selected lane's cards, one moved by an LFO](plugin/img/window-4-lanes.png)
@@ -223,7 +228,7 @@ white. Press **PLAY ALL**, or set a lane's HOW MANY or HOW ACTIVE: that starts i
 Under the place and the rows, the **drawer** shows the selected lane:
 
 - **At the left**: **LANE n · FAMILY**, the engine in large letters, the engine's colour (click it for the picker), a
-  line with MANY, ACTIVE, VOL and the lane's MIDI channel, STOPPED or MUTED, and **CHANGE ENGINE** (the engine browser).
+  line with MANY, ACTIVE, VOL and the lane's MIDI channel, STOPPED or MUTED, **CHANGE ENGINE** (the engine browser) and **STOP LANE** / **PLAY LANE**: the row's STOP / PLAY button again.
 - **In the middle**: **every card** of the engine, up to eight, four to a row, each a fader. Each card shows its name,
   its value in its own unit, and what it does (the FM-1 manual's line for it, wrapped to the card; one too long for
   it shows whole when the mouse rests on the card). A card an LFO moves now is red, with `~` before its name. The
@@ -302,8 +307,8 @@ and **SAVE**.
 
 ![The engine browser: the families and their engines](plugin/img/engine-browser.png)
 
-Opens from a lane's **ENGINE** button (in its row, at the top of the place, or **CHANGE ENGINE** in the drawer), from
-the square button at the row's right end, or with **Return** for the selected lane. The header reads **ENGINE FOR LANE n**.
+Opens from a lane's swap-icon button (in its row or at the top of the place), **CHANGE ENGINE** in the drawer, or with
+**Return** for the selected lane. The header reads **ENGINE FOR LANE n**.
 
 - **Left**: the ten families, with how many engines each has.
 - **Middle**: the family's engines, each with its source at the right. **L1** (L2 ...) marks the engines lanes play now;
