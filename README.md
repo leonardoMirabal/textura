@@ -13,6 +13,13 @@ Textura is free. If you enjoy it, you can [buy me a coffee](https://ko-fi.com/le
   <img src="docs/img/device.png" width="100%" alt="Textura on the FM-1: the TEXTURA home page on the screen, and under the keys what they do: the black-key groups pick lanes 1 to 4, F3 to E4 set HOW MANY, F4 to G5 set HOW ACTIVE">
 </p>
 
+<table align="center">
+  <tr>
+    <td align="center" width="50%"><img src="docs/img/landscape.png?v=7b19918e" width="100%" alt="Textura on the FM-1: the LANDSCAPE page, four lanes with their sounds and volumes"><br><b>On the M-VAVE FM-1</b>: colour screen, four knobs, four lanes</td>
+    <td align="center" width="50%"><img src="docs/plugin/img/window-4-lanes.png?v=d0bc8088" width="100%" alt="The desktop plugin's window: the place and the lanes, the effects strip"><br><b>On your computer</b>: a plugin with its own window, up to 16 lanes</td>
+  </tr>
+</table>
+
 **The keys, in three steps:**
 
 1. **Pick a lane**: tap a black key. Each group is one lane: 3 keys for lane 1, 2 for lane 2, 3 for lane 3, 2 for
@@ -28,16 +35,16 @@ the FM-1's screen, knobs and keys, played from your computer keyboard or a MIDI 
 
 <table align="center">
   <tr>
-    <td align="center"><img src="docs/img/landscape.png" width="240" alt="The LANDSCAPE page: four lanes, each with its sound, HOW MANY, HOW ACTIVE and its volume"></td>
-    <td align="center"><img src="docs/img/sounds.png" width="240" alt="The sound browser: the Water family's sounds, one being heard before it is kept"></td>
+    <td align="center"><img src="docs/img/landscape.png?v=7b19918e" width="240" alt="The LANDSCAPE page: four lanes, each with its sound, HOW MANY, HOW ACTIVE and its volume"></td>
+    <td align="center"><img src="docs/img/sounds.png?v=5cbb87e4" width="240" alt="The sound browser: the Water family's sounds, one being heard before it is kept"></td>
   </tr>
   <tr>
     <td align="center"><b>LANDSCAPE</b>: four lanes play at once</td>
     <td align="center"><b>SOUNDS</b>: hear a sound before you keep it</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/img/perform.png" width="240" alt="The PERFORM page: HIGH PASS, LOW PASS, DELAY MIX and REVERB MIX on the four knobs"></td>
-    <td align="center"><img src="docs/img/delay.png" width="240" alt="The DELAY page: MIX, TIME, SYNC and FEEDBACK"></td>
+    <td align="center"><img src="docs/img/perform.png?v=ca50950e" width="240" alt="The PERFORM page: HIGH PASS, LOW PASS, DELAY MIX and REVERB MIX on the four knobs"></td>
+    <td align="center"><img src="docs/img/delay.png?v=c605791a" width="240" alt="The DELAY page: MIX, TIME, SYNC and FEEDBACK"></td>
   </tr>
   <tr>
     <td align="center"><b>PERFORM</b>: play the effects live</td>
@@ -57,7 +64,8 @@ needs no copy of Frodhes to build or install.
   HOW ACTIVE (rare to busy), pan, volume and mute.
 - **Effects, in the order the sound goes through them**: compressor, drive (five types), filter (a high-pass into a
   low-pass, 20 Hz .. 20 kHz, together a band), grain delay (its repeats grained, up to a slowly evolving cloud) and
-  reverb (room, hall, plate and infinite spaces). The pages follow the same order, left to right.
+  reverb (room, hall, plate and infinite spaces). Last in the chain, after the reverb, comes **M/S**: MID and SIDE
+  levels, WIDTH and MONO. The pages follow the same order, left to right.
 - **PERFORM**: one page for playing the effects live: HIGH PASS, LOW PASS, DELAY MIX and REVERB MIX.
 - **Movement**: 8 LFOs, 2 envelopes, 2 envelope followers and a 16-slot mod matrix. A groove makes the small events lean
   toward a shared, slowly drifting pulse, felt rather than heard, never a beat.
@@ -66,6 +74,37 @@ needs no copy of Frodhes to build or install.
 - **Connections**: MIDI over USB and the TRS input (each lane on its own channel), and audio over USB as well as
   the headphone jack.
 - **Presets**: 100 factory presets in families, 16 slots for your own, and the 10 landscapes.
+- **On your computer too**: the same engines as a plugin, [below](#on-your-computer-the-desktop-plugin).
+
+## On your computer: the desktop plugin
+
+Textura also runs in your music software as an instrument plugin: CLAP and VST3 on macOS, Windows and Linux, and an
+Audio Unit on macOS.
+
+- The same 103 engines, presets, landscapes and effects as the FM-1, computed by the same code. A computer has room to
+  spare, so nothing is thinned: every lane plays all its events.
+- **16 lanes** instead of 4, each on its own MIDI channel.
+- Its own window: the **MAP** and **SPACE** views to place sources, the lanes with a drawer for the selected one, and
+  an effects strip in signal order, ending with the M/S section (MID, SIDE, WIDTH, MONO).
+- **Movement**: LFOs, envelopes, followers and the mod matrix, drawn in the window.
+- **Engine browser** with preview: hear a sound before you keep it.
+- macOS 11 or newer (universal: Apple silicon and Intel), Windows x64, Linux x86_64 and aarch64.
+- **Install**: the plugin files come with each release on the [Releases](https://github.com/leonardoMirabal/textura/releases)
+  page. There is no installer: copy the bundles you need into your plug-in folders and rescan in your music software.
+  Each system's steps are in [the plugin manual](docs/PLUGIN-MANUAL.md#2-install).
+
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/plugin/img/window-4-lanes.png?v=d0bc8088" width="384" alt="The plugin's window: the place and the lanes, the selected lane's drawer, the effects strip"></td>
+    <td align="center"><img src="docs/plugin/img/engine-browser.png?v=6128e9e0" width="384" alt="The plugin's engine browser"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>The window</b>: place, lanes and effects</td>
+    <td align="center"><b>Engine browser</b>: hear before you keep</td>
+  </tr>
+</table>
+
+Every control in full: [the plugin manual](docs/PLUGIN-MANUAL.md).
 
 ## Install on the FM-1
 
@@ -96,7 +135,13 @@ Loader, or Frodhes' own installer. The USB rescue (OCT− held at power-on) work
 |---|---|
 | [Releases](https://github.com/leonardoMirabal/textura/releases) | Every version's `.fwsc` package and its release notes |
 | [The Firmware Hub](https://thefirmwarehub.com/firmware/textura/) | The FM-1's firmware catalogue: install and update from one place |
+| [mutant.cloud](https://mutant.cloud/#/p/textura) | Install over USB-MIDI in the browser, no account needed |
+| [fm1-editor.com](https://fm1-editor.com/firmware/#textura) | The community's firmware list with pictures |
+| [altstrument](https://altstrument.org/firmware/m-vave-fm-1/textura) | The community catalogue of alternative firmware, with every Textura version |
 | [Web emulator](https://leonardomirabal.github.io/textura/) | Play Textura in the browser before you install it |
+
+Questions, bugs or ideas: [issues](https://github.com/leonardoMirabal/textura/issues). The community's own place is
+[r/MVaveFM1](https://www.reddit.com/r/MVaveFM1/).
 
 ## Status
 
