@@ -72,10 +72,10 @@ static const char *const PAL_N[TXP_COL_N] = { "BONE", "EMBER", "AMBER", "SAND", 
 enum { OV_NONE, OV_SET, OV_SND, OV_PRE, OV_FX, OV_SAVE };
 enum { PB_USER = 100, PB_LAND = 101 };   /* the presets browser's banks past the factory's categories */
 /* the strip's sections, in signal order (the expanded view's tabs: these, LFO 1 .. 8, ENV and FOLLOW, the matrix) */
-enum { SEC_COMP, SEC_DRIVE, SEC_FILTER, SEC_DELAY, SEC_REVERB, SEC_MOVE, SEC_N };
+enum { SEC_COMP, SEC_DRIVE, SEC_FILTER, SEC_DELAY, SEC_REVERB, SEC_MS, SEC_MOVE, SEC_N };
 enum { TAB_LFO0 = SEC_MOVE, TAB_ENV = TAB_LFO0 + 8, TAB_MAT, TAB_N };
-static const char *const SEC_NAME[SEC_N] = { "COMP", "DRIVE", "FILTER", "DELAY", "REVERB", "MOVEMENT" };
-static const float SEC_WT[SEC_N] = { 1.f, 1.f, 1.6f, 1.f, 1.f, 1.3f };
+static const char *const SEC_NAME[SEC_N] = { "COMP", "DRIVE", "FILTER", "DELAY", "REVERB", "M/S", "MOVEMENT" };
+static const float SEC_WT[SEC_N] = { 1.f, 1.f, 1.6f, 1.f, 1.f, 1.f, 1.3f };
 /* the effects' ids (params.c: the globals' scope 4) */
 #define G_ID(i) TXP_ID_GLOB(i)
 #define ID_GMIX G_ID(0)
@@ -95,6 +95,15 @@ static const float SEC_WT[SEC_N] = { 1.f, 1.f, 1.6f, 1.f, 1.f, 1.3f };
 #define ID_FLP G_ID(53)
 #define ID_FRES G_ID(54)
 #define ID_FSLOPE G_ID(55)
+#define ID_CATK G_ID(28)
+#define ID_CREL G_ID(29)
+#define ID_MSMID G_ID(TXP_PG_MSMID)      /* the M/S (tx_core_ms.h): MID, SIDE 0 -inf, v (v - 115) / 2 dB; WIDTH 0 .. 200 % */
+#define ID_MSSIDE G_ID(TXP_PG_MSSIDE)
+#define ID_MSWIDTH G_ID(TXP_PG_MSWIDTH)
+#define ID_MSMONO G_ID(TXP_PG_MSMONO)
+#define MS_0DB 115                       /* MID / SIDE: 0 dB */
+#define MS_W100 50                       /* WIDTH: 100 % */
+#define GON_H 8                          /* the goniometer's persistence: the last blocks of points it shows */
 #define ID_LFO(n, p) (5u << 8 | (uint32_t)(n) * 16u | (uint32_t)(p))
 #define ID_MAT(s, q) (7u << 8 | (uint32_t)(s) * 4u | (uint32_t)(q))
 enum { LP_SHAPE, LP_RATE, LP_SYNC, LP_MODE, LP_PHASE, LP_WIDTH, LP_JITTER, LP_FADE, LP_RESTART, LP_LEVEL };
@@ -128,6 +137,13 @@ struct txg {
      * the last paint (a repaint of the activity's regions) */
     float cm_in, cm_out, cm_gr, cm_pk, cm_drawn[4];
     int cm_hold, cm_dirty;
+    /* the M/S's meters as drawn (L R M S, dB, COMP's ballistics), the correlation (-1 .. 1, smoothed), as drawn last;
+     * the goniometer's last blocks of points (the newest at gon_at), how many, the block count of the newest, its
+     * scale (the picture follows the level: the cloud's edge near the circle) */
+    float ms_db[4], ms_c, ms_drawn[5], gon_k;
+    int16_t gon[GON_H][TXP_GON_N][2];
+    int gon_at, gon_n;
+    uint32_t gon_blk;
     int drawn;                           /* the canvas holds a whole draw */
     /* the colour picker (over anything): the engine it colours, -1 closed; where it opens */
     int pick, pick_x, pick_y;
@@ -338,8 +354,12 @@ static uint32_t fnv(uint32_t h, const void *p, size_t n)
 #define FXD_TABS 34.f                    /* MOVEMENT's: its tabs over its body */
 #define FXD_ENV (12.f + 48.f + 16.f + 4.f * 30.f + 3.f * 6.f + 12.f)
 #define FXD_MAT (12.f + 14.f + 8.f * 30.f + 8.f)
+#define MS_GS 170.f                      /* M/S's: its goniometer's square, the correlation under it (MS_CH), as tall */
+#define MS_CH 46.f
+#define FXD_MS (38.f + 8.f + MS_GS + MS_CH + 8.f + 12.f)
 static float fxd_h(int tab)
 {
+    if (tab == SEC_MS) return FXD_MS;
     if (tab < SEC_MOVE) return FXD_BODY;
     if (tab < TAB_ENV) return FXD_TABS + FXD_BODY;
     return FXD_TABS + (tab == TAB_ENV ? FXD_ENV : FXD_MAT);
@@ -470,12 +490,23 @@ static const txp_param_t *pinfo(uint32_t id)
     int i = txp_param_index(id);
     return i < 0 ? 0 : &t[i];
 }
+/* COMP's ATTACK and REL in ms (the FM-1's page shows Frodhes' 0.0 .. 10.0): their time constants, tx_core_comp.c's
+ * (ATTACK 0.1 ms x 500^(v / 127), REL 20 ms x 75^(v / 127)) */
+static int comp_ms_text(uint32_t id, int v, char *out, uint32_t n)
+{
+    float ms;
+    if (id != ID_CATK && id != ID_CREL) return 0;
+    ms = id == ID_CATK ? 0.1f * powf(500.f, (float)v / 127.f) : 20.f * powf(75.f, (float)v / 127.f);
+    if (ms < 9.95f) snprintf(out, n, "%.1f ms", (double)ms); else snprintf(out, n, "%d ms", (int)lroundf(ms));
+    return 1;
+}
 /* a value's text as the window shows it: the app's own (its page's: "4.2 kHz", a card in its unit), or, while the
  * window's own write waits for the app, the host's text of it */
 static void vtext(const txg_t *g, uint32_t id, char *out, uint32_t n)
 {
     int i = txp_param_index(id), v = txp_ui_get(g->c, id);
     if (i < 0) { out[0] = 0; return; }
+    if (comp_ms_text(id, v, out, n)) return;
     if (v == g->sn.pv[i] && g->sn.ptx[i][0]) { snprintf(out, n, "%s", g->sn.ptx[i]); return; }
     ptext(id, v, out, n);
 }
@@ -528,6 +559,7 @@ static int pmod(const txg_t *g, uint32_t id, int *live)
         return 0;
     }
     if ((id >> 8) == 4u && i < 64) return (u->gmod[i / 32] >> (i % 32) & 1u) != 0;
+    if ((id >> 8) == 4u && i >= TXP_PG_MSMID && i <= TXP_PG_MSMONO) return (u->ms_mod >> (i - TXP_PG_MSMID) & 1u) != 0;
     if ((id >> 8) == 5u && ((i & 15) == LP_RATE || (i & 15) == LP_LEVEL)) return (u->lfo_mod >> (i / 16) & 1u) != 0;
     return 0;
 }
@@ -604,6 +636,34 @@ static int is_bip(uint32_t id)           /* drawn from the middle: PAN, a route'
            id == TXP_ID_GLOB(TXP_PG_TRANS);
 }
 static int is_choice(const txp_param_t *p) { return p->is_enum || p->hi < 20; }
+/* a fader's place for a value: v / hi, but the M/S's MID and SIDE on a fader's taper (the FM-1's M/S page's: 0 dB at
+ * three quarters, the gain's square root under it, +6 dB at the end; 0, -inf, at the left), and WIDTH at 0 while MONO
+ * is on (it reads 0 %, SIDE kept for when MONO goes off). ms_val: a place back to a value */
+static int ms_lvl(uint32_t id) { return id == ID_MSMID || id == ID_MSSIDE; }
+static float ms_pos(float v)
+{
+    if (v <= 0.f) return 0.f;
+    if (v >= (float)MS_0DB) return 0.75f + (v - (float)MS_0DB) * 0.25f / (127.f - (float)MS_0DB);
+    return 0.75f * sqrtf(powf(10.f, (v - (float)MS_0DB) * 0.025f));   /* (v - 115) / 2 dB: the gain's root */
+}
+static float ms_val(float f)
+{
+    if (f >= 0.75f) return (float)MS_0DB + (f - 0.75f) * (127.f - (float)MS_0DB) / 0.25f;
+    if (f <= 0.f) return 0.f;
+    {
+        float v = (float)MS_0DB + 40.f * log10f(f / 0.75f) * 2.f;   /* (the gain (f / 0.75)^2 in dB, 2 steps a dB) */
+        return v < 0.5f ? 0.f : v < 1.f ? 1.f : v;
+    }
+}
+static int ms_mono_on(const txg_t *g) { return txp_ui_get(g->c, ID_MSMONO) > 0; }
+static float ctl_pos(const txg_t *g, uint32_t id, float v, int hi)
+{
+    float f;
+    if (ms_lvl(id)) f = ms_pos(v);
+    else if (id == ID_MSWIDTH && ms_mono_on(g)) f = 0.f;
+    else f = v / (float)(hi > 0 ? hi : 1);
+    return f < 0.f ? 0.f : f > 1.f ? 1.f : f;
+}
 /* ---- the movement: the matrix's links seen per control. The matrix (mod.c): 16 slots, each a SOURCE, a TARGET (an
  * index into the app's one list of targets, txp_catalog_t mt_*), a DEPTH (0 .. 200: -100 .. +100 %, 100 none) and a
  * SPREAD, all host parameters. A link: a slot with a source, a target and a depth. The window's sources (its tiles):
@@ -773,8 +833,10 @@ static void chevron(txg_t *g, frui_canvas *c, float x, float yc, int dir, uint32
     LN(g, c, x + 2.f * (float)dir, yc, x - 2.f * (float)dir, yc + 3.5f, 1.3f, col);
 }
 /* a fader: x .. x + w, its track centred at yc (f, live: 0 .. 1; live -1: not moved; f0 its zero: 0 or the middle); lo ..
- * hi: the reach of the sources that move it (a faint red band behind the track; lo > hi: none), live their red tick */
-static void fader(txg_t *g, frui_canvas *c, float x, float yc, float w, float f, float f0, float live, int big, float lo, float hi)
+ * hi: the reach of the sources that move it (a faint red band behind the track; lo > hi: none), live their red tick;
+ * mk: a mark on the track (the M/S's 0 dB, 100 %), -1 none */
+static void fader(txg_t *g, frui_canvas *c, float x, float yc, float w, float f, float f0, float live, int big, float lo, float hi,
+                  float mk)
 {
     float th = big ? 4.f : 3.f, hw = big ? 8.f : 7.f, hh = big ? 12.f : 10.f, hx;
     f = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
@@ -782,6 +844,7 @@ static void fader(txg_t *g, frui_canvas *c, float x, float yc, float w, float f,
     RR(g, c, x, yc - th * 0.5f, w, th, th * 0.5f, C_FAINT);
     if (fabsf(f - f0) * w >= 0.5f) RR(g, c, x + w * fminf(f0, f), yc - th * 0.5f, w * fabsf(f - f0), th, th * 0.5f, frui_alpha(C_INK, 0.85f));
     if (f0 > 0.f) R(g, c, x + w * f0 - 0.5f, yc - th, 1.f, th * 2.f, C_DIM);   /* (a bipolar one: its middle) */
+    if (mk >= 0.f) R(g, c, x + w * mk - 0.5f, yc - th - 1.f, 1.f, th * 2.f + 2.f, C_DIM);
     hx = x + w * f - hw * 0.5f;
     RR(g, c, hx, yc - hh * 0.5f, hw, hh, 2.f, C_INK);
     R(g, c, hx + hw * 0.5f - 0.5f, yc - hh * 0.5f + 3.f, 1.f, hh - 6.f, C_DIM);   /* (its grip) */
@@ -816,7 +879,9 @@ static void pcell(txg_t *g, frui_canvas *c, float x, float y, float w, float h, 
     if (hint) ty = y + 14.f;
     else if (ch) ty = y + h * 0.5f + CAP(g, 10.5f) * 0.5f;
     else ty = fminf(tcy - 7.f, y + (tcy - y) * 0.5f + CAP(g, 10.5f) * 0.5f);
-    if (T) amt_text(t, sizeof t, amt); else vtext(g, id, t, sizeof t);
+    if (T) amt_text(t, sizeof t, amt);
+    else if (id == ID_MSWIDTH && ms_mono_on(g)) snprintf(t, sizeof t, "0 %%");   /* (MONO: no width; SIDE kept) */
+    else vtext(g, id, t, sizeof t);
     if (ch && hi >= 1 && !hint && h >= 34.f &&  /* (a choice too wide for its name beside it: the name above, the value under) */
         x + w - 4.f - (TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t) + 34.f) < x + 9.f + LBLW(g, 10.5f, lab) + 6.f) {
         stack = 1;
@@ -866,14 +931,20 @@ static void pcell(txg_t *g, frui_canvas *c, float x, float y, float w, float h, 
         if (nl && lines > 1) tagy = y + 27.f + 10.5f * (float)(lines - 1);   /* (where its tags go) */
     }
     frui_clip_reset(c);
-    if (hi > 0) {
-        float fx = x + 10.f, fw = w - 20.f, f = (float)v / (float)hi, f0 = is_bip(id) ? 0.5f : 0.f;
+    if (hi > 0) {   /* (the reach, the live place: of the value, v / hi, then on the fader's own taper: ctl_pos) */
+        float fx = x + 10.f, fw = w - 20.f, fv = (float)v / (float)hi, f = ctl_pos(g, id, (float)v, hi), f0 = is_bip(id) ? 0.5f : 0.f,
+              mk = ms_lvl(id) ? ms_pos((float)MS_0DB) : id == ID_MSWIDTH ? (float)MS_W100 / (float)hi : -1.f;
         int big = h >= 30.f;
-        if (T) fader_mode(g, c, fx, tcy, fw, f, f0, (float)amt / 100.f, big ? 4.f : 3.f, big ? 8.f : 7.f, big ? 12.f : 10.f);
+        if (T) fader_mode(g, c, fx, tcy, fw, f, f0, ctl_pos(g, id, (fv + (float)amt / 100.f) * (float)hi, hi) - f, big ? 4.f : 3.f,
+                          big ? 8.f : 7.f, big ? 12.f : 10.f);
         else {
-            float rlo = 1.f, rhi = 0.f, lv = m && live >= 0 ? (float)live / (float)hi : -1.f;
-            if (nl) { ctl_reach(lk, nl, f, &rlo, &rhi); if (lv < 0.f) lv = ctl_live(g, lk, nl, f); }
-            fader(g, c, fx, tcy, fw, f, f0, lv, big, rlo, rhi);
+            float rlo = 1.f, rhi = 0.f, lv = m && live >= 0 ? ctl_pos(g, id, (float)live, hi) : -1.f;
+            if (nl) {
+                ctl_reach(lk, nl, fv, &rlo, &rhi);
+                rlo = ctl_pos(g, id, rlo * (float)hi, hi); rhi = ctl_pos(g, id, rhi * (float)hi, hi);
+                if (lv < 0.f) lv = ctl_pos(g, id, ctl_live(g, lk, nl, fv) * (float)hi, hi);
+            }
+            fader(g, c, fx, tcy, fw, f, f0, lv, big, rlo, rhi, mk);
         }
     }
     wid_add2(g, TXG_W_PARAM, (int)id, id, 0, x, y, w, h);
@@ -1593,7 +1664,7 @@ static void draw_drawer(txg_t *g, frui_canvas *c)
     }
 }
 
-/* ---- the strip: COMP, DRIVE, FILTER, DELAY, REVERB (the mix's chain, in its order), the movement */
+/* ---- the strip: COMP, DRIVE, FILTER, DELAY, REVERB, M/S (the mix's chain, in its order), the movement */
 /* COMP's meters, off the app's compressor (txg_tick's ballistics: up fast, down ~24 dB/s, the input's peak held a
  * second): its input (the detector's level), its output (through its gain), the gain reduction (from the right), on a
  * dB scale; THR marked on the levels. Big (the effect's drawer): taller (its curve beside it: comp_curve) */
@@ -1666,6 +1737,85 @@ static void comp_curve(txg_t *g, frui_canvas *c, float cx, float cy0, float cw, 
     TX(g, c, cx + 5.f, cy0 + 11.f, 8.5f, 450.f, 0.f, 0, C_FAINT, "OUT");
     TX(g, c, cx + cw - 5.f - TW(g, 8.5f, 450.f, 0.f, 0, "IN"), cy0 + ch - 5.f, 8.5f, 450.f, 0.f, 0, C_FAINT, "IN");
 }
+/* ---- the M/S's pictures (the mix as it leaves the M/S, live): its meters (L R M S, their peaks on -48 .. 0 dBFS,
+ * the sides' in red; txg_tick's ballistics), its goniometer (each point a frame of the output: up the middle, across
+ * the sides, so tall is centred and wide is spread; the last GON_H blocks, the older fading; scaled to the level, the
+ * cloud's edge near the circle) and its correlation (-1 the sides cancel .. 0 wide .. +1 mono) */
+#define MSM_LO (-48.f)
+static void ms_meters(txg_t *g, frui_canvas *c, float x, float y, float bw, float gap, float sp, float h, float fs, uint32_t lc)
+{
+    static const char *const N[4] = { "L", "R", "M", "S" };
+    wid_add(g, TXG_W_MSM, 0, x, y, 4.f * bw + 3.f * gap + sp, h + fs + 4.f);
+    for (int i = 0; i < 4; i++) {
+        float bx = x + (bw + gap) * (float)i + (i >= 2 ? sp : 0.f), f = (g->ms_db[i] - MSM_LO) / -MSM_LO;
+        f = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
+        RR(g, c, bx, y, bw, h, 2.f, C_FAINT);
+        if (f * h >= 0.5f) {             /* (from the bottom, the corners square where it is cut: as the mockup's) */
+            clipL(g, c, bx, y + h * (1.f - f), bw, h * f);
+            RR(g, c, bx, y, bw, h, 2.f, i == 3 ? C_RED : C_INK);
+            frui_clip_reset(c);
+        }
+        TX(g, c, bx + (bw - TW(g, fs, 600.f, fs * 0.1f, 0, N[i])) * 0.5f, y + h + 4.f + CAP(g, fs), fs, 600.f, fs * 0.1f, 0, lc, N[i]);
+    }
+}
+static void ms_gonio(txg_t *g, frui_canvas *c, float x, float y, float sz)
+{
+    static const uint32_t GRID = 0xFF2A2827u;
+    float cx = x + sz * 0.5f, cy = y + sz * 0.5f, r = sz * 0.46f, d = r * 0.7f, lw = lw1(g), k = g->gon_k * r;
+    wid_add(g, TXG_W_MSM, 1, x, y, sz, sz);
+    LN(g, c, cx, cy - r, cx, cy + r, lw, GRID); LN(g, c, cx - r, cy, cx + r, cy, lw, GRID);
+    LN(g, c, cx - d, cy - d, cx + d, cy + d, lw, GRID); LN(g, c, cx + d, cy - d, cx - d, cy + d, lw, GRID);
+    TX(g, c, cx - TW(g, 10.f, 600.f, 0.f, 0, "M") * 0.5f, cy - r + 11.f, 10.f, 600.f, 0.f, 0, C_FAINT, "M");
+    TX(g, c, cx - d * 0.95f - TW(g, 10.f, 600.f, 0.f, 0, "L") * 0.5f, cy - d * 0.95f + 10.f, 10.f, 600.f, 0.f, 0, C_FAINT, "L");
+    TX(g, c, cx + d * 0.95f - TW(g, 10.f, 600.f, 0.f, 0, "R") * 0.5f, cy - d * 0.95f + 10.f, 10.f, 600.f, 0.f, 0, C_FAINT, "R");
+    TX(g, c, cx + r - 7.f - TW(g, 10.f, 600.f, 0.f, 0, "S") * 0.5f, cy + 3.5f, 10.f, 600.f, 0.f, 0, C_FAINT, "S");
+    clipL(g, c, x, y, sz, sz);
+    for (int a = g->gon_n - 1; a >= 0; a--) {   /* (the oldest first, fading: the newest over them) */
+        int b = (g->gon_at - a + GON_H) % GON_H;
+        float al = 1.f - (float)a / (float)GON_H, ps = g->S < 1.5f ? 1.5f : 1.25f;
+        for (int i = 0; i < (int)TXP_GON_N; i++) {
+            float l = (float)g->gon[b][i][0] / 32768.f, rr = (float)g->gon[b][i][1] / 32768.f, px = cx + (l - rr) * k, py = cy - (l + rr) * k;
+            R(g, c, px - ps * 0.5f, py - ps * 0.5f, ps, ps, i % 9 == 0 ? frui_alpha(C_RED, 0.75f * al) : frui_alpha(C_INK, 0.55f * al));
+        }
+    }
+    frui_clip_reset(c);
+}
+static void ms_corr(txg_t *g, frui_canvas *c, float x, float y, float w)
+{
+    static const uint32_t A = 0xFF5A2420u, B = 0xFF34312Fu, C2 = 0xFF3A3734u;   /* (the bar: red-brown where the sides cancel) */
+    float f = (g->ms_c + 1.f) * 0.5f, by = y + 16.f;
+    LBL(g, c, x, y + 9.f, 9.5f, C_DIM, "CORRELATION");
+    clipL(g, c, x, by, w, 8.f);
+    for (int i = 0; i < 48; i++) {       /* (its colour across: A to B by the middle, B to C2 after) */
+        float t = (float)i / 47.f, u = t < 0.5f ? t * 2.f : (t - 0.5f) * 2.f;
+        uint32_t p = t < 0.5f ? A : B, q = t < 0.5f ? B : C2, col = 0xFF000000u;
+        for (int sh = 0; sh < 24; sh += 8) {
+            float a = (float)(p >> sh & 255u), b = (float)(q >> sh & 255u);
+            col |= (uint32_t)lroundf(a + (b - a) * u) << sh;
+        }
+        R(g, c, x + w * (float)i / 48.f, by, w / 48.f + 0.5f, 8.f, col);
+    }
+    frui_clip_reset(c);
+    RRS(g, c, x, by, w, 8.f, 4.f, C_DRAW);   /* (its ends round) */
+    f = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
+    RR(g, c, x + w * f - 2.f, by - 4.f, 4.f, 16.f, 2.f, C_INK);
+    TX(g, c, x, by + 22.f, 9.f, 450.f, 0.f, 0, C_FAINT, "\xE2\x88\x92" "1 out of phase");
+    TX(g, c, x + (w - TW(g, 9.f, 450.f, 0.f, 0, "0 wide")) * 0.5f, by + 22.f, 9.f, 450.f, 0.f, 0, C_FAINT, "0 wide");
+    TX(g, c, x + w - TW(g, 9.f, 450.f, 0.f, 0, "+1 mono"), by + 22.f, 9.f, 450.f, 0.f, 0, C_FAINT, "+1 mono");
+}
+/* MONO: its name and a switch (OFF; ON lit red); a click on the cell turns it */
+static void ms_mono(txg_t *g, frui_canvas *c, float x, float y, float w, float h)
+{
+    int on = ms_mono_on(g);
+    const char *t = on ? "ON" : "OFF";
+    float bw = LBLW(g, 10.f, t) + 20.f, bh = 22.f, bx = x + w - 10.f - bw, byy = y + (h - bh) * 0.5f;
+    RR(g, c, x, y, w, h, 2.f, C_WELL);
+    LBL(g, c, x + 9.f, y + h * 0.5f + CAP(g, 10.5f) * 0.5f, 10.5f, C_INK, "MONO");
+    RR(g, c, bx, byy, bw, bh, 3.f, on ? C_RED : C_DRAW);
+    RRS(g, c, bx, byy, bw, bh, 3.f, on ? C_RED : C_LINE);
+    LBL(g, c, bx + 10.f, byy + bh * 0.5f + CAP(g, 10.f) * 0.5f, 10.f, on ? 0xFFFFFFFFu : C_INK, t);
+    wid_add2(g, TXG_W_PARAM, (int)ID_MSMONO, ID_MSMONO, 0, x, y, w, h);
+}
 static float hz_x(float v127) { return v127 / 127.f; }   /* the FILTER's steps are log Hz already (params.c F_HZ_*) */
 static void viz(txg_t *g, frui_canvas *c, int sec, float x, float y, float w, float h, int on)
 {
@@ -1724,7 +1874,8 @@ static int sec_on(const txg_t *g, int s)  /* the section does something (its dot
     case SEC_DRIVE: return txp_ui_get(g->c, ID_DAMT) > 0 && txp_ui_get(g->c, ID_DMIX) > 0;
     case SEC_FILTER: return txp_ui_get(g->c, ID_FHP) > 0 || txp_ui_get(g->c, ID_FLP) < 127;
     case SEC_DELAY: return txp_ui_get(g->c, ID_GMIX) > 0;
-    case SEC_REVERB: return txp_ui_get(g->c, ID_RMIX) > 0;
+    case SEC_REVERB: return txp_ui_get(g->c, ID_RMIX) > 0 && txp_ui_get(g->c, ID_RTYPE) > 0;   /* (TYPE OFF: none) */
+    case SEC_MS: return txp_ui_get(g->c, ID_MSMID) != MS_0DB || txp_ui_get(g->c, ID_MSSIDE) != MS_0DB || ms_mono_on(g);
     }
     return g->sn.ui.lfo_on != 0;
 }
@@ -1829,7 +1980,13 @@ static void draw_strip(txg_t *g, frui_canvas *c)
             LBL(g, c, tx + 6.f, y0 + 17.f + CAP(g, 9.f) * 0.5f, 9.f, on ? C_INK : C_DIM, t);
             wid_add2(g, TXG_W_PARAM, (int)ID_CON, ID_CON, 0, tx, y0 + 9.f, tw, 16.f);
         }
-        if (s < SEC_MOVE) {
+        if (s == SEC_MS) {               /* the M/S: its meters, MID and SIDE */
+            ms_meters(g, c, ix, y0 + 31.f, 10.f, 4.f, 0.f, 22.f, 8.5f, C_DIM);
+            g->tag_below = 1;
+            pcell(g, c, ix, y0 + 74.f, iw, 24.f, ID_MSMID, 0, 0);
+            pcell(g, c, ix, y0 + 110.f, iw, 24.f, ID_MSSIDE, 0, 0);
+            g->tag_below = 0;
+        } else if (s < SEC_MOVE) {
             static const uint32_t K[5][4] = { { ID_CTHR, ID_CRATIO, 0, 0 }, { ID_DAMT, ID_DTYPE, 0, 0 },
                                               { ID_FHP, ID_FLP, ID_FRES, ID_FSLOPE }, { ID_GMIX, ID_GTIME, 0, 0 },
                                               { ID_RTYPE, ID_RMIX, 0, 0 } };
@@ -2449,8 +2606,8 @@ static void draw_settings(txg_t *g, frui_canvas *c)
 }
 /* ---- an effect's drawer: it rises from the strip over the lane's drawer (the place and the rows stay above it): at
  * the left a large picture, live (COMP's meters and curve, DRIVE's curve, FILTER's response in Hz, DELAY's echoes and
- * grains, REVERB's tail); at the right every parameter of the effect in groups by purpose. MOVEMENT's: its tabs (LFO
- * 1 .. 8, ENV and FOLLOW, the matrix) over the same */
+ * grains, REVERB's tail, M/S's goniometer and meters); at the right every parameter of the effect in groups by purpose.
+ * MOVEMENT's: its tabs (LFO 1 .. 8, ENV and FOLLOW, the matrix) over the same */
 typedef struct { const char *t; int n; uint32_t id[8]; } grp_t;
 /* groups: their values in columns of rows (filled down), each group as many columns as it needs, named over them */
 static void groups_x(const grp_t *gr, int ng, int rows, float x, float w, float *gx, float *gw)
@@ -2622,9 +2779,42 @@ static void graph_big(txg_t *g, frui_canvas *c, int sec, float x, float y, float
         TX(g, c, ix + iw * 0.4f + 50.f, y + 30.f, 10.5f, 500.f, 0.f, 0, ink, t);
     }
 }
+/* M/S's drawer: at the left its goniometer and the correlation under it (one well); at the right its meters, then its
+ * values: LEVEL (MID, SIDE), WIDTH (WIDTH, MONO), in columns of about 200 px as many as fit */
+static void draw_ms_fxd(txg_t *g, frui_canvas *c, float by, float x1)
+{
+    float bw = fmaxf(MS_GS + 16.f, 236.f), bh = MS_GS + MS_CH + 16.f, sx = 16.f, sy = by + 38.f, mx0 = sx + bw + 20.f, cx0, aw, cw, ch = 60.f, yy;
+    int ncol;
+    fxd_title(g, c, 16.f, by + 12.f, x1 - 32.f, SEC_NAME[SEC_MS], C_INK, "The mix's middle and sides, after the reverb.");
+    RR(g, c, sx, sy, bw, bh, 4.f, C_WELL);
+    RRS(g, c, sx, sy, bw, bh, 4.f, C_LINE);
+    ms_gonio(g, c, sx + (bw - MS_GS) * 0.5f, sy + 8.f, MS_GS);
+    ms_corr(g, c, sx + 10.f, sy + 8.f + MS_GS + 6.f, bw - 20.f);
+    ms_meters(g, c, mx0, sy + 4.f, 12.f, 6.f, 8.f, bh - 22.f, 10.f, C_DIM);
+    cx0 = mx0 + 4.f * 12.f + 3.f * 6.f + 8.f + 16.f;
+    aw = x1 - 16.f - cx0;
+    ncol = (int)floorf((aw + 8.f) / 198.f);
+    ncol = ncol < 2 ? 2 : ncol;
+    cw = (aw - 8.f * (float)(ncol - 1)) / (float)ncol;
+    yy = sy;
+    for (int gr = 0; gr < 2; gr++) {     /* (a group's name over a line across, its cells under it) */
+        const char *gn = gr ? "WIDTH" : "LEVEL";
+        LBL(g, c, cx0, yy + 9.f, 9.5f, C_DIM, gn);
+        R(g, c, cx0 + LBLW(g, 9.5f, gn) + 8.f, yy + 5.f, aw - LBLW(g, 9.5f, gn) - 8.f, 1.f, C_LINE);
+        yy += 16.f;
+        if (!gr) {
+            pcell(g, c, cx0, yy, cw, ch, ID_MSMID, "MID", "The middle: what both speakers share");
+            pcell(g, c, cx0 + cw + 8.f, yy, cw, ch, ID_MSSIDE, "SIDE", "The sides: what differs left to right");
+        } else {
+            pcell(g, c, cx0, yy, cw, ch, ID_MSWIDTH, "WIDTH", "0 % mono \xC2\xB7 100 % as it is \xC2\xB7 200 % twice as wide");
+            ms_mono(g, c, cx0 + cw + 8.f, yy, cw, ch);
+        }
+        yy += ch + 12.f;
+    }
+}
 static void draw_fxd(txg_t *g, frui_canvas *c)
 {
-    static const char *const TABN[TAB_N] = { "", "", "", "", "", "LFO 1", "LFO 2", "LFO 3", "LFO 4", "LFO 5", "LFO 6", "LFO 7",
+    static const char *const TABN[TAB_N] = { "", "", "", "", "", "", "LFO 1", "LFO 2", "LFO 3", "LFO 4", "LFO 5", "LFO 6", "LFO 7",
                                              "LFO 8", "ENV \xC2\xB7 FOLLOW", "MATRIX" };
     static const char *const WHY[5] = { "The mix's compressor: the lanes together, before the drive.",
                                         "Saturation on the mix: how much, its colour.",
@@ -2686,7 +2876,8 @@ static void draw_fxd(txg_t *g, frui_canvas *c)
         }
         by = y0 + FXD_TABS;
     }
-    if (tab < SEC_MOVE) {                /* an effect: its picture, its values in groups */
+    if (tab == SEC_MS) draw_ms_fxd(g, c, by, x1);
+    else if (tab < SEC_MOVE) {           /* an effect: its picture, its values in groups */
         static const grp_t G[5][4] = {
             { { "LEVEL", 2, { ID_CTHR, G_ID(31) } }, { "TIME", 2, { G_ID(28), G_ID(29) } }, { "SHAPE", 2, { ID_CRATIO, ID_CON } } },
             { { "AMOUNT", 2, { ID_DAMT, ID_DMIX } }, { "COLOUR", 2, { ID_DTONE, ID_DTYPE } } },
@@ -2856,7 +3047,7 @@ static void draw_mbar(txg_t *g, frui_canvas *c)
 /* the message: a line over the rows' head (~5 s) */
 static void draw_msg(txg_t *g, frui_canvas *c)
 {
-    float x = g->PW + 10.f, y = g->ct + 2.f, w = TW(g, 11.f, 500.f, 0.f, 0, g->msg) + 24.f, h = HDR_H - 4.f;
+    float x = rcols(g).tl - 8.f, y = g->ct + 2.f, w = TW(g, 11.f, 500.f, 0.f, 0, g->msg) + 24.f, h = HDR_H - 4.f;
     if (w > g->W - x - 12.f) w = g->W - x - 12.f;
     RR(g, c, x, y, w, h, 3.f, C_BTN); RRS(g, c, x, y, w, h, 3.f, C_RED);
     clipL(g, c, x, y, w - 8.f, h);
@@ -3031,6 +3222,40 @@ int txg_tick(txg_t *g)
             fabsf(g->cm_gr - g->cm_drawn[2]) >= 0.05f || fabsf(g->cm_pk - g->cm_drawn[3]) >= 0.05f)
             g->cm_dirty = 1;
     }
+    {   /* M/S's meters: COMP's ballistics on L R M S (the app's held peaks); the correlation smoothed; the goniometer's
+         * points a block at a time (a new block: the oldest dropped), its scale following the level (up at once, down
+         * slowly) so that a quiet mix still fills it */
+        const txp_ui_snap_t *u = &g->sn.ui;
+        float cr = (float)u->ms_corr / 32767.f;
+        if (!g->drawn) { for (int i = 0; i < 4; i++) g->ms_db[i] = (float)u->ms_db10[i] / 10.f; g->ms_c = cr; g->gon_k = 0.45f / 0.016f; }
+        else {
+            for (int i = 0; i < 4; i++) {
+                float t = (float)u->ms_db10[i] / 10.f;
+                if (t > g->ms_db[i]) g->ms_db[i] += (t - g->ms_db[i]) * 0.55f; else g->ms_db[i] = fmaxf(t, g->ms_db[i] - 0.8f);
+                if (g->ms_db[i] - t < 0.05f && g->ms_db[i] > t) g->ms_db[i] = t;
+            }
+            g->ms_c += (cr - g->ms_c) * 0.35f;
+        }
+        if (u->gon_blk != g->gon_blk) {
+            float pk = 0.f, kt;
+            g->gon_blk = u->gon_blk;
+            g->gon_at = (g->gon_at + 1) % GON_H;
+            memcpy(g->gon[g->gon_at], u->gon, sizeof g->gon[0]);
+            if (g->gon_n < GON_H) g->gon_n++;
+            for (int a = 0; a < g->gon_n; a++) {
+                const int16_t (*q)[2] = g->gon[(g->gon_at - a + GON_H) % GON_H];
+                for (unsigned i = 0; i < TXP_GON_N; i++) {
+                    float l = fabsf((float)q[i][0]), r = fabsf((float)q[i][1]);
+                    pk = fmaxf(pk, fmaxf(l, r));
+                }
+            }
+            kt = 0.45f / fmaxf(pk / 32767.f, 0.016f);
+            g->gon_k += (kt - g->gon_k) * (kt < g->gon_k ? 1.f : 0.05f);
+            g->cm_dirty = 1;
+        }
+        for (int i = 0; i < 4; i++) if (fabsf(g->ms_db[i] - g->ms_drawn[i]) >= 0.05f) g->cm_dirty = 1;
+        if (fabsf(g->ms_c - g->ms_drawn[4]) >= 0.005f) g->cm_dirty = 1;
+    }
     if (g->sb_pend > 0 && --g->sb_pend == 0 && g->ov == OV_SND) pv_play(g);   /* (a preview waited for the keys to
                                           * rest) */
     if (g->sv_wait > 0) g->sv_wait--;
@@ -3043,6 +3268,8 @@ int txg_tick(txg_t *g)
         memset(u.lfo, 0, sizeof u.lfo);
         memset(u.envf, 0, sizeof u.envf);
         u.comp_gr10 = u.comp_in10 = u.comp_out10 = 0; u.out_db10 = 0;
+        memset(u.ms_db10, 0, sizeof u.ms_db10); u.ms_corr = 0; memset(u.gon, 0, sizeof u.gon); u.gon_blk = 0;
+        for (k = 0; k < (int)TXP_LANES; k++) u.lane[k].cnt = 0;
         h = fnv(h, &u, sizeof u);
     }
     h = fnv(h, g->sn.pv, sizeof g->sn.pv);
@@ -3122,6 +3349,8 @@ static int paint_into(txg_t *g, frui_canvas *c)
         frui_clip_base(c, 0, 0, c->w, c->h);
     } else { g->actn_drawn = g->actn; g->cm_dirty = 0; return 0; }
     g->cm_drawn[0] = g->cm_in; g->cm_drawn[1] = g->cm_out; g->cm_drawn[2] = g->cm_gr; g->cm_drawn[3] = g->cm_pk;
+    for (int i = 0; i < 4; i++) g->ms_drawn[i] = g->ms_db[i];
+    g->ms_drawn[4] = g->ms_c;
     g->cm_dirty = 0;
     g->drawn = 1;
     g->last_px = c->px; g->last_w = c->w; g->last_h = c->h;
@@ -3195,7 +3424,8 @@ static const wid_t *hit(const txg_t *g, float x, float y)   /* the last-drawn co
     for (int i = g->nw - 1; i >= 0; i--) {
         const wid_t *w = &g->w[i];
         if (w->kind == TXG_W_DOT || w->kind == TXG_W_PLACE || w->kind == TXG_W_MAPR || w->kind == TXG_W_CMETER || w->kind == TXG_W_TIP ||
-            w->kind == TXG_W_FXD || w->kind == TXG_W_MBAR || w->kind == TXG_W_MSG || w->kind == TXG_W_NOMOVE || w->kind == TXG_W_MENU) continue;
+            w->kind == TXG_W_FXD || w->kind == TXG_W_MBAR || w->kind == TXG_W_MSG || w->kind == TXG_W_NOMOVE || w->kind == TXG_W_MENU ||
+            w->kind == TXG_W_MSM) continue;
         if (x >= w->r[0] && x < w->r[0] + w->r[2] && y >= w->r[1] && y < w->r[1] + w->r[3]) {
             if (w->kind == TXG_W_ROW || w->kind == TXG_W_ROWS) { if (!best || best->kind == TXG_W_ROWS) best = w; continue; }   /* (a row:
                                           * only when nothing in it is hit) */
@@ -3214,6 +3444,8 @@ static void step_param(txg_t *g, uint32_t id, int d, int wrap)
     txp_ui_begin(g->c, id); txp_ui_set(g->c, id, v); txp_ui_end(g->c, id);
 }
 static void set_param(txg_t *g, uint32_t id, int v) { txp_ui_begin(g->c, id); txp_ui_set(g->c, id, v); txp_ui_end(g->c, id); }
+/* SIDE or WIDTH changed while MONO is on: MONO off first (as on the FM-1: the change is heard) */
+static void ms_unmono(txg_t *g, uint32_t id) { if ((id == ID_MSSIDE || id == ID_MSWIDTH) && ms_mono_on(g)) set_param(g, ID_MSMONO, 0); }
 static void lh_push(txg_t *g)            /* the matrix as it is, kept for UNDO */
 {
     if (g->lh_n == LH_N) { memmove(g->lh[0], g->lh[1], (LH_N - 1) * sizeof g->lh[0]); g->lh_n--; }
@@ -3276,7 +3508,13 @@ static void mode_set(txg_t *g, int src) { g->msrc = src; g->menu_on = 0; g->clr_
  * link made on the first amount, kept for UNDO before its first change */
 static void mamt_at(txg_t *g, float x)
 {
-    int a = (int)lroundf(((x - g->drag_rx) / g->drag_rw - g->mv_f) * 100.f);
+    float f = (x - g->drag_rx) / g->drag_rw;
+    int a;
+    if (ms_lvl(g->mv_id)) {              /* (M/S's MID, SIDE: the place on the taper back to a value) */
+        const txp_param_t *p = pinfo(g->mv_id);
+        f = ms_val(f < 0.f ? 0.f : f > 1.f ? 1.f : f) / (float)(p && p->hi > 0 ? p->hi : 1);
+    }
+    a = (int)lroundf((f - g->mv_f) * 100.f);
     a = a < -100 ? -100 : a > 100 ? 100 : a;
     if (!g->drag_begun) {
         int T = ctl_tgt(g, g->mv_id, 0), s = link_slot(g, g->msrc, T);
@@ -3336,9 +3574,12 @@ static void param_drag(txg_t *g, float x, float y)   /* TXG_W_PARAM: the value f
     if (!g->drag_moved && fabsf(d) < 3.f) return;
     g->drag_moved = 1;
     if (choice(g->drag_id)) v = g->drag_v0 + (int)lroundf(d / 14.f);
-    else v = g->drag_v0 + (int)lroundf(d * (float)(p->hi + 1) / (g->drag_fine ? 900.f : 220.f));
+    else if (ms_lvl(g->drag_id)) {       /* (M/S's MID, SIDE: along the fader's taper, as it is drawn) */
+        float f = ms_pos((float)g->drag_v0) + d / (g->drag_fine ? 900.f : 220.f);
+        v = (int)lroundf(ms_val(f < 0.f ? 0.f : f > 1.f ? 1.f : f));
+    } else v = g->drag_v0 + (int)lroundf(d * (float)(p->hi + 1) / (g->drag_fine ? 900.f : 220.f));
     v = v < 0 ? 0 : v > p->hi ? p->hi : v;
-    if (!g->drag_begun) { txp_ui_begin(g->c, g->drag_id); g->drag_begun = 1; }
+    if (!g->drag_begun) { ms_unmono(g, g->drag_id); txp_ui_begin(g->c, g->drag_id); g->drag_begun = 1; }
     txp_ui_set(g->c, g->drag_id, v);
 }
 static void drag_end(txg_t *g)
@@ -3723,7 +3964,7 @@ static int input_(txg_t *g, const frg_input *e)
             if ((w->id >> 8) == 7u && w->id != TXP_ID_MODCC) lh_push(g);   /* (a matrix cell: its change undone by UNDO) */
             if (lane_of_id(w->id) >= 0) select_lane(g, lane_of_id(w->id));
             else for (int j = 0; j < g->nlane; j++) if (w->id == TXP_ID_LCH(j)) select_lane(g, j);   /* (a row's CH) */
-            if (e->kind == FRG_DOUBLE) { int d = p_default(g, w->id); if (d >= 0) set_param(g, w->id, d); break; }
+            if (e->kind == FRG_DOUBLE) { int d = p_default(g, w->id); if (d >= 0) { ms_unmono(g, w->id); set_param(g, w->id, d); } break; }
             g->drag = TXG_W_PARAM; g->drag_id = w->id; g->drag_v0 = txp_ui_get(g->c, w->id);
             g->drag_x0 = e->x; g->drag_y0 = e->y; g->drag_moved = 0; g->drag_begun = 0;
             g->drag_fine = (e->mods & FRG_SHIFT) != 0;
@@ -3842,6 +4083,7 @@ static int input_(txg_t *g, const frg_input *e)
             const txp_param_t *p = pinfo(w->id);
             int d = e->wheel > 0.f ? 1 : -1;
             if (p && !choice(w->id) && p->hi >= 100 && fabsf(e->wheel) >= 1.f) d *= 2;
+            ms_unmono(g, w->id);
             step_param(g, w->id, d, 0);
             return 3;
         }

@@ -19,7 +19,7 @@ FM-1: for them it links to the [FM-1 user manual](MANUAL.md).
 2. [Install](#2-install): [macOS](#macos), [Windows](#windows), [Linux](#linux)
 3. [Your first sound](#3-your-first-sound)
 4. [The window](#4-the-window): [top bar](#the-top-bar), [MAP](#map), [SPACE](#space), [the lanes](#the-lanes),
-   [the drawer](#the-drawer), [the strip](#the-strip), [the movement](#the-movement), [SAVE](#save),
+   [the drawer](#the-drawer), [the strip](#the-strip), [M/S](#ms), [the movement](#the-movement), [SAVE](#save),
    [the engine browser](#the-engine-browser), [the presets browser](#the-presets-browser), [SETTINGS](#settings),
    [keys: FM-1 KEYS or PLAY](#keys-fm-1-keys-or-play), [colours](#colours), [LFOs](#lfos),
    [keys and mouse](#keys-and-mouse)
@@ -249,7 +249,8 @@ section has a dot (lit while it acts), a small picture and its two main values:
 | **DRIVE** | Its curve | AMOUNT, TYPE | Its curve. AMOUNT: AMOUNT, MIX · COLOUR: TONE, TYPE |
 | **FILTER** | Its response, HIGH PASS then LOW PASS (dashed marks; red while an LFO moves one) | HIGH PASS, LOW PASS (in Hz), RESONANCE, SLOPE | Its response from 20 Hz to 20 kHz, each cutoff marked with its Hz. CUTOFF: HIGH PASS, LOW PASS · SHAPE: RESONANCE, SLOPE |
 | **DELAY** | Its echoes | MIX, TIME | Its echoes: spaced by TIME, fading by FEEDBACK, each a cloud of GRAINS. TIME: TIME, FEEDBACK, SYNC, FREEZE · GRAINS: GRAINS, SIZE, SPRAY, SPREAD, REVERSE · COLOUR: PITCH, INTERVALS, TONE, GRAIN, MOD, MOD RATE · MIX |
-| **REVERB** | Its tail | TYPE, MIX | Its tail: after PREDELAY, as long as DECAY, as dense as SIZE. SPACE: SIZE, DECAY, PREDELAY · COLOUR: TONE, LOWCUT, SHIMMER, SHIFT, MOD · TYPE, MIX |
+| **REVERB** | Its tail (dim while TYPE is OFF) | TYPE, MIX | Its tail: after PREDELAY, as long as DECAY, as dense as SIZE. SPACE: SIZE, DECAY, PREDELAY · COLOUR: TONE, LOWCUT, SHIMMER, SHIFT, MOD · TYPE, MIX |
+| **M/S** | Its meters, live: **L R M S** (the sides' in red) | MID, SIDE | The stereo picture, the correlation and the meters. LEVEL: MID, SIDE · WIDTH: WIDTH, MONO ([M/S](#ms)) |
 | **MOVEMENT** | Two source tiles (the connected ones first): each one's grip, name, kind, live trace and how many controls it moves | a click on a tile: its mode | [the movement](#the-movement) |
 
 **Click a section's header** (or **ALL ›**) to open its **drawer**. It rises from the strip in place of the lane's
@@ -264,6 +265,28 @@ effect parameter does: [the effects](MANUAL.md#7-the-effects) in the FM-1 manual
 ![The FILTER drawer: its response in Hz, HIGH PASS then LOW PASS](plugin/img/filter.png)
 
 ![The REVERB drawer: its tail and its ten parameters](plugin/img/reverb.png)
+
+#### M/S
+
+The last effect, after the reverb, on the whole mix: its middle (what both speakers share) and its sides (what differs
+left to right), each with its own level. At 0 dB with MONO off it leaves the sound as it is.
+
+- **MID** and **SIDE**: -inf to +6 dB in half-dB steps. On the fader 0 dB sits at three quarters (its mark), the
+  last quarter is the boost.
+- **WIDTH**: the same move as one value, the sides against the middle: 0 % mono, 100 % as it is (its mark), 200 %
+  twice as wide.
+- **MONO**: the mix in mono at one click (WIDTH reads 0 %); click again to go back. Moving SIDE or WIDTH turns it
+  off, so you hear the change.
+- **Double-click** a fader: back to 0 dB or 100 %. An LFO or an envelope can move MID and SIDE (the M/S MID and M/S
+  SIDE targets), as any other control in its mode.
+
+The drawer's picture shows the mix as it leaves: each dot a moment of the sound, up the middle and across the sides.
+A tall, thin cloud is centred (near mono); a round, wide one is spread. The picture scales itself to the level, so a
+quiet mix fills it too. **CORRELATION** under it reads +1 for mono, 0 for wide and below 0 when the sides cancel
+(the mix gets thinner in mono). The meters **L R M S** show the left, right, middle and side peaks from -48 dBFS
+to 0 dBFS.
+
+![The M/S drawer: the stereo picture, the correlation, the L R M S meters, MID, SIDE, WIDTH and MONO](plugin/img/mid-side.png)
 
 The COMP meters read the app's compressor itself: IN is the level its detector follows, OUT that level through its
 gain (the make-up counted), GR its gain reduction. They rise fast and fall about 24 dB a second; IN keeps its peak
@@ -509,11 +532,11 @@ generic view of the plugin) for automation, and MIDI CCs and NRPNs reach them to
 | **Scenes** | **PRESET**, F001 to F100 (loads a whole scene; not automatable) |
 | **MIDI** | **MIDI KEYS**: PLAY or FM-1 KEYS (not automatable) |
 | **Lane 1** ... **Lane 16** | `L1 ENGINE`, `L1 HOW MANY`, `L1 HOW ACTIVE`, `L1 LEVEL`, `L1 PAN`, `L1 CARD 1` to `L1 CARD 8`, `L1 GROOVE PART`, `L1 GROOVE CYCLE` |
-| **Grain delay**, **Reverb**, **Compressor**, **Drive**, **Filter** | The effects, as on their FM-1 pages ([the effects](MANUAL.md#7-the-effects)) |
+| **Grain delay**, **Reverb**, **Compressor**, **Drive**, **Filter**, **M/S** | The effects, as on their FM-1 pages ([the effects](MANUAL.md#7-the-effects)) |
 | **Groove**, **Keys**, **MIDI** | The groove, the scale, the MIDI channels, EFFECTS ON LOAD, LANES |
 | **LFO**, envelopes, followers, matrix | LFO 1 to 8, ENV 1 and 2, FOLLOW 1 and 2, MOD 1 to 16, MOD CC |
 
-479 parameters in all. Their ids never change between versions, so automation stays put.
+483 parameters in all. Their ids never change between versions, so automation stays put.
 
 - **A lane's cards** (CARD 1 to 8) mean what the lane's engine says: a rain engine's cards are not a bird's. The FM-1
   manual lists every engine's cards ([the engines](MANUAL.md#5-the-sounds)). A card's value is 0 to 127 over the card's

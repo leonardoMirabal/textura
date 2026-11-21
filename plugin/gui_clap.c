@@ -306,5 +306,20 @@ static bool s_comp(const clap_plugin_t *plugin, int *in10, int *out10, int *gr10
     *in10 = sn.ui.comp_in10; *out10 = sn.ui.comp_out10; *gr10 = sn.ui.comp_gr10;
     return true;
 }
-static const txg_gui_shot_t EXT_SHOT = { s_tick, s_grab, s_input, s_headless, s_find, s_masks, s_lane, s_sel, s_comp };
+static int s_run(const clap_plugin_t *plugin, int k)
+{
+    txg_clap_t *c = GUI(plugin);
+    txp_snap_t sn;
+    return !c || k < 0 || k >= (int)TXP_LANES || txp_ui_snap(c->pc, &sn) ? -1 : sn.ui.lane[k].used ? sn.ui.lane[k].cnt : 0;
+}
+static bool s_ms(const clap_plugin_t *plugin, int db10[4], int *corr, uint32_t *gon_blk)
+{
+    txg_clap_t *c = GUI(plugin);
+    txp_snap_t sn;
+    if (!c || txp_ui_snap(c->pc, &sn)) return false;
+    for (int i = 0; i < 4; i++) db10[i] = sn.ui.ms_db10[i];
+    *corr = sn.ui.ms_corr; *gon_blk = sn.ui.gon_blk;
+    return true;
+}
+static const txg_gui_shot_t EXT_SHOT = { s_tick, s_grab, s_input, s_headless, s_find, s_masks, s_lane, s_sel, s_comp, s_run, s_ms };
 const void *txg_clap_shot_ext(void) { return &EXT_SHOT; }

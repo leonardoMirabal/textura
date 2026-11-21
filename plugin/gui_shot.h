@@ -32,5 +32,11 @@ typedef struct {
     /* the compressor's meters as the app published them last: its input and output levels (dBFS x 10, -900 silence)
      * and its gain reduction (dB x 10) */
     bool (*comp)(const clap_plugin_t *plugin, int *in10, int *out10, int *gr10);
+    /* lane k's HOW MANY as it plays now (0: stopped or empty; the sound browser's preview too), as the app published
+     * it last (-1: no window) */
+    int (*run)(const clap_plugin_t *plugin, int k);
+    /* the M/S's meters as the app published them last: L R M S peaks (dBFS x 10, -900 silence), the correlation (Q15)
+     * and the goniometer's block count (a new block of points: another count) */
+    bool (*ms)(const clap_plugin_t *plugin, int db10[4], int *corr, uint32_t *gon_blk);
 } txg_gui_shot_t;
 #endif

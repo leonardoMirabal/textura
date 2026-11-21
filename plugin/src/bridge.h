@@ -90,6 +90,8 @@ typedef struct {
     uint8_t fi, si;                      /* its family and sound (txp_catalog_t), 0xFF none */
     uint8_t eng;                         /* its engine (txp_catalog_t eng), 0xFF none */
     uint8_t run;                         /* it plays (HOW MANY not OFF) */
+    uint8_t cnt;                         /* its HOW MANY as it plays now (0: stopped), the preview's own too (which the
+                                          * host's value never shows) */
     uint8_t modm;                        /* what the modulation moves now (TXP_MOD_*) */
     uint8_t lpan, ldist;                 /* PAN and DIST as the modulation has them now (0 .. 127) */
     uint8_t mcnt, mact;                  /* stopped by STOP ALL: the HOW MANY and HOW ACTIVE PLAY ALL brings back
@@ -108,6 +110,8 @@ typedef struct {                         /* a lane's cards (its sound's), for th
 } txp_ui_cards_t;
 #define TXP_LFO_N 8u
 #define TXP_USER_N 16u
+#define TXP_GON_STEP 2u                  /* the goniometer's points: every second frame of the last app block */
+#define TXP_GON_N (256u / TXP_GON_STEP)
 typedef struct {
     uint8_t nlane;                       /* LANES: 1 .. 16 */
     uint8_t edited;                      /* the scene was changed since its load or save */
@@ -133,6 +137,15 @@ typedef struct {
     uint32_t gmod[2];                    /* the globals (scope 4, index i < 64) the modulation moves now: bit i */
     uint8_t lfo_mod;                     /* the LFOs whose RATE or LEVEL the modulation moves now (bit n) */
     int16_t envf[4];                     /* ENV 1, ENV 2, FOLLOW 1, FOLLOW 2 now (Q15, 0 .. 32767: the matrix's sources) */
+    /* the M/S (tx_core_ms.h, its meters always kept for the window): L R M S as they leave it, their peaks (held,
+     * falling), dBFS x 10 (-900: silence); the correlation (Q15: +32767 mono, 0 wide, under 0 the sides cancel); its
+     * values the modulation moves now (bit i: MID SIDE WIDTH MONO); the output's last block, every TXP_GON_STEP-th frame
+     * (L, R; Q15), for the goniometer, and the blocks rendered when it was taken (a new one: another count) */
+    int16_t ms_db10[4];
+    int16_t ms_corr;
+    uint8_t ms_mod;
+    uint32_t gon_blk;
+    int16_t gon[TXP_GON_N][2];
     txp_ui_lane_t lane[TXP_LANES];
     txp_ui_cards_t card[TXP_LANES];
 } txp_ui_snap_t;

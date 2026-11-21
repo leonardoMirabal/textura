@@ -18,7 +18,7 @@
  *               and S and a square ENGINE button; ADD LANE under the last. A click anywhere on a row selects its lane (its controls too).
  *   drawer      the selected lane: its engine (CHANGE ENGINE), every card (name, value, hint; DIST among them), PAN,
  *               LEVEL, GROOVE PART, CYCLE
- *   strip       COMP, DRIVE, FILTER, DELAY, REVERB (each a picture and its main values) and the movement (two sources);
+ *   strip       COMP, DRIVE, FILTER, DELAY, REVERB, M/S (each a picture and its main values) and the movement (two sources);
  *               a section's header opens its drawer, which rises from the strip over the lane's drawer (the place
  *               and the rows stay, the rows scroll): a large live picture and every parameter of the effect in
  *               groups; MOVEMENT's has LFO 1 .. 8, ENV and FOLLOW, the matrix and MOD CC
@@ -66,7 +66,8 @@ enum { TXG_W_NONE, TXG_W_ROW, TXG_W_VOL, TXG_W_MUTE, TXG_W_SOLO, TXG_W_DOT, TXG_
         * (lane: its item, 0 .. 11 the sources in tile order, 12 Remove movement, -1 its panel), CLEAR ALL MOVEMENT, its
         * CLEAR and KEEP, the message line (never hit), a control the mode's source cannot move (never hit; lane: its id) */
        TXG_W_SRC, TXG_W_GRIP, TXG_W_TAG, TXG_W_MBAR, TXG_W_MCLEAR, TXG_W_MDONE, TXG_W_MENU, TXG_W_CLRALL, TXG_W_CLRYES,
-       TXG_W_CLRNO, TXG_W_MSG, TXG_W_NOMOVE, TXG_W_MAMT };
+       TXG_W_CLRNO, TXG_W_MSG, TXG_W_NOMOVE, TXG_W_MAMT,
+       TXG_W_MSM };   /* (never hit: M/S's meters, lane 0, and its goniometer, lane 1, for the tests) */
 
 typedef struct txg txg_t;
 txg_t *txg_new(txp_core *c);             /* NULL: out of memory or the font did not load */

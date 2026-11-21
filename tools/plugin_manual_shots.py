@@ -29,6 +29,7 @@ PICK = {   # the gate's picture -> the manual's
     "gui4-comp": "compressor",
     "gui4-filter": "filter",
     "gui4-reverb": "reverb",
+    "gui4-ms": "mid-side",
     "gui4-preview": "engine-preview",
     "gui4-stopped": "stopped",
     "gui4-lane-stopped": "lane-stopped",

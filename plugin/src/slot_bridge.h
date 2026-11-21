@@ -49,7 +49,12 @@
  *
  * The window (plugin/gui_core.c) reads what each lane plays (txp_ui_snap_t, published with the values) and the lanes'
  * activity: after every app block each lane's engine events and peak (lanes.c ln.lev, ln.lpk) go into a ring of
- * TXP_ACT_N blocks (sb_act). */
+ * TXP_ACT_N blocks (sb_act). With the values the M/S's meters are published (its peaks and correlation, kept by the
+ * mix for the window always: tx_core_ms.h meter bit 1) and the output's last block for the window's goniometer.
+ *
+ * The sound browser's preview (sb_pv_*) is the window's audition, not an edit: while it plays, the host reads the
+ * lane's HOW MANY and HOW ACTIVE as they were before it (no automation of the preview's own) and a state captured
+ * then keeps the lane as it was (its sound, HOW MANY, HOW ACTIVE, playing or not, its mute, its cards). */
 #include <math.h>
 #include <stdatomic.h>
 #include <time.h>
@@ -134,6 +139,9 @@ static struct {
     float cin_pk, cout_pk;
     int32_t cgr_pk;
     int16_t cin10, cout10, cgr10;
+    /* the goniometer's points: the last block's frames (every TXP_GON_STEP-th, Q15) and that block's count */
+    int16_t gon[TXP_GON_N][2];
+    uint32_t gon_blk;
     const scn_t *ap_seen;                /* the scene applied last that sb_scene_mem saw (and when) */
     uint32_t ap_seen_t;
     int16_t ptx_v[TXP_NPARAM_MAX];
@@ -288,6 +296,10 @@ static int32_t sb_value(const txp_param_t *p)   /* a host parameter's value now 
         return P_IDX(p->id) == PL_PAN ? 64 : P_IDX(p->id) == PL_LEVEL ? 100 : 0;   /* an empty lane: what it plays, nothing
                                           * (its pan and cards of before are no part of a scene: a state loaded into another
                                           * instance would read others) */
+    if (sbp.on && P_IS_LANE(P_SCOPE(p->id)) && P_LANE_OF(P_SCOPE(p->id)) == sbp.k &&
+        (P_IDX(p->id) == PL_COUNT || P_IDX(p->id) == PL_ACTIVE))   /* the preview's lane: as it was before it (its
+                                          * HOW MANY / HOW ACTIVE are the audition's, never the host's automation) */
+        return !sbp.used || !sbp.run ? 0 : P_IDX(p->id) == PL_COUNT ? sbp.cnt : (int32_t)sc_act_of(sbp.step) + 1;
     if (P_IS_LANE(P_SCOPE(p->id)) && P_IDX(p->id) == PL_COUNT) {   /* HOW MANY under a modulation: the user's value,
                                           * as a scene keeps it (scenes.c scn_capture), not the one the matrix moves it to */
         uint32_t k = P_LANE_OF(P_SCOPE(p->id));
@@ -420,6 +432,17 @@ static void sb_ui(txp_ui_snap_t *u)       /* what the window shows (the app's th
         sbx.cgr_pk = 0;
     }
     if (!pv_glob[PG_COMP0 + TX_CP_ON]) sbx.cin10 = sbx.cout10 = -900, sbx.cgr10 = 0;
+    {   /* the M/S's meters (its own, tx_core_ms.h: peaks Q23 held and falling), the goniometer's last block */
+        const tx_ms_t *ms = &ln.mix.ms;
+        for (i = 0; i < 4u; i++) {
+            float db = ms->pk[i] > 0 ? 20.0f * log10f((float)ms->pk[i] * (1.0f / 8388608.0f)) : -90.0f;
+            u->ms_db10[i] = (int16_t)(db < -90.0f ? -900 : db > 30.0f ? 300 : (int)lroundf(db * 10.0f));
+        }
+        u->ms_corr = (int16_t)(ms->corr > 32767 ? 32767 : ms->corr < -32767 ? -32767 : ms->corr);
+        for (i = 0; i < TX_MS_NP && i < 8u; i++) if (mod_holds(PID(P_GLOBAL, PG_MS0 + i))) u->ms_mod |= (uint8_t)(1u << i);
+        memcpy(u->gon, sbx.gon, sizeof u->gon);
+        u->gon_blk = sbx.gon_blk;
+    }
     u->comp_gr10 = sbx.cgr10;
     u->comp_in10 = sbx.cin10;
     u->comp_out10 = sbx.cout10;
@@ -465,6 +488,7 @@ static void sb_ui(txp_ui_snap_t *u)       /* what the window shows (the app's th
         l->used = 1;
         l->mute = sc.mute[k];
         l->run = sc.run[k];
+        l->cnt = (uint8_t)sc_cnt_of(k);
         if (!sc.run[k] && sc.mem_cnt[k]) { l->mcnt = sc.mem_cnt[k]; l->mact = (uint8_t)(sc_act_of(sc.mem_step[k]) + 1u); }
         l->fi = sc.lf[k]; l->si = (uint8_t)sc.snd[k];
         {
@@ -546,12 +570,40 @@ static void sb_snapshot(txp_snap_t *out)
         if (q1 == q2) return;
     }
 }
+/* the sound browser's preview in a captured scene: its lane as it was before it (sb_pv_play kept that), so a project
+ * saved during an audition saves the lane, not the audition; the cards of a preview just ended too, while they are
+ * not back yet (sb_pv_cards) */
+static void sb_capture_pv(scn_t *s)
+{
+    uint32_t k = sbp.k, i, n = 0, id0 = PID(P_LS(k), PL_CARD0);
+    if ((!sbp.on && !sbp.card) || k >= SC_N) return;
+    if (!sbp.on && (sc.snd[k] != (int)sbp.i || sc.lf[k] != sbp.f)) return;   /* (another sound since: its own cards) */
+    for (i = 0; i < s->nrec; i++)        /* (the lane's cards out: the ones it had go back in below) */
+        if (s->r[i].id < id0 || s->r[i].id >= id0 + SCD_MAX) s->r[n++] = s->r[i];
+    s->nrec = (uint16_t)n;
+    if (sbp.on) {
+        s->mute &= ~(1u << k);
+        s->lf[k] = 0;
+        if (!sbp.used) {                 /* (an empty lane: empty again, LANES as it was; as scn_capture keeps one) */
+            s->snd[k] = -1; s->cnt[k] = s->step[k] = s->run[k] = 0; s->pan[k] = 64;
+#if SC_N > 4
+            s->nlane = sbp.nlane;
+#endif
+            return;
+        }
+        s->snd[k] = (int8_t)sbp.i; SCN_LF_SET(s, k, sbp.f);
+        s->cnt[k] = sbp.cnt; s->step[k] = sbp.step; s->run[k] = sbp.run;
+        if (sbp.mute) SCN_MUTE_SET(s, k);
+    }
+    for (i = 0; i < SCD_MAX; i++) if (sbp.cv[i] != 0xFF) scn_add(s, id0 + i, sbp.cv[i]);
+}
 static void sb_capture(void)             /* the state as it plays now, for sb_state_get */
 {
     uint32_t q = atomic_load_explicit(&sbx.cap_seq, memory_order_relaxed), i;
     atomic_store_explicit(&sbx.cap_seq, q + 1u, memory_order_relaxed);
     atomic_thread_fence(memory_order_release);
     scn_capture(&sbx.cap_scn);
+    sb_capture_pv(&sbx.cap_scn);
     sbx.cap_cur = scn_cur;
     sbx.cap_solo = sbx.solo;
     sbx.cap_keys = sbx.keys;
@@ -1072,7 +1124,14 @@ static void sb_step(void)
         static int32_t blk[2u * HALF_FRAMES];
         uint32_t i;
         sbx.owed -= 1000u * HALF_FRAMES;
+        ln.mix.ms.meter |= 2u;           /* (the M/S's meters: the window's, always; they change no sample) */
         app_audio(blk, HALF_FRAMES);     /* (APP_OUT_WRITTEN: every sample written) */
+        for (i = 0; i < TXP_GON_N; i++) {   /* (the goniometer's points: the block as it leaves, Q15) */
+            int32_t l = blk[2u * i * TXP_GON_STEP], r = blk[2u * i * TXP_GON_STEP + 1u];
+            sbx.gon[i][0] = (int16_t)(l > 32767 ? 32767 : l < -32767 ? -32767 : l);
+            sbx.gon[i][1] = (int16_t)(r > 32767 ? 32767 : r < -32767 ? -32767 : r);
+        }
+        sbx.gon_blk = sbx.st.blocks + 1u;
         for (i = 0; i < HALF_FRAMES; i++) {
             uint32_t w = (sbx.fw + i) & (SB_FIFO - 1u);
             int32_t a = blk[2u * i] < 0 ? -blk[2u * i] : blk[2u * i], b = blk[2u * i + 1u] < 0 ? -blk[2u * i + 1u] : blk[2u * i + 1u];
