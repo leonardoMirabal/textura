@@ -25,7 +25,8 @@
  * depends on the lane's sound), GROOVE's PART and CYCLE; the effects on the mix (GRAIN DELAY and its SYNC, REVERB,
  * COMPRESSOR, DRIVE, FILTER), GROOVE, the keys' SCALE, MIDI IN's channels (each lane's, SELECTED CH, FX CHANNEL),
  * LANES, EFFECTS ON LOAD; the eight LFOs, the envelopes, the followers, the matrix and MOD CC; and the plugin's own
- * PRESET (F001 .. F100, a program change on channel 1). The FM-1's tempo, clock, screen and status settings are not
+ * PRESET (F001 .. F100, a program change on channel 1); then, appended last, the M/S's MID, SIDE,
+ * WIDTH (SIDE against MID: set, it moves SIDE) and MONO. The FM-1's tempo, clock, screen and status settings are not
  * host parameters: the host's tempo leads (step 6) when it gives one.
  *
  * The state: what a user scene keeps (scenes.c scn_capture: the landscape, LANES, each lane's sound, HOW MANY, HOW
@@ -203,7 +204,7 @@ static void sb_tab_make(void)
                                          * GROOVE PART / CYCLE, and p_set would write past pv_glob) */
         uint32_t id = PID(P_GLOBAL, i);
         const char *m, *px;
-        if (sb_glob_hidden(i) || !(p_fx_desc(id) || p_gx(id))) continue;
+        if (sb_glob_hidden(i) || PG_IS_MS(i) || !(p_fx_desc(id) || p_gx(id))) continue;   /* (the M/S: last, below) */
         if (i < PG_REVERB0) { m = "Grain delay"; px = "GRAIN "; }
         else if (i < PG_COMP0) { m = "Reverb"; px = "REVERB "; }
         else if (i < PG_BPM) { m = "Compressor"; px = "COMP "; }
@@ -237,6 +238,9 @@ static void sb_tab_make(void)
     }
     sb_tab_add(PID(P_MAT, MQ_CC), (uint32_t)mod_hi(PID(P_MAT, MQ_CC)), 0, 0, "Matrix", "", "MOD CC");
     sb_tab_add(TXP_ID_KEYS, 1u, 0, 1, "MIDI", "MIDI ", "KEYS");
+    for (i = PG_MS0; i < PG_MS0 + TX_MS_NP; i++)   /* the M/S (MID SIDE WIDTH MONO): appended, so no id before moves */
+        sb_tab_add(PID(P_GLOBAL, i), (uint32_t)p_hi(PID(P_GLOBAL, i)), 0, p_kind(PID(P_GLOBAL, i)) != PK_AMOUNT, "M/S", "M/S ",
+                   p_lab(PID(P_GLOBAL, i)));
 }
 static uint32_t sb_params(txp_param_t *tab, uint32_t max)
 {

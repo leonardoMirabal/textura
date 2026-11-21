@@ -1,9 +1,10 @@
 # the mix's effects: the audio runs them in the order the panel shows, left to right, as Frodhes (COMPRESSOR, DRIVE,
-# FILTER, GRAIN DELAY, REVERB): "chain" the order the last block called them in (TX_STAGE), "fxsteps" FX's steps,
-# "chainok" 1 while the two agree and the PERFORM front page's knobs keep that order too; FX steps through the pages
+# FILTER, GRAIN DELAY, REVERB, then the M/S): "chain" the order the last block called them in (TX_STAGE), "fxsteps" FX's steps,
+# "chainok" 1 while the two agree and the PERFORM front page's knobs keep that order too; FX steps through the pages (past the M/S, the last,
+# back to the COMPRESSOR)
 1700 btn 13
-2000 expect state chain COMP_DRIVE_FILTER_GRAIN_REVERB
-2000 expect state fxsteps COMP_DRIVE_FILTER_GRAIN_REVERB
+2000 expect state chain COMP_DRIVE_FILTER_GRAIN_REVERB_M/S
+2000 expect state fxsteps COMP_DRIVE_FILTER_GRAIN_REVERB_M/S
 2000 expect state chainok 1
 2100 btn 2
 2150 expect state page PERFORM
@@ -37,5 +38,8 @@
 2904 btn 2
 2950 expect state page REVERB_3/3
 3000 btn 2
-3050 expect state page PERFORM
-3100 end
+3050 expect state page M/S
+3060 shot
+3100 btn 2
+3150 expect state page COMPRESSOR_1/2
+3200 end

@@ -23,7 +23,8 @@ enum { TXP_PL_SOUND = 0, TXP_PL_COUNT = 1, TXP_PL_ACTIVE = 2, TXP_PL_LEVEL = 3, 
 #define TXP_ID_GLOB(i) (4u << 8 | (uint32_t)(i))   /* a global (params.c PG_*) */
 enum { TXP_PG_SCNTEMPO = 37, TXP_PG_SCNFX = 38, TXP_PG_GAMOUNT = 56, TXP_PG_GTYPE, TXP_PG_GSHIFT, TXP_PG_SCALE,
        TXP_PG_ROOT, TXP_PG_SELCH, TXP_PG_LCH0, TXP_PG_SCMODE = TXP_PG_LCH0 + 4, TXP_PG_TRANS, TXP_PG_LCH4,
-       TXP_PG_CHG = TXP_PG_LCH4 + 12, TXP_PG_NLANE };
+       TXP_PG_CHG = TXP_PG_LCH4 + 12, TXP_PG_NLANE,
+       TXP_PG_MSMID = 96, TXP_PG_MSSIDE, TXP_PG_MSWIDTH, TXP_PG_MSMONO };   /* (the M/S: params.c PG_MS0, tx_core_ms.h) */
 #define TXP_ID_LCH(k) TXP_ID_GLOB((k) < 4 ? TXP_PG_LCH0 + (k) : TXP_PG_LCH4 + (k) - 4)   /* lane k's MIDI channel */
 #define TXP_ID_MODCC (7u << 8 | 64u)      /* MOD CC (params.c P_MAT, mod.c MQ_CC) */
 #define TXP_COL_N 11                      /* the engines' colours (gui_core.c's palette; 0 bone, the default) */

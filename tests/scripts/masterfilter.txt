@@ -92,17 +92,21 @@
 3820 expect state p435 0
 4200 expect rms < -120
 4200 expect sound
-# the matrix (ARP): LFO 1 > FLT LOW PASS (two before the last TARGET, GROOVE AMOUNT: GRAIN MOD between), depth +30 %; the chain is held by the
+# the matrix (ARP): LFO 1 > FLT LOW PASS (four before the last TARGET, M/S SIDE: M/S MID, GROOVE AMOUNT, GRAIN MOD between), depth +30 %; the chain is held by the
 # route; the route gone: LOW PASS back to its base
 4300 midi 0xB4 75 30
 4310 midi 0xB4 74 90
 4400 btn 10
 4420 turn 2 1
 4440 turn 3 200
-4450 expect state card1 GROOVE_AMOUNT
-4452 turn 3 -1
-4453 expect state card1 GRAIN_MOD
+4450 expect state card1 M/S_SIDE
+4451 turn 3 -1
+4452 expect state card1 M/S_MID
+4453 turn 3 -1
+4454 expect state card1 GROOVE_AMOUNT
 4455 turn 3 -1
+4456 expect state card1 GRAIN_MOD
+4457 turn 3 -1
 4460 expect state card1 FLT_LOW_PASS
 4480 turn 4 30
 4600 expect state routes 1

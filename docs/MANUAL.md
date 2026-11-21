@@ -32,7 +32,7 @@ an electric piano for the same keyboard by the same author.
 3. [Buttons, knobs and keys](#3-buttons-knobs-and-keys)
 4. [The pages](#4-the-pages): [TEXTURA](#textura-the-home-page), [SOUND](#sound), [the lane pages](#the-lane-pages-how-many-how-active-pan-on--mute),
    [PERFORM](#perform), [COMPRESSOR](#compressor), [DRIVE](#drive), [FILTER](#filter), [the grain delay](#the-grain-delay-delay-delay-motion-grains-grain-tone),
-   [REVERB](#reverb-reverb-space-shimmer), [LFO](#lfo-lfo-phase-lfo-level), [ENV and FOLLOW](#env-env-shape-and-follow),
+   [REVERB](#reverb-reverb-space-shimmer), [M/S](#ms), [LFO](#lfo-lfo-phase-lfo-level), [ENV and FOLLOW](#env-env-shape-and-follow),
    [MOD MATRIX](#mod-matrix), [GROOVE](#groove-and-groove-lanes), [TEMPO](#tempo), [SCALE](#scale),
    [MIDI CLOCK](#midi-clock), [MIDI IN](#midi-in), [DISPLAY](#display), [the sound browser](#the-sound-browser-sounds),
    [the presets list](#the-presets-list-presets), [the save mode](#the-save-mode)
@@ -204,8 +204,8 @@ onto the lanes. From there you can put any sound on any lane, from any family, a
 at the bottom: **K1 to K4 always turn the four cards you see**. The pages, in SELECT order:
 
 TEXTURA (home) · SOUND · HOW MANY · HOW ACTIVE · PAN · ON / MUTE · PERFORM · COMPRESSOR · COMP RELEASE · DRIVE ·
-FILTER · DELAY · DELAY MOTION · GRAINS · GRAIN TONE · REVERB · REVERB SPACE · SHIMMER · LFO · LFO PHASE · LFO LEVEL ·
-ENV · ENV SHAPE · MOD MATRIX · GROOVE · GROOVE LANES · TEMPO · SCALE · MIDI CLOCK · MIDI IN · DISPLAY
+FILTER · DELAY · DELAY MOTION · GRAINS · GRAIN TONE · REVERB · REVERB SPACE · SHIMMER · M/S · LFO · LFO PHASE ·
+LFO LEVEL · ENV · ENV SHAPE · MOD MATRIX · GROOVE · GROOVE LANES · TEMPO · SCALE · MIDI CLOCK · MIDI IN · DISPLAY
 
 The order follows the sound: first the source (the lane's SOUND), then the mixer (the lane pages), then the effects
 in the order the sound goes through them, then movement, then timing and the setup.
@@ -281,7 +281,7 @@ steps; a turn after a rest always starts with single steps. Choices and short ra
 | **HOME** | The home page (TEXTURA) | Back to the page you left (the footer names it) | 0.6 s: the setup (MIDI CLOCK). Tapped twice quickly (within 0.3 s): PERFORM |
 | **EDIT** | The selected lane's SOUND page | Its next SOUND page | |
 | **SEQ** | The sound browser for the selected lane | Closes it | |
-| **FX** | PERFORM | Each effect page in signal order: COMPRESSOR, COMP RELEASE, DRIVE, FILTER, DELAY, DELAY MOTION, GRAINS, GRAIN TONE, REVERB, REVERB SPACE, SHIMMER, then round | 0.6 s, from any page: PERFORM at once |
+| **FX** | PERFORM | Each effect page in signal order: COMPRESSOR, COMP RELEASE, DRIVE, FILTER, DELAY, DELAY MOTION, GRAINS, GRAIN TONE, REVERB, REVERB SPACE, SHIMMER, M/S, then round from COMPRESSOR | 0.6 s, from any page: PERFORM at once |
 | **LFO** | The LFO pages | The next LFO page | Hold LFO and turn a card: learn ([below](#learn)) |
 | **ENV** | The ENV / FOLLOW pages | The next ENV page | Hold ENV and turn a card: learn |
 | **ARP** | The MOD MATRIX page | | |
@@ -486,7 +486,7 @@ grains keep playing them; down lets go.
 
 ### REVERB, REVERB SPACE, SHIMMER
 
-The last effect. It reverberates what the grain delay gives it, so the echoes ring in the space too.
+It reverberates what the grain delay gives it, so the echoes ring in the space too.
 
 ![REVERB: TYPE, MIX, DECAY, TONE](manual/img/reverb.png)
 
@@ -513,6 +513,25 @@ The last effect. It reverberates what the grain delay gives it, so the echoes ri
 | --- | --- | --- |
 | K1 | **SHIMMER** | The tail shifted up and fed back into the reverb: none .. a rising, ringing halo |
 | K2 | **SHIFT** | The shimmer's interval: +OCT, +5TH, +OCT+5, −OCT |
+
+### M/S
+
+The last effect, after the reverb: the mix split into its middle (what both sides share) and its sides (what differs
+left to right), each with its own level. At 0 dB with MONO off it leaves the sound exactly as it is. Every change
+glides, so nothing clicks. The limiter comes after it, so a boost never clips.
+
+![M/S: MID, SIDE, WIDTH, MONO](manual/img/ms.png)
+
+| Knob | Card | What it does |
+| --- | --- | --- |
+| K1 | **MID** | The middle's level: −INF, −57 to +6 dB in 0.5 dB steps; 0 dB (the mark on the card) leaves it as it is. Turned on the page, SIDE moves with it, so the WIDTH stays |
+| K2 | **SIDE** | The sides' level, the same range: lower for a narrower mix, higher for a wider one. Turning it puts MONO off |
+| K3 | **WIDTH** | 0 to 200 %: 0 is mono, 100 % (the mark) as it is, 200 % the sides twice as loud. It sets SIDE from MID |
+| K4 | **MONO** | OFF / ON: the sides off, to hear the mix in mono. SIDE keeps its value; the cards read −INF and 0 while it is on |
+
+The bottom line shows four meters, **L**, **R**, **M** and **S** (their peaks), and **CORR**, the correlation: the
+mark at the right end (+1) is mono, in the middle (0) the sides as loud as the middle, and in the accent colour left
+of the middle the sides louder than the middle (out of phase: it thins out in mono).
 
 ### LFO, LFO PHASE, LFO LEVEL
 
@@ -589,7 +608,7 @@ header shows the slot and its route ("SLOT 1 LFO 1 > FLT LOW ..."); a bar in the
 | Knob | Card | What it does |
 | --- | --- | --- |
 | K1 | **SOURCE** | NONE, LFO 1 to 8, VELOCITY (the last note's), MOD WHEEL (CC 1), AFTERTCH (aftertouch), CC (the MOD CC, CC 2 at first), ACTIVE (the lane's HOW ACTIVE), RANDOM (a new value at each note), CONSTANT, ENV 1 and 2, FOLLOW 1 and 2 |
-| K2 | **TARGET** | A lane's (1 to 4, or ALL LANES) LEVEL, PAN, HOW MANY, HOW ACTIVE or one of its sound's cards; the grain delay's and the reverb's amounts; an LFO's RATE or LEVEL; the DRIVE's AMOUNT, TONE or MIX; the FILTER's HIGH PASS or LOW PASS; the delay's MOD; the GROOVE's AMOUNT |
+| K2 | **TARGET** | A lane's (1 to 4, or ALL LANES) LEVEL, PAN, HOW MANY, HOW ACTIVE or one of its sound's cards; the grain delay's and the reverb's amounts; an LFO's RATE or LEVEL; the DRIVE's AMOUNT, TONE or MIX; the FILTER's HIGH PASS or LOW PASS; the delay's MOD; the GROOVE's AMOUNT; the M/S's MID or SIDE |
 | K3 | **DEPTH** | −100 to +100 % |
 | K4 | **SPREAD** | With ALL LANES: each lane reads the source a little later than the one before, up to 90 degrees of its cycle |
 
@@ -1722,10 +1741,11 @@ the scale and the screen colour.
 
 One chain on the mix of the four lanes, in the order the sound goes through it, and in that order on the pages:
 
-**COMPRESSOR → DRIVE → FILTER → GRAIN DELAY → REVERB → limiter**
+**COMPRESSOR → DRIVE → FILTER → GRAIN DELAY → REVERB → M/S → limiter**
 
 - **FX** steps through every effect page in this order; **PERFORM** has the four controls you want while playing.
 - The reverb comes after the delay, so the echoes ring in the space too.
+- The M/S comes last, so its width works on the whole mix, the reverb's tail too.
 - A limiter at the very end keeps the output from clipping.
 
 **The MIX convention.** DRIVE, DELAY and REVERB each have a MIX card that works the same way: at **0 (DRY)** you hear
@@ -1734,8 +1754,9 @@ the sound alone; up to **64** the effect comes in while the sound stays whole; a
 colour and the part past it in the opposite colour.
 
 **Switching on.** The compressor is on from the start and switches with ALGORITHM on its page. The drive is off with
-AMOUNT at 0, the filter is open with HIGH PASS and LOW PASS at OFF, the delay is off with its MIX at DRY, and the
-reverb is off with TYPE at OFF. Turn one up and it comes in smoothly; nothing clicks.
+AMOUNT at 0, the filter is open with HIGH PASS and LOW PASS at OFF, the delay is off with its MIX at DRY, the
+reverb is off with TYPE at OFF, and the M/S leaves the sound as it is (0 dB, 100 %). Turn one up and it comes in
+smoothly; nothing clicks.
 
 **The effects and presets.** Every preset brings its effects with it, unless you choose otherwise in LOAD OPTIONS
 ([section 6](#6-presets-landscapes-and-scenes)).
@@ -1873,6 +1894,7 @@ On channel 1: **0 to 99** load F001 to F100, **100 to 115** load U01 to U16.
 | 112 / 113 | GRAIN / FREEZE (≥ 64) | 81 / 82 / 83 | MOD / MOD RATE / INTERVALS |
 | 85 / 91 | REVERB TYPE / MIX | 86 / 87 | REVERB DECAY / TONE |
 | 88 / 89 / 90 / 92 | REVERB PREDELAY / SIZE / MOD / LOWCUT | 93 / 94 | SHIMMER / SHIFT |
+| 25 / 26 / 27 | M/S MID / SIDE / WIDTH | 28 | M/S MONO (≥ 64) |
 | 3 | BPM | 9 | TAP (a value over 63 is a tap) |
 | 80 | TRANSPORT (≥ 64 run) | 84 | GROOVE AMOUNT |
 | 68 / 72 | SCALE MODE / SCALE | 73 / 69 | ROOT / TRANSP |
@@ -1888,7 +1910,7 @@ Every parameter is also an NRPN, on any channel that listens: **CC 99** (NRPN MS
 | Scope (CC 99) | Index (CC 98) |
 | --- | --- |
 | **0 to 3**: lane 1 to 4 | 0 SOUND, 1 HOW MANY, 2 HOW ACTIVE, 3 LEVEL, 4 PAN, 8 to 15 the sound's cards 1 to 8, 48 the groove PART, 49 the groove CYCLE |
-| **4**: the globals | 0 to 15 the grain delay (0 MIX, 1 TIME, 2 FEEDBACK, 3 GRAINS, 4 SIZE, 5 SPRAY, 6 PITCH, 7 REVERSE, 8 SPREAD, 9 TONE, 10 GRAIN, 11 FREEZE, 12 SYNC, 13 MOD, 14 MOD RATE, 15 INTERVALS); 16 to 25 the reverb (TYPE, MIX, DECAY, TONE, PREDELAY, SIZE, MOD, LOWCUT, SHIMMER, SHIFT); 26 to 31 the compressor (COMP, THR, ATTACK, REL, RATIO, MAKEUP); 32 BPM, 33 FINE, 35 TRANSPORT, 36 TAP, 37 PRESETS CHANGE TEMPO, 38 EFFECTS ON LOAD; 40 CLOCK, 41 CLK IN USB, 42 CLK IN TRS, 43 CLK OUT; 44 COLOR; 48 to 51 the drive (AMOUNT, TONE, MIX, TYPE); 52 to 55 the filter (HIGH PASS, LOW PASS, RESONANCE, SLOPE); 56 to 58 the groove (AMOUNT, TYPE, SHIFT); 59 SCALE, 60 ROOT, 61 SELECTED CH, 62 to 65 LANE 1 to 4 CHANNEL, 66 SCALE MODE, 67 TRANSP |
+| **4**: the globals | 0 to 15 the grain delay (0 MIX, 1 TIME, 2 FEEDBACK, 3 GRAINS, 4 SIZE, 5 SPRAY, 6 PITCH, 7 REVERSE, 8 SPREAD, 9 TONE, 10 GRAIN, 11 FREEZE, 12 SYNC, 13 MOD, 14 MOD RATE, 15 INTERVALS); 16 to 25 the reverb (TYPE, MIX, DECAY, TONE, PREDELAY, SIZE, MOD, LOWCUT, SHIMMER, SHIFT); 26 to 31 the compressor (COMP, THR, ATTACK, REL, RATIO, MAKEUP); 32 BPM, 33 FINE, 35 TRANSPORT, 36 TAP, 37 PRESETS CHANGE TEMPO, 38 EFFECTS ON LOAD; 40 CLOCK, 41 CLK IN USB, 42 CLK IN TRS, 43 CLK OUT; 44 COLOR; 48 to 51 the drive (AMOUNT, TONE, MIX, TYPE); 52 to 55 the filter (HIGH PASS, LOW PASS, RESONANCE, SLOPE); 56 to 58 the groove (AMOUNT, TYPE, SHIFT); 59 SCALE, 60 ROOT, 61 SELECTED CH, 62 to 65 LANE 1 to 4 CHANNEL, 66 SCALE MODE, 67 TRANSP; 96 to 99 the M/S (MID, SIDE, WIDTH, MONO) |
 | **5**: the LFOs | LFO n (0 to 7) × 16 + 0 SHAPE, 1 RATE, 2 SYNC, 3 MODE, 4 PHASE, 5 WIDTH, 6 JITTER, 7 FADE, 8 RESTART, 9 LEVEL |
 | **6**: envelopes and followers | ENV n (0 or 1) × 16 + 0 TRIGGER, 1 ATTACK, 2 DECAY, 3 RELEASE, 4 SUSTAIN, 5 CURVE, 6 VARY, 7 LOOP; FOLLOW n: 32 + n × 16 + 0 INPUT, 1 ATTACK, 2 RELEASE, 3 GAIN |
 | **7**: the matrix | slot (0 to 15) × 4 + 0 SOURCE, 1 TARGET, 2 DEPTH (64 = 0 %), 3 SPREAD; 64 the MOD CC's number |
@@ -1928,7 +1950,7 @@ well as computers.
 | **Sound** | Physical models computed live, no samples: 103 sounds in 10 families, played as clouds of events; no two events alike |
 | **Lanes** | 4 at once, any sound on any lane; HOW MANY (off, 1, 2, 4, 10, 19, 32), HOW ACTIVE (9 steps), volume, pan, mute |
 | **Audio** | 44.1 kHz, integer processing, 256-frame blocks (5.8 ms), the work shared over both of the FM-1's processor cores; output limiter |
-| **Effects** | COMPRESSOR → DRIVE (5 types) → FILTER (high-pass into low-pass, 12 / 18 / 24 dB) → GRAIN DELAY (20 ms to 2 s, up to 30 grains, freeze) → REVERB (8 types, shimmer) → limiter |
+| **Effects** | COMPRESSOR → DRIVE (5 types) → FILTER (high-pass into low-pass, 12 / 18 / 24 dB) → GRAIN DELAY (20 ms to 2 s, up to 30 grains, freeze) → REVERB (8 types, shimmer) → M/S (mid, side, width, mono) → limiter |
 | **Modulation** | 8 LFOs (12 shapes, free or synced), 2 envelopes, 2 envelope followers, a 16-slot matrix, learn |
 | **Groove** | 244 pulse types, a role per lane |
 | **Presets** | 100 factory (F001–F100), 16 user (U01–U16), 10 landscapes (L01–L10); undo / redo |

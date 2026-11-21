@@ -30,6 +30,7 @@
 #include "tx_core_mix.h"
 #include "tx_core_chamber.h"
 #include "tx_fx.h"
+#include "tx_core_ms.h"
 #include "tx_mod.h"
 #include "tx_groove.h"
 
@@ -229,11 +230,13 @@ static const mixdef_t MIXES[] = {
 /* ---- the effects (tx_fx.h): one effect on a busy input (noise at -12 dBFS, all the time), its block's cost on the
  * FM-1 (the per-block minimum over runs, then the 75th percentile: the cost is flat, the host is not). kind 0 drive (one
  * side of the mix's pair: the mix pays two), 2 reverb, 3 grain delay, 4 the mix's FILTER (type 0: one edge,
- * 12 dB; 1: both edges, 24 dB, RESONANCE 64; on the pair) */
+ * 12 dB; 1: both edges, 24 dB, RESONANCE 64; on the pair), 5 the M/S (type 0: at 0 dB, untouched; 1: the same, its meters
+ * kept; 2: MID -3 dB, SIDE +3 dB, meters; 3: MONO, meters; on the pair) */
 static int fxc_cmp(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
 static double fx_cost(int kind, unsigned type, unsigned decay)
 {
     static tx_fx_t fx;
+    static tx_ms_t ms;
     static uint64_t t[MAXR][1500];
     static double v[1500];
     int32_t L[TX_BLOCK], R[TX_BLOCK];
@@ -242,6 +245,9 @@ static double fx_cost(int kind, unsigned type, unsigned decay)
     for (r = 0; r <= runs; r++) {
         rng = 99u;
         tx_fx_init(&fx);
+        if (kind == 5) { tx_ms_init(&ms); ms.meter = type ? 1u : 0u;
+                         if (type == 2) { tx_ms_param(&ms, TX_MS_MID, TX_MS_0DB - 6u); tx_ms_param(&ms, TX_MS_SIDE, TX_MS_0DB + 6u); }
+                         if (type == 3) tx_ms_param(&ms, TX_MS_MONO, 1); }
         if (kind == 0) { tx_fx_drive_param(&fx.drive[0], TX_DR_AMOUNT, 90); tx_fx_drive_param(&fx.drive[0], TX_DR_TONE, 100);
                          tx_fx_drive_param(&fx.drive[0], TX_DR_MIX, type ? 127 : 100); tx_fx_drive_param(&fx.drive[0], TX_DR_TYPE, type); }
         if (kind == 2) { tx_fx_reverb_param(&fx.rev, TX_RV_TYPE, type); tx_fx_reverb_param(&fx.rev, TX_RV_MIX, 90);
@@ -261,7 +267,8 @@ static double fx_cost(int kind, unsigned type, unsigned decay)
             if (b == 200u && decay == 127) tx_fx_reverb_param(&fx.rev, TX_RV_DECAY, 127);
             for (j = 0; j < TX_BLOCK; j++) { rng = rng * 1664525u + 1013904223u; L[j] = R[j] = (int32_t)(rng >> 10) - (1 << 21); }
             t0 = tx_now_ns();
-            if (kind == 4) tx_fx_mfilter_process(&fx.mf, L, R, TX_BLOCK);
+            if (kind == 5) tx_ms_process(&ms, L, R, TX_BLOCK);
+            else if (kind == 4) tx_fx_mfilter_process(&fx.mf, L, R, TX_BLOCK);
             else if (kind >= 2) tx_fx_bus(&fx, L, R, TX_BLOCK);
             else tx_fx_drive_process(&fx.drive[0], L, TX_BLOCK);
             if (r) t[r - 1][b] = tx_now_ns() - t0;
@@ -539,6 +546,8 @@ int main(int argc, char **argv)
                 printf("   GRAIN DELAY, %2u grains sounding (rate 1 / pitched / MOD 127)   %5.0f / %5.0f / %5.0f us  (%4.1f %%)\n", NG[q],
                        fx_cost(3, NG[q], 0), fx_cost(3, NG[q], 1), fx_cost(3, NG[q], 2), 100 * fx_cost(3, NG[q], 2) / BLOCK_US);
         }
+        printf("   M/S (the last effect, the pair): 0 dB / 0 dB + meters / MID -3 SIDE +3 + meters / MONO + meters  %4.1f / %4.1f / %4.1f / %4.1f us\n",
+               fx_cost(5, 0, 0), fx_cost(5, 1, 0), fx_cost(5, 2, 0), fx_cost(5, 3, 0));
         printf("   the reverb's worst TYPE %.0f us of the effects reserve (%.0f us, CHAMBER's %.0f folded in: it is a TYPE now)\n",
                worst, FX_RESERVE_US + chamber, chamber);
     }

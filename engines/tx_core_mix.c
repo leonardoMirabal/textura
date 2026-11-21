@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura MIX core: four layers (-> their inserts) -> pan -> stereo -> the compressor -> the DRIVE (and the FILTER)
- * -> CHAMBER (mid send) -> the bus effects (grain delay, reverb) -> linked limiter (tx_core_mix.h). */
+ * -> CHAMBER (mid send) -> the bus effects (grain delay, reverb) -> M/S -> linked limiter (tx_core_mix.h). */
 #include "tx_core_mix.h"
 #ifdef DINGHY_HOST
 uint8_t tx_st_seen[8], tx_st_n;
@@ -14,6 +14,7 @@ void tx_mix_init(tx_mix_t *m)
         tx_mix_pan(m, k, 64); m->tg[k] = 4096; m->gc[k] = m->gt[k] = 32768; m->lc[k] = m->lv[k] = 32768;
     }
     tx_comp_init(&m->comp);
+    tx_ms_init(&m->ms);
     tx_limit_init(&m->lim);
     m->lim.ch = 2;                                           /* (interleaved: tx_mix_end) */
 }
@@ -153,6 +154,10 @@ TX_AUDIO_CODE void tx_mix_run(tx_mix_t *m, unsigned n, unsigned c)
         for (j = 0; j < n; j++) { int32_t w = m->mid[j] - m->blk[j]; m->L[j] += w; m->R[j] += w; }
     }
     if (bus) bus(m->fx, m->L, m->R, n);                      /* the bus effects (the grain delay, the reverb) */
+    TX_STAGE(TX_ST_MS);
+    TX_FAR(tx_ms_process)(&m->ms, m->L, m->R, n);            /* the M/S, the last effect: the whole mix's middle and
+                                                              * sides, the reverb's tail with them; before the limiter,
+                                                              * so a boost (up to +6 dB) never passes it (in XIP) */
     for (j = 0; j < n; j++) {                                /* linked: one gain for both, from the louder */
         int32_t a = m->L[j] < 0 ? -m->L[j] : m->L[j], b = m->R[j] < 0 ? -m->R[j] : m->R[j];
         if (a > pk) pk = a;

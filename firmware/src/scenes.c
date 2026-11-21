@@ -3,12 +3,12 @@
  *
  * A scene is everything a sound place is: the landscape, each lane's sound, HOW MANY, HOW ACTIVE, playing or not, its
  * level, pan and mute, its name, then a list of (parameter id, value) records: the lanes' cards (the ones set), the tempo,
- * and of the grain delay and its SYNC, the reverb, the compressor, the drive, the mix's filter, the eight LFOs, the
+ * and of the grain delay and its SYNC, the reverb, the compressor, the drive, the mix's filter, the M/S, the eight LFOs, the
  * envelopes, the followers, the matrix and the GROOVE (AMOUNT, TYPE, SHIFT, each lane's PART and CYCLE) the values
  * away from their defaults (scn_def_*). A load sets every one of those to its default first,
  * then the scene's records over them, so a record of an older firmware loads into a newer one (an id it lacks gets
  * its default; ids never change, params.c). The tempo is set only with PRESETS CHANGE TEMPO at YES (tempo.c). The
- * mix's effects (DRIVE, FILTER, COMPRESSOR, GRAIN, REVERB) follow EFFECTS ON LOAD: ALWAYS a load sets them; SMART (the
+ * mix's effects (DRIVE, FILTER, COMPRESSOR, GRAIN, REVERB, M/S) follow EFFECTS ON LOAD: ALWAYS a load sets them; SMART (the
  * default) it sets them unless the player turned one since the last load that set them (scn_fx_mine: then they stay,
  * the screen says FX: YOURS, and a load asked with its effects, scn_fx_force, still sets them); NEVER they stay. The
  * boot's load sets them always. Set, their amounts glide SCN_GLIDE_MS like the cards (scn_put), so nothing steps and
@@ -221,14 +221,16 @@ static void scn_name_of(uint32_t idx, char *s)  /* "F003 GARDEN RAIN", "U05 WATE
 
 /* ---- the defaults a load starts from: the grain delay and its SYNC, the reverb, the compressor,
  * the drive, the mix's filter, the GROOVE's AMOUNT TYPE SHIFT (the globals after the filter's), the LFOs, the
- * envelopes, the followers, the matrix, each lane's GROOVE PART and CYCLE (in that order; SCN_DEF_N of them) */
+ * envelopes, the followers, the matrix, each lane's GROOVE PART and CYCLE, the M/S (in that order; SCN_DEF_N of
+ * them: a scene of before the M/S loads at 0 dB, MONO off, so it sounds as it did) */
 #define SCN_DEF_GLOB 0u                          /* (the lanes' FILTER once came first: retired) */
 #define SCN_DEF_LFO (SCN_DEF_GLOB + TX_GD_NP + 1u + TX_RV_NP + TX_CP_NP + TX_DR_NP + TX_MF_NP + 3u)
 #define SCN_DEF_ENV (SCN_DEF_LFO + TX_LFO_N * TX_LP_N)
 #define SCN_DEF_FOL (SCN_DEF_ENV + TX_ENV_N * TX_EP_N)
 #define SCN_DEF_MAT (SCN_DEF_FOL + TX_FOL_N * TX_FP_N)
 #define SCN_DEF_GRV (SCN_DEF_MAT + MOD_NS * MQ_N + 1u)   /* each lane's GROOVE PART and CYCLE */
-#define SCN_DEF_N (SCN_DEF_GRV + 2u * SC_N)
+#define SCN_DEF_MS (SCN_DEF_GRV + 2u * SC_N)   /* the M/S's MID, SIDE, MONO (WIDTH: SIDE's, not kept) */
+#define SCN_DEF_N (SCN_DEF_MS + 3u)
 typedef char scn_grv_after_mf[PG_GRV0 == PG_MF0 + TX_MF_NP ? 1 : -1];   /* (scn_def_id counts on it) */
 static uint8_t scn_lfo_def[TX_LFO_N][TX_LP_N];  /* (tx_lfo_init's, per LFO: taken at boot) */
 static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id */
@@ -248,6 +250,7 @@ static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id *
     if (i < SCN_DEF_FOL) { i -= SCN_DEF_ENV; return PID(P_ENV, i / TX_EP_N * 16u + i % TX_EP_N); }
     if (i < SCN_DEF_MAT) { i -= SCN_DEF_FOL; return PID(P_ENV, MV_FOL0 + i / TX_FP_N * 16u + i % TX_FP_N); }
     if (i < SCN_DEF_GRV) { i -= SCN_DEF_MAT; return PID(P_MAT, i < MOD_NS * MQ_N ? i : MQ_CC); }
+    if (i >= SCN_DEF_MS) { static const uint8_t M[3] = {TX_MS_MID, TX_MS_SIDE, TX_MS_MONO}; return PID(P_GLOBAL, PG_MS0 + M[i - SCN_DEF_MS]); }
     i -= SCN_DEF_GRV;
     return PID(P_LS(i / 2u), PL_GPART + (i & 1u));
 }
@@ -264,6 +267,7 @@ static int32_t scn_def_of(uint32_t id)          /* an id's default (-1: none: th
         if (i >= PG_COMP0 && i < PG_COMP0 + TX_CP_NP) return tx_comp_params[i - PG_COMP0].def;
         if (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP) return tx_fx_drive_params[i - PG_DRIVE0].def;
         if (i >= PG_MF0 && i < PG_MF0 + TX_MF_NP) return tx_fx_mfilter_params[i - PG_MF0].def;
+        if (PG_IS_MS(i) && i != PG_MS0 + TX_MS_WIDTH) return tx_ms_params[i - PG_MS0].def;
         return -1;
     }
     if (s == P_LFO) return i / 16u < TX_LFO_N && i % 16u < TX_LP_N ? scn_lfo_def[i / 16u][i % 16u] : -1;
@@ -535,14 +539,15 @@ static void scn_fx_early(const scn_t *s)
     for (i = 0; i < s->nrec; i++)
         if (P_SCOPE(s->r[i].id) == P_GLOBAL && scn_fx_id(s->r[i].id) && p_valid(s->r[i].id)) scn_put(s->r[i].id, s->r[i].v);
 }
-/* the mix's effects: the DRIVE, its FILTER, the COMPRESSOR, the GRAIN delay (and its SYNC), the REVERB, and a retired lane DRIVE's
+/* the mix's effects: the DRIVE, its FILTER, the COMPRESSOR, the GRAIN delay (and its SYNC), the REVERB, the M/S, and a retired lane DRIVE's
  * records. A load sets them or leaves them as they are (their tails ring on) as EFFECTS ON LOAD says (scn_apply) */
 static int scn_fx_id(uint32_t id)
 {
     uint32_t s = P_SCOPE(id), i = P_IDX(id);
     if (P_IS_LANE(s)) return i >= PL_ODRIVE0 && i < PL_ODRIVE0 + TX_DR_NP;
     if (s != P_GLOBAL) return 0;
-    return i < PG_COMP0 + TX_CP_NP || (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP) || (i >= PG_MF0 && i < PG_MF0 + TX_MF_NP);
+    return i < PG_COMP0 + TX_CP_NP || (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP) || (i >= PG_MF0 && i < PG_MF0 + TX_MF_NP) ||
+           PG_IS_MS(i);
 }
 /* the player changed id (a knob, MIDI, the web): the scene edited ("*"), unless it is a setting (the tempo, the clock,
  * the screen: no scene keeps them); an effect: the effects theirs (SMART keeps them) */

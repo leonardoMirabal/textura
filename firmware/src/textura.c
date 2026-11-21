@@ -402,6 +402,8 @@ static int host_sound_check(char *msg, unsigned n)   /* 0 if every lane runs the
         if (ln.fx.rev.p[k] != pv_glob[PG_REVERB0 + k] && !mod_holds(PID(P_GLOBAL, PG_REVERB0 + k))) { snprintf(msg, n, "reverb %u: %u, not %u", k, ln.fx.rev.p[k], pv_glob[PG_REVERB0 + k]); return 1; }
     for (k = 0; k < TX_CP_NP; k++)
         if (ln.mix.comp.p[k] != pv_glob[PG_COMP0 + k]) { snprintf(msg, n, "comp %u: %u, not %u", k, ln.mix.comp.p[k], pv_glob[PG_COMP0 + k]); return 1; }
+    for (k = 0; k < TX_MS_NP; k++)                  /* the M/S (WIDTH: SIDE's, never sent) */
+        if (k != TX_MS_WIDTH && ln.mix.ms.p[k] != pv_glob[PG_MS0 + k] && !mod_holds(PID(P_GLOBAL, PG_MS0 + k))) { snprintf(msg, n, "m/s %u: %u, not %u", k, ln.mix.ms.p[k], pv_glob[PG_MS0 + k]); return 1; }
     return 0;
 }
 static int host_state(const char *key, char *v, unsigned n)
@@ -430,7 +432,7 @@ static int host_state(const char *key, char *v, unsigned n)
                                                  * audio ran them in the last block (TX_STAGE), as FX steps through
                                                  * them; "chainok" 1: the steps, and the front page's knobs, in the
                                                  * audio's order */
-        static const char *const NM[TX_ST_N] = {"COMP", "DRIVE", "FILTER", "GRAIN", "REVERB"};
+        static const char *const NM[TX_ST_N] = {"COMP", "DRIVE", "FILTER", "GRAIN", "REVERB", "M/S"};
         uint8_t pg[8], fr[4], *a = key[0] == 'f' ? pg : tx_st_seen;
         unsigned np = ui_fx_order(pg, fr), na = key[0] == 'f' ? np : tx_st_n, i, ok = np == tx_st_n;
         v[0] = 0;
@@ -442,6 +444,9 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (!strcmp(key, "ft2")) snprintf(v, n, "%s", ui_ft2);   /* the footer's line 2 on a group's page (ft_next) */
     else if (!strcmp(key, "msg")) snprintf(v, n, "%s", ui_msg_t && fm1_ms - ui_msg_t < MSG_MS ? ui_msg : "");
     else if (!strcmp(key, "dropped")) snprintf(v, n, "%u", ln.dropped);
+    else if (!strcmp(key, "mscorr")) snprintf(v, n, "%d", (int)ln.mix.ms.corr);   /* the M/S's meters (kept while its page
+                                                 * shows them): the correlation, Q15; mspk0 .. 3 the L R M S peaks, Q23 */
+    else if (sscanf(key, "mspk%u%c", &k, &c) == 1 && k < 4u) snprintf(v, n, "%d", (int)ln.mix.ms.pk[k]);
     else if (!strcmp(key, "govus")) snprintf(v, n, "%u", ln_gov_us());            /* the governor: the pool's cost */
     else if (!strcmp(key, "govpool")) snprintf(v, n, "%u", ln.gov.budget);
     else if (!strcmp(key, "govcut")) { for (i = 0, k = 0; k < SC_N; k++) i += ln_gov_cur(k) < ln_gov_user(k); snprintf(v, n, "%u", i); }   /* lanes cut */

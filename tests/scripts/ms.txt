@@ -1,0 +1,100 @@
+# the M/S (the mix's last effect, after the REVERB): FX's last page, after SHIMMER (its footer: FX: NEXT > M/S); K1 MID,
+# K2 SIDE, K3 WIDTH, K4 MONO, at 0 dB / 100 % / OFF from the boot's preset (it sounds as before). K1 keeps the WIDTH
+# (SIDE moves with MID); K3 sets SIDE; K4 MONO: SIDE reads -INF and WIDTH 0, the meters' correlation +1 and no sides;
+# K2 turned puts MONO off again, from the SIDE it kept. CC 25 .. 28 on channel 5; MID and MONO together: silence
+1700 turn 1 6
+2000 btn 6
+2100 expect state landscape Storm
+2100 btn 13
+2200 midi 0xB0 22 64
+2205 midi 0xB1 22 64
+2210 midi 0xB2 22 64
+2215 midi 0xB3 22 64
+2300 expect state p460 115
+2300 expect state p461 115
+2300 expect state p462 50
+2300 expect state p463 0
+3700 btn 2
+3704 btn 2
+3708 btn 2
+3712 btn 2
+3716 btn 2
+3720 btn 2
+3724 btn 2
+3728 btn 2
+3732 btn 2
+3736 btn 2
+3740 btn 2
+3744 btn 2
+3800 expect state page REVERB_3/3
+3800 expect state ft2 FX:_NEXT_>_M/S_|_HOLD:_PERFORM
+3810 shot
+3900 btn 2
+3950 expect state page M/S
+3950 expect state lab0 MID
+3950 expect state lab1 SIDE
+3950 expect state lab2 WIDTH
+3950 expect state lab3 MONO
+3950 expect state card0 0.0_dB
+3950 expect state card1 0.0_dB
+3950 expect state card2 100_%
+3950 expect state card3 OFF
+3950 expect state ft2 FX:_NEXT_>_COMPRESSOR
+3950 expect state chain COMP_DRIVE_FILTER_GRAIN_REVERB_M/S
+3950 expect state chainok 1
+4000 shot
+4000 expect sound
+# K1 down 6: MID -3 dB, SIDE with it, WIDTH 100 %
+4100 turn 2 -6
+4200 expect state card0 -3.0_dB
+4200 expect state card1 -3.0_dB
+4200 expect state card2 100_%
+4200 expect sound
+4250 shot
+# K3 up 10 detents: wider, SIDE above MID; back down to 100 %
+4300 turn 4 10
+4400 expect state p460 109
+4400 expect state card2 118_%
+4400 expect state p461 112
+4500 turn 4 -10
+4600 expect state card2 100_%
+4600 expect state p461 109
+# K4: MONO; the sides gone (their meter 0, the correlation +1); SIDE keeps its value (the card reads -INF, WIDTH 0: the
+# screen's, not the parameter's)
+4700 turn 5 1
+4800 expect state card3 ON
+4800 expect state p461 109
+5800 expect state mspk3 0
+5800 expect state mscorr 32767
+5800 expect sound
+5900 shot
+# K2: MONO off, SIDE one step up from where it was
+6000 turn 3 1
+6100 expect state p463 0
+6100 expect state p461 110
+6100 expect state card1 -2.5_dB
+# CC 25 (MID) 0 and CC 28 (MONO) 127: nothing left
+6200 midi 0xB4 25 0
+6210 midi 0xB4 28 127
+6300 expect state card0 -INF_dB
+6300 expect state p463 1
+7000 expect rms < -100
+# CC 27 (WIDTH) 127: SIDE +6 dB over MID (here -inf: SIDE from -57 dB); CC 26 (SIDE), CC 25 (MID) back to 0 dB (115)
+7100 midi 0xB4 28 0
+7110 midi 0xB4 25 115
+7120 midi 0xB4 26 115
+7200 expect state card0 0.0_dB
+7200 expect state card1 0.0_dB
+7200 expect state card2 100_%
+7300 midi 0xB4 27 127
+7400 expect state card2 200_%
+7400 expect state p461 127
+7500 midi 0xB4 27 64
+7600 expect state card2 100_%
+7600 expect state p461 115
+8000 expect sound
+8000 expect state chainok 1
+# FX past the M/S: back to the chain's first effect, the COMPRESSOR
+8100 btn 2
+8200 expect state page COMPRESSOR_1/2
+8300 end

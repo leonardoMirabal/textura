@@ -11,7 +11,7 @@
  * LANES (LEVEL, PAN, HOW MANY, HOW ACTIVE, the sound's 8 cards; FILTER FREQ / RESO / LFO / RATE once: retired, skipped,
  * a scene's routes onto them dropped), the grain delay's
  * and the reverb's amounts, each LFO's RATE and LEVEL, the mix's DRIVE AMOUNT / TONE / MIX, the mix's FILTER HIGH PASS /
- * LOW PASS (appended; a lane's DRIVE
+ * LOW PASS, the M/S's MID and SIDE (appended; a lane's DRIVE
  * targets of before, still in the list where they were, are the mix's DRIVE now: mod_tgt_drv). Never: a TYPE, FREEZE, SYNC, SHIFT, a
  * sound's PRESET / TYPE (the cards hold none). The routes are rebuilt into the other of two buffers whenever a slot, a
  * base value or a lane's sound changes and the interrupt takes the new one at its next block; a target that loses
@@ -55,7 +55,8 @@ enum { MK_ENG, MK_HOST, MK_PAN, MK_FX, MK_ACT, MK_COUNT, MK_LRATE, MK_LLEVEL, MK
 #define MT_MF0 (MT_DRV0 + 3u)                   /* 134: the mix's FILTER HIGH PASS LOW PASS */
 #define MT_GMOD (MT_MF0 + 2u)                   /* 136: the GRAIN delay's MOD */
 #define MT_GRV (MT_GMOD + 1u)                   /* 137: GROOVE AMOUNT (groove.c) */
-#define MT_N (MT_GRV + 1u)                      /* 138: TARGET 0 (none) .. 137 */
+#define MT_MS0 (MT_GRV + 1u)                    /* 138: the M/S's MID, SIDE */
+#define MT_N (MT_MS0 + 2u)                      /* 140: TARGET 0 (none) .. 139 */
 #define MT_LDRV 12u                             /* a lane's targets 12 .. 14: its DRIVE once, the mix's now */
 static const uint8_t MT_GRAIN[11] = {TX_GD_MIX, TX_GD_TIME, TX_GD_FEEDBACK, TX_GD_GRAINS, TX_GD_SIZE, TX_GD_SPRAY,
                                      TX_GD_PITCH, TX_GD_REVERSE, TX_GD_SPREAD, TX_GD_TONE, TX_GD_GRAIN};
@@ -235,6 +236,7 @@ static uint32_t mod_tgt_pid(uint32_t T, uint32_t k)   /* the param id it is on l
     if (mod_tgt_drv(T) < TX_DR_NP) return PID(P_GLOBAL, PG_DRIVE0 + mod_tgt_drv(T));
     if (T == MT_GMOD) return PID(P_GLOBAL, PG_GD(TX_GD_MOD));
     if (T == MT_GRV) return PID(P_GLOBAL, PG_GRV0);
+    if (T >= MT_MS0) return PID(P_GLOBAL, PG_MS0 + (T == MT_MS0 ? TX_MS_MID : TX_MS_SIDE));
     if (T >= MT_MF0) return PID(P_GLOBAL, PG_MF0 + (T - MT_MF0));   /* (TX_MF_LOW, TX_MF_HIGH) */
     if (T < MT_GRAIN0) {
         static const uint8_t J[MT_LANE_N] = {PL_LEVEL, PL_PAN, PL_COUNT, PL_ACTIVE, PL_CARD0, PL_CARD0 + 1, PL_CARD0 + 2,
@@ -255,6 +257,7 @@ static void mod_tgt_text(uint32_t T, char *s)
     if (mod_tgt_drv(T) < TX_DR_NP) { p_strcpy(s, "DRV ", 4); p_cat(s, p_lab(mod_tgt_pid(T, 0)), 23); return; }
     if (T == MT_GMOD) { p_strcpy(s, "GRAIN ", 6); p_cat(s, p_lab(mod_tgt_pid(T, 0)), 23); return; }
     if (T == MT_GRV) { p_strcpy(s, "GROOVE AMOUNT", 23); return; }
+    if (T >= MT_MS0) { p_strcpy(s, "M/S ", 4); p_cat(s, p_lab(mod_tgt_pid(T, 0)), 23); return; }
     if (T >= MT_MF0) { p_strcpy(s, "FLT ", 4); p_cat(s, p_lab(mod_tgt_pid(T, 0)), 23); return; }
     if (sc_ < 4u) { s[0] = 'L'; s[1] = (char)('1' + sc_); s[2] = ' '; s[3] = 0; }
     else if (sc_ == 4u) p_strcpy(s, "ALL ", 4);
@@ -299,6 +302,11 @@ static int mod_concrete(uint32_t T, uint32_t k, mt_t *o)   /* target T on lane k
     }
     if (T == MT_GRV) {                          /* GROOVE AMOUNT (the interrupt sets groove.c's gr_amt_mod) */
         o->kind = MK_GRV; o->lane = 0; o->hi = 127; o->base = gr_amount;
+        return 1;
+    }
+    if (T >= MT_MS0) {                          /* the M/S's MID, SIDE (the mix's last effect) */
+        o->kind = MK_FX; o->lane = 0; o->grp = LN_FX_MS; o->pid = (uint8_t)(i - PG_MS0);
+        o->hi = (uint8_t)p_hi(id); o->base = (int16_t)pv_glob[i];
         return 1;
     }
     if (T >= MT_MF0) {                          /* the mix's FILTER (the DRIVE's group: the mix's first stage) */

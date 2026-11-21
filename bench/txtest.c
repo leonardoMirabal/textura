@@ -40,6 +40,7 @@
 #include "tx_groove.h"
 #include "tx_core_gov.h"
 #include "tx_fx.h"
+#include "tx_core_ms.h"
 
 #define BASELINE "bench/baselines/renders.sha256"
 static int fails;
@@ -653,6 +654,95 @@ static void check_comp(void)
     snprintf(msg, sizeof msg, "the controls moved to their ends under a steady level: the largest step a sample %d (under 0.5 %% of full scale: a glide, no click), exact once off again",
              step);
     verdict("comp", "smooth", step < 41943 && exact, msg, 0);
+}
+
+/* ---- M/S (tx_core_ms.h): at 0 dB and MONO off bit-exact (meters on or off); MID -inf leaves the sides, SIDE -inf and
+ * MONO the middle; +6 dB doubles; every change glides (no step over 0.5 % of full scale a sample on a steady pair);
+ * back at 0 dB bit-exact again; the meters' correlation +1 for a mono pair, -1 for an out-of-phase one; WIDTH <-> SIDE */
+static void ms_run(tx_ms_t *m, int32_t l, int32_t r, unsigned nb, int32_t *ol, int32_t *or_, int32_t *step)
+{
+    static int32_t L[TX_BLOCK], R[TX_BLOCK];
+    unsigned b, j;
+    for (b = 0; b < nb; b++) {
+        for (j = 0; j < TX_BLOCK; j++) { L[j] = l; R[j] = r; }
+        tx_ms_process(m, L, R, TX_BLOCK);
+        for (j = 0; j < TX_BLOCK; j++) {
+            int32_t d = L[j] - *ol, e = R[j] - *or_;
+            d = d < 0 ? -d : d; e = e < 0 ? -e : e;
+            if (step && d > *step) *step = d;
+            if (step && e > *step) *step = e;
+            *ol = L[j]; *or_ = R[j];
+        }
+    }
+}
+static void check_ms(void)
+{
+    static int32_t L[TX_BLOCK], R[TX_BLOCK], L0[TX_BLOCK], R0[TX_BLOCK];
+    tx_ms_t m;
+    tx_rng_t r;
+    unsigned b, j, mt, same = 1, rt = 1, w;
+    int32_t ol = 0, orr = 0, step = 0, cm, cs;
+    char msg[240];
+    tx_rng_seed(&r, 11u);
+    for (mt = 0; mt < 2u; mt++) {
+        tx_ms_init(&m);
+        m.meter = (uint8_t)mt;
+        for (b = 0; b < 200u; b++) {
+            for (j = 0; j < TX_BLOCK; j++) { L[j] = L0[j] = tx_rand_s15(&r) * 300; R[j] = R0[j] = tx_rand_s15(&r) * 170; }
+            tx_ms_process(&m, L, R, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) same &= L[j] == L0[j] && R[j] == R0[j];
+        }
+    }
+    verdict("ms", "bypass", same, "MID, SIDE 0 dB, MONO off: the samples untouched (bit-exact), meters on and off", 0);
+    tx_ms_init(&m);
+    tx_ms_param(&m, TX_MS_MID, 0);
+    ms_run(&m, 1000000, 1000000, 40, &ol, &orr, 0);           /* (a mono pair: only a middle) */
+    cm = ol;
+    tx_ms_init(&m);
+    tx_ms_param(&m, TX_MS_SIDE, 0);
+    ms_run(&m, 1000000, -1000000, 40, &ol, &orr, 0);          /* (only sides) */
+    cs = ol;
+    tx_ms_init(&m);
+    tx_ms_param(&m, TX_MS_MONO, 1);
+    ms_run(&m, 1000000, 200000, 40, &ol, &orr, 0);
+    snprintf(msg, sizeof msg, "MID -inf on a mono pair: %d; SIDE -inf on an out-of-phase pair: %d; MONO on 1000000 / 200000: %d / %d (600000)",
+             cm, cs, ol, orr);
+    verdict("ms", "gains", !cm && !cs && ol == orr && ol >= 599000 && ol <= 601000, msg, 0);
+    tx_ms_init(&m);
+    tx_ms_param(&m, TX_MS_MID, 127); tx_ms_param(&m, TX_MS_SIDE, 127);
+    ms_run(&m, 1000000, -300000, 40, &ol, &orr, 0);
+    snprintf(msg, sizeof msg, "MID, SIDE +6 dB on 1000000 / -300000: %d / %d (x 1.995)", ol, orr);
+    verdict("ms", "boost", ol > 1990000 && ol < 2000000 && orr < -597000 && orr > -600000, msg, 0);
+    tx_ms_init(&m);
+    m.meter = 1;
+    ol = 3000000; orr = 1000000;
+    ms_run(&m, 3000000, 1000000, 10, &ol, &orr, &step);
+    tx_ms_param(&m, TX_MS_MONO, 1); ms_run(&m, 3000000, 1000000, 40, &ol, &orr, &step);
+    tx_ms_param(&m, TX_MS_MONO, 0); tx_ms_param(&m, TX_MS_MID, 1); ms_run(&m, 3000000, 1000000, 40, &ol, &orr, &step);
+    tx_ms_param(&m, TX_MS_MID, 127); tx_ms_param(&m, TX_MS_SIDE, 0); ms_run(&m, 3000000, 1000000, 40, &ol, &orr, &step);
+    tx_ms_param(&m, TX_MS_MID, TX_MS_0DB); tx_ms_param(&m, TX_MS_SIDE, TX_MS_0DB); ms_run(&m, 3000000, 1000000, 40, &ol, &orr, &step);
+    snprintf(msg, sizeof msg, "MONO, MID, SIDE moved to their ends on a steady pair: the largest step a sample %d (under 0.5 %% of full scale), back at 0 dB: %d / %d (3000000 / 1000000)",
+             step, ol, orr);
+    verdict("ms", "smooth", step < 41943 && ol == 3000000 && orr == 1000000, msg, 0);
+    tx_ms_init(&m); m.meter = 1;
+    ms_run(&m, 2000000, 2000000, 30, &ol, &orr, 0);
+    cm = m.corr;
+    tx_ms_init(&m); m.meter = 1;
+    ms_run(&m, 2000000, -2000000, 30, &ol, &orr, 0);
+    cs = m.corr;
+    snprintf(msg, sizeof msg, "correlation: a mono pair %d, an out-of-phase one %d (+-32767); peaks L R M S %d %d %d %d", cm, cs,
+             m.pk[0], m.pk[1], m.pk[2], m.pk[3]);
+    verdict("ms", "meters", cm > 32000 && cs < -32000 && m.pk[0] == 2000000 && m.pk[1] == 2000000 && m.pk[2] == 0 && m.pk[3] == 2000000, msg, 0);
+    for (w = 1; w <= 100u; w++) {                             /* WIDTH -> SIDE -> WIDTH, at MID 0 dB and -20 dB */
+        unsigned a = tx_ms_width_of(TX_MS_0DB, tx_ms_side_of(TX_MS_0DB, w, 0, 0)), c = tx_ms_width_of(75, tx_ms_side_of(75, w, 0, 0));
+        unsigned tol = w < 25u ? 2u : w * 6u / 100u + 1u;    /* (0.5 dB a SIDE step: ~6 %) */
+        rt &= (a > w ? a - w : w - a) <= tol && (c > w ? c - w : w - c) <= tol;
+    }
+    snprintf(msg, sizeof msg, "WIDTH <-> SIDE: 100 %% = SIDE as MID (%u), 200 %% = +6 dB (%u), 0 = -inf (%u); every WIDTH back within a SIDE step",
+             tx_ms_side_of(TX_MS_0DB, TX_MS_W100, 0, 0), tx_ms_side_of(TX_MS_0DB, 100, 0, 0), tx_ms_side_of(TX_MS_0DB, 0, 0, 0));
+    verdict("ms", "width", rt && tx_ms_side_of(TX_MS_0DB, TX_MS_W100, 0, 0) == TX_MS_0DB && tx_ms_side_of(TX_MS_0DB, 100, 0, 0) == 127u &&
+            tx_ms_side_of(TX_MS_0DB, 0, 0, 0) == 0u && tx_ms_width_of(TX_MS_0DB, TX_MS_0DB) == TX_MS_W100 && tx_ms_width_of(9, 0) == 0u &&
+            tx_ms_side_of(TX_MS_0DB, 99, 127, -1) == 126u, msg, 0);
 }
 
 /* ---- GEN: the lane generator, 10 minutes alone at EVOLVE 2 h and at 10 s, twice each: deterministic, the activity
@@ -2895,6 +2985,7 @@ int main(int argc, char **argv)
     check_groove();
     check_noise_core();
     check_comp();
+    check_ms();
     check_truepeak();
     if (!update) { check_gen(); check_gov(); check_switch(); check_keyrange(); check_rockfall_dist(); }
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }

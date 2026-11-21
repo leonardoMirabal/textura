@@ -254,8 +254,8 @@ def manual_shots(pn, out, errs):
     for nm, pgname in (("comp", "COMPRESSOR 1/2"), ("comp2", "COMPRESSOR 2/2"), ("drive", "DRIVE"),
                        ("filter", "FILTER"), ("delay", "GRAIN 1/4"), ("delay2", "GRAIN 2/4"), ("grains", "GRAIN 3/4"),
                        ("graintone", "GRAIN 4/4"), ("reverb", "REVERB 1/3"), ("reverb2", "REVERB 2/3"),
-                       ("shimmer", "REVERB 3/3"), ("lfo", "LFO 1/3"), ("lfo2", "LFO 2/3"), ("lfo3", "LFO 3/3"),
-                       ("env", "ENV 1/2"), ("env2", "ENV 2/2")):
+                       ("shimmer", "REVERB 3/3"), ("ms", "M/S"), ("lfo", "LFO 1/3"), ("lfo2", "LFO 2/3"),
+                       ("lfo3", "LFO 3/3"), ("env", "ENV 1/2"), ("env2", "ENV 2/2")):
         step(pgname, nm)
     pn.enc(E_ALG, 1)
     pn.enc(E_ALG, 1)                            # ENV 1, ENV 2, FOLLOW 1

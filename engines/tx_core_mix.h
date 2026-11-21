@@ -3,8 +3,8 @@
  * caller's), each panned (constant power, unity at the centre: gains sqrt(2) sin / cos), summed into a stereo pair;
  * the bus compressor (tx_core_comp.h: comp, the first effect, as Frodhes; COMP off: bypassed); the pair's DRIVE and
  * FILTER (pre: tx_fx.h's; AMOUNT 0, the filter open: bypassed); the CHAMBER (optional, mono) on the pair's mid, its
- * added body and tail fed back to both sides; then the bus effects (the grain delay, then the reverb on what it gives)
- * and the output limiter, linked across the two channels (tx_engine.h TX_ST_*: the order the FX pages show). Integer, Q23 in int32 like every mix here.
+ * added body and tail fed back to both sides; then the bus effects (the grain delay, then the reverb on what it gives),
+ * the M/S (tx_core_ms.h: the mix's middle and sides, the last effect; at 0 dB untouched) and the output limiter, linked across the two channels (tx_engine.h TX_ST_*: the order the FX pages show). Integer, Q23 in int32 like every mix here.
  *
  *   for each block: tx_mix_begin(m, n); tx_mix_slot_render(m, k, n) for each slot (the caller may time each one);
  *                   tx_mix_end(m, L, R, n) -> L, R limited (|x| <= -1 dBFS); m->raw_peak = the pair's peak before it */
@@ -15,6 +15,7 @@
 #include "tx_core_chamber.h"
 #include "tx_core_limit.h"
 #include "tx_core_comp.h"
+#include "tx_core_ms.h"
 
 #ifndef TX_MIX_SLOTS
 #define TX_MIX_SLOTS 4u                    /* (the FM-1's four lanes; the desktop plugin's build sets 16) */
@@ -51,6 +52,8 @@ typedef struct {
     void (*bus1)(void *fx, int32_t *L, int32_t *R, unsigned n);
     void *fx;
     tx_comp_t comp;                      /* the bus compressor, the first effect (COMP off: bypassed) */
+    tx_ms_t ms;                          /* the M/S, the last effect: after the bus, before the limiter (0 dB, MONO
+                                          * off: bypassed, bit for bit) */
     tx_limit_t lim;
     int32_t raw_peak;                    /* the pair's peak before the limiter, this block */
     int32_t L[TX_BLOCK];
@@ -77,7 +80,7 @@ TX_AUDIO_CODE void tx_mix_slot_render(tx_mix_t *m, unsigned k, unsigned n);
 /* or: the caller rendered slot k's block itself (a scene script, say): pan it and add it */
 TX_AUDIO_CODE void tx_mix_add(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n);
 TX_AUDIO_CODE void tx_mix_end(tx_mix_t *m, int32_t *L, int32_t *R, unsigned n);
-/* tx_mix_end in two: run (the DRIVE, the compressor, the chamber, the bus, the limiter: its result kept in ilv) on
+/* tx_mix_end in two: run (the DRIVE, the compressor, the chamber, the bus, the M/S, the limiter: its result kept in ilv) on
  * core c (1: core 1's twins in XIP and pre1 / bus1, as one block behind: firmware/src/lanes.c LN_PIPE), then out (the
  * pair from ilv, any time before the next run) */
 TX_AUDIO_CODE void tx_mix_run(tx_mix_t *m, unsigned n, unsigned c);

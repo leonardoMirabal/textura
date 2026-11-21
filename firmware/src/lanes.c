@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Textura lanes: the sound behind the panel. Four lanes, each an engine instance (engines/: the same code the bench
  * and the audition player run), each panned into a stereo pair, then the COMPRESSOR, the DRIVE, the FILTER, the
- * GRAIN DELAY, the REVERB (the FX pages' order, left to right) and the output limiter (tx_core_mix.h, tx_fx.h): the audition player's chain (audition/tx_web.c).
+ * GRAIN DELAY, the REVERB, the M/S (the FX pages' order, left to right) and the output limiter (tx_core_mix.h, tx_fx.h): the audition player's chain (audition/tx_web.c).
  *
  *   main loop   ln_select (a lane's engine: prepared in the spare arena, here, never in the audio interrupt),
  *               ln_key, ln_param, ln_level, ln_pan, ln_fx, ln_gen_on, ln_gen_param, ln_gen_mute: queued (ln_q), the
@@ -102,8 +102,9 @@ enum { LN_EV_KEY, LN_EV_PARAM, LN_EV_PAN, LN_EV_SWAP, LN_EV_OFF, LN_EV_FX, LN_EV
 const tx_engine_t *tx_source_hosted(const void *st);
 int tx_source_host_value(const void *st, unsigned id);
 void tx_source_host_param(void *st, unsigned id, unsigned val);
-enum { LN_FX_DRIVE, LN_FX_REVERB = 2, LN_FX_GRAIN, LN_FX_RELATCH, LN_FX_COMP };   /* ln_fx groups (1: the lanes' FILTER, retired; as the player's
-                                                 * txw_fx_param; RELATCH: a whole sound loaded, tx_fx_reverb_relatch) */
+enum { LN_FX_DRIVE, LN_FX_REVERB = 2, LN_FX_GRAIN, LN_FX_RELATCH, LN_FX_COMP, LN_FX_MS };   /* ln_fx groups (1: the lanes' FILTER, retired; as the player's
+                                                 * txw_fx_param; RELATCH: a whole sound loaded, tx_fx_reverb_relatch;
+                                                 * MS: the M/S, the mix's last effect, tx_core_ms.h) */
 typedef struct { uint8_t kind, lane, a, b, c; } ln_ev_t;
 
 static struct {
@@ -436,6 +437,7 @@ static void ln_event(const ln_ev_t *v)
         else if (v->a == LN_FX_GRAIN) tx_fx_grain_param(&ln.fx.gd, v->b, v->c);
         else if (v->a == LN_FX_RELATCH) tx_fx_reverb_relatch(&ln.fx.rev);
         else if (v->a == LN_FX_COMP) tx_comp_param(&ln.mix.comp, v->b, v->c);
+        else if (v->a == LN_FX_MS) tx_ms_param(&ln.mix.ms, v->b, v->c);
         break;
     }
 }

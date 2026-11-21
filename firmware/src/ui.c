@@ -16,7 +16,8 @@
  *              the effects live: HIGH PASS, LOW PASS, DELAY MIX, REVERB MIX), COMPRESSOR 1/2 2/2 (the first effect; Frodhes': THR RATIO ATTACK MAKEUP,
  *              then COMP REL; the footer its gain-reduction meter), DRIVE (AMOUNT TONE MIX TYPE), FILTER (right after
  *              the DRIVE: HIGH PASS LOW PASS RESONANCE SLOPE, a band), GRAIN 1/4 .. 4/4 (the grain delay), REVERB 1/3 ..
- *              3/3 (on what the delay gives: the echoes reverberate); MIX on DRIVE, GRAIN, REVERB (and the front
+ *              3/3 (on what the delay gives: the echoes reverberate), M/S (the last: MID SIDE WIDTH MONO, the 0 dB
+ *              marked on MID, SIDE and WIDTH; the footer the L R M S meters and the correlation); MIX on DRIVE, GRAIN, REVERB (and the front
  *              page's DELAY MIX, REVERB MIX) a bar: to 64 in the accent, past it in its complement, a line at 64, the
  *              text DRY / 50/50 / WET (the levels, D100 W50 .. D50 W100, in the state and the web); LFO 1/3 .. 3/3,
  *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, GROOVE 1/2 2/2 (every groove control together: TYPE AMOUNT
@@ -36,7 +37,7 @@
  *              tapped twice within 300 ms: PERFORM (the first tap acts at once; a slower second one goes back);
  *              held 600 ms: the setup, MIDI CLOCK (GLO on: MIDI IN, DISPLAY)
  *   EDIT       SOUND (again: its next page)        FX  on its release: PERFORM (again: each page of COMPRESSOR,
- *              DRIVE, FILTER, GRAIN, REVERB, then round); held 600 ms, from any page: PERFORM (HOME, then HOME
+ *              DRIVE, FILTER, GRAIN, REVERB, M/S, then round from COMPRESSOR); held 600 ms, from any page: PERFORM (HOME, then HOME
  *              again, comes back to it)
  *   GLO        GROOVE (again: GROOVE 2/2, TEMPO, SCALE, MIDI, MIDI IN, DISPLAY, then round)        LFO  the LFO pages; held + a card
  *              turned: mod learn (the selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP
@@ -85,30 +86,30 @@
 
 /* the pages: a group (SELECT walks through each group's sub-pages, then the next group), in the sound's order: the
  * source (SOUND), the mixer (the lane pages), the effects (FX_CHAIN) */
-enum { G_LAND, G_SOUND, G_LANES, G_FX, G_COMP, G_DRIVE, G_MFILT, G_GRAIN, G_REVERB, G_LFO, G_ENV, G_MATRIX, G_GROOVE,
-       G_TEMPO, G_SCALE, G_MIDI, G_MIDIIN, G_DISPLAY, G_N };
+enum { G_LAND, G_SOUND, G_LANES, G_FX, G_COMP, G_DRIVE, G_MFILT, G_GRAIN, G_REVERB, G_MS, G_LFO, G_ENV, G_MATRIX,
+       G_GROOVE, G_TEMPO, G_SCALE, G_MIDI, G_MIDIIN, G_DISPLAY, G_N };
 #define UI_GLANES (ui_g == G_GROOVE && ui_sub == 1u)   /* GROOVE 2/2: the lanes' roles, a row each */
 /* the groups' names for the host and the web panel (the screen titles each page by what it does: PG_T) */
 static const char *const G_TITLE[G_N] = {"LANDSCAPE", "SOUND", "LANES", "PERFORM", "COMPRESSOR", "DRIVE", "FILTER",
-                                         "GRAIN", "REVERB", "LFO", "ENV", "MATRIX", "GROOVE", "TEMPO", "SCALE", "MIDI",
+                                         "GRAIN", "REVERB", "M/S", "LFO", "ENV", "MATRIX", "GROOVE", "TEMPO", "SCALE", "MIDI",
                                          "MIDI IN", "DISPLAY"};
-static const uint8_t G_NSUB[G_N] = {1, 0, 4, 1, 2, 1, 1, 4, 3, 3, 2, 1, 2, 1, 1, 1, 1, 1};   /* (SOUND: as many as its cards
+static const uint8_t G_NSUB[G_N] = {1, 0, 4, 1, 2, 1, 1, 4, 3, 1, 3, 2, 1, 2, 1, 1, 1, 1, 1};   /* (SOUND: as many as its cards
                                                  * need; ENV: a FOLLOW has one) */
 /* the pages' titles on the screen, by what they do, the groups' pages in order (SOUND: "SOUND"; a FOLLOW: "FOLLOW") */
 static const char *const PG_T[] = {"TEXTURA", "HOW MANY", "HOW ACTIVE", "PAN", "ON / MUTE", "PERFORM", "COMPRESSOR",
                                    "COMP RELEASE", "DRIVE", "FILTER", "DELAY", "DELAY MOTION", "GRAINS", "GRAIN TONE",
-                                   "REVERB", "REVERB SPACE", "SHIMMER", "LFO", "LFO PHASE", "LFO LEVEL", "ENV",
+                                   "REVERB", "REVERB SPACE", "SHIMMER", "M/S", "LFO", "LFO PHASE", "LFO LEVEL", "ENV",
                                    "ENV SHAPE", "MOD MATRIX", "GROOVE", "GROOVE LANES", "TEMPO", "SCALE", "MIDI CLOCK",
                                    "MIDI IN", "DISPLAY"};
 /* the group buttons: each owns a run of groups (its LED lit there, it steps their pages, the title's pips count them):
  * HOME the home page and the lane pages (SELECT's), EDIT SOUND, FX the effects, LFO, ENV, ARP the matrix, GLO the
  * groove, the tempo and the setup */
-static const uint8_t G_BTN[G_N] = {BTN_HOME, BTN_EDIT, BTN_HOME, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_LFO,
+static const uint8_t G_BTN[G_N] = {BTN_HOME, BTN_EDIT, BTN_HOME, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_LFO,
                                    BTN_ENV, BTN_ARP, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO};
 #define LA P_LANE_ANY
 #define NOID 0xFFFFu
 /* the effects' pages: a parameter per knob (a global, or the selected LFO's, ENV's, slot's), from G_FX0 */
-static const uint8_t G_FX0[G_N] = {0, 0, 0, 13, 19, 0, 21, 1, 5, 8, 14, 11, 22, 12, 23, 17, 24, 18};   /* (ENV: 14, 15; FOLLOW:
+static const uint8_t G_FX0[G_N] = {0, 0, 0, 13, 19, 0, 21, 1, 5, 25, 8, 14, 11, 22, 12, 23, 17, 24, 18};   /* (ENV: 14, 15; FOLLOW:
                                                  * 16) */
 #define LFO_ANY(p) PID(P_LFO, 0xF0u | (p))        /* the selected LFO's (ui_lfo) */
 #define ENV_ANY(p) PID(P_ENV, 0xF0u | (p))        /* the selected ENV's or FOLLOW's (ui_env) */
@@ -118,7 +119,8 @@ static const uint8_t G_FX0[G_N] = {0, 0, 0, 13, 19, 0, 21, 1, 5, 8, 14, 11, 22, 
 #define MFL(p) PID(P_GLOBAL, PG_MF0 + (p))
 #define GDL(p) PID(P_GLOBAL, PG_GD(p))
 #define GRV(i) PID(P_GLOBAL, PG_GRV0 + (i))
-static const uint16_t FX_IDS[25][4] = {
+#define MSP(p) PID(P_GLOBAL, PG_MS0 + (p))
+static const uint16_t FX_IDS[26][4] = {
     {DRV(TX_DR_AMOUNT), DRV(TX_DR_TONE), DRV(TX_DR_MIX), DRV(TX_DR_TYPE)},   /* DRIVE: the mix's */
     {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_MIX), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_TIME), PID(P_GLOBAL, PG_GSYNC), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_FEEDBACK)},
     {GDL(TX_GD_MOD), GDL(TX_GD_MODRATE), GDL(TX_GD_IVL), GDL(TX_GD_GRAIN)},   /* GRAIN 2/4: the animation, the grains' share */
@@ -151,6 +153,8 @@ static const uint16_t FX_IDS[25][4] = {
                                                  * keys' notes (notes.c), Frodhes' page */
     {PID(P_GLOBAL, PG_LCH0), PID(P_GLOBAL, PG_LCH0 + 1), PID(P_GLOBAL, PG_LCH0 + 2), PID(P_GLOBAL, PG_LCH0 + 3)},   /* MIDI
                                                  * IN: each lane's channel */
+    {MSP(TX_MS_MID), MSP(TX_MS_SIDE), MSP(TX_MS_WIDTH), MSP(TX_MS_MONO)},   /* M/S: the mix's last effect (the footer
+                                                 * its L R M S meters and the correlation: draw_ms_meter) */
 };
 /* what ALGORITHM turns on an effect's page */
 #define ALG_DRIVE DRV(TX_DR_TYPE)
@@ -160,10 +164,10 @@ static const uint16_t FX_IDS[25][4] = {
 #define ALG_COMP CMP(TX_CP_ON)
 #define ALG_GROOVE GRV(1)
 static const uint16_t G_ALG_[G_N] = {NOID, NOID, NOID, ALG_REVERB, ALG_COMP, ALG_DRIVE, ALG_MFILT, ALG_FREEZE, ALG_REVERB,
-                                     NOID, NOID, NOID, ALG_GROOVE, NOID, PID(P_GLOBAL, PG_SCALE), NOID,
+                                     NOID, NOID, NOID, NOID, ALG_GROOVE, NOID, PID(P_GLOBAL, PG_SCALE), NOID,
                                      PID(P_GLOBAL, PG_SELCH), NOID};   /* what ALGORITHM turns on a
                                                  * page, named on the ALGORITHM line */
-static const char *const G_ALGN_[G_N] = {0, 0, 0, "REVERB TYPE", "COMP", "DRIVE TYPE", "SLOPE", "FREEZE", "REVERB TYPE", 0, 0,
+static const char *const G_ALGN_[G_N] = {0, 0, 0, "REVERB TYPE", "COMP", "DRIVE TYPE", "SLOPE", "FREEZE", "REVERB TYPE", 0, 0, 0,
                                          0, "GROOVE TYPE", 0, "SCALE", 0, "SELECTED CH", 0};
 #define G_ALG(g) G_ALG_[g]
 #define G_ALGN(g) G_ALGN_[g]
@@ -179,7 +183,7 @@ static int ui_st_of(uint32_t id)                /* a global's effect */
     if (P_SCOPE(id) != P_GLOBAL) return -1;
     return i < PG_REVERB0 ? TX_ST_GRAIN : i < PG_REVERB0 + TX_RV_NP ? TX_ST_REVERB : i >= PG_COMP0 && i < PG_COMP0 + TX_CP_NP
            ? TX_ST_COMP : i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP ? TX_ST_DRIVE : i >= PG_MF0 && i < PG_MF0 + TX_MF_NP
-           ? TX_ST_FILTER : -1;
+           ? TX_ST_FILTER : PG_IS_MS(i) ? TX_ST_MS : -1;
 }
 static unsigned ui_fx_order(uint8_t *pg, uint8_t *fr)   /* -> the steps' stages (one per group), the front page's */
 {
@@ -613,7 +617,9 @@ static void ui_next(uint32_t btn, uint8_t *g, uint8_t *s)
     *g = ui_g; *s = (uint8_t)(ui_sub + 1u);
     if (*s < ui_nsub(ui_g)) return;
     *s = 0;
-    *g = (uint8_t)(ui_g + 1u < G_N && G_BTN[ui_g + 1u] == btn ? ui_g + 1u : f);
+    *g = (uint8_t)(ui_g + 1u < G_N && G_BTN[ui_g + 1u] == btn ? ui_g + 1u : btn == BTN_FX ? G_COMP : f);   /* (FX past
+                                                 * the chain's last effect, the M/S: back to its first, the COMPRESSOR;
+                                                 * PERFORM is FX from elsewhere, or FX held) */
 }
 static void ui_next_text(char *t, uint32_t btn)   /* "FX: NEXT > FILTER" */
 {
@@ -799,6 +805,8 @@ static void cd_edge(int32_t ex, const int16_t *bx, uint32_t nb, uint16_t col)
     }
 }
 static int32_t ui_card_live = -1;               /* the card being drawn is modulated: its value now (-1: not) */
+static int32_t ui_card_mark = -1;               /* the card being drawn marks a place on its bar, x px (-1: none): the
+                                                 * M/S's 0 dB, 100 % */
 /* a MIX card's text (LK_MIX): DRY at 0, 50/50 at 64 (dry and wet both whole), WET at the top; between them none (the bar
  * says it) */
 static const char *ui_mix_text(int32_t val, int32_t hi)
@@ -840,6 +848,9 @@ static void draw_card(uint32_t k, const char *lab, const char *v0, const char *u
                        (int32_t)RW_W - 2), bx, 2, ec);
     }
     if (look == LK_MIX && hi > 0) cv_rect((int32_t)RW_W * 64 / hi, 0, 1, RW_H, RGB(150, 150, 156));   /* (64) */
+    if (ui_card_mark >= 0) cv_rect(clampi(ui_card_mark, 0, (int32_t)RW_W - 1), RW_H - 7, 1, 7, RGB(150, 150, 156));   /* (a
+                                                 * tick at the bottom: where 0 dB is) */
+    ui_card_mark = -1;
     if (look == LK_SEG && hi >= 1 && (uint32_t)hi < CD_SEGMAX) {   /* a choice: hi + 1 segments, the chosen lit */
         int32_t i, n = hi + 1, x0 = CD_PAD, w = CD_VR - CD_PAD, sw = (w - 2 * (n - 1)) / n;
         for (i = 0; i < n; i++) cv_rect(x0 + i * (sw + 2), RW_H - 6, sw, 3, i == val ? mt.edge : CD_SEGDIM);
@@ -1065,6 +1076,27 @@ static void draw_toast(void)
         cv_blit(TO_X, TO_Y + (uint32_t)part * (TO_H / 2u));
     }
 }
+/* the M/S's MID, SIDE (a fader's taper: 0 dB at 3/4 of the bar, +6 dB at its end, below 0 dB the square root of the
+ * gain, -inf at 0) and WIDTH (0 .. 200 %, 100 % half way): the bar's place, 0 .. 1000, and its 0 dB / 100 % marked;
+ * MONO on: SIDE reads -INF and WIDTH 0 (their values kept for when it goes off) */
+static int32_t ui_ms_taper(int32_t v)
+{
+    uint32_t g, r = 0, b;
+    if (v <= 0) return 0;
+    if (v >= (int32_t)TX_MS_0DB) return 750 + (v - (int32_t)TX_MS_0DB) * 250 / (127 - (int32_t)TX_MS_0DB);
+    g = (uint32_t)tx_ms_gain((uint32_t)v) << 14;                /* (half gain Q15 x 2^14: sqrt = 2^14 x sqrt(gain)) */
+    for (b = 1u << 30; b; b >>= 2) if (g >= r + b) { g -= r + b; r = (r >> 1) + b; } else r >>= 1;
+    return (int32_t)(r * 750u / 16384u);
+}
+static void ui_ms_card(uint32_t id, char *v, int32_t *val, int32_t *hi)
+{
+    uint32_t i = P_IDX(id) - PG_MS0, mono = pv_glob[PG_MS0 + TX_MS_MONO];
+    if (mono) { p_strcpy(v, i == TX_MS_WIDTH ? "0" : "-INF", 5); *val = 0; ui_card_live = -1; }
+    if (i == TX_MS_WIDTH) { ui_card_mark = (int32_t)RW_W / 2; return; }
+    if (ui_card_live >= 0) ui_card_live = ui_ms_taper(ui_card_live);
+    *val = ui_ms_taper(*val); *hi = 1000;
+    ui_card_mark = (int32_t)RW_W * 3 / 4;
+}
 static void draw_row(uint32_t k)
 {
     char v[24];
@@ -1083,11 +1115,13 @@ static void draw_row(uint32_t k)
         uint32_t look = ui_look(id);
         if (P_SCOPE(id) == P_LFO && P_IDX(id) % 16u == ML_NOW) { look = LK_MID; hi = 64; }   /* (NOW: from the middle) */
         if (ui_live(id, &lv)) ui_card_live = lv;
+        if (P_SCOPE(id) == P_GLOBAL && PG_IS_MS(P_IDX(id)) && P_IDX(id) != PG_MS0 + TX_MS_MONO) ui_ms_card(id, v, &val, &hi);
         draw_card(k, ui_lab(id), v, u, val, hi, look);
     }
 }
 
 static void draw_meter(void);
+static void draw_ms_meter(void);
 /* the ALGORITHM line: the encoder named as a knob, what it turns and its value ("ALGORITHM  GROOVE TYPE  LOOSE 16") */
 static void ft_alg(int32_t yc, const char *what, const char *val)
 {
@@ -1182,6 +1216,11 @@ static void draw_footer(void)
             if (aa_text_w(&AF_S, t) + aa_text_w(&AF_S, "GLO: GROOVE") + 9 <= 236) ft_two(22, "GLO: GROOVE", t, FC_LAB);
             else ft_c(22, t, FC_LAB);
         }
+    } else if (ui_g == G_MS) {                  /* the M/S: its meters on line 1 (draw_ms_meter), where FX goes next on
+                                                 * line 2 */
+        char t[32];
+        draw_ms_meter();
+        ft_next(t);
     } else if (ui_g == G_COMP && pv_glob[PG_COMP0 + TX_CP_ON]) {   /* the gain-reduction meter (Frodhes' draw_meter) on
                                                  * line 1, where FX goes next on line 2 as on every effects page */
         char t[32];
@@ -1268,6 +1307,56 @@ static uint32_t meter_poll(void)                /* ~30 Hz on the COMPRESSOR page
     return (uint32_t)gr_db10 | (uint32_t)gr_peak << 9 | (uint32_t)pv_glob[PG_COMP0 + TX_CP_ON] << 14;
 }
 
+/* ---- the M/S's meters (the footer's line 1 on its page): L R M S, each a small bar of its peak (-48 .. 0 dBFS, the
+ * sides' in the accent), then CORR: a line from -1 (left: the sides cancel, the mark in the accent) through 0 (wide)
+ * to +1 (mono, right), its middle marked. Read ~30 Hz (ms_poll, each signature pass) from the mix's tx_ms_t, which
+ * keeps them while this page is shown (meter bit 0) */
+#define MSM_BW 14                               /* a level's bar, px */
+#define MSM_CX 158                              /* CORR's line: from here, MSM_CW px */
+#define MSM_CW 70
+static uint8_t ms_px[4], ms_cpx;                /* the bars' fills, the correlation's place (0 .. MSM_CW) */
+static uint8_t ms_neg;                          /* the correlation under 0 */
+static uint32_t ms_t;
+static uint32_t ms_level_px(int32_t pk)         /* a Q23 peak's bar: 8 octaves (48 dB) under full scale over MSM_BW */
+{
+    uint32_t u, nl;
+    int32_t q;
+    if (pk <= 0) return 0;
+    u = pk >= (1 << 24) ? 0xFFFFFFFFu : (uint32_t)pk << 8;     /* (full scale 2^23: u 2^31, -log2 1.0) */
+    nl = tx_neglog2_q12(u);
+    q = (9 << 12) - (int32_t)nl;                                 /* octaves over -48 dBFS, Q12 */
+    if (q <= 0) return 0;
+    return (uint32_t)clampi(q * MSM_BW / (8 << 12), 0, MSM_BW);
+}
+static uint32_t ms_poll(void)
+{
+    uint32_t i;
+    if (fm1_ms - ms_t >= 33u) {
+        int32_t c = ln.mix.ms.corr;
+        ms_t = fm1_ms;
+        for (i = 0; i < 4u; i++) ms_px[i] = (uint8_t)ms_level_px(ln.mix.ms.pk[i]);
+        ms_cpx = (uint8_t)clampi((c + 32768) * MSM_CW / 65536, 0, MSM_CW);
+        ms_neg = c < 0;
+    }
+    return (uint32_t)ms_px[0] | (uint32_t)ms_px[1] << 4 | (uint32_t)ms_px[2] << 8 | (uint32_t)ms_px[3] << 12
+           | (uint32_t)ms_cpx << 16 | (uint32_t)ms_neg << 24;
+}
+static void draw_ms_meter(void)
+{
+    static const char *const N[4] = {"L", "R", "M", "S"};
+    uint32_t i;
+    for (i = 0; i < 4u; i++) {
+        int32_t x = 12 + 29 * (int32_t)i;
+        aa_text(x, S_TOP(7), &AF_S, N[i], FC_DIM, FC_BG);
+        cv_rect(x + 9, 4, MSM_BW, 6, RGB(44, 42, 40));
+        if (ms_px[i]) cv_rect(x + 9, 4, ms_px[i], 6, i == 3u ? mt.edge : FC_VAL);
+    }
+    aa_text(MSM_CX - 4 - aa_text_w(&AF_S, "CORR"), S_TOP(7), &AF_S, "CORR", FC_DIM, FC_BG);
+    cv_rect(MSM_CX, 6, MSM_CW, 2, RGB(44, 42, 40));
+    cv_rect(MSM_CX + MSM_CW / 2, 3, 1, 8, FC_DIM);
+    cv_rect(MSM_CX + clampi(ms_cpx, 1, MSM_CW - 2) - 1, 2, 3, 10, ms_neg ? mt.edge : FC_VAL);
+}
+
 /* ---- the signatures: an element is drawn again when its content changes */
 static uint32_t sig_mix(uint32_t h, uint32_t v) { return (h ^ v) * 16777619u; }
 static uint32_t ui_sig_of(uint32_t e)
@@ -1303,12 +1392,15 @@ static uint32_t ui_sig_of(uint32_t e)
         if (ui_g == G_LAND) { h = sig_mix(h, tempo_bpm10()); h = sig_mix(h, batt_shown()); h = sig_mix(h, nt.mode); h = sig_mix(h, (uint32_t)nt.oct); }
     }
     else if (e == E_FOOTER) {
+        ln.mix.ms.meter = (uint8_t)((ln.mix.ms.meter & ~1u) | (ui_g == G_MS));   /* (the M/S's meters: kept while its
+                                                 * page shows them) */
         h = sig_mix(h, ui_msg_t && fm1_ms - ui_msg_t < MSG_MS ? ui_msg_t : 0u);
         h = sig_mix(h, nt.mode); h = sig_mix(h, sc.sel); h = sig_mix(h, sc.mute[sc.sel]); h = sig_mix(h, sc.fam_pend); h = sig_mix(h, sc.fam_want);
         h = sig_mix(h, scn_save_mode ? scn_save_slot + 1u : 0u);
         h = sig_mix(h, ui_back_g); h = sig_mix(h, ui_back_sub); h = sig_mix(h, ui_lfo); h = sig_mix(h, ui_slot);
         if (G_ALG(ui_g) != NOID) h = sig_mix(h, (uint32_t)p_get(G_ALG(ui_g)));
         if (ui_g == G_COMP) h = sig_mix(h, meter_poll());
+        if (ui_g == G_MS) h = sig_mix(h, ms_poll());
         if (scn_save_mode) { uint32_t i; h = sig_mix(h, scn_nm_pos); for (i = 0; i < 11u; i++) h = sig_mix(h, (uint8_t)scn_nm[i]); }
     } else if (e >= E_ROW0 && e < E_ROW0 + 4u) {
         k = e - E_ROW0;
@@ -1327,6 +1419,7 @@ static uint32_t ui_sig_of(uint32_t e)
             h = sig_mix(h, id);
             if (id != NOID) h = sig_mix(h, (uint32_t)p_get(id));
             if (ui_g == G_GRAIN) { h = sig_mix(h, tm.gsync); h = sig_mix(h, tm.gsync_half); }   /* (TIME: the division) */
+            if (ui_g == G_MS) h = sig_mix(h, pv_glob[PG_MS0 + TX_MS_MONO]);   /* (MONO: SIDE, WIDTH read -INF, 0) */
             if (id != NOID) { int32_t lv; if (mod_live(id, &lv)) h = sig_mix(h, (uint32_t)(lv * 32 / (p_hi(id) ? p_hi(id) : 1)) + 1000u); }
             if (ui_g == G_MATRIX || ui_g == G_LFO) { h = sig_mix(h, sc.sel); h = sig_mix(h, (uint32_t)sc.snd[sc.sel]); }
             if (ui_g == G_TEMPO || ui_g >= G_MIDI) { h = sig_mix(h, tempo_bpm10()); h = sig_mix(h, (uint32_t)clk_follows()); h = sig_mix(h, clk_src); }
@@ -1665,9 +1758,33 @@ static void ui_lane_step(int32_t d)             /* OCT: the previous / next lane
     ui_say_lane();
 }
 /* a parameter turned by d detents: an amount or a choice by d, a toggle on (up) / off (down) */
+/* the M/S's knobs (as the page's design): MID keeps the WIDTH (SIDE moves with it, unless at -inf); SIDE and WIDTH
+ * turned put MONO off first, from the values it kept; WIDTH sets SIDE at least a step its way (never stuck on a
+ * rounding). MIDI and the host set each one alone (params.c p_set) */
+static void ui_ms_turn(uint32_t id, int32_t d)
+{
+    uint32_t i = P_IDX(id) - PG_MS0, mid = pv_glob[PG_MS0 + TX_MS_MID], side = pv_glob[PG_MS0 + TX_MS_SIDE];
+    uint32_t sid = PID(P_GLOBAL, PG_MS0 + TX_MS_SIDE), mon = PID(P_GLOBAL, PG_MS0 + TX_MS_MONO);
+    scn_touch_id(id);
+    if (i == TX_MS_MID) {
+        int32_t m = clampi((int32_t)mid + d, 0, 127);
+        p_set(id, m);
+        if (side && mid && m) p_set(sid, clampi((int32_t)side + m - (int32_t)mid, 1, 127));
+        return;
+    }
+    if (pv_glob[PG_MS0 + TX_MS_MONO]) { scn_touch_id(mon); p_set(mon, 0); }
+    if (i == TX_MS_SIDE) { p_set(id, clampi((int32_t)side + d, 0, 127)); return; }
+    {
+        int32_t w0 = (int32_t)tx_ms_width_of(mid, side), w = clampi(w0 + d, 0, 100);
+        if (w == w0) return;                    /* (at an end: SIDE stays) */
+        scn_touch_id(sid);
+        p_set(sid, (int32_t)tx_ms_side_of(mid, (uint32_t)w, side, d > 0 ? 1 : -1));
+    }
+}
 static void ui_turn(uint32_t id, int32_t d)
 {
     uint32_t kd = p_kind(id);
+    if (P_SCOPE(id) == P_GLOBAL && PG_IS_MS(P_IDX(id)) && P_IDX(id) != PG_MS0 + TX_MS_MONO) { ui_ms_turn(id, d); return; }
     int32_t v = p_ord(id, p_get(id));                  /* (in the panel's order: SLOPE 12, 18, 24) */
     if (kd == PK_TOGGLE) v = d > 0;
     else v += d;
