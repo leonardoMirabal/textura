@@ -243,6 +243,16 @@ static float LBL(txg_t *g, frui_canvas *c, float x, float y, float size, uint32_
     return TX(g, c, x, y, size, 620.f, size * 0.14f, 0, col, s);
 }
 static float LBLW(txg_t *g, float size, const char *s) { return TW(g, size, 620.f, size * 0.14f, 0, s); }
+/* a name too long for the room beside its value: its short form (the strip's narrow cells: HP, LP ...), else as is */
+static const char *lab_fit(txg_t *g, const char *lab, float room)
+{
+    static const char *const AB[][2] = { { "HIGH PASS", "HP" }, { "LOW PASS", "LP" }, { "RESONANCE", "RESO" },
+                                         { "FEEDBACK", "FDBK" }, { "PREDELAY", "PRE" }, { "INTERVALS", "IVL" } };
+    if (LBLW(g, 10.5f, lab) <= room) return lab;
+    for (size_t i = 0; i < sizeof AB / sizeof AB[0]; i++)
+        if (!strcmp(lab, AB[i][0])) return AB[i][1];
+    return lab;
+}
 static void clipL(txg_t *g, frui_canvas *c, float x, float y, float w, float h) { frui_clip(c, x * g->S, y * g->S, w * g->S, h * g->S); }
 static float lw1(const txg_t *g) { return g->S < 1.5f ? 1.f / g->S : 0.75f; }   /* a hairline */
 static void upper(char *d, const char *s, size_t n)
@@ -861,7 +871,7 @@ static void pcell(txg_t *g, frui_canvas *c, float x, float y, float w, float h, 
 {
     const txp_param_t *p = pinfo(id);
     char t[40], nm[40];
-    int v, hi, live, m, ch, stack = 0, T, amt = 0, nl;
+    int v, hi, live, m, ch, stack = 0, tight = 0, T, amt = 0, nl;
     float ty, nw, tcy, tagy = 0.f, rh = 0.f;
     lk_t lk[MX_N];
     if (!p) return;
@@ -887,11 +897,24 @@ static void pcell(txg_t *g, frui_canvas *c, float x, float y, float w, float h, 
         stack = 1;
         ty = y + 6.f + CAP(g, 10.5f);
     }
+    if (!stack) {                        /* (the name and the value side by side: a name that would run into the value
+                                          * takes its short form; a choice's box first gives up some of its padding) */
+        float vw = TW(g, 11.f, T ? 700.f : 500.f, 0.f, FRUI_TNUM, t);   /* (the widest value it can show, not the
+                                          * one now: a name keeps its form while the value moves) */
+        for (int k = 0, step = hi <= 32 ? 1 : hi / 16; hi > 0 && k <= hi; k += step) {
+            char s[40];
+            ptext(id, k, s, sizeof s);
+            vw = fmaxf(vw, TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, s));
+        }
+        if (ch && hi >= 1) { vw += 24.f; tight = 1; }
+        lab = lab_fit(g, lab, w - (ch && hi >= 1 ? 4.f : 8.f) - vw - 6.f - 9.f);
+        if (ch && hi >= 1 && x + 9.f + LBLW(g, 10.5f, lab) + 6.f <= x + w - 4.f - (vw + 10.f)) tight = 0;
+    }
     clipL(g, c, x, y, w, h);
     nw = 9.f;
     if (lab[0]) nw += LBL(g, c, x + nw, ty, 10.5f, (m || nl) && !g->msrc ? C_RED : C_INK, lab);
     if (ch && hi >= 1) {                 /* a choice: < its value > (the arrows step it) */
-        float tw = TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t), bw = tw + 34.f, bh = fminf(h - 6.f, 18.f), bx = x + w - 4.f - bw,
+        float tw = TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t), bw = tw + (tight ? 24.f : 34.f), bh = fminf(h - 6.f, 18.f), bx = x + w - 4.f - bw,
               byc = hint ? ty - CAP(g, 11.f) * 0.5f : y + h * 0.5f;
         if (stack) {
             bh = fminf(18.f, y + h - 4.f - (ty + 5.f));
@@ -904,8 +927,8 @@ static void pcell(txg_t *g, frui_canvas *c, float x, float y, float w, float h, 
             float e = fmaxf(-1.f, fminf(1.f, (float)amt / 100.f));
             R(g, c, bx + bw * 0.5f + fminf(0.f, e) * (bw * 0.5f - 2.f), byc + bh * 0.5f - 2.f, fabsf(e) * (bw * 0.5f - 2.f), 2.f, C_RED);
         }
-        chevron(g, c, bx + 8.f, byc, -1, C_DIM);
-        chevron(g, c, bx + bw - 8.f, byc, 1, C_DIM);
+        chevron(g, c, bx + (tight ? 6.f : 8.f), byc, -1, C_DIM);
+        chevron(g, c, bx + bw - (tight ? 6.f : 8.f), byc, 1, C_DIM);
         TX(g, c, bx + (bw - tw) * 0.5f, byc + CAP(g, 11.f) * 0.5f, 11.f, T ? 700.f : 500.f, 0.f, FRUI_TNUM, T ? (amt ? C_RED : C_FAINT) : C_INK, t);
         if (hint && hint[0]) (void)hintn(g, c, x + 9.f, y + 27.f, w - 18.f, hint, (int)((h - 20.f) / 10.5f), 10.5f, C_DIM);
         frui_clip_reset(c);
@@ -1987,21 +2010,13 @@ static void draw_strip(txg_t *g, frui_canvas *c)
             pcell(g, c, ix, y0 + 110.f, iw, 24.f, ID_MSSIDE, 0, 0);
             g->tag_below = 0;
         } else if (s < SEC_MOVE) {
-            static const uint32_t K[5][4] = { { ID_CTHR, ID_CRATIO, 0, 0 }, { ID_DAMT, ID_DTYPE, 0, 0 },
-                                              { ID_FHP, ID_FLP, ID_FRES, ID_FSLOPE }, { ID_GMIX, ID_GTIME, 0, 0 },
-                                              { ID_RTYPE, ID_RMIX, 0, 0 } };
+            /* (two controls each, full width, their names in full: the rest in the section's drawer) */
+            static const uint32_t K[5][2] = { { ID_CTHR, ID_CRATIO }, { ID_DAMT, ID_DTYPE }, { ID_FHP, ID_FLP },
+                                              { ID_GMIX, ID_GTIME }, { ID_RTYPE, ID_RMIX } };
             viz(g, c, s, ix, y0 + 32.f, iw, 34.f, on);
             g->tag_below = 1;            /* (a cell's tags under it: the 12 px over the next) */
-            if (s == SEC_FILTER) {
-                float hw = (iw - 6.f) * 0.5f;
-                pcell(g, c, ix, y0 + 74.f, hw, 24.f, K[s][0], "HIGH PASS", 0);
-                pcell(g, c, ix + hw + 6.f, y0 + 74.f, hw, 24.f, K[s][1], "LOW PASS", 0);
-                pcell(g, c, ix, y0 + 110.f, hw, 24.f, K[s][2], 0, 0);
-                pcell(g, c, ix + hw + 6.f, y0 + 110.f, hw, 24.f, K[s][3], 0, 0);
-            } else {
-                pcell(g, c, ix, y0 + 74.f, iw, 24.f, K[s][0], 0, 0);
-                pcell(g, c, ix, y0 + 110.f, iw, 24.f, K[s][1], 0, 0);
-            }
+            pcell(g, c, ix, y0 + 74.f, iw, 24.f, K[s][0], s == SEC_FILTER ? "HIGH PASS" : 0, 0);
+            pcell(g, c, ix, y0 + 110.f, iw, 24.f, K[s][1], s == SEC_FILTER ? "LOW PASS" : 0, 0);
             g->tag_below = 0;
         } else {                         /* the movement: two sources, those connected first (else LFO 1, 2): their
                                           * tiles (a click: the source's mode; the grip: dragged onto a control) */

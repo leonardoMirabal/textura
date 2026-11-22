@@ -247,7 +247,7 @@ section has a dot (lit while it acts), a small picture and its two main values:
 | --- | --- | --- | --- |
 | **COMP** | Its meters, live: **IN** (its input level), **OUT** (its output), **GR** (the gain reduction, from the right, 24 dB the width), in dBFS with THR marked | ON / OFF, THR, RATIO | Big meters and its transfer curve, a dot where the input is on it now. LEVEL: THR, MAKEUP · TIME: ATTACK, REL · SHAPE: RATIO, ON |
 | **DRIVE** | Its curve | AMOUNT, TYPE | Its curve. AMOUNT: AMOUNT, MIX · COLOUR: TONE, TYPE |
-| **FILTER** | Its response, HIGH PASS then LOW PASS (dashed marks; red while an LFO moves one) | HIGH PASS, LOW PASS (in Hz), RESONANCE, SLOPE | Its response from 20 Hz to 20 kHz, each cutoff marked with its Hz. CUTOFF: HIGH PASS, LOW PASS · SHAPE: RESONANCE, SLOPE |
+| **FILTER** | Its response, HIGH PASS then LOW PASS (dashed marks; red while an LFO moves one) | HIGH PASS, LOW PASS (in Hz) | Its response from 20 Hz to 20 kHz, each cutoff marked with its Hz. CUTOFF: HIGH PASS, LOW PASS · SHAPE: RESONANCE, SLOPE |
 | **DELAY** | Its echoes | MIX, TIME | Its echoes: spaced by TIME, fading by FEEDBACK, each a cloud of GRAINS. TIME: TIME, FEEDBACK, SYNC, FREEZE · GRAINS: GRAINS, SIZE, SPRAY, SPREAD, REVERSE · COLOUR: PITCH, INTERVALS, TONE, GRAIN, MOD, MOD RATE · MIX |
 | **REVERB** | Its tail (dim while TYPE is OFF) | TYPE, MIX | Its tail: after PREDELAY, as long as DECAY, as dense as SIZE. SPACE: SIZE, DECAY, PREDELAY · COLOUR: TONE, LOWCUT, SHIMMER, SHIFT, MOD · TYPE, MIX |
 | **M/S** | Its meters, live: **L R M S** (the sides' in red) | MID, SIDE | The stereo picture, the correlation and the meters. LEVEL: MID, SIDE · WIDTH: WIDTH, MONO ([M/S](#ms)) |

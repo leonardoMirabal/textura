@@ -16,7 +16,7 @@ Textura is free. If you enjoy it, you can [buy me a coffee](https://ko-fi.com/le
 <table align="center">
   <tr>
     <td align="center" width="50%"><img src="docs/img/landscape.png?v=7b19918e" width="100%" alt="Textura on the FM-1: the LANDSCAPE page, four lanes with their sounds and volumes"><br><b>On the M-VAVE FM-1</b>: colour screen, four knobs, four lanes</td>
-    <td align="center" width="50%"><img src="docs/plugin/img/window-4-lanes.png?v=e3a857e5" width="100%" alt="The desktop plugin's window: the place and the lanes, the effects strip"><br><b>On your computer</b>: a plugin with its own window, up to 16 lanes</td>
+    <td align="center" width="50%"><img src="docs/plugin/img/window-4-lanes.png?v=714c9abd" width="100%" alt="The desktop plugin's window: the place and the lanes, the effects strip"><br><b>On your computer</b>: a plugin with its own window, up to 16 lanes</td>
   </tr>
 </table>
 
@@ -95,7 +95,7 @@ Audio Unit on macOS.
 
 <table align="center">
   <tr>
-    <td align="center"><img src="docs/plugin/img/window-4-lanes.png?v=e3a857e5" width="384" alt="The plugin's window: the place and the lanes, the selected lane's drawer, the effects strip"></td>
+    <td align="center"><img src="docs/plugin/img/window-4-lanes.png?v=714c9abd" width="384" alt="The plugin's window: the place and the lanes, the selected lane's drawer, the effects strip"></td>
     <td align="center"><img src="docs/plugin/img/engine-browser.png?v=6128e9e0" width="384" alt="The plugin's engine browser"></td>
   </tr>
   <tr>

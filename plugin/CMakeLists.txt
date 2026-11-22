@@ -115,11 +115,13 @@ if(APPLE)   # (the Audio Unit's description: the CLAP's own, not the wrapper's "
     add_custom_command(TARGET textura_auv2-build-helper POST_BUILD
         COMMAND /usr/libexec/PlistBuddy -c "Set :AudioComponents:0:description Physically modelled nature sounds"
                 "${CMAKE_CURRENT_BINARY_DIR}/textura_auv2-build-helper-output/auv2_Info.plist")
-    # (a re-configure can leave CMake's generic Info.plist in the bundle, with no AudioComponents: hosts then miss
-    # the Audio Unit; the helper's plist goes in after every build)
-    add_custom_command(TARGET textura_auv2 POST_BUILD
+    # (a re-configure writes CMake's generic Info.plist into the bundle, with no AudioComponents, and relinks nothing:
+    # hosts then miss the Audio Unit; the helper's plist goes in at the end of every build, linked or not)
+    add_custom_target(textura_auv2_plist ALL
         COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_BINARY_DIR}/textura_auv2-build-helper-output/auv2_Info.plist"
-                "$<TARGET_BUNDLE_CONTENT_DIR:textura_auv2>/Info.plist")
+                "$<TARGET_BUNDLE_CONTENT_DIR:textura_auv2>/Info.plist"
+        VERBATIM)
+    add_dependencies(textura_auv2_plist textura_auv2)
 endif()
 # the window's font is embedded (cmake/gui.cmake): its licence (SIL OFL 1.1) travels in every bundle's Resources
 set(TXP_OFL "${TXP_ROOT}/assets/fonts/OFL-InterTight.txt")
