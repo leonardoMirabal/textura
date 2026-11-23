@@ -147,7 +147,7 @@ const KNOBS = [["MASTER", -1, 50, 22, "VOLUME"], ["SELECT", 0, 200, 22, "PAGES"]
 const HINT = { FX: "PERFORM", SEL: "KEY MODE · HOLD: LANE", ENV: "LEARN · AGAIN: ENV", LFO: "LEARN · AGAIN: LFO", EDIT: "SOUND", GLO: "GROOVE", HOME: "LANDSCAPE · HOLD: SETUP", SAVE: "SCENE · HOLD: UNDO", ARP: "MATRIX",
                SEQ: "SOUNDS", PLAY: "TAP · HOLD: RUN", REC: "ALL ON·OFF · TAP", "OCT−": "LANE", "OCT+": "LANE" };
 const HINT_ON = {                                    // what a button does on a given page (else HINT)
-  LANDSCAPE: { HOME: "BACK · HOLD: SETUP" }, SOUND: { EDIT: "NEXT" }, PERFORM: { FX: "COMPRESSOR" }, COMPRESSOR: { FX: "NEXT" }, DRIVE: { FX: "FILTER" }, FILTER: { FX: "GRAIN" }, GRAIN: { FX: "NEXT" }, REVERB: { FX: "NEXT" },
+  LANDSCAPE: { HOME: "BACK · HOLD: SETUP" }, SOUND: { EDIT: "NEXT" }, PERFORM: { FX: "COMPRESSOR" }, COMPRESSOR: { FX: "NEXT" }, DRIVE: { FX: "FILTER" }, FILTER: { FX: "GRAIN" }, GRAIN: { FX: "NEXT" }, REVERB: { FX: "NEXT" }, "M/S": { FX: "COMPRESSOR" },
   GROOVE: { GLO: "NEXT" }, TEMPO: { GLO: "SCALE" }, SCALE: { GLO: "MIDI" }, MIDI: { GLO: "MIDI IN" },
   "MIDI IN": { GLO: "DISPLAY" }, DISPLAY: { GLO: "GROOVE" },
   LFO: { LFO: "NEXT" }, ENV: { ENV: "NEXT" },
