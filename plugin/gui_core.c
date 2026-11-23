@@ -3161,8 +3161,8 @@ static const char *const RND_N[4] = { "ENGINES", "SOUND", "EFFECTS", "MOVEMENT" 
 static const char *const RND_D[4] = { "a new engine on every lane", "each engine's controls",
                                       "COMP to M/S: types and amounts; long, unreal reverbs can come up",
                                       "LFOs, ENVs, FOLLOWs and where they go" };
-static const char RND_KEEP[] = "Kept as they are: LANES, each lane's LEVEL, PAN, HOW MANY, HOW ACTIVE, MIDI CH. Levels "
-                               "stay even.";
+static const char RND_KEEP[] = "Kept as they are: LANES, each lane's LEVEL, PAN, HOW MANY, HOW ACTIVE, MIDI CH. An "
+                               "empty lane gets a sound with ENGINES. Levels stay even.";
 static int wrap_lines(txg_t *g, float w, const char *s, float lh, float sz)   /* the lines s needs in w */
 {
     int l = 1;

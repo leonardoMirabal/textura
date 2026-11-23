@@ -1124,9 +1124,17 @@ static void dice_kept(const clap_plugin_t *p, const txg_gui_shot_t *xs, int nl, 
     }
 }
 static int dice_kept_same(const double *a, const double *b, int nl, int snd_too, int lane)
-{   /* the kept ones unchanged (SOUND too when snd_too; lane >= 0: that lane's SOUND may change) */
+{   /* the kept ones unchanged (SOUND too when snd_too; lane >= 0: that lane's SOUND may change). A general roll of the
+     * engines (!snd_too, lane < 0) gives an empty lane in use a sound, playing: its own values are rolled, not kept */
     if (a[0] != b[0]) { fprintf(stderr, "gui dice: LANES moved\n"); return 0; }
-    for (int k = 0; k < nl; k++)
+    for (int k = 0; k < nl; k++) {
+        if (!snd_too && lane < 0 && a[1 + k * 6] < 0.0) {
+            if (b[1 + k * 6] < 0.0 || b[1 + k * 6 + 1] <= 0.0) {
+                fprintf(stderr, "gui dice: empty lane %d got no sound playing (engine %g, %g)\n", k + 1, b[1 + k * 6], b[1 + k * 6 + 1]);
+                return 0;
+            }
+            continue;
+        }
         for (int i = 0; i < 6; i++) {
             if (i == 0 && (!snd_too || k == lane)) continue;
             if (a[1 + k * 6 + i] != b[1 + k * 6 + i]) {
@@ -1134,6 +1142,7 @@ static int dice_kept_same(const double *a, const double *b, int nl, int snd_too,
                 return 0;
             }
         }
+    }
     return 1;
 }
 static void dice_settle(const clap_plugin_t *p, const txg_gui_shot_t *xs)

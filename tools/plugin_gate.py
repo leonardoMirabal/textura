@@ -51,6 +51,7 @@ from array import array
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = ["tests/scripts/stop.txt", "plugin/tests/scripts/lanes.txt", "plugin/tests/scripts/hq.txt"]
 SCRIPTS16 = ["plugin/tests/scripts/lanes16.txt"]   # (against the 16-lane host build)
+DICE16 = "plugin/tests/scripts/dice16.txt"   # (the 16-lane host build alone: its expects)
 V1_STATE = "plugin/tests/fixtures/state_v1.json"   # (the four-lane plugin's state: F034 WATERFALL, a card, effects)
 LONG = ["tests/scripts/presets.txt"]   # (not with --quick: every factory preset, 400 s)
 HOST_SRC = ["firmware/src/textura.c"]
@@ -589,6 +590,12 @@ def main():
     ok = True
     if "equal" in only:
         ok = check_equal(args, host, host16, exe, bundle, tmp) and ok
+        r = run([host16, os.path.join(tmp, "dice16"), os.path.join(ROOT, DICE16)], check=False)   # (its expects)
+        print("%s  dice16: a roll gives the empty lanes in use a sound, playing (%s)" % (
+            "ok  " if r.returncode == 0 else "FAIL", DICE16))
+        if r.returncode:
+            sys.stderr.write(r.stdout[-800:])
+        ok = ok and r.returncode == 0
     if "hq" in only:
         ok = check_hq(args, host, tmp) and ok
     if "rates" in only:

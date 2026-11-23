@@ -2,7 +2,8 @@
 /* The dice: RANDOM. On the FM-1 OCT- and OCT+ pressed together (ui.c), in the desktop plugin its window's dice (the
  * general one, top right; each lane's beside its swap icon): one call here for both.
  *
- *   dice_roll   every lane with a sound gets the groups asked (the FM-1's chord: all four, DICE_ALL; the plugin
+ *   dice_roll   every lane in use gets the groups asked (an empty one, with ENGINES, a sound: it starts playing,
+ *               sparse, somewhere on the map) (the FM-1's chord: all four, DICE_ALL; the plugin
  *               passes its window's ticks, kept with the project): ENGINES a new engine on each (any family,
  *               never the one it had, none twice where there are enough), SOUND each engine's cards at random over their ranges, EFFECTS the
  *               mix's COMP, DRIVE, FILTER, DELAY / GRAIN, REVERB and M/S (types and amounts, in musical, safe ranges:
@@ -12,7 +13,8 @@
  *               moderate depths: never onto a lane's LEVEL, PAN, HOW MANY or HOW ACTIVE)
  *   dice_lane   one lane a new engine (as dice_roll's ENGINES alone), its cards at the engine's own
  *
- * Kept always: LANES, each lane's LEVEL, PAN, HOW MANY, HOW ACTIVE, mute and MIDI CH, the tempo, the clock, the keys,
+ * Kept always: LANES, each lane's LEVEL, PAN, HOW MANY, HOW ACTIVE, mute and MIDI CH (a lane that was empty: its PAN,
+ * HOW MANY and HOW ACTIVE rolled, low), the tempo, the clock, the keys,
  * GROOVE. Levels stay even: a lane's LEVEL is its own, each sound carries its trim (landscapes.h). A roll is a scene:
  * what plays captured (scenes.c scn_capture), changed, then applied as a load is (scn_apply), so nothing cuts: a lane
  * that keeps its engine glides to its new cards, one that gets another switches as on a load, the effects glide and
@@ -304,6 +306,15 @@ static void dice_go(uint32_t what, int lane)
     dice_drop(t, dice_is_id, PID(P_GLOBAL, PG_FINE));   /* (the tempo stays, whatever PRESETS CHANGE TEMPO says) */
     used = dice_used(t);
     dice_cp = 0;
+    if ((what & DICE_ENG) && lane < 0)          /* (an empty lane in use: a sound, playing sparse, its own place) */
+        for (k = 0; k < DICE_NL; k++) {
+            if (used >> k & 1u) continue;
+            dice_engine(t, k);
+            if (t->snd[k] < 0) continue;
+            t->cnt[k] = (uint8_t)dice_in(1, 2); t->step[k] = (uint8_t)sc_act_step((uint32_t)dice_in(1, 3)); t->run[k] = 1;
+            t->pan[k] = (uint8_t)dice_in(20, 108);
+            if (what & DICE_SND) dice_cp |= (scn_lm_t)(1u << k);   /* (its cards: once its engine is in) */
+        }
     for (k = 0; k < DICE_NL; k++) {
         if (!(used >> k & 1u) || (lane >= 0 && k != (uint32_t)lane)) continue;
         if (what & DICE_ENG) dice_engine(t, k);
