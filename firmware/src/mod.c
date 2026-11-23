@@ -76,6 +76,8 @@ typedef struct {
     uint16_t id;                                /* the param id (params.c) it is */
     uint8_t kind, lane, pid, grp, hi, inv;
     int16_t base;
+    int8_t snd;                                 /* a card: the lane's sound it was resolved on (its family: fam); the */
+    uint8_t fam;                                /* source engine plays many sounds, each its own cards */
     const tx_engine_t *eng;                     /* MK_ENG / MK_HOST: the engine it was resolved on */
 } mt_t;
 typedef struct { uint8_t nt, nr; mt_t t[MOD_NT]; tx_mod_rt_t r[MOD_NR]; } mbuf_t;
@@ -289,7 +291,7 @@ static uint32_t m_ct[SC_N];
 static int mod_concrete(uint32_t T, uint32_t k, mt_t *o)   /* target T on lane k: 1 if it can be set now */
 {
     uint32_t id = mod_tgt_pid(T, k), i = P_IDX(id);
-    o->id = (uint16_t)id; o->lane = (uint8_t)k; o->inv = 0; o->eng = 0; o->grp = 0; o->pid = 0;
+    o->id = (uint16_t)id; o->lane = (uint8_t)k; o->inv = 0; o->eng = 0; o->grp = 0; o->pid = 0; o->snd = -1; o->fam = 0;
     if (mod_tgt_drv(T) < TX_DR_NP) {            /* the mix's DRIVE */
         o->kind = MK_FX; o->lane = 0; o->grp = LN_FX_DRIVE; o->pid = (uint8_t)mod_tgt_drv(T);
         o->hi = (uint8_t)p_hi(id); o->base = (int16_t)pv_glob[i];
@@ -348,9 +350,25 @@ static int mod_concrete(uint32_t T, uint32_t k, mt_t *o)   /* target T on lane k
         if (c->cv[j] == 0xFF) c->cv[j] = (uint8_t)p_card_get(k, j);   /* (the value now is the base from here on) */
         o->kind = c->kind[j] & CK_HOST ? MK_HOST : MK_ENG; o->pid = c->id[j]; o->hi = c->hi[j];
         o->inv = (uint8_t)((c->kind[j] & CK_INV) != 0); o->base = c->cv[j]; o->eng = sc.eng[k];
+        o->snd = c->snd; o->fam = c->fam;
         return 1;
     }
     return 0;
+}
+/* a card target without routes: its base back. Another engine on the lane since: nothing (it started at its own).
+ * The same engine playing another sound (the source plays many, a scene load switches between them): not the old
+ * sound's base, the card of the sound now gets its own value (as set, else its default), unless a route holds it */
+static void mod_card_back(const mt_t *t, uint32_t k, uint32_t j)
+{
+    p_cards_t *c;
+    if (sc.eng[k] != t->eng) return;
+    c = p_cards(k);
+    if (c->snd == t->snd && c->fam == t->fam) { p_card_set(k, j, (uint32_t)t->base); return; }
+    if (j >= c->n) return;
+    if (c->cv[j] != 0xFF) { p_card_set(k, j, c->cv[j]); return; }
+    if (mod_holds(PID(P_LS(k), PL_CARD0 + j))) return;
+    if (c->kind[j] & CK_HOST) ln_host(k, c->id[j], 0, 1);   /* (released: the source's curves again) */
+    else ln_param(k, c->id[j], c->kind[j] & CK_INV ? c->hi[j] - c->def[j] : c->def[j]);
 }
 static void mod_restore(const mt_t *t)          /* a target without routes: its base value back */
 {
@@ -358,9 +376,9 @@ static void mod_restore(const mt_t *t)          /* a target without routes: its 
     switch (t->kind) {
     case MK_ENG:
         if (t->pid == TX_PID_LEVEL) { sc.a_level[k] = -1; sc_sync(k); break; }
-        if (sc.eng[k] == t->eng && i >= PL_CARD0) p_card_set(k, i - PL_CARD0, (uint32_t)t->base);
+        if (i >= PL_CARD0) mod_card_back(t, k, i - PL_CARD0);
         break;
-    case MK_HOST: if (sc.eng[k] == t->eng) p_card_set(k, i - PL_CARD0, (uint32_t)t->base); break;
+    case MK_HOST: mod_card_back(t, k, i - PL_CARD0); break;
     case MK_PAN: sc.a_pan[k] = 0xFF; sc_sync(k); break;
     case MK_FX: ln_fx(t->grp, k, t->pid, (uint32_t)t->base); break;
     case MK_ACT: sc.a_act[k] = -1; sc_sync(k); break;
@@ -397,7 +415,7 @@ static void mod_routes(void)
     }
     {                                           /* the same as the interrupt's: nothing to do */
         int same = nb->nt == ob->nt && nb->nr == ob->nr;
-        for (t = 0; same && t < nb->nt; t++) same = mt_same(&nb->t[t], &ob->t[t]) && nb->t[t].base == ob->t[t].base && nb->t[t].hi == ob->t[t].hi && nb->t[t].eng == ob->t[t].eng && nb->t[t].inv == ob->t[t].inv;
+        for (t = 0; same && t < nb->nt; t++) same = mt_same(&nb->t[t], &ob->t[t]) && nb->t[t].base == ob->t[t].base && nb->t[t].hi == ob->t[t].hi && nb->t[t].eng == ob->t[t].eng && nb->t[t].inv == ob->t[t].inv && nb->t[t].snd == ob->t[t].snd && nb->t[t].fam == ob->t[t].fam;
         for (t = 0; same && t < nb->nr; t++) same = nb->r[t].depth == ob->r[t].depth && nb->r[t].src == ob->r[t].src && nb->r[t].t == ob->r[t].t && nb->r[t].lag == ob->r[t].lag && nb->r[t].hi == ob->r[t].hi;
         if (same) return;
     }

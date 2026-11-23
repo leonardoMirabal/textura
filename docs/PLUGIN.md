@@ -359,14 +359,13 @@ passes on the VST3 (editor tests included). The Audio Unit's checks (`auval -str
 `auval` gives one warning, "Preset name is not retained in retrieved class data", from clap-wrapper's Audio Unit,
 which names the class data from its own field.
 
-clap-validator (its Linux build is x86_64 only) passes 33 tests and skips 9 (extensions the plugin does not have) on
-macOS and Linux; under wine (`tools/plugin_win.sh validate` gives it the `bcryptprimitives.dll` wine 8 lacks) 32
-pass and 10 are skipped. Two fail on every system: `param-set-events` and `param-set-no-cookies`. Each sends one
-random value to every parameter at once, PRESET last, once by a flush to an instance never activated and once in a
-process call, then compares what the parameters read. A card of lane 1 that the random modulation matrix holds
-reads the scene's value after the flush but the engine's default after the process call: the scene load, the engine
-switch and the modulation's base meet in a different order on the two paths. A host loading a preset and setting
-modulated cards in the same instant would see the same difference. This is a known limit for now.
+clap-validator (its Linux build is x86_64 only) passes 35 tests and skips 9 (extensions the plugin does not have) on
+macOS; under wine (`tools/plugin_win.sh validate` gives it the `bcryptprimitives.dll` wine 8 lacks) one more is
+skipped. `param-set-events` and `param-set-no-cookies` send one random value to every parameter at once, PRESET last,
+once by a flush to an instance never activated and once in a process call, then compare what the parameters read: a
+modulated card whose route ends while the lane's source switches to another sound gets the sound now's own value back
+(mod.c mod_card_back), never the last sound's base, so the two paths agree whatever order the load, the engine switch
+and the modulation meet in.
 
 ## How it is built
 
