@@ -143,13 +143,17 @@ change from anywhere else (a preset, the host) forgets them.
   presets browser), **SAVE** (the scene into a user scene U01 .. U16, named; kept in the project's state), **UNDO**
   (the app's: the last load or engine kept; again: redo), **PLAY ALL / STOP ALL** (the FM-1's REC, `sc_all_toggle`;
   white while every lane is stopped; the selected lane kept), LANES - / +, the output's peak (dB), SETTINGS.
-- **The place** (left, about a third of the width): **MAP** or **SPACE**, the selected lane's number, family, engine,
+- **The place** (left, about a third of the width): **MAP**, **SPACE** or **M/S** (its tabs, `v` in turn), the
+  selected lane's number, family, engine,
   a small square swap-icon button (the engine browser) and colour dot (the picker) at its head. MAP: a half circle, the listener at its centre, L, R
   and FAR inside the place; a dot's angle is the lane's PAN, its distance the engine's **DIST card** (a hollow dot
   when it has none: then a drag moves PAN only). Lanes on one spot fan out a few pixels and share a label
   (`1 Rain on water · 2 · 3 · 4`); a label goes to the first place clear of the dots, the other labels and the edges,
   or is left out (the selected lane's always shows). SPACE: the same place in perspective, each lane's events of the
-  last 6 seconds drifting toward the horizon; a drag on the ground moves a lane.
+  last 6 seconds drifting toward the horizon; a drag on the ground moves a lane. M/S: the mix's stereo picture as
+  the M/S drawer has it (its goniometer's points and meters, `txg_tick`): a half-circle scope (up the middle, L and R
+  at 45 degrees, +S and -S at the sides; a frame under the middle folded up), L R MID SIDE in dB with bars and the
+  correlation; it only shows, and the head's lane is left out.
 - **Lanes** (right, scrolling): one row a lane in use, ADD LANE under them. A row: number and colour dot (solid red
   for the selected lane), engine and family (cut with `...` before the button) with a small square swap-icon button right after the
   text (22 x 22, as M and S: it selects the lane and opens the engine browser; the same on an empty lane; `TXG_W_SND`,
@@ -263,7 +267,7 @@ saved by the 4-lane plugin (version 1, the FM-1's scene record) still loads: lan
 empty, LANES 4. The state also keeps the solo (`"solo"`, the lanes soloed as a bit mask), KEYS (`"keys"`), the
 app's selected lane (`"sel"`), the user scenes (`"umask"`, the slots saved as a bit mask, and `"user"`, each saved
 slot's record in hex, in slot order: the FM-1's own scene records, written back into the session's bank on load),
-the window's size (`"win"` and `"winh"`, 0 when at the default), the place's view (`"view"`, 1 for SPACE) and the
+the window's size (`"win"` and `"winh"`, 0 when at the default), the place's view (`"view"`, 1 for SPACE, 2 for M/S) and the
 sources' colours (`"col"`, `"source name:colour;..."` for the sources not bone; a source a build has not is
 skipped). These keys are optional: a state without them (an older project) loads with no solo, KEYS PLAY, lane 1, no
 user scenes, the default window, the MAP and all sources bone. The state stays version 2.
@@ -304,10 +308,10 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
   under 400 us (3.7 %).
 - **gui**: the window without a native view (headless): `plugin/tests/scripts/gui4.txt` (four lanes) and `gui16.txt`
   (sixteen) played, then the window painted to a PNG in two separate runs. Both runs must give the same bytes, and
-  the picture must not be empty. Each run also paints SPACE, the engine browser, the presets browser, SETTINGS and
+  the picture must not be empty. Each run also paints SPACE, the M/S view, the engine browser, the presets browser, SETTINGS and
   the colour picker, the movement (LFO 1's mode, a drag in it, the links at rest, the right-click menu), the effect
   drawers (DELAY, COMP, FILTER, REVERB, LFO 1, ENV · FOLLOW, MATRIX), SAVE, a preview on
-  a stopped lane and the rows with lane 3 selected (`OUT-space.png` ...; all
+  a stopped lane and the rows with lane 3 selected (`OUT-space.png`, `OUT-ms-tab.png` ...; all
   must be the same bytes twice too; `gui4.txt` routes three LFOs so the red shows: a lane's PAN, a card, LOW PASS).
   Then the window's controls are used (M, S, VOL, a map dot, LANES +, a preset loaded from the browser, an engine kept
   from the engine browser, a lane's channel and EFFECTS ON LOAD in SETTINGS, a colour, a drag in SPACE, HOW MANY and
@@ -318,7 +322,10 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
   on a row's name and event line selecting, M selecting, a row's one ENGINE icon button selecting its lane and opening the browser; each lane's STOP / PLAY, in its row and in the drawer, sharing STOP ALL / PLAY ALL's memory, and nothing on an empty lane; the movement: a tile entering its source's mode, a drag setting the amount with the value kept, the wheel, a double-click removing, a control no source moves dimmed and refusing, CLEAR <SOURCE>, DONE, Esc, the tile again, the right-click menu's Move with and Remove movement, a tag entering its mode, a grip dropped on a control, CLEAR ALL then UNDO, a full matrix refused with a message, a link kept through the state) and checked against the parameters,
   the events sent to the host, the lane's engine, the mute and solo masks and the saved state (solo, lane, view,
   colour, keys, the user scene). The window at 1200 x 720, 1950 x 1210, 1440 x 1080, 960 x 600 and 840 x 504 (the smallest): the MAP a half
-  circle (one scale both ways) with its labels inside the place; the top bar's items in order and apart, every text in
+  circle (one scale both ways) with its labels inside the place; MAP | SPACE | M/S in one row with the place's head
+  after them, its names whole (the widest sound name at its smallest size too); the M/S view's half circle round
+  inside the place under the tabs, its levels and correlation under it, no lane's dot, every text in its room, and
+  the view saved (`"view":"2"`); the top bar's items in order and apart, every text in
   its box at its widest (the scene's box at the widest preset name); HELP's one click, the tour's eight steps
   (each card inside the window and off the part it lights, NEXT, BACK, DONE, SKIP, MANUAL on the last, the keys) and its first-run flag
   (none: it starts; there, or a test run: it does not; it never starts by itself in the tests). KEYS = FM-1 KEYS (`plugin/tests/scripts/keys.txt`):

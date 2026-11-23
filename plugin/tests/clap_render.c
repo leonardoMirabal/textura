@@ -220,7 +220,7 @@ enum { W_ROW = 1, W_VOL, W_MUTE, W_SOLO, W_DOT, W_LUP = 9, W_SET = 10, W_VMAP = 
        W_SWATCH, W_SEG = 26, W_FIELD = 27, W_PARAM = 30, W_MANY, W_ACT, W_REC, W_UNDO, W_SAVE, W_FXOPEN, W_FXTAB, W_SLOT,
        W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER, W_TIP, W_PREVIEW, W_PVSTEP, W_FXD, W_SWAP, W_LRUN, W_DRUN,
        W_SRC, W_GRIP, W_TAG, W_MBAR, W_MCLEAR, W_MDONE, W_MENU, W_CLRALL, W_CLRYES, W_CLRNO, W_MSG, W_NOMOVE, W_MAMT, W_MSM,
-       W_DICE, W_RND, W_RNDTICK, W_RNDGO, W_LVL, W_NAMEDICE, W_HELP, W_RNDMENU, W_TOUR, W_TOURLIT, W_TOURBTN, W_LOGO };
+       W_DICE, W_RND, W_RNDTICK, W_RNDGO, W_LVL, W_NAMEDICE, W_HELP, W_RNDMENU, W_TOUR, W_TOURLIT, W_TOURBTN, W_LOGO, W_VMS };
 enum { W_PREV = 6, W_NEXT = 7, W_LDN = 8, W_CLOSE = 11, W_PICKER = 20, W_LIST = 23, W_KEEP = 24 };
 #define ID_KEYS 0x10001u                 /* (bridge.h TXP_ID_KEYS) */
 static int gui_hit(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, int lane)   /* a click on a control */
@@ -1518,6 +1518,58 @@ static int gui_test3b(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* the
     if (!(v1 < v0)) { fprintf(stderr, "gui: the SPACE drag did not move PAN\n"); bad = 1; }
     return bad;
 }
+/* the place's tabs and its M/S tab: MAP | SPACE | M/S in a row, the place's head after them (its names whole: the lane's
+ * and the widest sound name at its smallest size); M/S: the mix's stereo picture, its half circle round inside the place
+ * under the tabs, its levels and correlation under it inside the place, no lane's dot, every text in its room; the tab
+ * saved as the view ("view":"2"); then MAP again */
+static int gui_mstab(const clap_plugin_t *p, const txg_gui_shot_t *xs, const char *png)
+{
+    float a[4], b[4], m[4], pl[4], sc[4], lv[4], d[4];
+    int bad = 0, fit, hfit, dots = 0, saved = 0;
+    xs->tick(p);
+    hfit = xs->fits(p, 4);
+    if (!xs->find(p, W_VMAP, -1, a) || !xs->find(p, W_VSPACE, -1, b) || !xs->find(p, W_VMS, -1, m)) {
+        fprintf(stderr, "gui M/S tab: no MAP | SPACE | M/S\n");
+        return 5;
+    }
+    if (a[0] + a[2] > b[0] + 0.01f || b[0] + b[2] > m[0] + 0.01f || a[1] != b[1] || b[1] != m[1] || a[3] != m[3]) {
+        fprintf(stderr, "gui M/S tab: the tabs are not in one row\n"); bad = 1;
+    }
+    for (int k = 0; k < 16; k++)          /* (the head's colour dot: the place's, drawn before the drawer's) */
+        if (xs->find(p, W_COLDOT, k, d)) {
+            if (d[1] < m[1] + m[3] && d[0] < m[0] + m[2] + 8.f) { fprintf(stderr, "gui M/S tab: the head over the tabs\n"); bad = 1; }
+            break;
+        }
+    if (hfit != 1) { fprintf(stderr, "gui M/S tab: the place's head does not fit beside the tabs\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_VMS, -1)) return 5;
+    fit = xs->fits(p, 3);
+    if (!xs->find(p, W_PLACE, -1, pl) || !xs->find(p, W_MSM, 1, sc) || !xs->find(p, W_MSM, 0, lv)) {
+        fprintf(stderr, "gui M/S tab: no scope / levels\n");
+        return 5;
+    }
+    for (int k = 0; k < 16; k++) dots += xs->find(p, W_DOT, k, d);
+    if (sc[2] < 2.f * sc[3] - 0.5f || sc[2] > 2.f * sc[3] + 0.5f || sc[3] < 100.f || sc[0] < pl[0] + 4.f ||
+        sc[0] + sc[2] > pl[0] + pl[2] - 4.f || sc[1] < m[1] + m[3] + 8.f || lv[1] < sc[1] + sc[3] || lv[0] < pl[0] + 4.f ||
+        lv[0] + lv[2] > pl[0] + pl[2] - 4.f || lv[1] + lv[3] > pl[1] + pl[3] - 4.f) {
+        fprintf(stderr, "gui M/S tab: the scope or the levels outside the place\n"); bad = 1;
+    }
+    if (dots) { fprintf(stderr, "gui M/S tab: %d lane dots over it\n", dots); bad = 1; }
+    if (fit != 1) { fprintf(stderr, "gui M/S tab: a text does not fit its room\n"); bad = 1; }
+    {
+        const clap_plugin_state_t *st = p->get_extension(p, CLAP_EXT_STATE);
+        mem_t mm = {0, 0, 0};
+        clap_ostream_t os = { &mm, os_write };
+        if (st && st->save(p, &os)) { mm.b = realloc(mm.b, mm.n + 1); mm.b[mm.n] = 0; saved = strstr(mm.b, "\"view\":\"2\"") != 0; }
+        free(mm.b);
+        if (!saved) { fprintf(stderr, "gui M/S tab: not saved as the view\n"); bad = 1; }
+    }
+    printf("gui M/S tab: tabs %g..%g, scope %.0f x %.0f at %.0f %.0f, levels %.0f..%.0f in the place %.0f..%.0f; texts %s; "
+           "head %s; view %s\n", a[0], m[0] + m[2], sc[2], sc[3], sc[0], sc[1], lv[1], lv[1] + lv[3], pl[1], pl[1] + pl[3],
+           fit == 1 ? "whole" : "CUT", hfit == 1 ? "whole" : "CUT", saved ? "saved" : "MISSING");
+    if (png) bad |= gui_png(p, xs, png, "ms-tab") != 0;
+    if (!gui_hit(p, xs, W_VMAP, -1)) return 5;
+    return bad;
+}
 static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int test)
 {
     const txg_gui_shot_t *xs = p->get_extension(p, TXG_EXT_GUI_SHOT);
@@ -1574,6 +1626,7 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int
     if (gui_top(p, xs, pw, ph)) bad = 1;
     if (gui_topbar(p, xs, pw, ph)) bad = 1;
     if (gui_tour(p, xs, png, pw, ph)) bad = 1;
+    if (gui_mstab(p, xs, png)) bad = 1;
     png_shot = png;
     if (png && gui_views(p, xs, png)) return 5;
     if (test) {                          /* the controls do what they say (inactive: each write applied at its flush) */

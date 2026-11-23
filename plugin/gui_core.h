@@ -13,7 +13,8 @@
  *   place       (left) MAP: the place seen from above, you at the centre of a half circle: each lane a dot, its angle
  *               the lane's PAN, its distance the card named DIST of its engine (an engine without one: the middle ring,
  *               a hollow dot); a dot glows with its lane's events; drag one to move it (PAN, DIST); lanes on one spot
- *               fan out and share a label. SPACE: the same place in perspective. At its head the selected lane.
+ *               fan out and share a label. SPACE: the same place in perspective. At its head the selected lane. M/S:
+ *               the mix's stereo picture (a half-circle scope, L R MID SIDE in dB, the correlation); it only shows.
  *   lanes       (right, scrolling) one row a lane in use: its number, the engine and family with ENGINE (the engine
  *               browser), its event line, HOW MANY (six blocks) and HOW ACTIVE (nine), PAN, its MIDI channel, VOL, M
  *               and S and a square ENGINE button; ADD LANE under the last. A click anywhere on a row selects its lane (its controls too).
@@ -78,7 +79,8 @@ enum { TXG_W_NONE, TXG_W_ROW, TXG_W_VOL, TXG_W_MUTE, TXG_W_SOLO, TXG_W_DOT, TXG_
        /* HELP: the top bar's ? (its menu), the menu's items (lane 0 TAKE THE TOUR, 1 OPEN THE MANUAL; its panel
         * TXG_W_PICKER, -4); the tour: its card (lane: the step, 0 .. 7), the part of the window the step lights (never
         * hit; lane: the step), the card's SKIP, BACK, NEXT (lane 0 1 2); the logo (never hit: the tests' top bar) */
-       TXG_W_HELP, TXG_W_RNDMENU, TXG_W_TOUR, TXG_W_TOURLIT, TXG_W_TOURBTN, TXG_W_LOGO };
+       TXG_W_HELP, TXG_W_RNDMENU, TXG_W_TOUR, TXG_W_TOURLIT, TXG_W_TOURBTN, TXG_W_LOGO,
+       TXG_W_VMS };   /* (the place's third tab, M/S: the mix's stereo picture) */
 
 typedef struct txg txg_t;
 txg_t *txg_new(txp_core *c);             /* NULL: out of memory or the font did not load */
@@ -102,6 +104,8 @@ void txg_tour_start(txg_t *g, int first);
 void txg_tour_dir(txg_t *g, const char *dir);
 int txg_first_run(const char *dir, int test);
 /* the texts as drawn last, each inside its room (1): what 0 the top bar's (the preset box at its widest name and lane
- * count, the buttons' labels), 1 the tour's card, 2 the HELP menu */
+ * count, the buttons' labels), 1 the tour's card, 3 the place's M/S tab (its half circle round inside the place, its
+ * names, levels and correlation in their room), 4 the place's head (the selected lane's name, and the widest sound name
+ * at its smallest size, beside the tabs) */
 int txg_fits(const txg_t *g, int what);
 #endif

@@ -19,7 +19,7 @@ FM-1: for them it links to the [FM-1 user manual](MANUAL.md).
 2. [Install](#2-install): [macOS](#macos), [Windows](#windows), [Linux](#linux)
 3. [Your first sound](#3-your-first-sound)
 4. [The window](#4-the-window): [top bar](#the-top-bar), [HELP and the tour](#help-and-the-tour), [MAP](#map),
-   [SPACE](#space), [the lanes](#the-lanes), [the drawer](#the-drawer), [the strip](#the-strip), [M/S](#ms),
+   [SPACE](#space), [the M/S view](#the-ms-view), [the lanes](#the-lanes), [the drawer](#the-drawer), [the strip](#the-strip), [M/S](#ms),
    [the movement](#the-movement), [SAVE](#save),
    [RANDOM: the dice](#random-the-dice), [the engine browser](#the-engine-browser),
    [the presets browser](#the-presets-browser), [SETTINGS](#settings),
@@ -194,13 +194,31 @@ The MAP is the place seen from above: a half circle, **YOU** (the triangle) at i
 
 ![SPACE: the same place in perspective, each lane's events drifting toward the horizon](plugin/img/space.png)
 
-**SPACE** shows the same place in perspective. Switch with **MAP | SPACE** at the top left, or press **v**.
+**SPACE** shows the same place in perspective. Switch with **MAP | SPACE | M/S** at the top left, or press **v**
+(MAP, SPACE, M/S in turn).
 
 - The listener stands at the bottom edge (**YOU**). Far engines are small, near the horizon (**FAR**).
 - Each lane's events of the last 6 seconds drift away from it toward the horizon. A busy lane leaves a dense trail;
   a rare one leaves single marks.
 - The lanes stand where the MAP puts them. Drag a lane on the ground to move it (pan and distance, as on the MAP).
 - The MAP places an engine exactly; SPACE shows the place at a glance. Your DAW's project remembers which view was open.
+
+### The M/S view
+
+![The M/S view: the whole mix's stereo picture, its L R MID SIDE levels and its correlation](plugin/img/ms-view.png)
+
+The third tab, **M/S**, shows the whole mix's stereo picture large, as it leaves the [M/S](#ms) (the last effect):
+
+- **The scope**, a half circle: sound in the middle of both speakers rises straight up (**M**); a lane panned hard
+  left or right leans toward **L** or **R** at 45 degrees; what differs between the speakers spreads to the sides
+  (**+S**, **-S**). A tall, narrow cloud is centred; a wide one is spread. The picture follows the level, so a quiet
+  mix still fills it.
+- **L, R, MID, SIDE**: the peak of each in dB, with its bar (-48 to 0 dB; the sides' in red).
+- **CORRELATION**, from -1 to +1, with the middle marked: near +1 the mix is close to mono; near 0 it is wide; left of
+  the middle the sides cancel when the mix is played in mono.
+
+The view only shows. MID, SIDE and WIDTH stay in the strip's M/S section and its drawer. The place's dots and the
+selected lane's name come back with MAP or SPACE; the selected lane is still in the drawer below.
 
 ### The lanes
 
@@ -518,7 +536,7 @@ default. A row of choices takes a click.
 | **SCALE** | **MODE** (OFF, SNAP, DEGREE), **SCALE** (MAJOR ... BLUES), **Root**, **Transpose**. As on the FM-1 ([SCALE](MANUAL.md#scale)). They act on the FM-1's own keys (and on FM-1 KEYS); MIDI notes in PLAY play as sent. |
 | **TIMING** | **Tempo** and **Fine** (0.1 BPM steps): the plugin's own tempo, used when your DAW gives none (your DAW's tempo leads). **Groove**, **Groove amount**, **Groove shift** ([the groove](MANUAL.md#the-groove)). |
 | **LOADING** | **EFFECTS ON LOAD**, **PRESETS CHANGE TEMPO** (as in the presets browser), **Lanes in use** (LANES). |
-| **WINDOW** | **SIZE**: 100 %, 125 %, 150 %, 200 % (at 5:3; drag the corner for any other size). **PLACE VIEW**: MAP or SPACE. The last line names the build (HQ build, 16 lanes). |
+| **WINDOW** | **SIZE**: 100 %, 125 %, 150 %, 200 % (at 5:3; drag the corner for any other size). **PLACE VIEW**: MAP, SPACE or M/S. The last line names the build (HQ build, 16 lanes). |
 | **SOURCE COLOURS** | The sources the lanes' engines run on now, each with its colour dot: click one to choose its colour. **RESET ALL TO BONE** sets them all back. |
 
 Close SETTINGS with **CLOSE**, Esc or the SETTINGS button.
@@ -577,7 +595,7 @@ With the window focused and no panel open:
 | **Return** | Open the selected lane's engine browser |
 | **m** | Mute / unmute the selected lane |
 | **s** | Solo / unsolo the selected lane |
-| **v** | Switch MAP / SPACE |
+| **v** | Switch MAP / SPACE / M/S, in turn |
 | **Space** | PLAY ALL / STOP ALL |
 | **Esc** | Close the right-click menu; leave a source's mode |
 
@@ -672,7 +690,7 @@ Your DAW saves the plugin with the project, and its own preset function saves it
 - the preset loaded last, the scale, the MIDI channels, EFFECTS ON LOAD and PRESETS CHANGE TEMPO;
 - your user presets, U01 to U16 ([SAVE](#save));
 - KEYS ON SELECTED CH, the selected lane;
-- the window's own: the solo, the size, MAP or SPACE, the sources' colours and RANDOM's ticks.
+- the window's own: the solo, the size, MAP, SPACE or M/S, the sources' colours and RANDOM's ticks.
 
 Opening the project brings it all back, its effects included.
 

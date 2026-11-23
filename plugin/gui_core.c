@@ -32,6 +32,7 @@ extern const unsigned long txg_font_text_len;
 #define C_GREY 0xFF6D6863u                 /* a value in a source's mode (its fill) */
 #define C_GREYH 0xFF8F8983u                /* (its handle) */
 #define C_MENU 0xFF232120u
+#define C_MSTRK 0xFF2C2A28u                /* the M/S tab's bars and correlation track */
 
 /* the engines' colours (txp_ui.h TXP_COL_N; 0 bone, every engine's at the start). No red: red is the selection's and
  * the LFOs' */
@@ -179,6 +180,12 @@ struct txg {
     char msg[112];
     int16_t lh[LH_N][16][4], mx_known[16][4];
     int tag_below;                       /* (the strip's cells: their tags under them) */
+    /* the texts as drawn last, each inside its room (txg_fits): the place's tabs and the M/S tab's, the place's head's
+     * (the selected lane's name, and the widest a lane can show) */
+    int ms_fit, head_fit;
+    float snd_s;                         /* (the widest sound name: the scale it was found at, its family and index;
+                                          * snd_widest) */
+    int snd_wf, snd_wi;
     /* HELP: the tour's step (-1: none), started by the first open (its card says so); the texts' fit as drawn last (the
      * top bar's, the card's, the menu's: txg_fits); the widest preset name's width (the top bar's room), for which scale
      * and user names; the tour's flag's folder ("": none) */
@@ -1247,35 +1254,71 @@ static void map_arc(txg_t *g, frui_canvas *c, float r, uint32_t col)   /* the up
 /* a lane's label on a place: "3 Campfire", "3" alone when the place is crowded and the lane is neither selected nor
  * hovered; lanes standing on one spot share one label ("3 Campfire · 1 · 4") */
 static int n_used(const txg_t *g) { int n = 0; for (int k = 0; k < g->nlane; k++) n += used(g, k); return n; }
+/* the place's tabs: MAP | SPACE | M/S, each its label and 14 each side (the selected: lit, a red line under it) */
+static const char *const VIEW_N[3] = { "MAP", "SPACE", "M/S" };
+static float vtab_w(txg_t *g, int i) { return ceilf(LBLW(g, 11.f, VIEW_N[i]) + 28.f); }
+static float vtab_end(txg_t *g) { return 16.f + vtab_w(g, 0) + vtab_w(g, 1) + vtab_w(g, 2); }
 static void draw_view_switch(txg_t *g, frui_canvas *c)
 {
-    float x = 16.f, y = g->ct + 12.f, wm = 58.f, ws = 66.f, h = 24.f, xo = g->view ? x + wm : x, wo = g->view ? ws : wm;
-    RR(g, c, x, y, wm + ws, h, 3.f, C_PANEL);
-    R(g, c, xo, y, wo, h, C_SEG);
-    R(g, c, xo, y + h - 2.f, wo, 2.f, C_RED);
-    RRS(g, c, x, y, wm + ws, h, 3.f, C_LINE);
-    R(g, c, x + wm, y, 1.f, h, C_LINE);
-    LBL(g, c, x + (wm - LBLW(g, 11.f, "MAP")) * 0.5f, y + h * 0.5f + CAP(g, 11.f) * 0.5f, 11.f, g->view ? C_DIM : C_INK, "MAP");
-    LBL(g, c, x + wm + (ws - LBLW(g, 11.f, "SPACE")) * 0.5f, y + h * 0.5f + CAP(g, 11.f) * 0.5f, 11.f, g->view ? C_INK : C_DIM,
-        "SPACE");
-    wid_add(g, TXG_W_VMAP, -1, x, y, wm, h);
-    wid_add(g, TXG_W_VSPACE, -1, x + wm, y, ws, h);
+    static const int K[3] = { TXG_W_VMAP, TXG_W_VSPACE, TXG_W_VMS };
+    float x = 16.f, y = g->ct + 12.f, h = 24.f, tw = vtab_end(g) - x;
+    RR(g, c, x, y, tw, h, 3.f, C_PANEL);
+    for (int i = 0; i < 3; i++) {
+        float w = vtab_w(g, i);
+        if (g->view == i) { R(g, c, x, y, w, h, C_SEG); R(g, c, x, y + h - 2.f, w, 2.f, C_RED); }
+        if (i) R(g, c, x, y, 1.f, h, C_LINE);
+        LBL(g, c, x + (w - LBLW(g, 11.f, VIEW_N[i])) * 0.5f, y + h * 0.5f + CAP(g, 11.f) * 0.5f, 11.f, g->view == i ? C_INK : C_DIM,
+            VIEW_N[i]);
+        wid_add(g, K[i], -1, x, y, w, h);
+        x += w;
+    }
+    RRS(g, c, 16.f, y, tw, h, 3.f, C_LINE);
 }
 /* the selected lane at the place's head: its number and family, its engine and ENGINE (the engine browser), its
  * engine's colour (a click: the picker) */
+#define HEAD_SZ 15.f                     /* the head's name: its size, smaller (to HEAD_MIN) when the room is short */
+#define HEAD_MIN 11.5f
+static float head_w(txg_t *g, float sz, const char *s) { return TW(g, sz, 650.f, 0.2f, 0, s); }
+static float head_sz(txg_t *g, const char *s, float room)
+{
+    float sz = HEAD_SZ;
+    while (sz > HEAD_MIN && head_w(g, sz, s) > room) sz -= 0.5f;
+    return sz;
+}
+static void snd_widest(txg_t *g, char *nm, size_t n)   /* the widest sound name a lane can show (cached by scale) */
+{
+    if (g->snd_s != g->S) {
+        float w = -1.f;
+        for (int f = 0; f < g->cat->nfam; f++)
+            for (int i = 0; i < g->cat->fam[f].n; i++) {
+                float t;
+                cap_name(nm, g->cat->fam[f].s[i].name, n);
+                if ((t = head_w(g, HEAD_SZ, nm)) > w) { w = t; g->snd_wf = f; g->snd_wi = i; }
+            }
+        g->snd_s = g->S;
+    }
+    cap_name(nm, snd_name(g, g->snd_wf, g->snd_wi), n);
+}
 static void draw_place_head(txg_t *g, frui_canvas *c)
 {
-    int k = g->sel;
+    int k = g->sel, fit = 1;
     const txp_ui_lane_t *l = &g->sn.ui.lane[k];
-    float x = 158.f, y = g->ct + 8.f, w, room = g->PW - x - 40.f - RW_CHG - 30.f;
+    float x = vtab_end(g) + 18.f, y = g->ct + 8.f, w, room = g->PW - x - 40.f - RW_CHG - 30.f, sz;
     char t[48], nm[32];
     snprintf(t, sizeof t, "LANE %d%s%s", k + 1, used(g, k) ? "  \xC2\xB7  " : "", used(g, k) ? l->fam : "");
     upper(t, t, sizeof t);
-    LBL(g, c, x, y + 10.f, 10.f, C_RED, t);
+    fit &= x + LBL(g, c, x, y + 10.f, 10.f, C_RED, t) <= g->PW - 8.f;
+    snd_widest(g, nm, sizeof nm);        /* (the widest name a lane can show fits at the smallest size) */
+    fit &= head_w(g, HEAD_MIN, nm) <= room;
     clipL(g, c, x, y, room, 40.f);
-    if (used(g, k)) { cap_name(nm, l->snd, sizeof nm); w = TX(g, c, x, y + 29.f, 15.f, 650.f, 0.2f, 0, (g->mute >> k & 1u) ? C_DIM : C_INK, nm); }
-    else w = TX(g, c, x, y + 29.f, 15.f, 600.f, 0.2f, 0, C_FAINT, "Empty lane");
+    if (used(g, k)) {
+        cap_name(nm, l->snd, sizeof nm);
+        sz = head_sz(g, nm, room);
+        w = TX(g, c, x, y + 29.f, sz, 650.f, 0.2f, 0, (g->mute >> k & 1u) ? C_DIM : C_INK, nm);
+    } else w = TX(g, c, x, y + 29.f, 15.f, 600.f, 0.2f, 0, C_FAINT, "Empty lane");
     frui_clip_reset(c);
+    fit &= w <= room;
+    g->head_fit = fit;
     if (w > room) w = room;
     chg_button(g, c, TXG_W_SND, k, x + w + 10.f, y + 14.f, RW_CHG, 22.f, 0);
     w += 10.f + RW_CHG;
@@ -1493,6 +1536,7 @@ static void draw_space(txg_t *g, frui_canvas *c)
     }
     frui_clip_reset(c);
 }
+static void draw_ms_view(txg_t *g, frui_canvas *c);
 static void draw_place(txg_t *g, frui_canvas *c)
 {
     R(g, c, 0, g->ct, g->PW, g->dr_y - g->ct, C_WELL);
@@ -1500,8 +1544,9 @@ static void draw_place(txg_t *g, frui_canvas *c)
     wid_add(g, TXG_W_PLACE, -1, 0, g->ct, g->PW, g->dr_y - g->ct);   /* (the tests: the place, the map's half circle) */
     wid_add(g, TXG_W_MAPR, -1, g->mcx - g->mr, g->mcy - g->mr, 2.f * g->mr, g->mr);
     draw_view_switch(g, c);
+    if (g->view == 2) { draw_ms_view(g, c); return; }   /* (M/S: the mix's stereo picture, no lane at its head) */
     draw_place_head(g, c);
-    if (g->view) draw_space(g, c); else draw_map_field(g, c);
+    if (g->view == 1) draw_space(g, c); else draw_map_field(g, c);
 }
 
 /* ---- the rows */
@@ -1934,6 +1979,87 @@ static void ms_corr(txg_t *g, frui_canvas *c, float x, float y, float w)
     TX(g, c, x, by + 22.f, 9.f, 450.f, 0.f, 0, C_FAINT, "\xE2\x88\x92" "1 out of phase");
     TX(g, c, x + (w - TW(g, 9.f, 450.f, 0.f, 0, "0 wide")) * 0.5f, by + 22.f, 9.f, 450.f, 0.f, 0, C_FAINT, "0 wide");
     TX(g, c, x + w - TW(g, 9.f, 450.f, 0.f, 0, "+1 mono"), by + 22.f, 9.f, 450.f, 0.f, 0, C_FAINT, "+1 mono");
+}
+/* the place's M/S tab: the mix's stereo picture large, as it leaves the M/S (its drawer's feed: txg_tick). A half
+ * circle: up the middle (M), L and R at 45 degrees, the sides across (+S at the left, -S at the right); a frame under
+ * the middle is folded up (both channels turned over), so what cancels in mono lies along the sides. Under it L R MID
+ * SIDE in dB with their bars (-48 .. 0 dBFS, the sides' red) and the correlation (-1 .. +1, its middle marked). It only
+ * shows: MID, SIDE and WIDTH are the strip's M/S section's */
+#define MSV_TOP 67.f                     /* (the tabs and the M over the half circle) */
+#define MSV_BOT 103.f                    /* (the levels and the correlation under it, a margin) */
+static void draw_ms_view(txg_t *g, frui_canvas *c)
+{
+    static const char *const N[4] = { "L", "R", "MID", "SIDE" };
+    const float top = g->ct, bot = g->dr_y, W = g->PW, mx = 24.f, room = bot - top, lw = lw1(g);
+    float rad = fminf((W - 60.f) * 0.5f, room - MSV_TOP - MSV_BOT), cx = W * 0.5f, cy, k, yy, cw, yc, x0, x1, vw, f, lx;
+    int fit = 1;
+    char t[16];
+    if (rad < 40.f) { fit = 0; rad = fmaxf(rad, 20.f); }   /* (an effect's drawer over it at the smallest window: still round) */
+    cy = top + MSV_TOP + fmaxf(0.f, (room - MSV_TOP - rad - MSV_BOT) * 0.5f) + rad;
+    {   /* the half circle, the middle and the 45 degree lines (L, R), their names */
+        float px = cx - rad, py = cy, wl = TW(g, 11.f, 600.f, 0.f, 0, "L"), wr = TW(g, 11.f, 600.f, 0.f, 0, "R");
+        for (int i = 1; i <= 72; i++) {
+            float a = 3.14159265f * (1.f - (float)i / 72.f), x = cx + cosf(a) * rad, y = cy - sinf(a) * rad;
+            LN(g, c, px, py, x, y, lw, C_LINE);
+            px = x; py = y;
+        }
+        for (int a = -45; a <= 45; a += 45) {
+            float r = (float)a * 3.14159265f / 180.f;
+            LN(g, c, cx, cy, cx + sinf(r) * rad, cy - cosf(r) * rad, lw, C_LINE);
+        }
+        TX(g, c, cx - TW(g, 11.f, 600.f, 0.f, 0, "M") * 0.5f, cy - rad - 4.f, 11.f, 600.f, 0.f, 0, C_DIM, "M");
+        lx = cx - rad * 0.74f - 7.f - wl * 0.5f;
+        TX(g, c, lx, cy - rad * 0.74f, 11.f, 600.f, 0.f, 0, C_DIM, "L");
+        TX(g, c, cx + rad * 0.74f + 7.f - wr * 0.5f, cy - rad * 0.74f, 11.f, 600.f, 0.f, 0, C_DIM, "R");
+        TX(g, c, cx - rad + 5.f - TW(g, 11.f, 600.f, 0.f, 0, "+S") * 0.5f, cy - 6.f, 11.f, 600.f, 0.f, 0, C_DIM, "+S");
+        TX(g, c, cx + rad - 5.f - TW(g, 11.f, 600.f, 0.f, 0, "\xE2\x88\x92S") * 0.5f, cy - 6.f, 11.f, 600.f, 0.f, 0, C_DIM, "\xE2\x88\x92S");
+        fit &= lx >= 4.f && cy - rad - 4.f - CAP(g, 11.f) >= top + 40.f;   /* (inside the place, under the tabs) */
+    }
+    /* the points: the last GON_H blocks, the older fading (the drawer's goniometer's colours and scale) */
+    k = g->gon_k * rad;
+    clipL(g, c, cx - rad, cy - rad - 2.f, 2.f * rad, rad + 2.f);
+    for (int a = g->gon_n - 1; a >= 0; a--) {
+        int b = (g->gon_at - a + GON_H) % GON_H;
+        float al = 1.f - (float)a / (float)GON_H, ps = g->S < 1.5f ? 1.5f : 1.25f;
+        for (int i = 0; i < (int)TXP_GON_N; i++) {
+            float l = (float)g->gon[b][i][0] / 32768.f, rr = (float)g->gon[b][i][1] / 32768.f, px, py;
+            if (l + rr < 0.f) { l = -l; rr = -rr; }
+            px = cx - (l - rr) * k; py = cy - (l + rr) * k;
+            R(g, c, px - ps * 0.5f, py - ps * 0.5f, ps, ps, i % 9 == 0 ? frui_alpha(C_RED, 0.75f * al) : frui_alpha(C_INK, 0.55f * al));
+        }
+    }
+    frui_clip_reset(c);
+    wid_add(g, TXG_W_MSM, 1, cx - rad, cy - rad, 2.f * rad, rad);
+    /* the levels: four columns, each its name, its peak in dB, its bar */
+    yy = cy + 20.f;
+    cw = (W - 2.f * mx - 30.f) / 4.f;
+    vw = fmaxf(TW(g, 12.f, 500.f, 0.f, FRUI_TNUM, "-88.8 dB"), TW(g, 12.f, 500.f, 0.f, FRUI_TNUM, "-inf dB"));
+    fit &= vw <= cw;
+    for (int i = 0; i < 4; i++) {
+        float x = mx + (cw + 10.f) * (float)i, db = g->ms_db[i];
+        fit &= LBL(g, c, x, yy + CAP(g, 10.5f), 10.5f, C_DIM, N[i]) <= cw;
+        if (db <= -89.f) snprintf(t, sizeof t, "-inf dB"); else snprintf(t, sizeof t, "%.1f dB", db);
+        TX(g, c, x, yy + 16.6f + CAP(g, 12.f), 12.f, 500.f, 0.f, FRUI_TNUM, C_INK, t);
+        RR(g, c, x, yy + 35.f, cw, 4.f, 2.f, C_MSTRK);
+        f = (db - MSM_LO) / -MSM_LO;
+        f = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
+        if (f * cw >= 1.f) RR(g, c, x, yy + 35.f, cw * f, 4.f, 2.f, i == 3 ? C_RED : C_INK);
+    }
+    wid_add(g, TXG_W_MSM, 0, mx, yy, W - 2.f * mx, 39.f);
+    /* the correlation: its track (its middle marked), where it is, its value */
+    yc = yy + 57.f;
+    x0 = mx + LBL(g, c, mx, yc + CAP(g, 10.5f) * 0.5f, 10.5f, C_DIM, "CORRELATION") + 10.f;
+    x1 = W - mx - 40.f - 10.f;
+    fit &= x1 - x0 >= 60.f;
+    RR(g, c, x0, yc - 2.f, x1 - x0, 4.f, 2.f, C_MSTRK);
+    R(g, c, x0 + (x1 - x0) * 0.5f - 0.5f, yc - 6.f, 1.f, 12.f, C_DIM);
+    f = (g->ms_c + 1.f) * 0.5f;
+    f = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
+    RR(g, c, x0 + (x1 - x0) * f - 3.f, yc - 7.f, 6.f, 14.f, 2.f, C_INK);
+    snprintf(t, sizeof t, "%+.2f", fabsf(g->ms_c) < 0.005f ? 0.0 : (double)g->ms_c);
+    TX(g, c, W - mx - TW(g, 12.f, 500.f, 0.f, FRUI_TNUM, t), yc + CAP(g, 12.f) * 0.5f, 12.f, 500.f, 0.f, FRUI_TNUM, C_INK, t);
+    fit &= TW(g, 12.f, 500.f, 0.f, FRUI_TNUM, "-1.00") <= 40.f && yc + 8.f <= bot - 4.f;
+    g->ms_fit = fit;
 }
 /* MONO: its name and a switch (OFF; ON lit red); a click on the cell turns it */
 static void ms_mono(txg_t *g, frui_canvas *c, float x, float y, float w, float h)
@@ -2695,8 +2821,8 @@ static void draw_settings(txg_t *g, frui_canvas *c)
         y += 50.f;
         LBL(g, c, x, y + 4.f, 10.5f, C_DIM, "PLACE VIEW");
         xx = x;
-        for (int i = 0; i < 2; i++) {
-            const char *n = i ? "SPACE" : "MAP";
+        for (int i = 0; i < 3; i++) {
+            const char *n = VIEW_N[i];
             float w = LBLW(g, 10.5f, n) + 20.f;
             int on = g->view == i;
             RR(g, c, xx, y + 12.f, w, 22.f, 2.f, on ? C_SEG : C_PANEL); RRS(g, c, xx, y + 12.f, w, 22.f, 2.f, C_LINE);
@@ -4002,7 +4128,7 @@ static int steps_at(const txg_t *g, int act, float x)   /* HOW MANY / HOW ACTIVE
 static void dot_at(txg_t *g, int k, float x, float y)
 {
     int pan, dist;
-    if (g->view) sp_inv(g, x - g->drag_dx, y - g->drag_dy, g->drag_dist < 0, &pan, &dist);
+    if (g->view == 1) sp_inv(g, x - g->drag_dx, y - g->drag_dy, g->drag_dist < 0, &pan, &dist);
     else map_inv(g, x, y, &pan, &dist);
     txp_ui_set(g->c, TXP_ID_LANE(k, TXP_PL_PAN), pan);
     if (g->drag_dist >= 0) txp_ui_set(g->c, TXP_ID_LANE(k, TXP_PL_CARD0 + g->drag_dist), dist);
@@ -4278,7 +4404,7 @@ int txg_first_run(const char *dir, int test)
     if ((f = fopen(p, "rb"))) { fclose(f); return 0; }
     return 1;
 }
-int txg_fits(const txg_t *g, int what) { return what == 0 ? g->top_fit : g->tour_fit; }
+int txg_fits(const txg_t *g, int what) { return what == 0 ? g->top_fit : what == 3 ? g->ms_fit : what == 4 ? g->head_fit : g->tour_fit; }
 static int input_(txg_t *g, const frg_input *e)
 {
     const wid_t *w;
@@ -4465,6 +4591,7 @@ static int input_(txg_t *g, const frg_input *e)
         case TXG_W_VIEWSEL: g->view = w->v; txp_ui_view_set(g->c, w->v); break;
         case TXG_W_VMAP: g->view = 0; txp_ui_view_set(g->c, 0); break;
         case TXG_W_VSPACE: g->view = 1; txp_ui_view_set(g->c, 1); break;
+        case TXG_W_VMS: g->view = 2; txp_ui_view_set(g->c, 2); break;
         case TXG_W_SND: case TXG_W_SWAP: mode_set(g, 0); sb_open(g, k); break;
         case TXG_W_COLDOT:
             if ((int)w->id < 0 || (int)w->id >= g->cat->neng) break;
@@ -4676,7 +4803,8 @@ static int input_(txg_t *g, const frg_input *e)
         if (e->key == FRK_RETURN) { sb_open(g, g->sel); return 3; }   /* (the selected lane's engine browser) */
         if ((e->key == 'm' || e->key == 'M') && used(g, g->sel)) { txp_ui_mute(g->c, (uint32_t)g->sel, !(g->mute >> g->sel & 1u)); g->mute ^= 1u << g->sel; return 3; }
         if ((e->key == 's' || e->key == 'S') && used(g, g->sel)) { g->solo ^= 1u << g->sel; txp_ui_solo(g->c, g->solo); return 3; }
-        if (e->key == 'v' || e->key == 'V') { g->view = !g->view; txp_ui_view_set(g->c, g->view); return 3; }
+        if (e->key == 'v' || e->key == 'V') { g->view = (g->view + 1) % 3; txp_ui_view_set(g->c, g->view); return 3; }   /* (MAP,
+                                          * SPACE, M/S in turn) */
         if (e->key == ' ') { txp_ui_rec(g->c); return 3; }   /* (space: PLAY ALL / STOP ALL) */
         return 0;
     }
@@ -4742,7 +4870,7 @@ txg_t *txg_new(txp_core *c)
     g->pv_cnt = 2; g->pv_act = 4;        /* (the preview: a few, fairly calm) */
     g->sel_seen = -1;
     g->tour = -1;
-    g->top_fit = g->tour_fit = 1;
+    g->top_fit = g->tour_fit = g->ms_fit = g->head_fit = 1;
     g->view = txp_ui_view(c);
     fit(g, TXG_W, TXG_H);
     g->cl.ctx = g; g->cl.paint = cl_paint; g->cl.input = cl_input; g->cl.tick = cl_tick;

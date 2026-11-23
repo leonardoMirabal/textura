@@ -289,7 +289,7 @@ static bool st_load(const clap_plugin_t *plugin, const clap_istream_t *s)
         (void)st_key(buf, "winh", &h);
         (void)st_key(buf, "view", &vw);
         p->pend_selt = 0.0;
-        p->view = vw == 1;
+        p->view = vw >= 1 && vw <= 2 ? vw : 0;
         st_col_get(p, buf);
         w = w >= TXG_MIN_W && w <= TXG_MAX_W ? w : 0;
         h = h >= TXG_MIN_H && h <= TXG_MAX_H ? h : 0;
@@ -716,7 +716,7 @@ void txp_ui_col_set(txp_core *c, int eng, int col)
 void txp_ui_col_reset(txp_core *c) { memset(c->col, 0, sizeof c->col); ui_dirty(c); }
 int txp_ui_view(const txp_core *c) { return c->view; }
 int txp_ui_test(const txp_core *c) { return c->dice_fixed; }
-void txp_ui_view_set(txp_core *c, int v) { if (c->view != (v == 1)) { c->view = v == 1; ui_dirty(c); } }
+void txp_ui_view_set(txp_core *c, int v) { v = v >= 1 && v <= 2 ? v : 0; if (c->view != v) { c->view = v; ui_dirty(c); } }
 void txp_ui_win_resize(txp_core *c, int w)
 {
     txp_ui_win_w_set(c, w == TXG_W ? 0 : w);

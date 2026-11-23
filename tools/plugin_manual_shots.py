@@ -18,6 +18,7 @@ PICK = {   # the gate's picture -> the manual's
     "gui4": "window-4-lanes",
     "gui16": "window-16-lanes",
     "gui4-space": "space",
+    "gui4-ms-tab": "ms-view",
     "gui4-sounds": "engine-browser",
     "gui4-presets": "preset-browser",
     "gui4-settings": "settings",

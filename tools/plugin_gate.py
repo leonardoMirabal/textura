@@ -457,9 +457,9 @@ GUI_COMP = ["--param", "0x41a=1", "--param", "0x41b=127", "--param", "0x41e=4", 
 #                                         are fed); EFFECTS ON LOAD NEVER, so the script's preset keeps them
 
 
-GUI_VIEWS = ("", "space", "sounds", "presets", "settings", "colour", "mode", "drag", "links", "menu", "fx", "comp", "filter", "reverb", "ms", "lfo",
+GUI_VIEWS = ("", "space", "ms-tab", "sounds", "presets", "settings", "colour", "mode", "drag", "links", "menu", "fx", "comp", "filter", "reverb", "ms", "lfo",
              "env", "matrix", "save", "random-list", "stopped", "preview", "replay", "rows", "lane-stopped", "rain") + tuple("tour-%d" % i for i in range(1, 9))   # clap_render
-#                                        --shot: x.png, x-space.png ... (the movement: LFO 1's mode, a drag in it, the
+#                                        --shot: x.png, x-space.png, x-ms-tab.png ... (the movement: LFO 1's mode, a drag in it, the
 #                                        links at rest, the right-click menu; the effects' drawers: DELAY, COMP, FILTER, REVERB, M/S,
 #                                        MOVEMENT's LFO 1, ENV, the matrix; STOP ALL, the sound browser's preview on a
 #                                        stopped lane, PLAY ALL; the rows with lane 3 selected; a lane stopped by its own

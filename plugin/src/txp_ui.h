@@ -64,7 +64,7 @@ void txp_ui_load(txp_core *c, int what, int with_fx);
 int txp_ui_col(const txp_core *c, int eng);           /* an engine's colour (0 .. TXP_COL_N - 1; 0 bone) */
 void txp_ui_col_set(txp_core *c, int eng, int col);
 void txp_ui_col_reset(txp_core *c);
-int txp_ui_view(const txp_core *c);                   /* the place's view: 0 MAP, 1 SPACE (saved with the project) */
+int txp_ui_view(const txp_core *c);                   /* the place's view: 0 MAP, 1 SPACE, 2 M/S (saved with the project) */
 int txp_ui_test(const txp_core *c);                   /* a test run (TEXTURA_PLUGIN_TEST or TEXTURA_PLUGIN_GUI_SHOT set): 1 */
 void txp_ui_view_set(txp_core *c, int v);
 int txp_ui_sel(const txp_core *c);                    /* the selected lane, 0 .. 15: the app's own (the keys' and
