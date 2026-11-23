@@ -205,6 +205,7 @@ fw-test: $(FW)/scn_bank_test $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_t
 	  else echo "FAIL  host $$n ($(FW)/$$n.log)"; fail=1; fi; done; \
 	rm -f $(FW)/power.flash; \
 	if FRODHES_FLASH=$(FW)/power.flash $(FW)/textura-host $(FW)/power1 tests/power/scenes_save.txt > $(FW)/power1.log 2>&1 && \
+	   python3 -I tests/power/settings_old.py $(FW)/power.flash RND && \
 	   FRODHES_FLASH=$(FW)/power.flash $(FW)/textura-host $(FW)/power2 tests/power/scenes_boot.txt > $(FW)/power2.log 2>&1 && \
 	   cp $(FW)/power.flash $(FW)/power_old.flash && python3 -I tests/power/settings_old.py $(FW)/power_old.flash && \
 	   FRODHES_FLASH=$(FW)/power_old.flash $(FW)/textura-host $(FW)/power3 tests/power/scenes_old.txt > $(FW)/power3.log 2>&1 && \

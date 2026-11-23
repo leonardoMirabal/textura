@@ -696,7 +696,7 @@ opens: lanes 1 to 4 as saved, LANES 4.
 | **Tempo** | Its own, tap, MIDI clock in and out | The DAW's tempo leads; no MIDI clock |
 | **Saving** | U01 to U16 in flash, settings kept by themselves | SAVE: U01 to U16 in the project; the DAW's project or presets |
 | **Undo** | Hold SAVE | UNDO (a load, an engine kept, a roll); your DAW's undo for window edits (host parameter changes) |
-| **Random** | OCT- and OCT+ together; the RANDOM page in the settings (EFFECTS off at first) | The dice: one on each row, RANDOM in the top bar (all four ticked at first) |
+| **Random** | OCT- and OCT+ together: everything at once (with the sound browser open: that lane's engine) | The dice: one on each row, RANDOM in the top bar (all four ticked at first) |
 | **Sample rate** | 44.1 kHz | Any; 44.1 kHz inside |
 | **Screen colour, clock, status line** | DISPLAY, MIDI CLOCK pages | Not in the plugin |
 | **Look** | One accent colour | Dark, red for selection and LFOs, a colour per engine |

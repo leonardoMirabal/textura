@@ -180,11 +180,11 @@ static void sb_tab_add(uint32_t id, uint32_t hi, int scaled, int is_enum, const 
     snprintf(p->name, sizeof p->name, "%s%s", pfx, nm);
     snprintf(p->module, sizeof p->module, "%s", mod);
 }
-static int sb_glob_hidden(uint32_t i)    /* the FM-1's own settings: the tempo, the clock, the screen, RANDOM's ticks
-                                          * (the window's own here: TXP_EV_DICE carries them) */
+static int sb_glob_hidden(uint32_t i)    /* the FM-1's own settings: the tempo, the clock, the screen (RANDOM's ticks:
+                                          * the window's own, TXP_EV_DICE carries them) */
 {
     return i == PG_BPM || i == PG_FINE || i == PG_STATUS || i == PG_RUN || i == PG_TAP || i == PG_CLOCK ||
-           i == PG_INUSB || i == PG_INTRS || i == PG_OUT || i == PG_COLOR || (i >= PG_RND0 && i < PG_RND0 + DICE_N);
+           i == PG_INUSB || i == PG_INTRS || i == PG_OUT || i == PG_COLOR;
 }
 static void sb_tab_make(void)
 {

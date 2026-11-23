@@ -913,8 +913,8 @@ static uint8_t set_fx_of(uint32_t m) { return (uint8_t)(m == SCN_FX_ALWAYS ? 1u 
 static uint8_t set_fx_mode(uint32_t b) { return (uint8_t)(b == 1u ? SCN_FX_ALWAYS : b == 2u ? SCN_FX_NEVER : SCN_FX_SMART); }
 #define SET_FXNEW 1u                            /* (spare2: saved since the FM-1's default became NEVER; a record of
                                                  * before with SMART, the old default, loads as NEVER, once) */
-#define SET_RND 0x80u                           /* (spare: RANDOM's ticks in its low four bits and this bit; a record
-                                                 * of before, spare 0: the defaults, DICE_DEF) */
+/* (spare: 0. A record from a build that kept RANDOM's ticks there, 0x80 and four bits, loads as any: the bits ignored,
+ * the next save writes 0) */
 static tx_set_t set_saved, set_now;
 static TX_RTD uint8_t set_rec[256];                    /* the record as saved: set_now zero-padded to set_store.c's 256 bytes
                                                  * (it saves no other length; kept as it is until the save is done) */
@@ -930,7 +930,6 @@ static void set_take(tx_set_t *s)
     s->clock = (uint8_t)tm.clock; s->in_usb = tm.in_usb; s->in_trs = tm.in_trs; s->bpm10 = (uint16_t)tempo_bpm10();
     s->scn_tempo = tm.scn_tempo; s->out_off = (uint8_t)!tm.out_usb; s->palette = p_color; s->scn_fx = set_fx_of(scn_fx_mode);
     s->layout = SET_LAYOUT; s->spare2 = SET_FXNEW;
-    s->spare = (uint8_t)(SET_RND | dice_what);
     s->scale = (uint8_t)(nt_scmode == NT_OFF ? 0u : SET_SC_OLD[nt_scale]); s->root = nt_root;
     s->scm = (uint8_t)(nt_scmode + 1u); s->scf = nt_scale; s->sct = (uint8_t)(nt_trans + 24);
     s->selch = (uint8_t)(nt_selch ^ 1u);
@@ -997,7 +996,6 @@ static void scn_init(void)
 #endif
         tempo_mode(s.clock); tempo_port(1, s.in_usb); tempo_port(2, s.in_trs);
         tempo_scene_flag(s.scn_tempo); tempo_out(!s.out_off); color_apply(s.palette); scn_fx_mode = (s.spare2 & SET_FXNEW) || s.scn_fx ? set_fx_mode(s.scn_fx) : SCN_FX_DEF;
-        dice_what = (uint8_t)(s.spare & SET_RND ? s.spare & DICE_ALL : DICE_DEF);
         if (s.bpm10 >= 400u && s.bpm10 <= 2400u) tempo_set10(s.bpm10);
         set_saved = s;                          /* (an old layout: saved again in the new one, set_poll) */
         scn_fx_boot = 1;                        /* (the boot's load: its effects too, nothing plays to keep) */

@@ -2,9 +2,9 @@
 /* The dice: RANDOM. On the FM-1 OCT- and OCT+ pressed together (ui.c), in the desktop plugin its window's dice (the
  * general one, top right; each lane's beside its swap icon): one call here for both.
  *
- *   dice_roll   every lane with a sound gets what RANDOM's ticks say (dice_what, the settings' RANDOM page, K1 .. K4;
- *               the plugin passes its window's own): ENGINES a new engine on each (any family, never the one it had,
- *               none twice where there are enough), SOUND each engine's cards at random over their ranges, EFFECTS the
+ *   dice_roll   every lane with a sound gets the groups asked (the FM-1's chord: all four, DICE_ALL; the plugin
+ *               passes its window's ticks, kept with the project): ENGINES a new engine on each (any family,
+ *               never the one it had, none twice where there are enough), SOUND each engine's cards at random over their ranges, EFFECTS the
  *               mix's COMP, DRIVE, FILTER, DELAY / GRAIN, REVERB and M/S (types and amounts, in musical, safe ranges:
  *               the filter's band never closes, the drive and the make-up stay moderate, MONO stays off, long, unreal
  *               reverbs can come up), MOVEMENT the eight LFOs, the envelopes, the followers and the matrix (two to six

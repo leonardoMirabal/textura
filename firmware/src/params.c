@@ -35,10 +35,7 @@
  *           96 .. 99  M/S: MID SIDE WIDTH MONO (tx_ms_params order): the mix's last effect, after the REVERB
  *                     (tx_core_ms.h). MID, SIDE: -inf, -57 .. +6 dB (115: 0 dB); WIDTH 0 .. 200 % (50: 100 %) is not
  *                     kept: read, it is SIDE against MID; set, it sets SIDE (p_ms_side); MONO OFF / ON
- *           100 .. 103 RANDOM: ENGINES SOUND EFFECTS MOVEMENT (OFF / ON each): what a roll of the dice changes
- *                     (dice.c; in the settings, not a scene's: on the FM-1 ENGINES, SOUND and MOVEMENT by default, in
- *                     the plugin all four)
- *   5      LFO n (0..7): n x 16 + SHAPE RATE SYNC MODE PHASE WIDTH JITTER FADE RESTART LEVEL (tx_lfo_params order),
+ *   5       LFO n (0..7): n x 16 + SHAPE RATE SYNC MODE PHASE WIDTH JITTER FADE RESTART LEVEL (tx_lfo_params order),
  *           10 NOW 11 ROUTES (read only)
  *   6       ENV n (0..1): n x 16 + TRIGGER ATTACK DECAY RELEASE SUSTAIN CURVE VARY LOOP (tx_env_params order);
  *           FOLLOW n (0..1): 32 + n x 16 + INPUT ATTACK RELEASE GAIN (tx_fol_params order)
@@ -109,8 +106,7 @@ enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_ODRIVE0
 enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP0 = 26, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN, PG_TAP,
        PG_SCNTEMPO, PG_SCNFX, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR, PG_DRIVE0 = 48, PG_MF0 = 52, PG_N_ = 56,
        PG_GRV0 = 56, PG_GTYPE, PG_GSHIFT, PG_SCALE, PG_ROOT, PG_SELCH, PG_LCH0, PG_SCMODE = PG_LCH0 + 4, PG_TRANS,
-       PG_MS0 = 96, PG_RND0 = 100 };   /* (PG_MS0: the M/S, MID SIDE WIDTH MONO; past every lane's channel of the
-                                                 * plugin's 16. PG_RND0: RANDOM's four ticks, after the M/S) */   /* (PL_ODRIVE0:
+       PG_MS0 = 96 };   /* (PG_MS0: the M/S, MID SIDE WIDTH MONO; past every lane's channel of the plugin's 16) */   /* (PL_ODRIVE0:
                                                  * the retired lane DRIVE's ids; pv_glob: the effects' values, 0 .. 55) */
 /* the GRAIN delay's ids: its params 0 .. 11 at 0 .. 11, SYNC 12 (the tempo's), its appended ones (MOD, MOD RATE,
  * INTERVALS) at 13 .. 15 */
@@ -242,20 +238,14 @@ enum { SCN_FX_ALWAYS, SCN_FX_SMART, SCN_FX_NEVER };
 static uint8_t scn_fx_mode = SCN_FX_DEF;        /* EFFECTS ON LOAD: does a load set the DRIVE, FILTER, COMPRESSOR, GRAIN
                                                  * and REVERB (scenes.c scn_apply) */
 static void scn_touch_id(uint32_t id);          /* (scenes.c: the player changed id: the scene edited, its FX theirs) */
-/* RANDOM (dice.c): what a roll changes, a bit each (the RANDOM page's K1 .. K4) */
+/* RANDOM (dice.c): what a roll changes, a bit each (the FM-1's chord rolls all four; the plugin's window ticks its
+ * own, saved with the project) */
 #define DICE_ENG 1u                             /* ENGINES: a new engine on every lane */
 #define DICE_SND 2u                             /* SOUND: each engine's controls (its cards) */
 #define DICE_FX 4u                              /* EFFECTS: COMP to M/S */
 #define DICE_MOV 8u                             /* MOVEMENT: the LFOs, ENVs, FOLLOWs and the matrix */
 #define DICE_ALL 15u
-#define DICE_N 4u                               /* (the groups: params 100 .. 103) */
-#ifdef DINGHY_PLUGIN
-#define DICE_DEF DICE_ALL                       /* (the plugin: all four) */
-#else
-#define DICE_DEF (DICE_ENG | DICE_SND | DICE_MOV)   /* (the FM-1 plays live: its effects stay, as EFFECTS ON LOAD's
-                                                 * NEVER) */
-#endif
-static uint8_t dice_what = DICE_DEF;
+#define DICE_N 4u                               /* (the groups) */
 static uint32_t tm_get(uint32_t what);
 /* the globals that are not an effect's: the tempo's and the clock's (tempo.c holds their values) */
 /* and GROOVE's (groove.c: AMOUNT TYPE SHIFT, the values in pv_glob; a lane's PART and CYCLE, idx | PGX_LANE); def: a
@@ -270,8 +260,6 @@ static const p_gx_t PGX[] = {
     {PG_INUSB, "CLK IN USB", 1, F_ONOFF, PGX_NODEF}, {PG_INTRS, "CLK IN TRS", 1, F_ONOFF, PGX_NODEF},
     {PG_OUT, "CLK OUT", 1, F_ENUM, PGX_NODEF}, {PG_SCNTEMPO, "PRESETS CHANGE TEMPO", 1, F_ENUM, PGX_NODEF},
     {PG_SCNFX, "EFFECTS ON LOAD", 2, F_ENUM, PGX_NODEF}, {PG_COLOR, "COLOR", COLOR_N - 1u, F_ENUM, PGX_NODEF},
-    {PG_RND0, "ENGINES", 1, F_ONOFF, PGX_NODEF}, {PG_RND0 + 1, "SOUND", 1, F_ONOFF, PGX_NODEF},
-    {PG_RND0 + 2, "EFFECTS", 1, F_ONOFF, PGX_NODEF}, {PG_RND0 + 3, "MOVEMENT", 1, F_ONOFF, PGX_NODEF},
     {PG_GRV0, "AMOUNT", 127, F_NUM, TX_GR_AMOUNT_DEF}, {PG_GTYPE, "TYPE", TX_GR_NTYPES - 1u, F_GRV, TX_GR_TYPE_DEF},
     {PG_GSHIFT, "SHIFT", 31, F_NUM, 0}, {PGX_LANE | PL_GPART, "PART", TX_GRP_N - 1, F_ENUM, 0},
     {PGX_LANE | PL_GCYC, "CYCLE", 8, F_GRV, 0},
@@ -524,7 +512,6 @@ static int32_t p_get(uint32_t id)
         case PG_SCNTEMPO: return (int32_t)tm_get(TG_SCNTEMPO);
         case PG_SCNFX: return scn_fx_mode;
         case PG_COLOR: return p_color;
-        case PG_RND0: case PG_RND0 + 1: case PG_RND0 + 2: case PG_RND0 + 3: return dice_what >> (i - PG_RND0) & 1u;
         case PG_SCALE: return nt_scale;
         case PG_SCMODE: return nt_scmode;
         case PG_TRANS: return nt_trans + 24;
@@ -583,9 +570,6 @@ static void p_set(uint32_t id, int32_t v)
         case PG_SCNTEMPO: tempo_scene_flag((uint32_t)v); break;
         case PG_SCNFX: scn_fx_mode = (uint8_t)v; break;
         case PG_COLOR: color_apply((uint32_t)v); break;
-        case PG_RND0: case PG_RND0 + 1: case PG_RND0 + 2: case PG_RND0 + 3:   /* (RANDOM's ticks, a bit each) */
-            dice_what = (uint8_t)(v ? dice_what | 1u << (i - PG_RND0) : dice_what & ~(1u << (i - PG_RND0)));
-            break;
         case PG_SCALE: nt_scale = (uint8_t)v; break;
         case PG_SCMODE: nt_scmode = (uint8_t)v; break;
         case PG_TRANS: nt_trans = (int8_t)(v - 24); break;
