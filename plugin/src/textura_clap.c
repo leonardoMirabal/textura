@@ -769,10 +769,9 @@ int txp_ui_roll(txp_core *c, int lane)
         double t = mono_s();
         seed = (uint32_t)(uint64_t)(t * 1e6) ^ (uint32_t)(uint64_t)(t * 1e3) << 16 ^ c->dice_n * 2654435761u ^ (uint32_t)(uintptr_t)c;
     }
-    uq_put(c, UQ_BEGIN, TXP_ID_PRESET, 0);   /* (one gesture, the host's undo one step: the roll reaches the host as a
-                                              * preset load does, the app's own values) */
-    uq_put(c, UQ_EV + TXP_EV_DICE, a, (int32_t)(seed ? seed : 1u));
-    uq_put(c, UQ_END, TXP_ID_PRESET, 0);
+    uq_put(c, UQ_EV + TXP_EV_DICE, a, (int32_t)(seed ? seed : 1u));   /* (no PRESET gesture: a roll loads no factory preset,
+                                              * and a host answering one wrote PRESET back, loading the last factory
+                                              * preset under the roll: LANES 10 to that preset's 4) */
     ui_dirty(c);
     return 0;
 }

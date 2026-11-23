@@ -276,6 +276,24 @@ static void dice_mov(scn_t *t, uint32_t what)
     }
 }
 
+/* ---- an empty lane's place: the PAN farthest from every lane placed (m: their bits), a little jitter, so the left and
+ * the right stay even however many lanes fill */
+#define DICE_PAN_LO 16
+#define DICE_PAN_HI 112
+static uint8_t dice_pan(const scn_t *t, uint32_t m)
+{
+    int32_t p, best = 64, bs = -1;
+    uint32_t k;
+    for (p = DICE_PAN_LO; p <= DICE_PAN_HI; p += 2) {
+        int32_t d = 2 * (DICE_PAN_HI - DICE_PAN_LO);
+        for (k = 0; k < DICE_NL; k++)
+            if (m >> k & 1u) { int32_t e = p - (int32_t)t->pan[k]; if (e < 0) e = -e; if (e < d) d = e; }
+        d = d * 4 + (int32_t)dice_n(5);         /* (ties and near ties: at random) */
+        if (d > bs) { bs = d; best = p; }
+    }
+    return (uint8_t)best;
+}
+
 /* ---- the roll: what plays captured (the undo, as a load's), changed, applied as a load */
 static void dice_say(uint32_t what, int lane, const scn_t *t)   /* the toast (ui.c): "LANE 2 . RANDOM", "BROOK";
                                                  * "RANDOM . ROLLED", "ENGINES SOUND MOVEMENT" (all four: EVERYTHING) */
@@ -297,14 +315,14 @@ static void dice_say(uint32_t what, int lane, const scn_t *t)   /* the toast (ui
 static void dice_go(uint32_t what, int lane)
 {
     scn_t *t = &scn_b[scn_u ^ 1u];
-    uint32_t k, used;
+    uint32_t k, used, placed;
     scn_capture(&scn_b[scn_u]);                 /* (what played: the undo) */
     scn_bidx[scn_u] = scn_cur;
     scn_undo_ok = 1;
     scn_su.on = 0;
     memcpy(t, &scn_b[scn_u], sizeof *t);
     dice_drop(t, dice_is_id, PID(P_GLOBAL, PG_FINE));   /* (the tempo stays, whatever PRESETS CHANGE TEMPO says) */
-    used = dice_used(t);
+    placed = used = dice_used(t);
     dice_cp = 0;
     if ((what & DICE_ENG) && lane < 0)          /* (an empty lane in use: a sound, playing sparse, its own place) */
         for (k = 0; k < DICE_NL; k++) {
@@ -312,7 +330,8 @@ static void dice_go(uint32_t what, int lane)
             dice_engine(t, k);
             if (t->snd[k] < 0) continue;
             t->cnt[k] = (uint8_t)dice_in(1, 2); t->step[k] = (uint8_t)sc_act_step((uint32_t)dice_in(1, 3)); t->run[k] = 1;
-            t->pan[k] = (uint8_t)dice_in(20, 108);
+            t->pan[k] = dice_pan(t, placed);
+            placed |= 1u << k;
             if (what & DICE_SND) dice_cp |= (scn_lm_t)(1u << k);   /* (its cards: once its engine is in) */
         }
     for (k = 0; k < DICE_NL; k++) {

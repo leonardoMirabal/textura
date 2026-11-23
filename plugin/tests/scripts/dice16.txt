@@ -1,6 +1,7 @@
 # the general roll on sixteen lanes (dice.c): an empty lane in use gets a sound with ENGINES and starts playing, sparse
 # (HOW MANY 1 or 2), somewhere on the map. F034 WATERFALL on lanes 1 .. 4, lane 9 given a sound by CC 20 on channel 9
-# (LANES 9: lanes 5 .. 8 empty; lane 9 has a sound, not playing), then OCT- and OCT+ together (all four groups)
+# (LANES 9: lanes 5 .. 8 empty; lane 9 has a sound, not playing), then OCT- and OCT+ together (all four groups). The
+# filled lanes' PAN: each the farthest from those placed (lanes 1 .. 4 at 64 40 30 92, lane 9 at 64): 112 78 16 52
 1500 midi 0xC0 33 0
 2500 midi 0xB8 20 57
 3000 expect state snd5 -
@@ -8,9 +9,12 @@
 3200 btn 0
 3200 btn 1
 3300 expect state toasthd RANDOM
-6000 expect state snd5 grasshopper
 6000 expect state run5 1
-6000 expect state cnt5 1
+6000 expect state cnt5 2
 6000 expect state run6 1
 6000 expect state snd9 -
+6000 expect state pan4 112
+6000 expect state pan5 78
+6000 expect state pan6 16
+6000 expect state pan7 52
 end
