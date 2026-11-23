@@ -69,7 +69,7 @@ static const char *const PAL_N[TXP_COL_N] = { "BONE", "EMBER", "AMBER", "SAND", 
 #define MAX_W 900
 #define LIST_MAX 128
 
-enum { OV_NONE, OV_SET, OV_SND, OV_PRE, OV_FX, OV_SAVE, OV_RND };   /* (OV_RND: the top bar's dice, RANDOM's list) */
+enum { OV_NONE, OV_SET, OV_SND, OV_PRE, OV_FX, OV_SAVE, OV_RND };   /* (OV_RND: the top bar's dice's arrow, RANDOM's list) */
 enum { PB_USER = 100, PB_LAND = 101 };   /* the presets browser's banks past the factory's categories */
 /* the strip's sections, in signal order (the expanded view's tabs: these, LFO 1 .. 8, ENV and FOLLOW, the matrix) */
 enum { SEC_COMP, SEC_DRIVE, SEC_FILTER, SEC_DELAY, SEC_REVERB, SEC_MS, SEC_MOVE, SEC_N };
@@ -179,6 +179,13 @@ struct txg {
     char msg[112];
     int16_t lh[LH_N][16][4], mx_known[16][4];
     int tag_below;                       /* (the strip's cells: their tags under them) */
+    /* HELP: the tour's step (-1: none), started by the first open (its card says so); the texts' fit as drawn last (the
+     * top bar's, the card's, the menu's: txg_fits); the widest preset name's width (the top bar's room), for which scale
+     * and user names; the tour's flag's folder ("": none) */
+    int tour, tour_first, top_fit, tour_fit;
+    float pname_w, pname_s, top_need, top_room;
+    uint32_t pname_key;
+    char udir[1024];
     wid_t w[MAX_W];
     int nw;
     frg_client cl;
@@ -1055,9 +1062,10 @@ static void draw_meter(txg_t *g, frui_canvas *c, float x, float w, float yc)   /
     if (f > 0.f) RR(g, c, x, yc + 5.f, w * f, 4.f, 2.f, d > -10 ? C_RED : C_DIM);
     wid_add(g, TXG_W_LVL, -1, x, yc - 2.f - CAP(g, 11.f), w, CAP(g, 11.f) + 11.f);
 }
-/* the top bar's right end, sized by its texts: LEVEL (its label and widest value, its bar), the dice (RANDOM's list),
- * SETTINGS (its icon, its label) */
-#define TOP_DICE_W 34.f
+/* the top bar's right end, sized by its texts: LEVEL (its label and widest value, its bar), the dice (a roll) with its
+ * arrow (RANDOM's list: what a roll changes), SETTINGS (its icon, its label) */
+#define TOP_ROLL_W 32.f                  /* (the dice) */
+#define TOP_DICE_W 52.f                  /* (the dice and its arrow) */
 typedef struct { float mx, mw, dx, sx, sw; } top_r_t;
 static top_r_t top_r(txg_t *g)
 {
@@ -1071,16 +1079,54 @@ static top_r_t top_r(txg_t *g)
     return r;
 }
 static float meter_x(txg_t *g) { return top_r(g).mx; }
+/* the top bar's left: TEXTURA, HELP (a ? in a ring and its label: the tour), then the previous scene, the scene's box and
+ * the next (the box: its code, its name and "*" when edited, a caret at its right end). The box's room is measured at the
+ * widest name a scene can show (every factory preset, landscape and user preset now) with the widest code: top_fit; a name wider still (a user preset typed later) ends in "..." */
+#define HELP_D 16.f                      /* HELP's ? (round, in its button) */
+#define HELP_GAP 12.f                    /* (the logo to it) */
+#define NAV_GAP 8.f                      /* (it to the previous scene's button) */
+static float tag_w(txg_t *g, const char *t) { return TW(g, 13.f, 500.f, 0.4f, FRUI_TNUM, t); }
+static float pn_w(txg_t *g, const char *t) { return TW(g, 13.f, 500.f, 0.6f, 0, t); }
+static float pname_widest(txg_t *g)       /* the widest name the box can show now (cached by scale and user names) */
+{
+    uint32_t key = fnv(2166136261u, &g->sn.ui.user, sizeof g->sn.ui.user);
+    char nm[24];
+    float w = 0.f;
+    key = fnv(key, g->sn.ui.uname, sizeof g->sn.ui.uname);
+    if (g->pname_s == g->S && g->pname_key == key && g->pname_w > 0.f) return g->pname_w;
+    for (int i = 0; i < g->cat->npr; i++) w = fmaxf(w, pn_w(g, g->cat->pr[i]));
+    for (int f = 0; f < g->cat->nfam; f++) { upper(nm, g->cat->fam[f].name, sizeof nm); w = fmaxf(w, pn_w(g, nm)); }
+    for (int u = 0; u < (int)TXP_USER_N; u++) if (g->sn.ui.user >> u & 1u) w = fmaxf(w, pn_w(g, g->sn.ui.uname[u]));
+    w = fmaxf(w, pn_w(g, "NO SCENE"));
+    g->pname_w = w; g->pname_s = g->S; g->pname_key = key;
+    return w;
+}
+static float help_w(txg_t *g) { return ceilf(9.f + HELP_D + 7.f + LBLW(g, 11.f, "HELP") + 12.f); }   /* (its label measured) */
+static void help_button(txg_t *g, frui_canvas *c, float x, float y, float h)   /* a ? in a ring and HELP: the tour */
+{
+    int hot = g->hover_kind == TXG_W_HELP || g->tour >= 0;
+    float w = help_w(g), r = HELP_D * 0.5f, cx = x + 9.f + r, yc = y + h * 0.5f;
+    RR(g, c, x, y, w, h, 3.f, hot ? C_SEG : C_BTN); RRS(g, c, x, y, w, h, 3.f, hot ? C_DIM : C_LINE);
+    RI(g, c, cx, yc, r - 0.7f, 1.4f, C_INK);
+    TX(g, c, cx - TW(g, 11.f, 650.f, 0.f, 0, "?") * 0.5f, yc + CAP(g, 11.f) * 0.5f, 11.f, 650.f, 0.f, 0, C_INK, "?");
+    LBL(g, c, cx + r + 7.f, yc + CAP(g, 11.f) * 0.5f, 11.f, C_INK, "HELP");
+    wid_add(g, TXG_W_HELP, -1, x, y, w, h);
+}
 static void draw_top(txg_t *g, frui_canvas *c)
 {
     const float y = 12.f, h = 28.f, yc = y + h * 0.5f;
     char tag[8] = "", name[24] = "", t[32];
     const char *pr = g->sn.ui.preset, *sp = strchr(pr, ' ');
-    float x, bx0, xl = meter_x(g) - 146.f, xr = xl - 102.f, xu = xr - 66.f, xs = xu - 66.f, bx1 = xs - 40.f;
+    /* (PLAY ALL / STOP ALL: its icon, its label at its widest, 12 each side) */
+    float rw = ceilf(28.f + fmaxf(LBLW(g, 11.f, "STOP ALL"), LBLW(g, 11.f, "PLAY ALL")) + 12.f);
+    float x, bx0, xl = meter_x(g) - 146.f, xr = xl - 10.f - rw, xu = xr - 66.f, xs = xu - 66.f, bx1 = xs - 40.f, nr, need;
+    int fit = 1;
     R(g, c, 0, TOP_H - 1.f, g->W, 1.f, C_LINE);
     x = 18.f + TX(g, c, 18.f, yc + CAP(g, 19.f) * 0.5f, 19.f, 700.f, 5.f, 0, C_INK, "TEXTUR") + 5.f;
     x += TX(g, c, x, yc + CAP(g, 19.f) * 0.5f, 19.f, 700.f, 0.f, 0, C_RED, "A");
-    bx0 = x + 24.f + 34.f;               /* (the previous scene's button after the name) */
+    wid_add(g, TXG_W_LOGO, -1, 18.f, y, x - 18.f, h);
+    help_button(g, c, x + HELP_GAP, y, h);
+    bx0 = x + HELP_GAP + help_w(g) + NAV_GAP + 34.f;   /* (the previous scene's button after HELP) */
     /* the previous / next scene, the scene (a click: the presets browser) */
     RR(g, c, bx0 - 34.f, y, 28.f, h, 3.f, C_BTN); RRS(g, c, bx0 - 34.f, y, 28.f, h, 3.f, C_LINE);
     LN(g, c, bx0 - 17.f, yc - 5.f, bx0 - 22.f, yc, 1.4f, C_INK); LN(g, c, bx0 - 22.f, yc, bx0 - 17.f, yc + 5.f, 1.4f, C_INK);
@@ -1095,15 +1141,29 @@ static void draw_top(txg_t *g, frui_canvas *c)
     else if (pr[0]) snprintf(name, sizeof name, "%s", pr);
     else if (g->sn.ui.land < g->cat->nfam) { snprintf(tag, sizeof tag, "L%02d", g->sn.ui.land + 1); upper(name, g->cat->fam[g->sn.ui.land].name, sizeof name); }
     else snprintf(name, sizeof name, "NO SCENE");
-    clipL(g, c, bx0, y, bx1 - bx0 - 90.f, h);
+    /* (the name's room: from the code to the caret; the code, the name and "*" at their widest must fit it. The lane count
+     * is LANES' own, beside it) */
+    nr = bx1 - 26.f;
+    need = 12.f + fmaxf(fmaxf(tag_w(g, "F000"), tag_w(g, "U00")), tag_w(g, "L00")) + 12.f + pname_widest(g) + 6.f +
+           TW(g, 13.f, 500.f, 0.f, 0, "*");
+    fit &= bx0 + need <= nr;
+    clipL(g, c, bx0, y, nr - bx0, h);
     x = bx0 + 12.f;
     if (tag[0]) x += TX(g, c, x, yc + CAP(g, 13.f) * 0.5f, 13.f, 500.f, 0.4f, FRUI_TNUM, C_RED, tag) + 12.f;
-    x += TX(g, c, x, yc + CAP(g, 13.f) * 0.5f, 13.f, 500.f, 0.6f, 0, C_INK, name);
+    {   /* (a name wider than its room, as a user preset can be: cut with "...", "*" after it) */
+        char nm[32];
+        float sw = g->sn.ui.edited ? 6.f + TW(g, 13.f, 500.f, 0.f, 0, "*") : 0.f;
+        ell(g, nm, sizeof nm, name, nr - x - sw, 13.f, 500.f, 0.6f);
+        x += TX(g, c, x, yc + CAP(g, 13.f) * 0.5f, 13.f, 500.f, 0.6f, 0, C_INK, nm);
+    }
     if (g->sn.ui.edited) TX(g, c, x + 6.f, yc + CAP(g, 13.f) * 0.5f, 13.f, 500.f, 0.f, 0, C_DIM, "*");
     frui_clip_reset(c);
-    snprintf(t, sizeof t, "%d LANE%s", g->nlane, g->nlane == 1 ? "" : "S");
-    LBL(g, c, bx1 - 26.f - LBLW(g, 10.5f, t), yc + CAP(g, 10.5f) * 0.5f, 10.5f, C_DIM, t);
     caret(g, c, bx1 - 14.f, yc, C_DIM);
+    /* (the buttons' labels in their boxes, LANES before its minus: the rest of top_fit; HELP's is measured, help_w) */
+    fit &= LBLW(g, 11.f, "SAVE") + 16.f <= 60.f && LBLW(g, 11.f, "UNDO") + 16.f <= 60.f;
+    fit &= LBLW(g, 11.f, "LANES") + 6.f <= 54.f && xl + 54.f + 56.f + 24.f + 8.f <= meter_x(g);
+    g->top_fit = fit;
+    g->top_need = need; g->top_room = nr - bx0;
     /* SAVE, UNDO, PLAY ALL / STOP ALL (the FM-1's REC: all stopped is plain to see) */
     g->sv_x = xs;
     RR(g, c, xs, y, 60.f, h, 3.f, g->ov == OV_SAVE ? C_SEG : C_BTN); RRS(g, c, xs, y, 60.f, h, 3.f, g->ov == OV_SAVE ? C_DIM : C_LINE);
@@ -1115,7 +1175,7 @@ static void draw_top(txg_t *g, frui_canvas *c)
     {
         int run = g->sn.ui.any_run, stopped = !run && any_used(g);
         const char *rt = run ? "STOP ALL" : "PLAY ALL";
-        RR(g, c, xr, y, 92.f, h, 3.f, stopped ? C_INK : C_BTN); RRS(g, c, xr, y, 92.f, h, 3.f, stopped ? C_INK : C_LINE);
+        RR(g, c, xr, y, rw, h, 3.f, stopped ? C_INK : C_BTN); RRS(g, c, xr, y, rw, h, 3.f, stopped ? C_INK : C_LINE);
         if (run) R(g, c, xr + 12.f, yc - 4.f, 8.f, 8.f, C_INK);
         else {
             frui_path p;
@@ -1127,7 +1187,7 @@ static void draw_top(txg_t *g, frui_canvas *c)
             frui_path_free(&p);
         }
         LBL(g, c, xr + 28.f, yc + CAP(g, 11.f) * 0.5f, 11.f, stopped ? C_PANEL : C_INK, rt);
-        wid_add(g, TXG_W_REC, -1, xr, y, 92.f, h);
+        wid_add(g, TXG_W_REC, -1, xr, y, rw, h);
     }
     /* LANES */
     x = xl;
@@ -1146,14 +1206,21 @@ static void draw_top(txg_t *g, frui_canvas *c)
     wid_add(g, TXG_W_LUP, -1, x, y + 2.f, 24.f, h - 4.f);
     {
         top_r_t tr = top_r(g);
-        int on = g->ov == OV_RND, hot = g->hover_kind == TXG_W_RND;
+        int on = g->ov == OV_RND, hr = g->hover_kind == TXG_W_RND, hm = g->hover_kind == TXG_W_RNDMENU;
+        const float aw = TOP_DICE_W - TOP_ROLL_W, ax = tr.dx + TOP_ROLL_W;
         draw_meter(g, c, tr.mx, tr.mw, yc);
-        /* the dice: RANDOM's list (a dice, a down chevron) */
+        /* the dice (a click: a roll, as ticked) and its arrow (RANDOM's list), one button split by a line */
         x = tr.dx;
-        RR(g, c, x, y, TOP_DICE_W, h, 3.f, on || hot ? C_SEG : C_BTN); RRS(g, c, x, y, TOP_DICE_W, h, 3.f, on || hot ? C_DIM : C_LINE);
-        dice_icon(g, c, x + 11.5f, yc, 17.f, C_INK);
-        LN(g, c, x + 24.f, yc - 1.5f, x + 27.f, yc + 1.5f, 1.3f, C_DIM); LN(g, c, x + 27.f, yc + 1.5f, x + 30.f, yc - 1.5f, 1.3f, C_DIM);
-        wid_add(g, TXG_W_RND, -1, x, y, TOP_DICE_W, h);
+        RR(g, c, x, y, TOP_DICE_W, h, 3.f, C_BTN);
+        if (hr) RR(g, c, x, y, TOP_ROLL_W, h, 3.f, C_SEG);
+        if (on || hm) RR(g, c, ax, y, aw, h, 3.f, C_SEG);
+        RRS(g, c, x, y, TOP_DICE_W, h, 3.f, on || hr || hm ? C_DIM : C_LINE);
+        R(g, c, ax, y + 5.f, 1.f, h - 10.f, C_LINE);
+        dice_icon(g, c, x + TOP_ROLL_W * 0.5f, yc, 17.f, C_INK);
+        LN(g, c, ax + aw * 0.5f - 3.5f, yc - 1.5f, ax + aw * 0.5f, yc + 2.f, 1.4f, on ? C_RED : hm ? C_INK : C_DIM);
+        LN(g, c, ax + aw * 0.5f, yc + 2.f, ax + aw * 0.5f + 3.5f, yc - 1.5f, 1.4f, on ? C_RED : hm ? C_INK : C_DIM);
+        wid_add(g, TXG_W_RND, -1, x, y, TOP_ROLL_W, h);
+        wid_add(g, TXG_W_RNDMENU, -1, ax, y, aw, h);
         /* SETTINGS */
         x = tr.sx;
         RR(g, c, x, y, tr.sw, h, 3.f, g->ov == OV_SET ? C_SEG : C_BTN); RRS(g, c, x, y, tr.sw, h, 3.f, C_LINE);
@@ -3162,9 +3229,12 @@ static void dice_tip(txg_t *g, frui_canvas *c)
     if (g->hover_kind == TXG_W_DICE && g->ov != OV_RND && txg_find(g, TXG_W_DICE, g->hover_lane, r)) {
         snprintf(t, sizeof t, "Random engine on lane %d", g->hover_lane + 1);
         s2 = "  \xC2\xB7  UNDO takes it back";
-    } else if (g->hover_kind == TXG_W_RND && g->ov != OV_RND && txg_find(g, TXG_W_RND, -1, r)) {
-        snprintf(t, sizeof t, "RANDOM");
-        s2 = "  \xC2\xB7  roll engines, sound, effects, movement";
+    } else if (g->hover_kind == TXG_W_RND && txg_find(g, TXG_W_RND, -1, r)) {
+        snprintf(t, sizeof t, "Roll");
+        s2 = "  \xC2\xB7  what the arrow has ticked; UNDO takes it back";
+    } else if (g->hover_kind == TXG_W_RNDMENU && g->ov != OV_RND && txg_find(g, TXG_W_RNDMENU, -1, r)) {
+        snprintf(t, sizeof t, "What a roll changes");
+        s2 = "  \xC2\xB7  engines, sound, effects, movement";
     } else return;
     w = TW(g, 11.5f, 450.f, 0.f, 0, t) + TW(g, 11.5f, 450.f, 0.f, 0, s2) + 18.f;
     x = r[0]; y = r[1] + r[3] + 6.f;
@@ -3317,6 +3387,184 @@ static void draw_ghost(txg_t *g, frui_canvas *c)
     RR(g, c, g->gx + 12.f, g->gy + 12.f, w, 22.f, 3.f, C_RED);
     LBL(g, c, g->gx + 22.f, g->gy + 23.f + CAP(g, 10.f) * 0.5f, 10.f, 0xFFFFFFFFu, nm);
 }
+/* ---- HELP: the top bar's ? starts the tour; its last card opens the online manual in the system's browser (gui_platform.h
+ * frg_open_url) */
+#define TXG_MANUAL_URL "https://github.com/leonardoMirabal/textura/blob/main/docs/PLUGIN-MANUAL.md"
+static void manual_open(txg_t *g)         /* (a test run: said, never opened) */
+{
+    if (txp_ui_test(g->c)) say(g, "The manual opens in your browser (not in a test run).");
+    else if (frg_open_url(TXG_MANUAL_URL)) say(g, "No browser could be opened: " TXG_MANUAL_URL);
+    else say(g, "The manual opens in your browser.");
+}
+/* ---- the tour: eight steps in the order a place is made (a preset, the lanes, the place, the lane's controls, the
+ * effects, the movement, the dice, HELP). Each step lights its part of the window (from the controls as drawn: any
+ * size) and dims the rest; its card goes under the part, else over it, else beside it, always inside the window. NEXT
+ * (Right, Return), BACK (Left), SKIP (Esc); DONE on the last. SKIP and DONE write the flag (txg_first_run) */
+#define TOUR_N 8
+#define TC_W 300.f                       /* the card */
+#define TC_PAD 16.f
+#define TC_LH 18.75f                     /* (its text's line: 12.5 x 1.5) */
+#define TC_GAP 14.f                      /* (the card to the part it is about) */
+static const char *const TOUR_T[TOUR_N] = { "Start from a place", "Lanes: one source each", "Place them",
+                                            "Shape the selected lane", "The effects, in signal order", "Movement",
+                                            "Roll the dice", "Help is here" };
+static const char *const TOUR_P[TOUR_N] = {
+    "Pick a preset with the arrows or the list. Each is a whole place: up to sixteen lanes of sound, the effects and the "
+    "movement.",
+    "Every lane plays one sound source. HOW MANY: how many play at once. HOW ACTIVE: how busy they are. VOL, PAN, M and "
+    "S as on a mixer.",
+    "Drag a lane's dot: left and right, near and far. Far sounds are quieter and darker, as outdoors.",
+    "The lane you clicked shows its controls here, each named for what it does to the sound, with a line saying how.",
+    "COMP, DRIVE, FILTER, DELAY, REVERB, M/S, left to right as the sound goes through them. ALL opens one large.",
+    "LFOs, envelopes and followers move controls over time. ALL opens them; a control that moves shows it in red.",
+    "A lane's dice gives it a new engine. The dice at the top right rolls the whole place; its arrow picks what a roll "
+    "changes. UNDO takes a roll back.",
+    "HELP starts this tour again. MANUAL opens the full manual in your browser. Enjoy the places." };
+static int tour_rect(txg_t *g, int i, float o[4])   /* the part step i lights, from the controls as drawn now */
+{
+    float a[4], b[4];
+    switch (i) {
+    case 0:                              /* the scene: from the previous to the next button */
+        if (!txg_find(g, TXG_W_PREV, -1, a) || !txg_find(g, TXG_W_NEXT, -1, b)) return 0;
+        o[0] = a[0] - 6.f; o[1] = a[1] - 6.f; o[2] = b[0] + b[2] + 6.f - o[0]; o[3] = a[3] + 12.f;
+        return 1;
+    case 1: {                            /* the rows: their names and the lanes in sight */
+        int n = g->nlane - g->rtop < g->rvis ? g->nlane - g->rtop : g->rvis;
+        if (!txg_find(g, TXG_W_ROWS, -1, a)) return 0;
+        o[0] = a[0]; o[1] = a[1] - HDR_H; o[2] = a[2]; o[3] = fminf(HDR_H + ROW_H * (float)(n > 0 ? n : 1) + 4.f, a[3] + HDR_H);
+        return 1;
+    }
+    case 2:                              /* the place */
+        if (!txg_find(g, TXG_W_PLACE, -1, a)) return 0;
+        memcpy(o, a, sizeof a);
+        return 1;
+    case 3:                              /* the drawer: its name and cards (draw_drawer: PAN .. CYCLE from W - 182) */
+        o[0] = 0.f; o[1] = g->dr_y; o[2] = g->W - 182.f - 6.f; o[3] = g->dr_h;
+        return 1;
+    case 4: case 5:                      /* the strip: the effects, then MOVEMENT */
+        if (!txg_find(g, TXG_W_FXOPEN, SEC_MOVE, a)) return 0;
+        o[1] = g->fx_y; o[3] = FX_H;
+        if (i == 4) { o[0] = 0.f; o[2] = a[0] - 1.f; } else { o[0] = a[0] - 1.f; o[2] = g->W - o[0]; }
+        return 1;
+    case 6: {                            /* the rows' dice (none: the top bar's) */
+        int n = 0;
+        for (int k = g->rtop; k < g->nlane && k < g->rtop + g->rvis; k++) {
+            if (!txg_find(g, TXG_W_DICE, k, b)) continue;
+            if (!n++) memcpy(a, b, sizeof a);
+            else { float y1 = fmaxf(a[1] + a[3], b[1] + b[3]); a[1] = fminf(a[1], b[1]); a[3] = y1 - a[1]; }
+        }
+        if (!n && !txg_find(g, TXG_W_RND, -1, a)) return 0;
+        o[0] = a[0] - 6.f; o[1] = a[1] - 7.f; o[2] = a[2] + 12.f; o[3] = a[3] + 14.f;
+        return 1;
+    }
+    case 7:                              /* HELP */
+        if (!txg_find(g, TXG_W_HELP, -1, a)) return 0;
+        o[0] = a[0] - 7.f; o[1] = a[1] - 7.f; o[2] = a[2] + 14.f; o[3] = a[3] + 14.f;
+        return 1;
+    }
+    return 0;
+}
+static float tour_card_h(txg_t *g, int i, int *lines)
+{
+    int n = wrap_lines(g, TC_W - 2.f * TC_PAD, TOUR_P[i], TC_LH, 12.5f);
+    if (lines) *lines = n;
+    return TC_PAD + 13.2f + 6.f + 19.2f + 6.f + TC_LH * (float)n + 12.f + 6.f + 12.f + 28.f + 14.f;
+}
+static void tour_card_at(const txg_t *g, const float r[4], float ch, float *cx, float *cy)   /* under, over, right, left */
+{
+    float x = r[0], y = r[1], w = r[2], h = r[3];
+    if (y + h + TC_GAP + ch <= g->H - 8.f) { *cy = y + h + TC_GAP; *cx = x + w * 0.5f - TC_W * 0.5f; }
+    else if (y - TC_GAP - ch >= 8.f) { *cy = y - TC_GAP - ch; *cx = x + w * 0.5f - TC_W * 0.5f; }
+    else if (x + w + TC_GAP + TC_W <= g->W - 8.f) { *cx = x + w + TC_GAP; *cy = y + h * 0.5f - ch * 0.5f; }
+    else { *cx = x - TC_GAP - TC_W; *cy = y + h * 0.5f - ch * 0.5f; }
+    *cx = fmaxf(8.f, fminf(g->W - 8.f - TC_W, *cx));
+    *cy = fmaxf(8.f, fminf(g->H - 8.f - ch, *cy));
+}
+static void tour_dim(txg_t *g, frui_canvas *c, const float r[4], float rad)   /* the window dimmed but r (rounded) */
+{
+    frui_path p;
+    float S = g->S, x0 = r[0] * S, y0 = r[1] * S, x1 = (r[0] + r[2]) * S, y1 = (r[1] + r[3]) * S, k = rad * S;
+    frui_path_init(&p);
+    frui_path_move(&p, 0.f, 0.f); frui_path_line(&p, g->W * S, 0.f); frui_path_line(&p, g->W * S, g->H * S);
+    frui_path_line(&p, 0.f, g->H * S);
+    frui_path_move(&p, x1 - k, y0); frui_path_line(&p, x0 + k, y0); frui_path_quad(&p, x0, y0, x0, y0 + k);   /* (the hole:
+                                          * the other way round) */
+    frui_path_line(&p, x0, y1 - k); frui_path_quad(&p, x0, y1, x0 + k, y1);
+    frui_path_line(&p, x1 - k, y1); frui_path_quad(&p, x1, y1, x1, y1 - k);
+    frui_path_line(&p, x1, y0 + k); frui_path_quad(&p, x1, y0, x1 - k, y0);
+    frui_path_fill(c, &p, 0xB8050404u);  /* (72 %) */
+    frui_path_free(&p);
+}
+static void draw_tour(txg_t *g, frui_canvas *c)
+{
+    const int i = g->tour;
+    float r[4], ch, cx, cy, ty, x1, bw, nw, bx, nx, room = TC_W - 2.f * TC_PAD;
+    int n, fit = 1, last = i == TOUR_N - 1;
+    char t[24];
+    const char *nt = last ? "DONE" : "NEXT", *side = g->tour_first ? "FIRST-RUN GUIDE" : "THE TOUR";
+    if (!tour_rect(g, i, r)) { r[0] = g->W * 0.5f; r[1] = TOP_H; r[2] = 0.f; r[3] = 0.f; }
+    {   /* (2 px in from the window's edges: its outline whole) */
+        float x1 = fminf(r[0] + r[2], g->W - 2.f), y1 = fminf(r[1] + r[3], g->H - 2.f);
+        r[0] = fmaxf(r[0], 2.f); r[1] = fmaxf(r[1], 2.f); r[2] = fmaxf(x1 - r[0], 0.f); r[3] = fmaxf(y1 - r[1], 0.f);
+    }
+    tour_dim(g, c, r, 6.f);
+    frui_rrect_stroke(c, (r[0] - 1.f) * g->S, (r[1] - 1.f) * g->S, (r[2] + 2.f) * g->S, (r[3] + 2.f) * g->S, 7.f * g->S, 2.f * g->S, C_RED);
+    wid_add(g, TXG_W_TOURLIT, i, r[0], r[1], r[2], r[3]);
+    ch = tour_card_h(g, i, &n);
+    tour_card_at(g, r, ch, &cx, &cy);
+    wid_add(g, TXG_W_TOUR, i, cx, cy, TC_W, ch);
+    frui_rrect_shadow(c, cx * g->S, (cy + 8.f) * g->S, TC_W * g->S, ch * g->S, 8.f * g->S, 20.f * g->S, 0xCC000000u);
+    RR(g, c, cx, cy, TC_W, ch, 8.f, 0xFF141313u); RRS(g, c, cx, cy, TC_W, ch, 8.f, 0xFF3A3736u);
+    x1 = cx + TC_W - TC_PAD;
+    ty = cy + TC_PAD;
+    snprintf(t, sizeof t, "STEP %d OF %d", i + 1, TOUR_N);
+    {
+        float sw = TW(g, 11.f, 500.f, 11.f * 0.08f, 0, side), lw;
+        lw = TX(g, c, cx + TC_PAD, ty + 6.6f + CAP(g, 11.f) * 0.5f, 11.f, 620.f, 11.f * 0.16f, 0, C_RED, t);
+        TX(g, c, x1 - sw, ty + 6.6f + CAP(g, 11.f) * 0.5f, 11.f, 500.f, 11.f * 0.08f, 0, C_DIM, side);
+        fit &= lw + 12.f + sw <= room;
+    }
+    ty += 13.2f + 6.f;
+    fit &= TX(g, c, cx + TC_PAD, ty + 9.6f + CAP(g, 16.f) * 0.5f, 16.f, 620.f, 0.16f, 0, C_INK, TOUR_T[i]) <= room;
+    ty += 19.2f + 6.f;
+    (void)wrapn(g, c, cx + TC_PAD, ty + TC_LH * 0.5f + CAP(g, 12.5f) * 0.5f, room, TOUR_P[i], n, TC_LH, 12.5f, 0xFFCFC9C3u);
+    fit &= n < 8;                        /* (wrap_lines' most: the text whole) */
+    ty += TC_LH * (float)n + 12.f;
+    for (int k = 0; k < TOUR_N; k++) CI(g, c, cx + TC_PAD + 3.f + 11.f * (float)k, ty + 3.f, 3.f, k == i ? C_RED : C_FAINT);
+    ty += 6.f + 12.f;
+    /* SKIP (a word, at the left), MANUAL (the last step), BACK, NEXT / DONE (at the right) */
+    {
+        int hs = g->hover_kind == TXG_W_TOURBTN && g->hover_lane == 0, hb = g->hover_kind == TXG_W_TOURBTN && g->hover_lane == 1,
+            hn = g->hover_kind == TXG_W_TOURBTN && g->hover_lane == 2;
+        float sk = TW(g, 11.5f, 620.f, 1.15f, 0, "SKIP");
+        float yb = ty + 14.f + CAP(g, 11.5f) * 0.5f;
+        nw = TW(g, 11.5f, 620.f, 1.15f, 0, nt) + 24.f; bw = TW(g, 11.5f, 620.f, 1.15f, 0, "BACK") + 24.f;
+        nx = x1 - nw; bx = nx - 8.f - bw;
+        TX(g, c, cx + TC_PAD + 4.f, yb, 11.5f, 620.f, 1.15f, 0, hs ? C_INK : C_DIM, "SKIP");
+        wid_add(g, TXG_W_TOURBTN, 0, cx + TC_PAD, ty, sk + 8.f, 28.f);
+        if (i > 0) {
+            RR(g, c, bx, ty, bw, 28.f, 4.f, hb ? C_SEG : C_BTN);
+            TX(g, c, bx + 12.f, yb, 11.5f, 620.f, 1.15f, 0, C_INK, "BACK");
+            wid_add(g, TXG_W_TOURBTN, 1, bx, ty, bw, 28.f);
+        } else {                         /* (the first step: BACK there, dim) */
+            RR(g, c, bx, ty, bw, 28.f, 4.f, frui_alpha(C_BTN, 0.35f));
+            TX(g, c, bx + 12.f, yb, 11.5f, 620.f, 1.15f, 0, frui_alpha(C_INK, 0.35f), "BACK");
+        }
+        RR(g, c, nx, ty, nw, 28.f, 4.f, hn ? 0xFFF25D50u : C_RED);
+        TX(g, c, nx + 12.f, yb, 11.5f, 620.f, 1.15f, 0, 0xFFFFFFFFu, nt);
+        wid_add(g, TXG_W_TOURBTN, 2, nx, ty, nw, 28.f);
+        if (last) {                      /* (the last step: MANUAL before BACK) */
+            int hm = g->hover_kind == TXG_W_TOURBTN && g->hover_lane == 3;
+            float mw = TW(g, 11.5f, 620.f, 1.15f, 0, "MANUAL") + 24.f, mx = bx - 8.f - mw;
+            RR(g, c, mx, ty, mw, 28.f, 4.f, hm ? C_SEG : C_BTN);
+            TX(g, c, mx + 12.f, yb, 11.5f, 620.f, 1.15f, 0, C_INK, "MANUAL");
+            wid_add(g, TXG_W_TOURBTN, 3, mx, ty, mw, 28.f);
+            bx = mx;
+        }
+        fit &= cx + TC_PAD + sk + 8.f + 8.f <= bx;
+    }
+    g->tour_fit = fit;
+}
 static void draw_all(txg_t *g, frui_canvas *c)
 {
     g->nw = 0;
@@ -3335,11 +3583,12 @@ static void draw_all(txg_t *g, frui_canvas *c)
         if (g->drag == TXG_W_GRIP && g->drag_moved) draw_ghost(g, c);
         if (g->ov == OV_SAVE) draw_save(g, c);
         if (g->ov == OV_RND) draw_rnd(g, c);
-        if (g->menu_on) draw_menu(g, c);
+                if (g->menu_on) draw_menu(g, c);
     }
     hint_tip(g, c);
     dice_tip(g, c);
     draw_picker(g, c);
+    if (g->tour >= 0) draw_tour(g, c);
 }
 
 /* ---- reading what plays */
@@ -3481,6 +3730,7 @@ int txg_tick(txg_t *g)
         h = fnv(h, v, sizeof v);
         if (g->msg_t > 0) h = fnv(h, g->msg, sizeof g->msg);
     }
+    { int v[2] = { g->tour, g->tour_first }; h = fnv(h, v, sizeof v); }   /* (HELP: the tour's step) */
     if (g->ov == OV_SET || g->ov == OV_PRE) {   /* (the settings they show: the window's own writes too) */
         static const int GL[] = { TXP_PG_SCNTEMPO, TXP_PG_SCNFX, TXP_PG_GAMOUNT, TXP_PG_GTYPE, TXP_PG_GSHIFT, TXP_PG_SCALE,
                                   TXP_PG_ROOT, TXP_PG_SELCH, TXP_PG_SCMODE, TXP_PG_TRANS, TXP_PG_CHG };
@@ -3574,6 +3824,14 @@ static const wid_t *hit(const txg_t *g, float x, float y)   /* the last-drawn co
 {
     const wid_t *best = 0;
     float bd = 1e9f;
+    if (g->tour >= 0) {                  /* (the tour: its card's buttons, else nothing) */
+        for (int i = g->nw - 1; i >= 0; i--) {
+            const wid_t *w = &g->w[i];
+            if ((w->kind == TXG_W_TOURBTN || w->kind == TXG_W_TOUR) && x >= w->r[0] && x < w->r[0] + w->r[2] && y >= w->r[1] &&
+                y < w->r[1] + w->r[3]) return w;
+        }
+        return 0;
+    }
     if (g->menu_on) {                    /* (the right-click menu: its items, else nothing) */
         for (int i = g->nw - 1; i >= 0; i--) {
             const wid_t *w = &g->w[i];
@@ -3611,7 +3869,7 @@ static const wid_t *hit(const txg_t *g, float x, float y)   /* the last-drawn co
         const wid_t *w = &g->w[i];
         if (w->kind == TXG_W_DOT || w->kind == TXG_W_PLACE || w->kind == TXG_W_MAPR || w->kind == TXG_W_CMETER || w->kind == TXG_W_TIP ||
             w->kind == TXG_W_FXD || w->kind == TXG_W_MBAR || w->kind == TXG_W_MSG || w->kind == TXG_W_NOMOVE || w->kind == TXG_W_MENU ||
-            w->kind == TXG_W_MSM || w->kind == TXG_W_LVL) continue;
+            w->kind == TXG_W_MSM || w->kind == TXG_W_LVL || w->kind == TXG_W_LOGO || w->kind == TXG_W_TOURLIT) continue;
         if (x >= w->r[0] && x < w->r[0] + w->r[2] && y >= w->r[1] && y < w->r[1] + w->r[3]) {
             if (w->kind == TXG_W_ROW || w->kind == TXG_W_ROWS) { if (!best || best->kind == TXG_W_ROWS) best = w; continue; }   /* (a row:
                                           * only when nothing in it is hit) */
@@ -3951,10 +4209,81 @@ static int ov_key(txg_t *g, const frg_input *e)   /* the keys while an overlay i
     }
     return 0;
 }
+/* the tour's flag: a file in the window's own folder (txg_tour_dir), written by SKIP or DONE */
+#define TOUR_FLAG "tour-seen"
+static void tour_end(txg_t *g)
+{
+    g->tour = -1;
+    g->hover_kind = 0; g->hover_lane = -1;
+    if (g->udir[0]) {
+        char p[1100];
+        FILE *f;
+        snprintf(p, sizeof p, "%s/%s", g->udir, TOUR_FLAG);
+        if ((f = fopen(p, "wb"))) { fputs("1\n", f); fclose(f); }
+    }
+}
+static void tour_go(txg_t *g, int d)      /* NEXT (+1; the last: DONE) or BACK (-1; none on the first) */
+{
+    if (d > 0 && g->tour >= TOUR_N - 1) { tour_end(g); return; }
+    if (d < 0 && g->tour <= 0) return;
+    g->tour += d;
+}
+static int tour_input(txg_t *g, const frg_input *e)   /* the tour on: its card's buttons, its keys; the rest waits */
+{
+    const wid_t *w;
+    switch (e->kind) {
+    case FRG_DOWN: case FRG_DOUBLE:
+        if (e->button != FRG_LEFT) return 2;
+        w = hit(g, e->x, e->y);
+        if (!w || w->kind != TXG_W_TOURBTN) return 2;
+        if (w->lane == 3) manual_open(g);
+        else if (w->lane == 0) tour_end(g); else tour_go(g, w->lane == 1 ? -1 : 1);
+        return 3;
+    case FRG_MOVE: {
+        int hk = 0, hl = -1;
+        w = hit(g, e->x, e->y);
+        if (w && w->kind == TXG_W_TOURBTN) { hk = w->kind; hl = w->lane; }
+        if (hk != g->hover_kind || hl != g->hover_lane) { g->hover_kind = hk; g->hover_lane = hl; return 1; }
+        return 0;
+    }
+    case FRG_KEY:
+        if (e->key == FRK_RIGHT || e->key == FRK_RETURN) tour_go(g, 1);
+        else if (e->key == FRK_LEFT) tour_go(g, -1);
+        else if (e->key == FRK_ESCAPE) tour_end(g);
+        else return 2;
+        return 3;
+    case FRG_LEAVE: case FRG_FOCUS_LOST:
+        g->hover_kind = 0; g->hover_lane = -1;
+        return 1;
+    case FRG_WHEEL: return 2;
+    }
+    return 0;
+}
+void txg_tour_start(txg_t *g, int first)
+{
+    if (g->drag) drag_end(g);
+    if (g->ov == OV_SND) sb_close(g, 0);
+    mode_set(g, 0);
+    g->ov = OV_NONE; g->pick = -1; g->q[0] = 0;
+    g->hover_kind = 0; g->hover_lane = -1;
+    g->tour = 0; g->tour_first = first != 0;
+}
+void txg_tour_dir(txg_t *g, const char *dir) { snprintf(g->udir, sizeof g->udir, "%s", dir ? dir : ""); }
+int txg_first_run(const char *dir, int test)
+{
+    char p[1100];
+    FILE *f;
+    if (test || !dir || !dir[0]) return 0;
+    snprintf(p, sizeof p, "%s/%s", dir, TOUR_FLAG);
+    if ((f = fopen(p, "rb"))) { fclose(f); return 0; }
+    return 1;
+}
+int txg_fits(const txg_t *g, int what) { return what == 0 ? g->top_fit : g->tour_fit; }
 static int input_(txg_t *g, const frg_input *e)
 {
     const wid_t *w;
     int k;
+    if (g->tour >= 0) return tour_input(g, e);
     switch (e->kind) {
     case FRG_DOWN: case FRG_DOUBLE:
         if (e->button == FRG_RIGHT && e->kind == FRG_DOWN) {   /* the right-click menu on a value */
@@ -4034,9 +4363,9 @@ static int input_(txg_t *g, const frg_input *e)
         }
         if (g->ov == OV_RND && (!w || (w->kind != TXG_W_RNDTICK && w->kind != TXG_W_RNDGO && w->kind != TXG_W_CLOSE &&
                                        !(w->kind == TXG_W_PICKER && w->lane == -3)))) {   /* (outside RANDOM's list: it
-                                          * closes; on the dice itself: closed) */
-            g->ov = OV_NONE;
-            if (w && w->kind == TXG_W_RND) return 3;
+                                          * closes, but on the dice (a roll, the list kept); on the arrow: closed) */
+            if (!w || w->kind != TXG_W_RND) g->ov = OV_NONE;
+            if (w && w->kind == TXG_W_RNDMENU) return 3;
         }
         if (!w) return 2;
         k = w->lane;
@@ -4055,9 +4384,10 @@ static int input_(txg_t *g, const frg_input *e)
             g->ov = g->ov == OV_SET ? OV_NONE : OV_SET; g->pick = -1; g->q[0] = 0;
             break;
         case TXG_W_SAVE: if (g->ov == OV_SND) sb_close(g, 0); mode_set(g, 0); save_open(g); break;
-        case TXG_W_RND: if (g->ov == OV_SND) sb_close(g, 0); mode_set(g, 0); g->ov = OV_RND; g->pick = -1; break;
+        case TXG_W_RNDMENU: if (g->ov == OV_SND) sb_close(g, 0); mode_set(g, 0); g->ov = OV_RND; g->pick = -1; break;
         case TXG_W_RNDTICK: if (k >= 0 && k < 4) txp_ui_dice_set(g->c, txp_ui_dice(g->c) ^ 1 << k); break;
-        case TXG_W_RNDGO:
+        case TXG_W_HELP: txg_tour_start(g, 0); break;
+        case TXG_W_RND: case TXG_W_RNDGO:
             if (txp_ui_roll(g->c, -1)) { say(g, "Nothing ticked: tick at least one to roll."); break; }
             if (txp_ui_dice(g->c) & 8) g->lh_n = 0;   /* (MOVEMENT rolled: the links' own undo no longer holds) */
             say(g, "Rolled. UNDO takes it back.");
@@ -4243,7 +4573,8 @@ static int input_(txg_t *g, const frg_input *e)
                       w->kind == TXG_W_LRUN || w->kind == TXG_W_DRUN || w->kind == TXG_W_PREVIEW || w->kind == TXG_W_SRC ||
                       w->kind == TXG_W_GRIP || w->kind == TXG_W_MENU || w->kind == TXG_W_CLRALL || w->kind == TXG_W_MDONE ||
                       w->kind == TXG_W_MCLEAR || w->kind == TXG_W_DICE || w->kind == TXG_W_RND || w->kind == TXG_W_RNDTICK ||
-                      w->kind == TXG_W_RNDGO || (w->kind == TXG_W_CLOSE && w->lane == -3))) {
+                      w->kind == TXG_W_RNDGO || (w->kind == TXG_W_CLOSE && w->lane == -3) || w->kind == TXG_W_HELP ||
+                      w->kind == TXG_W_RNDMENU)) {
                 hk = w->kind == TXG_W_GRIP ? TXG_W_SRC : w->kind; hl = w->lane;   /* (the grip lights its tile) */
             }
             else if (w && w->kind == TXG_W_PARAM && txg_find(g, TXG_W_TIP, w->lane, r) && e->x >= r[0] && e->x < r[0] + r[2] &&
@@ -4410,6 +4741,8 @@ txg_t *txg_new(txp_core *c)
     g->pb_cur = -1;
     g->pv_cnt = 2; g->pv_act = 4;        /* (the preview: a few, fairly calm) */
     g->sel_seen = -1;
+    g->tour = -1;
+    g->top_fit = g->tour_fit = 1;
     g->view = txp_ui_view(c);
     fit(g, TXG_W, TXG_H);
     g->cl.ctx = g; g->cl.paint = cl_paint; g->cl.input = cl_input; g->cl.tick = cl_tick;

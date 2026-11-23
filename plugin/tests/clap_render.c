@@ -15,6 +15,8 @@
  * --state-out FILE  the state saved after the render (or without one, --inactive)
  * --shot OUT.png  after the render: the window (a headless one, no native view) painted at --shot-w pixels wide (1200
  *            by default) as a PNG; exit 5 when it looks empty
+ *            and the top bar's items apart, their texts whole; HELP's menu and the tour (every step's card inside the
+ *            window and off the part it lights; NEXT, BACK, DONE, SKIP, the keys; the first-run flag), their pictures
  * --gui-test  with --shot, after it: clicks and drags in the window (M, S, VOL, a map dot, LANES +, a row), checked
  *            against the parameters, the host's events, the masks and the saved state (exit 5 when one fails)
  * --state-check  after the render: save the state, load it into a second instance, check every parameter reads
@@ -218,8 +220,8 @@ enum { W_ROW = 1, W_VOL, W_MUTE, W_SOLO, W_DOT, W_LUP = 9, W_SET = 10, W_VMAP = 
        W_SWATCH, W_SEG = 26, W_FIELD = 27, W_PARAM = 30, W_MANY, W_ACT, W_REC, W_UNDO, W_SAVE, W_FXOPEN, W_FXTAB, W_SLOT,
        W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER, W_TIP, W_PREVIEW, W_PVSTEP, W_FXD, W_SWAP, W_LRUN, W_DRUN,
        W_SRC, W_GRIP, W_TAG, W_MBAR, W_MCLEAR, W_MDONE, W_MENU, W_CLRALL, W_CLRYES, W_CLRNO, W_MSG, W_NOMOVE, W_MAMT, W_MSM,
-       W_DICE, W_RND, W_RNDTICK, W_RNDGO, W_LVL, W_NAMEDICE };
-enum { W_CLOSE = 11, W_PICKER = 20, W_LIST = 23, W_KEEP = 24 };
+       W_DICE, W_RND, W_RNDTICK, W_RNDGO, W_LVL, W_NAMEDICE, W_HELP, W_RNDMENU, W_TOUR, W_TOURLIT, W_TOURBTN, W_LOGO };
+enum { W_PREV = 6, W_NEXT = 7, W_LDN = 8, W_CLOSE = 11, W_PICKER = 20, W_LIST = 23, W_KEEP = 24 };
 #define ID_KEYS 0x10001u                 /* (bridge.h TXP_ID_KEYS) */
 static int gui_hit(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, int lane)   /* a click on a control */
 {
@@ -450,7 +452,7 @@ static int gui_views(const clap_plugin_t *p, const txg_gui_shot_t *xs, const cha
     rc |= gui_png(p, xs, png, "save");
     rc |= save_layout(p, xs);
     gui_key(p, xs, FRK_ESCAPE);
-    if (!gui_hit(p, xs, W_RND, -1)) return 5;     /* RANDOM's list */
+    if (!gui_hit(p, xs, W_RNDMENU, -1)) return 5; /* RANDOM's list (the dice's arrow) */
     rc |= gui_png(p, xs, png, "random-list");
     gui_key(p, xs, FRK_ESCAPE);
     if (!gui_hit(p, xs, W_REC, -1)) return 5;     /* STOP ALL (what PLAY ALL brings back shown), PLAY ALL */
@@ -1172,8 +1174,8 @@ static int gui_test_dice(const clap_plugin_t *p, const txg_gui_shot_t *xs)
     dice_settle(p, xs);
     dice_kept(p, xs, nl, k1);
     if (k1[1 + lane * 6] != k0[1 + lane * 6]) { fprintf(stderr, "gui dice: UNDO did not take the lane's roll back\n"); bad = 1; }
-    /* the top bar's dice: RANDOM's list; nothing ticked, ROLL rolls nothing */
-    if (!gui_hit(p, xs, W_RND, -1)) return 5;
+    /* the top bar's dice's arrow: RANDOM's list; nothing ticked, ROLL rolls nothing */
+    if (!gui_hit(p, xs, W_RNDMENU, -1)) return 5;
     if (!xs->find(p, W_RNDGO, -1, r) || !xs->find(p, W_RNDTICK, 3, r)) { fprintf(stderr, "gui dice: RANDOM's list did not open\n"); return 5; }
     for (int i = 0; i < 4; i++) if (!gui_hit(p, xs, W_RNDTICK, i)) return 5;
     dice_kept(p, xs, nl, k0); dice_read(p, v0);
@@ -1205,6 +1207,120 @@ static int gui_test_dice(const clap_plugin_t *p, const txg_gui_shot_t *xs)
     printf("gui dice: UNDO: %d values off\n", diff);
     if (diff || !dice_kept_same(k0, k1, nl, 1, -1)) { fprintf(stderr, "gui dice: UNDO did not restore the state before the roll\n"); bad = 1; }
     if (xs->find(p, W_RNDGO, -1, r)) { fprintf(stderr, "gui dice: RANDOM's list still open after a click outside\n"); bad = 1; }
+    /* the top bar's dice itself, its list closed: one click rolls (as ticked: all four), no list; UNDO */
+    if (!gui_hit(p, xs, W_RND, -1)) return 5;
+    dice_settle(p, xs);
+    dice_kept(p, xs, nl, k1); dice_read(p, v1);
+    diff = 0;
+    for (int i = 0; i < dice_nid; i++) diff += v0[i] != v1[i];
+    printf("gui dice: the dice's one click: %d values changed\n", diff);
+    if (!diff) { fprintf(stderr, "gui dice: a click on the top bar's dice rolled nothing\n"); bad = 1; }
+    if (xs->find(p, W_RNDGO, -1, r)) { fprintf(stderr, "gui dice: a click on the dice opened RANDOM's list\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_UNDO, -1)) return 5;
+    dice_settle(p, xs);
+    return bad;
+}
+/* the top bar's items, left to right: TEXTURA, HELP, the previous scene, the scene's box, the next, SAVE, UNDO, PLAY ALL,
+ * LANES' minus and plus, LEVEL, the dice and its arrow, SETTINGS: in order, apart, inside the bar; every text inside its box at its
+ * widest (gui_core.c draw_top's own measure: the box at the widest scene name and lane count) */
+static int gui_topbar(const clap_plugin_t *p, const txg_gui_shot_t *xs, int pw, int ph)
+{
+    static const int K[14] = { W_LOGO, W_HELP, W_PREV, W_PRESET, W_NEXT, W_SAVE, W_UNDO, W_REC, W_LDN, W_LUP, W_LVL, W_RND, W_RNDMENU,
+                               W_SET };
+    float a[14][4], s = fminf((float)pw / 1200.f, (float)ph / 720.f), W = (float)pw / s;
+    int bad = 0, fit;
+    xs->tick(p);
+    for (int i = 0; i < 14; i++) if (!xs->find(p, K[i], -1, a[i])) { fprintf(stderr, "gui top bar: no control %d\n", K[i]); return 5; }
+    for (int i = 0; i < 14; i++) {
+        if (a[i][0] < 0.f || a[i][0] + a[i][2] > W || a[i][1] < 0.f || a[i][1] + a[i][3] > 52.f) {
+            fprintf(stderr, "gui top bar: control %d outside the bar\n", K[i]); bad = 1;
+        }
+        if (i && a[i][0] < a[i - 1][0] + a[i - 1][2] + (K[i] == W_RNDMENU ? 0.f : 4.f)) {   /* (the dice and its arrow: one
+                                          * button, split) */
+            fprintf(stderr, "gui top bar: controls %d and %d closer than 4 px (%g, %g)\n", K[i - 1], K[i], a[i - 1][0] + a[i - 1][2], a[i][0]);
+            bad = 1;
+        }
+    }
+    fit = xs->fits(p, 0);
+    printf("gui top bar: TEXTURA ..%g, HELP %g..%g, < %g, the scene's box %g..%g, > ..%g, SAVE %g; texts %s\n", a[0][0] + a[0][2],
+           a[1][0], a[1][0] + a[1][2], a[2][0], a[3][0], a[3][0] + a[3][2], a[4][0] + a[4][2], a[5][0], fit == 1 ? "whole" : "CUT");
+    if (fit != 1) { fprintf(stderr, "gui top bar: a text does not fit its box\n"); bad = 1; }
+    return bad;
+}
+/* HELP and the tour: HELP shows step 1 (one click); NEXT through the eight, each
+ * card inside the window (8 px in) and off the part it lights, that part inside the window, the card's texts whole; DONE
+ * closes it and writes the flag; MANUAL on step 8 only; BACK (none on step 1), Right / Return / Left, Esc; SKIP writes the flag too. The flag
+ * (unit level): none, it would start; there, it would not; a test run, never; it never starts by itself here */
+static int tour_step(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* the step shown (0 .. 7), -1 none */
+{
+    float r[4];
+    xs->tick(p);
+    for (int i = 0; i < 8; i++) if (xs->find(p, W_TOUR, i, r)) return i;
+    return -1;
+}
+static int file_there(const char *path) { FILE *f = fopen(path, "rb"); if (f) fclose(f); return f != 0; }
+static int gui_tour(const clap_plugin_t *p, const txg_gui_shot_t *xs, const char *png, int pw, int ph)
+{
+    float s = fminf((float)pw / 1200.f, (float)ph / 720.f), W = (float)pw / s, H = (float)ph / s, r[4], c[4];
+    int bad = 0, st, worst = 0;
+    char dir[1024], flag[1100], tag[16];
+    const char *sl = png ? strrchr(png, '/') : 0, *bs = png ? strrchr(png, '\\') : 0;
+    if (bs && (!sl || bs > sl)) sl = bs;
+    if (sl) snprintf(dir, sizeof dir, "%.*s", (int)(sl - png), png); else snprintf(dir, sizeof dir, ".");
+    snprintf(flag, sizeof flag, "%s/tour-seen", dir);
+    remove(flag);
+    if (tour_step(p, xs) != -1) { fprintf(stderr, "gui tour: it started by itself in a test run\n"); bad = 1; }
+    if (xs->first_run(p, dir, 0) != 1) { fprintf(stderr, "gui tour: no flag, yet it would not start\n"); bad = 1; }
+    if (xs->first_run(p, dir, 1) != 0) { fprintf(stderr, "gui tour: it would start in a test run\n"); bad = 1; }
+    xs->tour_dir(p, dir);
+    if (!gui_hit(p, xs, W_HELP, -1)) return 5;
+    for (int i = 0; i < 8; i++) {
+        float d;
+        if ((st = tour_step(p, xs)) != i) { fprintf(stderr, "gui tour: step %d shown, %d wanted\n", st + 1, i + 1); return 5; }
+        if (!xs->find(p, W_TOUR, i, c) || !xs->find(p, W_TOURLIT, i, r)) return 5;
+        if (c[0] < 8.f - 0.01f || c[1] < 8.f - 0.01f || c[0] + c[2] > W - 8.f + 0.01f || c[1] + c[3] > H - 8.f + 0.01f) {
+            fprintf(stderr, "gui tour: step %d's card outside the window (%.0f %.0f %.0f %.0f in %.0f x %.0f)\n", i + 1, c[0], c[1], c[2], c[3], W, H);
+            bad = 1;
+        }
+        if (r[2] < 20.f || r[3] < 20.f || r[0] < -0.01f || r[1] < -0.01f || r[0] + r[2] > W + 0.01f || r[1] + r[3] > H + 0.01f) {
+            fprintf(stderr, "gui tour: step %d lights %.0f %.0f %.0f %.0f (in %.0f x %.0f)\n", i + 1, r[0], r[1], r[2], r[3], W, H);
+            bad = 1;
+        }
+        if (c[0] < r[0] + r[2] + 2.f && r[0] - 2.f < c[0] + c[2] && c[1] < r[1] + r[3] + 2.f && r[1] - 2.f < c[1] + c[3]) {
+            fprintf(stderr, "gui tour: step %d's card over the part it lights\n", i + 1);
+            bad = 1;
+        }
+        d = fmaxf(fmaxf(r[0] - (c[0] + c[2]), c[0] - (r[0] + r[2])), fmaxf(r[1] - (c[1] + c[3]), c[1] - (r[1] + r[3])));
+        if (i == 0 || d < (float)worst) worst = (int)d;
+        if (xs->fits(p, 1) != 1) { fprintf(stderr, "gui tour: a text of step %d's card does not fit\n", i + 1); bad = 1; }
+        if (!xs->find(p, W_TOURBTN, 3, r) != (i < 7)) { fprintf(stderr, "gui tour: MANUAL %s on step %d\n", i < 7 ? "shown" : "missing", i + 1); bad = 1; }
+        snprintf(tag, sizeof tag, "tour-%d", i + 1);
+        if (png) bad |= gui_png(p, xs, png, tag) != 0;
+        if (!gui_hit(p, xs, W_TOURBTN, 2)) return 5;   /* NEXT (the last: DONE) */
+    }
+    if (tour_step(p, xs) != -1) { fprintf(stderr, "gui tour: DONE did not close it\n"); bad = 1; }
+    if (!file_there(flag) || xs->first_run(p, dir, 0) != 0) { fprintf(stderr, "gui tour: DONE wrote no flag\n"); bad = 1; }
+    /* BACK, the keys, Esc */
+    if (!gui_hit(p, xs, W_HELP, -1)) return 5;
+    if (xs->find(p, W_TOURBTN, 1, r)) { fprintf(stderr, "gui tour: BACK on the first step\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_TOURBTN, 2) || tour_step(p, xs) != 1) { fprintf(stderr, "gui tour: NEXT\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_TOURBTN, 1) || tour_step(p, xs) != 0) { fprintf(stderr, "gui tour: BACK\n"); bad = 1; }
+    gui_key(p, xs, FRK_RIGHT);
+    if (tour_step(p, xs) != 1) { fprintf(stderr, "gui tour: Right\n"); bad = 1; }
+    gui_key(p, xs, FRK_RETURN);
+    if (tour_step(p, xs) != 2) { fprintf(stderr, "gui tour: Return\n"); bad = 1; }
+    gui_key(p, xs, FRK_LEFT);
+    if (tour_step(p, xs) != 1) { fprintf(stderr, "gui tour: Left\n"); bad = 1; }
+    gui_key(p, xs, FRK_ESCAPE);
+    if (tour_step(p, xs) != -1) { fprintf(stderr, "gui tour: Esc did not skip it\n"); bad = 1; }
+    /* SKIP */
+    remove(flag);
+    if (!gui_hit(p, xs, W_HELP, -1) || !gui_hit(p, xs, W_TOURBTN, 0)) return 5;
+    if (tour_step(p, xs) != -1 || !file_there(flag)) { fprintf(stderr, "gui tour: SKIP did not end it with the flag\n"); bad = 1; }
+    remove(flag);
+    xs->tour_dir(p, "");
+    printf("gui tour: 8 steps, cards inside the window, %d px or more off what they light; NEXT BACK DONE SKIP, keys, flag %s\n",
+           worst, bad ? "FAILED" : "ok");
     return bad;
 }
 /* the top bar's right end: LEVEL, the dice, SETTINGS apart and inside the window; the rows' ENGINE and dice icons in
@@ -1447,6 +1563,8 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int
         if (!xs->find(p, W_MSM, 0, r)) { fprintf(stderr, "gui: no M/S meter in the strip\n"); bad = 1; }
     }
     if (gui_top(p, xs, pw, ph)) bad = 1;
+    if (gui_topbar(p, xs, pw, ph)) bad = 1;
+    if (gui_tour(p, xs, png, pw, ph)) bad = 1;
     png_shot = png;
     if (png && gui_views(p, xs, png)) return 5;
     if (test) {                          /* the controls do what they say (inactive: each write applied at its flush) */

@@ -317,8 +317,11 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
   restoring engine, HOW MANY and a card, KEEP keeping the engine with the lane stopped, PLAY ALL's memory intact; a click
   on a row's name and event line selecting, M selecting, a row's one ENGINE icon button selecting its lane and opening the browser; each lane's STOP / PLAY, in its row and in the drawer, sharing STOP ALL / PLAY ALL's memory, and nothing on an empty lane; the movement: a tile entering its source's mode, a drag setting the amount with the value kept, the wheel, a double-click removing, a control no source moves dimmed and refusing, CLEAR <SOURCE>, DONE, Esc, the tile again, the right-click menu's Move with and Remove movement, a tag entering its mode, a grip dropped on a control, CLEAR ALL then UNDO, a full matrix refused with a message, a link kept through the state) and checked against the parameters,
   the events sent to the host, the lane's engine, the mute and solo masks and the saved state (solo, lane, view,
-  colour, keys, the user scene). The window at 1200 x 720, 1950 x 1210, 1440 x 1080 and 960 x 600: the MAP a half
-  circle (one scale both ways) with its labels inside the place. KEYS = FM-1 KEYS (`plugin/tests/scripts/keys.txt`):
+  colour, keys, the user scene). The window at 1200 x 720, 1950 x 1210, 1440 x 1080, 960 x 600 and 840 x 504 (the smallest): the MAP a half
+  circle (one scale both ways) with its labels inside the place; the top bar's items in order and apart, every text in
+  its box at its widest (the scene's box at the widest preset name); HELP's one click, the tour's eight steps
+  (each card inside the window and off the part it lights, NEXT, BACK, DONE, SKIP, MANUAL on the last, the keys) and its first-run flag
+  (none: it starts; there, or a test run: it does not; it never starts by itself in the tests). KEYS = FM-1 KEYS (`plugin/tests/scripts/keys.txt`):
   the black keys pick a lane, the white keys set its HOW MANY and HOW ACTIVE, G#5 picks lane 5. The card hints must
   be `docs/MANUAL.md`'s (`tools/plugin_card_hints.py --check`). `--shots DIR` keeps a copy of every picture.
 

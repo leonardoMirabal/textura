@@ -21,6 +21,7 @@
 #include <math.h>
 #include <windows.h>
 #include <windowsx.h>
+#include <shellapi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "gui_platform.h"
@@ -426,4 +427,15 @@ const uint32_t *frg_view_grab(frg_view *v, int *w, int *h)
     GdiFlush();
     *w = v->bw; *h = v->bh;
     return v->bits;
+}
+int frg_open_url(const char *url)
+{
+    return url && (INT_PTR)ShellExecuteA(0, "open", url, 0, 0, SW_SHOWNORMAL) > 32 ? 0 : -1;
+}
+int frg_user_dir(char *out, int n)
+{
+    const char *a = getenv("APPDATA");
+    if (!a || !*a || n < 2) return -1;
+    if (snprintf(out, (size_t)n, "%s\\Textura", a) >= n) return -1;
+    return CreateDirectoryA(out, 0) || GetLastError() == ERROR_ALREADY_EXISTS ? 0 : -1;
 }

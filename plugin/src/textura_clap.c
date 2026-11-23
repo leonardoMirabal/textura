@@ -715,6 +715,7 @@ void txp_ui_col_set(txp_core *c, int eng, int col)
 }
 void txp_ui_col_reset(txp_core *c) { memset(c->col, 0, sizeof c->col); ui_dirty(c); }
 int txp_ui_view(const txp_core *c) { return c->view; }
+int txp_ui_test(const txp_core *c) { return c->dice_fixed; }
 void txp_ui_view_set(txp_core *c, int v) { if (c->view != (v == 1)) { c->view = v == 1; ui_dirty(c); } }
 void txp_ui_win_resize(txp_core *c, int w)
 {

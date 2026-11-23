@@ -41,5 +41,11 @@ typedef struct {
     /* SAVE's panel as painted last: its user preset (0 .. 15), its name, the line under it (what SAVE does; n bytes),
      * every text inside its room (fit 1); false: closed */
     bool (*save)(const clap_plugin_t *plugin, int *slot, char name[12], char *line, int n, int *fit);
+    /* the tour (gui_core.h): whether it would start by itself with its flag's folder dir (test: a test run); the folder
+     * the window writes the flag into (SKIP, DONE; "": none); the texts in their room as drawn last (what: txg_fits;
+     * -1 no window) */
+    int (*first_run)(const clap_plugin_t *plugin, const char *dir, int test);
+    bool (*tour_dir)(const clap_plugin_t *plugin, const char *dir);
+    int (*fits)(const clap_plugin_t *plugin, int what);
 } txg_gui_shot_t;
 #endif

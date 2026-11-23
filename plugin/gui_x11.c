@@ -13,7 +13,12 @@
  *               none), 4/5 the wheel, motion, leave, keys (XLookupString) once the view has the focus (a click
  *               takes it, as the other platforms)
  * (From Frodhes' plugin/gui_x11.c: Textura's layout size, gui_size.h.) */
+#include <errno.h>
 #include <math.h>
+#include <spawn.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include <X11/Xlib.h>
 #include <X11/Xresource.h>
 #include <X11/Xutil.h>
@@ -366,4 +371,27 @@ const uint32_t *frg_view_grab(frg_view *v, int *w, int *h)
     if (!v->px) return 0;
     *w = v->bw; *h = v->bh;
     return v->px;
+}
+extern char **environ;
+int frg_open_url(const char *url)   /* (xdg-open in the background: the shell returns at once and is reaped here) */
+{
+    static char sh[] = "sh", c[] = "-c", cmd[] = "xdg-open \"$1\" >/dev/null 2>&1 &";
+    char *argv[] = { sh, c, cmd, sh, (char *)(uintptr_t)url, 0 };
+    pid_t pid;
+    int st;
+    if (!url || posix_spawn(&pid, "/bin/sh", 0, 0, argv, environ)) return -1;
+    while (waitpid(pid, &st, 0) < 0 && errno == EINTR) {}
+    return 0;
+}
+int frg_user_dir(char *out, int n)
+{
+    const char *x = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
+    if (n < 2) return -1;
+    if (x && *x) { if (snprintf(out, (size_t)n, "%s", x) >= n) return -1; }
+    else if (home && *home) { if (snprintf(out, (size_t)n, "%s/.config", home) >= n) return -1; }
+    else return -1;
+    if (mkdir(out, 0755) && errno != EEXIST) return -1;
+    if (strlen(out) + 9 >= (size_t)n) return -1;
+    strcat(out, "/textura");
+    return mkdir(out, 0755) && errno != EEXIST ? -1 : 0;
 }

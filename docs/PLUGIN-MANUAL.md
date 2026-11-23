@@ -18,8 +18,9 @@ FM-1: for them it links to the [FM-1 user manual](MANUAL.md).
 1. [What it is](#1-what-it-is)
 2. [Install](#2-install): [macOS](#macos), [Windows](#windows), [Linux](#linux)
 3. [Your first sound](#3-your-first-sound)
-4. [The window](#4-the-window): [top bar](#the-top-bar), [MAP](#map), [SPACE](#space), [the lanes](#the-lanes),
-   [the drawer](#the-drawer), [the strip](#the-strip), [M/S](#ms), [the movement](#the-movement), [SAVE](#save),
+4. [The window](#4-the-window): [top bar](#the-top-bar), [HELP and the tour](#help-and-the-tour), [MAP](#map),
+   [SPACE](#space), [the lanes](#the-lanes), [the drawer](#the-drawer), [the strip](#the-strip), [M/S](#ms),
+   [the movement](#the-movement), [SAVE](#save),
    [RANDOM: the dice](#random-the-dice), [the engine browser](#the-engine-browser),
    [the presets browser](#the-presets-browser), [SETTINGS](#settings),
    [keys: FM-1 KEYS or PLAY](#keys-fm-1-keys-or-play), [colours](#colours), [LFOs](#lfos),
@@ -95,7 +96,8 @@ It needs only the system's own libraries (libc and libX11). It runs on Ubuntu 20
 
 ## 3. Your first sound
 
-1. **Add Textura** to an instrument track (a MIDI track) in your DAW, and open its window.
+1. **Add Textura** to an instrument track (a MIDI track) in your DAW, and open its window. The first time, a short
+   tour lights up the window part by part ([HELP and the tour](#help-and-the-tour)).
 2. **Load a preset.** Click the preset name in the top bar. The presets browser opens. Pick a family on the left,
    then a preset, and press **LOAD**. Or use the **<** and **>** buttons beside the name to step through the
    factory presets. The preset's lanes start at once: the event lines start to move. No notes are needed. (A
@@ -124,7 +126,8 @@ option), and what a source (an LFO, an envelope, a follower) moves. Each engine 
 
 From top to bottom:
 
-- **The top bar**: the preset, SAVE, UNDO, PLAY ALL, LANES, the output level, the dice (RANDOM), SETTINGS.
+- **The top bar**: HELP, the preset, SAVE, UNDO, PLAY ALL, LANES, the output level, the dice (RANDOM),
+  SETTINGS.
 - **The place** (left) and **the lanes** (right): where each engine stands, and one row for each lane.
 - **The drawer**: the selected lane's engine, all its cards (DIST among them), and its PAN, LEVEL and groove.
 - **The strip**: the effects in signal order (COMP, DRIVE, FILTER, DELAY, REVERB) and the movement (the LFOs).
@@ -144,15 +147,31 @@ steps back). Each drag is one undo step in your DAW, and is recorded when your D
 | Part | What it does |
 | --- | --- |
 | **TEXTURA** | The name. |
+| **HELP** | Starts the tour again; its last step opens the manual in your browser ([HELP and the tour](#help-and-the-tour)). |
 | **<** and **>** | The previous / next factory preset, F001 to F110 (after F110 comes F001). |
-| **The scene** | The preset's code and name (`F009 RAIN & FIRE`), a user preset (`U01 ...`) or the landscape (`L01 WATER`). A `*` after the name: you changed something since it loaded. At the right, how many lanes it uses. Click it for the [presets browser](#the-presets-browser). |
+| **The scene** | The preset's code and name (`F009 RAIN & FIRE`), a user preset (`U01 ...`) or the landscape (`L01 WATER`). A `*` after the name: you changed something since it loaded. Click it for the [presets browser](#the-presets-browser). |
 | **SAVE** | Saves what plays as a user preset, U01 to U16 ([SAVE](#save)). |
 | **UNDO** | Undoes the last preset load, engine kept or roll of the dice; click again to redo it. As the FM-1's UNDO. Dim when there is nothing to undo. |
 | **PLAY ALL / STOP ALL** | STOP ALL stops every lane and remembers each one's HOW MANY and HOW ACTIVE; PLAY ALL brings each lane back with its own (see [a stopped lane](#the-lanes)). The selected lane stays selected. As the FM-1's REC. It turns white when every lane is stopped (a landscape's start). Space bar does the same. |
 | **LANES − / +** | How many lanes are in use, 1 to 16 ([lanes](#7-lanes)). |
 | **LEVEL** | The output's peak now, in dB. Red near 0 dB. |
-| **The dice** | Opens [RANDOM](#random-the-dice): roll new engines, sounds, effects and movement. Click again to close. |
+| **The dice** | One click rolls ([RANDOM](#random-the-dice)): new engines, sounds, effects and movement, as ticked. Its arrow **▾** opens the ticks: what a roll changes. |
 | **SETTINGS** | Opens [SETTINGS](#settings). Click again to close. |
+
+### HELP and the tour
+
+The first time you open the window, **the tour** starts: eight steps, about a minute. Each step lights one part of
+the window (the preset, the lanes, the place, the selected lane's controls, the effects, the movement, the dice, HELP)
+and dims the rest, with a card saying what that part does. **NEXT** (or Right / Return) goes on, **BACK** (or Left)
+goes back, **SKIP** (or Esc) ends it; the last step's button reads **DONE**. After SKIP or DONE it does not start by
+itself again. Textura keeps that in its own settings folder, not in your projects: `~/Library/Application
+Support/Textura` (macOS), `%APPDATA%\Textura` (Windows), `~/.config/textura` (Linux). Delete the `tour-seen` file
+there to see the tour on the next open.
+
+**HELP** after TEXTURA starts the tour again, from its first step, in one click. Its last step has **MANUAL**: this
+manual, online, in your default browser.
+
+![A step of the tour: the lanes lit, the rest dimmed, the card under them](plugin/img/tour.png)
 
 ### MAP
 
@@ -404,8 +423,9 @@ Two kinds of dice roll new sounds, as the FM-1's OCT- and OCT+ pressed together 
 
 - **A row's dice** (after the swap icon) gives that lane a random engine, from any family and never the one it had.
   Its cards start at the new engine's own values. The lane keeps its LEVEL, PAN, HOW MANY, HOW ACTIVE and MIDI CH.
-- **The dice in the top bar** opens **RANDOM**, a small list with four ticks. **ROLL** changes everything ticked, on
-  every lane that has an engine:
+- **The dice in the top bar** rolls in one click. Its arrow **▾** opens **RANDOM**, a small list with four ticks: what
+  a roll changes. The ticks are kept; **ROLL** in the list rolls too. A roll changes everything ticked, on every lane
+  that has an engine:
 
 | Tick | What a roll changes |
 | --- | --- |
@@ -559,6 +579,8 @@ With the window focused and no panel open:
 | **v** | Switch MAP / SPACE |
 | **Space** | PLAY ALL / STOP ALL |
 | **Esc** | Close the right-click menu; leave a source's mode |
+
+In the tour: **Right** or **Return** for the next step, **Left** for the one before, **Esc** to skip it.
 
 In a browser: type to search, **up / down** (Page Up / Page Down: 10 at a time), **left / right** for the family,
 **Return** to keep or load, **Esc** to close. In SAVE: type the name, **Return** saves, **Esc** closes. In RANDOM:

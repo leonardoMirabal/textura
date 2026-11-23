@@ -457,16 +457,18 @@ GUI_COMP = ["--param", "0x41a=1", "--param", "0x41b=127", "--param", "0x41e=4", 
 
 
 GUI_VIEWS = ("", "space", "sounds", "presets", "settings", "colour", "mode", "drag", "links", "menu", "fx", "comp", "filter", "reverb", "ms", "lfo",
-             "env", "matrix", "save", "random-list", "stopped", "preview", "replay", "rows", "lane-stopped", "rain")   # clap_render
+             "env", "matrix", "save", "random-list", "stopped", "preview", "replay", "rows", "lane-stopped", "rain") + tuple("tour-%d" % i for i in range(1, 9))   # clap_render
 #                                        --shot: x.png, x-space.png ... (the movement: LFO 1's mode, a drag in it, the
 #                                        links at rest, the right-click menu; the effects' drawers: DELAY, COMP, FILTER, REVERB, M/S,
 #                                        MOVEMENT's LFO 1, ENV, the matrix; STOP ALL, the sound browser's preview on a
 #                                        stopped lane, PLAY ALL; the rows with lane 3 selected; a lane stopped by its own
-#                                        button; Rain on a roof's drawer; RANDOM's list, the top bar's dice)
+#                                        button; Rain on a roof's drawer; RANDOM's list, the top bar's dice's arrow; the
+#                                        tour's eight steps, HELP's one click)
 GUI_TEST_VIEWS = ("dice-lane", "random-none", "random", "save-replace", "save-full")   # clap_render --gui-test's (gui4's
 #                                        second run): a row's dice rolled (its hint hovered), ROLL with nothing ticked, ROLL
 #                                        with all four; SAVE on a used preset (SAVE replaces it), all 16 used (kept with --shots)
-GUI_SIZES = ((1200, 720), (1950, 1210), (1440, 1080), (960, 600))   # real DAW window sizes: the MAP round in its place
+GUI_SIZES = ((1200, 720), (1950, 1210), (1440, 1080), (960, 600), (840, 504))   # real DAW window sizes and the smallest
+#                                        the window takes (gui_size.h): the MAP round in its place, the top bar, the tour
 
 
 def check_gui(args, exe, bundle, tmp):

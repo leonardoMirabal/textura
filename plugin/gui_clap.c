@@ -108,6 +108,14 @@ static bool g_create(const clap_plugin_t *plugin, const char *api, bool is_float
     saved_size(c);
     c->core = txg_new(c->pc);
     if (!c->core) return false;
+    {   /* the window's first open ever (per user: a flag in the window's own folder, never in a project; never in a test
+         * run): the tour */
+        char dir[1024];
+        if (!txp_ui_test(c->pc) && !frg_user_dir(dir, (int)sizeof dir)) {
+            txg_tour_dir(c->core, dir);
+            if (txg_first_run(dir, 0)) txg_tour_start(c->core, 1);
+        }
+    }
     c->view = frg_view_create(txg_client(c->core), 1, 1);
     if (!c->view) { close_window(c); return false; }
     if (c->scale > 0.0) frg_view_set_scale(c->view, (float)c->scale);
@@ -326,6 +334,19 @@ static bool s_save(const clap_plugin_t *plugin, int *slot, char name[12], char *
     txg_clap_t *c = GUI(plugin);
     return c && c->core && txg_save_info(c->core, slot, name, line, n, fit);
 }
+static int s_first_run(const clap_plugin_t *plugin, const char *dir, int test) { (void)plugin; return txg_first_run(dir, test); }
+static bool s_tour_dir(const clap_plugin_t *plugin, const char *dir)
+{
+    txg_clap_t *c = GUI(plugin);
+    if (!c || !c->core) return false;
+    txg_tour_dir(c->core, dir);
+    return true;
+}
+static int s_fits(const clap_plugin_t *plugin, int what)
+{
+    txg_clap_t *c = GUI(plugin);
+    return c && c->core ? txg_fits(c->core, what) : -1;
+}
 static const txg_gui_shot_t EXT_SHOT = { s_tick, s_grab, s_input, s_headless, s_find, s_masks, s_lane, s_sel, s_comp, s_run, s_ms,
-                                         s_save };
+                                         s_save, s_first_run, s_tour_dir, s_fits };
 const void *txg_clap_shot_ext(void) { return &EXT_SHOT; }

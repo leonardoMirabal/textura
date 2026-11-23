@@ -41,6 +41,7 @@ PICK = {   # the gate's picture -> the manual's
     "gui4-links": "movement-links",
     "gui4-menu": "movement-menu",
     "960x600": "window-960x600",
+    "gui4-tour-2": "tour",
 }
 
 

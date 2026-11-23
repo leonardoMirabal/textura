@@ -11,12 +11,14 @@
  * its own code. Manual reference counting (no ARC). */
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
+#include <errno.h>
 #include <math.h>
 #include <objc/message.h>
 #include <objc/runtime.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include "gui_platform.h"
 #include "gui_size.h"
 
@@ -345,4 +347,21 @@ const uint32_t *frg_view_grab(frg_view *v, int *w, int *h)   /* what the layer s
     CFRelease(d);
     *w = (int)iw; *h = (int)ih;
     return v->grab;
+}
+int frg_open_url(const char *url)
+{
+    int ok = 0;
+    @autoreleasepool {
+        NSString *s = url ? [NSString stringWithUTF8String:url] : nil;
+        NSURL *u = s ? [NSURL URLWithString:s] : nil;
+        ok = u && [[NSWorkspace sharedWorkspace] openURL:u];
+    }
+    return ok ? 0 : -1;
+}
+int frg_user_dir(char *out, int n)
+{
+    const char *home = getenv("HOME");
+    if (!home || !*home || n < 2) return -1;
+    if (snprintf(out, (size_t)n, "%s/Library/Application Support/Textura", home) >= n) return -1;
+    return mkdir(out, 0755) && errno != EEXIST ? -1 : 0;
 }

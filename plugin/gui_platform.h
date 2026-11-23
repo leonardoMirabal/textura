@@ -77,4 +77,12 @@ extern const char *const FRG_VIEW_API;
 /* the tests: what the view shows now (its own pixel buffer; macOS: read back from the layer), w x h, 0xFFRRGGBB, valid
  * until the next call; NULL when nothing was painted yet */
 const uint32_t *frg_view_grab(frg_view *v, int *w, int *h);
+/* the system's own helpers (the UI thread, never the audio thread):
+ *   frg_open_url   url in the default browser (macOS NSWorkspace, Windows ShellExecute, Linux xdg-open in the
+ *                  background); 0 asked, -1 it could not be asked
+ *   frg_user_dir   the per-user folder of the window's own settings, made when missing (macOS ~/Library/Application
+ *                  Support/Textura, Windows %APPDATA%\Textura, Linux $XDG_CONFIG_HOME/textura or ~/.config/textura):
+ *                  out, n bytes; 0 ok, -1 none */
+int frg_open_url(const char *url);
+int frg_user_dir(char *out, int n);
 #endif

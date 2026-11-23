@@ -3,7 +3,7 @@
 # (plugin/gui_core.c), its CLAP gui extension (plugin/gui_clap.c) and one platform view behind plugin/gui_platform.h:
 #   textura_ui        frui + the core + the extension + the font (any platform)
 #   textura_gui_mac   macOS: plugin/gui_mac.m (Cocoa + QuartzCore)
-#   textura_gui_win   Windows: plugin/gui_win.c (user32 + gdi32 only; not built or tested yet)
+#   textura_gui_win   Windows: plugin/gui_win.c (user32 + gdi32 only, shell32 for the manual's link; not built or tested yet)
 #   textura_gui_x11   Linux: plugin/gui_x11.c (libX11 only; not built or tested yet)
 # TXP_GUI_VIEW names the one the plugin links. The font, Inter Tight (SIL OFL 1.1, its licence in assets/fonts/), is
 # fetched by tools/get_fonts.sh into .local/fonts (sha256-checked; make plugin runs it), never committed.
@@ -44,7 +44,7 @@ if(APPLE)
     set(TXP_GUI_VIEW textura_gui_mac)
 elseif(WIN32)
     add_library(textura_gui_win STATIC "${TXP_ROOT}/plugin/gui_win.c")
-    target_link_libraries(textura_gui_win PUBLIC textura_ui user32 gdi32)
+    target_link_libraries(textura_gui_win PUBLIC textura_ui user32 gdi32 shell32)
     target_compile_options(textura_gui_win PRIVATE -O2 ${TXP_C_STD} ${TXP_C_WARN} ${TXP_C_WIN})
     set(TXP_GUI_VIEW textura_gui_win)
 elseif(UNIX)
