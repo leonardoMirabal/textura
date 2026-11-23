@@ -16,9 +16,10 @@
  *           26 .. 31  COMPRESSOR: COMP THR ATK REL RAT MKUP (tx_comp_params order; Frodhes' COMPRESSOR's)
  *           32 .. 37  TEMPO: BPM (40 .. 240) FINE (BPM in tenths) STATUS (read only) TRANSPORT TAP (over 63: a tap)
  *                     PRESETS CHANGE TEMPO (a scene's load sets its tempo: NO / YES, in the settings)
- *           38        EFFECTS ON LOAD (ALWAYS: a scene's load sets the DRIVE, FILTER, COMPRESSOR, GRAIN and REVERB;
- *                     SMART, the default: it sets them unless the player has turned one since the last load that
- *                     did, then they stay, "FX: YOURS"; NEVER: they stay; in the settings. Set or kept, they glide)
+ *           38        EFFECTS ON LOAD (ALWAYS, the plugin's default: a scene's load sets the DRIVE, FILTER,
+ *                     COMPRESSOR, GRAIN and REVERB; SMART: it sets them unless the player has turned one since the
+ *                     last load that did, then they stay, "FX: YOURS"; NEVER, the FM-1's default: they stay; in the
+ *                     settings. Set or kept, they glide)
  *           40 .. 43  MIDI: CLOCK (INT MASTER FOLLOW AUTO) CLK IN USB, CLK IN TRS, CLK OUT (OFF / USB: MASTER sends)
  *           44        DISPLAY: COLOR (the screen's palette: COLOR_NAME; in the settings)
  *           48 .. 51  DRIVE: AMOUNT TONE MIX TYPE (tx_fx_drive_params order): the mix's, right after the COMPRESSOR
@@ -226,7 +227,15 @@ enum { TG_GSYNC, TG_HALF, TG_CLOCK, TG_INUSB, TG_INTRS, TG_OUT, TG_SCNTEMPO };
 static void tempo_out(uint32_t on);
 static void tempo_scene_flag(uint32_t on);
 enum { SCN_FX_ALWAYS, SCN_FX_SMART, SCN_FX_NEVER };
-static uint8_t scn_fx_mode = SCN_FX_SMART;      /* EFFECTS ON LOAD: does a load set the DRIVE, FILTER, COMPRESSOR, GRAIN
+#ifndef SCN_FX_DEF                              /* (tools/plugin_gate.py's host render: -DSCN_FX_DEF=SCN_FX_ALWAYS, as the
+                                                 * plugin) */
+#ifdef DINGHY_PLUGIN
+#define SCN_FX_DEF SCN_FX_ALWAYS                /* (the plugin: a preset brings its effects) */
+#else
+#define SCN_FX_DEF SCN_FX_NEVER                 /* (the FM-1 plays live: a load leaves the effects as they are) */
+#endif
+#endif
+static uint8_t scn_fx_mode = SCN_FX_DEF;        /* EFFECTS ON LOAD: does a load set the DRIVE, FILTER, COMPRESSOR, GRAIN
                                                  * and REVERB (scenes.c scn_apply) */
 static void scn_touch_id(uint32_t id);          /* (scenes.c: the player changed id: the scene edited, its FX theirs) */
 static uint32_t tm_get(uint32_t what);

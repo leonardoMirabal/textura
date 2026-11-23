@@ -76,6 +76,7 @@ def host_build(out, lanes=4):
         return
     cc = os.environ.get("CC", "cc")
     lanes_def = [] if lanes == 4 else ["-DTX_MIX_SLOTS=%du" % lanes]
+    lanes_def += ["-DSCN_FX_DEF=SCN_FX_ALWAYS"]   # (EFFECTS ON LOAD at the plugin's default, not the FM-1's)
     run(["nice", "-n", "15", cc] + CFLAGS + lanes_def + ["-o", out] + HOST_SRC + eng + ["-lm"])
 
 
@@ -423,8 +424,9 @@ args_quick = False
 
 
 GUI = [("gui4", "plugin/tests/scripts/gui4.txt"), ("gui16", "plugin/tests/scripts/gui16.txt")]
-GUI_COMP = ["--param", "0x41a=1", "--param", "0x41b=127", "--param", "0x41e=4"]   # gui4: COMP on, THR -40 dBFS,
-#                                         6:1 (its meters live in the pictures; the gui test checks they are fed)
+GUI_COMP = ["--param", "0x41a=1", "--param", "0x41b=127", "--param", "0x41e=4", "--param", "0x426=2"]   # gui4: COMP
+#                                         on, THR -40 dBFS, 6:1 (its meters live in the pictures; the gui test checks they
+#                                         are fed); EFFECTS ON LOAD NEVER, so the script's preset keeps them
 
 
 GUI_VIEWS = ("", "space", "sounds", "presets", "settings", "colour", "mode", "drag", "links", "menu", "fx", "comp", "filter", "reverb", "ms", "lfo",

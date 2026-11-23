@@ -741,7 +741,7 @@ USER (your presets, once you have saved one), then LANDSCAPES (L01 to L10).
 
 | Knob | Card | What it does |
 | --- | --- | --- |
-| K1 | **EFFECTS ON LOAD** | **SMART** (the default): a preset brings its effects, until you turn one; then yours stay ("FX: YOURS" on the home page). **ALWAYS**: every preset brings its own effects. **NEVER**: your effects stay, whatever you load. |
+| K1 | **EFFECTS ON LOAD** | **NEVER** (the default, for playing live): your effects stay, whatever you load. **SMART**: a preset brings its effects, until you turn one; then yours stay ("FX: YOURS" on the home page). **ALWAYS**: every preset brings its own effects. A unit updated from 0.3.0 or before that was on SMART moves to NEVER once. |
 | K2 | **PRESETS CHANGE TEMPO** | **NO** (the default): the tempo stays. **YES**: a preset brings the tempo it was saved with. |
 
 Effects that change on a load glide to their new values, and the delay's and the reverb's tails ring on.

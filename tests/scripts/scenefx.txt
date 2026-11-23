@@ -1,6 +1,10 @@
-# EFFECTS ON LOAD (the presets list's LOAD OPTIONS): at SMART (the default), once the player has turned an effect, a
+# EFFECTS ON LOAD (the presets list's LOAD OPTIONS): at SMART (set below; the default is NEVER), once the player has turned an effect, a
 # scene's load leaves the mix's effects (DRIVE, COMPRESSOR, GRAIN, REVERB) as they are, their tails ringing on; ALWAYS
 # it sets them (smartfx.txt: SMART untouched, NEVER, the glide). Scenes save them either way
+# EFFECTS ON LOAD at SMART for this script (the FM-1's default is NEVER): NRPN 4 / 38, data 64
+1700 midi 0xB4 99 4
+1700 midi 0xB4 98 38
+1700 midi 0xB4 6 64
 1700 btn 13
 1800 expect state p426 1
 # the reverb: TYPE hall (ALGORITHM on REVERB), MIX 100 (CC 91 on channel 5); the DRIVE's TYPE (CC 79)

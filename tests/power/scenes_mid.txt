@@ -1,4 +1,4 @@
-# the power cycle, run 4: the settings record as a firmware before Frodhes' SCALE page wrote it (settings_old.py 20:
+# the power cycle, run 4: (EFFECTS ON LOAD saved at SMART by a firmware of before: NEVER, the new default) the settings record as a firmware before Frodhes' SCALE page wrote it (settings_old.py 20:
 # its first 20 bytes): its scale byte (the old list's DORIAN, saved for DEGREE) reads as SNAP DORIAN, ROOT kept,
 # TRANSP 0; the rest as saved
 1700 expect state palette PEACH
@@ -10,5 +10,6 @@
 1700 expect state p443 24
 1700 expect state p43D 0
 1700 expect state p441 0
+1700 expect state p426 2
 1900 expect sound
 2000 end

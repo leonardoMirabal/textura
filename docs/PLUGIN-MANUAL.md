@@ -432,9 +432,10 @@ stopped, as on the FM-1: press PLAY ALL, or set a lane's HOW MANY.
 
 Under the preview are the two load options, also in SETTINGS:
 
-- **EFFECTS ON LOAD**: **ALWAYS** (the preset brings its effects), **SMART** (it brings them until you change an
+- **EFFECTS ON LOAD**: **ALWAYS** (the default: the preset brings its effects), **SMART** (it brings them until you change an
   effect yourself; then yours stay), **NEVER** (your effects stay). With SMART, loading the same preset again brings
-  its effects back.
+  its effects back. (The FM-1's default is NEVER, for playing live.) A saved project keeps the choice it was saved
+  with.
 - **PRESETS CHANGE TEMPO**: **NO** / **YES**. With YES a preset brings its tempo too. Your DAW's tempo still leads
   when it gives one.
 

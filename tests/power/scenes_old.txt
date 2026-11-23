@@ -1,4 +1,4 @@
-# the power cycle, run 3: the settings record as a firmware before SCALE and MIDI IN wrote it (settings_old.py: its
+# the power cycle, run 3: (EFFECTS ON LOAD saved at SMART by a firmware of before: NEVER, the new default) the settings record as a firmware before SCALE and MIDI IN wrote it (settings_old.py: its
 # first 12 bytes): the old settings load (COLOR, the last scene, the tempo), SCALE and the channels at their defaults
 1700 expect state palette PEACH
 1700 expect state scene U05_WATER
@@ -12,5 +12,6 @@
 1700 expect state p441 4
 1700 expect state p442 0
 1700 expect state p443 24
+1700 expect state p426 2
 1900 expect sound
 2000 end
