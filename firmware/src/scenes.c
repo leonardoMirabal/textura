@@ -29,7 +29,7 @@
  *   SAVE      the save mode: PRESETS / K1 pick the user scene, K2 the name's letter and K3 its character (the name
  *             a used slot had, or the landscape's), SAVE again saves, HOME (or OCT-) cancels
  *   SAVE held 700 ms: undo the last load (again: redo)
- *   MIDI PC   on channel 1: 0 .. 99 F001 .. F100, 100 .. 115 U01 .. U16
+ *   MIDI PC   on channel 1: 0 .. 99 F001 .. F100, 100 .. 115 U01 .. U16, 116 .. F101 .. (SCN_PC_F2)
  *
  * A load never cuts: a lane that keeps its sound plays on untouched; a lane that gets another one switches, its old
  * sound playing on till its turn (one lane at a time, ~150 ms apart), then fading out under the new one (lanes.c);
@@ -49,6 +49,7 @@
 #define SCN_NU 16u                              /* user scenes */
 #define SCN_NF PR_N                             /* factory scenes: the presets (presets.c) */
 #define SCN_PC_U 100u                           /* MIDI PC: the first user scene's program */
+#define SCN_PC_F2 116u                          /* MIDI PC: F101's (the presets past F100: after the user scenes') */
 #define SCN_N (SCN_NF + SCN_NU)
 #if SC_N > 4
 /* more lanes (the desktop plugin, plugin/: SC_N up to 16): the scene record is version 2, its lanes SC_N, its count of
@@ -87,9 +88,11 @@
 #define SCN_UNDO_MS 700u
 #define SET_SAVE_MS 2000u
 #define SET_VER 1u
-#define SET_LAYOUT 1u                           /* tx_set_t.layout: 0 the scenes as before the presets (F01 .. F10,
-                                                 * then the user's), 1 F001 .. F100 then the user's */
+#define SET_LAYOUT 2u                           /* tx_set_t.layout: 0 the scenes as before the presets (F01 .. F10,
+                                                 * then the user's), 1 F001 .. F100 then the user's, 2 F001 .. SCN_NF
+                                                 * then the user's */
 #define SCN_NF_OLD 10u
+#define SCN_NF_L1 100u                          /* (layout 1's factory scenes) */
 
 typedef struct { uint16_t id; int16_t v; } scn_rec_t;
 #if SC_N > 4
@@ -232,6 +235,7 @@ static void scn_name_of(uint32_t idx, char *s)  /* "F003 GARDEN RAIN", "U05 WATE
 #define SCN_DEF_MS (SCN_DEF_GRV + 2u * SC_N)   /* the M/S's MID, SIDE, MONO (WIDTH: SIDE's, not kept) */
 #define SCN_DEF_N (SCN_DEF_MS + 3u)
 typedef char scn_grv_after_mf[PG_GRV0 == PG_MF0 + TX_MF_NP ? 1 : -1];   /* (scn_def_id counts on it) */
+typedef char scn_pc_fits[SCN_NF <= SCN_PC_U + 128u - SCN_PC_F2 ? 1 : -1];   /* (every factory scene has a program) */
 static uint8_t scn_lfo_def[TX_LFO_N][TX_LP_N];  /* (tx_lfo_init's, per LFO: taken at boot) */
 static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id */
 {
@@ -330,12 +334,17 @@ static void scn_capture(scn_t *s)
     for (i = 0; i < SCN_DEF_N; i++) { uint32_t id = scn_def_id(i); scn_add_nd(s, id, p_get(id)); }
 }
 /* a factory scene: preset i (presets.c), its effects as records (PR_FX: the values off their defaults), the
- * modulation at its defaults; the tempo stays */
+ * modulation at its defaults; the tempo stays. FX_ID: PR_FX's columns (tools/gen_presets.py FXP, append only) */
 static void scn_factory(scn_t *s, uint32_t i)
 {
     static const uint8_t FX_ID[PR_FX_NP] = {PG_REVERB0 + TX_RV_TYPE, PG_REVERB0 + TX_RV_MIX, PG_REVERB0 + TX_RV_DECAY,
-        PG_REVERB0 + TX_RV_TONE, PG_REVERB0 + TX_RV_PREDELAY, PG_GRAIN0 + TX_GD_MIX, PG_GRAIN0 + TX_GD_TIME,
-        PG_GRAIN0 + TX_GD_FEEDBACK, PG_GRAIN0 + TX_GD_TONE, PG_GRAIN0 + TX_GD_GRAIN};
+        PG_REVERB0 + TX_RV_TONE, PG_REVERB0 + TX_RV_PREDELAY, PG_GD(TX_GD_MIX), PG_GD(TX_GD_TIME),
+        PG_GD(TX_GD_FEEDBACK), PG_GD(TX_GD_TONE), PG_GD(TX_GD_GRAIN),
+        PG_REVERB0 + TX_RV_SIZE, PG_REVERB0 + TX_RV_MOD, PG_REVERB0 + TX_RV_LOWCUT, PG_REVERB0 + TX_RV_SHIMMER,
+        PG_REVERB0 + TX_RV_SHIFT, PG_GD(TX_GD_GRAINS), PG_GD(TX_GD_SIZE), PG_GD(TX_GD_SPRAY), PG_GD(TX_GD_PITCH),
+        PG_GD(TX_GD_REVERSE), PG_GD(TX_GD_SPREAD), PG_GD(TX_GD_FREEZE), PG_GD(TX_GD_MOD), PG_GD(TX_GD_MODRATE),
+        PG_GD(TX_GD_IVL), PG_MF0 + TX_MF_LOW, PG_MF0 + TX_MF_HIGH, PG_MF0 + TX_MF_RESO, PG_MF0 + TX_MF_SLOPE,
+        PG_MS0 + TX_MS_SIDE};
     uint32_t k, fx = pr_fx_of(i);
     int first = 1;
     memset(s, 0, sizeof *s);
@@ -831,8 +840,9 @@ static int pr_load(uint32_t i)                  /* (presets.c) preset i, as a pr
 static void scn_pc(uint32_t p)                  /* MIDI program change (channel 1): as PRESETS, at once (a load still
                                                  * running: when it is done, the last one asked) */
 {
-    if (p < SCN_NF) scn_cand = (uint8_t)p;
+    if (p < SCN_NF && p < SCN_PC_U) scn_cand = (uint8_t)p;
     else if (p >= SCN_PC_U && p < SCN_PC_U + SCN_NU) scn_cand = (uint8_t)(SCN_NF + p - SCN_PC_U);
+    else if (p >= SCN_PC_F2 && p - SCN_PC_F2 + SCN_PC_U < SCN_NF) scn_cand = (uint8_t)(p - SCN_PC_F2 + SCN_PC_U);
     else return;
     scn_cand_t = fm1_ms - SCN_BROWSE_MS;
     scn_poll_cand();
@@ -958,6 +968,8 @@ static void scn_init(void)
         scn_fx_boot = 1;                        /* (the boot's load: its effects too, nothing plays to keep) */
         if (!s.layout && s.scene)               /* (saved before the presets: F01 .. F10 then the user's) */
             s.scene = (uint8_t)(s.scene > SCN_NF_OLD ? s.scene - SCN_NF_OLD + SCN_NF : 1u);
+        else if (s.layout == 1u && s.scene > SCN_NF_L1)   /* (saved with F001 .. F100: the user's after them) */
+            s.scene = (uint8_t)(s.scene - SCN_NF_L1 + SCN_NF);
         if (s.scene && s.scene <= SCN_N) (void)scn_load(s.scene - 1u);
         scn_fx_boot = 0;
         scn_undo_ok = 0;                        /* (nothing played before it) */

@@ -59,7 +59,7 @@ Every feature in a line or two. Each one links to its full description.
 | **HOW MANY and HOW ACTIVE** | Two rows of white keys: how many sources play (off, 1, 2, 4, 10, 19 or 32) and how often they sound (rare to busy). [More](#your-first-sound) |
 | **Mute** | Hold a lane's black key: the lane goes silent but keeps playing, so it comes back at once. [More](#the-keys) |
 | **The sound browser** | SEQ lists every sound by family. Turn to one and you hear it on the lane before you keep it. [More](#the-sound-browser-sounds) |
-| **Presets, scenes and undo** | 100 factory presets in ten families, 16 slots of your own, the ten landscapes as starting points. Hold SAVE to undo a load. [More](#6-presets-landscapes-and-scenes) |
+| **Presets, scenes and undo** | 110 factory presets in eleven families, 16 slots of your own, the ten landscapes as starting points. Hold SAVE to undo a load. [More](#6-presets-landscapes-and-scenes) |
 | **The effects chain** | Compressor, drive (five types), filter (a high-pass into a low-pass), grain delay (from a plain echo to an evolving cloud) and reverb (eight spaces, shimmer). [More](#7-the-effects) |
 | **PERFORM** | One page to play the effects live: HIGH PASS, LOW PASS, DELAY MIX and REVERB MIX. [More](#perform) |
 | **8 LFOs** | Twelve shapes, from a sine to gusts and chaos, free or synced to the tempo. [More](#lfo-lfo-phase-lfo-level) |
@@ -136,8 +136,8 @@ The screen shows one page at a time, with four cards, one for each of the knobs 
 
 ### Presets
 
-Turn **PRESETS**: the presets list opens. **F001 to F100** are the factory presets, in ten families (RAIN, STORM,
-COAST, RIVER & LAKE, FOREST, MEADOW, NIGHT, FIRE, STONE & SAND, ICE & WINTER). **U01 to U16** are your own.
+Turn **PRESETS**: the presets list opens. **F001 to F110** are the factory presets, in eleven families (RAIN, STORM,
+COAST, RIVER & LAKE, FOREST, MEADOW, NIGHT, FIRE, STONE & SAND, ICE & WINTER, DREAMS). **U01 to U16** are your own.
 **L01 to L10** are the ten landscapes. Turning only moves the cursor; press **EDIT** to load the preset under it.
 **HOME** closes the list.
 
@@ -725,7 +725,7 @@ Any sound can go on any lane, from any family, and the same sound on two lanes t
 
 ![The presets list: the FOREST family, the cursor on F041 DAWN CHORUS](manual/img/presets.png)
 
-**PRESETS** opens the list, on the preset that plays. It is one list: the ten factory families (F001 to F100), then
+**PRESETS** opens the list, on the preset that plays. It is one list: the eleven factory families (F001 to F110), then
 USER (your presets, once you have saved one), then LANDSCAPES (L01 to L10).
 
 - **PRESETS**, **ALGORITHM** or **K1** moves the cursor. Nothing loads while you turn.
@@ -1694,7 +1694,7 @@ If the lanes were playing, the new landscape plays at once.
 
 ### Factory presets
 
-**F001 to F100**, ten in each family:
+**F001 to F110**, ten in each family:
 
 | Family | Presets |
 | --- | --- |
@@ -1708,8 +1708,28 @@ If the lanes were playing, the new landscape plays at once.
 | **FIRE** (F071–F080) | CAMPFIRE, BONFIRE, PINE FIRE, FOREST FIRE, EMBERS, KINDLING, LEAF FIRE, FIRESIDE, CABIN, TORCHLIT |
 | **STONE & SAND** (F081–F090) | CAVE DRIPS, CRYSTALS, DEEP CAVE, ROCK GONGS, QUARRY, SCREE SLOPE, PEBBLES, GRAVEL PATH, DESERT WIND, DUNES |
 | **ICE & WINTER** (F091–F100) | FROST, ICICLES, THAW, SNOW WALK, FROZEN LAKE, THIN ICE, BLIZZARD, HIGH RIDGE, SNOWED IN, ICE & GLASS |
+| **DREAMS** (F101–F110) | SLOW TIDE, ENDLESS, ICE DREAM, GLASS CHOIR, LOST ECHOES, STARDUST, BLOOM, UNDERWORLD, AURORA, MIRAGE |
 
-Each mixes four lanes from any families, their levels balanced, with a touch of reverb or echo.
+Each mixes four lanes from any families, their levels balanced, with its own effects. Most have a touch of reverb or
+echo. DREAMS, and some places in the other families, go beyond the real place: a vast or endless reverb, a shimmer,
+a grain cloud, the stereo image wider. Their effects:
+
+| Effects | What they are | Presets |
+| --- | --- | --- |
+| **Vast** | INFINITE, a tail of about 30 s, wider | FAR THUNDER, WATERFALL, DEEP FOREST, NIGHT LAKE, NIGHT WOOD, SLOW TIDE |
+| **Infinite** | INFINITE at SUSTAIN: the tail never dies away, it holds what was played (bounded) | ENDLESS |
+| **Frozen** | DARK, a still, deep tail of about 50 s | FROZEN LAKE |
+| **Shimmer** | INFINITE with SHIMMER an octave up | FROST, ICE DREAM |
+| **Ice hall** | INFINITE, bright, SHIMMER an octave and a fifth up | ROCK GONGS, ICICLES, ICE & GLASS, GLASS CHOIR |
+| **Drift echo** | DRIFT and the grain delay's long echo, bending away | PIER NIGHT, DUSK WOOD, HIGH RIDGE, LOST ECHOES |
+| **Grain cloud** | the grain delay scattering the sound in octaves, a hall | STARDUST |
+| **Swell** | SWELL: the tail blooms after the sounds | CLEARING, DUSK LAKE, NIGHTINGALE, BLOOM |
+| **Abyss** | DARK with SHIMMER an octave down, the FILTER's top closed a little | SEA CAVE, TORCHLIT, CAVE DRIPS, DEEP CAVE, UNDERWORLD |
+| **Halo** | INFINITE with SHIMMER a fifth up, grains turning back | CRYSTALS, AURORA |
+| **Mirage** | DRIFT and a grain cloud climbing in fifths and octaves | DUNES, MIRAGE |
+
+A preset brings its effects only as EFFECTS ON LOAD says (the LOAD OPTIONS): at **NEVER**, the FM-1's default, your
+effects stay; set it to **SMART** or **ALWAYS** to hear each preset with its own.
 
 ### Loading
 
@@ -1870,7 +1890,7 @@ polyphonic aftertouch are the AFTERTCH source; the MOD CC (CC 2 at first; learne
 
 ### Program change
 
-On channel 1: **0 to 99** load F001 to F100, **100 to 115** load U01 to U16.
+On channel 1: **0 to 99** load F001 to F100, **100 to 115** load U01 to U16, **116 to 125** load F101 to F110.
 
 ### Lane CCs (on the lane's channel)
 
@@ -1953,7 +1973,7 @@ well as computers.
 | **Effects** | COMPRESSOR → DRIVE (5 types) → FILTER (high-pass into low-pass, 12 / 18 / 24 dB) → GRAIN DELAY (20 ms to 2 s, up to 30 grains, freeze) → REVERB (8 types, shimmer) → M/S (mid, side, width, mono) → limiter |
 | **Modulation** | 8 LFOs (12 shapes, free or synced), 2 envelopes, 2 envelope followers, a 16-slot matrix, learn |
 | **Groove** | 244 pulse types, a role per lane |
-| **Presets** | 100 factory (F001–F100), 16 user (U01–U16), 10 landscapes (L01–L10); undo / redo |
+| **Presets** | 110 factory (F001–F110), 16 user (U01–U16), 10 landscapes (L01–L10); undo / redo |
 | **Tempo** | 40–240 BPM; tap tempo on PLAY and REC |
 | **Keys** | 27 keys, F3–G5: LANDSCAPE mode (lanes, HOW MANY, HOW ACTIVE, mute) and PLAY mode (pitched, ±2 octaves, 11 scales, ±24 semitones) |
 | **Outputs** | Stereo headphone jack (MASTER); USB audio, stereo 16-bit, 44.1 or 48 kHz |

@@ -39,6 +39,7 @@ BUILD/bundles/CLAP/Textura.clap, every path handed to them as Z:/... (the host b
 Exit 0 when every check passes. Needs numpy and scipy for the rates (skipped without them)."""
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import re
@@ -272,6 +273,7 @@ def check_state(args, exe, bundle, tmp):
         print("%s  %s: %s%s" % ("ok  " if g else "FAIL", what, m.group(0) if m else (r.stdout + r.stderr).strip(), note))
         good = good and g
     good = check_v1(exe, bundle, tmp) and good
+    good = check_old_cur(exe, bundle, tmp) and good
     end = os.path.join(tmp, "end.txt")
     with open(end, "w") as f:
         f.write("100 end\n")
@@ -296,6 +298,31 @@ V2 = dict(snd=16, cnt=16 + SCN_LANES, step=16 + 2 * SCN_LANES, run=16 + 3 * SCN_
 def records(b, at, n):
     return sorted((b[at + 4 * i] | b[at + 4 * i + 1] << 8, int.from_bytes(b[at + 4 * i + 2:at + 4 * i + 4], "little", signed=True))
                   for i in range(n))
+
+
+def check_old_cur(exe, bundle, tmp):
+    """a state saved before F101 (no "nf": 100 factory scenes, then the user's) with U05 current ("cur" 104) loads
+    with U05 current: saved again, its "cur" is U05's in this build (nf + 4)"""
+    end = os.path.join(tmp, "end3000.txt")
+    with open(end, "w") as f:
+        f.write("3000 end\n")
+    base, old, out = (os.path.join(tmp, "plug-oldcur-%s.json" % n) for n in ("base", "old", "out"))
+    plug_render(exe, bundle, end, os.path.join(tmp, "plug-oldcur.wav"), 48000, test=False, extra=["--state-out", base])
+    try:
+        st = json.load(open(base))
+        st.pop("nf", None)
+        st.update(cur="104", umask="16", user=st["scene"])   # (U05 holds the scene that plays)
+        json.dump(st, open(old, "w"), separators=(",", ":"))   # (the plugin reads its own compact form)
+        plug_render(exe, bundle, end, os.path.join(tmp, "plug-oldcur2.wav"), 48000, test=False,
+                    extra=["--state-in", old, "--state-out", out])
+        st2 = json.load(open(out))
+        cur, nf = int(st2["cur"]), int(st2["nf"])
+        good = cur == nf + 4
+        note = "cur %d, nf %d: %s" % (cur, nf, "U%02d" % (cur - nf + 1) if cur >= nf else "F%03d" % (cur + 1))
+    except (OSError, ValueError, KeyError) as e:
+        good, note = False, str(e)
+    print("%s  state saved before F101 (100 factory scenes) with U05 current loads with U05: %s" % ("ok  " if good else "FAIL", note))
+    return good
 
 
 def check_v1(exe, bundle, tmp):

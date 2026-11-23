@@ -143,7 +143,7 @@ steps back). Each drag is one undo step in your DAW, and is recorded when your D
 | Part | What it does |
 | --- | --- |
 | **TEXTURA** | The name. |
-| **<** and **>** | The previous / next factory preset, F001 to F100 (after F100 comes F001). |
+| **<** and **>** | The previous / next factory preset, F001 to F110 (after F110 comes F001). |
 | **The scene** | The preset's code and name (`F009 RAIN & FIRE`), a user preset (`U01 ...`) or the landscape (`L01 WATER`). A `*` after the name: you changed something since it loaded. At the right, how many lanes it uses. Click it for the [presets browser](#the-presets-browser). |
 | **SAVE** | Saves what plays as a user preset, U01 to U16 ([SAVE](#save)). |
 | **UNDO** | Undoes the last preset load or engine kept; click again to redo it. As the FM-1's UNDO. Dim when there is nothing to undo. |
@@ -418,8 +418,8 @@ What each engine is and what its cards do: [the engines](MANUAL.md#5-the-sounds)
 
 Opens from the scene name in the top bar.
 
-- **Left**: **MINE** (your user presets, when there are any), **FACTORY**, the ten families of presets (Rain, Storm,
-  Coast, River & lake, Forest, Meadow, Night, Fire, Stone & sand, Ice & winter), and **START FROM**, the ten
+- **Left**: **MINE** (your user presets, when there are any), **FACTORY**, the eleven families of presets (Rain, Storm,
+  Coast, River & lake, Forest, Meadow, Night, Fire, Stone & sand, Ice & winter, Dreams), and **START FROM**, the ten
   **Landscapes**.
 - **Middle**: the presets, each with its code and how many lanes it uses.
 - **Right**: the preview. Where its lanes stand, and each lane's engine with its HOW MANY and HOW ACTIVE.
@@ -439,7 +439,7 @@ Under the preview are the two load options, also in SETTINGS:
 - **PRESETS CHANGE TEMPO**: **NO** / **YES**. With YES a preset brings its tempo too. Your DAW's tempo still leads
   when it gives one.
 
-The 100 factory presets by family: [factory presets](MANUAL.md#factory-presets) in the FM-1 manual.
+The 110 factory presets by family, and their effects: [factory presets](MANUAL.md#factory-presets) in the FM-1 manual.
 
 ### SETTINGS
 
@@ -530,7 +530,7 @@ generic view of the plugin) for automation, and MIDI CCs and NRPNs reach them to
 
 | Group (as the DAW lists it) | Parameters |
 | --- | --- |
-| **Scenes** | **PRESET**, F001 to F100 (loads a whole scene; not automatable) |
+| **Scenes** | **PRESET**, F001 to F110 (loads a whole scene; not automatable) |
 | **MIDI** | **MIDI KEYS**: PLAY or FM-1 KEYS (not automatable) |
 | **Lane 1** ... **Lane 16** | `L1 ENGINE`, `L1 HOW MANY`, `L1 HOW ACTIVE`, `L1 LEVEL`, `L1 PAN`, `L1 CARD 1` to `L1 CARD 8`, `L1 GROOVE PART`, `L1 GROOVE CYCLE` |
 | **Grain delay**, **Reverb**, **Compressor**, **Drive**, **Filter**, **M/S** | The effects, as on their FM-1 pages ([the effects](MANUAL.md#7-the-effects)) |
@@ -558,7 +558,7 @@ The plugin listens as the FM-1 does over USB MIDI ([MIDI](MANUAL.md#12-midi) in 
 | Notes, CCs, NRPNs on channel n (1 to 16) | Lane n (each lane's channel is set in SETTINGS, MIDI IN) |
 | Notes on channel 1 | The selected lane (SELECTED CH) |
 | CCs and NRPNs on channel 5 | The effects, the tempo, the groove and the scale (FX CHANNEL) |
-| Program change on channel 1 | 0 to 99 load F001 to F100; 100 to 115 load U01 to U16 |
+| Program change on channel 1 | 0 to 99 load F001 to F100; 100 to 115 load U01 to U16; 116 to 125 load F101 to F110 |
 
 - **Lane n on channel n.** By default each lane listens on its own channel: notes play it, CCs shape it. Put each
   lane on its own MIDI track, or play them all from one track with several channels.

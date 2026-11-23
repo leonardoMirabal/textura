@@ -210,7 +210,8 @@ extern const tx_param_t tx_fx_reverb_params[TX_RV_NP];
                                     * headroom) */
 typedef struct {
     uint8_t p[TX_RV_NP];
-    uint8_t cur, fade, running, pd_on;
+    uint8_t cur, running, pd_on;
+    uint16_t fade;                               /* a TYPE change's fade: control blocks to go (tx_fx.c RV_XF) */
     int32_t off, damp, dk;                       /* DECAY's size offset, TONE's damping, DECAY for the kernels (glide) */
     int32_t md8, mg;                             /* MOD, gliding: HALL's / ROOM's depth (Q8), the others' MOD x 16 */
     int32_t hp, he, lc, lca, lcv;                /* the kernels' DC blocker; LOW CUT */
@@ -227,7 +228,7 @@ typedef struct {
     int32_t sh[HL_NC];                           /* the shifted mid, into the next control block's input */
     int32_t m[HL_NC], s[HL_NC];                  /* the TYPE's mid / side, a control block */
     uint32_t r0, rn;                             /* ROOM: the gathered run's start and length */
-    uint8_t rf[TX_BLOCK / CTL];                  /* ROOM: each control block's fade (0: none) */
+    uint16_t rf[TX_BLOCK / CTL];                 /* ROOM: each control block's fade (0: none) */
     uint32_t rng;                                /* DRIFT: its walks' random numbers (never reseeded) */
     int32_t swe, swr;                            /* SWELL: the send's level (its envelope), the return's root gain (Q15) */
     int32_t pz;                                  /* PLATE's AUTO size: MIX latched while it rings (-1: take MIX now) */

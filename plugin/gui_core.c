@@ -2056,14 +2056,15 @@ static void ov_header(txg_t *g, frui_canvas *c, const char *title, const char *r
     button(g, c, x, y + 10.f, 80.f, 26.f, "CLOSE", 0);
     wid_add(g, TXG_W_CLOSE, -1, x, y + 10.f, 80.f, 26.f);
 }
+static float nav_rh = 28.f;               /* a nav row's height (the presets' nav: less when its rows would not fit) */
 static void nav_item(txg_t *g, frui_canvas *c, float y, const char *t, int n, int on, int lane)
 {
     char b[8];
-    if (on) { R(g, c, 0, y, OV_NAV - 1.f, 28.f, C_NAV); R(g, c, 0, y, 2.f, 28.f, C_RED); }
-    TX(g, c, 16.f, y + 14.f + CAP(g, 12.5f) * 0.5f, 12.5f, 600.f, 0.f, 0, on ? C_INK : C_DIM, t);
+    if (on) { R(g, c, 0, y, OV_NAV - 1.f, nav_rh, C_NAV); R(g, c, 0, y, 2.f, nav_rh, C_RED); }
+    TX(g, c, 16.f, y + nav_rh * 0.5f + CAP(g, 12.5f) * 0.5f, 12.5f, 600.f, 0.f, 0, on ? C_INK : C_DIM, t);
     snprintf(b, sizeof b, "%d", n);
-    TX(g, c, OV_NAV - 16.f - TW(g, 11.f, 450.f, 0.f, FRUI_TNUM, b), y + 14.f + CAP(g, 11.f) * 0.5f, 11.f, 450.f, 0.f, FRUI_TNUM, C_DIM, b);
-    wid_add(g, TXG_W_NAV, lane, 0, y, OV_NAV - 1.f, 28.f);
+    TX(g, c, OV_NAV - 16.f - TW(g, 11.f, 450.f, 0.f, FRUI_TNUM, b), y + nav_rh * 0.5f + CAP(g, 11.f) * 0.5f, 11.f, 450.f, 0.f, FRUI_TNUM, C_DIM, b);
+    wid_add(g, TXG_W_NAV, lane, 0, y, OV_NAV - 1.f, nav_rh);
 }
 static void nav_group(txg_t *g, frui_canvas *c, float y, const char *t) { LBL(g, c, 16.f, y + 18.f, 10.5f, frui_alpha(C_DIM, 0.8f), t); }
 static void swatches(txg_t *g, frui_canvas *c, float x, float y, int eng)   /* an engine's colour, in a row */
@@ -2339,17 +2340,23 @@ static void draw_presets(txg_t *g, frui_canvas *c)
     ov_header(g, c, "PRESETS", 0, 1, "Type to search presets");
     R(g, c, OV_NAV - 1.f, OV_Y0, 1.f, g->H - OV_Y0, C_LINE);
     y = OV_Y0 + 2.f;
-    if (nu) { nav_group(g, c, y, "MINE"); y += 26.f; nav_item(g, c, y, "User", nu, !g->q[0] && g->pb_bank == PB_USER, PB_USER); y += 28.f; }
+    {   /* (the rows 28 high, less when they would not all fit: the window at its least height) */
+        int nr = ct->ncat + 1 + (nu ? 1 : 0);
+        float fit = (g->H - OV_Y0 - 6.f - 26.f * (float)(nu ? 3 : 2)) / (float)nr;
+        nav_rh = fit < 28.f ? (fit > 20.f ? fit : 20.f) : 28.f;
+    }
+    if (nu) { nav_group(g, c, y, "MINE"); y += 26.f; nav_item(g, c, y, "User", nu, !g->q[0] && g->pb_bank == PB_USER, PB_USER); y += nav_rh; }
     nav_group(g, c, y, "FACTORY"); y += 26.f;
     for (int i = 0; i < ct->ncat; i++) {
         char nm[16];
         cap_name(nm, ct->cat[i], sizeof nm);
         for (char *q = nm + 1; *q; q++) if (*q >= 'A' && *q <= 'Z') *q = (char)(*q + 32);
         nav_item(g, c, y, nm, ct->cat_at[i + 1] - ct->cat_at[i], !g->q[0] && g->pb_bank == i, i);
-        y += 28.f;
+        y += nav_rh;
     }
     nav_group(g, c, y, "START FROM"); y += 26.f;
     nav_item(g, c, y, "Landscapes", ct->nfam, !g->q[0] && g->pb_bank == PB_LAND, PB_LAND);
+    nav_rh = 28.f;
     /* the list */
     pb_items(g);
     for (int j = 0; j < g->nitems; j++) if (g->items[j] == g->pb_cur) cur = j;

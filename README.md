@@ -73,7 +73,7 @@ needs no copy of Frodhes to build or install.
   MIDI clock.
 - **Connections**: MIDI over USB and the TRS input (each lane on its own channel), and audio over USB as well as
   the headphone jack.
-- **Presets**: 100 factory presets in families, 16 slots for your own, and the 10 landscapes.
+- **Presets**: 110 factory presets in families, 16 slots for your own, and the 10 landscapes.
 - **On your computer too**: the same engines as a plugin, [below](#on-your-computer-the-desktop-plugin).
 
 ## On your computer: the desktop plugin

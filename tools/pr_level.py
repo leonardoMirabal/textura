@@ -13,8 +13,10 @@ under the foreground lower still, peak_cap), so a preset whose source cannot rea
 place plays at its most.
 
   .local/venv/bin/python tools/pr_level.py [-j JOBS] [-s SECS] [-t TARGET] [-o DIR] [--write] [PRESET ...]
-      measure (all presets, or the numbers 1 .. 100 given); prints the table, and with --write sets the levels in
-      firmware/presets.txt (then: python3 tools/gen_presets.py, make fw-host, and again to check)
+      measure (all presets, or the numbers 1 .. N given); prints the table, and with --write sets the levels in
+      firmware/presets.txt (then: python3 tools/gen_presets.py, make fw-host, and again to check). --fx: each
+      preset with its own effects (EFFECTS ON LOAD at ALWAYS; without it the FM-1's default, NEVER: the boot's), for
+      the presets whose effects are a large part of them (fx5 ..: the vast reverbs, the grain clouds)
   .local/venv/bin/python tools/pr_level.py --mix [-o DIR] [PRESET ...]  the mixes only (the table's mix columns), the WAVs kept in DIR"""
 import argparse
 import math
@@ -33,6 +35,7 @@ HOST = ROOT / "build" / "fw" / "textura-host"
 T_LOADS = (1500, 1617, 1733)                    # ms: the PC (three loads: three seeds, tx_seed takes the time)
 T_FROM = 500                                    # ms after the load: the measurement
 SOLO = {}                                       # lane k alone: its host build (solo_hosts)
+FX_ON = False                                   # --fx: EFFECTS ON LOAD at ALWAYS (the preset's own effects)
 PEAK_MAX = -3.5                                 # dBFS: a foreground lane alone, its loudest 1 % of 50 ms peaks (the
                                                 # limiter: -2; 1.5 dB under it, so the other lanes' peaks summed on
                                                 # top of its own seldom reach it: the fires, hail, ice)
@@ -77,7 +80,8 @@ def run(out, i, solo, secs):
     import numpy as np
     xs = []
     for n, t0 in enumerate(T_LOADS):
-        lines = [f"{t0} midi 0xC0 {i} 0"]
+        lines = (["1000 midi 0xB4 99 4", "1000 midi 0xB4 98 38", "1000 midi 0xB4 6 0"] if FX_ON else []) + \
+            [f"{t0} midi 0xC0 {gen_presets.pc_of(i)} 0"]
         lines.append(f"{t0 + T_FROM + secs * 1000} end")
         o = out.with_name(out.name + f"_s{n + 1}")
         o.parent.mkdir(parents=True, exist_ok=True)
@@ -105,9 +109,12 @@ def main():
     ap.add_argument("-o", default=str(ROOT / "build" / "presets"))
     ap.add_argument("--write", action="store_true")
     ap.add_argument("--mix", action="store_true")
+    ap.add_argument("--fx", action="store_true")
     ap.add_argument("--cc", default="cc")
     ap.add_argument("presets", nargs="*", type=int)
     a = ap.parse_args()
+    global FX_ON
+    FX_ON = a.fx
     if not HOST.exists():
         sys.exit("pr_level: no build/fw/textura-host (make fw-host)")
     cats = gen_presets.parse()

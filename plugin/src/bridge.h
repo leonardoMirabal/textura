@@ -155,8 +155,8 @@ typedef struct {
 #define TXP_FAM_MAX 10u
 #define TXP_SND_MAX 12u
 #define TXP_ENG_MAX 64u
-#define TXP_PR_MAX 100u
-#define TXP_CAT_MAX 10u
+#define TXP_PR_MAX 128u
+#define TXP_CAT_MAX 15u
 #define TXP_MT_MAX 160u                  /* the matrix's targets at most (mod.c MT_N: 138) */
 typedef struct {
     uint8_t nfam;

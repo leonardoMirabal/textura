@@ -1,12 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* The factory presets: PR_N places, each four lanes of sounds from any family, grouped in PR_NCAT categories (the
  * table: presets.h, written by tools/gen_presets.py from firmware/presets.txt; the levels there are measured, the
- * tool says how). They are the factory scenes F001 .. F100: a load goes through scenes.c (scn_load: the lanes, then
+ * tool says how). They are the factory scenes F001 .. (PR_N of them): a load goes through scenes.c (scn_load: the lanes, then
  * the records), so a preset is a scene like any other, and a user scene saved from one keeps what was changed.
  *
  * A preset holds, per lane: the sound (its family and its index there, or none), HOW MANY (0 off .. 6), HOW ACTIVE
  * (the key 0 .. 8), the LEVEL (0 .. 127, 100 = the sound as tuned), the PAN (0 .. 127) and the mute; and one byte for
- * its category and its effects (an index into PR_FX: a touch of reverb, an echo, or none). The levels and pans are
+ * its category and its effects (an index into PR_FX, 16 sets at most: a touch of reverb, an echo, none, or a place
+ * beyond the real one: the vast reverbs, SHIMMER, a grain cloud, the FILTER and the M/S's SIDE with them; each set the
+ * values it moves off their defaults, scenes.c scn_factory FX_ID its columns). The levels and pans are
  * plain values (no level hidden in another parameter), so a load can glide them. The effects come with a load only
  * where the scene's effects do (EFFECTS ON LOAD, the boot's load: scenes.c); kept, they stay as they are.
  *

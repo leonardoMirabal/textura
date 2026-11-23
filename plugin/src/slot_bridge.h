@@ -667,7 +667,7 @@ static int sb_state_get(char *buf, int n, int fresh)   /* fresh: ask the audio s
         q2 = atomic_load_explicit(&sbx.cap_seq, memory_order_relaxed);
         if (q1 == q2) break;
     }
-    o += sprintf(o, "{\"textura\":\"2\",\"cur\":\"%u\",\"set\":\"", (unsigned)cur);
+    o += sprintf(o, "{\"textura\":\"2\",\"cur\":\"%u\",\"nf\":\"%u\",\"set\":\"", (unsigned)cur, (unsigned)SCN_NF);
     for (i = 0; i < SB_NSET; i++) o += sprintf(o, "%s%u=%d", i ? "," : "", (unsigned)PID(P_GLOBAL, SB_SET_IDX[i]), set[i]);
     o += sprintf(o, "\",\"solo\":\"%u\",\"keys\":\"%u\",\"sel\":\"%u\",\"umask\":\"%u\",\"user\":\"", (unsigned)solo,
                  (unsigned)keys, (unsigned)sel, (unsigned)um);
@@ -741,7 +741,15 @@ static int sb_state_set(const char *j)   /* into the mailbox; sb_state_apply app
     }
     sbx.st_scn = x;
     sbx.st_cur = 0xFF;
-    if (c && lc > 0 && lc < 4) { uint32_t n = 0; for (i = 0; i < lc; i++) n = n * 10u + (uint32_t)(c[i] - '0'); if (n < SCN_N) sbx.st_cur = (uint8_t)n; }
+    if (c && lc > 0 && lc < 4) {         /* (cur: a scene number as the state's build had them, nf factory scenes
+                                          * then the user's; a state without nf: 100, the presets before F101) */
+        uint32_t n = 0;
+        int32_t nf = sb_json_num(j, "nf", 100);
+        for (i = 0; i < lc; i++) n = n * 10u + (uint32_t)(c[i] - '0');
+        if (nf > 0 && n >= (uint32_t)nf) n = n - (uint32_t)nf < SCN_NU ? n - (uint32_t)nf + SCN_NF : SCN_N;
+        else if (n >= SCN_NF) n = SCN_N;
+        if (n < SCN_N) sbx.st_cur = (uint8_t)n;
+    }
     sbx.st_solo = -1;
     if (so && lo > 0 && lo < 6) { uint32_t n = 0; for (i = 0; i < lo && so[i] >= '0' && so[i] <= '9'; i++) n = n * 10u + (uint32_t)(so[i] - '0'); sbx.st_solo = (int32_t)(n & 0xFFFFu); }
     for (i = 0; i < SB_NSET; i++) sbx.st_set[i] = -1;

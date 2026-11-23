@@ -21,12 +21,12 @@
 3020 expect state landscape Fire
 3020 expect state toasthd LOADED
 3500 shot
-# SELECT back a family, EDIT: a preset loads again (ICE & WINTER's first)
+# SELECT back a family, EDIT: a preset loads again (the last family's first: DREAMS, F101)
 3600 turn 0 -1
-3620 expect state brfam ICE_&_WINTER
+3620 expect state brfam DREAMS
 3700 btn 6
 4700 expect state loading 0
-4700 expect state scene F091_FROST
+4700 expect state scene F101_SLOW_TIDE
 4800 btn 8
 4820 expect state brpr 0
 4900 end

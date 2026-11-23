@@ -85,7 +85,7 @@ CLAP notes). Play it from a MIDI track as you would play the FM-1 over USB MIDI 
 | Channel 1 notes | the selected lane (SELECTED CH) |
 | Channel n notes, CCs (n = 1 .. 16) | lane n |
 | Channel 5 CCs | the effects, the tempo, the groove and the scale (FX CHANNEL) |
-| Channel 1 program change | 0 .. 99 load F001 .. F100, 100 .. 115 load U01 .. U16 |
+| Channel 1 program change | 0 .. 99 load F001 .. F100, 100 .. 115 load U01 .. U16, 116 .. 125 load F101 .. F110 |
 
 Each lane's channel is a parameter: OFF or 1 .. 16, lane n on channel n by default (LANE 1 .. 4 CHANNEL as on the
 FM-1, LANE 5 .. 16 CHANNEL new). Lanes on one channel layer: its notes and CCs reach all of them. The effects'
@@ -233,7 +233,7 @@ scope times 256 plus the index (`firmware/src/params.c`): lanes 1 .. 4 are scope
 5 .. 16 are scopes 16 .. 27 (ids 0x1000 .. 0x1BFF). The new globals take indices after the FM-1's (LANE 5 .. 16
 CHANNEL 68 .. 79, FX CHANNEL 80, LANES 81). No FM-1 id moved, so NRPN numbers and FM-1 scenes stay valid.
 
-- **PRESET**: F001 .. F100 (not automatable: it loads a whole scene, as a program change does).
+- **PRESET**: F001 .. F110 (not automatable: it loads a whole scene, as a program change does).
 - **MIDI KEYS** (0x10001, the plugin's own): PLAY or FM-1 KEYS ([the window](#the-window)); not automatable.
 - **Lane 1 .. 16**: ENGINE, HOW MANY, HOW ACTIVE, LEVEL, PAN, CARD 1 .. 8, GROOVE PART, GROOVE CYCLE. A card's meaning
   depends on the lane's engine; its host value is 0 .. 127 onto the card's own range, as its CC. A card the user has

@@ -1,0 +1,6 @@
+# the power cycle, run 5: the settings record as a firmware with 100 factory presets wrote it (settings_old.py L1: its
+# layout 1, the last scene U05 at its number there, 105): the boot loads U05 still, not a factory preset
+1700 expect state scene U05_WATER
+1700 expect state palette PEACH
+1900 expect sound
+2000 end

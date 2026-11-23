@@ -22,7 +22,13 @@ const tx_param_t tx_fx_reverb_params[TX_RV_NP] = {
     {"SHIFT", 3, 0, TX_TEXT("the shimmer's interval: 0 an octave up | 1 a fifth up | 2 an octave and a fifth up | 3 an octave down")},
 };
 
-#define RV_FADE 8u                  /* control blocks of a TYPE change's fade: 256 frames, 5.8 ms */
+#define RV_FADE 8u                  /* control blocks of the grain cap's rise (tx_fx_gd_cap) */
+#ifndef RV_XF                       /* (a build may give its own: 8 is the fade of before, bit for bit) */
+#define RV_XF 512u                  /* control blocks of a TYPE change's fade (to another kernel: the old tail fades out,
+                                     * then the new TYPE starts): 16384 frames, 372 ms, about a load's glide (scenes.c:
+                                     * 500 ms), so a preset's TYPE change never cuts a tail (it was 5.8 ms) */
+#endif
+#define RV_XS ((int32_t)(32768u / (RV_XF * CTL)))   /* (its gain's step a frame, Q15: 2) */
 #define FX_PDLY_SAMPLES(v) ((uint32_t)(v) * 3528u / 127u)
 
 TX_INLINE uint32_t kern(uint32_t t)                    /* DARK, DRIFT, SWELL: the infinite kernel */
@@ -273,7 +279,7 @@ static void room_flush(tx_fx_reverb_t *r, int32_t *L, int32_t *R)
     uint32_t j, n = r->rn;
     for (j = 0; j < n; j++) {
         int32_t w = x ? x[j] : 0, f = r->rf[(r->r0 + j) / CTL];
-        if (f) w = (int32_t)(((int64_t)w * ((f * 32 - (int32_t)(j & (CTL - 1u))) * 128)) >> 15);
+        if (f) w = (int32_t)(((int64_t)w * ((f * (int32_t)CTL - (int32_t)(j & (CTL - 1u))) * RV_XS)) >> 15);
         keep[j] = w;
     }
     TX_FAR(rv_body)(r, L, R, keep);
@@ -353,7 +359,7 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
         }
         if (tgt && kern((uint32_t)tgt) != r->cur && !r->fade) {
             if (quiet || !r->cur) TX_FAR(rev_begin)(r, (uint32_t)tgt);   /* (TYPE starts: in XIP) */
-            else r->fade = RV_FADE;
+            else r->fade = RV_XF;
         }
         for (j = 0; j < CTL; j++) {                             /* the send: the mid, Q23 -> Q15 (64-bit: the bus may */
             int32_t mq = (int32_t)(((L[sb + j] >> 1) + (R[sb + j] >> 1) + 128) >> 8);   /* be far over full scale) */
@@ -425,11 +431,11 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
                 if (!r->p[TX_RV_SHIMMER]) { for (i = 0; i < HL_NC; i++) r->sh[i] = 0; shon = 0; }
                 for (i = 0; i < HL_NC; i++) act |= r->sh[i];
             }
-            if (cur && (r->fade || (v && !send))) {             /* a fade: the TYPE's out x (fade / 8) ..; OFF: watched */
-                int32_t g = (int32_t)r->fade << 12;             /* (the step first: the last sample at 0) */
+            if (cur && (r->fade || (v && !send))) {             /* a fade: the TYPE's out x (fade / RV_XF) ..; OFF: watched */
+                int32_t g = (int32_t)r->fade * (int32_t)CTL * RV_XS;   /* (the step first: the last sample at 0) */
                 for (i = 0; i < HL_NC; i++) {
                     act |= om[i] | os[i];
-                    if (r->fade) { g -= 128; om[i] = mul15(om[i], g); os[i] = mul15(os[i], g); }
+                    if (r->fade) { g -= RV_XS; om[i] = mul15(om[i], g); os[i] = mul15(os[i], g); }
                 }
                 if (r->fade) act = 1;
             }
