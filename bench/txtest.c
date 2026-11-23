@@ -658,7 +658,8 @@ static void check_comp(void)
 
 /* ---- M/S (tx_core_ms.h): at 0 dB and MONO off bit-exact (meters on or off); MID -inf leaves the sides, SIDE -inf and
  * MONO the middle; +6 dB doubles; every change glides (no step over 0.5 % of full scale a sample on a steady pair);
- * back at 0 dB bit-exact again; the meters' correlation +1 for a mono pair, -1 for an out-of-phase one; WIDTH <-> SIDE */
+ * back at 0 dB bit-exact again; the meters' correlation +1 for a mono pair, -1 for an out-of-phase one; WIDTH on the
+ * sides after SIDE: 0 % none, 100 % bit-exact as before (any SIDE), 200 % +6.02 dB, the middle untouched, gliding */
 static void ms_run(tx_ms_t *m, int32_t l, int32_t r, unsigned nb, int32_t *ol, int32_t *or_, int32_t *step)
 {
     static int32_t L[TX_BLOCK], R[TX_BLOCK];
@@ -680,9 +681,10 @@ static void check_ms(void)
     static int32_t L[TX_BLOCK], R[TX_BLOCK], L0[TX_BLOCK], R0[TX_BLOCK];
     tx_ms_t m;
     tx_rng_t r;
-    unsigned b, j, mt, same = 1, rt = 1, w;
+    unsigned b, j, mt, same = 1, w, sd;
+    int32_t w0l = 0, w0r = 0, w2l = 0, w2r = 0, wstep = 0;
     int32_t ol = 0, orr = 0, step = 0, cm, cs;
-    char msg[240];
+    char msg[420];
     tx_rng_seed(&r, 11u);
     for (mt = 0; mt < 2u; mt++) {
         tx_ms_init(&m);
@@ -733,16 +735,38 @@ static void check_ms(void)
     snprintf(msg, sizeof msg, "correlation: a mono pair %d, an out-of-phase one %d (+-32767); peaks L R M S %d %d %d %d", cm, cs,
              m.pk[0], m.pk[1], m.pk[2], m.pk[3]);
     verdict("ms", "meters", cm > 32000 && cs < -32000 && m.pk[0] == 2000000 && m.pk[1] == 2000000 && m.pk[2] == 0 && m.pk[3] == 2000000, msg, 0);
-    for (w = 1; w <= 100u; w++) {                             /* WIDTH -> SIDE -> WIDTH, at MID 0 dB and -20 dB */
-        unsigned a = tx_ms_width_of(TX_MS_0DB, tx_ms_side_of(TX_MS_0DB, w, 0, 0)), c = tx_ms_width_of(75, tx_ms_side_of(75, w, 0, 0));
-        unsigned tol = w < 25u ? 2u : w * 6u / 100u + 1u;    /* (0.5 dB a SIDE step: ~6 %) */
-        rt &= (a > w ? a - w : w - a) <= tol && (c > w ? c - w : w - c) <= tol;
+    for (sd = 0; sd < 3u; sd++) {                             /* WIDTH 100 %: the same samples as a stage that never
+                                                 * had it set, at SIDE 0 dB, -12 dB and +6 dB, a WIDTH moved away and back */
+        static const uint8_t SV[3] = {TX_MS_0DB, TX_MS_0DB - 24u, 127u};
+        tx_ms_t a, c;
+        tx_ms_init(&a); tx_ms_init(&c);
+        tx_ms_param(&a, TX_MS_SIDE, SV[sd]); tx_ms_param(&c, TX_MS_SIDE, SV[sd]);
+        tx_ms_param(&c, TX_MS_WIDTH, 0); tx_ms_param(&c, TX_MS_WIDTH, TX_MS_W100);   /* (set before any block: no glide) */
+        tx_rng_seed(&r, 12u + sd);
+        for (b = 0; b < 60u; b++) {
+            for (j = 0; j < TX_BLOCK; j++) { L[j] = L0[j] = tx_rand_s15(&r) * 300; R[j] = R0[j] = tx_rand_s15(&r) * 170; }
+            tx_ms_process(&a, L, R, TX_BLOCK);
+            tx_ms_process(&c, L0, R0, TX_BLOCK);
+            for (j = 0; j < TX_BLOCK; j++) same &= L[j] == L0[j] && R[j] == R0[j];
+        }
     }
-    snprintf(msg, sizeof msg, "WIDTH <-> SIDE: 100 %% = SIDE as MID (%u), 200 %% = +6 dB (%u), 0 = -inf (%u); every WIDTH back within a SIDE step",
-             tx_ms_side_of(TX_MS_0DB, TX_MS_W100, 0, 0), tx_ms_side_of(TX_MS_0DB, 100, 0, 0), tx_ms_side_of(TX_MS_0DB, 0, 0, 0));
-    verdict("ms", "width", rt && tx_ms_side_of(TX_MS_0DB, TX_MS_W100, 0, 0) == TX_MS_0DB && tx_ms_side_of(TX_MS_0DB, 100, 0, 0) == 127u &&
-            tx_ms_side_of(TX_MS_0DB, 0, 0, 0) == 0u && tx_ms_width_of(TX_MS_0DB, TX_MS_0DB) == TX_MS_W100 && tx_ms_width_of(9, 0) == 0u &&
-            tx_ms_side_of(TX_MS_0DB, 99, 127, -1) == 126u, msg, 0);
+    tx_ms_init(&m);
+    tx_ms_param(&m, TX_MS_WIDTH, 0);
+    ms_run(&m, 1000000, 200000, 40, &w0l, &w0r, 0);           /* (M 600000, S 400000: the sides gone) */
+    tx_ms_init(&m);
+    tx_ms_param(&m, TX_MS_WIDTH, 100);
+    ms_run(&m, 1000000, 200000, 40, &w2l, &w2r, 0);           /* (S doubled: 600000 +- 800000) */
+    tx_ms_init(&m);
+    ol = 3000000; orr = 1000000;
+    ms_run(&m, 3000000, 1000000, 10, &ol, &orr, &wstep);
+    for (w = 0; w <= 100u; w += 100u) { tx_ms_param(&m, TX_MS_WIDTH, w); ms_run(&m, 3000000, 1000000, 40, &ol, &orr, &wstep); }
+    tx_ms_param(&m, TX_MS_WIDTH, TX_MS_W100); ms_run(&m, 3000000, 1000000, 40, &ol, &orr, &wstep);
+    cm = m.p[TX_MS_SIDE] == TX_MS_0DB && m.p[TX_MS_MID] == TX_MS_0DB;   /* (WIDTH wrote neither) */
+    snprintf(msg, sizeof msg, "WIDTH 100 %% bit-exact as before at three SIDEs: %s; 0 %% on 1000000 / 200000: %d / %d (600000, the sides "
+             "silent); 200 %%: %d / %d (1400000 / -200000: SIDE +6.02 dB, the middle kept); 0 .. 200 .. 100 %% moved: the largest "
+             "step a sample %d, back %d / %d; MID, SIDE untouched: %s", same ? "yes" : "NO", w0l, w0r, w2l, w2r, wstep, ol, orr, cm ? "yes" : "NO");
+    verdict("ms", "width", same && cm && w0l == 600000 && w0r == 600000 && w2l >= 1399000 && w2l <= 1400000 && w2r <= -199000 &&
+            w2r >= -201000 && wstep < 41943 && ol == 3000000 && orr == 1000000, msg, 0);
 }
 
 /* ---- GEN: the lane generator, 10 minutes alone at EVOLVE 2 h and at 10 s, twice each: deterministic, the activity

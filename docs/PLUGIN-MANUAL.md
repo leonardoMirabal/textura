@@ -218,8 +218,9 @@ The third tab, **M/S**, shows the whole mix's stereo picture large, as it leaves
 - **L, R, MID, SIDE**: the peak of each in dB, with its bar (-48 to 0 dB; the sides' in red).
 - **CORRELATION**, from -1 to +1, with the middle marked: near +1 the mix is close to mono; near 0 it is wide; left of
   the middle the sides cancel when the mix is played in mono.
+- **WIDTH**: the M/S's WIDTH now (0 % while MONO is on).
 
-The view only shows. MID, SIDE and WIDTH stay in the strip's M/S section and its drawer. The place's dots and the
+The view only shows. MID and SIDE stay in the strip's M/S section and its drawer, WIDTH in the drawer. The place's dots and the
 selected lane's name come back with MAP or SPACE; the selected lane is still in the drawer below.
 
 ### The lanes
@@ -317,12 +318,13 @@ effect parameter does: [the effects](MANUAL.md#7-the-effects) in the FM-1 manual
 #### M/S
 
 The last effect, after the reverb, on the whole mix: its middle (what both speakers share) and its sides (what differs
-left to right), each with its own level. At 0 dB with MONO off it leaves the sound as it is.
+left to right), each with its own level, then WIDTH on the sides. At 0 dB, 100 % and MONO off it leaves the sound as
+it is. MID, SIDE and WIDTH are separate: moving one never moves another.
 
 - **MID** and **SIDE**: -inf to +6 dB in half-dB steps. On the fader 0 dB sits at three quarters (its mark), the
   last quarter is the boost.
-- **WIDTH**: the same move as one value, the sides against the middle: 0 % mono, 100 % as it is (its mark), 200 %
-  twice as wide.
+- **WIDTH**: 0 to 200 % on the sides after SIDE: 0 % mono, 100 % as it is (its mark), 200 % twice as wide (the sides
+  +6 dB). A project or preset saved before WIDTH was its own loads at 100 %.
 - **MONO**: the mix in mono at one click (WIDTH reads 0 %); click again to go back. Moving SIDE or WIDTH turns it
   off, so you hear the change.
 - **Double-click** a fader: back to 0 dB or 100 %. An LFO or an envelope can move MID and SIDE (the M/S MID and M/S

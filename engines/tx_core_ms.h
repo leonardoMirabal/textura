@@ -5,12 +5,12 @@
  *
  *   MID, SIDE   0 .. 127: 0 is -inf (silent), v (1 .. 127) is (v - 115) / 2 dB: -57 .. +6 dB in 0.5 dB steps,
  *               115 = 0 dB (the default)
- *   WIDTH       0 .. 100: 0 .. 200 % in 2 % steps (50 = 100 %, as it is). Not a gain of its own: the app sets SIDE
- *               from it (SIDE = MID + 20 log10(WIDTH / 100 %), tx_ms_side_of) and shows it from MID and SIDE
- *               (tx_ms_width_of); here it does nothing
+ *   WIDTH       0 .. 100: 0 .. 200 % in 2 % steps (50 = 100 %, as it is; the default): the sides' gain after SIDE,
+ *               x WIDTH / 50 (0 mono, 100 twice as wide: +6.02 dB). A parameter of its own: MID, SIDE and WIDTH never
+ *               set each other
  *   MONO        OFF / ON: the sides' gain 0 (SIDE kept for when it goes off)
  *
- * MID and SIDE at 0 dB and MONO off: the pair passes untouched, bit for bit (the gains are compared, not applied).
+ * MID and SIDE at 0 dB, WIDTH 100 % and MONO off: the pair passes untouched, bit for bit (the gains are compared, not applied).
  * A gain change glides: each block moves a quarter of the way to the new gain (~23 ms; the last steps exactly there),
  * ramped sample by sample inside the block, so a knob never zips and MONO fades instead of cutting.
  *
@@ -30,7 +30,8 @@ enum { TX_MS_MID, TX_MS_SIDE, TX_MS_WIDTH, TX_MS_MONO, TX_MS_NP };
 extern const tx_param_t tx_ms_params[TX_MS_NP];
 
 typedef struct {
-    int32_t gm, gs;                     /* the half gains now, Q15 (16384 = 0 dB) */
+    int32_t gm, gs;                     /* the half gains now, Q15 (16384 = 0 dB; the sides' up to 65380: +6 dB SIDE at
+                                         * WIDTH 200 %) */
     int32_t tm, ts;                     /* where they glide to */
     uint8_t p[TX_MS_NP];
     uint8_t meter;                      /* the meters wanted, by whom: bit 0 the FM-1's screen (its M/S page shown,
@@ -45,10 +46,6 @@ void tx_ms_param(tx_ms_t *m, unsigned id, unsigned v);
 TX_AUDIO_CODE void tx_ms_process(tx_ms_t *m, int32_t *L, int32_t *R, unsigned n);
 /* MID / SIDE value v as a half gain, Q15 (0: -inf) */
 int32_t tx_ms_gain(unsigned v);
-/* WIDTH (0 .. 100) from MID and SIDE (values 0 .. 127), and SIDE from MID and WIDTH (dir: 0 the nearest, +-1 at least
- * one step past side0 that way: a knob turned never sticks on a rounding) */
-unsigned tx_ms_width_of(unsigned mid, unsigned side);
-unsigned tx_ms_side_of(unsigned mid, unsigned width, unsigned side0, int dir);
 /* a MID / SIDE value's level in tenths of a dB (v 1 .. 127; 0: -inf, not asked) */
 static inline int32_t tx_ms_db10(unsigned v) { return ((int32_t)v - (int32_t)TX_MS_0DB) * 5; }
 

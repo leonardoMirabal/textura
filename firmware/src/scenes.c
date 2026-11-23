@@ -241,8 +241,9 @@ static void scn_name_of(uint32_t idx, char *s)  /* "F003 GARDEN RAIN", "U05 WATE
 #define SCN_DEF_FOL (SCN_DEF_ENV + TX_ENV_N * TX_EP_N)
 #define SCN_DEF_MAT (SCN_DEF_FOL + TX_FOL_N * TX_FP_N)
 #define SCN_DEF_GRV (SCN_DEF_MAT + MOD_NS * MQ_N + 1u)   /* each lane's GROOVE PART and CYCLE */
-#define SCN_DEF_MS (SCN_DEF_GRV + 2u * SC_N)   /* the M/S's MID, SIDE, MONO (WIDTH: SIDE's, not kept) */
-#define SCN_DEF_N (SCN_DEF_MS + 3u)
+#define SCN_DEF_MS (SCN_DEF_GRV + 2u * SC_N)   /* the M/S's MID, SIDE, MONO, WIDTH (a scene of before WIDTH was its own
+                                                 * has no record of it: 100 %, as it sounded) */
+#define SCN_DEF_N (SCN_DEF_MS + 4u)
 typedef char scn_grv_after_mf[PG_GRV0 == PG_MF0 + TX_MF_NP ? 1 : -1];   /* (scn_def_id counts on it) */
 typedef char scn_pc_fits[SCN_NF <= SCN_PC_U + 128u - SCN_PC_F2 ? 1 : -1];   /* (every factory scene has a program) */
 static uint8_t scn_lfo_def[TX_LFO_N][TX_LP_N];  /* (tx_lfo_init's, per LFO: taken at boot) */
@@ -263,7 +264,7 @@ static uint32_t scn_def_id(uint32_t i)          /* the i-th default's param id *
     if (i < SCN_DEF_FOL) { i -= SCN_DEF_ENV; return PID(P_ENV, i / TX_EP_N * 16u + i % TX_EP_N); }
     if (i < SCN_DEF_MAT) { i -= SCN_DEF_FOL; return PID(P_ENV, MV_FOL0 + i / TX_FP_N * 16u + i % TX_FP_N); }
     if (i < SCN_DEF_GRV) { i -= SCN_DEF_MAT; return PID(P_MAT, i < MOD_NS * MQ_N ? i : MQ_CC); }
-    if (i >= SCN_DEF_MS) { static const uint8_t M[3] = {TX_MS_MID, TX_MS_SIDE, TX_MS_MONO}; return PID(P_GLOBAL, PG_MS0 + M[i - SCN_DEF_MS]); }
+    if (i >= SCN_DEF_MS) { static const uint8_t M[4] = {TX_MS_MID, TX_MS_SIDE, TX_MS_MONO, TX_MS_WIDTH}; return PID(P_GLOBAL, PG_MS0 + M[i - SCN_DEF_MS]); }
     i -= SCN_DEF_GRV;
     return PID(P_LS(i / 2u), PL_GPART + (i & 1u));
 }
@@ -280,7 +281,7 @@ static int32_t scn_def_of(uint32_t id)          /* an id's default (-1: none: th
         if (i >= PG_COMP0 && i < PG_COMP0 + TX_CP_NP) return tx_comp_params[i - PG_COMP0].def;
         if (i >= PG_DRIVE0 && i < PG_DRIVE0 + TX_DR_NP) return tx_fx_drive_params[i - PG_DRIVE0].def;
         if (i >= PG_MF0 && i < PG_MF0 + TX_MF_NP) return tx_fx_mfilter_params[i - PG_MF0].def;
-        if (PG_IS_MS(i) && i != PG_MS0 + TX_MS_WIDTH) return tx_ms_params[i - PG_MS0].def;
+        if (PG_IS_MS(i)) return tx_ms_params[i - PG_MS0].def;
         return -1;
     }
     if (s == P_LFO) return i / 16u < TX_LFO_N && i % 16u < TX_LP_N ? scn_lfo_def[i / 16u][i % 16u] : -1;

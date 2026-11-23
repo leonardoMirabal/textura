@@ -1779,28 +1779,14 @@ static void ui_lane_step(int32_t d)             /* OCT: the previous / next lane
     ui_say_lane();
 }
 /* a parameter turned by d detents: an amount or a choice by d, a toggle on (up) / off (down) */
-/* the M/S's knobs (as the page's design): MID keeps the WIDTH (SIDE moves with it, unless at -inf); SIDE and WIDTH
- * turned put MONO off first, from the values it kept; WIDTH sets SIDE at least a step its way (never stuck on a
- * rounding). MIDI and the host set each one alone (params.c p_set) */
+/* the M/S's knobs: MID, SIDE and WIDTH each alone (none moves another); SIDE and WIDTH turned put MONO off first, from
+ * the values it kept (the change is heard) */
 static void ui_ms_turn(uint32_t id, int32_t d)
 {
-    uint32_t i = P_IDX(id) - PG_MS0, mid = pv_glob[PG_MS0 + TX_MS_MID], side = pv_glob[PG_MS0 + TX_MS_SIDE];
-    uint32_t sid = PID(P_GLOBAL, PG_MS0 + TX_MS_SIDE), mon = PID(P_GLOBAL, PG_MS0 + TX_MS_MONO);
+    uint32_t i = P_IDX(id) - PG_MS0, mon = PID(P_GLOBAL, PG_MS0 + TX_MS_MONO);
     scn_touch_id(id);
-    if (i == TX_MS_MID) {
-        int32_t m = clampi((int32_t)mid + d, 0, 127);
-        p_set(id, m);
-        if (side && mid && m) p_set(sid, clampi((int32_t)side + m - (int32_t)mid, 1, 127));
-        return;
-    }
-    if (pv_glob[PG_MS0 + TX_MS_MONO]) { scn_touch_id(mon); p_set(mon, 0); }
-    if (i == TX_MS_SIDE) { p_set(id, clampi((int32_t)side + d, 0, 127)); return; }
-    {
-        int32_t w0 = (int32_t)tx_ms_width_of(mid, side), w = clampi(w0 + d, 0, 100);
-        if (w == w0) return;                    /* (at an end: SIDE stays) */
-        scn_touch_id(sid);
-        p_set(sid, (int32_t)tx_ms_side_of(mid, (uint32_t)w, side, d > 0 ? 1 : -1));
-    }
+    if (i != TX_MS_MID && pv_glob[PG_MS0 + TX_MS_MONO]) { scn_touch_id(mon); p_set(mon, 0); }
+    p_set(id, clampi((int32_t)pv_glob[PG_MS0 + i] + d, 0, p_hi(id)));
 }
 static void ui_turn(uint32_t id, int32_t d)
 {

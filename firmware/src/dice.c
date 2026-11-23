@@ -190,8 +190,9 @@ static void dice_fx(scn_t *t)
     dice_g(t, PG_REVERB0 + TX_RV_PREDELAY, dice_in(0, 50)); dice_g(t, PG_REVERB0 + TX_RV_SIZE, dice_n(3) ? 0 : dice_in(20, 127));
     dice_g(t, PG_REVERB0 + TX_RV_MOD, dice_in(20, 110)); dice_g(t, PG_REVERB0 + TX_RV_LOWCUT, dice_in(0, 50));
     dice_g(t, PG_REVERB0 + TX_RV_SHIMMER, dice_n(3) ? 0 : dice_in(10, 60)); dice_g(t, PG_REVERB0 + TX_RV_SHIFT, dice_in(0, 3));
-    /* M/S: near 0 dB, a little narrower or wider; MONO off (never MID and SIDE both gone) */
+    /* M/S: near 0 dB, WIDTH 80 .. 140 %: a little narrower or wider; MONO off (never MID and SIDE both gone) */
     dice_g(t, PG_MS0 + TX_MS_MID, dice_in(108, 117)); dice_g(t, PG_MS0 + TX_MS_SIDE, dice_in(100, 121));
+    dice_g(t, PG_MS0 + TX_MS_WIDTH, dice_in(40, 70));   /* (80 .. 140 %) */
     dice_g(t, PG_MS0 + TX_MS_MONO, 0);
 }
 

@@ -238,7 +238,7 @@ licence goes into every bundle's `Contents/Resources` (Windows / Linux: next to 
 
 ## Parameters
 
-479 host parameters, by the app's own stable ids, so automation stays put across versions. An id is the
+483 host parameters, by the app's own stable ids, so automation stays put across versions. An id is the
 scope times 256 plus the index (`firmware/src/params.c`): lanes 1 .. 4 are scopes 0 .. 3, the FM-1's own; lanes
 5 .. 16 are scopes 16 .. 27 (ids 0x1000 .. 0x1BFF). The new globals take indices after the FM-1's (LANE 5 .. 16
 CHANNEL 68 .. 79, FX CHANNEL 80, LANES 81). No FM-1 id moved, so NRPN numbers and FM-1 scenes stay valid.
@@ -254,6 +254,8 @@ CHANNEL 68 .. 79, FX CHANNEL 80, LANES 81). No FM-1 id moved, so NRPN numbers an
 - **Groove, keys (scale), MIDI IN channels (lanes 1 .. 16, FX CHANNEL), EFFECTS ON LOAD**.
 - **LFO 1 .. 8, the envelopes and followers, the matrix (MOD 1 .. 16) and MOD CC**. A modulation target names
   lane 1 .. 4 or ALL LANES, as on the FM-1; ALL LANES reaches lanes 5 .. 16 too.
+- **M/S**, appended last (0x460 .. 0x463): MID, SIDE, WIDTH (0 .. 100: 0 .. 200 %, 50 = 100 %; the sides' gain after
+  SIDE, its own: none of the three moves another) and MONO.
 
 The FM-1's tempo, clock, screen and status settings are not host parameters.
 

@@ -405,8 +405,8 @@ static int host_sound_check(char *msg, unsigned n)   /* 0 if every lane runs the
         if (ln.fx.rev.p[k] != pv_glob[PG_REVERB0 + k] && !mod_holds(PID(P_GLOBAL, PG_REVERB0 + k))) { snprintf(msg, n, "reverb %u: %u, not %u", k, ln.fx.rev.p[k], pv_glob[PG_REVERB0 + k]); return 1; }
     for (k = 0; k < TX_CP_NP; k++)
         if (ln.mix.comp.p[k] != pv_glob[PG_COMP0 + k]) { snprintf(msg, n, "comp %u: %u, not %u", k, ln.mix.comp.p[k], pv_glob[PG_COMP0 + k]); return 1; }
-    for (k = 0; k < TX_MS_NP; k++)                  /* the M/S (WIDTH: SIDE's, never sent) */
-        if (k != TX_MS_WIDTH && ln.mix.ms.p[k] != pv_glob[PG_MS0 + k] && !mod_holds(PID(P_GLOBAL, PG_MS0 + k))) { snprintf(msg, n, "m/s %u: %u, not %u", k, ln.mix.ms.p[k], pv_glob[PG_MS0 + k]); return 1; }
+    for (k = 0; k < TX_MS_NP; k++)                  /* the M/S */
+        if (ln.mix.ms.p[k] != pv_glob[PG_MS0 + k] && !mod_holds(PID(P_GLOBAL, PG_MS0 + k))) { snprintf(msg, n, "m/s %u: %u, not %u", k, ln.mix.ms.p[k], pv_glob[PG_MS0 + k]); return 1; }
     return 0;
 }
 static int host_state(const char *key, char *v, unsigned n)

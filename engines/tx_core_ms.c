@@ -6,7 +6,7 @@
 const tx_param_t tx_ms_params[TX_MS_NP] = {
     {"MID", 127, TX_MS_0DB, TX_TEXT("the middle (what both sides share): -inf, -57 .. +6 dB (115: 0 dB, no change)")},
     {"SIDE", 127, TX_MS_0DB, TX_TEXT("the sides (what differs left to right): -inf, -57 .. +6 dB (115: 0 dB)")},
-    {"WIDTH", 100, TX_MS_W100, TX_TEXT("0 .. 200 %: 0 mono, 50 (100 %) as it is, 100 twice as wide; sets SIDE from MID")},
+    {"WIDTH", 100, TX_MS_W100, TX_TEXT("0 .. 200 %: 0 mono, 50 (100 %) as it is, 100 twice as wide: the sides after SIDE")},
     {"MONO", 1, 0, TX_TEXT("the sides off, to hear the mix in mono: off / on")},
 };
 
@@ -21,30 +21,6 @@ int32_t tx_ms_gain(unsigned v)
                                                  * 0.5 dB as log2, Q16 (127: 32690, +6 dB) */
 }
 
-unsigned tx_ms_width_of(unsigned mid, unsigned side)
-{
-    int32_t d;
-    if (!side) return 0;
-    if (!mid) return 100u;
-    d = (int32_t)side - (int32_t)mid;                            /* half dB */
-    if (d >= 13) return 100u;                                    /* (+6.5 dB: over 200 %) */
-    return (50u * tx_exp2((16 << 16) + d * 5443) + 32768u) >> 16;   /* 50 x 10^(dB / 20), rounded */
-}
-
-unsigned tx_ms_side_of(unsigned mid, unsigned width, unsigned side0, int dir)
-{
-    int32_t q, s;
-    if (!width) return 0;
-    if (width > 100u) width = 100u;
-    q = width >= 100u ? 4096 : 4096 - (int32_t)tx_neglog2_q12(width * 42949673u);   /* log2(width / 50), Q12 */
-    s = q * 12041;                                               /* x 40 log10(2) (12.041 half dB an octave), Q12 / 1000 */
-    s = s >= 0 ? (s + 2048000) / 4096000 : -((-s + 2048000) / 4096000);
-    s += mid ? (int32_t)mid : 1;
-    if (dir > 0 && s <= (int32_t)side0) s = (int32_t)side0 + 1;
-    if (dir < 0 && s >= (int32_t)side0) s = (int32_t)side0 - 1;
-    return s > 127 ? 127u : s < 1 ? 0u : (unsigned)s;
-}
-
 void tx_ms_init(tx_ms_t *m)
 {
     unsigned i;
@@ -57,7 +33,8 @@ void tx_ms_init(tx_ms_t *m)
 static void ms_targets(tx_ms_t *m)
 {
     m->tm = tx_ms_gain(m->p[TX_MS_MID]);
-    m->ts = m->p[TX_MS_MONO] ? 0 : tx_ms_gain(m->p[TX_MS_SIDE]);
+    m->ts = m->p[TX_MS_MONO] ? 0 : (tx_ms_gain(m->p[TX_MS_SIDE]) * (int32_t)m->p[TX_MS_WIDTH] + (int32_t)TX_MS_W100 / 2) /
+                                   (int32_t)TX_MS_W100;   /* x WIDTH / 100 % (50: exactly SIDE's; 32-bit: < 2^22) */
 }
 
 void tx_ms_param(tx_ms_t *m, unsigned id, unsigned v)
@@ -73,7 +50,8 @@ static int32_t ms_glide(int32_t g, int32_t t)   /* the gain at the block's end *
     if (d <= MS_SNAP && d >= -MS_SNAP) return t;
     return g + (d >= 0 ? (d + 3) >> 2 : -((-d + 3) >> 2));
 }
-/* x times a Q15 gain (|x| <= 2^28, g < 2^15): 32-bit products */
+/* x times a Q15 gain (|x| <= 2^28, g <= 65380: SIDE +6 dB at WIDTH 200 %): 32-bit products (2^13 x 2^16; the low
+ * part 32767 x 65380 < 2^32 unsigned) */
 #define MS_MUL(x, g) (((x) >> 15) * (g) + (int32_t)((((uint32_t)(x) & 32767u) * (uint32_t)(g)) >> 15))
 #define MS_ABS(x) ((x) < 0 ? -(x) : (x))
 #define MS_SQ(x) (((x) >> 13) > 2047 ? 2047 * 2047 : ((x) >> 13) < -2047 ? 2047 * 2047 : ((x) >> 13) * ((x) >> 13))

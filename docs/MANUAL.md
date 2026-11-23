@@ -518,16 +518,17 @@ It reverberates what the grain delay gives it, so the echoes ring in the space t
 ### M/S
 
 The last effect, after the reverb: the mix split into its middle (what both sides share) and its sides (what differs
-left to right), each with its own level. At 0 dB with MONO off it leaves the sound exactly as it is. Every change
+left to right), each with its own level, and WIDTH on the sides after that. At 0 dB, 100 % and MONO off it leaves the
+sound exactly as it is. MID, SIDE and WIDTH are three separate controls: turning one never moves another. Every change
 glides, so nothing clicks. The limiter comes after it, so a boost never clips.
 
 ![M/S: MID, SIDE, WIDTH, MONO](manual/img/ms.png)
 
 | Knob | Card | What it does |
 | --- | --- | --- |
-| K1 | **MID** | The middle's level: −INF, −57 to +6 dB in 0.5 dB steps; 0 dB (the mark on the card) leaves it as it is. Turned on the page, SIDE moves with it, so the WIDTH stays |
+| K1 | **MID** | The middle's level: −INF, −57 to +6 dB in 0.5 dB steps; 0 dB (the mark on the card) leaves it as it is |
 | K2 | **SIDE** | The sides' level, the same range: lower for a narrower mix, higher for a wider one. Turning it puts MONO off |
-| K3 | **WIDTH** | 0 to 200 %: 0 is mono, 100 % (the mark) as it is, 200 % the sides twice as loud. It sets SIDE from MID |
+| K3 | **WIDTH** | 0 to 200 % in 2 % steps, on the sides after SIDE: 0 is mono, 100 % (the mark) as it is, 200 % the sides twice as loud (+6 dB). Turning it puts MONO off. A preset or scene saved before WIDTH was its own loads at 100 % |
 | K4 | **MONO** | OFF / ON: the sides off, to hear the mix in mono. SIDE keeps its value; the cards read −INF and 0 while it is on |
 
 The bottom line shows four meters, **L**, **R**, **M** and **S** (their peaks), and **CORR**, the correlation: the

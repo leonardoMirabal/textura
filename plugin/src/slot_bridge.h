@@ -26,7 +26,7 @@
  * COMPRESSOR, DRIVE, FILTER), GROOVE, the keys' SCALE, MIDI IN's channels (each lane's, SELECTED CH, FX CHANNEL),
  * LANES, EFFECTS ON LOAD; the eight LFOs, the envelopes, the followers, the matrix and MOD CC; and the plugin's own
  * PRESET (F001 .. F100, a program change on channel 1); then, appended last, the M/S's MID, SIDE,
- * WIDTH (SIDE against MID: set, it moves SIDE) and MONO. The FM-1's tempo, clock, screen and status settings are not
+ * WIDTH (the sides after SIDE: its own, none of the three moves another) and MONO. The FM-1's tempo, clock, screen and status settings are not
  * host parameters: the host's tempo leads (step 6) when it gives one.
  *
  * The state: what a user scene keeps (scenes.c scn_capture: the landscape, LANES, each lane's sound, HOW MANY, HOW

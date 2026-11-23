@@ -33,8 +33,8 @@
  *           61 .. 65  MIDI IN: SELECTED CH (the selected lane's notes), LANE 1 .. 4 CHANNEL (each lane's notes and CCs;
  *                     0 OFF, 1 .. 16; notes.c; in the settings)
  *           96 .. 99  M/S: MID SIDE WIDTH MONO (tx_ms_params order): the mix's last effect, after the REVERB
- *                     (tx_core_ms.h). MID, SIDE: -inf, -57 .. +6 dB (115: 0 dB); WIDTH 0 .. 200 % (50: 100 %) is not
- *                     kept: read, it is SIDE against MID; set, it sets SIDE (p_ms_side); MONO OFF / ON
+ *                     (tx_core_ms.h). MID, SIDE: -inf, -57 .. +6 dB (115: 0 dB); WIDTH 0 .. 200 % (50: 100 %, the
+ *                     default), the sides' gain after SIDE: its own, none of the three sets another; MONO OFF / ON
  *   5       LFO n (0..7): n x 16 + SHAPE RATE SYNC MODE PHASE WIDTH JITTER FADE RESTART LEVEL (tx_lfo_params order),
  *           10 NOW 11 ROUTES (read only)
  *   6       ENV n (0..1): n x 16 + TRIGGER ATTACK DECAY RELEASE SUSTAIN CURVE VARY LOOP (tx_env_params order);
@@ -287,8 +287,7 @@ static const p_gx_t *p_gx(uint32_t id)
 }
 
 /* the effects' values (the drive, its filter, the compressor, the grain delay, the reverb) */
-static uint8_t pv_glob[PG_MS0 + TX_MS_NP];      /* (and GROOVE's AMOUNT TYPE SHIFT, 56 .. 58; the M/S's, 96 .. 99:
-                                                 * WIDTH's unused, it is MID's and SIDE's) */
+static uint8_t pv_glob[PG_MS0 + TX_MS_NP];      /* (and GROOVE's AMOUNT TYPE SHIFT, 56 .. 58; the M/S's, 96 .. 99) */
 
 /* ---- the cards of each lane's sound, resolved when its sound changes */
 typedef struct {
@@ -525,7 +524,6 @@ static int32_t p_get(uint32_t id)
 #else
         if (i >= PG_LCH0 && i < PG_LCH0 + SC_N) return nt_lch[i - PG_LCH0];
 #endif
-        if (i == PG_MS0 + TX_MS_WIDTH) return (int32_t)tx_ms_width_of(pv_glob[PG_MS0 + TX_MS_MID], pv_glob[PG_MS0 + TX_MS_SIDE]);
         return i <= PG_GSHIFT || PG_IS_MS(i) ? pv_glob[i] : 0;
     }
     if (P_NOT_LANE(s)) return 0;
@@ -542,12 +540,6 @@ static int32_t p_get(uint32_t id)
     if (i == PL_GPART || i == PL_GCYC) return gr_set[i - PL_GPART][s];
     if (i >= PL_CARD0 && i < PL_CARD0 + SCD_MAX) return p_card_get(s, i - PL_CARD0);
     return 0;
-}
-static void p_ms_side(uint32_t v)               /* the M/S's SIDE set (WIDTH's way there) */
-{
-    uint32_t id = PID(P_GLOBAL, PG_MS0 + TX_MS_SIDE);
-    pv_glob[PG_MS0 + TX_MS_SIDE] = (uint8_t)v;
-    if (!mod_holds(id)) ln_fx(LN_FX_MS, 0, TX_MS_SIDE, v);
 }
 static void p_set(uint32_t id, int32_t v)
 {
@@ -592,8 +584,7 @@ static void p_set(uint32_t id, int32_t v)
         }
         return;
     }
-    if (s == P_GLOBAL && PG_IS_MS(i)) {         /* the M/S: WIDTH sets SIDE (from MID: the nearest step) */
-        if (i == PG_MS0 + TX_MS_WIDTH) { p_ms_side(tx_ms_side_of(pv_glob[PG_MS0 + TX_MS_MID], (uint32_t)v, pv_glob[PG_MS0 + TX_MS_SIDE], 0)); return; }
+    if (s == P_GLOBAL && PG_IS_MS(i)) {         /* the M/S: each of MID SIDE WIDTH MONO alone */
         pv_glob[i] = (uint8_t)v;
         if (!mod_holds(id)) ln_fx(LN_FX_MS, 0, i - PG_MS0, (uint32_t)v);
         return;

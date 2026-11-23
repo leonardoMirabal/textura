@@ -699,9 +699,10 @@ static int gui_test5c_drawer(const clap_plugin_t *p, const txg_gui_shot_t *xs)  
 }
 static int gui_test5h_ms(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* M/S's drawer: its scope and meters
                                           * there; MID dragged down along its fader, a double-click its 0 dB; MONO
-                                          * on by a click, off again by SIDE's wheel (SIDE moved); all put back */
+                                          * on by a click, off again by SIDE's wheel (SIDE moved); WIDTH dragged, SIDE
+                                          * and MID read (unmoved), SIDE dragged, WIDTH read; all put back */
 {
-    const uint32_t MID = 4u << 8 | 96u, SIDE = MID + 1u, MONO = MID + 3u;
+    const uint32_t MID = 4u << 8 | 96u, SIDE = MID + 1u, WIDTH = MID + 2u, MONO = MID + 3u;
     float r[4];
     double v0, v1, v2;
     int bad = 0;
@@ -727,6 +728,24 @@ static int gui_test5h_ms(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* 
     if (v0 != 0.0 || v1 != 1.0 || v2 != 0.0 || gui_value(p, SIDE) >= 115.0) { fprintf(stderr, "gui: MONO\n"); bad = 1; }
     gui_drag(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 0.f, 0.f, 1);
     if (gui_value(p, SIDE) != 115.0) { fprintf(stderr, "gui: SIDE's double-click\n"); bad = 1; }
+    {   /* WIDTH its own: dragged up, SIDE and MID stay; SIDE dragged down, WIDTH stays; double-clicks put both back */
+        float rs[4], rw[4];
+        double w0, w1, s1, m1, s2, w2;
+        if (!xs->find(p, W_PARAM, (int)WIDTH, rw)) { fprintf(stderr, "gui: no WIDTH\n"); return 5; }
+        memcpy(rs, r, sizeof rs);
+        w0 = gui_value(p, WIDTH);
+        gui_drag(p, xs, rw[0] + rw[2] * 0.5f, rw[1] + rw[3] * 0.5f, 40.f, 0.f, 0);
+        w1 = gui_value(p, WIDTH); s1 = gui_value(p, SIDE); m1 = gui_value(p, MID);
+        gui_drag(p, xs, rs[0] + rs[2] * 0.5f, rs[1] + rs[3] * 0.5f, -40.f, 0.f, 0);
+        s2 = gui_value(p, SIDE); w2 = gui_value(p, WIDTH);
+        printf("gui M/S WIDTH %g -> %g: SIDE %g, MID %g; SIDE dragged -> %g: WIDTH %g\n", w0, w1, s1, m1, s2, w2);
+        if (w0 != 50.0 || !(w1 > w0) || s1 != 115.0 || m1 != 115.0 || !(s2 < 115.0) || w2 != w1) {
+            fprintf(stderr, "gui: WIDTH and SIDE not independent\n"); bad = 1;
+        }
+        gui_drag(p, xs, rw[0] + rw[2] * 0.5f, rw[1] + rw[3] * 0.5f, 0.f, 0.f, 1);
+        gui_drag(p, xs, rs[0] + rs[2] * 0.5f, rs[1] + rs[3] * 0.5f, 0.f, 0.f, 1);
+        if (gui_value(p, WIDTH) != 50.0 || gui_value(p, SIDE) != 115.0) { fprintf(stderr, "gui: WIDTH / SIDE double-click\n"); bad = 1; }
+    }
     gui_key(p, xs, FRK_ESCAPE);
     return bad;
 }

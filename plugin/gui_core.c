@@ -2066,10 +2066,10 @@ static void ms_corr(txg_t *g, frui_canvas *c, float x, float y, float w)
 /* the place's M/S tab: the mix's stereo picture large, as it leaves the M/S (its drawer's feed: txg_tick). A half
  * circle: up the middle (M), L and R at 45 degrees, the sides across (+S at the left, -S at the right); a frame under
  * the middle is folded up (both channels turned over), so what cancels in mono lies along the sides. Under it L R MID
- * SIDE in dB with their bars (-48 .. 0 dBFS, the sides' red) and the correlation (-1 .. +1, its middle marked). It only
- * shows: MID, SIDE and WIDTH are the strip's M/S section's */
+ * SIDE in dB with their bars (-48 .. 0 dBFS, the sides' red), the correlation (-1 .. +1, its middle marked) and WIDTH's
+ * value (MONO on: 0 %). It only shows: MID and SIDE are the strip's M/S section's, WIDTH its drawer's */
 #define MSV_TOP 67.f                     /* (the tabs and the M over the half circle) */
-#define MSV_BOT 103.f                    /* (the levels and the correlation under it, a margin) */
+#define MSV_BOT 125.f                    /* (the levels, the correlation and WIDTH under it, a margin) */
 static void draw_ms_view(txg_t *g, frui_canvas *c)
 {
     static const char *const N[4] = { "L", "R", "MID", "SIDE" };
@@ -2141,7 +2141,13 @@ static void draw_ms_view(txg_t *g, frui_canvas *c)
     RR(g, c, x0 + (x1 - x0) * f - 3.f, yc - 7.f, 6.f, 14.f, 2.f, C_INK);
     snprintf(t, sizeof t, "%+.2f", fabsf(g->ms_c) < 0.005f ? 0.0 : (double)g->ms_c);
     TX(g, c, W - mx - TW(g, 12.f, 500.f, 0.f, FRUI_TNUM, t), yc + CAP(g, 12.f) * 0.5f, 12.f, 500.f, 0.f, FRUI_TNUM, C_INK, t);
-    fit &= TW(g, 12.f, 500.f, 0.f, FRUI_TNUM, "-1.00") <= 40.f && yc + 8.f <= bot - 4.f;
+    fit &= TW(g, 12.f, 500.f, 0.f, FRUI_TNUM, "-1.00") <= 40.f;
+    /* WIDTH: its name, its value at the right (as the correlation's) */
+    yc += 22.f;
+    x0 = mx + LBL(g, c, mx, yc + CAP(g, 10.5f) * 0.5f, 10.5f, C_DIM, "WIDTH") + 10.f;
+    if (ms_mono_on(g)) snprintf(t, sizeof t, "0 %%"); else vtext(g, ID_MSWIDTH, t, sizeof t);
+    TX(g, c, W - mx - TW(g, 12.f, 500.f, 0.f, FRUI_TNUM, t), yc + CAP(g, 12.f) * 0.5f, 12.f, 500.f, 0.f, FRUI_TNUM, C_INK, t);
+    fit &= x0 + TW(g, 12.f, 500.f, 0.f, FRUI_TNUM, "200 %") <= W - mx && yc + 8.f <= bot - 4.f;
     g->ms_fit = fit;
 }
 /* MONO: its name and a switch (OFF; ON lit red); a click on the cell turns it */
@@ -2216,7 +2222,8 @@ static int sec_on(const txg_t *g, int s)  /* the section does something (its dot
     case SEC_FILTER: return txp_ui_get(g->c, ID_FHP) > 0 || txp_ui_get(g->c, ID_FLP) < 127;
     case SEC_DELAY: return txp_ui_get(g->c, ID_GMIX) > 0;
     case SEC_REVERB: return txp_ui_get(g->c, ID_RMIX) > 0 && txp_ui_get(g->c, ID_RTYPE) > 0;   /* (TYPE OFF: none) */
-    case SEC_MS: return txp_ui_get(g->c, ID_MSMID) != MS_0DB || txp_ui_get(g->c, ID_MSSIDE) != MS_0DB || ms_mono_on(g);
+    case SEC_MS: return txp_ui_get(g->c, ID_MSMID) != MS_0DB || txp_ui_get(g->c, ID_MSSIDE) != MS_0DB ||
+                        txp_ui_get(g->c, ID_MSWIDTH) != MS_W100 || ms_mono_on(g);
     }
     return g->sn.ui.lfo_on != 0;
 }
