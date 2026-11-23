@@ -22,92 +22,92 @@
 2550 expect state lab2 DIST
 2550 expect state lab3 -
 2600 btn 1
-2650 expect state sel 2
-2700 expect state lab0 EXPOSED
-2700 expect state lab1 DIST
-2700 expect state lab2 -
-2700 expect state lab3 -
-2750 turn 0 -1
-2800 expect state lab0 GUST
-2800 expect state lab1 SCALE
-2800 expect state lab2 FOLIAGE
-2800 expect state lab3 WHOOSH
-2850 btn 8
-2860 btn 6
-2900 turn 1 1
-2901 turn 1 -200
-2902 turn 1 53
-2903 btn 6
-2904 btn 8
-2950 expect state snd1 open_moor
-3050 expect state lab0 GUST
-3050 expect state lab1 EXPOSED
-3050 expect state lab2 SCALE
-3050 expect state lab3 WHOOSH
-3100 btn 8
-3110 btn 6
-3150 turn 1 1
-3151 turn 1 -200
-3152 turn 1 54
-3153 btn 6
-3154 btn 8
-3200 expect state snd1 sea_wind
-3300 expect state lab0 GUST
-3300 expect state lab1 EXPOSED
-3300 expect state lab2 WHOOSH
-3300 expect state lab3 SCALE
-3350 btn 8
-3360 btn 6
-3400 turn 1 1
-3401 turn 1 -200
-3402 turn 1 55
-3403 btn 6
-3404 btn 8
-3450 expect state snd1 ridge_gale
-3550 expect state lab0 GUST
-3550 expect state lab1 EXPOSED
-3550 expect state lab2 SCALE
-3550 expect state lab3 WHOOSH
-3600 btn 8
-3610 btn 6
-3650 turn 1 1
-3651 turn 1 -200
-3652 turn 1 56
-3653 btn 6
-3654 btn 8
-3700 expect state snd1 gusty_autumn
-3800 expect state lab0 GUST
-3800 expect state lab1 FOLIAGE
-3800 expect state lab2 SKITTER
-3800 expect state lab3 SCALE
-3850 btn 8
-3860 btn 6
-3900 turn 1 1
-3901 turn 1 -200
-3902 turn 1 57
-3903 btn 6
-3904 btn 8
-3950 expect state snd1 winter_storm
-4050 expect state lab0 GUST
-4050 expect state lab1 EXPOSED
-4050 expect state lab2 DRIFT
-4050 expect state lab3 SCALE
-4100 btn 8
-4110 btn 6
-4150 turn 1 1
-4151 turn 1 -200
-4152 turn 1 58
-4153 btn 6
-4154 btn 8
-4200 expect state snd1 desert_wind
-4300 expect state lab0 DRIFT
-4300 expect state lab1 GUST
-4300 expect state lab2 EXPOSED
-4300 expect state lab3 WHOOSH
-4350 turn 0 1
-4400 expect state lab0 FOLIAGE
-4400 expect state lab1 DIST
-4400 expect state lab2 -
-4400 expect state lab3 -
-4450 expect state dropped 0
-4600 end
+2680 expect state sel 2
+2730 expect state lab0 EXPOSED
+2730 expect state lab1 DIST
+2730 expect state lab2 -
+2730 expect state lab3 -
+2780 turn 0 -1
+2830 expect state lab0 GUST
+2830 expect state lab1 SCALE
+2830 expect state lab2 FOLIAGE
+2830 expect state lab3 WHOOSH
+2880 btn 8
+2890 btn 6
+2930 turn 1 1
+2931 turn 1 -200
+2932 turn 1 53
+2933 btn 6
+2934 btn 8
+2980 expect state snd1 open_moor
+3080 expect state lab0 GUST
+3080 expect state lab1 EXPOSED
+3080 expect state lab2 SCALE
+3080 expect state lab3 WHOOSH
+3130 btn 8
+3140 btn 6
+3180 turn 1 1
+3181 turn 1 -200
+3182 turn 1 54
+3183 btn 6
+3184 btn 8
+3230 expect state snd1 sea_wind
+3330 expect state lab0 GUST
+3330 expect state lab1 EXPOSED
+3330 expect state lab2 WHOOSH
+3330 expect state lab3 SCALE
+3380 btn 8
+3390 btn 6
+3430 turn 1 1
+3431 turn 1 -200
+3432 turn 1 55
+3433 btn 6
+3434 btn 8
+3480 expect state snd1 ridge_gale
+3580 expect state lab0 GUST
+3580 expect state lab1 EXPOSED
+3580 expect state lab2 SCALE
+3580 expect state lab3 WHOOSH
+3630 btn 8
+3640 btn 6
+3680 turn 1 1
+3681 turn 1 -200
+3682 turn 1 56
+3683 btn 6
+3684 btn 8
+3730 expect state snd1 gusty_autumn
+3830 expect state lab0 GUST
+3830 expect state lab1 FOLIAGE
+3830 expect state lab2 SKITTER
+3830 expect state lab3 SCALE
+3880 btn 8
+3890 btn 6
+3930 turn 1 1
+3931 turn 1 -200
+3932 turn 1 57
+3933 btn 6
+3934 btn 8
+3980 expect state snd1 winter_storm
+4080 expect state lab0 GUST
+4080 expect state lab1 EXPOSED
+4080 expect state lab2 DRIFT
+4080 expect state lab3 SCALE
+4130 btn 8
+4140 btn 6
+4180 turn 1 1
+4181 turn 1 -200
+4182 turn 1 58
+4183 btn 6
+4184 btn 8
+4230 expect state snd1 desert_wind
+4330 expect state lab0 DRIFT
+4330 expect state lab1 GUST
+4330 expect state lab2 EXPOSED
+4330 expect state lab3 WHOOSH
+4380 turn 0 1
+4430 expect state lab0 FOLIAGE
+4430 expect state lab1 DIST
+4430 expect state lab2 -
+4430 expect state lab3 -
+4480 expect state dropped 0
+4630 end

@@ -23,151 +23,151 @@
 2550 expect state lab3 EXCITE
 2600 turn 0 -1
 2700 btn 1
-2750 expect state sel 2
-2750 expect state lab0 SIZE
-2750 expect state lab1 DEPTH
-2750 expect state lab2 DIST
-2750 expect state lab3 VARY
-2800 turn 0 1
-2850 expect state lab0 TEMPO
-2850 expect state lab1 SONG
-2850 expect state lab2 VARIETY
-2850 expect state lab3 EXCITE
-2900 turn 0 -1
-3000 btn 1
-3050 expect state sel 3
-3050 expect state lab0 SIZE
-3050 expect state lab1 DEPTH
-3050 expect state lab2 DIST
-3050 expect state lab3 VARY
-3100 turn 0 1
-3150 expect state lab0 TEMPO
-3150 expect state lab1 SONG
-3150 expect state lab2 VARIETY
-3150 expect state lab3 EXCITE
-3200 turn 0 -1
-3300 btn 1
-3350 expect state sel 4
-3350 expect state lab0 SIZE
-3350 expect state lab1 DEPTH
-3350 expect state lab2 DIST
-3350 expect state lab3 VARY
-3400 turn 0 1
-3450 expect state lab0 TEMPO
-3450 expect state lab1 SONG
-3450 expect state lab2 VARIETY
-3450 expect state lab3 EXCITE
-3500 turn 0 -1
-3600 btn 0
-3620 btn 0
-3650 expect state sel 2
-3700 btn 8
-3710 btn 6
-3750 turn 1 1
-3751 turn 1 -200
-3752 turn 1 87
-3753 btn 6
-3754 btn 8
-3800 expect state snd1 robin
-3900 expect state lab0 SIZE
-3900 expect state lab1 DEPTH
-3900 expect state lab2 DIST
-3900 expect state lab3 VARY
-3950 turn 0 1
-4000 expect state lab0 TEMPO
-4000 expect state lab1 SONG
-4000 expect state lab2 VARIETY
-4000 expect state lab3 EXCITE
-4050 turn 0 -1
-4150 btn 8
-4160 btn 6
-4200 turn 1 1
-4201 turn 1 -200
-4202 turn 1 88
-4203 btn 6
-4204 btn 8
-4250 expect state snd1 wren
-4350 expect state lab0 SIZE
-4350 expect state lab1 DEPTH
-4350 expect state lab2 DIST
-4350 expect state lab3 VARY
-4400 turn 0 1
-4450 expect state lab0 TEMPO
-4450 expect state lab1 SONG
-4450 expect state lab2 VARIETY
-4450 expect state lab3 EXCITE
-4500 turn 0 -1
-4600 btn 8
-4610 btn 6
-4650 turn 1 1
-4651 turn 1 -200
-4652 turn 1 89
-4653 btn 6
-4654 btn 8
-4700 expect state snd1 hermit_thrush
-4800 expect state lab0 SIZE
-4800 expect state lab1 DEPTH
-4800 expect state lab2 DIST
-4800 expect state lab3 VARY
-4850 turn 0 1
-4900 expect state lab0 TEMPO
-4900 expect state lab1 SONG
-4900 expect state lab2 VARIETY
-4900 expect state lab3 EXCITE
-4950 turn 0 -1
-5050 btn 8
-5060 btn 6
-5100 turn 1 1
-5101 turn 1 -200
-5102 turn 1 90
-5103 btn 6
-5104 btn 8
-5150 expect state snd1 skylark
-5250 expect state lab0 SIZE
-5250 expect state lab1 DEPTH
-5250 expect state lab2 DIST
-5250 expect state lab3 VARY
-5300 turn 0 1
-5350 expect state lab0 TEMPO
-5350 expect state lab1 SONG
-5350 expect state lab2 VARIETY
-5350 expect state lab3 EXCITE
-5400 turn 0 -1
-5500 btn 8
-5510 btn 6
-5550 turn 1 1
-5551 turn 1 -200
-5552 turn 1 91
-5553 btn 6
-5554 btn 8
-5600 expect state snd1 wood_thrush
-5700 expect state lab0 SIZE
-5700 expect state lab1 DEPTH
-5700 expect state lab2 DIST
-5700 expect state lab3 VARY
-5750 turn 0 1
-5800 expect state lab0 TEMPO
-5800 expect state lab1 SONG
-5800 expect state lab2 VARIETY
-5800 expect state lab3 EXCITE
-5850 turn 0 -1
-5950 btn 8
-5960 btn 6
-6000 turn 1 1
-6001 turn 1 -200
-6002 turn 1 92
-6003 btn 6
-6004 btn 8
-6050 expect state snd1 reed_warbler
-6150 expect state lab0 SIZE
-6150 expect state lab1 DEPTH
-6150 expect state lab2 DIST
-6150 expect state lab3 VARY
-6200 turn 0 1
-6250 expect state lab0 TEMPO
-6250 expect state lab1 SONG
-6250 expect state lab2 VARIETY
-6250 expect state lab3 EXCITE
-6300 turn 0 -1
-6450 expect state dropped 0
-6600 end
+2780 expect state sel 2
+2780 expect state lab0 SIZE
+2780 expect state lab1 DEPTH
+2780 expect state lab2 DIST
+2780 expect state lab3 VARY
+2830 turn 0 1
+2880 expect state lab0 TEMPO
+2880 expect state lab1 SONG
+2880 expect state lab2 VARIETY
+2880 expect state lab3 EXCITE
+2930 turn 0 -1
+3030 btn 1
+3110 expect state sel 3
+3110 expect state lab0 SIZE
+3110 expect state lab1 DEPTH
+3110 expect state lab2 DIST
+3110 expect state lab3 VARY
+3160 turn 0 1
+3210 expect state lab0 TEMPO
+3210 expect state lab1 SONG
+3210 expect state lab2 VARIETY
+3210 expect state lab3 EXCITE
+3260 turn 0 -1
+3360 btn 1
+3440 expect state sel 4
+3440 expect state lab0 SIZE
+3440 expect state lab1 DEPTH
+3440 expect state lab2 DIST
+3440 expect state lab3 VARY
+3490 turn 0 1
+3540 expect state lab0 TEMPO
+3540 expect state lab1 SONG
+3540 expect state lab2 VARIETY
+3540 expect state lab3 EXCITE
+3590 turn 0 -1
+3690 btn 0
+3770 btn 0
+3850 expect state sel 2
+3900 btn 8
+3910 btn 6
+3950 turn 1 1
+3951 turn 1 -200
+3952 turn 1 87
+3953 btn 6
+3954 btn 8
+4000 expect state snd1 robin
+4100 expect state lab0 SIZE
+4100 expect state lab1 DEPTH
+4100 expect state lab2 DIST
+4100 expect state lab3 VARY
+4150 turn 0 1
+4200 expect state lab0 TEMPO
+4200 expect state lab1 SONG
+4200 expect state lab2 VARIETY
+4200 expect state lab3 EXCITE
+4250 turn 0 -1
+4350 btn 8
+4360 btn 6
+4400 turn 1 1
+4401 turn 1 -200
+4402 turn 1 88
+4403 btn 6
+4404 btn 8
+4450 expect state snd1 wren
+4550 expect state lab0 SIZE
+4550 expect state lab1 DEPTH
+4550 expect state lab2 DIST
+4550 expect state lab3 VARY
+4600 turn 0 1
+4650 expect state lab0 TEMPO
+4650 expect state lab1 SONG
+4650 expect state lab2 VARIETY
+4650 expect state lab3 EXCITE
+4700 turn 0 -1
+4800 btn 8
+4810 btn 6
+4850 turn 1 1
+4851 turn 1 -200
+4852 turn 1 89
+4853 btn 6
+4854 btn 8
+4900 expect state snd1 hermit_thrush
+5000 expect state lab0 SIZE
+5000 expect state lab1 DEPTH
+5000 expect state lab2 DIST
+5000 expect state lab3 VARY
+5050 turn 0 1
+5100 expect state lab0 TEMPO
+5100 expect state lab1 SONG
+5100 expect state lab2 VARIETY
+5100 expect state lab3 EXCITE
+5150 turn 0 -1
+5250 btn 8
+5260 btn 6
+5300 turn 1 1
+5301 turn 1 -200
+5302 turn 1 90
+5303 btn 6
+5304 btn 8
+5350 expect state snd1 skylark
+5450 expect state lab0 SIZE
+5450 expect state lab1 DEPTH
+5450 expect state lab2 DIST
+5450 expect state lab3 VARY
+5500 turn 0 1
+5550 expect state lab0 TEMPO
+5550 expect state lab1 SONG
+5550 expect state lab2 VARIETY
+5550 expect state lab3 EXCITE
+5600 turn 0 -1
+5700 btn 8
+5710 btn 6
+5750 turn 1 1
+5751 turn 1 -200
+5752 turn 1 91
+5753 btn 6
+5754 btn 8
+5800 expect state snd1 wood_thrush
+5900 expect state lab0 SIZE
+5900 expect state lab1 DEPTH
+5900 expect state lab2 DIST
+5900 expect state lab3 VARY
+5950 turn 0 1
+6000 expect state lab0 TEMPO
+6000 expect state lab1 SONG
+6000 expect state lab2 VARIETY
+6000 expect state lab3 EXCITE
+6050 turn 0 -1
+6150 btn 8
+6160 btn 6
+6200 turn 1 1
+6201 turn 1 -200
+6202 turn 1 92
+6203 btn 6
+6204 btn 8
+6250 expect state snd1 reed_warbler
+6350 expect state lab0 SIZE
+6350 expect state lab1 DEPTH
+6350 expect state lab2 DIST
+6350 expect state lab3 VARY
+6400 turn 0 1
+6450 expect state lab0 TEMPO
+6450 expect state lab1 SONG
+6450 expect state lab2 VARIETY
+6450 expect state lab3 EXCITE
+6500 turn 0 -1
+6650 expect state dropped 0
+6800 end

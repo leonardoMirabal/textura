@@ -28,24 +28,24 @@
 2060 expect state knote7 -
 2100 press 3
 2120 btn 1
-2140 release 3
-2150 expect state sel 3
-2150 expect state mode PLAY
-2150 expect state oct 0
-2150 expect state msg LANE_3:_WATER_DROPS
-2200 btn 1
-2210 expect state oct 1
-2300 press 3
-2600 release 3
-2610 expect state mode LANDSCAPE
-2610 expect state msg KEYS:_LANDSCAPE
-2700 press 3
-2710 expect state mode PLAY
-2720 keys 0x80
-2740 expect state knote7 3:72
-2760 keys 0
-2780 release 3
-2790 expect state mode LANDSCAPE
-2900 expect state dropped 0
-2900 expect sound
-3000 end
+2200 release 3
+2210 expect state sel 3
+2210 expect state mode PLAY
+2210 expect state oct 0
+2210 expect state msg LANE_3:_WATER_DROPS
+2260 btn 1
+2340 expect state oct 1
+2430 press 3
+2730 release 3
+2740 expect state mode LANDSCAPE
+2740 expect state msg KEYS:_LANDSCAPE
+2830 press 3
+2840 expect state mode PLAY
+2850 keys 0x80
+2870 expect state knote7 3:72
+2890 keys 0
+2910 release 3
+2920 expect state mode LANDSCAPE
+3030 expect state dropped 0
+3030 expect sound
+3130 end

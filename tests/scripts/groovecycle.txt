@@ -36,13 +36,14 @@
 4980 expect state p131 2
 5020 expect state grcyc0 4
 5020 expect state grcyc1 3
-# the page left (GLO: TEMPO, SCALE, MIDI, MIDI IN, DISPLAY, GROOVE 1/2) and found again (GLO: GROOVE 2/2): still 4
+# the page left (GLO: TEMPO, SCALE, MIDI, MIDI IN, DISPLAY, RANDOM, GROOVE 1/2) and found again (GLO: GROOVE 2/2): still 4
 5030 btn 7
 5040 btn 7
 5050 btn 7
 5060 btn 7
 5080 btn 7
 5100 btn 7
+5105 btn 7
 5110 expect state page GROOVE_1/2
 5120 btn 7
 5140 expect state page GROOVE_2/2

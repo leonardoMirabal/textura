@@ -1,4 +1,4 @@
-# the power cycle, run 2: the bank's names, the settings (EFFECTS ON LOAD SMART kept: a record saved since NEVER became the default), and U05 (the scene loaded last) playing again, its toast
+# the power cycle, run 2: the bank's names, the settings (RANDOM's ticks kept; EFFECTS ON LOAD SMART kept: a record saved since NEVER became the default), and U05 (the scene loaded last) playing again, its toast
 # shown once the splash is gone
 1700 expect state used5 1
 1700 expect state used1 0
@@ -18,6 +18,10 @@
 1700 expect state p442 2
 1700 expect state p443 27
 1700 expect state p426 1
+1700 expect state p464 0
+1700 expect state p465 1
+1700 expect state p466 1
+1700 expect state p467 1
 1800 btn 7
 1815 btn 7
 1817 btn 7

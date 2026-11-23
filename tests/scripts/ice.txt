@@ -22,109 +22,109 @@
 2550 expect state lab3 -
 2600 turn 0 -1
 2650 btn 1
-2700 expect state sel 2
-2700 expect state lab0 SIZE
-2700 expect state lab1 FIZZ
-2700 expect state lab2 CLUMPS
-2700 expect state lab3 DIST
-2800 btn 1
-2850 expect state sel 3
-2850 expect state lab0 TEMP
-2850 expect state lab1 CLUMPS
-2850 expect state lab2 DIST
-2850 expect state lab3 -
-2950 btn 1
-3000 expect state sel 4
-3000 expect state lab0 TEMP
-3000 expect state lab1 CLUMPS
-3000 expect state lab2 DIST
-3000 expect state lab3 -
-3100 btn 0
-3120 btn 0
-3150 expect state sel 2
-3200 btn 8
-3210 btn 6
-3250 turn 1 1
-3251 turn 1 -200
-3252 turn 1 24
-3253 btn 6
-3254 btn 8
-3300 expect state snd1 lake_ice
-3400 expect state lab0 THICK
-3400 expect state lab1 COLD
-3400 expect state lab2 FAR
-3400 expect state lab3 DIST
-3500 btn 8
-3510 btn 6
-3550 turn 1 1
-3551 turn 1 -200
-3552 turn 1 25
-3553 btn 6
-3554 btn 8
-3600 expect state snd1 frozen_lake_booming
-3700 expect state lab0 THICK
-3700 expect state lab1 COLD
-3700 expect state lab2 FAR
-3700 expect state lab3 DIST
-3800 btn 8
-3810 btn 6
-3850 turn 1 1
-3851 turn 1 -200
-3852 turn 1 26
-3853 btn 6
-3854 btn 8
-3900 expect state snd1 thin_ice_underfoot
-4000 expect state lab0 THICK
-4000 expect state lab1 DIST
-4000 expect state lab2 -
-4000 expect state lab3 -
-4100 btn 8
-4110 btn 6
-4150 turn 1 1
-4151 turn 1 -200
-4152 turn 1 27
-4153 btn 6
-4154 btn 8
-4200 expect state snd1 glass_pane
-4300 expect state lab0 SIZE
-4300 expect state lab1 RING
-4300 expect state lab2 ENERGY
-4300 expect state lab3 HEIGHT
-4350 turn 0 1
-4400 expect state lab0 BOUNCE
-4400 expect state lab1 DIST
-4400 expect state lab2 -
-4400 expect state lab3 -
-4450 turn 0 -1
-4550 btn 8
-4560 btn 6
-4600 turn 1 1
-4601 turn 1 -200
-4602 turn 1 28
-4603 btn 6
-4604 btn 8
-4650 expect state snd1 bottles
-4750 expect state lab0 SIZE
-4750 expect state lab1 RING
-4750 expect state lab2 CLUMPS
-4750 expect state lab3 DIST
-4850 btn 8
-4860 btn 6
-4900 turn 1 1
-4901 turn 1 -200
-4902 turn 1 29
-4903 btn 6
-4904 btn 8
-4950 expect state snd1 shards_settling
-5050 expect state lab0 SIZE
-5050 expect state lab1 RING
-5050 expect state lab2 ENERGY
-5050 expect state lab3 BOUNCE
-5100 turn 0 1
-5150 expect state lab0 DIST
-5150 expect state lab1 -
-5150 expect state lab2 -
-5150 expect state lab3 -
-5200 turn 0 -1
-5300 expect state dropped 0
-5450 end
+2730 expect state sel 2
+2730 expect state lab0 SIZE
+2730 expect state lab1 FIZZ
+2730 expect state lab2 CLUMPS
+2730 expect state lab3 DIST
+2830 btn 1
+2910 expect state sel 3
+2910 expect state lab0 TEMP
+2910 expect state lab1 CLUMPS
+2910 expect state lab2 DIST
+2910 expect state lab3 -
+3010 btn 1
+3090 expect state sel 4
+3090 expect state lab0 TEMP
+3090 expect state lab1 CLUMPS
+3090 expect state lab2 DIST
+3090 expect state lab3 -
+3190 btn 0
+3270 btn 0
+3350 expect state sel 2
+3400 btn 8
+3410 btn 6
+3450 turn 1 1
+3451 turn 1 -200
+3452 turn 1 24
+3453 btn 6
+3454 btn 8
+3500 expect state snd1 lake_ice
+3600 expect state lab0 THICK
+3600 expect state lab1 COLD
+3600 expect state lab2 FAR
+3600 expect state lab3 DIST
+3700 btn 8
+3710 btn 6
+3750 turn 1 1
+3751 turn 1 -200
+3752 turn 1 25
+3753 btn 6
+3754 btn 8
+3800 expect state snd1 frozen_lake_booming
+3900 expect state lab0 THICK
+3900 expect state lab1 COLD
+3900 expect state lab2 FAR
+3900 expect state lab3 DIST
+4000 btn 8
+4010 btn 6
+4050 turn 1 1
+4051 turn 1 -200
+4052 turn 1 26
+4053 btn 6
+4054 btn 8
+4100 expect state snd1 thin_ice_underfoot
+4200 expect state lab0 THICK
+4200 expect state lab1 DIST
+4200 expect state lab2 -
+4200 expect state lab3 -
+4300 btn 8
+4310 btn 6
+4350 turn 1 1
+4351 turn 1 -200
+4352 turn 1 27
+4353 btn 6
+4354 btn 8
+4400 expect state snd1 glass_pane
+4500 expect state lab0 SIZE
+4500 expect state lab1 RING
+4500 expect state lab2 ENERGY
+4500 expect state lab3 HEIGHT
+4550 turn 0 1
+4600 expect state lab0 BOUNCE
+4600 expect state lab1 DIST
+4600 expect state lab2 -
+4600 expect state lab3 -
+4650 turn 0 -1
+4750 btn 8
+4760 btn 6
+4800 turn 1 1
+4801 turn 1 -200
+4802 turn 1 28
+4803 btn 6
+4804 btn 8
+4850 expect state snd1 bottles
+4950 expect state lab0 SIZE
+4950 expect state lab1 RING
+4950 expect state lab2 CLUMPS
+4950 expect state lab3 DIST
+5050 btn 8
+5060 btn 6
+5100 turn 1 1
+5101 turn 1 -200
+5102 turn 1 29
+5103 btn 6
+5104 btn 8
+5150 expect state snd1 shards_settling
+5250 expect state lab0 SIZE
+5250 expect state lab1 RING
+5250 expect state lab2 ENERGY
+5250 expect state lab3 BOUNCE
+5300 turn 0 1
+5350 expect state lab0 DIST
+5350 expect state lab1 -
+5350 expect state lab2 -
+5350 expect state lab3 -
+5400 turn 0 -1
+5500 expect state dropped 0
+5650 end

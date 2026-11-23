@@ -23,133 +23,133 @@
 2550 expect state lab3 -
 2600 turn 0 -1
 2650 btn 1
-2700 expect state sel 2
-2700 expect state lab0 VOLUME
-2700 expect state lab1 HEIGHT
-2700 expect state lab2 GROUND
-2700 expect state lab3 FRAG
-2750 turn 0 1
-2800 expect state lab0 DIST
-2800 expect state lab1 -
-2800 expect state lab2 -
-2800 expect state lab3 -
-2850 turn 0 -1
-2950 btn 1
-3000 expect state sel 3
-3000 expect state lab0 STONE
-3000 expect state lab1 TUNE
-3000 expect state lab2 MALLET
-3000 expect state lab3 SHAPE
-3050 turn 0 1
-3100 expect state lab0 DAMP
-3100 expect state lab1 POS
-3100 expect state lab2 VARY
-3100 expect state lab3 DIST
-3150 turn 0 -1
-3250 btn 1
-3300 expect state sel 4
-3300 expect state lab0 SIZE
-3300 expect state lab1 AMOUNT
-3300 expect state lab2 SHAKE
-3300 expect state lab3 GROUND
-3350 turn 0 1
-3400 expect state lab0 DIST
-3400 expect state lab1 -
-3400 expect state lab2 -
-3400 expect state lab3 -
-3450 turn 0 -1
-3550 btn 0
-3570 btn 0
-3600 expect state sel 2
-3650 btn 8
-3660 btn 6
-3700 turn 1 1
-3701 turn 1 -200
-3702 turn 1 14
-3703 btn 6
-3704 btn 8
-3750 expect state snd1 marbles
-3850 expect state lab0 SIZE
-3850 expect state lab1 SURFACE
-3850 expect state lab2 ROUGH
-3850 expect state lab3 SPEED
-3900 turn 0 1
-3950 expect state lab0 DRAG
-3950 expect state lab1 ROUND
-3950 expect state lab2 DIST
-3950 expect state lab3 -
-4000 turn 0 -1
-4100 btn 8
-4110 btn 6
-4150 turn 1 1
-4151 turn 1 -200
-4152 turn 1 15
-4153 btn 6
-4154 btn 8
-4200 expect state snd1 sand
-4300 expect state lab0 GRAIN
-4300 expect state lab1 SURFACE
-4300 expect state lab2 HEIGHT
-4300 expect state lab3 PULSE
-4350 turn 0 1
-4400 expect state lab0 SIZE
-4400 expect state lab1 DIST
-4400 expect state lab2 -
-4400 expect state lab3 -
-4450 turn 0 -1
-4550 btn 8
-4560 btn 6
-4600 turn 1 1
-4601 turn 1 -200
-4602 turn 1 16
-4603 btn 6
-4604 btn 8
-4650 expect state snd1 singing_dune
-4750 expect state lab0 GRAIN
-4750 expect state lab1 SORTING
-4750 expect state lab2 STEADY
-4750 expect state lab3 DIST
-4800 turn 0 1
-4850 expect state lab0 DETUNE
-4850 expect state lab1 -
-4850 expect state lab2 -
-4850 expect state lab3 -
-4900 turn 0 -1
-5000 btn 8
-5010 btn 6
-5050 turn 1 1
-5051 turn 1 -200
-5052 turn 1 17
-5053 btn 6
-5054 btn 8
-5100 expect state snd1 minerals
-5200 expect state lab0 MINERAL
-5200 expect state lab1 SIZE
-5200 expect state lab2 ACTION
-5200 expect state lab3 HOLD
-5250 turn 0 1
-5300 expect state lab0 HUMID
-5300 expect state lab1 VARY
-5300 expect state lab2 DIST
-5300 expect state lab3 -
-5350 turn 0 -1
-5450 btn 8
-5460 btn 6
-5500 turn 1 1
-5501 turn 1 -200
-5502 turn 1 18
-5503 btn 6
-5504 btn 8
-5550 expect state snd1 stone_friction
-5650 expect state lab0 ROUGH
-5650 expect state lab1 STICK
-5650 expect state lab2 PRESSURE
-5650 expect state lab3 SPEED
-5700 turn 0 1
-5750 expect state lab0 SIZE
-5750 expect state lab1 DIST
-5750 expect state lab2 -
-5750 expect state lab3 -
-5800 turn 0 -1
-5900 expect state dropped 0
-6050 end
+2730 expect state sel 2
+2730 expect state lab0 VOLUME
+2730 expect state lab1 HEIGHT
+2730 expect state lab2 GROUND
+2730 expect state lab3 FRAG
+2780 turn 0 1
+2830 expect state lab0 DIST
+2830 expect state lab1 -
+2830 expect state lab2 -
+2830 expect state lab3 -
+2880 turn 0 -1
+2980 btn 1
+3060 expect state sel 3
+3060 expect state lab0 STONE
+3060 expect state lab1 TUNE
+3060 expect state lab2 MALLET
+3060 expect state lab3 SHAPE
+3110 turn 0 1
+3160 expect state lab0 DAMP
+3160 expect state lab1 POS
+3160 expect state lab2 VARY
+3160 expect state lab3 DIST
+3210 turn 0 -1
+3310 btn 1
+3390 expect state sel 4
+3390 expect state lab0 SIZE
+3390 expect state lab1 AMOUNT
+3390 expect state lab2 SHAKE
+3390 expect state lab3 GROUND
+3440 turn 0 1
+3490 expect state lab0 DIST
+3490 expect state lab1 -
+3490 expect state lab2 -
+3490 expect state lab3 -
+3540 turn 0 -1
+3640 btn 0
+3720 btn 0
+3800 expect state sel 2
+3850 btn 8
+3860 btn 6
+3900 turn 1 1
+3901 turn 1 -200
+3902 turn 1 14
+3903 btn 6
+3904 btn 8
+3950 expect state snd1 marbles
+4050 expect state lab0 SIZE
+4050 expect state lab1 SURFACE
+4050 expect state lab2 ROUGH
+4050 expect state lab3 SPEED
+4100 turn 0 1
+4150 expect state lab0 DRAG
+4150 expect state lab1 ROUND
+4150 expect state lab2 DIST
+4150 expect state lab3 -
+4200 turn 0 -1
+4300 btn 8
+4310 btn 6
+4350 turn 1 1
+4351 turn 1 -200
+4352 turn 1 15
+4353 btn 6
+4354 btn 8
+4400 expect state snd1 sand
+4500 expect state lab0 GRAIN
+4500 expect state lab1 SURFACE
+4500 expect state lab2 HEIGHT
+4500 expect state lab3 PULSE
+4550 turn 0 1
+4600 expect state lab0 SIZE
+4600 expect state lab1 DIST
+4600 expect state lab2 -
+4600 expect state lab3 -
+4650 turn 0 -1
+4750 btn 8
+4760 btn 6
+4800 turn 1 1
+4801 turn 1 -200
+4802 turn 1 16
+4803 btn 6
+4804 btn 8
+4850 expect state snd1 singing_dune
+4950 expect state lab0 GRAIN
+4950 expect state lab1 SORTING
+4950 expect state lab2 STEADY
+4950 expect state lab3 DIST
+5000 turn 0 1
+5050 expect state lab0 DETUNE
+5050 expect state lab1 -
+5050 expect state lab2 -
+5050 expect state lab3 -
+5100 turn 0 -1
+5200 btn 8
+5210 btn 6
+5250 turn 1 1
+5251 turn 1 -200
+5252 turn 1 17
+5253 btn 6
+5254 btn 8
+5300 expect state snd1 minerals
+5400 expect state lab0 MINERAL
+5400 expect state lab1 SIZE
+5400 expect state lab2 ACTION
+5400 expect state lab3 HOLD
+5450 turn 0 1
+5500 expect state lab0 HUMID
+5500 expect state lab1 VARY
+5500 expect state lab2 DIST
+5500 expect state lab3 -
+5550 turn 0 -1
+5650 btn 8
+5660 btn 6
+5700 turn 1 1
+5701 turn 1 -200
+5702 turn 1 18
+5703 btn 6
+5704 btn 8
+5750 expect state snd1 stone_friction
+5850 expect state lab0 ROUGH
+5850 expect state lab1 STICK
+5850 expect state lab2 PRESSURE
+5850 expect state lab3 SPEED
+5900 turn 0 1
+5950 expect state lab0 SIZE
+5950 expect state lab1 DIST
+5950 expect state lab2 -
+5950 expect state lab3 -
+6000 turn 0 -1
+6100 expect state dropped 0
+6250 end

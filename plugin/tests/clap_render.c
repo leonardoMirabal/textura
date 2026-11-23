@@ -217,7 +217,8 @@ static void gui_wait(void) { struct timespec ts = { 0, 350000000 }; nanosleep(&t
 enum { W_ROW = 1, W_VOL, W_MUTE, W_SOLO, W_DOT, W_LUP = 9, W_SET = 10, W_VMAP = 13, W_VSPACE, W_PRESET, W_SND, W_COLDOT,
        W_SWATCH, W_SEG = 26, W_FIELD = 27, W_PARAM = 30, W_MANY, W_ACT, W_REC, W_UNDO, W_SAVE, W_FXOPEN, W_FXTAB, W_SLOT,
        W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER, W_TIP, W_PREVIEW, W_PVSTEP, W_FXD, W_SWAP, W_LRUN, W_DRUN,
-       W_SRC, W_GRIP, W_TAG, W_MBAR, W_MCLEAR, W_MDONE, W_MENU, W_CLRALL, W_CLRYES, W_CLRNO, W_MSG, W_NOMOVE, W_MAMT, W_MSM };
+       W_SRC, W_GRIP, W_TAG, W_MBAR, W_MCLEAR, W_MDONE, W_MENU, W_CLRALL, W_CLRYES, W_CLRNO, W_MSG, W_NOMOVE, W_MAMT, W_MSM,
+       W_DICE, W_RND, W_RNDTICK, W_RNDGO, W_LVL };
 enum { W_CLOSE = 11, W_LIST = 23, W_KEEP = 24 };
 #define ID_KEYS 0x10001u                 /* (bridge.h TXP_ID_KEYS) */
 static int gui_hit(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, int lane)   /* a click on a control */
@@ -410,6 +411,9 @@ static int gui_views(const clap_plugin_t *p, const txg_gui_shot_t *xs, const cha
     gui_key(p, xs, FRK_ESCAPE);
     if (!gui_hit(p, xs, W_SAVE, -1)) return 5;    /* SAVE's panel */
     rc |= gui_png(p, xs, png, "save");
+    gui_key(p, xs, FRK_ESCAPE);
+    if (!gui_hit(p, xs, W_RND, -1)) return 5;     /* RANDOM's list */
+    rc |= gui_png(p, xs, png, "random-list");
     gui_key(p, xs, FRK_ESCAPE);
     if (!gui_hit(p, xs, W_REC, -1)) return 5;     /* STOP ALL (what PLAY ALL brings back shown), PLAY ALL */
     gui_wait(); gui_flush(p); xs->tick(p);
@@ -786,7 +790,9 @@ static int gui_test5c_rows(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /
     printf("gui row: a click on lane 4's name selects lane %d, the browser %s\n", sel + 1, xs->find(p, W_KEEP, -1, n) ? "OPEN" : "closed");
     if (sel != 3 || xs->find(p, W_KEEP, -1, n)) { fprintf(stderr, "gui: the name opened the browser or did not select\n"); bad = 1; }
     if (!xs->find(p, W_ROW, 2, r) || !xs->find(p, W_SND, 2, n)) return 5;
-    gui_click(p, xs, n[0] + n[2] + 14.f, r[1] + r[3] * 0.5f, 0);   /* (on its event line, past the ENGINE button: no control) */
+    if (xs->find(p, W_DICE, 2, sw)) memcpy(n, sw, sizeof n);   /* (past the dice after it) */
+    gui_click(p, xs, n[0] + n[2] + 14.f, r[1] + r[3] * 0.5f, 0);   /* (on its event line, past the ENGINE button and the
+                                          * dice: no control) */
     gui_wait(); gui_flush(p); xs->tick(p);
     printf("gui row: a click on lane 3's event line selects lane %d\n", xs->sel(p) + 1);
     if (xs->sel(p) != 2) { fprintf(stderr, "gui: the row's space did not select\n"); bad = 1; }
@@ -1054,6 +1060,151 @@ static int gui_test5g(const clap_plugin_t *p, const txg_gui_shot_t *xs)
 #undef CHECK
     return bad;
 }
+/* the dice (firmware/src/dice.c): a row's gives its lane a new engine, the top bar's opens RANDOM's list, ROLL rolls
+ * the ticked groups; what a roll keeps stays, UNDO takes a roll back exactly */
+#define DICE_NID 512
+static uint32_t dice_ids[DICE_NID];
+static int dice_nid;
+static const char *png_shot;             /* (the dice's test: its picture beside the others) */
+#define DICE_NFX (32 + 8 + 4)            /* (the first ids: the effects') */
+static void dice_idlist(void)            /* the effects' and the movement's ids the test reads */
+{
+    int n = 0;
+    for (uint32_t i = 0; i < 32u; i++) dice_ids[n++] = 4u << 8 | i;            /* GRAIN, REVERB, COMP */
+    for (uint32_t i = 48u; i < 56u; i++) dice_ids[n++] = 4u << 8 | i;          /* DRIVE, FILTER */
+    for (uint32_t i = 96u; i < 100u; i++) dice_ids[n++] = 4u << 8 | i;         /* M/S */
+    for (uint32_t i = 0; i < 128u; i++) if ((i & 15u) < 10u) dice_ids[n++] = 5u << 8 | i;   /* the LFOs */
+    for (uint32_t i = 0; i < 64u; i++) if ((i & 15u) < 8u) dice_ids[n++] = 6u << 8 | i;     /* ENVs, FOLLOWs */
+    for (uint32_t i = 0; i < 64u; i++) dice_ids[n++] = 7u << 8 | i;            /* the matrix */
+    dice_nid = n;
+}
+static void dice_read(const clap_plugin_t *p, double *v) { for (int i = 0; i < dice_nid; i++) v[i] = gui_value(p, dice_ids[i]); }
+static double dice_eng(const clap_plugin_t *p, const txg_gui_shot_t *xs, int k);
+static void dice_kept(const clap_plugin_t *p, const txg_gui_shot_t *xs, int nl, double *v)   /* LANES, each lane's engine
+                                          * (its family and sound), MANY, ACTIVE, LEVEL, PAN, CH */
+{
+    v[0] = gui_value(p, 4u << 8 | 81u);
+    for (int k = 0; k < nl; k++) {
+        for (int i = 0; i < 5; i++) v[1 + k * 6 + i] = gui_value(p, LANE_ID(k, i));
+        v[1 + k * 6] = dice_eng(p, xs, k);
+        v[1 + k * 6 + 5] = gui_value(p, k < 4 ? 4u << 8 | (62u + (uint32_t)k) : 4u << 8 | (68u + (uint32_t)k - 4u));
+    }
+}
+static int dice_kept_same(const double *a, const double *b, int nl, int snd_too, int lane)
+{   /* the kept ones unchanged (SOUND too when snd_too; lane >= 0: that lane's SOUND may change) */
+    if (a[0] != b[0]) { fprintf(stderr, "gui dice: LANES moved\n"); return 0; }
+    for (int k = 0; k < nl; k++)
+        for (int i = 0; i < 6; i++) {
+            if (i == 0 && (!snd_too || k == lane)) continue;
+            if (a[1 + k * 6 + i] != b[1 + k * 6 + i]) {
+                fprintf(stderr, "gui dice: lane %d's %d moved %g -> %g\n", k + 1, i, a[1 + k * 6 + i], b[1 + k * 6 + i]);
+                return 0;
+            }
+        }
+    return 1;
+}
+static void dice_settle(const clap_plugin_t *p, const txg_gui_shot_t *xs)
+{
+    for (int i = 0; i < 3; i++) { gui_wait(); gui_flush(p); xs->tick(p); }
+}
+static double dice_eng(const clap_plugin_t *p, const txg_gui_shot_t *xs, int k)   /* lane k's engine: family, sound */
+{
+    int f = -1, n = -1;
+    if (!xs->lane(p, k, &f, &n)) return -1.0;
+    return (double)(f * 256 + n);
+}
+static int gui_test_dice(const clap_plugin_t *p, const txg_gui_shot_t *xs)
+{
+    static double k0[1 + 16 * 6], k1[1 + 16 * 6], v0[DICE_NID], v1[DICE_NID];
+    float r[4];
+    int bad = 0, nl = (int)gui_value(p, 4u << 8 | 81u) + 1, nfx = 0, nmov = 0, neng = 0, lane = 1, diff = 0;
+    dice_idlist();
+    if (nl > 16) nl = 16;
+    gui_key(p, xs, FRK_ESCAPE);
+    dice_settle(p, xs);
+    for (lane = 1; lane < nl && !xs->find(p, W_DICE, lane, r); lane++) {}
+    if (lane >= nl) { fprintf(stderr, "gui dice: no lane with a sound for its dice\n"); return 5; }
+    /* a row's dice: that lane's engine, nothing kept moved */
+    dice_kept(p, xs, nl, k0);
+    if (!gui_hit(p, xs, W_DICE, lane)) return 5;
+    dice_settle(p, xs);
+    dice_kept(p, xs, nl, k1);
+    printf("gui dice: lane %d engine (family x 256 + sound) %g -> %g\n", lane + 1, k0[1 + lane * 6], k1[1 + lane * 6]);
+    if (k0[1 + lane * 6] == k1[1 + lane * 6]) { fprintf(stderr, "gui dice: the row's dice did not change lane %d's engine\n", lane + 1); bad = 1; }
+    if (!dice_kept_same(k0, k1, nl, 1, lane)) { fprintf(stderr, "gui dice: the row's dice moved a kept value\n"); bad = 1; }
+    if (png_shot && xs->find(p, W_DICE, lane, r)) {   /* (its hint, hovered) */
+        gui_ev(p, xs, FRG_MOVE, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f);
+        (void)gui_png(p, xs, png_shot, "dice-lane");
+        gui_ev(p, xs, FRG_MOVE, 4.f, 300.f);
+    }
+    if (!gui_hit(p, xs, W_UNDO, -1)) return 5;
+    dice_settle(p, xs);
+    dice_kept(p, xs, nl, k1);
+    if (k1[1 + lane * 6] != k0[1 + lane * 6]) { fprintf(stderr, "gui dice: UNDO did not take the lane's roll back\n"); bad = 1; }
+    /* the top bar's dice: RANDOM's list; nothing ticked, ROLL rolls nothing */
+    if (!gui_hit(p, xs, W_RND, -1)) return 5;
+    if (!xs->find(p, W_RNDGO, -1, r) || !xs->find(p, W_RNDTICK, 3, r)) { fprintf(stderr, "gui dice: RANDOM's list did not open\n"); return 5; }
+    for (int i = 0; i < 4; i++) if (!gui_hit(p, xs, W_RNDTICK, i)) return 5;
+    dice_kept(p, xs, nl, k0); dice_read(p, v0);
+    if (!gui_hit(p, xs, W_RNDGO, -1)) return 5;
+    dice_settle(p, xs);
+    dice_kept(p, xs, nl, k1); dice_read(p, v1);
+    for (int i = 0; i < dice_nid; i++) diff += v0[i] != v1[i];
+    if (diff || !dice_kept_same(k0, k1, nl, 1, -1)) { fprintf(stderr, "gui dice: ROLL with nothing ticked changed something\n"); bad = 1; }
+    if (!xs->find(p, W_RNDGO, -1, r)) { fprintf(stderr, "gui dice: RANDOM's list closed on a ROLL\n"); bad = 1; }
+    if (png_shot) (void)gui_png(p, xs, png_shot, "random-none");
+    for (int i = 0; i < 4; i++) if (!gui_hit(p, xs, W_RNDTICK, i)) return 5;
+    /* all four ticked: engines, an effect, the movement change; LANES, LEVEL, PAN, HOW MANY, HOW ACTIVE, MIDI CH stay */
+    if (!gui_hit(p, xs, W_RNDGO, -1)) return 5;
+    dice_settle(p, xs);
+    dice_kept(p, xs, nl, k1); dice_read(p, v1);
+    for (int k = 0; k < nl; k++) neng += k0[1 + k * 6] != k1[1 + k * 6];
+    for (int i = 0; i < dice_nid; i++) if (v0[i] != v1[i]) { if (i < DICE_NFX) nfx++; else nmov++; }
+    printf("gui dice: ROLL: %d engines, %d effect values, %d movement values changed\n", neng, nfx, nmov);
+    if (!neng || !nfx || !nmov) { fprintf(stderr, "gui dice: ROLL did not change the engines, an effect and the movement\n"); bad = 1; }
+    if (!dice_kept_same(k0, k1, nl, 0, -1)) { fprintf(stderr, "gui dice: ROLL moved a kept value\n"); bad = 1; }
+    if (png_shot) (void)gui_png(p, xs, png_shot, "random");
+    /* UNDO (a click outside the list closes it, the click goes on): exactly as before */
+    if (!gui_hit(p, xs, W_UNDO, -1)) return 5;
+    dice_settle(p, xs);
+    dice_kept(p, xs, nl, k1); dice_read(p, v1);
+    diff = 0;
+    for (int i = 0; i < dice_nid; i++)
+        if (v0[i] != v1[i] && diff++ < 4) fprintf(stderr, "gui dice: after UNDO %#x %g, before %g\n", dice_ids[i], v1[i], v0[i]);
+    printf("gui dice: UNDO: %d values off\n", diff);
+    if (diff || !dice_kept_same(k0, k1, nl, 1, -1)) { fprintf(stderr, "gui dice: UNDO did not restore the state before the roll\n"); bad = 1; }
+    if (xs->find(p, W_RNDGO, -1, r)) { fprintf(stderr, "gui dice: RANDOM's list still open after a click outside\n"); bad = 1; }
+    return bad;
+}
+/* the top bar's right end: LEVEL, the dice, SETTINGS apart and inside the window; the rows' ENGINE and dice icons in
+ * one column */
+static int gui_top(const clap_plugin_t *p, const txg_gui_shot_t *xs, int pw, int ph)
+{
+    float a[3][4], s = fminf((float)pw / 1200.f, (float)ph / 720.f), W = (float)pw / s, x0 = -1.f, r[4];
+    static const int K[3] = { W_LVL, W_RND, W_SET };
+    int bad = 0, n = 0;
+    for (int i = 0; i < 3; i++) if (!xs->find(p, K[i], -1, a[i])) { fprintf(stderr, "gui: no top bar control %d\n", K[i]); return 5; }
+    for (int i = 0; i < 3; i++) {
+        if (a[i][0] < 0.f || a[i][0] + a[i][2] > W || a[i][1] < 0.f || a[i][1] + a[i][3] > 52.f) {
+            fprintf(stderr, "gui: top bar control %d outside the window\n", K[i]); bad = 1;
+        }
+        for (int j = i + 1; j < 3; j++)
+            if (a[i][0] < a[j][0] + a[j][2] && a[j][0] < a[i][0] + a[i][2] && a[i][1] < a[j][1] + a[j][3] && a[j][1] < a[i][1] + a[i][3]) {
+                fprintf(stderr, "gui: top bar controls %d and %d overlap\n", K[i], K[j]); bad = 1;
+            }
+    }
+    for (int k = 0; k < 16; k++) {
+        float d[4];
+        if (!xs->find(p, W_SND, k, r)) continue;
+        if (x0 < 0.f) x0 = r[0];
+        if (r[0] != x0) { fprintf(stderr, "gui: lane %d's ENGINE icon off the column (%g, %g)\n", k + 1, r[0], x0); bad = 1; }
+        if (xs->find(p, W_DICE, k, d) && (d[0] != x0 + r[2] + 4.f || d[1] != r[1])) { fprintf(stderr, "gui: lane %d's dice off the column\n", k + 1); bad = 1; }
+        n++;
+    }
+    printf("gui top bar: LEVEL %g..%g, dice %g..%g, SETTINGS %g..%g of %g; %d rows' icons at x %g\n", a[0][0], a[0][0] + a[0][2],
+           a[1][0], a[1][0] + a[1][2], a[2][0], a[2][0] + a[2][2], W, n, x0);
+    return bad;
+}
 static int gui_test3b(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* the browsers, SETTINGS, a colour, SPACE */
 {
     int bad = 0, f0 = -1, s0 = -1, f1 = -1, s1 = -1;
@@ -1164,6 +1315,8 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int
         if (db10[0] <= -900 || db10[2] <= -900 || !gb) { fprintf(stderr, "gui: the M/S meters are not fed\n"); bad = 1; }
         if (!xs->find(p, W_MSM, 0, r)) { fprintf(stderr, "gui: no M/S meter in the strip\n"); bad = 1; }
     }
+    if (gui_top(p, xs, pw, ph)) bad = 1;
+    png_shot = png;
     if (png && gui_views(p, xs, png)) return 5;
     if (test) {                          /* the controls do what they say (inactive: each write applied at its flush) */
         float r[4];
@@ -1213,6 +1366,7 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int
         if (gui_test5c_rows(p, xs)) bad = 1;
         if (gui_test5f(p, xs)) bad = 1;
         if (gui_test5g(p, xs)) bad = 1;
+        if (gui_test_dice(p, xs)) bad = 1;
         if (xs->find(p, 1 /* TXG_W_ROW */, 2, r)) gui_click(p, xs, r[0] + 30.f, r[1] + r[3] * 0.5f, 0);   /* (lane 3 selected) */
     }
     return bad ? 5 : 0;

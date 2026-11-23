@@ -22,171 +22,171 @@
 2220 expect state lab1 LIFE
 # lane 3, water drops: the source's own drops, by their physical names (HEIGHT = HARD, POOL = TONE)
 2260 btn 1
-2300 btn 1
-2320 expect state sel 3
-2320 expect state page SOUND_2/2
-2320 expect state lab0 CLUMPS
-2320 expect state lab1 LIFE
-2320 expect state lab2 DIST
-2350 turn 0 -1
-2370 expect state lab0 SIZE
-2370 expect state lab1 HEIGHT
-2370 expect state lab2 POOL
-2370 expect state lab3 SCATTER
+2340 btn 1
+2420 expect state sel 3
+2420 expect state page SOUND_2/2
+2420 expect state lab0 CLUMPS
+2420 expect state lab1 LIFE
+2420 expect state lab2 DIST
+2450 turn 0 -1
+2470 expect state lab0 SIZE
+2470 expect state lab1 HEIGHT
+2470 expect state lab2 POOL
+2470 expect state lab3 SCATTER
 # lane 4, cave drips: the drip's own (hosted) parameters, over the source's curves (HEIGHT 100: its curve at the lane's
 # activity, on the sound's own measured ACTIVITY curve; eaves 63)
-2400 btn 1
-2420 expect state sel 4
-2420 expect state lab0 SIZE
-2420 expect state lab1 HEIGHT
-2420 expect state lab2 POOL
-2420 expect state lab3 CAVE
-2420 expect state host3.5 100
-2500 turn 3 20
-2520 expect state card1 120
-2540 expect state host3.5 120
-2600 shot
+2500 btn 1
+2580 expect state sel 4
+2580 expect state lab0 SIZE
+2580 expect state lab1 HEIGHT
+2580 expect state lab2 POOL
+2580 expect state lab3 CAVE
+2580 expect state host3.5 100
+2660 turn 3 20
+2680 expect state card1 120
+2700 expect state host3.5 120
+2760 shot
 # the sound browser (ALGORITHM): the lane's next sound (eaves dripping) picked: its own cards, the override gone
-2700 turn 1 1
-2701 turn 1 -200
-2702 turn 1 4
-2703 btn 6
-2704 btn 8
-2720 expect state snd3 eaves_dripping
-2760 expect state lab2 RHYTHM
-2760 expect state host3.5 63
-2760 expect state card1 63
+2860 turn 1 1
+2861 turn 1 -200
+2862 turn 1 4
+2863 btn 6
+2864 btn 8
+2880 expect state snd3 eaves_dripping
+2920 expect state lab2 RHYTHM
+2920 expect state host3.5 63
+2920 expect state card1 63
 # EDIT again: the SOUND's next page (no lane FILTER pages: the mix has one FILTER, after the DRIVE)
-2800 btn 6
-2820 expect state page SOUND_2/2
-2830 expect led 6 1
+2960 btn 6
+2980 expect state page SOUND_2/2
+2990 expect led 6 1
 # FX: PERFORM, the front page (HIGH PASS, LOW PASS, DELAY MIX, REVERB MIX: the chain's order); ALGORITHM there: the
 # reverb's type
-3300 btn 2
-3320 expect state page PERFORM
-3320 expect state lab0 HIGH_PASS
-3320 expect state lab1 LOW_PASS
-3320 expect state lab2 DELAY_MIX
-3320 expect state lab3 REVERB_MIX
-3320 expect state card0 OFF
-3320 expect state card1 OFF
-3320 expect state card2 DRY
-3320 expect state card3 D100_W55
+3460 btn 2
+3480 expect state page PERFORM
+3480 expect state lab0 HIGH_PASS
+3480 expect state lab1 LOW_PASS
+3480 expect state lab2 DELAY_MIX
+3480 expect state lab3 REVERB_MIX
+3480 expect state card0 OFF
+3480 expect state card1 OFF
+3480 expect state card2 DRY
+3480 expect state card3 D100_W55
 # FX again: COMPRESSOR 1/2 (the first effect; Frodhes' four knobs; on by default); ALGORITHM: COMP off / on; CC 118 on
 # channel 5: RAT
-3340 btn 2
-3350 expect state page COMPRESSOR_1/2
-3350 expect state lab0 THR
-3350 expect state lab1 RATIO
-3350 expect state lab2 ATTACK
-3350 expect state lab3 MAKEUP
-3350 expect state card0 -20_dB
-3350 expect state card1 1.5:1
-3350 expect state card2 8.5
-3350 expect state card3 +2.6_dB
-3355 turn 1 -1
-3360 expect state msg COMP_OFF
-3365 turn 1 1
-3370 expect state msg COMP_ON
-3375 midi 0xB4 118 127
-3380 expect state card1 20:1
-3385 midi 0xB4 118 0
-3390 expect state card1 1.5:1
-3395 shot
+3500 btn 2
+3510 expect state page COMPRESSOR_1/2
+3510 expect state lab0 THR
+3510 expect state lab1 RATIO
+3510 expect state lab2 ATTACK
+3510 expect state lab3 MAKEUP
+3510 expect state card0 -20_dB
+3510 expect state card1 1.5:1
+3510 expect state card2 8.5
+3510 expect state card3 +2.6_dB
+3515 turn 1 -1
+3520 expect state msg COMP_OFF
+3525 turn 1 1
+3530 expect state msg COMP_ON
+3535 midi 0xB4 118 127
+3540 expect state card1 20:1
+3545 midi 0xB4 118 0
+3550 expect state card1 1.5:1
+3555 shot
 # FX twice: DRIVE (the mix's, one page, after the compressor): AMOUNT TONE MIX TYPE; K1: AMOUNT; ALGORITHM: its TYPE;
 # CC 79 on channel 5: TYPE
-3415 btn 2
-3420 btn 2
-3430 expect state page DRIVE
-3430 expect state lab0 AMOUNT
-3430 expect state lab1 TONE
-3430 expect state lab2 MIX
-3430 expect state lab3 TYPE
-3430 expect state card3 FDRV
-3430 expect state card2 WET
-3435 turn 2 30
-3440 expect state p430 30
-3445 turn 1 1
-3450 expect state p433 1
-3450 expect state msg DRIVE_TYPE_KHLON
-3450 expect state card3 KHLON
-3455 shot
-3460 turn 2 -30
-3465 expect state p430 0
-3470 midi 0xB4 79 127
-3475 expect state p433 4
-3480 midi 0xB4 79 0
-3485 expect state p433 0
+3575 btn 2
+3580 btn 2
+3590 expect state page DRIVE
+3590 expect state lab0 AMOUNT
+3590 expect state lab1 TONE
+3590 expect state lab2 MIX
+3590 expect state lab3 TYPE
+3590 expect state card3 FDRV
+3590 expect state card2 WET
+3595 turn 2 30
+3600 expect state p430 30
+3605 turn 1 1
+3610 expect state p433 1
+3610 expect state msg DRIVE_TYPE_KHLON
+3610 expect state card3 KHLON
+3615 shot
+3620 turn 2 -30
+3625 expect state p430 0
+3630 midi 0xB4 79 127
+3635 expect state p433 4
+3640 midi 0xB4 79 0
+3645 expect state p433 0
 # FX again: FILTER (the mix's, right after the DRIVE: HIGH PASS LOW PASS RESONANCE SLOPE, off at the ends:
 # tests/scripts/masterfilter.txt)
-3505 btn 2
-3515 expect state page FILTER
-3515 expect state lab0 HIGH_PASS
-3515 expect state card0 OFF
-3515 expect state card1 OFF
+3665 btn 2
+3675 expect state page FILTER
+3675 expect state lab0 HIGH_PASS
+3675 expect state card0 OFF
+3675 expect state card1 OFF
 # FX again: GRAIN 1/4 (MIX: DRY..WET, off at DRY); ALGORITHM: FREEZE; 2/4 the animation (MOD, MOD RATE,
 # INTERVALS, GRAIN)
-3535 btn 2
-3545 expect state page GRAIN_1/4
-3545 expect state card0 DRY
-3545 expect state lab2 SYNC
-3545 expect state lab3 FEEDBACK
-3555 turn 1 1
-3560 expect state p40B 1
-3560 expect state msg FREEZE_ON
-3565 turn 1 -1
-3570 expect state p40B 0
-3575 turn 0 1
-3580 expect state page GRAIN_2/4
-3580 expect state lab0 MOD
-3580 expect state lab1 MOD_RATE
-3580 expect state lab2 INTERVALS
-3580 expect state card2 5TH+OCT
-3580 expect state lab3 GRAIN
-3585 turn 0 1
-3590 expect state lab3 PITCH
-3595 turn 5 7
-3600 expect state card3 +1_st
-3605 shot
+3695 btn 2
+3705 expect state page GRAIN_1/4
+3705 expect state card0 DRY
+3705 expect state lab2 SYNC
+3705 expect state lab3 FEEDBACK
+3715 turn 1 1
+3720 expect state p40B 1
+3720 expect state msg FREEZE_ON
+3725 turn 1 -1
+3730 expect state p40B 0
+3735 turn 0 1
+3740 expect state page GRAIN_2/4
+3740 expect state lab0 MOD
+3740 expect state lab1 MOD_RATE
+3740 expect state lab2 INTERVALS
+3740 expect state card2 5TH+OCT
+3740 expect state lab3 GRAIN
+3745 turn 0 1
+3750 expect state lab3 PITCH
+3755 turn 5 7
+3760 expect state card3 +1_st
+3765 shot
 # FX twice more (from GRAIN 3/4): REVERB 1/3, on what the delay gives (MIX: DRY, D100 W.. to 64, D.. W100 past
 # it, WET); ALGORITHM: the type
-3625 btn 2
-3630 btn 2
-3645 expect state page REVERB_1/3
-3645 expect state card1 D100_W55
-3650 turn 1 1
-3655 expect state msg REVERB_TYPE_ROOM
-3660 turn 1 -1
-3670 shot
+3785 btn 2
+3790 btn 2
+3805 expect state page REVERB_1/3
+3805 expect state card1 D100_W55
+3810 turn 1 1
+3815 expect state msg REVERB_TYPE_ROOM
+3820 turn 1 -1
+3830 shot
 # HOME: LANDSCAPE
-4400 btn 8
-4420 expect state page LANDSCAPE
+4560 btn 8
+4580 expect state page LANDSCAPE
 # CC: lane 2's level (channel 2, CC 7), the mix's FILTER LOW PASS (channel 5, CC 74; on a lane's channel no longer
 # a filter's), the reverb's MIX (channel 5, CC 91)
-4500 midi 0xB1 7 50
-4520 expect state vol1 50
-4600 midi 0xB1 74 100
-4620 expect state p435 127
-4650 midi 0xB4 74 100
-4670 expect state p435 100
-4700 midi 0xB4 91 100
-4720 expect state p411 100
+4660 midi 0xB1 7 50
+4680 expect state vol1 50
+4760 midi 0xB1 74 100
+4780 expect state p435 127
+4810 midi 0xB4 74 100
+4830 expect state p435 100
+4860 midi 0xB4 91 100
+4880 expect state p411 100
 # CC 74 on channel 6: not ours
-4800 midi 0xB5 74 10
-4820 expect state p435 100
-4830 midi 0xB4 74 127
+4960 midi 0xB5 74 10
+4980 expect state p435 100
+4990 midi 0xB4 74 127
 # NRPN: the reverb's MIX (scope 4, index 17) on channel 5; lane 2's LEVEL (scope 1, index 3) from channel 1
-4900 midi 0xB4 99 4
-4900 midi 0xB4 98 17
-4900 midi 0xB4 6 20
-4920 expect state p411 20
-5000 midi 0xB0 99 1
-5000 midi 0xB0 98 3
-5000 midi 0xB0 6 30
-5020 expect state vol1 30
+5060 midi 0xB4 99 4
+5060 midi 0xB4 98 17
+5060 midi 0xB4 6 20
+5080 expect state p411 20
+5160 midi 0xB0 99 1
+5160 midi 0xB0 98 3
+5160 midi 0xB0 6 30
+5180 expect state vol1 30
 # CC 79 on a lane's channel: no longer the DRIVE's (the mix's: channel 5)
-5100 midi 0xB0 79 127
-5120 expect state p433 0
-5500 expect sound
-5500 expect state dropped 0
-5600 end
+5260 midi 0xB0 79 127
+5280 expect state p433 0
+5660 expect sound
+5660 expect state dropped 0
+5760 end

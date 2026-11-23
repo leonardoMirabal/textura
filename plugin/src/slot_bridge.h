@@ -180,10 +180,11 @@ static void sb_tab_add(uint32_t id, uint32_t hi, int scaled, int is_enum, const 
     snprintf(p->name, sizeof p->name, "%s%s", pfx, nm);
     snprintf(p->module, sizeof p->module, "%s", mod);
 }
-static int sb_glob_hidden(uint32_t i)    /* the FM-1's own settings: the tempo, the clock, the screen */
+static int sb_glob_hidden(uint32_t i)    /* the FM-1's own settings: the tempo, the clock, the screen, RANDOM's ticks
+                                          * (the window's own here: TXP_EV_DICE carries them) */
 {
     return i == PG_BPM || i == PG_FINE || i == PG_STATUS || i == PG_RUN || i == PG_TAP || i == PG_CLOCK ||
-           i == PG_INUSB || i == PG_INTRS || i == PG_OUT || i == PG_COLOR;
+           i == PG_INUSB || i == PG_INTRS || i == PG_OUT || i == PG_COLOR || (i >= PG_RND0 && i < PG_RND0 + DICE_N);
 }
 static void sb_tab_make(void)
 {
@@ -336,8 +337,8 @@ static void sb_param_set(uint32_t id, int32_t v)   /* a host parameter written, 
 static int sb_is_settled(void)
 {
     uint32_t k;
-    if (scn_busy() || scn_gl_n || scn_cand != 0xFF || scn_sv_on || sbp.card) return 0;   /* (a SAVE written to its end
-                                          * too, a preview's cards put back) */
+    if (scn_busy() || scn_gl_n || scn_cand != 0xFF || scn_sv_on || sbp.card || dice_busy()) return 0;   /* (a SAVE
+                                          * written to its end too, a preview's cards put back, a roll's cards rolled) */
     for (k = 0; k < SC_N; k++) if (sc.gl_on[k] || sc.a_eng[k] != sc.eng[k] || sc.reswap[k]) return 0;
     return 1;
 }
@@ -459,10 +460,10 @@ static void sb_ui(txp_ui_snap_t *u)       /* what the window shows (the app's th
         if (mod_holds(PID(P_LFO, i * 16u + TX_LP_RATE)) || mod_holds(PID(P_LFO, i * 16u + TX_LP_LEVEL))) u->lfo_mod |= (uint8_t)(1u << i);
     u->edited = scn_edited;
     u->solo = sbx.solo;
-    u->scene = scn_cur;
+    u->scene = scn_cur < SCN_N ? scn_cur : 0xFFu;   /* (a roll of the dice: no scene, its name "RANDOM") */
     u->land = sc.fam;
     u->fx_yours = (uint8_t)(scn_fx_mine && scn_fx_mode == SCN_FX_SMART);
-    if (scn_cur != 0xFF && scn_cur < SCN_N) { char nm[20]; scn_name_of(scn_cur, nm); snprintf(u->preset, sizeof u->preset, "%s", nm); }
+    if (scn_cur < SCN_N || scn_cur == SCN_RND) { char nm[20]; scn_name_of(scn_cur, nm); snprintf(u->preset, sizeof u->preset, "%s", nm); }
     for (i = 0; i < SCN_NU && i < TXP_USER_N; i++)
         if (scn_meta[i].used) { u->user |= (uint16_t)(1u << i); snprintf(u->uname[i], sizeof u->uname[i], "%.12s", scn_meta[i].name); }
     for (i = 0; i < TX_LFO_N && i < TXP_LFO_N; i++) {   /* the LFOs: their values now, routed ones named by their
@@ -742,13 +743,15 @@ static int sb_state_set(const char *j)   /* into the mailbox; sb_state_apply app
     sbx.st_scn = x;
     sbx.st_cur = 0xFF;
     if (c && lc > 0 && lc < 4) {         /* (cur: a scene number as the state's build had them, nf factory scenes
-                                          * then the user's; a state without nf: 100, the presets before F101) */
+                                          * then the user's; a state without nf: 100, the presets before F101; a
+                                          * roll of the dice: SCN_RND) */
         uint32_t n = 0;
         int32_t nf = sb_json_num(j, "nf", 100);
         for (i = 0; i < lc; i++) n = n * 10u + (uint32_t)(c[i] - '0');
-        if (nf > 0 && n >= (uint32_t)nf) n = n - (uint32_t)nf < SCN_NU ? n - (uint32_t)nf + SCN_NF : SCN_N;
+        if (n == SCN_RND) {}
+        else if (nf > 0 && n >= (uint32_t)nf) n = n - (uint32_t)nf < SCN_NU ? n - (uint32_t)nf + SCN_NF : SCN_N;
         else if (n >= SCN_NF) n = SCN_N;
-        if (n < SCN_N) sbx.st_cur = (uint8_t)n;
+        if (n < SCN_N || n == SCN_RND) sbx.st_cur = (uint8_t)n;
     }
     sbx.st_solo = -1;
     if (so && lo > 0 && lo < 6) { uint32_t n = 0; for (i = 0; i < lo && so[i] >= '0' && so[i] <= '9'; i++) n = n * 10u + (uint32_t)(so[i] - '0'); sbx.st_solo = (int32_t)(n & 0xFFFFu); }
@@ -1012,6 +1015,12 @@ static void sb_events(int timed)
             sbx.rev++;
         } else if (e->kind == TXP_EV_UNDO) {   /* (as SAVE held: scenes.c) */
             if (scn_su.on) scn_snd_undo(); else scn_undo();
+            sbx.rev++;
+        } else if (e->kind == TXP_EV_DICE) {   /* (as the FM-1's OCT- and OCT+ together: dice.c; a load running, it
+                                          * waits for it) */
+            if (ln.qw - ln.qr >= LN_QN / 2u) { sbx.st.ring_wait++; sbx.ev_wait = 1; return; }   /* (as a parameter) */
+            if (e->a & TXP_DICE_ALL) (void)dice_roll(e->a & DICE_ALL, (uint32_t)e->v);
+            else if (e->a < SC_N) (void)dice_lane(e->a, (uint32_t)e->v);
             sbx.rev++;
         } else if (e->kind == TXP_EV_NAME) {   /* (four characters, the save mode's alphabet: others a space) */
             for (uint32_t i = 0; i < 4u && e->a + i < 11u; i++) {

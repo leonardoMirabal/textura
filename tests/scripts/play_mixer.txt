@@ -9,37 +9,37 @@
 2500 expect rms > -70
 2500 keys 0
 2600 btn 1
-2620 expect state oct 1
-2700 btn 3
-2720 expect state mode LANDSCAPE
-2800 btn 8
-2820 expect state page LANDSCAPE
-2900 turn 2 -20
-2920 expect state vol0 80
-3000 shot
-3100 turn 0 1
-3101 expect state page SOUND_1/2
-3103 turn 0 1
-3105 turn 0 1
-3108 turn 0 1
-3110 turn 0 1
-3120 expect state page LANES_3/4
-3200 turn 3 20
-3220 expect state pan1 84
-3500 shot
-3600 btn 8
-3620 expect state page LANDSCAPE
+2680 expect state oct 1
+2760 btn 3
+2780 expect state mode LANDSCAPE
+2860 btn 8
+2880 expect state page LANDSCAPE
+2960 turn 2 -20
+2980 expect state vol0 80
+3060 shot
+3160 turn 0 1
+3161 expect state page SOUND_1/2
+3163 turn 0 1
+3165 turn 0 1
+3168 turn 0 1
+3170 turn 0 1
+3180 expect state page LANES_3/4
+3260 turn 3 20
+3280 expect state pan1 84
+3560 shot
+3660 btn 8
+3680 expect state page LANDSCAPE
 # the LEDs: HOME lit on its page, GLO dark (it lights only on its own pages)
-3625 expect led 8 1
-3625 expect led 7 0
-3625 expect state leds OCT+_HOME
-3980 btn 8
-3990 expect state page LANES_3/4
-4350 btn 8
-4360 expect state page LANDSCAPE
-4370 turn 0 1
-4372 turn 0 -1
-4724 btn 8
-4730 expect state page SOUND_1/2
-4750 expect sound
-4750 end
+3685 expect led 8 1
+3685 expect led 7 0
+3685 expect state leds OCT+_HOME
+4040 btn 8
+4050 expect state page LANES_3/4
+4410 btn 8
+4420 expect state page LANDSCAPE
+4430 turn 0 1
+4432 turn 0 -1
+4784 btn 8
+4790 expect state page SOUND_1/2
+4810 expect sound
+4810 end

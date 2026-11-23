@@ -85,21 +85,21 @@
 11520 expect state brpr 1
 11520 expect state brcur 2
 11600 btn 0
-11620 expect state browser 0
-11620 expect state brpr 0
-12000 expect state scene F003_GARDEN_RAIN
+11680 expect state browser 0
+11680 expect state brpr 0
+12060 expect state scene F003_GARDEN_RAIN
 # one list: past RAIN's last preset the cursor goes on into STORM (its first), and back into RAIN (its last)
-12100 turn 6 1
-12120 expect state brcur 2
-12200 turn 6 8
-12220 expect state brfam STORM
-12220 expect state brcur 0
-12300 turn 6 -1
-12320 expect state brfam RAIN
-12320 expect state brcur 9
-12400 btn 8
-12420 expect state browser 0
-13000 expect state scene F003_GARDEN_RAIN
-13000 expect state loading 0
-13000 expect state dropped 0
-13100 end
+12160 turn 6 1
+12180 expect state brcur 2
+12260 turn 6 8
+12280 expect state brfam STORM
+12280 expect state brcur 0
+12360 turn 6 -1
+12380 expect state brfam RAIN
+12380 expect state brcur 9
+12460 btn 8
+12480 expect state browser 0
+13060 expect state scene F003_GARDEN_RAIN
+13060 expect state loading 0
+13060 expect state dropped 0
+13160 end

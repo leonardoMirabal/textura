@@ -103,56 +103,56 @@
 # to lake lapping, the list on lane 3's sound (water drops); FX closes
 6700 btn 11
 6720 btn 1
-6740 expect state sel 2
-6740 expect state brfam Water
-6740 expect state brcur 1
-6740 expect state brkept lake_lapping
-6760 turn 1 1
-7260 expect state snd1 water_drops
-7280 keys 0x2000
-7290 keys 0
-7310 expect state sel 3
-7310 expect state browser 2
-7310 expect state snd1 lake_lapping
-7310 expect state brcur 2
-7310 expect state brkept water_drops
-7400 btn 2
-7420 expect state browser 0
+6800 expect state sel 2
+6800 expect state brfam Water
+6800 expect state brcur 1
+6800 expect state brkept lake_lapping
+6820 turn 1 1
+7320 expect state snd1 water_drops
+7340 keys 0x2000
+7350 keys 0
+7370 expect state sel 3
+7370 expect state browser 2
+7370 expect state snd1 lake_lapping
+7370 expect state brcur 2
+7370 expect state brkept water_drops
+7460 btn 2
+7480 expect state browser 0
 # a stopped lane: no audition; EDIT loads it stopped (lane 4: cave drips -> Wind, wind; the list stays)
-7500 btn 8
-7520 btn 1
-7540 expect state sel 4
-7560 btn 11
-7580 expect state brcur 3
-7600 turn 0 5
-7620 expect state brfam Wind
-7620 expect state brcur 0
-8100 expect state snd3 cave_drips
-8120 btn 6
-8140 expect state snd3 wind
-8140 expect state fam3 Wind
-8140 expect state run3 0
-8140 expect state browser 2
-8200 shot
-8300 btn 8
-8320 expect state browser 0
-8320 expect state snd3 wind
+7560 btn 8
+7580 btn 1
+7660 expect state sel 4
+7680 btn 11
+7700 expect state brcur 3
+7720 turn 0 5
+7740 expect state brfam Wind
+7740 expect state brcur 0
+8220 expect state snd3 cave_drips
+8240 btn 6
+8260 expect state snd3 wind
+8260 expect state fam3 Wind
+8260 expect state run3 0
+8260 expect state browser 2
+8320 shot
+8420 btn 8
+8440 expect state browser 0
+8440 expect state snd3 wind
 # a scene keeps the lanes' families: saved to U01, F001 loaded, U01 again
-8400 btn 9
-8500 btn 9
-9100 expect state saving 0
-9200 midi 0xC0 0 0
-9800 expect state loading 0
-9800 expect state snd0 rain_on_water
-9800 expect state fam0 Water
-9900 midi 0xC0 100 0
-10500 expect state loading 0
-10500 expect state snd0 bonfire
-10500 expect state fam0 Fire
-10500 expect state snd3 wind
-10500 expect state fam3 Wind
-10500 expect state lane0 source
-10600 expect state landscape Water
-10600 expect sound
-10600 expect state dropped 0
-10700 end
+8520 btn 9
+8620 btn 9
+9220 expect state saving 0
+9320 midi 0xC0 0 0
+9920 expect state loading 0
+9920 expect state snd0 rain_on_water
+9920 expect state fam0 Water
+10020 midi 0xC0 100 0
+10620 expect state loading 0
+10620 expect state snd0 bonfire
+10620 expect state fam0 Fire
+10620 expect state snd3 wind
+10620 expect state fam3 Wind
+10620 expect state lane0 source
+10720 expect state landscape Water
+10720 expect sound
+10720 expect state dropped 0
+10820 end

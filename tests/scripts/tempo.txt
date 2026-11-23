@@ -1,5 +1,5 @@
 # the tempo: GLO = GROOVE 1/2 (the groove's TYPE AMOUNT SHIFT; again: GROOVE 2/2, TEMPO, SCALE, MIDI, MIDI IN,
-# DISPLAY); TEMPO: K1 the BPM, K2 a tenth (FINE), K3 the transport, K4 what leads it; PLAY taps it (from the 3rd tap),
+# DISPLAY, RANDOM); TEMPO: K1 the BPM, K2 a tenth (FINE), K3 the transport, K4 what leads it; PLAY taps it (from the 3rd tap),
 # held 600 ms the transport (that press's tap taken back); the grain delay's SYNC on the beat (halved until it fits the
 # line); CC 3 the BPM on channel 5; the MIDI page: CLOCK, each port's clock in, the clock out (USB, in
 # MASTER: 24 pulses a beat)
@@ -27,12 +27,13 @@
 1920 expect state bpm10 1295
 1920 expect state card1 129.5_BPM
 2000 shot
-# GLO five times: round to GROOVE (SCALE, MIDI, MIDI IN, DISPLAY, GROOVE), then twice more: TEMPO again
+# GLO six times: round to GROOVE (SCALE, MIDI, MIDI IN, DISPLAY, RANDOM, GROOVE), then twice more: TEMPO again
 2100 btn 7
 2105 btn 7
 2110 btn 7
 2115 btn 7
 2120 btn 7
+2125 btn 7
 2130 expect state page GROOVE_1/2
 2140 btn 7
 2145 btn 7

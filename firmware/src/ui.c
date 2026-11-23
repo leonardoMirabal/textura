@@ -23,7 +23,8 @@
  *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, GROOVE 1/2 2/2 (every groove control together: TYPE AMOUNT
  *              SHIFT, then each lane's ROLE on its knob, its PART or own CYCLE), TEMPO (BPM FINE, the transport, what
  *              leads it), SCALE (MODE SCALE ROOT TRANSP, as Frodhes': the keys' notes), MIDI (the clock), MIDI IN (each
- *              lane's channel), DISPLAY (COLOR). Each
+ *              lane's channel), DISPLAY (COLOR), RANDOM (what OCT- and OCT+ together roll: ENGINES SOUND EFFECTS
+ *              MOVEMENT, each ON / OFF; dice.c). Each
  *              page titled by what it does, no fractions: pips at the right for its button's pages
  *   ALGORITHM  named on the footer's ALGORITHM line with its value. LANDSCAPE: picks a landscape (the footer names it:
  *              EDIT loads it, HOME keeps what plays; a turn never loads); SOUND: opens the sound browser; PERFORM,
@@ -35,18 +36,20 @@
  *              keys too); the lane pages, GROOVE 2/2: lanes 1..4; else the cards
  *   HOME       LANDSCAPE; on LANDSCAPE: back to the last page left, however it was left (P7; the footer names it);
  *              tapped twice within 300 ms: PERFORM (the first tap acts at once; a slower second one goes back);
- *              held 600 ms: the setup, MIDI CLOCK (GLO on: MIDI IN, DISPLAY)
+ *              held 600 ms: the setup, MIDI CLOCK (GLO on: MIDI IN, DISPLAY, RANDOM)
  *   EDIT       SOUND (again: its next page)        FX  on its release: PERFORM (again: each page of COMPRESSOR,
  *              DRIVE, FILTER, GRAIN, REVERB, M/S, then round from COMPRESSOR); held 600 ms, from any page: PERFORM (HOME, then HOME
  *              again, comes back to it)
- *   GLO        GROOVE (again: GROOVE 2/2, TEMPO, SCALE, MIDI, MIDI IN, DISPLAY, then round)        LFO  the LFO pages; held + a card
+ *   GLO        GROOVE (again: GROOVE 2/2, TEMPO, SCALE, MIDI, MIDI IN, DISPLAY, RANDOM, then round)        LFO  the LFO pages; held + a card
  *              turned: mod learn (the selected LFO onto that card, the turn its depth; back to 0 frees the slot)    ARP
  *              MATRIX. Each group button lit on its own pages only; every group page's footer says where it goes next
  *   ENV        the ENV / FOLLOW pages; held + a card turned: mod learn from the selected ENV or FOLLOW
  *   SEL        key mode: tapped, LANDSCAPE / PLAY; held, the other mode while it is held (ui_sel), so in PLAY SEL
  *              held + a black key picks that lane ("LANE 2: RAIN"), OCT the previous / next one, and the keys play it
  *              once SEL is let go      OCT- OCT+  LANDSCAPE mode: the previous / next lane (a lane's page, SOUND, any
- *              of its pages, stays, for the new lane; any other goes to LANDSCAPE); PLAY mode: the octave
+ *              of its pages, stays, for the new lane; any other goes to LANDSCAPE); PLAY mode: the octave. A
+ *              press acts OCT_CHORD_MS late: OCT- and OCT+ together (the other within it) roll the dice instead
+ *              (dice.c: what the RANDOM page ticks, on every lane; the sound browser open, its lane a new engine)
  *   black keys LANDSCAPE mode, by their groups: lanes 1..4, shown on LANDSCAPE (it stays, any other page goes to it;
  *              EDIT then opens the lane's SOUND); held 600 ms (notes.c NT_HOLD_MS): that lane muted / unmuted too (it
  *              plays on, only its output gated: back at once, a short ramp; its card dimmed, MUTED; a scene keeps it)
@@ -87,29 +90,29 @@
 /* the pages: a group (SELECT walks through each group's sub-pages, then the next group), in the sound's order: the
  * source (SOUND), the mixer (the lane pages), the effects (FX_CHAIN) */
 enum { G_LAND, G_SOUND, G_LANES, G_FX, G_COMP, G_DRIVE, G_MFILT, G_GRAIN, G_REVERB, G_MS, G_LFO, G_ENV, G_MATRIX,
-       G_GROOVE, G_TEMPO, G_SCALE, G_MIDI, G_MIDIIN, G_DISPLAY, G_N };
+       G_GROOVE, G_TEMPO, G_SCALE, G_MIDI, G_MIDIIN, G_DISPLAY, G_RANDOM, G_N };
 #define UI_GLANES (ui_g == G_GROOVE && ui_sub == 1u)   /* GROOVE 2/2: the lanes' roles, a row each */
 /* the groups' names for the host and the web panel (the screen titles each page by what it does: PG_T) */
 static const char *const G_TITLE[G_N] = {"LANDSCAPE", "SOUND", "LANES", "PERFORM", "COMPRESSOR", "DRIVE", "FILTER",
                                          "GRAIN", "REVERB", "M/S", "LFO", "ENV", "MATRIX", "GROOVE", "TEMPO", "SCALE", "MIDI",
-                                         "MIDI IN", "DISPLAY"};
-static const uint8_t G_NSUB[G_N] = {1, 0, 4, 1, 2, 1, 1, 4, 3, 1, 3, 2, 1, 2, 1, 1, 1, 1, 1};   /* (SOUND: as many as its cards
+                                         "MIDI IN", "DISPLAY", "RANDOM"};
+static const uint8_t G_NSUB[G_N] = {1, 0, 4, 1, 2, 1, 1, 4, 3, 1, 3, 2, 1, 2, 1, 1, 1, 1, 1, 1};   /* (SOUND: as many as its cards
                                                  * need; ENV: a FOLLOW has one) */
 /* the pages' titles on the screen, by what they do, the groups' pages in order (SOUND: "SOUND"; a FOLLOW: "FOLLOW") */
 static const char *const PG_T[] = {"TEXTURA", "HOW MANY", "HOW ACTIVE", "PAN", "ON / MUTE", "PERFORM", "COMPRESSOR",
                                    "COMP RELEASE", "DRIVE", "FILTER", "DELAY", "DELAY MOTION", "GRAINS", "GRAIN TONE",
                                    "REVERB", "REVERB SPACE", "SHIMMER", "M/S", "LFO", "LFO PHASE", "LFO LEVEL", "ENV",
                                    "ENV SHAPE", "MOD MATRIX", "GROOVE", "GROOVE LANES", "TEMPO", "SCALE", "MIDI CLOCK",
-                                   "MIDI IN", "DISPLAY"};
+                                   "MIDI IN", "DISPLAY", "RANDOM"};
 /* the group buttons: each owns a run of groups (its LED lit there, it steps their pages, the title's pips count them):
  * HOME the home page and the lane pages (SELECT's), EDIT SOUND, FX the effects, LFO, ENV, ARP the matrix, GLO the
  * groove, the tempo and the setup */
 static const uint8_t G_BTN[G_N] = {BTN_HOME, BTN_EDIT, BTN_HOME, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_FX, BTN_LFO,
-                                   BTN_ENV, BTN_ARP, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO};
+                                   BTN_ENV, BTN_ARP, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO, BTN_GLO};
 #define LA P_LANE_ANY
 #define NOID 0xFFFFu
 /* the effects' pages: a parameter per knob (a global, or the selected LFO's, ENV's, slot's), from G_FX0 */
-static const uint8_t G_FX0[G_N] = {0, 0, 0, 13, 19, 0, 21, 1, 5, 25, 8, 14, 11, 22, 12, 23, 17, 24, 18};   /* (ENV: 14, 15; FOLLOW:
+static const uint8_t G_FX0[G_N] = {0, 0, 0, 13, 19, 0, 21, 1, 5, 25, 8, 14, 11, 22, 12, 23, 17, 24, 18, 26};   /* (ENV: 14, 15; FOLLOW:
                                                  * 16) */
 #define LFO_ANY(p) PID(P_LFO, 0xF0u | (p))        /* the selected LFO's (ui_lfo) */
 #define ENV_ANY(p) PID(P_ENV, 0xF0u | (p))        /* the selected ENV's or FOLLOW's (ui_env) */
@@ -120,7 +123,7 @@ static const uint8_t G_FX0[G_N] = {0, 0, 0, 13, 19, 0, 21, 1, 5, 25, 8, 14, 11, 
 #define GDL(p) PID(P_GLOBAL, PG_GD(p))
 #define GRV(i) PID(P_GLOBAL, PG_GRV0 + (i))
 #define MSP(p) PID(P_GLOBAL, PG_MS0 + (p))
-static const uint16_t FX_IDS[26][4] = {
+static const uint16_t FX_IDS[27][4] = {
     {DRV(TX_DR_AMOUNT), DRV(TX_DR_TONE), DRV(TX_DR_MIX), DRV(TX_DR_TYPE)},   /* DRIVE: the mix's */
     {PID(P_GLOBAL, PG_GRAIN0 + TX_GD_MIX), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_TIME), PID(P_GLOBAL, PG_GSYNC), PID(P_GLOBAL, PG_GRAIN0 + TX_GD_FEEDBACK)},
     {GDL(TX_GD_MOD), GDL(TX_GD_MODRATE), GDL(TX_GD_IVL), GDL(TX_GD_GRAIN)},   /* GRAIN 2/4: the animation, the grains' share */
@@ -155,6 +158,9 @@ static const uint16_t FX_IDS[26][4] = {
                                                  * IN: each lane's channel */
     {MSP(TX_MS_MID), MSP(TX_MS_SIDE), MSP(TX_MS_WIDTH), MSP(TX_MS_MONO)},   /* M/S: the mix's last effect (the footer
                                                  * its L R M S meters and the correlation: draw_ms_meter) */
+    {PID(P_GLOBAL, PG_RND0), PID(P_GLOBAL, PG_RND0 + 1), PID(P_GLOBAL, PG_RND0 + 2), PID(P_GLOBAL, PG_RND0 + 3)},   /*
+                                                 * RANDOM: what OCT- and OCT+ together roll (dice.c), ENGINES SOUND
+                                                 * EFFECTS MOVEMENT, ON / OFF each (the settings) */
 };
 /* what ALGORITHM turns on an effect's page */
 #define ALG_DRIVE DRV(TX_DR_TYPE)
@@ -165,10 +171,10 @@ static const uint16_t FX_IDS[26][4] = {
 #define ALG_GROOVE GRV(1)
 static const uint16_t G_ALG_[G_N] = {NOID, NOID, NOID, ALG_REVERB, ALG_COMP, ALG_DRIVE, ALG_MFILT, ALG_FREEZE, ALG_REVERB,
                                      NOID, NOID, NOID, NOID, ALG_GROOVE, NOID, PID(P_GLOBAL, PG_SCALE), NOID,
-                                     PID(P_GLOBAL, PG_SELCH), NOID};   /* what ALGORITHM turns on a
+                                     PID(P_GLOBAL, PG_SELCH), NOID, NOID};   /* what ALGORITHM turns on a
                                                  * page, named on the ALGORITHM line */
 static const char *const G_ALGN_[G_N] = {0, 0, 0, "REVERB TYPE", "COMP", "DRIVE TYPE", "SLOPE", "FREEZE", "REVERB TYPE", 0, 0, 0,
-                                         0, "GROOVE TYPE", 0, "SCALE", 0, "SELECTED CH", 0};
+                                         0, "GROOVE TYPE", 0, "SCALE", 0, "SELECTED CH", 0, 0};
 #define G_ALG(g) G_ALG_[g]
 #define G_ALGN(g) G_ALGN_[g]
 enum { E_HEADER = 0, E_TITLE = 1, E_ROW0 = 2, E_FOOTER = 6, E_N = 7 };
@@ -380,10 +386,11 @@ static void ui_toast_text(const char *hd, const char *fam, const char *nm)
     ui_toast_t = fm1_ms ? fm1_ms : 1u;
     ui_mark(E_ROW0 + 1u); ui_mark(E_ROW0 + 2u);
 }
-static void ui_toast(const char *hd, uint32_t idx)   /* scene idx (0xFF: the landscape that plays) */
+static void ui_toast(const char *hd, uint32_t idx)   /* scene idx (0xFF: the landscape that plays; SCN_RND: a roll) */
 {
     char f[16], s[24];
-    if (idx < SCN_N) { p_strcpy(f, idx < SCN_NF ? pr_cat_name(pr_cat_of(idx)) : "USER", 15); scn_name_of(idx, s); }
+    if (idx == SCN_RND) { p_strcpy(f, "DICE", 15); scn_name_of(idx, s); }
+    else if (idx < SCN_N) { p_strcpy(f, idx < SCN_NF ? pr_cat_name(pr_cat_of(idx)) : "USER", 15); scn_name_of(idx, s); }
     else { p_strcpy(f, "LANDSCAPE", 15); p_upper(s, LS[sc.fam].name, 20); }
     ui_toast_text(hd, f, s);
 }
@@ -523,10 +530,11 @@ static void ui_bpm_text(char *b)                /* "120.0" */
 }
 
 /* what plays: the preset's family and its name ("COAST", "F034 HARBOUR NIGHT"; a load under way: the one coming),
- * 1; none loaded: "LANDSCAPE" and the landscape's name, 0 */
+ * 1; a roll of the dice: "DICE", "RANDOM", 1; none loaded: "LANDSCAPE" and the landscape's name, 0 */
 static int ui_preset_of(char *fam, char *nm)
 {
     uint32_t q = scn_busy() ? scn_ap_idx : scn_cur;
+    if (q == SCN_RND) { p_strcpy(fam, "DICE", 15); scn_name_of(q, nm); return 1; }
     if (q >= SCN_N) { p_strcpy(fam, "LANDSCAPE", 15); p_upper(nm, LS[sc.fam].name, 20); return 0; }
     p_strcpy(fam, q < SCN_NF ? pr_cat_name(pr_cat_of(q)) : "USER", 15);
     scn_name_of(q, nm);
@@ -1980,6 +1988,31 @@ static void ui_sel(uint32_t b, uint32_t rel)    /* SEL: a tap switches the key m
     if (nt.sel_used) nt_mode_set(nt.mode ^ 1u);
     else ui_say(nt.mode == NT_PLAY ? "KEYS: PLAY" : "KEYS: LANDSCAPE");
 }
+/* OCT- and OCT+ together: the dice (dice.c). A lone OCT acts OCT_CHORD_MS after its press (held back, so the other
+ * one within it makes the chord: no step first); both within it roll instead, the second press doing nothing else.
+ * The sound browser open (SEQ): a new engine on its lane alone, the browser on it (scn_apply: ub_rebase); else what
+ * the RANDOM page ticks, on every lane with a sound. The toast says what rolled; SAVE held undoes it */
+#define OCT_CHORD_MS 60u
+static uint8_t ui_oct_pend;                     /* the OCT held back: bit 0 OCT-, bit 1 OCT+ */
+static uint32_t ui_oct_t;
+static void ui_oct_go(uint32_t m) { int32_t d = m & 1u ? -1 : 1; if (nt.mode == NT_PLAY) nt_oct_step(d); else ui_lane_step(d); }
+static void ui_dice(void)
+{
+    if (ub.on && !ub.pr) {
+        (void)ub_restore();                     /* (an audition: the kept sound back first, the undo's) */
+        if (dice_lane(ub.lane, 0)) ui_say("NO SOUND ON THIS LANE");
+    } else if (dice_roll(dice_what, 0)) ui_say("RANDOM: NOTHING TICKED");
+}
+static void ui_oct(uint32_t b)
+{
+    uint32_t p = (b >> BTN_OCT_DOWN & 1u) | (b >> BTN_OCT_UP & 1u) << 1;
+    if ((p | ui_oct_pend) == 3u && p) { ui_oct_pend = 0; ui_dice(); return; }   /* (both, or the other within the wait) */
+    if (p) {
+        if (ui_oct_pend) ui_oct_go(ui_oct_pend);   /* (the same one again: the first acts now) */
+        ui_oct_pend = (uint8_t)p; ui_oct_t = fm1_ms;
+    }
+    if (ui_oct_pend && fm1_ms - ui_oct_t >= OCT_CHORD_MS) { uint32_t m = ui_oct_pend; ui_oct_pend = 0; ui_oct_go(m); }
+}
 static void ui_input(uint32_t b, uint32_t rel)
 {
     int32_t d[7];
@@ -2049,14 +2082,15 @@ static void ui_input(uint32_t b, uint32_t rel)
         ui_home_t = fm1_ms; ui_home_down = 1;
     }
     if (ui_home_down && fm1_ms - ui_home_t >= TAP_HOLD_MS) { ui_home_down = 0; ui_goto(G_MIDI, 0); }   /* held: the setup
-                                                 * (MIDI CLOCK; GLO on: MIDI IN, DISPLAY); the tap's move stays first */
+                                                 * (MIDI CLOCK; GLO on: MIDI IN, DISPLAY, RANDOM); the tap's move stays
+                                                 * first */
     if (rel >> BTN_HOME & 1u) ui_home_down = 0;
     if (b >> BTN_EDIT & 1u) ui_goto(G_SOUND, ui_g == G_SOUND ? (ui_sub + 1u) % ui_nsub(G_SOUND) : 0u);   /* (the lane's
                                                  * SOUND; again: its next page) */
     if (b >> BTN_FX & 1u) { ui_fx_t = fm1_ms; ui_fx_down = 1; }   /* FX: on the release (held TAP_HOLD_MS: PERFORM) */
     if (ui_fx_down && fm1_ms - ui_fx_t >= TAP_HOLD_MS) { ui_fx_down = 0; ui_goto(G_FX, 0); }
     for (i = 0; i < 2u; i++)                    /* FX (PERFORM, COMPRESSOR, DRIVE, FILTER, DELAY, REVERB), GLO (GROOVE
-                                                 * 1/2 2/2, TEMPO, SCALE, MIDI, MIDI IN, DISPLAY): every page in
+                                                 * 1/2 2/2, TEMPO, SCALE, MIDI, MIDI IN, DISPLAY, RANDOM): every page in
                                                  * turn, wrapping */
         if (i ? b >> BTN_GLO & 1u : rel >> BTN_FX & ui_fx_down) { uint8_t g, s; ui_next(i ? BTN_GLO : BTN_FX, &g, &s); ui_goto(g, s); }
     if (rel >> BTN_FX & 1u) ui_fx_down = 0;
@@ -2081,8 +2115,7 @@ static void ui_input(uint32_t b, uint32_t rel)
     }
     ui_play(b >> TX_BTN_TAP & 1u, rel >> TX_BTN_TAP & 1u);
     ui_sel(b, rel);
-    if (b >> BTN_OCT_DOWN & 1u) { if (nt.mode == NT_PLAY) nt_oct_step(-1); else ui_lane_step(-1); }
-    if (b >> BTN_OCT_UP & 1u) { if (nt.mode == NT_PLAY) nt_oct_step(1); else ui_lane_step(1); }
+    ui_oct(b);                                  /* OCT- OCT+ (together: the dice) */
     if (b >> BTN_REC & 1u && nt.mode == NT_LANDSCAPE) ui_rec();
     if (d[ENC_SELECT]) ui_page_step(d[ENC_SELECT]);
     if (d[ENC_ALGORITHM]) ui_algorithm(d[ENC_ALGORITHM]);

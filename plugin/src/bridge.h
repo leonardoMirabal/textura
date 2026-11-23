@@ -56,11 +56,14 @@ enum { TXP_EV_MIDI = 1, TXP_EV_PARAM, TXP_EV_RESET, TXP_EV_RELEASE,
        TXP_EV_TEMPO,                     /* the app's own tempo: v BPM x 10 (the host's leads when it gives one) */
        TXP_EV_LANERUN,                   /* the window's lane STOP / PLAY: lane a stopped (v 0) or played again (v 1), as
                                           * STOP ALL / PLAY ALL do one lane, with the same memory (slot_bridge.h) */
-       TXP_EV_PREVIEW };                 /* the sound browser's preview on lane a (slot_bridge.h sb_pv_*): v TXP_PV_PLAY
+       TXP_EV_PREVIEW,                   /* the sound browser's preview on lane a (slot_bridge.h sb_pv_*): v TXP_PV_PLAY
                                           * | family << 4 | sound | HOW MANY << 8 | HOW ACTIVE << 12 (| TXP_PV_FORCE:
                                           * those even on a lane that plays), or TXP_PV_END | family << 4 | sound
                                           * (| TXP_PV_KEEP: that sound kept; | TXP_PV_VALS: and the preview's HOW MANY
                                           * and HOW ACTIVE); the lane as it was before the preview otherwise */
+       TXP_EV_DICE };                    /* the window's dice (firmware/src/dice.c): a random engine on lane a (v the
+                                          * seed), or a TXP_DICE_ALL | the groups ticked (dice.c DICE_*): RANDOM's roll */
+#define TXP_DICE_ALL 0x100
 #define TXP_SND_KEEP 0x1000
 #define TXP_PV_PLAY 0x1000000
 #define TXP_PV_END 0x2000000

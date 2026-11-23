@@ -33,62 +33,62 @@
 8350 expect state lab2 GROUND
 8350 expect state lab3 -
 8400 btn 0
-8450 expect state sel 3
-8450 expect state page SOUND_1/2
-8450 expect state lab0 RAIN
-8450 expect state lab1 WIND
-8450 expect state lab2 FLASHES
-8450 expect state lab3 DIST
-8500 btn 0
-8550 expect state sel 2
-8550 expect state page SOUND_1/2
-8550 expect state lab0 SURFACE
-8550 expect state lab1 DROPS
-8550 expect state lab2 INSIDE
-8550 expect state lab3 AREA
+8480 expect state sel 3
+8480 expect state page SOUND_1/2
+8480 expect state lab0 RAIN
+8480 expect state lab1 WIND
+8480 expect state lab2 FLASHES
+8480 expect state lab3 DIST
+8530 btn 0
+8610 expect state sel 2
+8610 expect state page SOUND_1/2
+8610 expect state lab0 SURFACE
+8610 expect state lab1 DROPS
+8610 expect state lab2 INSIDE
+8610 expect state lab3 AREA
 # lane 2's next sounds (picked in the sound browser): the gales' cards as in the Wind landscape (the ridge GUST, EXPOSED (= BUFFET),
 # SCALE, WHOOSH / FOLIAGE, EDGE, DIST; winter GUST, EXPOSED, DRIFT, SCALE); hail's STONES (= DROPS), AREA, INSIDE,
 # BOUNCE / DIST
-8600 btn 8
-8610 btn 6
-8650 turn 1 1
-8651 turn 1 -200
-8652 turn 1 64
-8653 btn 6
-8654 btn 8
-8700 expect state snd1 ridge_gale
-8800 expect state page SOUND_1/2
-8800 expect state lab0 GUST
-8800 expect state lab1 EXPOSED
-8800 expect state lab2 SCALE
-8800 expect state lab3 WHOOSH
-8850 turn 0 1
-8900 expect state lab0 FOLIAGE
-8900 expect state lab1 EDGE
-8900 expect state lab2 DIST
-8900 expect state lab3 -
-8950 btn 8
-8960 btn 6
-9000 turn 1 1
-9001 turn 1 -200
-9002 turn 1 65
-9003 btn 6
-9004 btn 8
-9050 expect state snd1 winter_storm
-9150 expect state lab1 EXPOSED
-9150 expect state lab2 DRIFT
-9200 btn 8
-9210 btn 6
-9250 turn 1 1
-9251 turn 1 -200
-9252 turn 1 66
-9253 btn 6
-9254 btn 8
-9300 expect state snd1 hail_on_a_roof
-9400 expect state page SOUND_1/2
-9400 expect state lab0 STONES
-9400 expect state lab1 AREA
-9400 expect state lab2 INSIDE
-9400 expect state lab3 BOUNCE
-9500 expect state dropped 0
-9600 end
+8660 btn 8
+8670 btn 6
+8710 turn 1 1
+8711 turn 1 -200
+8712 turn 1 64
+8713 btn 6
+8714 btn 8
+8760 expect state snd1 ridge_gale
+8860 expect state page SOUND_1/2
+8860 expect state lab0 GUST
+8860 expect state lab1 EXPOSED
+8860 expect state lab2 SCALE
+8860 expect state lab3 WHOOSH
+8910 turn 0 1
+8960 expect state lab0 FOLIAGE
+8960 expect state lab1 EDGE
+8960 expect state lab2 DIST
+8960 expect state lab3 -
+9010 btn 8
+9020 btn 6
+9060 turn 1 1
+9061 turn 1 -200
+9062 turn 1 65
+9063 btn 6
+9064 btn 8
+9110 expect state snd1 winter_storm
+9210 expect state lab1 EXPOSED
+9210 expect state lab2 DRIFT
+9260 btn 8
+9270 btn 6
+9310 turn 1 1
+9311 turn 1 -200
+9312 turn 1 66
+9313 btn 6
+9314 btn 8
+9360 expect state snd1 hail_on_a_roof
+9460 expect state page SOUND_1/2
+9460 expect state lab0 STONES
+9460 expect state lab1 AREA
+9460 expect state lab2 INSIDE
+9460 expect state lab3 BOUNCE
+9560 expect state dropped 0
+9660 end

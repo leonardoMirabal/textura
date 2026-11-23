@@ -69,7 +69,7 @@ static const char *const PAL_N[TXP_COL_N] = { "BONE", "EMBER", "AMBER", "SAND", 
 #define MAX_W 900
 #define LIST_MAX 128
 
-enum { OV_NONE, OV_SET, OV_SND, OV_PRE, OV_FX, OV_SAVE };
+enum { OV_NONE, OV_SET, OV_SND, OV_PRE, OV_FX, OV_SAVE, OV_RND };   /* (OV_RND: the top bar's dice, RANDOM's list) */
 enum { PB_USER = 100, PB_LAND = 101 };   /* the presets browser's banks past the factory's categories */
 /* the strip's sections, in signal order (the expanded view's tabs: these, LFO 1 .. 8, ENV and FOLLOW, the matrix) */
 enum { SEC_COMP, SEC_DRIVE, SEC_FILTER, SEC_DELAY, SEC_REVERB, SEC_MS, SEC_MOVE, SEC_N };
@@ -305,6 +305,23 @@ static void chg_button(txg_t *g, frui_canvas *c, int kind, int k, float x, float
         caret_dn(g, c, x0 + tw - 3.5f, yc, C_INK);
     } else swap_icon(g, c, x + w * 0.5f, yc, 10.f, C_INK);
     wid_add(g, kind, k, x, y, w, h);
+}
+/* a dice: a rounded square, s wide, centred on (x, y), its five pips (firmware/src/dice.c: the dice's rolls) */
+static void dice_icon(txg_t *g, frui_canvas *c, float x, float y, float s, uint32_t col)
+{
+    static const float P[5][2] = { { 0.27f, 0.27f }, { 0.73f, 0.27f }, { 0.5f, 0.5f }, { 0.27f, 0.73f }, { 0.73f, 0.73f } };
+    float k = s / 20.f, x0 = x - s * 0.5f + 1.5f * k, y0 = y - s * 0.5f + 1.5f * k, d = 17.f * k, pr = fmaxf(1.55f * k, 1.f);
+    frui_rrect_stroke(c, x0 * g->S, y0 * g->S, d * g->S, d * g->S, 4.f * k * g->S, fmaxf(1.6f * k, 1.f) * g->S, col);
+    for (int i = 0; i < 5; i++) CI(g, c, x0 + P[i][0] * d, y0 + P[i][1] * d, pr, col);
+}
+/* a row's dice, as its ENGINE button (lane k: a random engine on it); an empty lane: dim, nothing to click */
+static void dice_button(txg_t *g, frui_canvas *c, int k, float x, float y, float w, float h, int on)
+{
+    int hot = on && g->hover_kind == TXG_W_DICE && g->hover_lane == k;
+    RR(g, c, x, y, w, h, 3.f, hot ? C_SEG : C_BTN);
+    RRS(g, c, x, y, w, h, 3.f, on ? (hot ? C_DIM : C_LINE) : 0x80262424u);
+    dice_icon(g, c, x + w * 0.5f, y + h * 0.5f, 14.f, on ? C_INK : C_FAINT);
+    if (on) wid_add(g, TXG_W_DICE, k, x, y, w, h);
 }
 /* a lane's STOP / PLAY: a square as M and S (t: a label after the icon, or none: the icon alone). Playing: a stop square
  * in ink; stopped: a play triangle in red; no engine: both dim, nothing to click (kind TXG_W_LRUN: the row's, TXG_W_DRUN:
@@ -1023,7 +1040,8 @@ static void caret(txg_t *g, frui_canvas *c, float x, float y, uint32_t col)   /*
     frui_path_free(&p);
 }
 static int any_used(const txg_t *g) { for (int k = 0; k < g->nlane; k++) if (used(g, k)) return 1; return 0; }
-static void draw_meter(txg_t *g, frui_canvas *c, float x, float yc)   /* the output's level: LEVEL -6.0 dB, a bar */
+static void draw_meter(txg_t *g, frui_canvas *c, float x, float w, float yc)   /* the output's level: LEVEL -6.0 dB, a
+                                                                                * bar, w wide */
 {
     char t[24];
     int d = g->sn.ui.out_db10;
@@ -1031,11 +1049,27 @@ static void draw_meter(txg_t *g, frui_canvas *c, float x, float yc)   /* the out
     f = f > 1.f ? 1.f : f;
     LBL(g, c, x, yc - 2.f, 9.5f, C_DIM, "LEVEL");
     if (d <= -900) snprintf(t, sizeof t, "-inf dB"); else snprintf(t, sizeof t, "%.1f dB", d / 10.0);
-    TX(g, c, x + 100.f - TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t), yc - 2.f, 11.f, 500.f, 0.f, FRUI_TNUM, d > -10 ? C_RED : C_INK, t);
-    RR(g, c, x, yc + 5.f, 100.f, 4.f, 2.f, C_FAINT);
-    if (f > 0.f) RR(g, c, x, yc + 5.f, 100.f * f, 4.f, 2.f, d > -10 ? C_RED : C_DIM);
+    TX(g, c, x + w - TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, t), yc - 2.f, 11.f, 500.f, 0.f, FRUI_TNUM, d > -10 ? C_RED : C_INK, t);
+    RR(g, c, x, yc + 5.f, w, 4.f, 2.f, C_FAINT);
+    if (f > 0.f) RR(g, c, x, yc + 5.f, w * f, 4.f, 2.f, d > -10 ? C_RED : C_DIM);
+    wid_add(g, TXG_W_LVL, -1, x, yc - 2.f - CAP(g, 11.f), w, CAP(g, 11.f) + 11.f);
 }
-static float meter_x(const txg_t *g) { return g->W - 140.f - 118.f; }
+/* the top bar's right end, sized by its texts: LEVEL (its label and widest value, its bar), the dice (RANDOM's list),
+ * SETTINGS (its icon, its label) */
+#define TOP_DICE_W 34.f
+typedef struct { float mx, mw, dx, sx, sw; } top_r_t;
+static top_r_t top_r(txg_t *g)
+{
+    top_r_t r;
+    float lv = LBLW(g, 9.5f, "LEVEL") + 12.f + TW(g, 11.f, 500.f, 0.f, FRUI_TNUM, "-88.8 dB");
+    r.sw = 31.f + LBLW(g, 12.f, "SETTINGS") + 12.f;
+    r.sx = g->W - 16.f - r.sw;
+    r.dx = r.sx - 6.f - TOP_DICE_W;
+    r.mw = lv > 100.f ? lv : 100.f;
+    r.mx = r.dx - 14.f - r.mw;
+    return r;
+}
+static float meter_x(txg_t *g) { return top_r(g).mx; }
 static void draw_top(txg_t *g, frui_canvas *c)
 {
     const float y = 12.f, h = 28.f, yc = y + h * 0.5f;
@@ -1109,17 +1143,27 @@ static void draw_top(txg_t *g, frui_canvas *c)
     LN(g, c, x + 8.f, yc, x + 16.f, yc, 1.4f, g->nlane < (int)TXP_LANES ? C_INK : C_FAINT);
     LN(g, c, x + 12.f, yc - 4.f, x + 12.f, yc + 4.f, 1.4f, g->nlane < (int)TXP_LANES ? C_INK : C_FAINT);
     wid_add(g, TXG_W_LUP, -1, x, y + 2.f, 24.f, h - 4.f);
-    draw_meter(g, c, meter_x(g), yc);
-    /* SETTINGS */
-    x = g->W - 140.f;
-    RR(g, c, x, y, 124.f, h, 3.f, g->ov == OV_SET ? C_SEG : C_BTN); RRS(g, c, x, y, 124.f, h, 3.f, C_LINE);
-    RI(g, c, x + 20.f, yc, 3.6f, 1.5f, C_INK);
-    for (int i = 0; i < 8; i++) {
-        float a = (float)i * 0.785398f, ca = cosf(a), sa = sinf(a);
-        LN(g, c, x + 20.f + ca * 5.6f, yc + sa * 5.6f, x + 20.f + ca * 7.4f, yc + sa * 7.4f, 1.6f, C_INK);
+    {
+        top_r_t tr = top_r(g);
+        int on = g->ov == OV_RND, hot = g->hover_kind == TXG_W_RND;
+        draw_meter(g, c, tr.mx, tr.mw, yc);
+        /* the dice: RANDOM's list (a dice, a down chevron) */
+        x = tr.dx;
+        RR(g, c, x, y, TOP_DICE_W, h, 3.f, on || hot ? C_SEG : C_BTN); RRS(g, c, x, y, TOP_DICE_W, h, 3.f, on || hot ? C_DIM : C_LINE);
+        dice_icon(g, c, x + 11.5f, yc, 17.f, C_INK);
+        LN(g, c, x + 24.f, yc - 1.5f, x + 27.f, yc + 1.5f, 1.3f, C_DIM); LN(g, c, x + 27.f, yc + 1.5f, x + 30.f, yc - 1.5f, 1.3f, C_DIM);
+        wid_add(g, TXG_W_RND, -1, x, y, TOP_DICE_W, h);
+        /* SETTINGS */
+        x = tr.sx;
+        RR(g, c, x, y, tr.sw, h, 3.f, g->ov == OV_SET ? C_SEG : C_BTN); RRS(g, c, x, y, tr.sw, h, 3.f, C_LINE);
+        RI(g, c, x + 17.f, yc, 3.6f, 1.5f, C_INK);
+        for (int i = 0; i < 8; i++) {
+            float a = (float)i * 0.785398f, ca = cosf(a), sa = sinf(a);
+            LN(g, c, x + 17.f + ca * 5.6f, yc + sa * 5.6f, x + 17.f + ca * 7.4f, yc + sa * 7.4f, 1.6f, C_INK);
+        }
+        LBL(g, c, x + 31.f, yc + CAP(g, 12.f) * 0.5f, 12.f, C_INK, "SETTINGS");
+        wid_add(g, TXG_W_SET, -1, x, y, tr.sw, h);
     }
-    LBL(g, c, x + 34.f, yc + CAP(g, 12.f) * 0.5f, 12.f, C_INK, "SETTINGS");
-    wid_add(g, TXG_W_SET, -1, x, y, 124.f, h);
 }
 
 /* ---- the place */
@@ -1502,23 +1546,20 @@ static void draw_rows(txg_t *g, frui_canvas *c)
         wid_add(g, TXG_W_SELDOT, k, x0 + 4.f, yc - 13.f, rc.dot + 7.f - x0 - 4.f, 26.f);   /* (the number and the dot;
                                           * the rest of the row selects too: TXG_W_ROW) */
         if (sel) CI(g, c, rc.dot, yc, 4.5f, C_RED);   /* (the selected lane's dot: solid red) */
-        {   /* the engine's name and family (cut with "..." before the button), ENGINE at the right end of the column (the
-             * row itself: a click selects the lane) */
-            float nw = rc.tl - rc.name - 8.f, tw = nw - RW_CHG - 8.f, bx = rc.name;
+        {   /* the engine's name and family (cut with "..." before the icons), then ENGINE and the dice in one column at the
+             * right end (the same x on every row; the row itself: a click selects the lane) */
+            float ix = rc.tl - 14.f - RW_CHG - 4.f - RW_CHG, tw = ix - 6.f - rc.name;
             if (u) {
                 float a = glow(g, k);
                 if (!sel) CI(g, c, rc.dot, yc, 3.5f, frui_alpha(lane_col(g, k), (0.35f + 0.65f * a) * mf));
                 cap_name(nm, l->snd, sizeof nm);
                 ell(g, t, sizeof t, nm, tw, 12.5f, 600.f, 0.f);
-                bx += TX(g, c, rc.name, yc - 1.f, 12.5f, 600.f, 0.f, 0, ink, t);
+                TX(g, c, rc.name, yc - 1.f, 12.5f, 600.f, 0.f, 0, ink, t);
                 ell(g, t, sizeof t, l->fam, tw, 10.f, 450.f, 0.3f);
-                {
-                    float fw = TX(g, c, rc.name, yc + 12.f, 10.f, 450.f, 0.3f, 0, C_DIM, t);
-                    if (rc.name + fw > bx) bx = rc.name + fw;
-                }
-            } else bx += TX(g, c, rc.name, yc + CAP(g, 12.f) * 0.5f, 12.f, 450.f, 0.3f, 0, C_FAINT, "empty");
-            bx = bx - rc.name > tw ? rc.name + tw : bx;   /* (the icon after the longer of the two texts) */
-            chg_button(g, c, TXG_W_SND, k, bx + 8.f, yc - 11.f, RW_CHG, 22.f, 0);
+                TX(g, c, rc.name, yc + 12.f, 10.f, 450.f, 0.3f, 0, C_DIM, t);
+            } else TX(g, c, rc.name, yc + CAP(g, 12.f) * 0.5f, 12.f, 450.f, 0.3f, 0, C_FAINT, "empty");
+            chg_button(g, c, TXG_W_SND, k, ix, yc - 11.f, RW_CHG, 22.f, 0);
+            dice_button(g, c, k, ix + RW_CHG + 4.f, yc - 11.f, RW_CHG, 22.f, u);
         }
         draw_line(g, c, k, rc.tl, yc - th * 0.5f, rc.tlw, th, mf);
         if (stopped) {                   /* (a stopped lane: plain to see; HOW MANY or HOW ACTIVE starts it) */
@@ -3016,6 +3057,92 @@ static void draw_save(txg_t *g, frui_canvas *c)
         LBL(g, c, x + 16.f, ny + 46.f, 9.5f, g->sn.ui.saving || g->sv_wait > 0 ? C_RED : C_DIM, t);
     }
 }
+/* RANDOM's list: under the top bar's dice, right-aligned to it. Four ticks (txp_ui_dice: kept with the project), CLOSE,
+ * ROLL (red: txp_ui_roll), what a roll keeps. Esc, a click outside or CLOSE close it */
+#define RND_W 300.f
+static const char *const RND_N[4] = { "ENGINES", "SOUND", "EFFECTS", "MOVEMENT" };
+static const char *const RND_D[4] = { "a new engine on every lane", "each engine's controls",
+                                      "COMP to M/S: types and amounts; long, unreal reverbs can come up",
+                                      "LFOs, ENVs, FOLLOWs and where they go" };
+static const char RND_KEEP[] = "Kept as they are: LANES, each lane's LEVEL, PAN, HOW MANY, HOW ACTIVE, MIDI CH. Levels "
+                               "stay even.";
+static int wrap_lines(txg_t *g, float w, const char *s, float lh, float sz)   /* the lines s needs in w */
+{
+    int l = 1;
+    while (l < 8 && wrapn(g, 0, 0.f, 0.f, w, s, l, lh, sz, C_INK)) l++;
+    return l;
+}
+static void draw_rnd(txg_t *g, frui_canvas *c)
+{
+    const float w = RND_W, pad = 14.f, iw = w - 2.f * pad, dw = iw - 28.f, lt = 12.f * 1.2f, ld = 15.5f, lk = 15.f;
+    top_r_t tr = top_r(g);
+    float x = tr.dx + TOP_DICE_W - w, y = 12.f + 28.f + 9.f, h, cy, bw = (iw - 8.f) * 0.5f;
+    int on = txp_ui_dice(g->c), n[4];
+    h = pad + 15.f + 17.f + 10.f;
+    for (int i = 0; i < 4; i++) { n[i] = wrap_lines(g, dw, RND_D[i], ld, 11.5f); h += 7.f + lt + 3.f + ld * (float)n[i] + 4.f; }
+    h += 10.f + 30.f + 9.f + lk * (float)wrap_lines(g, iw, RND_KEEP, lk, 11.f) + 12.f - 4.f;
+    wid_add(g, TXG_W_PICKER, -3, x, y, w, h);
+    frui_rrect_shadow(c, x * g->S, y * g->S, w * g->S, h * g->S, 6.f * g->S, 16.f * g->S, 0xAA000000u);
+    RR(g, c, x, y, w, h, 6.f, C_MENU); RRS(g, c, x, y, w, h, 6.f, 0xFF34312Fu);
+    cy = y + pad;
+    LBL(g, c, x + pad, cy + CAP(g, 11.f), 11.f, C_DIM, "RANDOM");
+    cy += 15.f;
+    clipL(g, c, x + pad, cy, iw, 17.f);   /* (the window's message here while the list is open: it covers the line) */
+    if (g->msg_t > 0) TX(g, c, x + pad, cy + CAP(g, 12.f), 12.f, 500.f, 0.f, 0, C_RED, g->msg);
+    else TX(g, c, x + pad, cy + CAP(g, 12.f), 12.f, 450.f, 0.f, 0, C_DIM, "One roll, everything ticked. UNDO takes it back.");
+    frui_clip_reset(c);
+    cy += 17.f + 10.f;
+    for (int i = 0; i < 4; i++) {
+        float oh = 7.f + lt + 3.f + ld * (float)n[i] + 4.f, bx = x + pad, by = cy + 8.f;
+        int t = on >> i & 1, hot = g->hover_kind == TXG_W_RNDTICK && g->hover_lane == i;
+        R(g, c, x + pad, cy, iw, 1.f, 0xFF2E2B2Au);
+        if (t) {
+            RR(g, c, bx, by, 16.f, 16.f, 3.f, C_RED);
+            LN(g, c, bx + 4.f, by + 8.f, bx + 7.f, by + 11.f, 2.f, 0xFFFFFFFFu);
+            LN(g, c, bx + 7.f, by + 11.f, bx + 12.5f, by + 5.f, 2.f, 0xFFFFFFFFu);
+        } else RRS(g, c, bx, by, 16.f, 16.f, 3.f, hot ? C_INK : C_DIM);
+        TX(g, c, bx + 28.f, cy + 7.f + CAP(g, 12.f), 12.f, 650.f, 12.f * 0.08f, 0, C_INK, RND_N[i]);
+        (void)wrapn(g, c, bx + 28.f, cy + 7.f + lt + 3.f + CAP(g, 11.5f), dw, RND_D[i], n[i], ld, 11.5f, C_DIM);
+        wid_add(g, TXG_W_RNDTICK, i, x + pad, cy, iw, oh);
+        cy += oh;
+    }
+    cy += 10.f - 4.f;
+    {
+        int hc = g->hover_kind == TXG_W_CLOSE && g->hover_lane == -3, hr = g->hover_kind == TXG_W_RNDGO;
+        float lw;
+        RR(g, c, x + pad, cy, bw, 30.f, 4.f, hc ? C_SEG : C_BTN);
+        lw = LBLW(g, 12.f, "CLOSE");
+        LBL(g, c, x + pad + (bw - lw) * 0.5f, cy + 15.f + CAP(g, 12.f) * 0.5f, 12.f, C_INK, "CLOSE");
+        wid_add(g, TXG_W_CLOSE, -3, x + pad, cy, bw, 30.f);
+        RR(g, c, x + pad + bw + 8.f, cy, bw, 30.f, 4.f, hr ? 0xFFF25D50u : C_RED);
+        lw = LBLW(g, 12.f, "ROLL");
+        LBL(g, c, x + pad + bw + 8.f + (bw - lw) * 0.5f, cy + 15.f + CAP(g, 12.f) * 0.5f, 12.f, 0xFFFFFFFFu, "ROLL");
+        wid_add(g, TXG_W_RNDGO, -1, x + pad + bw + 8.f, cy, bw, 30.f);
+    }
+    cy += 30.f + 9.f;
+    (void)wrapn(g, c, x + pad, cy + CAP(g, 11.f), iw, RND_KEEP, 8, lk, 11.f, C_DIM);
+}
+/* the dice's hints, under them while hovered: a row's, the top bar's (its list closed) */
+static void dice_tip(txg_t *g, frui_canvas *c)
+{
+    char t[48];
+    const char *s2;
+    float r[4], w, x, y;
+    if (g->pick >= 0 || g->menu_on) return;
+    if (g->hover_kind == TXG_W_DICE && g->ov != OV_RND && txg_find(g, TXG_W_DICE, g->hover_lane, r)) {
+        snprintf(t, sizeof t, "Random engine on lane %d", g->hover_lane + 1);
+        s2 = "  \xC2\xB7  UNDO takes it back";
+    } else if (g->hover_kind == TXG_W_RND && g->ov != OV_RND && txg_find(g, TXG_W_RND, -1, r)) {
+        snprintf(t, sizeof t, "RANDOM");
+        s2 = "  \xC2\xB7  roll engines, sound, effects, movement";
+    } else return;
+    w = TW(g, 11.5f, 450.f, 0.f, 0, t) + TW(g, 11.5f, 450.f, 0.f, 0, s2) + 18.f;
+    x = r[0]; y = r[1] + r[3] + 6.f;
+    if (x + w > g->W - 10.f) x = g->W - 10.f - w;
+    RR(g, c, x, y, w, 24.f, 4.f, 0xFF000000u); RRS(g, c, x, y, w, 24.f, 4.f, 0xFF3A3736u);
+    x += 9.f + TX(g, c, x + 9.f, y + 12.f + CAP(g, 11.5f) * 0.5f, 11.5f, 450.f, 0.f, 0, C_INK, t);
+    TX(g, c, x, y + 12.f + CAP(g, 11.5f) * 0.5f, 11.5f, 450.f, 0.f, 0, C_DIM, s2);
+}
 /* the colour picker: the engine's swatches in a small panel near where it was asked (a click outside closes it) */
 static void draw_picker(txg_t *g, frui_canvas *c)
 {
@@ -3174,12 +3301,14 @@ static void draw_all(txg_t *g, frui_canvas *c)
         if (g->ov == OV_FX) draw_fxd(g, c); else draw_drawer(g, c);
         draw_strip(g, c);
         if (g->msrc) { mode_marks(g, c); draw_mbar(g, c); }
-        if (g->msg_t > 0) draw_msg(g, c);
+        if (g->msg_t > 0 && g->ov != OV_RND) draw_msg(g, c);   /* (RANDOM's list open: in it) */
         if (g->drag == TXG_W_GRIP && g->drag_moved) draw_ghost(g, c);
         if (g->ov == OV_SAVE) draw_save(g, c);
+        if (g->ov == OV_RND) draw_rnd(g, c);
         if (g->menu_on) draw_menu(g, c);
     }
     hint_tip(g, c);
+    dice_tip(g, c);
     draw_picker(g, c);
 }
 
@@ -3305,8 +3434,8 @@ int txg_tick(txg_t *g)
     h = fnv(h, &g->drag, sizeof g->drag); h = fnv(h, &g->rtop, sizeof g->rtop); h = fnv(h, &g->fx_tab, sizeof g->fx_tab);
     h = fnv(h, &g->sn.tempo10, sizeof g->sn.tempo10);
     {
-        int v[13] = { g->sb_fam, g->sb_cf << 8 | g->sb_ci, g->sb_top, g->pb_bank, g->pb_cur, g->pb_top, g->sv_slot, g->sv_wait > 0, txp_ui_win_w(g->c),
-                      g->pv_on, g->pv_cnt, g->pv_act, g->pv_user };
+        int v[15] = { g->sb_fam, g->sb_cf << 8 | g->sb_ci, g->sb_top, g->pb_bank, g->pb_cur, g->pb_top, g->sv_slot, g->sv_wait > 0, txp_ui_win_w(g->c),
+                      g->pv_on, g->pv_cnt, g->pv_act, g->pv_user, g->ov, txp_ui_dice(g->c) };
         h = fnv(h, v, sizeof v);
         h = fnv(h, g->q, sizeof g->q);
         h = fnv(h, g->sv_name, sizeof g->sv_name);
@@ -3361,13 +3490,14 @@ static int paint_into(txg_t *g, frui_canvas *c)
     } else if (moved && g->ov == OV_SND && g->pick < 0) {   /* (the engine browser: its preview's event line, meter) */
         region(g, c, g->W - OV_PREV + 1.f, OV_Y0, g->W, g->H);
         frui_clip_base(c, 0, 0, c->w, c->h);
-    } else if (moved && (g->ov == OV_NONE || g->ov == OV_SAVE || g->ov == OV_FX) && g->pick < 0) {
+    } else if (moved && (g->ov == OV_NONE || g->ov == OV_SAVE || g->ov == OV_RND || g->ov == OV_FX) && g->pick < 0) {
         rcol_t rc = rcols(g);
+        top_r_t tr = top_r(g);
         region(g, c, 0, g->ct, g->PW, g->dr_y);
         region(g, c, rc.dot - 8.f, g->ct + HDR_H, rc.tl + rc.tlw + 1.f, g->dr_y);
         region(g, c, rc.many - 4.f, g->ct + HDR_H, rc.ms - 2.f, g->dr_y);   /* (the rows' values: their live red marks) */
         region(g, c, 0, g->dr_y, g->W, g->H);
-        region(g, c, meter_x(g) - 2.f, 0, meter_x(g) + 104.f, TOP_H - 1.f);
+        region(g, c, tr.mx - 2.f, 0, tr.mx + tr.mw + 4.f, TOP_H - 1.f);
         frui_clip_base(c, 0, 0, c->w, c->h);
     } else { g->actn_drawn = g->actn; g->cm_dirty = 0; return 0; }
     g->cm_drawn[0] = g->cm_in; g->cm_drawn[1] = g->cm_out; g->cm_drawn[2] = g->cm_gr; g->cm_drawn[3] = g->cm_pk;
@@ -3423,13 +3553,15 @@ static const wid_t *hit(const txg_t *g, float x, float y)   /* the last-drawn co
         }
         return best;
     }
-    if (g->pick >= 0 || g->ov == OV_SAVE) {
+    if (g->pick >= 0 || g->ov == OV_SAVE || g->ov == OV_RND) {
         for (int i = g->nw - 1; i >= 0; i--) {
             const wid_t *w = &g->w[i];
             int panel = w->kind == TXG_W_PICKER;
             if (x >= w->r[0] && x < w->r[0] + w->r[2] && y >= w->r[1] && y < w->r[1] + w->r[3]) {
                 if (g->pick >= 0 && w->kind == TXG_W_SWATCH) return w;
                 if (g->ov == OV_SAVE && g->pick < 0 && (w->kind == TXG_W_SLOT || w->kind == TXG_W_NAME || w->kind == TXG_W_SAVEGO)) return w;
+                if (g->ov == OV_RND && g->pick < 0 && (w->kind == TXG_W_RNDTICK || w->kind == TXG_W_RNDGO ||
+                                                       (w->kind == TXG_W_CLOSE && w->lane == -3))) return w;
                 if (panel && !best) best = w;
             }
         }
@@ -3447,7 +3579,7 @@ static const wid_t *hit(const txg_t *g, float x, float y)   /* the last-drawn co
         const wid_t *w = &g->w[i];
         if (w->kind == TXG_W_DOT || w->kind == TXG_W_PLACE || w->kind == TXG_W_MAPR || w->kind == TXG_W_CMETER || w->kind == TXG_W_TIP ||
             w->kind == TXG_W_FXD || w->kind == TXG_W_MBAR || w->kind == TXG_W_MSG || w->kind == TXG_W_NOMOVE || w->kind == TXG_W_MENU ||
-            w->kind == TXG_W_MSM) continue;
+            w->kind == TXG_W_MSM || w->kind == TXG_W_LVL) continue;
         if (x >= w->r[0] && x < w->r[0] + w->r[2] && y >= w->r[1] && y < w->r[1] + w->r[3]) {
             if (w->kind == TXG_W_ROW || w->kind == TXG_W_ROWS) { if (!best || best->kind == TXG_W_ROWS) best = w; continue; }   /* (a row:
                                           * only when nothing in it is hit) */
@@ -3736,7 +3868,7 @@ static int ov_key(txg_t *g, const frg_input *e)   /* the keys while an overlay i
         if (ch > 0 && ch < 0x7F && strchr("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-&'. ", ch) && m < 11u) { g->sv_name[m] = (char)ch; g->sv_name[m + 1] = 0; return 3; }
         return 0;
     }
-    if (g->ov == OV_SET) return 0;
+    if (g->ov == OV_SET || g->ov == OV_RND) return 0;
     if (e->key == FRK_UP || e->key == FRK_DOWN) { list_move(g, e->key == FRK_UP ? -1 : 1); return 3; }
     if (e->key == FRK_PGUP || e->key == FRK_PGDN) { list_move(g, e->key == FRK_PGUP ? -10 : 10); return 3; }
     if ((e->key == FRK_LEFT || e->key == FRK_RIGHT) && !g->q[0]) {   /* the next family / bank */
@@ -3847,6 +3979,12 @@ static int input_(txg_t *g, const frg_input *e)
             g->ov = OV_NONE;
             if (w && w->kind == TXG_W_SAVE) return 3;
         }
+        if (g->ov == OV_RND && (!w || (w->kind != TXG_W_RNDTICK && w->kind != TXG_W_RNDGO && w->kind != TXG_W_CLOSE &&
+                                       !(w->kind == TXG_W_PICKER && w->lane == -3)))) {   /* (outside RANDOM's list: it
+                                          * closes; on the dice itself: closed) */
+            g->ov = OV_NONE;
+            if (w && w->kind == TXG_W_RND) return 3;
+        }
         if (!w) return 2;
         k = w->lane;
         switch (w->kind) {
@@ -3864,6 +4002,20 @@ static int input_(txg_t *g, const frg_input *e)
             g->ov = g->ov == OV_SET ? OV_NONE : OV_SET; g->pick = -1; g->q[0] = 0;
             break;
         case TXG_W_SAVE: if (g->ov == OV_SND) sb_close(g, 0); mode_set(g, 0); save_open(g); break;
+        case TXG_W_RND: if (g->ov == OV_SND) sb_close(g, 0); mode_set(g, 0); g->ov = OV_RND; g->pick = -1; break;
+        case TXG_W_RNDTICK: if (k >= 0 && k < 4) txp_ui_dice_set(g->c, txp_ui_dice(g->c) ^ 1 << k); break;
+        case TXG_W_RNDGO:
+            if (txp_ui_roll(g->c, -1)) { say(g, "Nothing ticked: tick at least one to roll."); break; }
+            if (txp_ui_dice(g->c) & 8) g->lh_n = 0;   /* (MOVEMENT rolled: the links' own undo no longer holds) */
+            say(g, "Rolled. UNDO takes it back.");
+            break;
+        case TXG_W_DICE: {
+            char t[64];
+            if (txp_ui_roll(g->c, k)) break;
+            snprintf(t, sizeof t, "Lane %d: a random engine. UNDO takes it back.", k + 1);
+            say(g, t);
+            break;
+        }
         case TXG_W_UNDO:                 /* (the links' first: the window's own undo of them) */
             if (g->lh_n) { lh_undo(g); say(g, "Undone."); } else txp_ui_undo(g->c);
             break;
@@ -4036,7 +4188,8 @@ static int input_(txg_t *g, const frg_input *e)
             if (w && (w->kind == TXG_W_ADD || w->kind == TXG_W_DOT || w->kind == TXG_W_LIST || w->kind == TXG_W_SND ||
                       w->kind == TXG_W_LRUN || w->kind == TXG_W_DRUN || w->kind == TXG_W_PREVIEW || w->kind == TXG_W_SRC ||
                       w->kind == TXG_W_GRIP || w->kind == TXG_W_MENU || w->kind == TXG_W_CLRALL || w->kind == TXG_W_MDONE ||
-                      w->kind == TXG_W_MCLEAR)) {
+                      w->kind == TXG_W_MCLEAR || w->kind == TXG_W_DICE || w->kind == TXG_W_RND || w->kind == TXG_W_RNDTICK ||
+                      w->kind == TXG_W_RNDGO || (w->kind == TXG_W_CLOSE && w->lane == -3))) {
                 hk = w->kind == TXG_W_GRIP ? TXG_W_SRC : w->kind; hl = w->lane;   /* (the grip lights its tile) */
             }
             else if (w && w->kind == TXG_W_PARAM && txg_find(g, TXG_W_TIP, w->lane, r) && e->x >= r[0] && e->x < r[0] + r[2] &&

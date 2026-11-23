@@ -73,6 +73,12 @@ void txp_ui_lane_run(txp_core *c, uint32_t lane, int on);   /* one lane stopped 
                                                        * HOW ACTIVE remembered, as STOP ALL / PLAY ALL do) */
 void txp_ui_rec(txp_core *c);                         /* every lane stopped / started again (the FM-1's REC) */
 void txp_ui_undo(txp_core *c);                        /* the last load or sound kept undone; again: redone */
+int txp_ui_dice(const txp_core *c);                   /* RANDOM's groups ticked (firmware/src/dice.c DICE_*; saved
+                                                       * with the project) */
+void txp_ui_dice_set(txp_core *c, int what);
+int txp_ui_roll(txp_core *c, int lane);               /* the dice: a random engine on lane (0 .. 15), or (lane -1)
+                                                       * RANDOM's roll of the groups ticked; UNDO takes it back. -1:
+                                                       * nothing rolled (nothing ticked) */
 /* the scene that plays saved into user scene slot (0 .. 15: U01 .. U16), named (11 characters: A .. Z, 0 .. 9, space
  * - & ' .; empty: the landscape's name); kept with the project */
 void txp_ui_save(txp_core *c, int slot, const char *name);

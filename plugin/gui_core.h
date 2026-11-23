@@ -67,7 +67,11 @@ enum { TXG_W_NONE, TXG_W_ROW, TXG_W_VOL, TXG_W_MUTE, TXG_W_SOLO, TXG_W_DOT, TXG_
         * CLEAR and KEEP, the message line (never hit), a control the mode's source cannot move (never hit; lane: its id) */
        TXG_W_SRC, TXG_W_GRIP, TXG_W_TAG, TXG_W_MBAR, TXG_W_MCLEAR, TXG_W_MDONE, TXG_W_MENU, TXG_W_CLRALL, TXG_W_CLRYES,
        TXG_W_CLRNO, TXG_W_MSG, TXG_W_NOMOVE, TXG_W_MAMT,
-       TXG_W_MSM };   /* (never hit: M/S's meters, lane 0, and its goniometer, lane 1, for the tests) */
+       TXG_W_MSM,     /* (never hit: M/S's meters, lane 0, and its goniometer, lane 1, for the tests) */
+       /* the dice: a row's (lane k: a random engine on it), the top bar's (RANDOM's list), the list's ticks (lane: the
+        * group, 0 .. 3 ENGINES SOUND EFFECTS MOVEMENT) and ROLL; its CLOSE is TXG_W_CLOSE, its panel TXG_W_PICKER, -3;
+        * the top bar's LEVEL (never hit: its label, value and bar, for the tests) */
+       TXG_W_DICE, TXG_W_RND, TXG_W_RNDTICK, TXG_W_RNDGO, TXG_W_LVL };
 
 typedef struct txg txg_t;
 txg_t *txg_new(txp_core *c);             /* NULL: out of memory or the font did not load */

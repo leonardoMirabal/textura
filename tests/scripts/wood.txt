@@ -23,90 +23,90 @@
 2550 expect state lab3 -
 2600 turn 0 -1
 2650 btn 1
-2700 expect state sel 2
-2700 expect state lab0 SIZE
-2700 expect state lab1 CREAK
-2700 expect state lab2 PITCH
-2700 expect state lab3 MOIST
-2750 turn 0 1
-2800 expect state lab0 DIST
-2800 expect state lab1 -
-2800 expect state lab2 -
-2800 expect state lab3 -
-2850 turn 0 -1
-2950 btn 1
-3000 expect state sel 3
-3000 expect state lab0 SIZE
-3000 expect state lab1 CREAK
-3000 expect state lab2 PITCH
-3000 expect state lab3 MOIST
-3050 turn 0 1
-3100 expect state lab0 DIST
-3100 expect state lab1 -
-3100 expect state lab2 -
-3100 expect state lab3 -
-3150 turn 0 -1
-3250 btn 1
-3300 expect state sel 4
-3300 expect state lab0 SIZE
-3300 expect state lab1 CREAK
-3300 expect state lab2 PITCH
-3300 expect state lab3 MOIST
-3350 turn 0 1
-3400 expect state lab0 DIST
-3400 expect state lab1 -
-3400 expect state lab2 -
-3400 expect state lab3 -
-3450 turn 0 -1
-3550 btn 0
-3570 btn 0
-3600 expect state sel 2
-3650 btn 8
-3660 btn 6
-3700 turn 1 1
-3701 turn 1 -200
-3702 turn 1 44
-3703 btn 6
-3704 btn 8
-3750 expect state snd1 green_branch
-3850 expect state lab0 SIZE
-3850 expect state lab1 CREAK
-3850 expect state lab2 MOIST
-3850 expect state lab3 PITCH
-3900 turn 0 1
-3950 expect state lab0 DIST
-3950 expect state lab1 -
-3950 expect state lab2 -
-3950 expect state lab3 -
-4000 turn 0 -1
-4100 btn 8
-4110 btn 6
-4150 turn 1 1
-4151 turn 1 -200
-4152 turn 1 45
-4153 btn 6
-4154 btn 8
-4200 expect state snd1 tree_trunk
-4300 expect state lab0 CREAK
-4300 expect state lab1 PITCH
-4300 expect state lab2 SIZE
-4300 expect state lab3 DIST
-4400 btn 8
-4410 btn 6
-4450 turn 1 1
-4451 turn 1 -200
-4452 turn 1 46
-4453 btn 6
-4454 btn 8
-4500 expect state snd1 twigs_underfoot
-4600 expect state lab0 SIZE
-4600 expect state lab1 MOIST
-4600 expect state lab2 WEIGHT
-4600 expect state lab3 DEPTH
-4650 turn 0 1
-4700 expect state lab0 DIST
-4700 expect state lab1 -
-4700 expect state lab2 -
-4700 expect state lab3 -
-4750 expect state dropped 0
-4850 end
+2730 expect state sel 2
+2730 expect state lab0 SIZE
+2730 expect state lab1 CREAK
+2730 expect state lab2 PITCH
+2730 expect state lab3 MOIST
+2780 turn 0 1
+2830 expect state lab0 DIST
+2830 expect state lab1 -
+2830 expect state lab2 -
+2830 expect state lab3 -
+2880 turn 0 -1
+2980 btn 1
+3060 expect state sel 3
+3060 expect state lab0 SIZE
+3060 expect state lab1 CREAK
+3060 expect state lab2 PITCH
+3060 expect state lab3 MOIST
+3110 turn 0 1
+3160 expect state lab0 DIST
+3160 expect state lab1 -
+3160 expect state lab2 -
+3160 expect state lab3 -
+3210 turn 0 -1
+3310 btn 1
+3390 expect state sel 4
+3390 expect state lab0 SIZE
+3390 expect state lab1 CREAK
+3390 expect state lab2 PITCH
+3390 expect state lab3 MOIST
+3440 turn 0 1
+3490 expect state lab0 DIST
+3490 expect state lab1 -
+3490 expect state lab2 -
+3490 expect state lab3 -
+3540 turn 0 -1
+3640 btn 0
+3720 btn 0
+3800 expect state sel 2
+3850 btn 8
+3860 btn 6
+3900 turn 1 1
+3901 turn 1 -200
+3902 turn 1 44
+3903 btn 6
+3904 btn 8
+3950 expect state snd1 green_branch
+4050 expect state lab0 SIZE
+4050 expect state lab1 CREAK
+4050 expect state lab2 MOIST
+4050 expect state lab3 PITCH
+4100 turn 0 1
+4150 expect state lab0 DIST
+4150 expect state lab1 -
+4150 expect state lab2 -
+4150 expect state lab3 -
+4200 turn 0 -1
+4300 btn 8
+4310 btn 6
+4350 turn 1 1
+4351 turn 1 -200
+4352 turn 1 45
+4353 btn 6
+4354 btn 8
+4400 expect state snd1 tree_trunk
+4500 expect state lab0 CREAK
+4500 expect state lab1 PITCH
+4500 expect state lab2 SIZE
+4500 expect state lab3 DIST
+4600 btn 8
+4610 btn 6
+4650 turn 1 1
+4651 turn 1 -200
+4652 turn 1 46
+4653 btn 6
+4654 btn 8
+4700 expect state snd1 twigs_underfoot
+4800 expect state lab0 SIZE
+4800 expect state lab1 MOIST
+4800 expect state lab2 WEIGHT
+4800 expect state lab3 DEPTH
+4850 turn 0 1
+4900 expect state lab0 DIST
+4900 expect state lab1 -
+4900 expect state lab2 -
+4900 expect state lab3 -
+4950 expect state dropped 0
+5050 end

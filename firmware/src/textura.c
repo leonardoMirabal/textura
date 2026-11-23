@@ -8,8 +8,9 @@
  *
  * Stage (UI-PLAN piece 7): the ten landscapes on four lanes (scape.c), the keys in LANDSCAPE and PLAY mode with their
  * LEDs (notes.c), the params table with its CC and NRPN (params.c), the tempo clock (tempo.c), the LFOs and the mod
- * matrix (mod.c), the scenes and the settings (scenes.c), the screen in Frodhes' look (ui.c); MIDI notes on channel 1
- * play the selected lane, on a lane's own channel that lane (notes.c), program changes pick a scene.
+ * matrix (mod.c), the scenes and the settings (scenes.c), RANDOM's dice (dice.c), the screen in Frodhes' look (ui.c);
+ * MIDI notes on channel 1 play the selected lane, on a lane's own channel that lane (notes.c), program changes pick a
+ * scene.
  *
  * Rules of the road (no FPU, no libgcc): integers only, no float, no 64-bit division. */
 #include <stdint.h>
@@ -168,6 +169,7 @@ static const tx_engine_t *host_engine_find(const char *name)
 #include "groove.c"
 #include "presets.c"
 #include "scenes.c"
+#include "dice.c"
 static uint32_t ui_ndraw;                       /* screen parts ui_draw drew (ui.c), for the draw time (ui_draw_timed) */
 static int32_t tx_inj_steps(uint32_t e);        /* (the dev hook's turns: tx_inj, below) */
 #include "ui.c"
@@ -327,6 +329,7 @@ static void app_main(void)
         mod_poll();
         gr_poll();
         scn_poll();
+        dice_poll();
 #ifdef LN_BUS_TIMED
         ui_draw_timed();
 #else

@@ -24,139 +24,139 @@
 2550 expect state lab3 -
 2600 turn 0 -1
 2650 btn 1
-2700 expect state sel 2
-2700 expect state lab0 TEMP
-2700 expect state lab1 CHORUS
-2700 expect state lab2 SYNC
-2700 expect state lab3 DIST
-2750 turn 0 1
-2800 expect state lab0 SIZE
-2800 expect state lab1 -
-2800 expect state lab2 -
-2800 expect state lab3 -
-2850 turn 0 -1
-2950 btn 1
-3000 expect state sel 3
-3000 expect state lab0 TEMP
-3000 expect state lab1 CHORUS
-3000 expect state lab2 DIST
-3000 expect state lab3 SYNC
-3050 turn 0 1
-3100 expect state lab0 SIZE
-3100 expect state lab1 -
-3100 expect state lab2 -
-3100 expect state lab3 -
-3150 turn 0 -1
-3250 btn 1
-3300 expect state sel 4
-3300 expect state lab0 SIZE
-3300 expect state lab1 RING
-3300 expect state lab2 DEPTH
-3300 expect state lab3 DIST
-3350 turn 0 1
-3400 expect state lab0 BUZZ
-3400 expect state lab1 -
-3400 expect state lab2 -
-3400 expect state lab3 -
-3450 turn 0 -1
-3550 btn 0
-3570 btn 0
-3600 expect state sel 2
-3650 btn 8
-3660 btn 6
-3700 turn 1 1
-3701 turn 1 -200
-3702 turn 1 76
-3703 btn 6
-3704 btn 8
-3750 expect state snd1 small_cicada
-3850 expect state lab0 SIZE
-3850 expect state lab1 RING
-3850 expect state lab2 DEPTH
-3850 expect state lab3 DIST
-3900 turn 0 1
-3950 expect state lab0 BUZZ
-3950 expect state lab1 -
-3950 expect state lab2 -
-3950 expect state lab3 -
-4000 turn 0 -1
-4100 btn 8
-4110 btn 6
-4150 turn 1 1
-4151 turn 1 -200
-4152 turn 1 77
-4153 btn 6
-4154 btn 8
-4200 expect state snd1 cicada_chorus
-4300 expect state lab0 DEPTH
-4300 expect state lab1 SIZE
-4300 expect state lab2 RING
-4300 expect state lab3 DIST
-4350 turn 0 1
-4400 expect state lab0 BUZZ
-4400 expect state lab1 -
-4400 expect state lab2 -
-4400 expect state lab3 -
-4450 turn 0 -1
-4550 btn 8
-4560 btn 6
-4600 turn 1 1
-4601 turn 1 -200
-4602 turn 1 78
-4603 btn 6
-4604 btn 8
-4650 expect state snd1 katydid
-4750 expect state lab0 TEMP
-4750 expect state lab1 RASP
-4750 expect state lab2 CHORUS
-4750 expect state lab3 DIST
-4800 turn 0 1
-4850 expect state lab0 SYNC
-4850 expect state lab1 SIZE
-4850 expect state lab2 -
-4850 expect state lab3 -
-4900 turn 0 -1
-5000 btn 8
-5010 btn 6
-5050 turn 1 1
-5051 turn 1 -200
-5052 turn 1 79
-5053 btn 6
-5054 btn 8
-5100 expect state snd1 grasshopper
-5200 expect state lab0 PEGS
-5200 expect state lab1 TEMP
-5200 expect state lab2 RASP
-5200 expect state lab3 DIST
-5250 turn 0 1
-5300 expect state lab0 CHORUS
-5300 expect state lab1 SYNC
-5300 expect state lab2 SIZE
-5300 expect state lab3 -
-5350 turn 0 -1
-5450 btn 8
-5460 btn 6
-5500 turn 1 1
-5501 turn 1 -200
-5502 turn 1 80
-5503 btn 6
-5504 btn 8
-5550 expect state snd1 honeybee
-5650 expect state lab0 SWARM
-5650 expect state lab1 SPEED
-5650 expect state lab2 DIST
-5650 expect state lab3 SPREAD
-5750 btn 8
-5760 btn 6
-5800 turn 1 1
-5801 turn 1 -200
-5802 turn 1 81
-5803 btn 6
-5804 btn 8
-5850 expect state snd1 bumblebee
-5950 expect state lab0 SWARM
-5950 expect state lab1 SPEED
-5950 expect state lab2 DIST
-5950 expect state lab3 SPREAD
-6050 expect state dropped 0
-6200 end
+2730 expect state sel 2
+2730 expect state lab0 TEMP
+2730 expect state lab1 CHORUS
+2730 expect state lab2 SYNC
+2730 expect state lab3 DIST
+2780 turn 0 1
+2830 expect state lab0 SIZE
+2830 expect state lab1 -
+2830 expect state lab2 -
+2830 expect state lab3 -
+2880 turn 0 -1
+2980 btn 1
+3060 expect state sel 3
+3060 expect state lab0 TEMP
+3060 expect state lab1 CHORUS
+3060 expect state lab2 DIST
+3060 expect state lab3 SYNC
+3110 turn 0 1
+3160 expect state lab0 SIZE
+3160 expect state lab1 -
+3160 expect state lab2 -
+3160 expect state lab3 -
+3210 turn 0 -1
+3310 btn 1
+3390 expect state sel 4
+3390 expect state lab0 SIZE
+3390 expect state lab1 RING
+3390 expect state lab2 DEPTH
+3390 expect state lab3 DIST
+3440 turn 0 1
+3490 expect state lab0 BUZZ
+3490 expect state lab1 -
+3490 expect state lab2 -
+3490 expect state lab3 -
+3540 turn 0 -1
+3640 btn 0
+3720 btn 0
+3800 expect state sel 2
+3850 btn 8
+3860 btn 6
+3900 turn 1 1
+3901 turn 1 -200
+3902 turn 1 76
+3903 btn 6
+3904 btn 8
+3950 expect state snd1 small_cicada
+4050 expect state lab0 SIZE
+4050 expect state lab1 RING
+4050 expect state lab2 DEPTH
+4050 expect state lab3 DIST
+4100 turn 0 1
+4150 expect state lab0 BUZZ
+4150 expect state lab1 -
+4150 expect state lab2 -
+4150 expect state lab3 -
+4200 turn 0 -1
+4300 btn 8
+4310 btn 6
+4350 turn 1 1
+4351 turn 1 -200
+4352 turn 1 77
+4353 btn 6
+4354 btn 8
+4400 expect state snd1 cicada_chorus
+4500 expect state lab0 DEPTH
+4500 expect state lab1 SIZE
+4500 expect state lab2 RING
+4500 expect state lab3 DIST
+4550 turn 0 1
+4600 expect state lab0 BUZZ
+4600 expect state lab1 -
+4600 expect state lab2 -
+4600 expect state lab3 -
+4650 turn 0 -1
+4750 btn 8
+4760 btn 6
+4800 turn 1 1
+4801 turn 1 -200
+4802 turn 1 78
+4803 btn 6
+4804 btn 8
+4850 expect state snd1 katydid
+4950 expect state lab0 TEMP
+4950 expect state lab1 RASP
+4950 expect state lab2 CHORUS
+4950 expect state lab3 DIST
+5000 turn 0 1
+5050 expect state lab0 SYNC
+5050 expect state lab1 SIZE
+5050 expect state lab2 -
+5050 expect state lab3 -
+5100 turn 0 -1
+5200 btn 8
+5210 btn 6
+5250 turn 1 1
+5251 turn 1 -200
+5252 turn 1 79
+5253 btn 6
+5254 btn 8
+5300 expect state snd1 grasshopper
+5400 expect state lab0 PEGS
+5400 expect state lab1 TEMP
+5400 expect state lab2 RASP
+5400 expect state lab3 DIST
+5450 turn 0 1
+5500 expect state lab0 CHORUS
+5500 expect state lab1 SYNC
+5500 expect state lab2 SIZE
+5500 expect state lab3 -
+5550 turn 0 -1
+5650 btn 8
+5660 btn 6
+5700 turn 1 1
+5701 turn 1 -200
+5702 turn 1 80
+5703 btn 6
+5704 btn 8
+5750 expect state snd1 honeybee
+5850 expect state lab0 SWARM
+5850 expect state lab1 SPEED
+5850 expect state lab2 DIST
+5850 expect state lab3 SPREAD
+5950 btn 8
+5960 btn 6
+6000 turn 1 1
+6001 turn 1 -200
+6002 turn 1 81
+6003 btn 6
+6004 btn 8
+6050 expect state snd1 bumblebee
+6150 expect state lab0 SWARM
+6150 expect state lab1 SPEED
+6150 expect state lab2 DIST
+6150 expect state lab3 SPREAD
+6250 expect state dropped 0
+6400 end

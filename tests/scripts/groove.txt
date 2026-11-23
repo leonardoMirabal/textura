@@ -19,11 +19,11 @@
 1800 btn 11
 1801 turn 1 -200
 1802 turn 1 72
+1890 btn 1
 1920 btn 6
 1921 btn 8
 1940 midi 0xB0 21 64
 1940 midi 0xB0 22 127
-1960 btn 1
 1980 btn 11
 1981 turn 1 -200
 1982 turn 1 5

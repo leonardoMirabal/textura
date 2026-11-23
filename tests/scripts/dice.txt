@@ -1,0 +1,117 @@
+# the dice (dice.c): OCT- and OCT+ together roll what the RANDOM page ticks (the FM-1's default: ENGINES, SOUND,
+# MOVEMENT; EFFECTS off) on every lane with a sound; LEVEL, PAN, HOW MANY, HOW ACTIVE kept, the effects untouched.
+# A lone OCT acts OCT_CHORD_MS late, as before; the sound browser open, the chord rolls its lane alone. SAVE held
+# undoes a roll; the RANDOM page's K1 .. K4 tick the groups
+1700 btn 13
+1800 expect state run0 1
+1900 expect state snd0 rain_on_water
+1900 expect state snd1 lake_lapping
+1900 expect state snd2 water_drops
+1900 expect state snd3 cave_drips
+1900 expect state pan0 64
+1900 expect state pan1 64
+1900 expect state cnt0 2
+1900 expect state cnt1 1
+1900 expect state act0 1
+1900 expect state vol0 100
+1900 expect state vol1 100
+1900 expect state p411 35
+1900 expect state p403 3
+1900 expect state p430 0
+1900 expect state p464 1
+1900 expect state p465 1
+1900 expect state p466 0
+1900 expect state p467 1
+1900 expect state scene -
+1900 expect state sel 1
+# OCT- and OCT+ together: the roll (no lane stepped)
+2000 btn 0
+2000 btn 1
+2100 expect state toasthd RANDOM
+2100 expect state toast ENGINES_SOUND_MOVEMENT
+2100 expect state sel 1
+3500 expect state snd0 nightingale
+3500 expect state snd1 waves_on_sand
+3500 expect state snd2 wood_pigeon
+3500 expect state snd3 lake_lapping
+3500 expect state pan0 64
+3500 expect state pan1 64
+3500 expect state cnt0 2
+3500 expect state cnt1 1
+3500 expect state act0 1
+3500 expect state vol0 100
+3500 expect state vol1 100
+3500 expect state p411 35
+3500 expect state p403 3
+3500 expect state p430 0
+3500 expect state scene RANDOM
+3500 expect state edited 1
+# a lone OCT+: the next lane, OCT_CHORD_MS after the press
+3600 btn 1
+3640 expect state sel 1
+3700 expect state sel 2
+# SEQ: the sound browser on lane 2; OCT- then OCT+ 20 ms after: the chord, lane 2 alone, the browser on its new sound
+3800 btn 11
+3850 expect state browser 2
+3900 btn 0
+3920 btn 1
+4000 expect state toasthd LANE_2
+4000 expect state toast MAPLE
+4900 expect state snd0 nightingale
+4900 expect state snd1 maple
+4900 expect state snd2 wood_pigeon
+4900 expect state snd3 lake_lapping
+4900 expect state sel 2
+4900 expect state browser 2
+4900 expect state brkept maple
+4900 expect state vol1 100
+4900 expect state cnt1 1
+5000 btn 8
+5050 expect state browser 0
+# SAVE held: the lane's roll undone
+5200 press 9
+6000 release 9
+6900 expect state snd1 waves_on_sand
+6900 expect state toasthd UNDO:_BACK
+# the RANDOM page (HOME held: the setup, MIDI CLOCK; GLO three times: MIDI IN, DISPLAY, RANDOM)
+7000 press 8
+7700 release 8
+7750 expect state page MIDI
+7800 btn 7
+7810 btn 7
+7820 btn 7
+7850 expect state page RANDOM
+7850 expect state lab0 ENGINES
+7850 expect state lab1 SOUND
+7850 expect state lab2 EFFECTS
+7850 expect state lab3 MOVEMENT
+7850 expect state card0 ON
+7850 expect state card2 OFF
+# K1 off, K3 on: SOUND, EFFECTS, MOVEMENT; the chord: the engines stay, the effects roll
+7900 turn 2 -1
+7950 turn 4 1
+8000 expect state card0 OFF
+8000 expect state card2 ON
+8000 expect state p464 0
+8000 expect state p466 1
+8100 btn 0
+8100 btn 1
+8200 expect state toast SOUND_FX_MOVEMENT
+9500 expect state snd0 nightingale
+9500 expect state snd1 waves_on_sand
+9500 expect state snd2 wood_pigeon
+9500 expect state snd3 lake_lapping
+9500 expect state p411 57
+9500 expect state p403 10
+9500 expect state p430 61
+9500 expect state pan0 64
+9500 expect state vol0 100
+# nothing ticked: nothing rolls, the screen says so
+9600 turn 3 -1
+9650 turn 4 -1
+9700 turn 5 -1
+9800 btn 0
+9800 btn 1
+9850 expect state msg RANDOM:_NOTHING_TICKED
+9850 expect state p465 0
+10500 end

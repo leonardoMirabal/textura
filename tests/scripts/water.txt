@@ -7,19 +7,19 @@
 1900 btn 6
 1920 expect state page SOUND_1/2
 1940 btn 1
-1960 expect state sel 2
-1960 expect state lab0 FACE
-1960 expect state lab1 HEIGHT
-1960 expect state lab2 PERIOD
-1960 expect state lab3 DIST
-1960 expect state host1.10 0
-2000 turn 2 40
-2020 expect state card0 40
-2040 expect state host1.10 40
-2100 shot
-2200 turn 0 1
-2220 expect state page SOUND_2/2
-2220 expect state lab0 CHOP
-2220 expect state lab1 -
-2220 expect state lab2 -
-2220 expect state lab3 -
+2020 expect state sel 2
+2020 expect state lab0 FACE
+2020 expect state lab1 HEIGHT
+2020 expect state lab2 PERIOD
+2020 expect state lab3 DIST
+2020 expect state host1.10 0
+2060 turn 2 40
+2080 expect state card0 40
+2100 expect state host1.10 40
+2160 shot
+2260 turn 0 1
+2280 expect state page SOUND_2/2
+2280 expect state lab0 CHOP
+2280 expect state lab1 -
+2280 expect state lab2 -
+2280 expect state lab3 -

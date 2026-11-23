@@ -28,7 +28,7 @@
  *             the one loaded with FX: YOURS loads it with its effects; HOME closes it, what plays kept
  *   SAVE      the save mode: PRESETS / K1 pick the user scene, K2 the name's letter and K3 its character (the name
  *             a used slot had, or the landscape's), SAVE again saves, HOME (or OCT-) cancels
- *   SAVE held 700 ms: undo the last load (again: redo)
+ *   SAVE held 700 ms: undo the last load or roll of the dice (dice.c; again: redo)
  *   MIDI PC   on channel 1: 0 .. 99 F001 .. F100, 100 .. 115 U01 .. U16, 116 .. F101 .. (SCN_PC_F2)
  *
  * A load never cuts: a lane that keeps its sound plays on untouched; a lane that gets another one switches, its old
@@ -174,7 +174,9 @@ static scn_t scn_b[2] __attribute__((section(".nozero")));   /* (NOINIT's spare 
 static TX_RTD scn_t scn_sv;                            /* the scene being saved */
 static uint8_t scn_u, scn_undo_ok, scn_bidx[2];   /* (scn_bidx: each one's scene number, 0xFF: none) */
 static struct { uint8_t on, k, f, i; } scn_su;   /* the last sound kept by the sound browser (scn_snd_undo) */
-static uint8_t scn_cur = 0xFF;                  /* the scene loaded last (0xFF: none) */
+static uint8_t scn_cur = 0xFF;                  /* the scene loaded last (0xFF: none; SCN_RND: a roll of the dice) */
+#define SCN_RND 0xFEu                           /* (scn_cur, scn_ap_idx, scn_bidx: what the dice rolled, dice.c: no
+                                                 * scene's, "RANDOM", always edited) */
 /* a load in progress */
 static const scn_t *scn_ap;
 static uint8_t scn_ap_stage;                    /* 0 idle, 1 the lanes set (waiting), 2 the records */
@@ -186,6 +188,9 @@ static uint8_t scn_ap_fx, scn_fx_boot;          /* this load sets the mix's effe
 static uint8_t scn_fx_mine;                     /* the player turned an effect since the last load that set them
                                                  * (SMART: the next load keeps them, FX: YOURS) */
 static uint8_t scn_fx_force;                    /* the next load sets the effects whatever EFFECTS ON LOAD says */
+static uint8_t scn_ap_edit;                     /* this load leaves the scene edited (a lane's roll of the dice) */
+static uint8_t scn_undo_fx;                     /* the undo's two scenes differ in their effects (a roll of EFFECTS):
+                                                 * an undo sets them whatever EFFECTS ON LOAD says */
 static uint8_t scn_edited;                      /* the player changed what plays since the last load or save (the
                                                  * header's "*") */
 static TX_RTD struct { uint16_t id, t0; int16_t from, to; } scn_gl[SCN_GL_N];   /* the glides (scn_put): t0, ms mod 2^16 */
@@ -208,9 +213,10 @@ static void ui_all(void);
 static void ui_toast(const char *hd, uint32_t idx);
 static void ub_rebase(void);                    /* (ui.c: an open sound browser takes the scene's sounds) */
 
-static void scn_name_of(uint32_t idx, char *s)  /* "F003 GARDEN RAIN", "U05 WATER", "U06 ----" (s: 20 bytes) */
+static void scn_name_of(uint32_t idx, char *s)  /* "F003 GARDEN RAIN", "U05 WATER", "U06 ----", "RANDOM" (s: 20 bytes) */
 {
     uint32_t n = idx < SCN_NF ? idx + 1u : idx - SCN_NF + 1u;
+    if (idx == SCN_RND) { p_strcpy(s, "RANDOM", 19); return; }
     if (idx < SCN_NF) {
         s[0] = 'F'; s[1] = (char)('0' + n / 100u); s[2] = (char)('0' + n / 10u % 10u); s[3] = (char)('0' + n % 10u);
         s[4] = ' '; s[5] = 0;
@@ -311,7 +317,7 @@ static void scn_capture(scn_t *s)
 #if SC_N > 4
     s->nlane = sc_nlane;
 #endif
-    if (scn_cur != 0xFF && scn_cur >= SCN_NF && scn_meta[scn_cur - SCN_NF].used) memcpy(s->name, scn_meta[scn_cur - SCN_NF].name, 12);
+    if (scn_cur < SCN_N && scn_cur >= SCN_NF && scn_meta[scn_cur - SCN_NF].used) memcpy(s->name, scn_meta[scn_cur - SCN_NF].name, 12);
     else p_upper(s->name, LS[sc.fam].name, 11);
     for (k = 0; k < SC_N; k++) {
         p_cards_t *c = p_cards(k);
@@ -631,7 +637,8 @@ static void scn_apply_poll(void)
                                                      * queue: the next pass) */
         scn_ap_stage = 0;
         scn_cur = scn_ap_idx;
-        scn_edited = 0;
+        scn_edited = (uint8_t)(scn_ap_edit || scn_cur == SCN_RND);   /* (a roll: "RANDOM *" until it is saved) */
+        scn_ap_edit = 0;
         ui_all();
     }
 }
@@ -650,6 +657,7 @@ static int scn_load(uint32_t idx)               /* 0: loading */
     scn_capture(&scn_b[scn_u]);                 /* (what played: the undo) */
     scn_bidx[scn_u] = scn_cur;
     scn_undo_ok = 1;
+    scn_undo_fx = 0;
     scn_su.on = 0;
     scn_apply(t, idx);
     ui_toast("LOADED", idx);                    /* (big, ~1.5 s: a load is never missed) */
@@ -676,6 +684,7 @@ static void scn_undo(void)                      /* the last load undone (again: 
     if (!scn_undo_ok || scn_busy()) return;
     scn_capture(&scn_b[scn_u ^ 1u]);
     scn_bidx[scn_u ^ 1u] = scn_cur;
+    scn_fx_force = scn_undo_fx;                 /* (a roll's effects: back as they were, as they came) */
     scn_apply(&scn_b[scn_u], scn_bidx[scn_u]);
     scn_u ^= 1u;
     ui_toast("UNDO: BACK", scn_bidx[scn_u ^ 1u]);
@@ -884,6 +893,8 @@ static uint8_t set_fx_of(uint32_t m) { return (uint8_t)(m == SCN_FX_ALWAYS ? 1u 
 static uint8_t set_fx_mode(uint32_t b) { return (uint8_t)(b == 1u ? SCN_FX_ALWAYS : b == 2u ? SCN_FX_NEVER : SCN_FX_SMART); }
 #define SET_FXNEW 1u                            /* (spare2: saved since the FM-1's default became NEVER; a record of
                                                  * before with SMART, the old default, loads as NEVER, once) */
+#define SET_RND 0x80u                           /* (spare: RANDOM's ticks in its low four bits and this bit; a record
+                                                 * of before, spare 0: the defaults, DICE_DEF) */
 static tx_set_t set_saved, set_now;
 static TX_RTD uint8_t set_rec[256];                    /* the record as saved: set_now zero-padded to set_store.c's 256 bytes
                                                  * (it saves no other length; kept as it is until the save is done) */
@@ -893,10 +904,13 @@ static void set_take(tx_set_t *s)
 {
     uint32_t k;
     memset(s, 0, sizeof *s);
-    s->ver = SET_VER; s->scene = (uint8_t)(scn_cur == 0xFF ? 0u : scn_cur + 1u);
+    s->ver = SET_VER;
+    s->scene = (uint8_t)(scn_cur < SCN_N ? scn_cur + 1u : scn_cur == SCN_RND ? set_saved.scene : 0u);   /* (a roll: the
+                                                 * boot loads the scene saved before it) */
     s->clock = (uint8_t)tm.clock; s->in_usb = tm.in_usb; s->in_trs = tm.in_trs; s->bpm10 = (uint16_t)tempo_bpm10();
     s->scn_tempo = tm.scn_tempo; s->out_off = (uint8_t)!tm.out_usb; s->palette = p_color; s->scn_fx = set_fx_of(scn_fx_mode);
     s->layout = SET_LAYOUT; s->spare2 = SET_FXNEW;
+    s->spare = (uint8_t)(SET_RND | dice_what);
     s->scale = (uint8_t)(nt_scmode == NT_OFF ? 0u : SET_SC_OLD[nt_scale]); s->root = nt_root;
     s->scm = (uint8_t)(nt_scmode + 1u); s->scf = nt_scale; s->sct = (uint8_t)(nt_trans + 24);
     s->selch = (uint8_t)(nt_selch ^ 1u);
@@ -963,6 +977,7 @@ static void scn_init(void)
 #endif
         tempo_mode(s.clock); tempo_port(1, s.in_usb); tempo_port(2, s.in_trs);
         tempo_scene_flag(s.scn_tempo); tempo_out(!s.out_off); color_apply(s.palette); scn_fx_mode = (s.spare2 & SET_FXNEW) || s.scn_fx ? set_fx_mode(s.scn_fx) : SCN_FX_DEF;
+        dice_what = (uint8_t)(s.spare & SET_RND ? s.spare & DICE_ALL : DICE_DEF);
         if (s.bpm10 >= 400u && s.bpm10 <= 2400u) tempo_set10(s.bpm10);
         set_saved = s;                          /* (an old layout: saved again in the new one, set_poll) */
         scn_fx_boot = 1;                        /* (the boot's load: its effects too, nothing plays to keep) */

@@ -93,6 +93,9 @@ typedef struct txp_plugin {
     int win_w, win_h, sel, view;                /* (sel: the window's last choice, until the app shows it: pend_selt) */
     uint8_t col[TXP_ENG_MAX];            /* each engine's colour (txp_ui.h TXP_COL_N: 0 bone), saved with the project */
     int shot;                            /* TEXTURA_PLUGIN_GUI_SHOT set: the tests' extension (gui_shot.h) */
+    int dice, dice_fixed;                /* RANDOM's groups ticked (dice.c DICE_*: saved with the project); the tests'
+                                          * fixed seeds (TEXTURA_PLUGIN_TEST or TEXTURA_PLUGIN_GUI_SHOT set) */
+    uint32_t dice_n;                     /* the rolls so far (the tests' seed) */
 } txp_plugin_t;
 
 static void say(txp_plugin_t *p, clap_log_severity sev, const char *msg)
@@ -208,7 +211,8 @@ static uint32_t lat_get(const clap_plugin_t *plugin)
 static const clap_plugin_latency_t EXT_LATENCY = { lat_get };
 
 /* the state: the slot's (slot_bridge.h: the selected lane is the app's, "sel", in it) and the window's own, "win" (its
- * width, 0: the default), "view" and "col", added before the closing brace (a build of before reads past them) */
+ * width, 0: the default), "view", "dice" (RANDOM's ticks) and "col", added before the closing brace (a build of before
+ * reads past them) */
 static int st_key(const char *j, const char *key, int *v)   /* "key":"N" in a flat object: 0 found */
 {
     char pat[16];
@@ -257,7 +261,8 @@ static bool st_save(const clap_plugin_t *plugin, const clap_ostream_t *s)
     static _Thread_local char buf[TXP_STATE_MAX];
     int n = txp_inst_state_get(p->in, buf, TXP_STATE_MAX - 2048), done = 0;
     if (n < 2 || buf[n - 1] != '}') return false;
-    n += snprintf(buf + n - 1, 64, ",\"win\":\"%d\",\"winh\":\"%d\",\"view\":\"%d\"}", p->win_w, p->win_h, p->view) - 1;
+    n += snprintf(buf + n - 1, 80, ",\"win\":\"%d\",\"winh\":\"%d\",\"view\":\"%d\",\"dice\":\"%d\"}", p->win_w, p->win_h,
+                  p->view, p->dice) - 1;
     n += st_col_put(p, buf + n - 1, TXP_STATE_MAX - n) - 1;
     while (done < n) {
         int64_t w = s->write(s, buf + done, (uint64_t)(n - done));
@@ -275,8 +280,10 @@ static bool st_load(const clap_plugin_t *plugin, const clap_istream_t *s)
     buf[got] = 0;
     if (txp_inst_state_set(p->in, buf)) { say(p, CLAP_LOG_WARNING, "Textura: the saved state could not be read"); return false; }
     {   /* the window's (a state of before has none: the default size, the MAP) */
-        int w = 0, h = 0, vw = 0;
+        int w = 0, h = 0, vw = 0, dc = 15;
         (void)st_key(buf, "win", &w);
+        (void)st_key(buf, "dice", &dc);
+        p->dice = dc & 15;
         (void)st_key(buf, "winh", &h);
         (void)st_key(buf, "view", &vw);
         p->pend_selt = 0.0;
@@ -313,6 +320,9 @@ static bool pl_init(const clap_plugin_t *plugin)
     {
         const char *s = getenv("TEXTURA_PLUGIN_GUI_SHOT");
         p->shot = s && *s && strcmp(s, "0");
+        s = getenv("TEXTURA_PLUGIN_TEST");
+        p->dice_fixed = p->shot || (s && *s && strcmp(s, "0"));
+        p->dice = 15;
     }
     p->gui = txg_clap_new(p->host, p);   /* (the window's state; the window opens on the host's create) */
     p->in = txp_inst_new();
@@ -742,6 +752,27 @@ void txp_ui_lane_run(txp_core *c, uint32_t lane, int on)
 }
 void txp_ui_rec(txp_core *c) { uq_put(c, UQ_EV + TXP_EV_REC, 0, 0); ui_dirty(c); }
 void txp_ui_undo(txp_core *c) { uq_put(c, UQ_EV + TXP_EV_UNDO, 0, 0); ui_dirty(c); }
+int txp_ui_dice(const txp_core *c) { return c->dice; }
+void txp_ui_dice_set(txp_core *c, int what) { if (c->dice != (what & 15)) { c->dice = what & 15; ui_dirty(c); } }
+int txp_ui_roll(txp_core *c, int lane)
+{
+    uint32_t seed, a;
+    if (lane >= (int)TXP_LANES) return -1;
+    if (lane < 0 && !(c->dice & 15)) return -1;
+    a = lane < 0 ? TXP_DICE_ALL | (uint32_t)c->dice : (uint32_t)lane;
+    c->dice_n++;
+    if (c->dice_fixed) seed = c->dice_n * 7919u + 1u;   /* (the tests: the same rolls every run) */
+    else {
+        double t = mono_s();
+        seed = (uint32_t)(uint64_t)(t * 1e6) ^ (uint32_t)(uint64_t)(t * 1e3) << 16 ^ c->dice_n * 2654435761u ^ (uint32_t)(uintptr_t)c;
+    }
+    uq_put(c, UQ_BEGIN, TXP_ID_PRESET, 0);   /* (one gesture, the host's undo one step: the roll reaches the host as a
+                                              * preset load does, the app's own values) */
+    uq_put(c, UQ_EV + TXP_EV_DICE, a, (int32_t)(seed ? seed : 1u));
+    uq_put(c, UQ_END, TXP_ID_PRESET, 0);
+    ui_dirty(c);
+    return 0;
+}
 void txp_ui_save(txp_core *c, int slot, const char *name)
 {
     uint32_t i;

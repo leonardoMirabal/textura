@@ -15,61 +15,61 @@
 1880 expect state mnotes -
 # lane 3 selected: channel 1 plays it; lane 2 selected while the note is held: its off still finds lane 3
 1900 btn 1
-1910 btn 1
-1920 expect state sel 3
-1930 midi 0x90 60 100
-1940 expect state mnotes 3:60
-1950 btn 0
-1955 expect state sel 2
-1960 midi 0x80 60 0
-1970 expect state mnotes -
+1980 btn 1
+2060 expect state sel 3
+2070 midi 0x90 60 100
+2080 expect state mnotes 3:60
+2090 btn 0
+2170 expect state sel 2
+2175 midi 0x80 60 0
+2185 expect state mnotes -
 # CC 7 on channel 3: lane 3's level
-2000 midi 0xB2 7 30
-2010 expect state p203 30
-2100 btn 7
-2105 btn 7
-2110 btn 7
-2115 btn 7
-2120 btn 7
-2125 btn 7
-2170 expect state page MIDI_IN
-2170 expect state lab0 LANE_1_CHANNEL
-2170 expect state card0 1
-2170 expect state card3 4
+2215 midi 0xB2 7 30
+2225 expect state p203 30
+2315 btn 7
+2320 btn 7
+2325 btn 7
+2330 btn 7
+2335 btn 7
+2340 btn 7
+2385 expect state page MIDI_IN
+2385 expect state lab0 LANE_1_CHANNEL
+2385 expect state card0 1
+2385 expect state card3 4
 # K3: lane 3 on channel 2 with lane 2: both play its notes, both take its CCs; channel 3 nothing now
-2200 turn 4 -1
-2210 expect state card2 2
-2220 midi 0x91 62 100
-2230 expect state mnotes 2:62_3:62
-2240 midi 0x81 62 0
-2250 expect state mnotes -
-2260 midi 0xB1 7 90
-2270 expect state p103 90
-2270 expect state p203 90
-2280 midi 0xB2 7 10
-2290 expect state p203 90
+2415 turn 4 -1
+2425 expect state card2 2
+2435 midi 0x91 62 100
+2445 expect state mnotes 2:62_3:62
+2455 midi 0x81 62 0
+2465 expect state mnotes -
+2475 midi 0xB1 7 90
+2485 expect state p103 90
+2485 expect state p203 90
+2495 midi 0xB2 7 10
+2505 expect state p203 90
 # ALGORITHM: SELECTED CH OFF: channel 1 is lane 1's own (lane 2 selected)
-2300 turn 1 -1
-2310 expect state p43D 0
-2310 expect state msg SELECTED_CH_OFF
-2320 midi 0x90 60 100
-2330 expect state mnotes 1:60
-2340 midi 0x80 60 0
+2515 turn 1 -1
+2525 expect state p43D 0
+2525 expect state msg SELECTED_CH_OFF
+2535 midi 0x90 60 100
+2545 expect state mnotes 1:60
+2555 midi 0x80 60 0
 # K4: lane 4 OFF: channel 4 plays nothing
-2400 turn 5 -4
-2410 expect state card3 OFF
-2420 midi 0x93 60 100
-2430 expect state mnotes -
-2440 midi 0x83 60 0
+2615 turn 5 -4
+2625 expect state card3 OFF
+2635 midi 0x93 60 100
+2645 expect state mnotes -
+2655 midi 0x83 60 0
 # NRPN on channel 5: LANE 4 CHANNEL (scope 4, index 65) to 16
-2500 midi 0xB4 99 4
-2505 midi 0xB4 98 65
-2510 midi 0xB4 6 127
-2520 expect state p441 16
-2550 midi 0x9F 60 100
-2560 expect state mnotes 4:60
-2570 midi 0x8F 60 0
-2600 shot
-2700 expect state dropped 0
-2700 expect sound
-2800 end
+2715 midi 0xB4 99 4
+2720 midi 0xB4 98 65
+2725 midi 0xB4 6 127
+2735 expect state p441 16
+2765 midi 0x9F 60 100
+2775 expect state mnotes 4:60
+2785 midi 0x8F 60 0
+2815 shot
+2915 expect state dropped 0
+2915 expect sound
+3015 end

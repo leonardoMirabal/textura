@@ -20,7 +20,8 @@ FM-1: for them it links to the [FM-1 user manual](MANUAL.md).
 3. [Your first sound](#3-your-first-sound)
 4. [The window](#4-the-window): [top bar](#the-top-bar), [MAP](#map), [SPACE](#space), [the lanes](#the-lanes),
    [the drawer](#the-drawer), [the strip](#the-strip), [M/S](#ms), [the movement](#the-movement), [SAVE](#save),
-   [the engine browser](#the-engine-browser), [the presets browser](#the-presets-browser), [SETTINGS](#settings),
+   [RANDOM: the dice](#random-the-dice), [the engine browser](#the-engine-browser),
+   [the presets browser](#the-presets-browser), [SETTINGS](#settings),
    [keys: FM-1 KEYS or PLAY](#keys-fm-1-keys-or-play), [colours](#colours), [LFOs](#lfos),
    [keys and mouse](#keys-and-mouse)
 5. [Everything else: host parameters](#5-everything-else-host-parameters)
@@ -123,7 +124,7 @@ option), and what a source (an LFO, an envelope, a follower) moves. Each engine 
 
 From top to bottom:
 
-- **The top bar**: the preset, SAVE, UNDO, PLAY ALL, LANES, the output level, SETTINGS.
+- **The top bar**: the preset, SAVE, UNDO, PLAY ALL, LANES, the output level, the dice (RANDOM), SETTINGS.
 - **The place** (left) and **the lanes** (right): where each engine stands, and one row for each lane.
 - **The drawer**: the selected lane's engine, all its cards (DIST among them), and its PAN, LEVEL and groove.
 - **The strip**: the effects in signal order (COMP, DRIVE, FILTER, DELAY, REVERB) and the movement (the LFOs).
@@ -146,10 +147,11 @@ steps back). Each drag is one undo step in your DAW, and is recorded when your D
 | **<** and **>** | The previous / next factory preset, F001 to F110 (after F110 comes F001). |
 | **The scene** | The preset's code and name (`F009 RAIN & FIRE`), a user preset (`U01 ...`) or the landscape (`L01 WATER`). A `*` after the name: you changed something since it loaded. At the right, how many lanes it uses. Click it for the [presets browser](#the-presets-browser). |
 | **SAVE** | Saves what plays as a user preset, U01 to U16 ([SAVE](#save)). |
-| **UNDO** | Undoes the last preset load or engine kept; click again to redo it. As the FM-1's UNDO. Dim when there is nothing to undo. |
+| **UNDO** | Undoes the last preset load, engine kept or roll of the dice; click again to redo it. As the FM-1's UNDO. Dim when there is nothing to undo. |
 | **PLAY ALL / STOP ALL** | STOP ALL stops every lane and remembers each one's HOW MANY and HOW ACTIVE; PLAY ALL brings each lane back with its own (see [a stopped lane](#the-lanes)). The selected lane stays selected. As the FM-1's REC. It turns white when every lane is stopped (a landscape's start). Space bar does the same. |
 | **LANES − / +** | How many lanes are in use, 1 to 16 ([lanes](#7-lanes)). |
 | **LEVEL** | The output's peak now, in dB. Red near 0 dB. |
+| **The dice** | Opens [RANDOM](#random-the-dice): roll new engines, sounds, effects and movement. Click again to close. |
 | **SETTINGS** | Opens [SETTINGS](#settings). Click again to close. |
 
 ### MAP
@@ -191,7 +193,7 @@ scroll: turn the mouse wheel over them. A row shows, left to right:
 | Column | What it shows |
 | --- | --- |
 | **#** | The lane's number and a dot in its engine's colour. The **selected lane**'s dot is solid red, its number red, its row lit with a red edge. Click the number or the dot to select the lane. |
-| **ENGINE** | The lane's engine and its family (cut with `...` when long), and, right after the text, a small square swap-icon button: it selects the lane and opens the [engine browser](#the-engine-browser) for it. The button is the same on an empty lane. |
+| **ENGINE** | The lane's engine and its family (cut with `...` when long), then two small square buttons, at the same place on every row: the swap icon selects the lane and opens the [engine browser](#the-engine-browser) for it (the same on an empty lane); the **dice** gives the lane a random engine ([RANDOM](#random-the-dice)). On an empty lane the dice is dim. |
 | **EVENTS** | The lane's **event line**: the last 6 seconds. A bar for each moment with events, as high as their loudness, over a faint band for the lane's level. A stopped lane reads **STOPPED**. |
 | **(STOP / PLAY)** | A square button before HOW MANY, with no header. A playing lane shows a stop square: click it to stop that lane (HOW MANY and HOW ACTIVE go to OFF, as STOP ALL does, and the lane remembers them). A stopped lane shows a red play triangle: click it to play the lane again with the values it remembered, or, if it has none, as PLAY ALL starts a lane (HOW MANY 2, 1 or 1 for lanes 1 to 3, 1 for the others, at the rarest HOW ACTIVE). It selects the lane, as M and S do. On an empty lane it is dim and does nothing. STOP ALL and PLAY ALL work with it: PLAY ALL brings a lane you stopped back as it was. |
 | **HOW MANY** | How many event makers the cloud has: six blocks for **1 2 4 10 19 32**; none lit is **OFF**. Click a block for that many (the top lit block again: one less, so the first block again is OFF). Drag along the blocks, or turn the wheel. |
@@ -203,7 +205,8 @@ scroll: turn the mouse wheel over them. A row shows, left to right:
 | **S** | Solo. While any lane is soloed, only the soloed lanes play. Alt-, Cmd- or Ctrl-click solos one lane alone (click it again that way to clear). The project keeps it. |
 
 A click anywhere on a row selects its lane, the engine's name too. The controls in it (HOW MANY, HOW ACTIVE, PAN, CH,
-VOL, M, S, STOP / PLAY) work as they did and select the row as well. Only the swap-icon button opens the engine browser. The up and down arrow
+VOL, M, S, STOP / PLAY) work as they did and select the row as well. Only the swap-icon button opens the engine browser;
+the dice rolls the lane's engine. The up and down arrow
 keys select too. LEVEL is the engine's, as on the FM-1: two lanes playing the same engine
 share it.
 
@@ -383,6 +386,35 @@ and **SAVE**.
 - The user presets are **kept with the project**. Load them in the presets browser, **MINE: User**, or by program
   change 100 to 115.
 
+### RANDOM: the dice
+
+![RANDOM: the four groups a roll changes, ROLL, and what it keeps](plugin/img/random.png)
+
+Two kinds of dice roll new sounds, as the FM-1's OCT- and OCT+ pressed together do.
+
+- **A row's dice** (after the swap icon) gives that lane a random engine, from any family and never the one it had.
+  Its cards start at the new engine's own values. The lane keeps its LEVEL, PAN, HOW MANY, HOW ACTIVE and MIDI CH.
+- **The dice in the top bar** opens **RANDOM**, a small list with four ticks. **ROLL** changes everything ticked, on
+  every lane that has an engine:
+
+| Tick | What a roll changes |
+| --- | --- |
+| **ENGINES** | A new engine on every lane, each a different one where it can be |
+| **SOUND** | Each engine's cards |
+| **EFFECTS** | COMP to M/S: their types and amounts. A long, unreal reverb can come up |
+| **MOVEMENT** | The LFOs, the envelopes and the followers, and 2 to 6 routes: what they move, and how far |
+
+- A roll **keeps** LANES and each lane's LEVEL, PAN, HOW MANY, HOW ACTIVE and MIDI CH. Levels stay even (each
+  engine's own trim), the limiter stays on, DRIVE and COMP's make-up stay moderate, and the movement's amounts stay
+  moderate: a roll never silences the mix or jumps in level.
+- The effects **glide** to their new values, as on a preset load. A new engine comes in as a preset's does.
+- All four are ticked at first; the ticks are kept with the project. ROLL with nothing ticked does nothing and says so.
+  The list stays open, so you can **ROLL** again; **CLOSE**, **Esc** or a click outside closes it.
+- The preset name reads **RANDOM \***. **UNDO** takes a whole roll back in one step (a row's dice too). **SAVE** keeps
+  a roll you like as a user preset.
+- Each roll is a new one: no fixed sequence. Your DAW sees a roll as it sees a preset load: the values change, as
+  one step.
+
 ### The engine browser
 
 ![The engine browser: the families and their engines](plugin/img/engine-browser.png)
@@ -519,7 +551,8 @@ With the window focused and no panel open:
 | **Esc** | Close the right-click menu; leave a source's mode |
 
 In a browser: type to search, **up / down** (Page Up / Page Down: 10 at a time), **left / right** for the family,
-**Return** to keep or load, **Esc** to close. In SAVE: type the name, **Return** saves, **Esc** closes. Some DAWs
+**Return** to keep or load, **Esc** to close. In SAVE: type the name, **Return** saves, **Esc** closes. In RANDOM:
+**Esc** closes. Some DAWs
 keep the keys for themselves; the mouse does everything too.
 
 ## 5. Everything else: host parameters
@@ -545,8 +578,8 @@ generic view of the plugin) for automation, and MIDI CCs and NRPNs reach them to
 - **An empty lane** shows neutral values: LEVEL 100, PAN centre, the rest 0.
 - **Change ENGINE and a card in separate steps.** A new engine starts from its own cards, so a card value sent in the
   same instant as the ENGINE change is replaced by the new engine's default (as on the FM-1).
-- **A change the plugin makes itself** (a MIDI CC, a program change, a preset load) goes back to your DAW as a
-  parameter change.
+- **A change the plugin makes itself** (a MIDI CC, a program change, a preset load, a roll of the dice) goes back to
+  your DAW as a parameter change.
 - A modulation target names lane 1 to 4 or **ALL LANES**, as on the FM-1. ALL LANES reaches lanes 5 to 16 too.
 
 ## 6. MIDI
@@ -606,7 +639,7 @@ Your DAW saves the plugin with the project, and its own preset function saves it
 - the preset loaded last, the scale, the MIDI channels, EFFECTS ON LOAD and PRESETS CHANGE TEMPO;
 - your user presets, U01 to U16 ([SAVE](#save));
 - KEYS ON SELECTED CH, the selected lane;
-- the window's own: the solo, the size, MAP or SPACE, and the sources' colours.
+- the window's own: the solo, the size, MAP or SPACE, the sources' colours and RANDOM's ticks.
 
 Opening the project brings it all back, its effects included.
 
@@ -652,7 +685,8 @@ opens: lanes 1 to 4 as saved, LANES 4.
 | **Lane channels** | LANE 1 to 4 CHANNEL | LANE 1 to 16 CHANNEL, FX CHANNEL |
 | **Tempo** | Its own, tap, MIDI clock in and out | The DAW's tempo leads; no MIDI clock |
 | **Saving** | U01 to U16 in flash, settings kept by themselves | SAVE: U01 to U16 in the project; the DAW's project or presets |
-| **Undo** | Hold SAVE | UNDO (a load, an engine kept); your DAW's undo for window edits (host parameter changes) |
+| **Undo** | Hold SAVE | UNDO (a load, an engine kept, a roll); your DAW's undo for window edits (host parameter changes) |
+| **Random** | OCT- and OCT+ together; the RANDOM page in the settings (EFFECTS off at first) | The dice: one on each row, RANDOM in the top bar (all four ticked at first) |
 | **Sample rate** | 44.1 kHz | Any; 44.1 kHz inside |
 | **Screen colour, clock, status line** | DISPLAY, MIDI CLOCK pages | Not in the plugin |
 | **Look** | One accent colour | Dark, red for selection and LFOs, a colour per engine |

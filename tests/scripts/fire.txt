@@ -22,112 +22,112 @@
 2550 expect state lab2 DIST
 2550 expect state lab3 -
 2600 btn 1
-2650 expect state sel 2
-2700 turn 0 -1
-2750 expect state lab0 SIZE
-2750 expect state lab1 MOIST
-2750 expect state lab2 DRAUGHT
-2750 expect state lab3 WOOD
-2800 btn 1
-2850 expect state sel 3
-2850 expect state snd2 fireplace
-2850 expect state lab0 SIZE
-2850 expect state lab1 MOIST
-2850 expect state lab2 ROAR
-2850 expect state lab3 WOOD
-2900 turn 0 1
-2950 expect state lab0 DRAUGHT
-2950 expect state lab1 BURSTY
-2950 expect state lab2 DIST
-2950 expect state lab3 -
-3000 turn 0 -1
-3050 btn 1
-3100 expect state sel 4
-3100 expect state snd3 embers
-3100 expect state lab0 MOIST
-3100 expect state lab1 WOOD
-3100 expect state lab2 BURSTY
-3100 expect state lab3 DIST
-3150 turn 0 1
-3200 expect state lab0 SIZE
-3200 expect state lab1 -
-3200 expect state lab2 -
-3200 expect state lab3 -
-3250 turn 0 -1
-3300 btn 0
-3320 btn 0
-3350 expect state sel 2
-3400 btn 8
-3410 btn 6
-3450 turn 1 1
-3451 turn 1 -200
-3452 turn 1 34
-3453 btn 6
-3454 btn 8
-3500 expect state snd1 kindling
-3600 expect state lab0 MOIST
-3600 expect state lab1 SIZE
-3600 expect state lab2 DRAUGHT
-3600 expect state lab3 WOOD
-3650 btn 8
-3660 btn 6
-3700 turn 1 1
-3701 turn 1 -200
-3702 turn 1 35
-3703 btn 6
-3704 btn 8
-3750 expect state snd1 pine_fire
-3850 expect state lab0 SIZE
-3850 expect state lab1 MOIST
-3850 expect state lab2 DRAUGHT
-3850 expect state lab3 WOOD
-3900 btn 8
-3910 btn 6
-3950 turn 1 1
-3951 turn 1 -200
-3952 turn 1 36
-3953 btn 6
-3954 btn 8
-4000 expect state snd1 leaves,_paper
-4100 expect state lab0 MOIST
-4100 expect state lab1 SIZE
-4100 expect state lab2 DRAUGHT
-4100 expect state lab3 WOOD
-4150 btn 8
-4160 btn 6
-4200 turn 1 1
-4201 turn 1 -200
-4202 turn 1 37
-4203 btn 6
-4204 btn 8
-4250 expect state snd1 torch
-4350 expect state lab0 ROAR
-4350 expect state lab1 DRAUGHT
-4350 expect state lab2 SIZE
-4350 expect state lab3 MOIST
-4400 turn 0 1
-4450 expect state lab0 WOOD
-4450 expect state lab1 DIST
-4450 expect state lab2 -
-4450 expect state lab3 -
-4500 turn 0 -1
-4550 btn 8
-4560 btn 6
-4600 turn 1 1
-4601 turn 1 -200
-4602 turn 1 38
-4603 btn 6
-4604 btn 8
-4650 expect state snd1 flame
-4750 expect state lab0 FLOW
-4750 expect state lab1 DRAUGHT
-4750 expect state lab2 SPUTTER
-4750 expect state lab3 SLOPE
-4800 turn 0 1
-4850 expect state lab0 DIST
-4850 expect state lab1 -
-4850 expect state lab2 -
-4850 expect state lab3 -
-4900 turn 0 -1
-4950 expect state dropped 0
-5100 end
+2680 expect state sel 2
+2730 turn 0 -1
+2780 expect state lab0 SIZE
+2780 expect state lab1 MOIST
+2780 expect state lab2 DRAUGHT
+2780 expect state lab3 WOOD
+2830 btn 1
+2910 expect state sel 3
+2910 expect state snd2 fireplace
+2910 expect state lab0 SIZE
+2910 expect state lab1 MOIST
+2910 expect state lab2 ROAR
+2910 expect state lab3 WOOD
+2960 turn 0 1
+3010 expect state lab0 DRAUGHT
+3010 expect state lab1 BURSTY
+3010 expect state lab2 DIST
+3010 expect state lab3 -
+3060 turn 0 -1
+3110 btn 1
+3190 expect state sel 4
+3190 expect state snd3 embers
+3190 expect state lab0 MOIST
+3190 expect state lab1 WOOD
+3190 expect state lab2 BURSTY
+3190 expect state lab3 DIST
+3240 turn 0 1
+3290 expect state lab0 SIZE
+3290 expect state lab1 -
+3290 expect state lab2 -
+3290 expect state lab3 -
+3340 turn 0 -1
+3390 btn 0
+3470 btn 0
+3550 expect state sel 2
+3600 btn 8
+3610 btn 6
+3650 turn 1 1
+3651 turn 1 -200
+3652 turn 1 34
+3653 btn 6
+3654 btn 8
+3700 expect state snd1 kindling
+3800 expect state lab0 MOIST
+3800 expect state lab1 SIZE
+3800 expect state lab2 DRAUGHT
+3800 expect state lab3 WOOD
+3850 btn 8
+3860 btn 6
+3900 turn 1 1
+3901 turn 1 -200
+3902 turn 1 35
+3903 btn 6
+3904 btn 8
+3950 expect state snd1 pine_fire
+4050 expect state lab0 SIZE
+4050 expect state lab1 MOIST
+4050 expect state lab2 DRAUGHT
+4050 expect state lab3 WOOD
+4100 btn 8
+4110 btn 6
+4150 turn 1 1
+4151 turn 1 -200
+4152 turn 1 36
+4153 btn 6
+4154 btn 8
+4200 expect state snd1 leaves,_paper
+4300 expect state lab0 MOIST
+4300 expect state lab1 SIZE
+4300 expect state lab2 DRAUGHT
+4300 expect state lab3 WOOD
+4350 btn 8
+4360 btn 6
+4400 turn 1 1
+4401 turn 1 -200
+4402 turn 1 37
+4403 btn 6
+4404 btn 8
+4450 expect state snd1 torch
+4550 expect state lab0 ROAR
+4550 expect state lab1 DRAUGHT
+4550 expect state lab2 SIZE
+4550 expect state lab3 MOIST
+4600 turn 0 1
+4650 expect state lab0 WOOD
+4650 expect state lab1 DIST
+4650 expect state lab2 -
+4650 expect state lab3 -
+4700 turn 0 -1
+4750 btn 8
+4760 btn 6
+4800 turn 1 1
+4801 turn 1 -200
+4802 turn 1 38
+4803 btn 6
+4804 btn 8
+4850 expect state snd1 flame
+4950 expect state lab0 FLOW
+4950 expect state lab1 DRAUGHT
+4950 expect state lab2 SPUTTER
+4950 expect state lab3 SLOPE
+5000 turn 0 1
+5050 expect state lab0 DIST
+5050 expect state lab1 -
+5050 expect state lab2 -
+5050 expect state lab3 -
+5100 turn 0 -1
+5150 expect state dropped 0
+5300 end

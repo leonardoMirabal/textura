@@ -457,12 +457,14 @@ GUI_COMP = ["--param", "0x41a=1", "--param", "0x41b=127", "--param", "0x41e=4", 
 
 
 GUI_VIEWS = ("", "space", "sounds", "presets", "settings", "colour", "mode", "drag", "links", "menu", "fx", "comp", "filter", "reverb", "ms", "lfo",
-             "env", "matrix", "save", "stopped", "preview", "replay", "rows", "lane-stopped", "rain")   # clap_render
+             "env", "matrix", "save", "random-list", "stopped", "preview", "replay", "rows", "lane-stopped", "rain")   # clap_render
 #                                        --shot: x.png, x-space.png ... (the movement: LFO 1's mode, a drag in it, the
 #                                        links at rest, the right-click menu; the effects' drawers: DELAY, COMP, FILTER, REVERB, M/S,
 #                                        MOVEMENT's LFO 1, ENV, the matrix; STOP ALL, the sound browser's preview on a
 #                                        stopped lane, PLAY ALL; the rows with lane 3 selected; a lane stopped by its own
-#                                        button; Rain on a roof's drawer)
+#                                        button; Rain on a roof's drawer; RANDOM's list, the top bar's dice)
+GUI_TEST_VIEWS = ("dice-lane", "random-none", "random")   # clap_render --gui-test's (gui4's second run): a row's dice
+#                                        rolled (its hint hovered), ROLL with nothing ticked, ROLL with all four (kept with --shots)
 GUI_SIZES = ((1200, 720), (1950, 1210), (1440, 1080), (960, 600))   # real DAW window sizes: the MAP round in its place
 
 
@@ -526,6 +528,10 @@ def check_gui(args, exe, bundle, tmp):
                 for view in GUI_VIEWS:
                     shutil.copy(os.path.join(tmp, name + "-0" + ("-" + view if view else "") + ".png"),
                                 os.path.join(args.shots, "textura-window-%s%s.png" % (name, "-" + view if view else "")))
+                for view in GUI_TEST_VIEWS if name == "gui4" else ():
+                    src = os.path.join(tmp, name + "-1-" + view + ".png")
+                    if os.path.exists(src):
+                        shutil.copy(src, os.path.join(args.shots, "textura-window-%s-%s.png" % (name, view)))
     return ok
 
 

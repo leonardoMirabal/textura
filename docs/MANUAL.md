@@ -34,8 +34,9 @@ an electric piano for the same keyboard by the same author.
    [PERFORM](#perform), [COMPRESSOR](#compressor), [DRIVE](#drive), [FILTER](#filter), [the grain delay](#the-grain-delay-delay-delay-motion-grains-grain-tone),
    [REVERB](#reverb-reverb-space-shimmer), [M/S](#ms), [LFO](#lfo-lfo-phase-lfo-level), [ENV and FOLLOW](#env-env-shape-and-follow),
    [MOD MATRIX](#mod-matrix), [GROOVE](#groove-and-groove-lanes), [TEMPO](#tempo), [SCALE](#scale),
-   [MIDI CLOCK](#midi-clock), [MIDI IN](#midi-in), [DISPLAY](#display), [the sound browser](#the-sound-browser-sounds),
-   [the presets list](#the-presets-list-presets), [the save mode](#the-save-mode)
+   [MIDI CLOCK](#midi-clock), [MIDI IN](#midi-in), [DISPLAY](#display), [RANDOM](#random),
+   [the sound browser](#the-sound-browser-sounds), [the presets list](#the-presets-list-presets),
+   [the save mode](#the-save-mode)
 5. [The sounds](#5-the-sounds): [all 103 at a glance](#all-103-sounds-at-a-glance), then each family and its engines
 6. [Presets, landscapes and scenes](#6-presets-landscapes-and-scenes)
 7. [The effects](#7-the-effects)
@@ -158,6 +159,7 @@ change them: let the FM-1 rest for two seconds before you switch it off.
 
 - Change the whole place: turn **ALGORITHM** on the home page and press **EDIT** ([landscapes](#landscapes)).
 - Put another sound on a lane: **SEQ**, turn **ALGORITHM**, press **EDIT** ([the sound browser](#the-sound-browser-sounds)).
+- Try something new: press **OCT−** and **OCT+** together; hold **SAVE** to go back ([RANDOM](#random)).
 - Shape a sound: **EDIT** opens the lane's own controls ([SOUND](#sound), [the sounds](#5-the-sounds)).
 - Silence one lane for a moment: hold its black key ([mute](#the-keys)).
 - Make it wet or dry: **FX**, the PERFORM page ([PERFORM](#perform)).
@@ -205,7 +207,8 @@ at the bottom: **K1 to K4 always turn the four cards you see**. The pages, in SE
 
 TEXTURA (home) · SOUND · HOW MANY · HOW ACTIVE · PAN · ON / MUTE · PERFORM · COMPRESSOR · COMP RELEASE · DRIVE ·
 FILTER · DELAY · DELAY MOTION · GRAINS · GRAIN TONE · REVERB · REVERB SPACE · SHIMMER · M/S · LFO · LFO PHASE ·
-LFO LEVEL · ENV · ENV SHAPE · MOD MATRIX · GROOVE · GROOVE LANES · TEMPO · SCALE · MIDI CLOCK · MIDI IN · DISPLAY
+LFO LEVEL · ENV · ENV SHAPE · MOD MATRIX · GROOVE · GROOVE LANES · TEMPO · SCALE · MIDI CLOCK · MIDI IN · DISPLAY ·
+RANDOM
 
 The order follows the sound: first the source (the lane's SOUND), then the mixer (the lane pages), then the effects
 in the order the sound goes through them, then movement, then timing and the setup.
@@ -268,7 +271,7 @@ In PLAY mode the keys play the selected lane as a pitched keyboard ([section 10]
 | **ALGORITHM** | The page's own choice, named in the footer: on the home page a landscape (EDIT loads it), on SOUND the sound browser, on PERFORM and REVERB the reverb's type, on COMPRESSOR on / off, on DRIVE its type, on FILTER its slope, on the grain delay FREEZE, on LFO which LFO, on ENV which envelope or follower, on MOD MATRIX which slot, on GROOVE its type, on SCALE the scale, on MIDI IN the selected lane's channel |
 | **PRESETS** | Opens the presets list and moves its cursor |
 | **MASTER** | The volume of the headphone jack and the USB audio |
-| **OCT− / OCT+** | Previous / next lane. On a lane's SOUND page you stay on that page for the new lane; from other pages you go to the home page. In PLAY mode: the octave down / up (two octaves each way). |
+| **OCT− / OCT+** | Previous / next lane. On a lane's SOUND page you stay on that page for the new lane; from other pages you go to the home page. In PLAY mode: the octave down / up (two octaves each way). A press acts 60 ms late, so that both together can be told apart. **Both together**: [RANDOM](#random). |
 
 **Fast turns.** Turn K1 to K4 quickly and the value moves in bigger steps, so one quick turn covers the whole range:
 2 steps a click when the clicks come less than 40 ms apart, 4 under 20 ms, 8 under 10 ms. Turn slowly for single
@@ -285,9 +288,9 @@ steps; a turn after a rest always starts with single steps. Choices and short ra
 | **LFO** | The LFO pages | The next LFO page | Hold LFO and turn a card: learn ([below](#learn)) |
 | **ENV** | The ENV / FOLLOW pages | The next ENV page | Hold ENV and turn a card: learn |
 | **ARP** | The MOD MATRIX page | | |
-| **GLO** | GROOVE | GROOVE LANES, TEMPO, SCALE, MIDI CLOCK, MIDI IN, DISPLAY, then round | |
+| **GLO** | GROOVE | GROOVE LANES, TEMPO, SCALE, MIDI CLOCK, MIDI IN, DISPLAY, RANDOM, then round | |
 | **SEL** | Keys: LANDSCAPE / PLAY mode | | The other mode while held: in PLAY mode, SEL held + a black key picks that lane |
-| **SAVE** | The save mode | | 0.7 s: undo the last load or the last sound kept (again: redo) |
+| **SAVE** | The save mode | | 0.7 s: undo the last load, roll or sound kept (again: redo) |
 | **PLAY** | Tap tempo | | 0.6 s: the transport starts / stops |
 | **REC** | All lanes and the transport stop / start | Pressed again within 1.5 s: taps, the tempo from the third press | |
 
@@ -699,6 +702,29 @@ The setup page: **HOME held** opens it, and GLO steps to it.
 | Knob | Card | What it does |
 | --- | --- | --- |
 | K1 | **COLOR** | The screen's accent colour: RED (the default), AMBER, then 25 pastel colours around the colour wheel, from PEACH through PINK, VIOLET, BLUE, CYAN and GREEN to MANGO. Kept by itself. |
+
+### RANDOM
+
+Press **OCT−** and **OCT+** together (the second within 60 ms of the first) to roll the dice: every lane with a sound
+gets what this page ticks. The toast says what rolled: **RANDOM · ROLLED**, then the groups (`ENGINES SOUND
+MOVEMENT`; all four: `EVERYTHING`). The preset name reads **RANDOM**, marked as changed. Hold **SAVE** to undo the
+whole roll in one step; **SAVE** keeps one you like.
+
+With the sound browser open (**SEQ**), the chord rolls a new engine on the browser's lane alone, from any family; the
+browser moves to it. The toast: **LANE 2 · RANDOM**, then the engine's name.
+
+| Knob | Card | What a roll changes (ON / OFF each) |
+| --- | --- | --- |
+| K1 | **ENGINES** | A new engine on every lane, each a different one where it can be (ON at first) |
+| K2 | **SOUND** | Each engine's cards (ON at first) |
+| K3 | **EFFECTS** | COMPRESSOR to M/S: types and amounts; a long, unreal reverb can come up (OFF at first: live, your effects stay) |
+| K4 | **MOVEMENT** | The LFOs, the envelopes and the followers, and 2 to 6 routes: what they move, how far (ON at first) |
+
+- A roll **keeps** each lane's LEVEL, PAN, HOW MANY, HOW ACTIVE and MIDI channel. Levels stay even, the limiter stays
+  on, DRIVE, COMP's make-up and the movement's depths stay moderate: a roll never silences the mix or jumps in level.
+- New engines come in as a preset's do (one lane at a time, the old one ringing out); rolled effects glide.
+- Each roll is a new one. Nothing ticked: nothing rolls, and the screen says **RANDOM: NOTHING TICKED**.
+- The ticks are kept by themselves, with the other settings.
 
 ### The sound browser (SOUNDS)
 
@@ -1749,13 +1775,13 @@ never loses them.
 
 ### Undo
 
-Hold **SAVE** for 0.7 s: the last load (a preset, a landscape, a program change) or the last sound you kept in the
-sound browser is undone. Hold it again to redo.
+Hold **SAVE** for 0.7 s: the last load (a preset, a landscape, a program change), the last roll of the dice
+([RANDOM](#random)) or the last sound you kept in the sound browser is undone. Hold it again to redo.
 
 ### At power-on
 
 Textura comes back with the last preset you loaded, and with your settings: the tempo, the clock, the MIDI channels,
-the scale and the screen colour.
+the scale, the screen colour and RANDOM's ticks.
 
 ## 7. The effects
 
@@ -1930,7 +1956,7 @@ Every parameter is also an NRPN, on any channel that listens: **CC 99** (NRPN MS
 | Scope (CC 99) | Index (CC 98) |
 | --- | --- |
 | **0 to 3**: lane 1 to 4 | 0 SOUND, 1 HOW MANY, 2 HOW ACTIVE, 3 LEVEL, 4 PAN, 8 to 15 the sound's cards 1 to 8, 48 the groove PART, 49 the groove CYCLE |
-| **4**: the globals | 0 to 15 the grain delay (0 MIX, 1 TIME, 2 FEEDBACK, 3 GRAINS, 4 SIZE, 5 SPRAY, 6 PITCH, 7 REVERSE, 8 SPREAD, 9 TONE, 10 GRAIN, 11 FREEZE, 12 SYNC, 13 MOD, 14 MOD RATE, 15 INTERVALS); 16 to 25 the reverb (TYPE, MIX, DECAY, TONE, PREDELAY, SIZE, MOD, LOWCUT, SHIMMER, SHIFT); 26 to 31 the compressor (COMP, THR, ATTACK, REL, RATIO, MAKEUP); 32 BPM, 33 FINE, 35 TRANSPORT, 36 TAP, 37 PRESETS CHANGE TEMPO, 38 EFFECTS ON LOAD; 40 CLOCK, 41 CLK IN USB, 42 CLK IN TRS, 43 CLK OUT; 44 COLOR; 48 to 51 the drive (AMOUNT, TONE, MIX, TYPE); 52 to 55 the filter (HIGH PASS, LOW PASS, RESONANCE, SLOPE); 56 to 58 the groove (AMOUNT, TYPE, SHIFT); 59 SCALE, 60 ROOT, 61 SELECTED CH, 62 to 65 LANE 1 to 4 CHANNEL, 66 SCALE MODE, 67 TRANSP; 96 to 99 the M/S (MID, SIDE, WIDTH, MONO) |
+| **4**: the globals | 0 to 15 the grain delay (0 MIX, 1 TIME, 2 FEEDBACK, 3 GRAINS, 4 SIZE, 5 SPRAY, 6 PITCH, 7 REVERSE, 8 SPREAD, 9 TONE, 10 GRAIN, 11 FREEZE, 12 SYNC, 13 MOD, 14 MOD RATE, 15 INTERVALS); 16 to 25 the reverb (TYPE, MIX, DECAY, TONE, PREDELAY, SIZE, MOD, LOWCUT, SHIMMER, SHIFT); 26 to 31 the compressor (COMP, THR, ATTACK, REL, RATIO, MAKEUP); 32 BPM, 33 FINE, 35 TRANSPORT, 36 TAP, 37 PRESETS CHANGE TEMPO, 38 EFFECTS ON LOAD; 40 CLOCK, 41 CLK IN USB, 42 CLK IN TRS, 43 CLK OUT; 44 COLOR; 48 to 51 the drive (AMOUNT, TONE, MIX, TYPE); 52 to 55 the filter (HIGH PASS, LOW PASS, RESONANCE, SLOPE); 56 to 58 the groove (AMOUNT, TYPE, SHIFT); 59 SCALE, 60 ROOT, 61 SELECTED CH, 62 to 65 LANE 1 to 4 CHANNEL, 66 SCALE MODE, 67 TRANSP; 96 to 99 the M/S (MID, SIDE, WIDTH, MONO); 100 to 103 RANDOM's ticks (ENGINES, SOUND, EFFECTS, MOVEMENT: OFF / ON) |
 | **5**: the LFOs | LFO n (0 to 7) × 16 + 0 SHAPE, 1 RATE, 2 SYNC, 3 MODE, 4 PHASE, 5 WIDTH, 6 JITTER, 7 FADE, 8 RESTART, 9 LEVEL |
 | **6**: envelopes and followers | ENV n (0 or 1) × 16 + 0 TRIGGER, 1 ATTACK, 2 DECAY, 3 RELEASE, 4 SUSTAIN, 5 CURVE, 6 VARY, 7 LOOP; FOLLOW n: 32 + n × 16 + 0 INPUT, 1 ATTACK, 2 RELEASE, 3 GAIN |
 | **7**: the matrix | slot (0 to 15) × 4 + 0 SOURCE, 1 TARGET, 2 DEPTH (64 = 0 %), 3 SPREAD; 64 the MOD CC's number |

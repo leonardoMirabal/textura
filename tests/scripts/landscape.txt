@@ -47,145 +47,145 @@
 4020 expect state vol3 90
 # OCT- on LANDSCAPE: lane 3, LANDSCAPE stays; OCT+ from HOW MANY (SELECT: past the SOUND pages; not a lane's page): lane 4, LANDSCAPE
 4100 btn 0
-4120 expect state sel 3
-4120 expect state page LANDSCAPE
-4130 turn 0 1
-4131 expect state page SOUND_1/2
-4132 turn 0 1
-4133 turn 0 1
-4135 expect state page LANES_1/4
-4138 btn 1
-4140 expect state sel 4
-4140 expect state page LANDSCAPE
-4141 shot
+4180 expect state sel 3
+4180 expect state page LANDSCAPE
+4190 turn 0 1
+4191 expect state page SOUND_1/2
+4192 turn 0 1
+4193 turn 0 1
+4195 expect state page LANES_1/4
+4198 btn 1
+4278 expect state sel 4
+4278 expect state page LANDSCAPE
+4279 shot
 # a black key on LANDSCAPE: LANDSCAPE stays; EDIT: SOUND; OCT on a lane's page (SOUND): the new lane's SOUND page
-4142 keys 0x100000
-4143 keys 0
-4144 expect state page LANDSCAPE
-4145 btn 6
-4146 expect state page SOUND_1/2
-4150 btn 0
-4160 expect state sel 3
-4160 expect state page SOUND_1/2
-4160 shot
+4280 keys 0x100000
+4281 keys 0
+4282 expect state page LANDSCAPE
+4283 btn 6
+4284 expect state page SOUND_1/2
+4288 btn 0
+4368 expect state sel 3
+4368 expect state page SOUND_1/2
+4368 shot
 # a black key on a lane's page (SOUND): lane 2, on LANDSCAPE (left that way: HOME still goes back to the SOUND page, P7)
-4170 keys 0x400
-4171 keys 0
-4172 expect state sel 2
-4172 expect state page LANDSCAPE
-4175 btn 8
-4177 expect state page SOUND_1/2
-4528 btn 8
-4529 expect state page LANDSCAPE
+4378 keys 0x400
+4379 keys 0
+4380 expect state sel 2
+4380 expect state page LANDSCAPE
+4383 btn 8
+4385 expect state page SOUND_1/2
+4736 btn 8
+4737 expect state page LANDSCAPE
 # lane 3 again (F#4, key 13), its SOUND page
-4530 keys 0x2000
-4531 keys 0
-4532 expect state sel 3
-4535 btn 6
-4537 expect state page SOUND_1/2
+4738 keys 0x2000
+4739 keys 0
+4740 expect state sel 3
+4743 btn 6
+4745 expect state page SOUND_1/2
 # ALGORITHM on SOUND: the sound browser; cave drips picked (it is on no other lane now); HOME back
-4550 turn 1 1
-4551 turn 1 -200
-4552 turn 1 3
-4553 btn 6
-4554 btn 8
-4570 expect state snd2 cave_drips
-4650 expect state run2 1
-4700 btn 8
-4710 expect state sel 3
-4710 expect state page LANDSCAPE
+4758 turn 1 1
+4759 turn 1 -200
+4760 turn 1 3
+4761 btn 6
+4762 btn 8
+4778 expect state snd2 cave_drips
+4858 expect state run2 1
+4908 btn 8
+4918 expect state sel 3
+4918 expect state page LANDSCAPE
 # a black key on LANDSCAPE keeps HOME's way back: HOME returns to the SOUND page it left, HOME again LANDSCAPE
-4720 keys 0x2000
-4721 keys 0
-4723 expect state page LANDSCAPE
-5075 btn 8
-5077 expect state page SOUND_1/2
-5430 btn 8
-5432 expect state page LANDSCAPE
+4928 keys 0x2000
+4929 keys 0
+4931 expect state page LANDSCAPE
+5283 btn 8
+5285 expect state page SOUND_1/2
+5638 btn 8
+5640 expect state page LANDSCAPE
 # ALGORITHM: the next landscape, picked, not loaded (the footer names it); EDIT loads it; what played starts the new
 # one low
-5450 turn 1 1
-5650 expect state landscape Water
-5700 shot
-5750 btn 6
-5850 expect state landscape Stones_&_sand
-5850 expect state run0 1
-5850 expect state sel 1
+5658 turn 1 1
+5858 expect state landscape Water
+5908 shot
+5958 btn 6
+6058 expect state landscape Stones_&_sand
+6058 expect state run0 1
+6058 expect state sel 1
 # ALGORITHM: three on, nothing loads while it turns; EDIT loads the one picked
-6050 turn 1 1
-6100 turn 1 1
-6150 turn 1 1
-6440 expect state landscape Stones_&_sand
-6450 btn 6
-6550 expect state landscape Wood
-6550 expect state lane0 source
+6258 turn 1 1
+6308 turn 1 1
+6358 turn 1 1
+6648 expect state landscape Stones_&_sand
+6658 btn 6
+6758 expect state landscape Wood
+6758 expect state lane0 source
 # ALGORITHM: back, then HOME: kept (Wood plays on); again, EDIT: Fire
-6650 turn 1 -1
-6700 btn 8
-6710 expect state msg LANDSCAPE_KEPT
-6710 expect state page LANDSCAPE
-6750 turn 1 -1
-6950 btn 6
-6960 expect state msg LANDSCAPE_FIRE
-6960 expect state toast FIRE
-7050 expect state landscape Fire
-7050 shot
-7150 expect sound
-7150 expect state dropped 0
+6858 turn 1 -1
+6908 btn 8
+6918 expect state msg LANDSCAPE_KEPT
+6918 expect state page LANDSCAPE
+6958 turn 1 -1
+7158 btn 6
+7168 expect state msg LANDSCAPE_FIRE
+7168 expect state toast FIRE
+7258 expect state landscape Fire
+7258 shot
+7358 expect sound
+7358 expect state dropped 0
 # every key in turn (F3 .. G5): none changes the landscape
-7250 keys 0x1
-7260 keys 0
-7270 keys 0x2
-7280 keys 0
-7290 keys 0x4
-7300 keys 0
-7310 keys 0x8
-7320 keys 0
-7330 keys 0x10
-7340 keys 0
-7350 keys 0x20
-7360 keys 0
-7370 keys 0x40
-7380 keys 0
-7390 keys 0x80
-7400 keys 0
-7410 keys 0x100
-7420 keys 0
-7430 keys 0x200
-7440 keys 0
-7450 keys 0x400
-7460 keys 0
-7470 keys 0x800
-7480 keys 0
-7490 keys 0x1000
-7500 keys 0
-7510 keys 0x2000
-7520 keys 0
-7530 keys 0x4000
-7540 keys 0
-7550 keys 0x8000
-7560 keys 0
-7570 keys 0x10000
-7580 keys 0
-7590 keys 0x20000
-7600 keys 0
-7610 keys 0x40000
-7620 keys 0
-7630 keys 0x80000
-7640 keys 0
-7650 keys 0x100000
-7660 keys 0
-7670 keys 0x200000
-7680 keys 0
-7690 keys 0x400000
-7700 keys 0
-7710 keys 0x800000
-7720 keys 0
-7730 keys 0x1000000
-7740 keys 0
-7750 keys 0x2000000
-7760 keys 0
-7770 keys 0x4000000
-7780 keys 0
-8190 expect state landscape Fire
-8290 end
+7458 keys 0x1
+7468 keys 0
+7478 keys 0x2
+7488 keys 0
+7498 keys 0x4
+7508 keys 0
+7518 keys 0x8
+7528 keys 0
+7538 keys 0x10
+7548 keys 0
+7558 keys 0x20
+7568 keys 0
+7578 keys 0x40
+7588 keys 0
+7598 keys 0x80
+7608 keys 0
+7618 keys 0x100
+7628 keys 0
+7638 keys 0x200
+7648 keys 0
+7658 keys 0x400
+7668 keys 0
+7678 keys 0x800
+7688 keys 0
+7698 keys 0x1000
+7708 keys 0
+7718 keys 0x2000
+7728 keys 0
+7738 keys 0x4000
+7748 keys 0
+7758 keys 0x8000
+7768 keys 0
+7778 keys 0x10000
+7788 keys 0
+7798 keys 0x20000
+7808 keys 0
+7818 keys 0x40000
+7828 keys 0
+7838 keys 0x80000
+7848 keys 0
+7858 keys 0x100000
+7868 keys 0
+7878 keys 0x200000
+7888 keys 0
+7898 keys 0x400000
+7908 keys 0
+7918 keys 0x800000
+7928 keys 0
+7938 keys 0x1000000
+7948 keys 0
+7958 keys 0x2000000
+7968 keys 0
+7978 keys 0x4000000
+7988 keys 0
+8398 expect state landscape Fire
+8498 end
