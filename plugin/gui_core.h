@@ -106,6 +106,7 @@ int txg_first_run(const char *dir, int test);
 /* the texts as drawn last, each inside its room (1): what 0 the top bar's (the preset box at its widest name and lane
  * count, the buttons' labels), 1 the tour's card, 3 the place's M/S tab (its half circle round inside the place, its
  * names, levels and correlation in their room), 4 the place's head (the selected lane's name, and the widest sound name
- * at its smallest size, beside the tabs) */
+ * at its smallest size, beside the tabs), 5 the SOUND and EFFECTS zones' (the selected lane's drawer, the strip:
+ * their tags, the band, names clear of values, the heads) */
 int txg_fits(const txg_t *g, int what);
 #endif

@@ -242,6 +242,10 @@ static int gui_png(const clap_plugin_t *p, const txg_gui_shot_t *xs, const char 
     size_t n = dot ? (size_t)(dot - png) : strlen(png);
     xs->tick(p);
     if (!xs->grab(p, 0, &px, &w, &h)) return 5;
+    if (xs->fits(p, 5) != 1) {           /* (every view pictured: the drawer's and the strip's texts in their room) */
+        fprintf(stderr, "gui zones: a text of the drawer or the strip does not fit its room in the view \"%s\"\n", tag);
+        return 5;
+    }
     snprintf(path, sizeof path, "%.*s-%s.png", (int)n, png, tag);
     return png_write(path, px, w, h) ? 5 : 0;
 }
@@ -1256,6 +1260,40 @@ static int gui_topbar(const clap_plugin_t *p, const txg_gui_shot_t *xs, int pw, 
     if (fit != 1) { fprintf(stderr, "gui top bar: a text does not fit its box\n"); bad = 1; }
     return bad;
 }
+/* the two zones under the rows: SOUND (the selected lane's drawer) and EFFECTS (the strip: a 4 px gap, its 20 px band,
+ * then its sections). The drawer's cards above the gap; the sections' heads in order left to right, 8 px apart (the
+ * arrows between them), inside the window, under the band; their two controls under the head and inside the window;
+ * every text of both zones inside its room (gui_core.c's own measure: txg_fits 3), also with a section's drawer open
+ * (its head says CLOSE) */
+static int gui_zones(const clap_plugin_t *p, const txg_gui_shot_t *xs, int pw, int ph)
+{
+    static const uint32_t CELL[7] = { 4u << 8 | 27u, 4u << 8 | 48u, 4u << 8 | 52u, 4u << 8 | 0u, 4u << 8 | 16u, 0, 0 };
+    float s = fminf((float)pw / 1200.f, (float)ph / 720.f), W = (float)pw / s, H = (float)ph / s, fy = H - 148.f, a[7][4], r[4];
+    int bad = 0, k, fit, fit_open;
+    xs->tick(p);
+    for (k = 0; k < 16; k++) if (xs->find(p, W_PARAM, (int)LANE_ID(k, 8), r)) break;
+    if (k == 16) { fprintf(stderr, "gui zones: no card in the drawer\n"); return 5; }
+    if (r[1] + r[3] > fy + 0.01f) { fprintf(stderr, "gui zones: a card (%.0f..%.0f) over the strip's gap (%.0f)\n", r[1], r[1] + r[3], fy); bad = 1; }
+    for (int i = 0; i < 7; i++) {
+        if (!xs->find(p, W_FXOPEN, i, a[i])) { fprintf(stderr, "gui zones: no head for section %d\n", i); return 5; }
+        if (a[i][0] < 0.f || a[i][0] + a[i][2] > W + 0.01f || a[i][1] < fy + 24.f - 0.01f) {
+            fprintf(stderr, "gui zones: section %d's head outside the strip under its band\n", i); bad = 1;
+        }
+        if (i && a[i][0] < a[i - 1][0] + a[i - 1][2] + 8.f - 0.01f) { fprintf(stderr, "gui zones: sections %d and %d closer than 8 px\n", i - 1, i); bad = 1; }
+        if (CELL[i] && (!xs->find(p, W_PARAM, (int)CELL[i], r) || r[1] < a[i][1] + a[i][3] - 0.01f || r[1] + r[3] > H + 0.01f ||
+                        r[0] < a[i][0] - 0.01f || r[0] + r[2] > a[i][0] + a[i][2] + 0.01f)) {
+            fprintf(stderr, "gui zones: section %d's first control not under its head, inside it\n", i); bad = 1;
+        }
+    }
+    fit = xs->fits(p, 5);
+    if (!gui_hit(p, xs, W_FXOPEN, 0) || !gui_open_fx(p, xs, 0)) { fprintf(stderr, "gui zones: COMP's drawer did not open\n"); return 5; }
+    fit_open = xs->fits(p, 5);
+    if (!gui_hit(p, xs, W_FXOPEN, 0) || !gui_open_fx(p, xs, -1)) { fprintf(stderr, "gui zones: COMP's drawer did not close\n"); return 5; }
+    printf("gui zones: SOUND's cards above the gap (%.0f), EFFECTS' 7 heads from %.0f, in order, 8 px apart or more; texts %s, with "
+           "COMP's drawer open %s\n", fy, a[0][1], fit == 1 ? "whole" : "CUT", fit_open == 1 ? "whole" : "CUT");
+    if (fit != 1 || fit_open != 1) { fprintf(stderr, "gui zones: a text of the drawer or the strip does not fit its room\n"); bad = 1; }
+    return bad;
+}
 /* HELP and the tour: HELP shows step 1 (one click); NEXT through the eight, each
  * card inside the window (8 px in) and off the part it lights, that part inside the window, the card's texts whole; DONE
  * closes it and writes the flag; MANUAL on step 8 only; BACK (none on step 1), Right / Return / Left, Esc; SKIP writes the flag too. The flag
@@ -1625,6 +1663,7 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int
     }
     if (gui_top(p, xs, pw, ph)) bad = 1;
     if (gui_topbar(p, xs, pw, ph)) bad = 1;
+    if (gui_zones(p, xs, pw, ph)) bad = 1;
     if (gui_tour(p, xs, png, pw, ph)) bad = 1;
     if (gui_mstab(p, xs, png)) bad = 1;
     png_shot = png;

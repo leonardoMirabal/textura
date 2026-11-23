@@ -129,9 +129,11 @@ From top to bottom:
 - **The top bar**: HELP, the preset, SAVE, UNDO, PLAY ALL, LANES, the output level, the dice (RANDOM),
   SETTINGS.
 - **The place** (left) and **the lanes** (right): where each engine stands, and one row for each lane.
-- **The drawer**: the selected lane's engine, all its cards (DIST among them), and its PAN, LEVEL and groove.
-- **The strip**: the effects in signal order (COMP, DRIVE, FILTER, DELAY, REVERB) and the movement (the LFOs).
-  Every section opens to all its parameters.
+- **The drawer**, the **SOUND** zone: the selected lane's engine, all its cards (DIST among them), and its PAN, LEVEL
+  and groove, on a warmer, lighter ground with a red rail at its left.
+- **The strip**, the **EFFECTS** zone: the whole mix, after all lanes: the effects in signal order (COMP, DRIVE, FILTER,
+  DELAY, REVERB, M/S) and the movement (the LFOs), darker and cooler, under a dark gap and its band. Every section
+  opens to all its parameters.
 
 Every value in the window works the same way. An amount is a **fader**: its name and value over a track, the part up
 to the value filled, a handle at the value (a bipolar one, as PAN or a route's DEPTH, fills from its middle). While an
@@ -267,21 +269,26 @@ its play triangle is red, the others play on, and PLAY ALL still brings lane 2 b
 
 ![The drawer: the selected lane's cards, moved ones red with their tags](plugin/img/window-4-lanes.png)
 
-Under the place and the rows, the **drawer** shows the selected lane:
+Under the place and the rows, the **drawer** shows the selected lane. It is the **SOUND** zone: a warmer, lighter
+ground than the strip under it, a red rail along its left edge, its cards lifted off that ground.
 
-- **At the left**: **LANE n · FAMILY**, the engine in large letters, the engine's colour (click it for the picker), a
+- **At the left**: the tag **SOUND · LANE n · FAMILY**, the engine in large letters (a long name a size smaller, never
+  cut), the engine's colour (click it for the picker), a
   line with MANY, ACTIVE, VOL and the lane's MIDI channel, STOPPED or MUTED, **CHANGE ENGINE** (the engine browser) and **STOP LANE** / **PLAY LANE**: the row's STOP / PLAY button again.
 - **In the middle**: **every card** of the engine, up to eight, four to a row, each a fader. Each card shows its name,
   its value in its own unit, and what it does (the FM-1 manual's line for it, wrapped to the card; one too long for
-  it shows whole when the mouse rests on the card). A card a source moves has a red name, its reach and live tick, and a tag for each source. The
+  it shows whole when the mouse rests on the card; two lines, light enough to read at a glance). A card a source moves has a red name, its reach and live tick, and a tag for each source. The
   engine's **DIST** card is here too (the MAP's near and far).
-- **At the right**: the lane's **PAN**, **LEVEL**, and its groove **PART** and **CYCLE**
+- **At the right**: the lane's **PAN**, **LEVEL**, and its groove **PART** (named **GROOVE** there) and **CYCLE**
   ([the groove](MANUAL.md#the-groove)).
 
 ### The strip
 
-The strip at the bottom shows the mix's effects in the order the sound goes through them, then the movement. Each
-section has a dot (lit while it acts), a small picture and its two main values:
+The strip at the bottom is the **EFFECTS** zone: the whole mix, after all lanes. It is darker and cooler than the drawer,
+under a dark gap and a band that says so: **EFFECTS · THE WHOLE MIX, AFTER ALL LANES, LEFT TO RIGHT**. It shows the
+mix's effects in the order the sound goes through them, a small **›** between each and the next (COMP › DRIVE › FILTER ›
+DELAY › REVERB › M/S), then the movement, on a tinted ground: it moves values and takes no sound. Each section has a
+dot (lit while it acts), a small picture and its two main values:
 
 | Section | Picture | In the strip | Its drawer (click the header) |
 | --- | --- | --- | --- |
@@ -296,7 +303,8 @@ section has a dot (lit while it acts), a small picture and its two main values:
 **Click a section's header** (or **ALL ›**) to open its **drawer**. It rises from the strip in place of the lane's
 drawer: a large live picture at the left, every parameter of the effect at the right in small titled groups. The place
 and the rows stay above it and work as always (select a lane, drag a dot, set HOW MANY); the rows scroll. The open
-section is lit with a red top edge and reads **CLOSE ×**. Click another section to switch; click CLOSE or press Esc to
+section is lit with a red top edge and reads **CLOSE ×** (COMP, whose ON switch takes its head's room: **›** and **×**
+alone). Click another section to switch; click CLOSE or press Esc to
 close. MOVEMENT opens the same drawer with the tabs **LFO 1** to **LFO 8**, **ENV · FOLLOW** and **MATRIX**. What each
 effect parameter does: [the effects](MANUAL.md#7-the-effects) in the FM-1 manual.
 

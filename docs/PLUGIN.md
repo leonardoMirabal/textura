@@ -176,13 +176,19 @@ change from anywhere else (a preset, the host) forgets them.
   A click anywhere on a row selects its lane (the name
   too: it does not open the browser); the row's controls (STOP / PLAY, HOW MANY, HOW ACTIVE, PAN, CH, VOL, M, S) select it as
   well; only the engine button opens the browser.
-- **Drawer** (the selected lane): its engine, colour, MANY / ACTIVE / VOL and channel, CHANGE ENGINE and beside it **STOP LANE** / **PLAY LANE** (`TXG_W_DRUN`, the
+- **Drawer** (the selected lane), the SOUND zone: a warmer, lighter ground (`C_SND`, cards `C_SNDCARD`, lines
+  `C_SNDLINE`), a 4 px red rail at its left, the tag SOUND · LANE n · FAMILY (`snd_tag`); its engine (a size down, to
+  15 px, when too long; never cut), colour, MANY / ACTIVE / VOL and channel, CHANGE ENGINE and beside it **STOP LANE** / **PLAY LANE** (`TXG_W_DRUN`, the
   row button's twin); **every card** of the engine (up
   to `SCD_MAX`, 8) with its name, its value in its unit, and its hint (the FM-1 manual's line for that card:
   `plugin/card_hints.h`, made from `docs/MANUAL.md` section 5 by `tools/plugin_card_hints.py`; wrapped to the lines that fit above the fader, the last cut with `...`,
-  a longer one whole on hover, `TXG_W_TIP`), DIST among them; PAN, LEVEL, GROOVE PART and CYCLE. A value the
-  modulation moves now is red with a `~`.
-- **Strip** (bottom): COMP, DRIVE, FILTER, DELAY, REVERB in the mix's order, each with its picture (COMP's meters:
+  a longer one whole on hover, `TXG_W_TIP`; 11 px in `C_DESC`, two lines), DIST among them; PAN, LEVEL, GROOVE PART
+  (its short form GROOVE: the full name and OFFBEAT do not fit side by side) and CYCLE. A value the modulation moves now
+  is red with a `~`. `pcell` draws in the zone set by `g->zone` (1 SOUND, 2 EFFECTS: its colours, the card's sizes).
+- **Strip** (bottom), the EFFECTS zone: darker and cooler (`C_FX`, sections `C_FXSEC`, MOVEMENT's `C_FXMOV`), a 4 px
+  dark gap over it and a 20 px band (EFFECTS · THE WHOLE MIX, AFTER ALL LANES, LEFT TO RIGHT; `FX_GAP`, `FX_BAND`,
+  taken from the strip's own 148 px, so nothing above it moves), a small › between COMP .. M/S; COMP, DRIVE, FILTER,
+  DELAY, REVERB, M/S in the mix's order, each with its picture (COMP's meters:
   IN, OUT and GR read off the app's compressor every app block, `tx_comp_t` `ef` / `es`, `g`, `gr`, their most since
   the last publication, with a VU's ballistics in `txg_tick`; the expanded COMP adds its curve), drive curve, the filter's response with HIGH PASS then LOW PASS marked, the echoes, the tail) and its main values;
   then MOVEMENT, two source tiles (the connected ones first; `+n` more). A section's header (or ALL ›) opens its
@@ -326,7 +332,11 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
   after them, its names whole (the widest sound name at its smallest size too); the M/S view's half circle round
   inside the place under the tabs, its levels and correlation under it, no lane's dot, every text in its room, and
   the view saved (`"view":"2"`); the top bar's items in order and apart, every text in
-  its box at its widest (the scene's box at the widest preset name); HELP's one click, the tour's eight steps
+  its box at its widest (the scene's box at the widest preset name); the two zones (`gui zones`: the drawer's cards
+  above the strip's gap, the seven section heads in order 8 px apart under the band, their controls under their heads,
+  and every text of the drawer and the strip inside its room, `txg_fits` 5: the tag, every catalogue sound's name and
+  family, the left column's lines, the buttons' labels, each name clear of its widest value, the band, the heads, also
+  with COMP's drawer open; checked again in every view pictured); HELP's one click, the tour's eight steps
   (each card inside the window and off the part it lights, NEXT, BACK, DONE, SKIP, MANUAL on the last, the keys) and its first-run flag
   (none: it starts; there, or a test run: it does not; it never starts by itself in the tests). KEYS = FM-1 KEYS (`plugin/tests/scripts/keys.txt`):
   the black keys pick a lane, the white keys set its HOW MANY and HOW ACTIVE, G#5 picks lane 5. The card hints must
