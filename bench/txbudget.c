@@ -190,8 +190,8 @@ static void keep6(preset_cost_t *p, const cost_t *c, const char *by)
     p->worst8_6 = tx_max(p->worst8_6, c->worst8);
 }
 
-/* ---- the output chain: the mix with L lanes (pan + sum), CHAMBER, limiter ---- */
-static double chain_us(unsigned lanes, int chamber_on)
+/* ---- the output chain: the mix with L lanes (pan + sum; hp: HEADPHONES, binaural), CHAMBER, limiter ---- */
+static double chain_us(unsigned lanes, int chamber_on, int hp)
 {
     tx_mix_t *m = malloc(sizeof *m);
     tx_chamber_t *ch = malloc(sizeof *ch);
@@ -206,6 +206,7 @@ static double chain_us(unsigned lanes, int chamber_on)
         tx_chamber_init(ch);
         m->ch = ch; m->ch_on = chamber_on;
         for (k = 0; k < TX_MIX_SLOTS; k++) tx_mix_pan(m, k, 20 + 30 * k);
+        if (hp) tx_mix_phones(m, TX_MIX_HEADPHONES);
         t0 = tx_now_ns();
         for (b = 0; b < 400; b++) {
             tx_mix_begin(m, TX_BLOCK);
@@ -362,7 +363,7 @@ int main(int argc, char **argv)
     static preset_cost_t P[64];
     unsigned np, i, k, j;
     int a;
-    double ch_on4, ch_off4, ch_off0, ch_off11, lane_us, chamber, plat, pool4p, pool4d, pool11p, pool11d;
+    double ch_on4, ch_off4, ch_off0, ch_off11, hp_off0, hp_off11, lane_us, lane_hp, chamber, plat, pool4p, pool4d, pool11p, pool11d;
     FILE *csv;
     static cost_t MC[8][4];
     for (a = 1; a < argc; a++) {
@@ -378,7 +379,7 @@ int main(int argc, char **argv)
     np = (unsigned)src->params[tx_param_find(src, "PRESET")].max + 1u;
     if (np > 64) np = 64;
 
-    ch_off0 = ch_off4 = ch_on4 = ch_off11 = 1e30;
+    ch_off0 = ch_off4 = ch_on4 = ch_off11 = hp_off0 = hp_off11 = 1e30;
     for (pass = 0; pass < passes; pass++) {
     cidx = 0;
     memset(P, 0, sizeof P);
@@ -424,14 +425,17 @@ int main(int argc, char **argv)
             } else src_run(src, (unsigned)l->preset, l->intensity, 64, 6, 0, 0, c);
         }
     { double v;
-      if ((v = chain_us(0, 0)) < ch_off0) ch_off0 = v;
-      if ((v = chain_us(4, 0)) < ch_off4) ch_off4 = v;
-      if ((v = chain_us(4, 1)) < ch_on4) ch_on4 = v;
-      if ((v = chain_us(11, 0)) < ch_off11) ch_off11 = v; }
+      if ((v = chain_us(0, 0, 0)) < ch_off0) ch_off0 = v;
+      if ((v = chain_us(4, 0, 0)) < ch_off4) ch_off4 = v;
+      if ((v = chain_us(4, 1, 0)) < ch_on4) ch_on4 = v;
+      if ((v = chain_us(11, 0, 0)) < ch_off11) ch_off11 = v;
+      if ((v = chain_us(0, 0, 1)) < hp_off0) hp_off0 = v;
+      if ((v = chain_us(11, 0, 1)) < hp_off11) hp_off11 = v; }
     }
     fprintf(stderr, "\n");
 
     lane_us = (ch_off11 - ch_off0) / 11;
+    lane_hp = (hp_off11 - hp_off0) / 11;
     chamber = ch_on4 - ch_off4;
     plat = PLAT_FIXED_US + PLAT_TAIL48_US + PLAT_TICK_US;
     /* the sources' pool: the plan ceiling less the platform, then Textura's own (measured) parts */
@@ -450,6 +454,7 @@ int main(int argc, char **argv)
     printf("   platform: timer tick with the velocity scan              %6.0f    %5.1f   [E] 699 insns x 58 x 4.4 ns\n", PLAT_TICK_US, 100 * PLAT_TICK_US / BLOCK_US);
     printf("   output: mix fixed + limiter                              %6.0f    %5.1f   measured\n", ch_off0, 100 * ch_off0 / BLOCK_US);
     printf("   output: per lane (pan + sum)                             %6.1f    %5.2f   measured\n", lane_us, 100 * lane_us / BLOCK_US);
+    printf("   output: per lane, HEADPHONES (binaural pan + sum)         %6.1f    %5.2f   measured (16 lanes: %.0f us)\n", lane_hp, 100 * lane_hp / BLOCK_US, 16 * lane_hp);
     printf("   output: CHAMBER                                          %6.0f    %5.1f   measured\n", chamber, 100 * chamber / BLOCK_US);
     printf("   effects reserve (granular delay)                         %6.0f    %5.1f   [E] not designed yet\n", FX_RESERVE_US, 100 * FX_RESERVE_US / BLOCK_US);
     printf("   SOURCES POOL, 4 lanes: device %5.0f us (%4.1f %%), planned on host estimates (/ %.1f) %5.0f us (%4.1f %%)\n",

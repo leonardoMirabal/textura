@@ -21,6 +21,14 @@
 #define TX_MIX_SLOTS 4u                    /* (the FM-1's four lanes; the desktop plugin's build sets 16) */
 #endif
 #define TX_MIX_GATE_N 512u                 /* the gate's ramp: 11.6 ms at 44.1 kHz, no click */
+/* the output mode (tx_mix_phones): SPEAKERS pans by level alone (constant power), HEADPHONES binaurally: the far ear
+ * gets the slot late (the interaural time difference of a spherical head, up to 29 samples = 0.66 ms at a hard pan,
+ * whole samples at rest, read between two while it glides), through the head's shadow (a one-pole low-pass, 1.8 kHz at a hard pan, as a high shelf:
+ * its highs kept at 0.4) and softer (constant power on a narrower arc: the far ear -10 dB at a hard pan). At the
+ * centre the two modes are the same, bit for bit (a slot's peak never over 8 full scale) */
+#define TX_MIX_SPEAKERS 0u
+#define TX_MIX_HEADPHONES 1u
+#define TX_BIN_N 32u                       /* a slot's history for the far ear (a power of two over the 29 + 1 samples read) */
 #ifndef TX_LINE                    /* (as tx_fx_drv.h's: a buffer one core writes while the other works, its own lines) */
 #ifdef __PI32V2__
 #define TX_LINE __attribute__((aligned(64)))
@@ -59,6 +67,17 @@ typedef struct {
     int32_t L[TX_BLOCK];
     int32_t R[TX_BLOCK] TX_LINE;         /* (its own lines: the pair's DRIVE may run R on the other core) */
     int32_t blk[TX_BLOCK], mid[TX_BLOCK], ilv[2 * TX_BLOCK];   /* (free while pre runs: TX_MIX_SCR) */
+    /* HEADPHONES (tx_mix_phones): the mode, and per slot its ears' state (each ear: its delay, Q16 samples; its
+     * shadow's low-pass coefficient a and high-shelf gain b, Q15; its gain, Q14; a, b and the gain kept << 8 so a
+     * block's ramp lands on its target; now and wanted, ramped over a block, the delay at most 1/16 sample a sample) and
+     * its history; run: the binaural path on (HEADPHONES, or back to SPEAKERS until every ear has reached it) */
+    unsigned hp;
+    struct {
+        struct { int32_t d, dt, a, at, b, bt, g, gt, lp; } e[2];   /* 0 left, 1 right */
+        int32_t r[TX_BIN_N];
+        uint32_t w;
+        uint8_t pan, run;
+    } bin[TX_MIX_SLOTS];
 } tx_mix_t;
 /* blk, mid, ilv in a row: 4 KB that pre may use as the other core's scratch (they start on a line after R's) */
 #define TX_MIX_SCR(m) ((void *)(m)->blk)
@@ -68,6 +87,9 @@ void tx_mix_init(tx_mix_t *m);
 /* put an engine in slot k (initialised here with seed), or empty it (e = 0) */
 void tx_mix_set(tx_mix_t *m, unsigned k, const tx_engine_t *e, void *st, uint32_t seed);
 void tx_mix_pan(tx_mix_t *m, unsigned k, unsigned pan);   /* 0 left .. 64 centre .. 127 right */
+/* the output mode: TX_MIX_SPEAKERS (the default: tx_mix_init's) or TX_MIX_HEADPHONES (binaural); every slot glides to
+ * it over a block or two, no click */
+void tx_mix_phones(tx_mix_t *m, unsigned mode);
 void tx_mix_trim(tx_mix_t *m, unsigned k, unsigned q12);  /* the slot's level trim, Q12 (a landscape sound's own level) */
 /* the slot's level, 0..127 (100: unity; tx_level_q15's square law): on its output, whatever the engine (no voice
  * waits to renew), ramped over the next block so it never clicks */

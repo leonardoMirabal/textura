@@ -5,7 +5,8 @@
 #                      Python venv (requirements.txt), the JieLi toolchain (tools/get_toolchain.sh), the 3 SDK files
 #                      (tools/get_sdk.sh, sha256-checked), Emscripten (tools/get_emsdk.sh), Playwright's Chromium,
 #                      the fonts for fw-fonts (tools/get_fonts.sh, sha256-checked). Docker runs the toolchain.
-#   make tx-test       the checks (txtest with UBSan, no-float source scan, no libcalls on a 32-bit target)
+#   make tx-test       the checks (txtest with UBSan, no-float source scan, no libcalls on a 32-bit target; txbintest:
+#                      the mix's HEADPHONES mode)
 #   make tx-render     every engine x every standard scene -> build/wav/   (one: make tx-render ENGINE=test SCENE=tap)
 #                      (through the CHAMBER: build/bench/txrender ENGINE SCENE -c -> build/wav/ENGINE-SCENE-chamber.wav)
 #   make tx-bench      CPU per block + the FM-1 estimate (runs tx-calib first; CALIB=0 skips the calibration;
@@ -140,7 +141,12 @@ tx-fx-tables: $(B)/gen_fx_tables
 tx-drive-tables:
 	.local/venv/bin/python tools/gen_drive_tables.py
 
-tx-test: $(B)/txtest tx-libcalls
+$(B)/txbintest: bench/txbintest.c $(ENG_SRC) $(ENG_HDR)
+	@mkdir -p $(B)
+	$(CC) $(CSTD) -O1 -g $(UBSAN) -o $@ bench/txbintest.c $(ENG_SRC) -lm
+
+tx-test: $(B)/txtest $(B)/txbintest tx-libcalls
+	$(B)/txbintest
 	$(B)/txtest
 
 # the effects' pristine measurement (bench/txpristine.c): the DRIVE TYPEs on quiet and loud sines, at rest, under a
