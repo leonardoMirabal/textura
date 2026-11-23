@@ -38,5 +38,8 @@ typedef struct {
     /* the M/S's meters as the app published them last: L R M S peaks (dBFS x 10, -900 silence), the correlation (Q15)
      * and the goniometer's block count (a new block of points: another count) */
     bool (*ms)(const clap_plugin_t *plugin, int db10[4], int *corr, uint32_t *gon_blk);
+    /* SAVE's panel as painted last: its user preset (0 .. 15), its name, the line under it (what SAVE does; n bytes),
+     * every text inside its room (fit 1); false: closed */
+    bool (*save)(const clap_plugin_t *plugin, int *slot, char name[12], char *line, int n, int *fit);
 } txg_gui_shot_t;
 #endif

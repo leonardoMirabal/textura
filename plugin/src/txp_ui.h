@@ -82,5 +82,8 @@ int txp_ui_roll(txp_core *c, int lane);               /* the dice: a random engi
 /* the scene that plays saved into user scene slot (0 .. 15: U01 .. U16), named (11 characters: A .. Z, 0 .. 9, space
  * - & ' .; empty: the landscape's name); kept with the project */
 void txp_ui_save(txp_core *c, int slot, const char *name);
+/* SAVE's name drawn: two words of places and their weather (firmware/src/scn_words.h, as the FM-1's save mode), never
+ * a user scene's name nor avoid (the one shown; 0: none); random each time (fixed under the tests) */
+void txp_ui_name(txp_core *c, const char *avoid, char out[12]);
 void txp_ui_tempo(txp_core *c, int bpm10);            /* the app's own tempo (BPM x 10; the host's leads) */
 #endif

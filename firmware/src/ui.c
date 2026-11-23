@@ -65,7 +65,8 @@
  *              cursor's sound (a stopped lane: loaded stopped), the list stays; HOME, SEQ again or any other button:
  *              closed, the kept sound back on the lane (never the audition); OCT / a black key: another lane (the
  *              one left back to its kept sound)
- *   SAVE       the save mode (scenes.c: PRESETS / K1 the user scene, SAVE again saves, HOME cancels); held 700 ms:
+ *   SAVE       the save mode (scenes.c: on the first free user scene, a name drawn; PRESETS / K1 the user scene,
+ *              K2 K3 the name's letters, K4 another name, SAVE again saves, HOME cancels); held 700 ms:
  *              undo the last scene load or the last sound kept (again: redo)
  *   PRESETS    the presets list, over the rows like SOUNDS: one list, each family's header then its presets, USER
  *              (the saved scenes), LANDSCAPES last (each landscape's start, L01..L10: a starting point, as ALGORITHM +
@@ -389,7 +390,7 @@ static void ui_toast_text(const char *hd, const char *fam, const char *nm)
 static void ui_toast(const char *hd, uint32_t idx)   /* scene idx (0xFF: the landscape that plays; SCN_RND: a roll) */
 {
     char f[16], s[24];
-    if (idx == SCN_RND) { p_strcpy(f, "DICE", 15); scn_name_of(idx, s); }
+    if (idx == SCN_RND) { f[0] = 0; scn_name_of(idx, s); }   /* (a roll: "RANDOM" alone, no family) */
     else if (idx < SCN_N) { p_strcpy(f, idx < SCN_NF ? pr_cat_name(pr_cat_of(idx)) : "USER", 15); scn_name_of(idx, s); }
     else { p_strcpy(f, "LANDSCAPE", 15); p_upper(s, LS[sc.fam].name, 20); }
     ui_toast_text(hd, f, s);
@@ -530,11 +531,11 @@ static void ui_bpm_text(char *b)                /* "120.0" */
 }
 
 /* what plays: the preset's family and its name ("COAST", "F034 HARBOUR NIGHT"; a load under way: the one coming),
- * 1; a roll of the dice: "DICE", "RANDOM", 1; none loaded: "LANDSCAPE" and the landscape's name, 0 */
+ * 1; a roll of the dice: no family, "RANDOM", 1; none loaded: "LANDSCAPE" and the landscape's name, 0 */
 static int ui_preset_of(char *fam, char *nm)
 {
     uint32_t q = scn_busy() ? scn_ap_idx : scn_cur;
-    if (q == SCN_RND) { p_strcpy(fam, "DICE", 15); scn_name_of(q, nm); return 1; }
+    if (q == SCN_RND) { fam[0] = 0; scn_name_of(q, nm); return 1; }
     if (q >= SCN_N) { p_strcpy(fam, "LANDSCAPE", 15); p_upper(nm, LS[sc.fam].name, 20); return 0; }
     p_strcpy(fam, q < SCN_NF ? pr_cat_name(pr_cat_of(q)) : "USER", 15);
     scn_name_of(q, nm);
@@ -595,7 +596,7 @@ static void draw_header(void)
         char fam[16];
         int32_t xl = 10;
         (void)ui_preset_of(fam, nm);
-        if (ui_g == G_LAND) { xl = aa_text(10, S_TOP(10), &AF_S, fam, FC_LAB, FC_BG) + 4; cv_rect(xl, 9, 2, 2, FC_LAB); xl += 6; }
+        if (ui_g == G_LAND && fam[0]) { xl = aa_text(10, S_TOP(10), &AF_S, fam, FC_LAB, FC_BG) + 4; cv_rect(xl, 9, 2, 2, FC_LAB); xl += 6; }
         ui_fit(nm, x - xl - 4 - (scn_edited ? aa_text_w(&AF_S, "*") : 0));
         if (scn_edited) p_cat(nm, "*", 31);
         aa_text(xl, S_TOP(10), &AF_S, nm, FC_VAL, FC_BG);
@@ -1075,8 +1076,7 @@ static void draw_toast(void)
         cv_oy -= part * (int32_t)(TO_H / 2u);
         cv_frame(0, 0, TO_W, TO_H, 2);
         x = aa_text_ov(12, S_TOP(20), &AF_S, ui_toast_hd, UI_ACC);
-        cv_rect(x + 3, 19, 2, 2, FC_LAB);
-        x = aa_text_ov(x + 9, S_TOP(20), &AF_S, ui_toast_fam, FC_LAB);
+        if (ui_toast_fam[0]) { cv_rect(x + 3, 19, 2, 2, FC_LAB); x = aa_text_ov(x + 9, S_TOP(20), &AF_S, ui_toast_fam, FC_LAB); }
         if (code[0]) aa_text_ov(x + 8, S_TOP(20), &AF_S, code, FC_VAL);
         if (big) aa_text_ov(12, L_TOP(52), &AF_L, nm, FC_VAL);
         else { p_strcpy(h, nm, 31); ui_fit(h, (int32_t)TO_W - 24); aa_text_ov(12, S_TOP(52), &AF_S, h, FC_VAL); }
@@ -1177,7 +1177,23 @@ static void draw_footer(void)
         ft_c(7, t, FC_VAL);
         { char c[2] = {scn_nm[scn_nm_pos], 0}; t[12 + scn_nm_pos] = 0; xc = x0 + aa_text_w(&AF_S, t); wc = c[0] != ' ' ? aa_text_w(&AF_S, c) : 6; }
         cv_rect(xc, 13, wc, 2, mt.edge);
-        ft_c(23, "K2 K3: NAME  SAVE: YES  HOME: NO", FC_DIM);
+        if (scn_meta[scn_save_slot].used) {     /* a used slot: SAVE replaces it, said in red, with its name (all 16
+                                                 * used: said, the slot alone: the old name would not fit beside it) */
+            char r[48];
+            scn_name_of(SCN_NF + scn_save_slot, m);
+            if (scn_n_used() >= SCN_NU) m[3] = 0;
+            p_strcpy(r, scn_n_used() >= SCN_NU ? "ALL 16 USED: REPLACES " : "REPLACES ", 47);
+            p_cat(r, m, 47);
+            ft_c(23, r, UI_ACC);
+#ifdef DINGHY_HOST
+            p_strcpy(ui_ft2, r, 47);
+#endif
+        } else {
+            ft_c(23, "K2-K4: NAME  SAVE: YES  HOME: NO", FC_DIM);
+#ifdef DINGHY_HOST
+            p_strcpy(ui_ft2, "K2-K4: NAME  SAVE: YES  HOME: NO", 47);
+#endif
+        }
     }
     else if (ui_msg_t && ui_now() - ui_msg_t < MSG_MS) ft_c(15, ui_msg, FC_VAL);
     else if (ub.on && ub.opt) { ft_c(7, "K1 K2: CHOOSE", FC_LAB); ft_two(22, "FX: PRESETS", "HOME: CLOSE", FC_DIM); }
@@ -1247,7 +1263,7 @@ static void draw_footer(void)
             if (mod_cc_learn) ft_c(7, "SEND A CC: MOD CC", FC_LAB);
             else { p_strcpy(v, "SLOT ", 23); p_fmt_int(v + 5, ui_slot + 1); ft_alg(7, "WHICH SLOT", v); }
         }
-        else ft_c(7, ui_g == G_TEMPO ? "PLAY: TAP, HOLD: START / STOP" : ui_g == G_MIDI ? "CLOCK OUT: IN MASTER" : "THE SCREEN'S COLOUR, KEPT", FC_LAB);
+        else ft_c(7, ui_g == G_TEMPO ? "PLAY: TAP, HOLD: START / STOP" : ui_g == G_MIDI ? "CLOCK OUT: IN MASTER" : ui_g == G_RANDOM ? "OCT - AND OCT + TOGETHER: ROLL" : "THE SCREEN'S COLOUR, KEPT", FC_LAB);
         if (ui_g == G_LANES) {                  /* (SELECT walks them) */
             p_strcpy(t, "SELECT: NEXT > ", 31); p_cat(t, ui_title_of(ui_sub < 3u ? G_LANES : G_FX, ui_sub < 3u ? ui_sub + 1u : 0u), 31);
             ft_c(22, t, FC_DIM);
@@ -2019,10 +2035,10 @@ static void ui_input(uint32_t b, uint32_t rel)
     uint32_t i;
     for (i = 0; i < 7u; i++) d[i] = fm1_enc_take(i) + tx_inj_steps(i);
     if (ui_splash_on) for (i = 0; i < 7u; i++) if (d[i] || b) ui_splash_t = fm1_ms - UI_SPLASH_MS;
-    if (scn_input(b, rel, d[ENC_PRESETS], d[ENC_KNOB1], d[ENC_KNOB2], d[ENC_KNOB3])) {   /* (the save mode takes
-                                                         * PRESETS, K1 .. K3 and HOME) */
+    if (scn_input(b, rel, d[ENC_PRESETS], d[ENC_KNOB1], d[ENC_KNOB2], d[ENC_KNOB3], d[ENC_KNOB4])) {   /* (the save
+                                                         * mode takes PRESETS, K1 .. K4 and HOME) */
         if (ub.on) ub_close();
-        d[ENC_PRESETS] = d[ENC_KNOB1] = d[ENC_KNOB2] = d[ENC_KNOB3] = 0;
+        d[ENC_PRESETS] = d[ENC_KNOB1] = d[ENC_KNOB2] = d[ENC_KNOB3] = d[ENC_KNOB4] = 0;
         b &= ~(1u << BTN_HOME | 1u << BTN_OCT_DOWN);
     }
     ub_poll();

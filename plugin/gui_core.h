@@ -71,7 +71,8 @@ enum { TXG_W_NONE, TXG_W_ROW, TXG_W_VOL, TXG_W_MUTE, TXG_W_SOLO, TXG_W_DOT, TXG_
        /* the dice: a row's (lane k: a random engine on it), the top bar's (RANDOM's list), the list's ticks (lane: the
         * group, 0 .. 3 ENGINES SOUND EFFECTS MOVEMENT) and ROLL; its CLOSE is TXG_W_CLOSE, its panel TXG_W_PICKER, -3;
         * the top bar's LEVEL (never hit: its label, value and bar, for the tests) */
-       TXG_W_DICE, TXG_W_RND, TXG_W_RNDTICK, TXG_W_RNDGO, TXG_W_LVL };
+       TXG_W_DICE, TXG_W_RND, TXG_W_RNDTICK, TXG_W_RNDGO, TXG_W_LVL,
+       TXG_W_NAMEDICE };   /* (SAVE's dice beside the name: another name drawn) */
 
 typedef struct txg txg_t;
 txg_t *txg_new(txp_core *c);             /* NULL: out of memory or the font did not load */
@@ -82,7 +83,10 @@ int txg_tick(txg_t *g);                  /* reads what plays; 1 when a repaint i
 int txg_paint(txg_t *g);                 /* its own canvas brought up to date; 1 when pixels changed */
 const uint32_t *txg_pixels(const txg_t *g, int *w, int *h);   /* 0xFFRRGGBB */
 int txg_input(txg_t *g, const frg_input *e);   /* bit 0: what is drawn may have changed; bit 1: the event was used */
-int txg_find(const txg_t *g, int kind, int lane, float r[4]);   /* a control of the last draw (logical x y w h): 1 */
+int txg_find(const txg_t *g, int kind, int lane, float r[4]);
+/* SAVE's panel as drawn: its user preset (0 .. 15), its name, the line under it (n bytes), every text inside its room
+ * (fit 1); 0: not open */
+int txg_save_info(txg_t *g, int *slot, char name[12], char *line, int n, int *fit);   /* a control of the last draw (logical x y w h): 1 */
 const frg_client *txg_client(txg_t *g);  /* for a platform view (gui_platform.h) */
 void txg_fit_size(uint32_t *w, uint32_t *h);   /* the nearest size the window takes (each side in its range) */
 #endif

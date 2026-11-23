@@ -54,6 +54,35 @@ static void dice_seed(uint32_t s)
     (void)dice_r();
 }
 
+/* ---- a new user scene's name (scn_words.h): drawn on this dice, never a saved scene's name nor the one shown */
+#include "scn_words.h"
+static uint32_t dice_wr(void *ctx) { (void)ctx; return dice_r(); }
+static uint32_t dice_nm_len(const char *s)       /* (its length, trailing spaces off: 11 at most) */
+{
+    uint32_t n = 0, e = 0;
+    while (n < 11u && s[n]) { n++; if (s[n - 1u] != ' ') e = n; }
+    return e;
+}
+static int dice_nm_eq(const char *a, const char *b)
+{
+    uint32_t n = dice_nm_len(a), i;
+    if (n != dice_nm_len(b)) return 0;
+    for (i = 0; i < n; i++) if (a[i] != b[i]) return 0;
+    return 1;
+}
+static int dice_wtaken(const char *nm, void *ctx)
+{
+    uint32_t i;
+    (void)ctx;
+    for (i = 0; i < SCN_NU; i++) if (scn_meta[i].used && dice_nm_eq(nm, scn_meta[i].name)) return 1;
+    return dice_nm_eq(nm, scn_nm);
+}
+static void dice_scn_name(char out[12])
+{
+    dice_seed(0);
+    scn_words(out, dice_wr, dice_wtaken, 0);
+}
+
 /* ---- the scene's records */
 static void dice_put(scn_t *t, uint32_t id, int32_t v)   /* id's record set (added if it had none) */
 {

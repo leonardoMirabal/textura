@@ -218,8 +218,8 @@ enum { W_ROW = 1, W_VOL, W_MUTE, W_SOLO, W_DOT, W_LUP = 9, W_SET = 10, W_VMAP = 
        W_SWATCH, W_SEG = 26, W_FIELD = 27, W_PARAM = 30, W_MANY, W_ACT, W_REC, W_UNDO, W_SAVE, W_FXOPEN, W_FXTAB, W_SLOT,
        W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER, W_TIP, W_PREVIEW, W_PVSTEP, W_FXD, W_SWAP, W_LRUN, W_DRUN,
        W_SRC, W_GRIP, W_TAG, W_MBAR, W_MCLEAR, W_MDONE, W_MENU, W_CLRALL, W_CLRYES, W_CLRNO, W_MSG, W_NOMOVE, W_MAMT, W_MSM,
-       W_DICE, W_RND, W_RNDTICK, W_RNDGO, W_LVL };
-enum { W_CLOSE = 11, W_LIST = 23, W_KEEP = 24 };
+       W_DICE, W_RND, W_RNDTICK, W_RNDGO, W_LVL, W_NAMEDICE };
+enum { W_CLOSE = 11, W_PICKER = 20, W_LIST = 23, W_KEEP = 24 };
 #define ID_KEYS 0x10001u                 /* (bridge.h TXP_ID_KEYS) */
 static int gui_hit(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, int lane)   /* a click on a control */
 {
@@ -242,6 +242,43 @@ static int gui_png(const clap_plugin_t *p, const txg_gui_shot_t *xs, const char 
     if (!xs->grab(p, 0, &px, &w, &h)) return 5;
     snprintf(path, sizeof path, "%.*s-%s.png", (int)n, png, tag);
     return png_write(path, px, w, h) ? 5 : 0;
+}
+/* SAVE's panel at this window size: inside the window, its 16 slots, the name, its dice and SAVE inside the panel and
+ * none over another, every text inside its room (gui_core.c draw_save's own measure) */
+static int save_layout(const clap_plugin_t *p, const txg_gui_shot_t *xs)
+{
+    const uint32_t *px;
+    int w, h, slot, fit = 0, n = 0;
+    char nm[12], line[128];
+    float pn[4], a[19][4];
+    double sc, W, H;
+    if (!xs->grab(p, 0, &px, &w, &h) || !xs->find(p, W_PICKER, -2, pn) || !xs->save(p, &slot, nm, line, sizeof line, &fit)) {
+        fprintf(stderr, "gui save panel: not open\n");
+        return 5;
+    }
+    sc = (double)w / 1200.0 < (double)h / 720.0 ? (double)w / 1200.0 : (double)h / 720.0;
+    W = w / sc; H = h / sc;
+    for (int k = 0; k < 16; k++) if (xs->find(p, W_SLOT, k, a[n])) n++;
+    if (xs->find(p, W_NAME, -1, a[n])) n++;
+    if (xs->find(p, W_NAMEDICE, -1, a[n])) n++;
+    if (xs->find(p, W_SAVEGO, -1, a[n])) n++;
+    if (n != 19) { fprintf(stderr, "gui save panel: %d of its 19 controls\n", n); return 5; }
+    if (pn[0] < 0.f || pn[1] < 0.f || pn[0] + pn[2] > W + 0.01 || pn[1] + pn[3] > H + 0.01) {
+        fprintf(stderr, "gui save panel: outside the window (%.0f %.0f %.0f %.0f in %.0f x %.0f)\n", pn[0], pn[1], pn[2], pn[3], W, H);
+        return 5;
+    }
+    for (int i = 0; i < n; i++) {
+        if (a[i][0] < pn[0] + 8.f || a[i][1] < pn[1] + 8.f || a[i][0] + a[i][2] > pn[0] + pn[2] - 8.f ||
+            a[i][1] + a[i][3] > pn[1] + pn[3] - 8.f) { fprintf(stderr, "gui save panel: control %d at its edge\n", i); return 5; }
+        for (int j = 0; j < i; j++)
+            if (a[i][0] < a[j][0] + a[j][2] && a[j][0] < a[i][0] + a[i][2] && a[i][1] < a[j][1] + a[j][3] && a[j][1] < a[i][1] + a[i][3]) {
+                fprintf(stderr, "gui save panel: controls %d and %d overlap\n", j, i);
+                return 5;
+            }
+    }
+    printf("gui save panel: %d controls inside it, none over another, texts %s (%.0f x %.0f logical)\n", n,
+           fit ? "all inside their room" : "CUT", W, H);
+    return fit ? 0 : 5;
 }
 static void gui_wheel(const clap_plugin_t *p, const txg_gui_shot_t *xs, float x, float y, float d);
 /* ---- step 5g's helpers: the movement (the matrix: 16 slots of SOURCE TARGET DEPTH SPREAD, 7 << 8 | slot x 4 + q) */
@@ -411,6 +448,7 @@ static int gui_views(const clap_plugin_t *p, const txg_gui_shot_t *xs, const cha
     gui_key(p, xs, FRK_ESCAPE);
     if (!gui_hit(p, xs, W_SAVE, -1)) return 5;    /* SAVE's panel */
     rc |= gui_png(p, xs, png, "save");
+    rc |= save_layout(p, xs);
     gui_key(p, xs, FRK_ESCAPE);
     if (!gui_hit(p, xs, W_RND, -1)) return 5;     /* RANDOM's list */
     rc |= gui_png(p, xs, png, "random-list");
@@ -532,13 +570,6 @@ static int gui_test5(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* step
     gui_key(p, xs, FRK_ESCAPE);
     printf("gui KEYS: %g\n", gui_value(p, ID_KEYS));
     if (gui_value(p, ID_KEYS) != 1.0) { fprintf(stderr, "gui: KEYS\n"); bad = 1; }
-    /* SAVE: user preset U01 named TEST */
-    if (!gui_hit(p, xs, W_SAVE, -1)) return 5;
-    if (!gui_hit(p, xs, W_SLOT, 0)) return 5;
-    for (const char *t = "TEST"; *t; t++) gui_key(p, xs, *t);
-    gui_key(p, xs, FRK_RETURN);
-    for (int i = 0; i < 8; i++) { gui_wait(); gui_flush(p); xs->tick(p); }
-    gui_key(p, xs, FRK_ESCAPE);
     return bad;
 }
 static int gui_steps(const clap_plugin_t *p, const txg_gui_shot_t *xs, int act, int k, int v)   /* HOW MANY / HOW ACTIVE:
@@ -1205,6 +1236,106 @@ static int gui_top(const clap_plugin_t *p, const txg_gui_shot_t *xs, int pw, int
            a[1][0], a[1][0] + a[1][2], a[2][0], a[2][0] + a[2][2], W, n, x0);
     return bad;
 }
+/* SAVE (gui_core.c save_open): it opens on the first free user preset with a name drawn (two words, the save mode's
+ * letters, never a user preset's name); the dice draws another; a key typed replaces the name drawn; a used preset
+ * chosen shows its own name and says SAVE replaces it; back on the free one, the name drawn is back; the save lands in
+ * the free preset, the others untouched; all 16 used: on the one loaded, saying so */
+static int save_info(const clap_plugin_t *p, const txg_gui_shot_t *xs, int *slot, char nm[12], char *line)
+{
+    int fit;
+    xs->tick(p);
+    return xs->save(p, slot, nm, line, 128, &fit);
+}
+static int save_drawn_ok(const char *nm, char names[16][12], int n)   /* a name drawn: two words, the letters, new */
+{
+    int sp = 0;
+    size_t m = strlen(nm);
+    if (m < 5 || m > 11) return 0;
+    for (size_t i = 0; i < m; i++) {
+        if (nm[i] == ' ') sp++;
+        else if (!(nm[i] >= 'A' && nm[i] <= 'Z')) return 0;
+    }
+    for (int i = 0; i < n; i++) if (!strcmp(nm, names[i])) return 0;
+    return sp == 1 && nm[0] != ' ' && nm[m - 1] != ' ';
+}
+static int save_done(const clap_plugin_t *p, const txg_gui_shot_t *xs, int k)   /* the save into k shown done */
+{
+    int slot;
+    char nm[12], line[128], want[16];
+    snprintf(want, sizeof want, "U%02d ", k + 1);
+    for (int i = 0; i < 200; i++) {
+        struct timespec ts = { 0, 10000000 };
+        gui_flush(p);
+        if (save_info(p, xs, &slot, nm, line) && strncmp(line, "SAVING", 6) &&
+            (!strncmp(line, want, 4) ? !strstr(line, "EMPTY") : !strncmp(line, "ALL 16", 6))) return 1;
+        nanosleep(&ts, 0);
+    }
+    return 0;
+}
+static int gui_test_save(const clap_plugin_t *p, const txg_gui_shot_t *xs)
+{
+    int bad = 0, slot;
+    char nm[12], n0[12], line[128], names[16][12], drawn[12];
+    gui_key(p, xs, FRK_ESCAPE);
+    if (!gui_hit(p, xs, W_SAVE, -1) || !save_info(p, xs, &slot, n0, line)) { fprintf(stderr, "gui save: no panel\n"); return 5; }
+    printf("gui save: opens on U%02d \"%s\", \"%s\"\n", slot + 1, n0, line);
+    if (slot != 0 || !save_drawn_ok(n0, names, 0) || strcmp(line, "U01 IS EMPTY: SAVE MAKES A NEW PRESET THERE")) {
+        fprintf(stderr, "gui save: not on U01 with a name drawn\n"); bad = 1;
+    }
+    if (!gui_hit(p, xs, W_NAMEDICE, -1)) return 5;
+    (void)save_info(p, xs, &slot, nm, line);
+    printf("gui save: the dice: \"%s\" -> \"%s\"\n", n0, nm);
+    if (!save_drawn_ok(nm, names, 0) || !strcmp(nm, n0)) { fprintf(stderr, "gui save: the dice drew no new name\n"); bad = 1; }
+    for (const char *t = "TEST"; *t; t++) gui_key(p, xs, *t);
+    (void)save_info(p, xs, &slot, nm, line);
+    if (strcmp(nm, "TEST")) { fprintf(stderr, "gui save: typed over the name drawn: \"%s\"\n", nm); bad = 1; }
+    gui_key(p, xs, FRK_RETURN);
+    if (!save_done(p, xs, 0)) { fprintf(stderr, "gui save: U01 never saved\n"); return 5; }
+    snprintf(names[0], 12, "TEST");
+    gui_key(p, xs, FRK_ESCAPE);
+    /* U01 used, loaded: SAVE opens on U02 */
+    if (!gui_hit(p, xs, W_SAVE, -1) || !save_info(p, xs, &slot, drawn, line)) return 5;
+    printf("gui save: U01 saved; SAVE opens on U%02d \"%s\"\n", slot + 1, drawn);
+    if (slot != 1 || !save_drawn_ok(drawn, names, 1)) { fprintf(stderr, "gui save: not on U02 with a name drawn\n"); bad = 1; }
+    if (!gui_hit(p, xs, W_SLOT, 0)) return 5;
+    (void)save_info(p, xs, &slot, nm, line);
+    printf("gui save: U01 chosen: \"%s\", \"%s\"\n", nm, line);
+    if (slot != 0 || strcmp(nm, "TEST") || strcmp(line, "U01 HOLDS \"TEST\": SAVE REPLACES IT")) {
+        fprintf(stderr, "gui save: U01 not shown as replaced\n"); bad = 1;
+    }
+    if (png_shot) (void)gui_png(p, xs, png_shot, "save-replace");
+    if (!gui_hit(p, xs, W_SLOT, 1)) return 5;
+    (void)save_info(p, xs, &slot, nm, line);
+    if (slot != 1 || strcmp(nm, drawn)) { fprintf(stderr, "gui save: back on U02, not its name drawn (\"%s\")\n", nm); bad = 1; }
+    gui_key(p, xs, FRK_ESCAPE);
+    /* U02 .. U16, each where SAVE opens: the next free one, a new name */
+    for (int k = 1; k < 16; k++) {
+        if (!gui_hit(p, xs, W_SAVE, -1) || !save_info(p, xs, &slot, nm, line)) return 5;
+        if (slot != k || !save_drawn_ok(nm, names, k)) { fprintf(stderr, "gui save: SAVE %d on U%02d \"%s\"\n", k + 1, slot + 1, nm); bad = 1; }
+        snprintf(names[k], 12, "%s", nm);
+        gui_key(p, xs, FRK_RETURN);
+        if (!save_done(p, xs, k)) { fprintf(stderr, "gui save: U%02d never saved\n", k + 1); return 5; }
+        gui_key(p, xs, FRK_ESCAPE);
+    }
+    /* all 16 used: on U16 (loaded), saying so; U01 still TEST */
+    if (!gui_hit(p, xs, W_SAVE, -1) || !save_info(p, xs, &slot, nm, line)) return 5;
+    printf("gui save: all 16 used: on U%02d \"%s\", \"%s\"\n", slot + 1, nm, line);
+    if (slot != 15 || strcmp(nm, names[15]) || strncmp(line, "ALL 16 ARE USED: SAVE REPLACES U16", 34)) {
+        fprintf(stderr, "gui save: all 16 used, not on U16 saying so\n"); bad = 1;
+    }
+    if (png_shot) (void)gui_png(p, xs, png_shot, "save-full");
+    if (!gui_hit(p, xs, W_SLOT, 0)) return 5;
+    (void)save_info(p, xs, &slot, nm, line);
+    if (strcmp(nm, "TEST")) { fprintf(stderr, "gui save: U01 changed (\"%s\")\n", nm); bad = 1; }
+    for (int k = 1; k < 16; k++) {
+        if (!gui_hit(p, xs, W_SLOT, k)) return 5;
+        (void)save_info(p, xs, &slot, nm, line);
+        if (strcmp(nm, names[k])) { fprintf(stderr, "gui save: U%02d changed (\"%s\")\n", k + 1, nm); bad = 1; }
+    }
+    printf("gui save: 16 saved, each into the next free one, none changed after\n");
+    gui_key(p, xs, FRK_ESCAPE);
+    return bad;
+}
 static int gui_test3b(const clap_plugin_t *p, const txg_gui_shot_t *xs)   /* the browsers, SETTINGS, a colour, SPACE */
 {
     int bad = 0, f0 = -1, s0 = -1, f1 = -1, s1 = -1;
@@ -1367,6 +1498,7 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int
         if (gui_test5f(p, xs)) bad = 1;
         if (gui_test5g(p, xs)) bad = 1;
         if (gui_test_dice(p, xs)) bad = 1;
+        if (gui_test_save(p, xs)) bad = 1;
         if (xs->find(p, 1 /* TXG_W_ROW */, 2, r)) gui_click(p, xs, r[0] + 30.f, r[1] + r[3] * 0.5f, 0);   /* (lane 3 selected) */
     }
     return bad ? 5 : 0;
@@ -1566,12 +1698,12 @@ states:
             clap_ostream_t os = { &m, os_write };
             if (!xs || !xs->save(p, &os)) { fprintf(stderr, "gui: state save failed\n"); return 5; }
             m.b = realloc(m.b, m.n + 1); m.b[m.n] = 0;
-            printf("gui state: solo %s, sel %s, view %s, colour %s, keys %s, user U01 %s\n", strstr(m.b, "\"solo\":\"4\"") ? "saved" : "MISSING",
+            printf("gui state: solo %s, sel %s, view %s, colour %s, keys %s, user U01 .. U16 %s\n", strstr(m.b, "\"solo\":\"4\"") ? "saved" : "MISSING",
                    strstr(m.b, "\"sel\":\"2\"") ? "saved" : "MISSING", strstr(m.b, "\"view\":\"1\"") ? "saved" : "MISSING",
                    strstr(m.b, ":6;") ? "saved" : "MISSING", strstr(m.b, "\"keys\":\"1\"") ? "saved" : "MISSING",
-                   strstr(m.b, "\"umask\":\"1\"") ? "saved" : "MISSING");
+                   strstr(m.b, "\"umask\":\"65535\"") ? "saved" : "MISSING");
             if (!strstr(m.b, "\"solo\":\"4\"") || !strstr(m.b, "\"sel\":\"2\"") || !strstr(m.b, "\"view\":\"1\"") ||
-                !strstr(m.b, ":6;") || !strstr(m.b, "\"keys\":\"1\"") || !strstr(m.b, "\"umask\":\"1\""))
+                !strstr(m.b, ":6;") || !strstr(m.b, "\"keys\":\"1\"") || !strstr(m.b, "\"umask\":\"65535\""))
                 rc = 5;
             free(m.b);
         }

@@ -157,9 +157,10 @@ struct txg {
     int pb_bank, pb_cur, pb_top;
     char q[24];                          /* a browser's search (typed) */
     int items[LIST_MAX], nitems;         /* the list as drawn last */
-    /* SAVE: the user scene chosen, its name (typed), the save asked (ticks it waits to show it done) */
-    int sv_slot, sv_wait;
-    char sv_name[12];
+    /* SAVE: the user scene chosen, its name, the save asked (ticks it waits to show it done); the name typed (0: drawn
+     * or a used scene's, selected: the first key typed replaces it), the last one drawn (a free scene takes it back) */
+    int sv_slot, sv_wait, sv_typed, sv_fit;   /* (sv_fit: every text of the panel fits its room, as drawn last) */
+    char sv_name[12], sv_gen[12];
     float sv_x;                          /* (where SAVE is in the top bar: the panel opens under it) */
     /* input */
     int drag, drag_lane, drag_dist;      /* drag: 0 none, TXG_W_DOT, TXG_W_VOL, TXG_W_PARAM, TXG_W_MANY, ... */
@@ -3017,18 +3018,36 @@ static void draw_fxd(txg_t *g, frui_canvas *c)
         }
     }
 }
-/* ---- SAVE: the scene that plays into a user preset U01 .. U16, named; kept with the project */
+/* ---- SAVE: the scene that plays into a user preset U01 .. U16, named; kept with the project. It opens on the first
+ * free one with a name drawn (txp_ui_name: two words, never a user preset's name); a used one is replaced only when
+ * chosen, the line under the name says so in red; all 16 used: on the one loaded, else U01 */
+static int save_all(const txg_t *g) { return (g->sn.ui.user & ((1u << TXP_USER_N) - 1u)) == (1u << TXP_USER_N) - 1u; }
+static int save_line(txg_t *g, char *t, size_t n, float room)   /* the line under the name: what SAVE does; 1: red */
+{
+    int k = g->sv_slot, busy = g->sn.ui.saving || g->sv_wait > 0;
+    if (busy) { snprintf(t, n, "SAVING U%02d ...", k + 1); return 1; }
+    if (!(g->sn.ui.user >> k & 1u)) { snprintf(t, n, "U%02d IS EMPTY: SAVE MAKES A NEW PRESET THERE", k + 1); return 0; }
+    if (save_all(g)) {
+        snprintf(t, n, "ALL 16 ARE USED: SAVE REPLACES U%02d \"%s\"", k + 1, g->sn.ui.uname[k]);
+        if (LBLW(g, 9.5f, t) > room) snprintf(t, n, "ALL 16 ARE USED: SAVE REPLACES U%02d", k + 1);
+    } else {
+        snprintf(t, n, "U%02d HOLDS \"%s\": SAVE REPLACES IT", k + 1, g->sn.ui.uname[k]);
+        if (LBLW(g, 9.5f, t) > room) snprintf(t, n, "U%02d IS USED: SAVE REPLACES IT", k + 1);
+    }
+    return 1;
+}
 static float save_px(const txg_t *g) { float x = g->sv_x - 160.f; return x + 420.f > g->W - 8.f ? g->W - 428.f : x; }
 static void draw_save(txg_t *g, frui_canvas *c)
 {
     const float w = 420.f, h = 276.f, y = TOP_H + 2.f;
     float x = save_px(g), sw = (w - 32.f - 3.f * 6.f) / 4.f;
-    char t[48];
+    char t[64];
+    int fit = 1;
     wid_add(g, TXG_W_PICKER, -2, x, y, w, h);
     frui_rrect_shadow(c, x * g->S, y * g->S, w * g->S, h * g->S, 4.f * g->S, 16.f * g->S, 0x90000000u);
     RR(g, c, x, y, w, h, 4.f, C_BTN); RRS(g, c, x, y, w, h, 4.f, C_DIM);
-    LBL(g, c, x + 16.f, y + 24.f, 12.f, C_INK, "SAVE AS A USER PRESET");
-    TX(g, c, x + 16.f, y + 42.f, 11.f, 450.f, 0.f, 0, C_DIM, "Kept with the project; load it in PRESETS: USER.");
+    fit &= LBL(g, c, x + 16.f, y + 24.f, 12.f, C_INK, "SAVE AS A USER PRESET") <= w - 32.f;
+    fit &= TX(g, c, x + 16.f, y + 42.f, 11.f, 450.f, 0.f, 0, C_DIM, "Kept with the project; load it in PRESETS: USER.") <= w - 32.f;
     for (int i = 0; i < (int)TXP_USER_N; i++) {
         float sx = x + 16.f + (sw + 6.f) * (float)(i % 4), sy = y + 54.f + 34.f * (float)(i / 4);
         int u = (int)(g->sn.ui.user >> i & 1u), on = i == g->sv_slot;
@@ -3036,26 +3055,37 @@ static void draw_save(txg_t *g, frui_canvas *c)
         snprintf(t, sizeof t, "U%02d", i + 1);
         TX(g, c, sx + 6.f, sy + 12.f, 10.f, 500.f, 0.f, FRUI_TNUM, on ? C_RED : C_DIM, t);
         clipL(g, c, sx, sy, sw - 4.f, 28.f);
-        TX(g, c, sx + 6.f, sy + 24.f, 10.f, 500.f, 0.f, 0, u ? C_INK : C_FAINT, u ? g->sn.ui.uname[i] : "empty");
+        fit &= TX(g, c, sx + 6.f, sy + 24.f, 10.f, 500.f, 0.f, 0, u ? C_INK : C_FAINT, u ? g->sn.ui.uname[i] : "empty") <= sw - 10.f;
         frui_clip_reset(c);
         wid_add(g, TXG_W_SLOT, i, sx, sy, sw, 28.f);
     }
     {
-        float ny = y + 210.f, nw = w - 32.f - 100.f;
-        LBL(g, c, x + 16.f, ny - 4.f, 9.5f, C_DIM, "NAME (TYPE IT; EMPTY: THE LANDSCAPE'S)");
+        const float dw = 22.f;           /* (the dice beside the name, as the window's dice) */
+        float ny = y + 210.f, nw = w - 32.f - 100.f - dw - 6.f, dx = x + 16.f + nw + 6.f;
+        int red;
+        fit &= LBL(g, c, x + 16.f, ny - 4.f, 9.5f, C_DIM, "NAME (TYPE IT, OR THE DICE FOR ANOTHER)") <= w - 32.f;
         RR(g, c, x + 16.f, ny, nw, 26.f, 3.f, C_WELL); RRS(g, c, x + 16.f, ny, nw, 26.f, 3.f, C_DIM);
         {
-            float tw = TX(g, c, x + 26.f, ny + 13.f + CAP(g, 12.f) * 0.5f, 12.f, 500.f, 0.6f, 0, C_INK, g->sv_name);
-            R(g, c, x + 27.f + tw, ny + 6.f, 1.2f, 14.f, C_RED);
+            float bx = x + 26.f, by = ny + 13.f + CAP(g, 12.f) * 0.5f, tw = TW(g, 12.f, 500.f, 0.6f, 0, g->sv_name);
+            if (!g->sv_typed && g->sv_name[0]) R(g, c, bx - 3.f, ny + 5.f, tw + 6.f, 16.f, C_SEG);   /* (selected: a key
+                                          * typed replaces it) */
+            tw = TX(g, c, bx, by, 12.f, 500.f, 0.6f, 0, C_INK, g->sv_name);
+            R(g, c, bx + 1.f + tw, ny + 6.f, 1.2f, 14.f, C_RED);
+            fit &= bx + tw + 6.f <= x + 16.f + nw;
         }
         wid_add(g, TXG_W_NAME, -1, x + 16.f, ny, nw, 26.f);
+        {
+            int hot = g->hover_kind == TXG_W_NAMEDICE;
+            RR(g, c, dx, ny + 2.f, dw, dw, 3.f, hot ? C_SEG : C_BTN); RRS(g, c, dx, ny + 2.f, dw, dw, 3.f, hot ? C_DIM : C_LINE);
+            dice_icon(g, c, dx + dw * 0.5f, ny + 13.f, 14.f, C_INK);
+            wid_add(g, TXG_W_NAMEDICE, -1, dx, ny + 2.f, dw, dw);
+        }
         button(g, c, x + w - 16.f - 90.f, ny, 90.f, 26.f, "SAVE", 1);
         wid_add(g, TXG_W_SAVEGO, -1, x + w - 16.f - 90.f, ny, 90.f, 26.f);
-        if (g->sn.ui.saving || g->sv_wait > 0) snprintf(t, sizeof t, "SAVING U%02d ...", g->sv_slot + 1);
-        else if (g->sn.ui.user >> g->sv_slot & 1u) snprintf(t, sizeof t, "U%02d HOLDS \"%s\": SAVE REPLACES IT", g->sv_slot + 1, g->sn.ui.uname[g->sv_slot]);
-        else snprintf(t, sizeof t, "U%02d IS EMPTY", g->sv_slot + 1);
-        LBL(g, c, x + 16.f, ny + 46.f, 9.5f, g->sn.ui.saving || g->sv_wait > 0 ? C_RED : C_DIM, t);
+        red = save_line(g, t, sizeof t, w - 32.f);
+        fit &= LBL(g, c, x + 16.f, ny + 46.f, 9.5f, red ? C_RED : C_DIM, t) <= w - 32.f;
     }
+    g->sv_fit = fit;
 }
 /* RANDOM's list: under the top bar's dice, right-aligned to it. Four ticks (txp_ui_dice: kept with the project), CLOSE,
  * ROLL (red: txp_ui_roll), what a roll keeps. Esc, a click outside or CLOSE close it */
@@ -3439,6 +3469,7 @@ int txg_tick(txg_t *g)
         h = fnv(h, v, sizeof v);
         h = fnv(h, g->q, sizeof g->q);
         h = fnv(h, g->sv_name, sizeof g->sv_name);
+        h = fnv(h, &g->sv_typed, sizeof g->sv_typed);
     }
     {   /* the movement: the mode, the message, the menu, a grip dragged, CLEAR ALL's question, the undo, the matrix */
         int v[12 + 64], n = 0;
@@ -3559,7 +3590,8 @@ static const wid_t *hit(const txg_t *g, float x, float y)   /* the last-drawn co
             int panel = w->kind == TXG_W_PICKER;
             if (x >= w->r[0] && x < w->r[0] + w->r[2] && y >= w->r[1] && y < w->r[1] + w->r[3]) {
                 if (g->pick >= 0 && w->kind == TXG_W_SWATCH) return w;
-                if (g->ov == OV_SAVE && g->pick < 0 && (w->kind == TXG_W_SLOT || w->kind == TXG_W_NAME || w->kind == TXG_W_SAVEGO)) return w;
+                if (g->ov == OV_SAVE && g->pick < 0 && (w->kind == TXG_W_SLOT || w->kind == TXG_W_NAME || w->kind == TXG_W_SAVEGO ||
+                                                        w->kind == TXG_W_NAMEDICE)) return w;
                 if (g->ov == OV_RND && g->pick < 0 && (w->kind == TXG_W_RNDTICK || w->kind == TXG_W_RNDGO ||
                                                        (w->kind == TXG_W_CLOSE && w->lane == -3))) return w;
                 if (panel && !best) best = w;
@@ -3818,14 +3850,30 @@ static void pb_load(txg_t *g)
     if (v < 0) return;
     txp_ui_load(g->c, v, v == loaded && g->sn.ui.fx_yours);
 }
-static void save_open(txg_t *g)          /* SAVE: on the user preset loaded (its name), else the first empty one */
+static void save_name(txg_t *g)          /* the name for the slot chosen: a used one's own, a free one's the last drawn
+                                          * (none yet: one drawn); a name typed stays */
+{
+    int k = g->sv_slot;
+    if (g->sv_typed) return;
+    if (g->sn.ui.user >> k & 1u) { snprintf(g->sv_name, sizeof g->sv_name, "%.11s", g->sn.ui.uname[k]); return; }
+    if (!g->sv_gen[0]) txp_ui_name(g->c, 0, g->sv_gen);
+    memcpy(g->sv_name, g->sv_gen, sizeof g->sv_name);
+}
+static void save_roll(txg_t *g)          /* the dice beside the name: another name drawn */
+{
+    txp_ui_name(g->c, g->sv_name, g->sv_gen);
+    memcpy(g->sv_name, g->sv_gen, sizeof g->sv_name);
+    g->sv_typed = 0;
+}
+static void save_open(txg_t *g)          /* SAVE: the first free user preset, a name drawn; all used: the one loaded,
+                                          * else U01, its own name */
 {
     int s = g->sn.ui.scene, n = g->cat->npr;
     g->ov = OV_SAVE; g->pick = -1;
-    g->sv_slot = -1; g->sv_name[0] = 0;
-    if (s != 0xFF && s >= n && s < n + (int)TXP_USER_N) { g->sv_slot = s - n; snprintf(g->sv_name, sizeof g->sv_name, "%.11s", g->sn.ui.uname[s - n]); }
+    g->sv_slot = -1; g->sv_name[0] = 0; g->sv_gen[0] = 0; g->sv_typed = 0;
     for (int i = 0; i < (int)TXP_USER_N && g->sv_slot < 0; i++) if (!(g->sn.ui.user >> i & 1u)) g->sv_slot = i;
-    if (g->sv_slot < 0) g->sv_slot = 0;
+    if (g->sv_slot < 0) g->sv_slot = s != 0xFF && s >= n && s < n + (int)TXP_USER_N ? s - n : 0;
+    save_name(g);
 }
 static void save_go(txg_t *g)
 {
@@ -3863,9 +3911,13 @@ static int ov_key(txg_t *g, const frg_input *e)   /* the keys while an overlay i
         size_t m = strlen(g->sv_name);
         int ch = e->key;
         if (ch == FRK_RETURN) { save_go(g); return 3; }
-        if (ch == FRK_BACKSPACE || ch == FRK_DELETE) { if (m) g->sv_name[m - 1] = 0; return 3; }
+        if (ch == FRK_BACKSPACE || ch == FRK_DELETE) { if (m) g->sv_name[m - 1] = 0; g->sv_typed = 1; return 3; }
         if (ch >= 'a' && ch <= 'z') ch -= 32;
-        if (ch > 0 && ch < 0x7F && strchr("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-&'. ", ch) && m < 11u) { g->sv_name[m] = (char)ch; g->sv_name[m + 1] = 0; return 3; }
+        if (ch > 0 && ch < 0x7F && strchr("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-&'. ", ch)) {
+            if (!g->sv_typed) { m = 0; g->sv_typed = 1; }   /* (the name drawn, selected: replaced) */
+            if (m < 11u) { g->sv_name[m] = (char)ch; g->sv_name[m + 1] = 0; }
+            return 3;
+        }
         return 0;
     }
     if (g->ov == OV_SET || g->ov == OV_RND) return 0;
@@ -3974,6 +4026,7 @@ static int input_(txg_t *g, const frg_input *e)
             return 3;
         }
         if (g->ov == OV_SAVE && (!w || (w->kind != TXG_W_SLOT && w->kind != TXG_W_NAME && w->kind != TXG_W_SAVEGO &&
+                                        w->kind != TXG_W_NAMEDICE &&
                                         !(w->kind == TXG_W_PICKER && w->lane == -2)))) {   /* (outside SAVE: it closes;
                                           * on SAVE itself: closed) */
             g->ov = OV_NONE;
@@ -4044,8 +4097,9 @@ static int input_(txg_t *g, const frg_input *e)
             say(g, "All movement cleared. UNDO brings it back.");
             break;
         case TXG_W_REC: txp_ui_rec(g->c); break;
-        case TXG_W_SLOT: if (k >= 0 && k < (int)TXP_USER_N) { g->sv_slot = k; if (g->sn.ui.user >> k & 1u) snprintf(g->sv_name, sizeof g->sv_name, "%.11s", g->sn.ui.uname[k]); } if (e->kind == FRG_DOUBLE) save_go(g); break;
+        case TXG_W_SLOT: if (k >= 0 && k < (int)TXP_USER_N) { g->sv_slot = k; save_name(g); } if (e->kind == FRG_DOUBLE) save_go(g); break;
         case TXG_W_SAVEGO: save_go(g); break;
+        case TXG_W_NAMEDICE: save_roll(g); break;
         case TXG_W_NAME: break;
         case TXG_W_CLOSE: if (g->ov == OV_SND) sb_close(g, 0); else g->ov = OV_NONE; break;
         case TXG_W_KEEP: sb_close(g, 1); break;
@@ -4303,6 +4357,14 @@ int txg_input(txg_t *g, const frg_input *e)
     for (int s = 0; s < 16; s++) for (int q = 0; q < 4; q++) g->mx_known[s][q] = (int16_t)mx(g, s, q);   /* (the window's
                                           * own changes: its undo stays) */
     return r;
+}
+int txg_save_info(txg_t *g, int *slot, char name[12], char *line, int n, int *fit)
+{
+    if (g->ov != OV_SAVE) return 0;
+    *slot = g->sv_slot; *fit = g->sv_fit;
+    memcpy(name, g->sv_name, 12);
+    (void)save_line(g, line, (size_t)n, 420.f - 32.f);
+    return 1;
 }
 int txg_find(const txg_t *g, int kind, int lane, float r[4])
 {

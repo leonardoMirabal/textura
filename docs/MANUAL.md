@@ -776,15 +776,25 @@ Effects that change on a load glide to their new values, and the delay's and the
 
 ![The save mode: SAVE TO U01 and the name, its letter underlined](manual/img/save.png)
 
-**SAVE** opens it; the footer says **SAVE TO U01** and the name.
+**SAVE** opens it on the first free slot, with a new name of two words, such as **SALT FIELD** or **MOSSY DUSK**.
+The footer says **SAVE TO U01** and the name. A new name is never the name of one of your presets, so a save makes a
+new preset and leaves the others as they are.
 
 | Control | What it does |
 | --- | --- |
 | **PRESETS** or **K1** | The slot: U01 to U16 |
 | **K2** | Which letter of the name (it is underlined) |
 | **K3** | The letter |
+| **K4** | Another name: each turn makes a new one |
 | **SAVE** | Saves |
 | **HOME** | Cancels |
+
+To replace a preset, move to its slot. The name changes to that preset's name, and the footer says
+**REPLACES U03** and its name, in the screen's accent colour (red by default). **SAVE** then writes over it. Move on
+to a free slot and a new name comes back. Letters you set with K2 and K3 stay when you move.
+
+When all 16 slots are used, SAVE opens on the preset you loaded (or U01 if you loaded a factory preset), and the
+footer says **ALL 16 USED: REPLACES U01**. The factory presets are never written over.
 
 ## 5. The sounds
 
@@ -1769,7 +1779,8 @@ up to the LOAD OPTIONS (FX in the presets list).
 
 ### Saving
 
-**SAVE**, choose U01 to U16 with PRESETS or K1, name it with K2 and K3, **SAVE** again ([the save mode](#the-save-mode)).
+**SAVE**, then **SAVE** again: what plays goes into the first free slot, with a new name (K4 for another one; K2 and
+K3 to change its letters; PRESETS or K1 for another slot) ([the save mode](#the-save-mode)).
 A save never interrupts the sound. Your presets are kept in two copies, written in turn, so a power cut while saving
 never loses them.
 

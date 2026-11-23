@@ -26,8 +26,10 @@
  *   PRESETS   the presets list (ui.c): one list of the factory presets by family, then USER (the saved user
  *             scenes); turning moves the cursor, nothing loads; EDIT loads the one under it (the list stays), EDIT on
  *             the one loaded with FX: YOURS loads it with its effects; HOME closes it, what plays kept
- *   SAVE      the save mode: PRESETS / K1 pick the user scene, K2 the name's letter and K3 its character (the name
- *             a used slot had, or the landscape's), SAVE again saves, HOME (or OCT-) cancels
+ *   SAVE      the save mode, on the first free user scene with a name of two words drawn (scn_words.h, never a
+ *             saved scene's; all 16 used: on the one loaded, else U01): PRESETS / K1 pick the user scene (a used one
+ *             shows its own name, the footer says SAVE replaces it), K2 the name's letter and K3 its character, K4 a
+ *             turn draws another name, SAVE again saves, HOME (or OCT-) cancels. A factory scene is never written
  *   SAVE held 700 ms: undo the last load or roll of the dice (dice.c; again: redo)
  *   MIDI PC   on channel 1: 0 .. 99 F001 .. F100, 100 .. 115 U01 .. U16, 116 .. F101 .. (SCN_PC_F2)
  *
@@ -203,7 +205,8 @@ static uint32_t scn_sv_at;                      /* (the copy it writes) */
 static uint8_t set_saving;                      /* (the settings' save running: set_poll) */
 /* browsing and the save mode */
 static uint8_t scn_cand = 0xFF, scn_save_mode, scn_save_slot;
-static char scn_nm[12];                         /* the save mode's name (11 characters), its letter, edited or not */
+static char scn_nm[12];                         /* the save mode's name (11 characters), its letter, where it came
+                                                 * from (0 the slot's, 1 set by hand, 2 drawn: scn_nm_new) */
 static uint8_t scn_nm_pos, scn_nm_edit;
 static const char SCN_CHARS[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-&'.";
 static uint32_t scn_cand_t, scn_save_t;
@@ -712,14 +715,29 @@ static void scn_bank_load(void)
     scn_bank_pick(SCN_BANK_A, SCN_BANK_B, &scn_bank, &scn_seq);
     scn_meta_load();
 }
-static void scn_nm_take(void)                   /* the name the save mode starts from: the slot's, or the landscape's */
+static void dice_scn_name(char out[12]);        /* dice.c */
+static void scn_nm_new(void)                    /* K4, or a free slot: a new name, two words drawn (scn_words.h) */
+{
+    char t[12];
+    uint32_t i;
+    dice_scn_name(t);
+    memset(scn_nm, 0, sizeof scn_nm);
+    for (i = 0; i < 11u && t[i]; i++) scn_nm[i] = t[i];
+    for (; i < 11u; i++) scn_nm[i] = ' ';       /* (spaces to the end: any letter can be set) */
+    scn_nm_edit = 2;
+}
+static void scn_nm_take(void)                   /* the name for the slot the save mode is on: a used slot's own, a free
+                                                 * slot's drawn (one drawn stays; letters set by hand stay) */
 {
     uint32_t i;
+    if (scn_nm_edit == 1) return;
+    if (!scn_meta[scn_save_slot].used) { if (scn_nm_edit != 2) scn_nm_new(); return; }
     memset(scn_nm, 0, sizeof scn_nm);
-    if (scn_meta[scn_save_slot].used) memcpy(scn_nm, scn_meta[scn_save_slot].name, 11);
-    else p_upper(scn_nm, LS[sc.fam].name, 11);
-    for (i = 0; i < 11u; i++) if (!scn_nm[i]) scn_nm[i] = ' ';   /* (spaces to the end: any letter can be set) */
+    memcpy(scn_nm, scn_meta[scn_save_slot].name, 11);
+    for (i = 0; i < 11u; i++) if (!scn_nm[i]) scn_nm[i] = ' ';
+    scn_nm_edit = 0;
 }
+static uint32_t scn_n_used(void) { uint32_t i, n = 0; for (i = 0; i < SCN_NU; i++) n += scn_meta[i].used; return n; }
 static void scn_nm_turn(int32_t dpos, int32_t dch)   /* K2: the letter; K3: its character */
 {
     const int32_t n = (int32_t)sizeof SCN_CHARS - 1;
@@ -761,23 +779,23 @@ static void scn_save_poll(void)                 /* a slice or a new flash operat
     if (rc < 0) { scn_save_fail(); return; }
     {                                           /* the header written: then it is the bank */
         scn_hdr_t v;
-        char m[20];
+        char m[24];                             /* ("SAVED U16 " and 11 characters) */
         if (!scn_bank_valid(scn_sv_at, &v) || v.seq != scn_seq + 1u) { scn_save_fail(); return; }
         scn_bank = scn_sv_at; scn_seq = v.seq; scn_sv_on = 0;
         scn_meta[scn_sv_slot].used = 1; scn_meta[scn_sv_slot].fam = scn_sv.fam;
         memcpy(scn_meta[scn_sv_slot].name, scn_sv.name, 12);
         scn_cur = (uint8_t)(SCN_NF + scn_sv_slot);
         scn_edited = 0;
-        p_strcpy(m, "SAVED ", 19);
-        { char n[20]; scn_name_of(scn_cur, n); p_cat(m, n, 19); }
+        p_strcpy(m, "SAVED ", 23);
+        { char n[20]; scn_name_of(scn_cur, n); p_cat(m, n, 23); }
         ui_say(m);
         ui_all();
     }
 }
 
-/* ---- the panel: PRESETS, SAVE (tap: the save mode, held: undo), K1 and HOME in the save mode. 1: the input was
- * the save mode's (K1 and HOME taken) */
-static int scn_input(uint32_t b, uint32_t rel, int32_t d_presets, int32_t d_k1, int32_t d_k2, int32_t d_k3)
+/* ---- the panel: PRESETS, SAVE (tap: the save mode, held: undo), K1 .. K4 and HOME in the save mode. 1: the input
+ * was the save mode's (K1 .. K4 and HOME taken) */
+static int scn_input(uint32_t b, uint32_t rel, int32_t d_presets, int32_t d_k1, int32_t d_k2, int32_t d_k3, int32_t d_k4)
 {
     if (b >> BTN_SAVE & 1u) scn_save_t = fm1_ms ? fm1_ms : 1u;
     if (scn_save_t && fm1_in.buttons >> BTN_SAVE & 1u && fm1_ms - scn_save_t >= SCN_UNDO_MS) {
@@ -792,12 +810,13 @@ static int scn_input(uint32_t b, uint32_t rel, int32_t d_presets, int32_t d_k1, 
             scn_save_mode = 1;
             scn_cand = 0xFF;                    /* (a preset still waiting for a load to end: dropped, else it loads
                                                  * over the scene about to be saved) */
-            scn_save_slot = (uint8_t)(scn_cur != 0xFF && scn_cur >= SCN_NF ? scn_cur - SCN_NF : 0u);
-            if (scn_cur == 0xFF || scn_cur < SCN_NF) {   /* (from a factory scene: the first empty one) */
+            {                                   /* the first free user scene (a save never replaces one unasked);
+                                                 * all 16 used: the one loaded, else U01 */
                 uint32_t i;
+                scn_save_slot = (uint8_t)(scn_cur != 0xFF && scn_cur >= SCN_NF && scn_cur < SCN_N ? scn_cur - SCN_NF : 0u);
                 for (i = 0; i < SCN_NU; i++) if (!scn_meta[i].used) { scn_save_slot = (uint8_t)i; break; }
             }
-            scn_nm_take(); scn_nm_pos = 0; scn_nm_edit = 0;
+            scn_nm_edit = 0; scn_nm_pos = 0; scn_nm_take();
             ui_all();
             return 1;
         }
@@ -811,12 +830,13 @@ static int scn_input(uint32_t b, uint32_t rel, int32_t d_presets, int32_t d_k1, 
         if (d) {
             int32_t v = (int32_t)scn_save_slot + d;
             scn_save_slot = (uint8_t)(v < 0 ? 0 : v > (int32_t)SCN_NU - 1 ? SCN_NU - 1u : (uint32_t)v);
-            if (!scn_nm_edit) scn_nm_take();    /* (a name being written stays) */
+            scn_nm_take();                      /* (a name being written stays) */
             ui_all();
         }
         if (d_k2 || d_k3) { scn_nm_turn(d_k2, d_k3); ui_all(); }
+        if (d_k4) { scn_nm_new(); ui_all(); }   /* (a turn: another name drawn) */
         if ((b >> BTN_HOME | b >> BTN_OCT_DOWN) & 1u) { scn_save_mode = 0; ui_say("NOT SAVED"); ui_all(); }
-        return 1;                               /* (the save mode takes K1 .. K3, HOME, OCT-) */
+        return 1;                               /* (the save mode takes K1 .. K4, HOME, OCT-) */
     }
     return 0;                                   /* (PRESETS outside the save mode: the presets browser, ui.c) */
 }

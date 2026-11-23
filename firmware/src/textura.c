@@ -532,6 +532,9 @@ static int host_state(const char *key, char *v, unsigned n)
 #endif
     else if (!strcmp(key, "saving")) snprintf(v, n, "%u", scn_sv_on);
     else if (!strcmp(key, "savemode")) snprintf(v, n, "%u", scn_save_mode ? scn_save_slot + 1u : 0u);
+    else if (!strcmp(key, "savename")) { snprintf(v, n, "%.11s", scn_nm); for (i = (unsigned)strlen(v); i && v[i - 1u] == ' '; i--) v[i - 1u] = 0; }   /* the
+                                                 * save mode's name (trailing spaces off) */
+    else if (sscanf(key, "uname%u%c", &k, &c) == 1 && k >= 1u && k <= SCN_NU) snprintf(v, n, "%s", scn_meta[k - 1u].used ? scn_meta[k - 1u].name : "-");
     else if (sscanf(key, "used%u%c", &k, &c) == 1 && k >= 1u && k <= SCN_NU) snprintf(v, n, "%u", scn_meta[k - 1u].used);
     else if (!strcmp(key, "mpos")) snprintf(v, n, "%u", mpos >> 8);               /* the song position (1/96 quarter) */
     else if (!strcmp(key, "routes")) snprintf(v, n, "%u", mbuf[mcur].nr);

@@ -1,0 +1,160 @@
+# the save mode's names (scenes.c, scn_words.h): SAVE opens on the first free user scene with a name of two words drawn,
+# never a saved scene's; K4 a turn draws another; PRESETS / K1 onto a used scene: its own name, the footer says SAVE
+# replaces it (in red); back on a free one, the name drawn stays. A save lands in the free scene, the others untouched.
+# All 16 used: SAVE opens on the scene loaded (a factory one: U01), the footer says all 16 are used
+1700 btn 13
+1800 btn 9
+1820 expect state savemode 1
+1820 expect state savename DEEP_HAIL
+1820 expect state ft2 K2-K4:_NAME__SAVE:_YES__HOME:_NO
+1840 shot
+# K4: another name
+1900 turn 5 1
+1920 expect state savename AMBER_TIDE
+1940 turn 5 -1
+1960 expect state savename OPEN_DUSK
+2000 btn 9
+2020 expect state saving 1
+2600 expect state saving 0
+2600 expect state used1 1
+2600 expect state uname1 OPEN_DUSK
+2600 expect state scene U01_OPEN_DUSK
+# U01 loaded: SAVE opens on U02 (free), not on U01
+2700 btn 9
+2720 expect state savemode 2
+2720 expect state savename QUIET_SHORE
+# K1 back onto U01: its own name, SAVE replaces it
+2800 turn 2 -1
+2820 expect state savemode 1
+2820 expect state savename OPEN_DUSK
+2820 expect state ft2 REPLACES_U01_OPEN_DUSK
+2840 shot
+# K4 there: a new name, still replacing U01; K1 on to U02: the name drawn stays
+2900 turn 5 1
+2920 expect state savename AMBER_LEDGE
+2920 expect state ft2 REPLACES_U01_OPEN_DUSK
+3000 turn 2 1
+3020 expect state savemode 2
+3020 expect state savename AMBER_LEDGE
+3020 expect state ft2 K2-K4:_NAME__SAVE:_YES__HOME:_NO
+# HOME: nothing saved
+3100 btn 8
+3120 expect state savemode 0
+3120 expect state msg NOT_SAVED
+3120 expect state used2 0
+3120 expect state uname1 OPEN_DUSK
+# U02 .. U16 saved, SAVE SAVE each: each lands in the next free one, those before untouched
+3200 btn 9
+3220 expect state savemode 2
+3300 btn 9
+4000 expect state saving 0
+4000 expect state used2 1
+4000 expect state uname1 OPEN_DUSK
+4100 btn 9
+4120 expect state savemode 3
+4200 btn 9
+4900 expect state saving 0
+4900 expect state used3 1
+4900 expect state uname1 OPEN_DUSK
+5000 btn 9
+5020 expect state savemode 4
+5100 btn 9
+5800 expect state saving 0
+5800 expect state used4 1
+5800 expect state uname1 OPEN_DUSK
+5900 btn 9
+5920 expect state savemode 5
+6000 btn 9
+6700 expect state saving 0
+6700 expect state used5 1
+6700 expect state uname1 OPEN_DUSK
+6800 btn 9
+6820 expect state savemode 6
+6900 btn 9
+7600 expect state saving 0
+7600 expect state used6 1
+7600 expect state uname1 OPEN_DUSK
+7700 btn 9
+7720 expect state savemode 7
+7800 btn 9
+8500 expect state saving 0
+8500 expect state used7 1
+8500 expect state uname1 OPEN_DUSK
+8600 btn 9
+8620 expect state savemode 8
+8700 btn 9
+9400 expect state saving 0
+9400 expect state used8 1
+9400 expect state uname1 OPEN_DUSK
+9500 btn 9
+9520 expect state savemode 9
+9600 btn 9
+10300 expect state saving 0
+10300 expect state used9 1
+10300 expect state uname1 OPEN_DUSK
+10400 btn 9
+10420 expect state savemode 10
+10500 btn 9
+11200 expect state saving 0
+11200 expect state used10 1
+11200 expect state uname1 OPEN_DUSK
+11300 btn 9
+11320 expect state savemode 11
+11400 btn 9
+12100 expect state saving 0
+12100 expect state used11 1
+12100 expect state uname1 OPEN_DUSK
+12200 btn 9
+12220 expect state savemode 12
+12300 btn 9
+13000 expect state saving 0
+13000 expect state used12 1
+13000 expect state uname1 OPEN_DUSK
+13100 btn 9
+13120 expect state savemode 13
+13200 btn 9
+13900 expect state saving 0
+13900 expect state used13 1
+13900 expect state uname1 OPEN_DUSK
+14000 btn 9
+14020 expect state savemode 14
+14100 btn 9
+14800 expect state saving 0
+14800 expect state used14 1
+14800 expect state uname1 OPEN_DUSK
+14900 btn 9
+14920 expect state savemode 15
+15000 btn 9
+15700 expect state saving 0
+15700 expect state used15 1
+15700 expect state uname1 OPEN_DUSK
+15800 btn 9
+15820 expect state savemode 16
+15900 btn 9
+16600 expect state saving 0
+16600 expect state used16 1
+16600 expect state uname1 OPEN_DUSK
+16700 expect state uname2 SLATE_DUNE
+16700 expect state uname16 GREY_LEDGE
+# all 16 used, U16 loaded: SAVE on U16, its name, the footer says all are used
+16800 btn 9
+16820 expect state savemode 16
+16820 expect state savename GREY_LEDGE
+16820 expect state ft2 ALL_16_USED:_REPLACES_U16
+16840 shot
+16900 btn 8
+# U01 loaded: SAVE on U01; a factory preset loaded: on U01
+17000 midi 0xC0 100 0
+17800 expect state scene U01_OPEN_DUSK
+17900 btn 9
+17920 expect state savemode 1
+17920 expect state savename OPEN_DUSK
+18000 btn 8
+18100 midi 0xC0 0 0
+18900 expect state scene F001_DRIZZLE
+19000 btn 9
+19020 expect state savemode 1
+19020 expect state ft2 ALL_16_USED:_REPLACES_U01
+19100 btn 8
+19120 expect state uname1 OPEN_DUSK
+19200 end

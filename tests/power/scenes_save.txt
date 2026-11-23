@@ -19,7 +19,7 @@
 2070 expect state savemode 5
 2100 btn 9
 2700 expect state saving 0
-2700 expect state scene U05_WATER
+2700 expect state scene U05_COLD_HAIL
 2800 btn 7
 2815 btn 7
 2816 btn 7

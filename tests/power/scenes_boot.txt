@@ -2,8 +2,8 @@
 # shown once the splash is gone
 1700 expect state used5 1
 1700 expect state used1 0
-1700 expect state scene U05_WATER
-1700 expect state toast U05_WATER
+1700 expect state scene U05_COLD_HAIL
+1700 expect state toast U05_COLD_HAIL
 1700 expect state pan0 20
 1700 expect state p411 110
 1700 expect state bpm10 1390

@@ -98,7 +98,7 @@
 11360 expect state run3 1
 11360 btn 9
 11410 btn 9
-12060 expect state scene U01_WIND
+12060 expect state scene U01_RAINY_CAVE
 12160 btn 0
 12240 btn 0
 12320 btn 0
@@ -125,10 +125,9 @@
 14130 expect state swaps 0
 14130 expect state run3 1
 14130 btn 9
-14150 turn 6 1
 14170 expect state savemode 2
 14190 btn 9
-14830 expect state scene U02_WIND
+14830 expect state scene U02_WET_BAY
 # U01, then U02: four sounding lanes switch, each once, one after the other; no cut, no gap
 14930 midi 0xC0 100 0
 17030 expect state sel0 6
@@ -258,7 +257,7 @@
 28030 expect rms > -35
 28130 expect rms > -35
 28630 expect state loading 0
-28630 expect state scene U02_WIND
+28630 expect state scene U02_WET_BAY
 28630 expect preset
 28630 expect sound
 28630 expect state dropped 0

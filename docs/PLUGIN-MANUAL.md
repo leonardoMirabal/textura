@@ -375,14 +375,24 @@ How the modulation works: [movement](MANUAL.md#8-movement-lfos-envelopes-followe
 
 ![SAVE: sixteen user presets and a name](plugin/img/save.png)
 
-**SAVE** in the top bar opens a small panel: the 16 user presets **U01** to **U16** with their names, a name field
-and **SAVE**.
+**SAVE** in the top bar opens a small panel: the 16 user presets **U01** to **U16** with their names, a name field,
+the dice and **SAVE**.
 
-- It opens on the user preset loaded (with its name), else on the first empty one. Click another to choose it.
-- **Type** the name: up to 11 letters, A to Z, 0 to 9, space and `- & ' .`. Backspace deletes. Left empty, the
-  preset takes the landscape's name.
-- **SAVE** (or Return; a double-click on a slot) saves what plays into it, as the FM-1's SAVE does. A full slot is
-  replaced (the panel says so before).
+- It opens on the **first empty** user preset, with a new name of two words, such as **SALT FIELD** or **MOSSY
+  DUSK**. A new name is never the name of one of your presets, so SAVE makes a new preset and changes none of the
+  others.
+- **The dice** right of the name: another name, a new one each click.
+- **Type** the name: up to 11 letters, A to Z, 0 to 9, space and `- & ' .`. The first key replaces the new name (it
+  is shown selected); Backspace deletes. Left empty, the preset takes the landscape's name.
+- To **replace** a preset, click it: the name becomes its own, and the line under it says, in red, that SAVE
+  replaces it. Click an empty one again and the new name is back.
+
+![SAVE on a used preset: the line under the name says SAVE replaces it](plugin/img/save-replace.png)
+
+- When all 16 are used, the panel opens on the user preset loaded (else U01) and says that all 16 are used and SAVE
+  replaces it.
+- **SAVE** (or Return; a double-click on a slot) saves what plays into it, as the FM-1's SAVE does. The factory
+  presets are never written over.
 - The user presets are **kept with the project**. Load them in the presets browser, **MINE: User**, or by program
   change 100 to 115.
 

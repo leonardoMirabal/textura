@@ -2,7 +2,7 @@
 # its first 20 bytes): its scale byte (the old list's DORIAN, saved for DEGREE) reads as SNAP DORIAN, ROOT kept,
 # TRANSP 0; the rest as saved
 1700 expect state palette PEACH
-1700 expect state scene U05_WATER
+1700 expect state scene U05_COLD_HAIL
 1700 expect state bpm10 1390
 1700 expect state p43B 2
 1700 expect state p43C 2

@@ -321,5 +321,11 @@ static bool s_ms(const clap_plugin_t *plugin, int db10[4], int *corr, uint32_t *
     *corr = sn.ui.ms_corr; *gon_blk = sn.ui.gon_blk;
     return true;
 }
-static const txg_gui_shot_t EXT_SHOT = { s_tick, s_grab, s_input, s_headless, s_find, s_masks, s_lane, s_sel, s_comp, s_run, s_ms };
+static bool s_save(const clap_plugin_t *plugin, int *slot, char name[12], char *line, int n, int *fit)
+{
+    txg_clap_t *c = GUI(plugin);
+    return c && c->core && txg_save_info(c->core, slot, name, line, n, fit);
+}
+static const txg_gui_shot_t EXT_SHOT = { s_tick, s_grab, s_input, s_headless, s_find, s_masks, s_lane, s_sel, s_comp, s_run, s_ms,
+                                         s_save };
 const void *txg_clap_shot_ext(void) { return &EXT_SHOT; }

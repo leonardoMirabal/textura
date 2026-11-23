@@ -463,8 +463,9 @@ GUI_VIEWS = ("", "space", "sounds", "presets", "settings", "colour", "mode", "dr
 #                                        MOVEMENT's LFO 1, ENV, the matrix; STOP ALL, the sound browser's preview on a
 #                                        stopped lane, PLAY ALL; the rows with lane 3 selected; a lane stopped by its own
 #                                        button; Rain on a roof's drawer; RANDOM's list, the top bar's dice)
-GUI_TEST_VIEWS = ("dice-lane", "random-none", "random")   # clap_render --gui-test's (gui4's second run): a row's dice
-#                                        rolled (its hint hovered), ROLL with nothing ticked, ROLL with all four (kept with --shots)
+GUI_TEST_VIEWS = ("dice-lane", "random-none", "random", "save-replace", "save-full")   # clap_render --gui-test's (gui4's
+#                                        second run): a row's dice rolled (its hint hovered), ROLL with nothing ticked, ROLL
+#                                        with all four; SAVE on a used preset (SAVE replaces it), all 16 used (kept with --shots)
 GUI_SIZES = ((1200, 720), (1950, 1210), (1440, 1080), (960, 600))   # real DAW window sizes: the MAP round in its place
 
 

@@ -17,5 +17,5 @@
 4320 expect state saving 1
 6000 expect state saving 0
 6000 expect state loading 0
-6000 expect state scene U01_WATER
+6000 expect state scene U01_BLUE_GLADE
 6100 end

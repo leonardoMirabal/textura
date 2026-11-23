@@ -34,6 +34,7 @@
 #include "txp_ui.h"
 #include "../gui_clap.h"
 #include "../gui_shot.h"
+#include "../../firmware/src/scn_words.h"
 
 #ifndef TXP_VERSION
 #define TXP_VERSION "0.0.0-dev"
@@ -96,6 +97,7 @@ typedef struct txp_plugin {
     int dice, dice_fixed;                /* RANDOM's groups ticked (dice.c DICE_*: saved with the project); the tests'
                                           * fixed seeds (TEXTURA_PLUGIN_TEST or TEXTURA_PLUGIN_GUI_SHOT set) */
     uint32_t dice_n;                     /* the rolls so far (the tests' seed) */
+    uint32_t nm_rng, nm_n;               /* SAVE's names drawn (txp_ui_name): the draw's state, the names so far */
 } txp_plugin_t;
 
 static void say(txp_plugin_t *p, clap_log_severity sev, const char *msg)
@@ -772,6 +774,37 @@ int txp_ui_roll(txp_core *c, int lane)
     uq_put(c, UQ_END, TXP_ID_PRESET, 0);
     ui_dirty(c);
     return 0;
+}
+/* SAVE's name drawn (scn_words.h, as the FM-1's save mode): never a user scene's name, nor avoid */
+typedef struct { txp_core *c; const txp_snap_t *sn; const char *avoid; } nm_ctx_t;
+static uint32_t nm_rnd(void *ctx)
+{
+    uint32_t *r = &((nm_ctx_t *)ctx)->c->nm_rng, x = *r;
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;   /* (dice.c's xorshift) */
+    return *r = x;
+}
+static int nm_taken(const char *nm, void *ctx)
+{
+    const nm_ctx_t *t = ctx;
+    for (uint32_t i = 0; i < TXP_USER_N; i++)
+        if (t->sn->ui.user >> i & 1u && !strncmp(nm, t->sn->ui.uname[i], 11)) return 1;
+    return t->avoid && !strncmp(nm, t->avoid, 11);
+}
+void txp_ui_name(txp_core *c, const char *avoid, char out[12])
+{
+    txp_snap_t sn;
+    nm_ctx_t t = { c, &sn, avoid };
+    uint32_t seed;
+    c->nm_n++;
+    if (c->dice_fixed) seed = c->nm_n * 7919u + 1u;   /* (the tests: the same names every run) */
+    else {
+        double s = mono_s();
+        seed = (uint32_t)(uint64_t)(s * 1e6) ^ (uint32_t)(uint64_t)(s * 1e3) << 16 ^ c->nm_n * 2654435761u ^ (uint32_t)(uintptr_t)c;
+    }
+    c->nm_rng = (c->dice_fixed ? 0x2F6B3A1Du : c->nm_rng) ^ seed * 2654435761u;
+    if (!c->nm_rng) c->nm_rng = 0x2F6B3A1Du;
+    (void)txp_ui_snap(c, &sn);
+    scn_words(out, nm_rnd, nm_taken, &t);
 }
 void txp_ui_save(txp_core *c, int slot, const char *name)
 {
