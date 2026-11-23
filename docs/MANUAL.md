@@ -1763,8 +1763,9 @@ never loses them.
 
 Two actions, no settings: press **OCT−** and **OCT+** together (the second within 60 ms of the first) to roll the dice.
 
-- **Anywhere** (but the sound browser): everything is rolled, on every lane with a sound: a new engine on each lane
-  (each a different one where it can be), each engine's cards, the effects (COMPRESSOR to M/S: types and amounts; a
+- **Anywhere** (but the sound browser): everything is rolled, on every lane in use: a new engine on each lane
+  (each a different one where it can be; an empty lane gets one too and starts playing, sparse; a stopped lane stays
+  stopped), each engine's cards, the effects (COMPRESSOR to M/S: types and amounts; a
   long, unreal reverb can come up) and the movement (the LFOs, the envelopes, the followers and 2 to 6 routes: what
   they move, how far). The toast: **RANDOM · ROLLED**, then **EVERYTHING**. The preset name reads **RANDOM**, marked
   as changed.

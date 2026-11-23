@@ -425,7 +425,8 @@ Two kinds of dice roll new sounds, as the FM-1's OCT- and OCT+ pressed together 
   Its cards start at the new engine's own values. The lane keeps its LEVEL, PAN, HOW MANY, HOW ACTIVE and MIDI CH.
 - **The dice in the top bar** rolls in one click. Its arrow **▾** opens **RANDOM**, a small list with four ticks: what
   a roll changes. The ticks are kept; **ROLL** in the list rolls too. A roll changes everything ticked, on every lane
-  in use. With **ENGINES** an empty lane gets a sound too and starts playing, sparse, somewhere on the map:
+  in use. With **ENGINES** an empty lane gets a sound too and starts playing, sparse, somewhere on the map; a stopped
+  lane stays stopped:
 
 | Tick | What a roll changes |
 | --- | --- |
