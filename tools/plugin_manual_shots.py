@@ -38,6 +38,7 @@ PICK = {   # the gate's picture -> the manual's
     "gui4-save": "save",
     "gui4-save-replace": "save-replace",
     "gui4-random-list": "random",
+    "gui4-dice-sound": ("dice-sound", (0.0, 0.56, 0.5, 0.8)),   # (the drawer's left: the SOUND tag, its dice and hint)
     "gui4-mode": "movement-mode",
     "gui4-drag": "movement-drag",
     "gui4-links": "movement-links",

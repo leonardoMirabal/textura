@@ -1033,6 +1033,10 @@ static void sb_events(int timed)
             if (e->a & TXP_DICE_ALL) (void)dice_roll(e->a & DICE_ALL, (uint32_t)e->v);
             else if (e->a < SC_N) (void)dice_lane(e->a, (uint32_t)e->v);
             sbx.rev++;
+        } else if (e->kind == TXP_EV_SDICE) {   /* (the SOUND zone's dice: one lane's cards, dice.c) */
+            if (ln.qw - ln.qr >= LN_QN / 2u) { sbx.st.ring_wait++; sbx.ev_wait = 1; return; }
+            if (e->a < SC_N) (void)dice_lane_snd(e->a, (uint32_t)e->v);
+            sbx.rev++;
         } else if (e->kind == TXP_EV_NAME) {   /* (four characters, the save mode's alphabet: others a space) */
             for (uint32_t i = 0; i < 4u && e->a + i < 11u; i++) {
                 char ch = (char)((uint32_t)e->v >> (8u * i) & 0xFFu);

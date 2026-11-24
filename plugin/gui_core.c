@@ -33,25 +33,30 @@ extern const unsigned long txg_font_text_len;
 #define C_GREYH 0xFF8F8983u                /* (its handle) */
 #define C_MENU 0xFF232120u
 #define C_MSTRK 0xFF2C2A28u                /* the M/S tab's bars and correlation track */
-/* the two zones under the rows: SOUND (the selected lane's drawer: warmer, lighter, a red rail) and EFFECTS (the strip:
- * the whole mix, darker and cooler, under a dark gap and its band) */
-#define C_SND 0xFF1D1918u
-#define C_SNDCARD 0xFF262120u
-#define C_SNDLINE 0xFF3A302Du
-#define C_SNDSEG 0xFF352D2Bu                /* (a choice's box, a hovered button there) */
-#define C_SNDTRK 0xFF3A3331u                /* (a fader's track there) */
-#define C_DESC 0xFFB8B0A8u                  /* (a card's description) */
-#define C_FX 0xFF0D0D0Fu
-#define C_FXSEC 0xFF141417u
-#define C_FXOPEN 0xFF1C1C21u                /* (a section whose drawer is open) */
-#define C_FXMOV 0xFF1A1312u                 /* (MOVEMENT's section) */
-#define C_FXLINE 0xFF24242Au
-#define C_FXHD 0xFF9A9AA6u
-#define C_FXNAME 0xFFD6D2CFu
-#define C_FXSEG 0xFF24242Bu
-#define C_FXTRK 0xFF2A2A30u
-#define C_FXARR 0xFF55555Fu
-#define C_GAP 0xFF050505u
+/* the two zones under the rows, each a titled part: SOUND (the selected lane's drawer: lifted, a light top edge, the red
+ * rail of the selected lane) and EFFECTS (the strip, the whole mix: sunk under a dark gap, its band a lighter title bar
+ * with its own edge, its name set as SOUND's tag). Neutral warm greys only: the zones part by structure and tone */
+#define C_SND 0xFF221F1Eu
+#define C_SNDCARD 0xFF2C2827u
+#define C_SNDLINE 0xFF3A3533u
+#define C_SNDSEG 0xFF39332Fu                /* (a choice's box, a hovered button there) */
+#define C_SNDTRK 0xFF423B38u                /* (a fader's track there) */
+#define C_SNDHI 0xFF403A37u                 /* (its top edge) */
+#define C_DESC 0xFFBDB5AEu                  /* (a card's description) */
+#define C_FX 0xFF090808u
+#define C_FXSEC 0xFF161514u
+#define C_FXOPEN 0xFF211E1Du                /* (a section whose drawer is open) */
+#define C_FXMOV 0xFF1C1413u                 /* (MOVEMENT's section) */
+#define C_FXLINE 0xFF272423u
+#define C_FXHD 0xFF8E8883u
+#define C_FXNAME 0xFFDAD5D0u
+#define C_FXSEG 0xFF262322u
+#define C_FXTRK 0xFF2D2A29u
+#define C_FXARR 0xFF4F4A46u
+#define C_FXBAND 0xFF1C1A19u                /* (its band: a title bar) */
+#define C_FXBANDHI 0xFF343030u              /* (the band's top edge) */
+#define C_GAP 0xFF030303u
+#define SND_RAIL 3.f                     /* (SOUND's red rail) */
 #define ZFIT(cond) do { if (!(cond)) g->zone_fit = 0; } while (0)   /* (a text of the zones past its room: txg_fits 5 says so) */
 
 /* the engines' colours (txp_ui.h TXP_COL_N; 0 bone, every engine's at the start). No red: red is the selection's and
@@ -70,8 +75,8 @@ static const char *const PAL_N[TXP_COL_N] = { "BONE", "EMBER", "AMBER", "SAND", 
 #define HDR_H 26.f                       /* the rows' column names */
 #define ROW_H 40.f                       /* a lane's row */
 #define DR_H 150.f                       /* the drawer: the selected lane's cards */
-#define FX_H 148.f                       /* the strip: the effects in signal order, the movement */
-#define FX_GAP 4.f                       /* (its top: a dark gap, then its band, then the sections) */
+#define FX_H 150.f                       /* the strip: the effects in signal order, the movement */
+#define FX_GAP 6.f                       /* (its top: a dark gap, then its band, then the sections) */
 #define FX_BAND 20.f
 #define FX_SY (FX_GAP + FX_BAND + 2.f)     /* (a section's top under the strip's) */
 #define MAP_ANG 1.3962634f               /* PAN at either end: 80 degrees off the middle */
@@ -208,6 +213,8 @@ struct txg {
     char msg[112];
     int16_t lh[LH_N][16][4], mx_known[16][4];
     int tag_below;                       /* (the strip's cells: their tags under them) */
+    int mv_click;                        /* (a source's mode: the control pressed had no link; a click makes one at
+                                          * +25 %, a drag sets the amount) */
     /* the texts as drawn last, each inside its room (txg_fits): the place's tabs and the M/S tab's, the place's head's
      * (the selected lane's name, and the widest a lane can show) */
     int ms_fit, head_fit;
@@ -216,7 +223,7 @@ struct txg {
     int snd_wf, snd_wi;
     int zone;                            /* the zone drawn (pcell's look): 0 none, 1 SOUND (the drawer), 2 EFFECTS (the strip) */
     int names_fit;                       /* every sound's name and its family's tag fit the drawer (at names_s: the scale) */
-    float names_s;
+    float names_s, tag_wmax;            /* (tag_wmax: the widest tag, LANE 16 and the widest family) */
     /* HELP: the tour's step (-1: none), started by the first open (its card says so); the texts' fit as drawn last (the
      * top bar's, the card's, the menu's: txg_fits); the widest preset name's width (the top bar's room), for which scale
      * and user names; the tour's flag's folder ("": none) */
@@ -370,6 +377,32 @@ static void dice_button(txg_t *g, frui_canvas *c, int k, float x, float y, float
     RRS(g, c, x, y, w, h, 3.f, on ? (hot ? C_DIM : C_LINE) : 0x80262424u);
     dice_icon(g, c, x + w * 0.5f, y + h * 0.5f, 14.f, on ? C_INK : C_FAINT);
     if (on) wid_add(g, TXG_W_DICE, k, x, y, w, h);
+}
+/* the SOUND zone's dice (the selected lane's cards rolled, nothing else; UNDO takes it back), as a row's:
+ * the same box, line and glyph, its kind TXG_W_SDICE; an empty lane: dim, nothing to click */
+#define SDICE_W 22.f
+static void sdice_button(txg_t *g, frui_canvas *c, int k, float x, float y, int on)
+{
+    int hot = on && g->hover_kind == TXG_W_SDICE && g->hover_lane == k;
+    RR(g, c, x, y, SDICE_W, SDICE_W, 3.f, hot ? C_SNDSEG : C_SNDCARD);
+    RRS(g, c, x, y, SDICE_W, SDICE_W, 3.f, on ? (hot ? C_DIM : C_SNDLINE) : 0x80262424u);
+    dice_icon(g, c, x + SDICE_W * 0.5f, y + SDICE_W * 0.5f, 14.f, on ? C_INK : C_FAINT);
+    if (on) wid_add(g, TXG_W_SDICE, k, x, y, SDICE_W, SDICE_W);
+}
+/* MAP, a source's link button (as a DAW's MAP): a click arms
+ * it (the source's mode: then a control takes the link), red while armed; dragged onto a control, a link as the grip
+ * made (TXG_W_GRIP). Its width, measured from its label */
+#define MAP_FS 9.f
+static float map_w(txg_t *g) { return ceilf(LBLW(g, MAP_FS, "MAP") - MAP_FS * 0.14f + 16.f); }
+static float map_button(txg_t *g, frui_canvas *c, int src, float x, float y, float h)
+{
+    float w = map_w(g), tw = LBLW(g, MAP_FS, "MAP") - MAP_FS * 0.14f;
+    int on = g->msrc == src;
+    RR(g, c, x, y, w, h, 2.f, on ? C_REDBG : C_BTN);
+    RRS(g, c, x, y, w, h, 2.f, on ? C_RED : C_LINE);
+    LBL(g, c, x + (w - tw) * 0.5f, y + h * 0.5f + CAP(g, MAP_FS) * 0.5f, MAP_FS, on ? C_RED : C_INK, "MAP");
+    wid_add(g, TXG_W_GRIP, src, x, y, w, h);
+    return w;
 }
 /* a lane's STOP / PLAY: a square as M and S (t: a label after the icon, or none: the icon alone). Playing: a stop square
  * in ink; stopped: a play triangle in red; no engine: both dim, nothing to click (kind TXG_W_LRUN: the row's, TXG_W_DRUN:
@@ -1841,8 +1874,8 @@ static float snd_tag(txg_t *g, frui_canvas *c, float x, float y, const char *res
     }
     return w0 + TW(g, fs, 620.f, fs * 0.12f, 0, rest);
 }
-/* ---- the drawer, the SOUND zone: the selected lane on a warmer, lighter ground with a red rail at its left; its tag
- * (SOUND, the lane, the family), its cards (name, value, what the card does; DIST among them), PAN, LEVEL, GROOVE. Every
+/* ---- the drawer, the SOUND zone: the selected lane on a lifted ground (a light top edge, a red rail at its left); its
+ * tag (SOUND, the lane, the family) and its dice (the lane's cards rolled), its cards (name, value, what the card does; DIST among them), PAN, LEVEL, GROOVE. Every
  * text measured in its room (zone_fit) */
 static void draw_drawer(txg_t *g, frui_canvas *c)
 {
@@ -1851,14 +1884,31 @@ static void draw_drawer(txg_t *g, frui_canvas *c)
     const txp_ui_lane_t *l = &g->sn.ui.lane[k];
     const txp_ui_cards_t *cd = &g->sn.ui.card[k];
     char t[64], nm[32], a[16], b[16];
-    float x = 16.f, cx0 = 236.f, cx1 = x1 - 196.f, room = cx0 - x - 16.f, ns = 22.f;
+    float x = 16.f, cx1 = x1 - 196.f, ns = 22.f, cx0, room, colw, sdx, troom;
+    if (g->names_s != g->S) {            /* (every sound of the catalog, once a scale: its name at the smallest size, its
+                                          * tag with the widest lane number) */
+        g->tag_wmax = 0.f;
+        for (int f = 0; f < g->cat->nfam; f++) {
+            char u[48];
+            snprintf(u, sizeof u, "\xC2\xB7 LANE 16 \xC2\xB7 %s", g->cat->fam[f].name);
+            upper(u, u, sizeof u);
+            g->tag_wmax = fmaxf(g->tag_wmax, snd_tag(g, 0, 0.f, 0.f, u, 1e4f));
+        }
+    }
+    /* (the left column as wide as the widest tag and the sound's dice after it need, 214 at least; the
+     * cards after it) */
+    colw = fmaxf(214.f, ceilf(g->tag_wmax) + 8.f + SDICE_W);
+    cx0 = x + colw + 6.f; room = colw - 10.f;
+    sdx = x + colw - SDICE_W; troom = sdx - 8.f - x;   /* (the sound's dice: its right edge on STOP LANE's; the tag to 8 px
+                                          * short of it) */
     R(g, c, 0, y0, x1, DR_H, C_SND);
-    R(g, c, 0, y0, x1, 1.f, C_SNDLINE);
-    R(g, c, 0, y0, 4.f, DR_H, C_RED);
+    R(g, c, 0, y0, x1, 1.f, C_SNDHI);
+    R(g, c, 0, y0, SND_RAIL, DR_H, C_RED);
     g->zone = 1;
     snprintf(t, sizeof t, "\xC2\xB7 LANE %d%s%s", k + 1, used(g, k) ? " \xC2\xB7 " : "", used(g, k) ? l->fam : "");
     upper(t, t, sizeof t);
-    ZFIT(snd_tag(g, c, x, y0 + 21.f, t, room + 8.f) <= room + 8.f);   /* (the tag: to 8 px short of the cards) */
+    ZFIT(snd_tag(g, c, x, y0 + 21.f, t, troom) <= troom);
+    sdice_button(g, c, k, sdx, y0 + 21.f - CAP(g, 10.5f) * 0.5f - SDICE_W * 0.5f, used(g, k));
     if (!used(g, k)) {
         static const char *const NO = "No engine on this lane: CHOOSE ENGINE (or the row's ENGINE button) picks one.";
         TX(g, c, x, y0 + 48.f, 22.f, 700.f, 1.1f, 0, C_FAINT, "EMPTY");
@@ -1868,14 +1918,10 @@ static void draw_drawer(txg_t *g, frui_canvas *c)
         g->zone = 0;
         return;
     }
-    if (g->names_s != g->S) {            /* (every sound of the catalog, once a scale: its name at the smallest size, its
-                                          * tag with the widest lane number) */
+    if (g->names_s != g->S) {
         g->names_fit = 1;
         for (int f = 0; f < g->cat->nfam; f++) {
             char u[48];
-            snprintf(u, sizeof u, "\xC2\xB7 LANE 16 \xC2\xB7 %s", g->cat->fam[f].name);
-            upper(u, u, sizeof u);
-            g->names_fit &= snd_tag(g, 0, 0.f, 0.f, u, room + 8.f) <= room + 8.f;
             for (int i = 0; i < g->cat->fam[f].n; i++) {
                 upper(u, g->cat->fam[f].s[i].name, sizeof u);
                 g->names_fit &= TW(g, 15.f, 700.f, 0.75f, 0, u) <= room;
@@ -1890,8 +1936,9 @@ static void draw_drawer(txg_t *g, frui_canvas *c)
     clipL(g, c, x, y0, room, DR_H);
     TX(g, c, x, y0 + 48.f, ns, 700.f, ns * 0.05f, 0, (g->mute >> k & 1u) ? C_DIM : C_INK, nm);
     frui_clip_reset(c);
-    chg_button(g, c, TXG_W_SND, k, x, y0 + 116.f, 122.f, 26.f, "CHANGE ENGINE");   /* (its icon, label and caret inside it) */
-    run_button(g, c, TXG_W_DRUN, k, x + 126.f, y0 + 116.f, 88.f, 26.f, l->run ? "STOP LANE" : "PLAY LANE");
+    chg_button(g, c, TXG_W_SND, k, x, y0 + 116.f, 122.f + floorf((colw - 214.f) * 0.5f), 26.f, "CHANGE ENGINE");   /* (its icon, label and caret inside it) */
+    run_button(g, c, TXG_W_DRUN, k, x + 126.f + floorf((colw - 214.f) * 0.5f), y0 + 116.f, 88.f + colw - 214.f - floorf((colw - 214.f) * 0.5f), 26.f,
+               l->run ? "STOP LANE" : "PLAY LANE");
     if (l->eng < g->cat->neng) {
         char en[24];
         upper(en, g->cat->eng[l->eng], sizeof en);
@@ -2257,14 +2304,6 @@ static void lfo_trace(txg_t *g, frui_canvas *c, int row, float x, float y, float
     }
     CI(g, c, px, py, 2.2f, col);
 }
-/* a source's grip (2 x 3 dots in a red box): dragged onto a control, a link at +25 % and the source's mode */
-static void grip(txg_t *g, frui_canvas *c, int src, float x, float y, float s)
-{
-    RRS(g, c, x, y, s, s, 3.f, C_RED);
-    for (int r = 0; r < 3; r++)
-        for (int q = 0; q < 2; q++) CI(g, c, x + s * 0.5f + ((float)q - 0.5f) * s * 0.27f, y + s * 0.5f + (float)(r - 1) * s * 0.23f, 1.25f, C_RED);
-    wid_add(g, TXG_W_GRIP, src, x - 3.f, y - 3.f, s + 6.f, s + 6.f);
-}
 /* "moves 2 controls" / "not connected" */
 static void src_count(const txg_t *g, int src, char *o, size_t n)
 {
@@ -2278,45 +2317,50 @@ static void src_kind(const txg_t *g, int src, char *o, size_t n)
     int i = txp_param_index(id);
     snprintf(o, n, "%s", i >= 0 ? g->sn.ptx[i] : "");
 }
-/* a source's tile: its grip, its name and kind, its live trace, how many controls it moves; a click: its mode (again:
+/* a source's tile: its name and kind, MAP, its live trace, how many controls it moves; a click: its mode (again:
  * out of it). In its mode: red */
 static void src_tile_draw(txg_t *g, frui_canvas *c, int src, float x, float y, float w, float h)
 {
     int on = g->msrc == src, hot = g->hover_kind == TXG_W_SRC && g->hover_lane == src, n = src_links(g, src);
     char nm[16], kd[24], t[48];
-    float gs = h >= 46.f ? 20.f : 18.f, tx = x + 8.f + gs + 8.f;
+    float mw = map_w(g), mh = 16.f, tx = x + 10.f, mx_ = x + w - 8.f - mw, tall = h >= 46.f;
     RR(g, c, x, y, w, h, 3.f, on ? C_REDBG : C_WELL);
     if (on || hot) RRS(g, c, x, y, w, h, 3.f, on ? C_RED : frui_alpha(C_RED, 0.6f));
     wid_add(g, TXG_W_SRC, src, x, y, w, h);
-    grip(g, c, src, x + 8.f, y + (h >= 46.f ? 8.f : (h - gs) * 0.5f), gs);
+    /* (MAP at the right of its name's line, tall; low: at the right, centred, the trace before it) */
+    (void)map_button(g, c, src, mx_, tall ? y + 6.f : y + (h - mh) * 0.5f, mh);
     src_name(src, nm, sizeof nm);
     src_kind(g, src, kd, sizeof kd);
-    clipL(g, c, x, y, h >= 46.f ? w - 4.f : w * 0.55f - 6.f, h);
-    tx += LBL(g, c, tx, y + 15.f, 9.5f, C_RED, nm) + 7.f;
-    if (tx + LBLW(g, 8.5f, kd) <= x + (h >= 46.f ? w - 8.f : w * 0.55f - 6.f)) LBL(g, c, tx, y + 15.f, 8.5f, C_DIM, kd);   /* (its kind
-                                          * where it fits) */
-    src_count(g, src, t, sizeof t);
-    if (g->zone) ZFIT(TW(g, 9.5f, 450.f, 0.f, 0, t) <= (h >= 46.f ? w - gs - 24.f : w * 0.55f - gs - 22.f) &&
-                                tx - 7.f <= x + (h >= 46.f ? w - 4.f : w * 0.55f - 6.f));   /* (its count, its name) */
-    if (h >= 46.f) {                     /* (tall: the trace across, the count under it) */
-        lfo_trace(g, c, src_row(src), x + 8.f + gs + 8.f, y + 20.f, w - gs - 26.f, 16.f, n ? C_RED : C_DIM);
-        TX(g, c, x + 8.f + gs + 8.f, y + h - 6.f, 9.5f, 450.f, 0.f, 0, C_DIM, t);
-    } else {                             /* (low: the count under the name, the trace at the right) */
-        TX(g, c, x + 8.f + gs + 8.f, y + h - 7.f, 9.5f, 450.f, 0.f, 0, C_DIM, t);
-        frui_clip_reset(c);
-        lfo_trace(g, c, src_row(src), x + w * 0.55f, y + 7.f, w * 0.45f - 10.f, h - 14.f, n ? C_RED : C_DIM);
+    {
+        float nend = tall ? mx_ - 6.f : x + w * 0.5f - 6.f;   /* (the name's line ends here) */
+        clipL(g, c, x, y, nend - x, h);
+        tx += LBL(g, c, tx, y + 15.f, 9.5f, C_RED, nm) + 7.f;
+        if (tx + LBLW(g, 8.5f, kd) <= nend) LBL(g, c, tx, y + 15.f, 8.5f, C_DIM, kd);   /* (its kind where it fits) */
+        src_count(g, src, t, sizeof t);
+        if (g->zone) ZFIT(x + 10.f + TW(g, 9.5f, 450.f, 0.f, 0, t) <= (tall ? x + w - 8.f : nend) && tx - 7.f <= nend);
+        if (tall) {                      /* (tall: the trace across under the name, clear of the count under it) */
+            frui_clip_reset(c);
+            lfo_trace(g, c, src_row(src), x + 10.f, y + 23.f, w - 20.f, 9.f, n ? C_RED : C_DIM);
+            TX(g, c, x + 10.f, y + h - 5.f, 9.5f, 450.f, 0.f, 0, C_DIM, t);
+        } else {                         /* (low: the count under the name, the trace between it and MAP) */
+            TX(g, c, x + 10.f, y + h - 7.f, 9.5f, 450.f, 0.f, 0, C_DIM, t);
+            frui_clip_reset(c);
+            lfo_trace(g, c, src_row(src), x + w * 0.5f, y + 7.f, mx_ - 10.f - (x + w * 0.5f), h - 14.f, n ? C_RED : C_DIM);
+        }
     }
     frui_clip_reset(c);
 }
-/* an LFO's own well in its drawer: its grip, its trace (a click: its mode) */
+/* an LFO's own well in its drawer: MAP, its trace (a click: its mode) */
 static void src_well(txg_t *g, frui_canvas *c, int src, float x, float y, float w, float h)
 {
     int on = g->msrc == src, hot = g->hover_kind == TXG_W_SRC && g->hover_lane == src;
     RR(g, c, x, y, w, h, 2.f, on ? C_REDBG : C_WELL);
     if (on || hot) RRS(g, c, x, y, w, h, 2.f, on ? C_RED : frui_alpha(C_RED, 0.6f));
     wid_add(g, TXG_W_SRC, src, x, y, w, h);
-    grip(g, c, src, x + 8.f, y + 8.f, 20.f);
-    lfo_trace(g, c, src_row(src), x + 38.f, y + 6.f, w - 48.f, h - 12.f, src_links(g, src) ? C_RED : C_DIM);
+    {   /* (MAP at its top left) */
+        float mw = map_button(g, c, src, x + 8.f, y + 8.f, 18.f);
+        lfo_trace(g, c, src_row(src), x + 8.f + mw + 10.f, y + 6.f, w - mw - 28.f, h - 12.f, src_links(g, src) ? C_RED : C_DIM);
+    }
 }
 static int wrap_lines(txg_t *g, float w, const char *s, float lh, float sz);
 /* BINAURAL's texts (SETTINGS' section, OUTPUT's panel: draw_bin) and OUTPUT's names there */
@@ -2423,8 +2467,8 @@ static void draw_bin(txg_t *g, frui_canvas *c)
     (void)wrapn(g, c, x + pad, yy + lh * (float)nh, iw, BIN_KEPT, nk, lh, 11.5f, C_FAINT + 0x00303030u);
     ZFIT(y >= TOP_H);
 }
-/* the strip, the EFFECTS zone: the whole mix, after all lanes, darker and cooler than SOUND; a dark gap over it, its band
- * (what it is; OUTPUT at its right end: out_switch), then its sections, each on its own ground, a small arrow between
+/* the strip, the EFFECTS zone: the whole mix, after all lanes, sunk under SOUND; a dark gap over it, its band (a title
+ * bar: what it is, set as SOUND's tag; OUTPUT at its right end: out_switch), then its sections, each on its own ground, a small arrow between
  * them in the order the sound goes through (COMP > DRIVE > FILTER > DELAY > REVERB > M/S; MOVEMENT, tinted, moves things and takes no sound). Every text measured
  * in its room (zone_fit) */
 static void draw_strip(txg_t *g, frui_canvas *c)
@@ -2436,10 +2480,14 @@ static void draw_strip(txg_t *g, frui_canvas *c)
     R(g, c, 0, y0, g->W, FX_GAP, C_GAP);
     {   /* the band */
         static const char *const B0 = "EFFECTS", *const B1 = "\xC2\xB7 THE WHOLE MIX, AFTER ALL LANES, LEFT TO RIGHT";
-        float by = y0 + FX_GAP + FX_BAND * 0.5f + CAP(g, 10.f) * 0.5f, bx = 14.f;
+        /* (a title bar: its ground, its top edge, a line under it; EFFECTS set as SOUND's tag: its size, tracking, x) */
+        float by = y0 + FX_GAP + FX_BAND * 0.5f + CAP(g, 10.5f) * 0.5f, bx = 16.f,
+              w0 = TW(g, 10.5f, 620.f, 1.68f, 0, B0) + 8.f;
+        R(g, c, 0, y0 + FX_GAP, g->W, FX_BAND, C_FXBAND);
+        R(g, c, 0, y0 + FX_GAP, g->W, 1.f, C_FXBANDHI);
         R(g, c, 0, y0 + FX_GAP + FX_BAND - 1.f, g->W, 1.f, C_FXLINE);
-        bx += TX(g, c, bx, by, 10.f, 620.f, 1.6f, 0, C_INK, B0) + 10.f;
-        bx += TX(g, c, bx, by, 10.f, 620.f, 1.6f, 0, C_FXHD, B1);
+        TX(g, c, bx, by, 10.5f, 620.f, 1.68f, 0, C_INK, B0);
+        bx += w0 + TX(g, c, bx + w0, by, 10.5f, 620.f, 10.5f * 0.12f, 0, C_DIM, B1);
         ZFIT(bx + 16.f <= out_switch(g, c, y0 + FX_GAP, FX_BAND - 1.f, by));
     }
     g->zone = 2;
@@ -3446,8 +3494,8 @@ static void draw_fxd(txg_t *g, frui_canvas *c)
         }
         if (!nr) {
             clipL(g, c, 16.f, yy - 12.f, gw, 32.f);
-            TX(g, c, 16.f, yy, 11.f, 450.f, 0.f, 0, C_DIM, "Click the tile for its mode, or drag its grip");
-            TX(g, c, 16.f, yy + 16.f, 11.f, 450.f, 0.f, 0, C_DIM, "onto a control.");
+            TX(g, c, 16.f, yy, 11.f, 450.f, 0.f, 0, C_DIM, "Click MAP, then a control to link it,");
+            TX(g, c, 16.f, yy + 16.f, 11.f, 450.f, 0.f, 0, C_DIM, "or drag MAP onto a control.");
             frui_clip_reset(c);
         }
         groups(g, c, G, 3, 2, gw + 40.f, by + 12.f, x1 - gw - 56.f, y1 - 12.f - (by + 12.f));
@@ -3629,6 +3677,9 @@ static void dice_tip(txg_t *g, frui_canvas *c)
     if (g->hover_kind == TXG_W_DICE && g->ov != OV_RND && txg_find(g, TXG_W_DICE, g->hover_lane, r)) {
         snprintf(t, sizeof t, "Random engine on lane %d", g->hover_lane + 1);
         s2 = "  \xC2\xB7  UNDO takes it back";
+    } else if (g->hover_kind == TXG_W_SDICE && txg_find(g, TXG_W_SDICE, g->hover_lane, r)) {
+        snprintf(t, sizeof t, "Random cards for lane %d", g->hover_lane + 1);
+        s2 = "  \xC2\xB7  its engine stays; UNDO takes it back";
     } else if (g->hover_kind == TXG_W_RND && txg_find(g, TXG_W_RND, -1, r)) {
         snprintf(t, sizeof t, "Roll");
         s2 = "  \xC2\xB7  what the arrow has ticked; UNDO takes it back";
@@ -3688,7 +3739,11 @@ static void draw_mbar(txg_t *g, frui_canvas *c)
     LBL(g, c, rx - wd - 8.f - wc + 12.f, yc + CAP(g, 10.f) * 0.5f, 10.f, n ? 0xFFFFFFFFu : 0x4DFFFFFFu, t);
     if (n) wid_add(g, TXG_W_MCLEAR, g->msrc, rx - wd - 8.f - wc, y + 6.f, wc, h - 12.f);
     wc += 8.f;
-    snprintf(hint, sizeof hint, "Drag a control to set how far %s moves it. Double-click removes.", nm);
+    /* (MAP armed: a click links, a drag sets how far; the longest form that fits) */
+    snprintf(hint, sizeof hint, "Click a control to link it, drag to set how far %s moves it. Double-click removes.", nm);
+    if (TW(g, 12.f, 500.f, 0.f, 0, hint) > rx - wd - wc - 12.f - x)
+        snprintf(hint, sizeof hint, "Click a control to link it, drag to set how far.");
+    if (TW(g, 12.f, 500.f, 0.f, 0, hint) > rx - wd - wc - 12.f - x) snprintf(hint, sizeof hint, "Click a control to link it.");
     clipL(g, c, x, y, rx - wd - wc - 12.f - x, h);
     TX(g, c, x, yc + CAP(g, 12.f) * 0.5f, 12.f, 500.f, 0.f, 0, 0xF2FFFFFFu, hint);
     frui_clip_reset(c);
@@ -4749,7 +4804,9 @@ static int input_(txg_t *g, const frg_input *e)
                     g->mv_f = (float)txp_ui_get(g->c, id) / (float)(hi > 0 ? hi : 1);
                     g->drag_begun = 0;
                     g->drag_rx = w->t0; g->drag_rw = w->tw > 8.f ? w->tw : 8.f;
-                    mamt_at(g, e->x);
+                    g->drag_x0 = e->x;
+                    g->mv_click = link_amt(g, g->msrc, id) == 0;   /* (no link yet: wait, a click or a drag) */
+                    if (!g->mv_click) mamt_at(g, e->x);
                 }
                 return 3;
             }
@@ -4807,6 +4864,13 @@ static int input_(txg_t *g, const frg_input *e)
             char t[64];
             if (txp_ui_roll(g->c, k)) break;
             snprintf(t, sizeof t, "Lane %d: a random engine. UNDO takes it back.", k + 1);
+            say(g, t);
+            break;
+        }
+        case TXG_W_SDICE: {              /* (the SOUND zone's: the lane's cards, nothing else) */
+            char t[64];
+            if (!used(g, k) || txp_ui_roll_cards(g->c, k)) break;
+            snprintf(t, sizeof t, "Lane %d: random cards, its engine kept. UNDO takes it back.", k + 1);
             say(g, t);
             break;
         }
@@ -4955,7 +5019,12 @@ static int input_(txg_t *g, const frg_input *e)
         }
         return 3;
     case FRG_MOVE:
-        if (g->drag == TXG_W_MAMT) { mamt_at(g, e->x); return 3; }   /* (the mode's amount) */
+        if (g->drag == TXG_W_MAMT) {     /* (the mode's amount; a control with no link: once the pointer moves) */
+            if (g->mv_click && fabsf(e->x - g->drag_x0) < 3.f) return 3;
+            g->mv_click = 0;
+            mamt_at(g, e->x);
+            return 3;
+        }
         if (g->drag == TXG_W_GRIP) {
             g->gx = e->x; g->gy = e->y;
             if (!g->drag_moved && fabsf(e->x - g->drag_x0) + fabsf(e->y - g->drag_y0) < 4.f) return 0;
@@ -4984,7 +5053,7 @@ static int input_(txg_t *g, const frg_input *e)
             if (w && (w->kind == TXG_W_ADD || w->kind == TXG_W_DOT || w->kind == TXG_W_LIST || w->kind == TXG_W_SND ||
                       w->kind == TXG_W_LRUN || w->kind == TXG_W_DRUN || w->kind == TXG_W_PREVIEW || w->kind == TXG_W_SRC ||
                       w->kind == TXG_W_GRIP || w->kind == TXG_W_MENU || w->kind == TXG_W_CLRALL || w->kind == TXG_W_MDONE ||
-                      w->kind == TXG_W_MCLEAR || w->kind == TXG_W_DICE || w->kind == TXG_W_RND || w->kind == TXG_W_RNDTICK ||
+                      w->kind == TXG_W_MCLEAR || w->kind == TXG_W_DICE || w->kind == TXG_W_SDICE || w->kind == TXG_W_RND || w->kind == TXG_W_RNDTICK ||
                       w->kind == TXG_W_RNDGO || (w->kind == TXG_W_CLOSE && w->lane == -3) || w->kind == TXG_W_HELP ||
                       w->kind == TXG_W_RNDMENU)) {
                 hk = w->kind == TXG_W_GRIP ? TXG_W_SRC : w->kind; hl = w->lane;   /* (the grip lights its tile) */
@@ -5014,6 +5083,15 @@ static int input_(txg_t *g, const frg_input *e)
                 }
             }
             g->gover = 0;
+            return 3;
+        }
+        if (g->drag == TXG_W_MAMT && g->mv_click) {   /* (a click on a control with no link: MAP's link at +25 %) */
+            int T = ctl_tgt(g, g->mv_id, 0), s;
+            g->drag = 0; g->mv_click = 0;
+            lh_push(g);
+            if ((s = link_slot(g, g->msrc, T)) < 0) s = link_make(g, g->msrc, T);
+            if (s >= 0) { set_param(g, ID_MAT(s, 2), 125); say_link(g, g->msrc, g->mv_id, 25); }
+            else g->lh_n--;
             return 3;
         }
         if (g->drag == TXG_W_MAMT) { if (g->drag_begun) drag_end(g); else g->drag = 0; return 3; }

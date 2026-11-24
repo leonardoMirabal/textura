@@ -82,6 +82,9 @@ void txp_ui_dice_set(txp_core *c, int what);
 int txp_ui_roll(txp_core *c, int lane);               /* the dice: a random engine on lane (0 .. 15), or (lane -1)
                                                        * RANDOM's roll of the groups ticked; UNDO takes it back. -1:
                                                        * nothing rolled (nothing ticked) */
+int txp_ui_roll_cards(txp_core *c, int lane);         /* the SOUND zone's dice: lane's cards rolled (its engine, PAN,
+                                                       * LEVEL, HOW MANY / ACTIVE, the other lanes, the effects kept);
+                                                       * UNDO takes it back. -1: no such lane */
 /* the scene that plays saved into user scene slot (0 .. 15: U01 .. U16), named (11 characters: A .. Z, 0 .. 9, space
  * - & ' .; empty: the landscape's name); kept with the project */
 void txp_ui_save(txp_core *c, int slot, const char *name);

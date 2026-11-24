@@ -220,7 +220,8 @@ enum { W_ROW = 1, W_VOL, W_MUTE, W_SOLO, W_DOT, W_LUP = 9, W_SET = 10, W_VMAP = 
        W_SWATCH, W_SEG = 26, W_FIELD = 27, W_PARAM = 30, W_MANY, W_ACT, W_REC, W_UNDO, W_SAVE, W_FXOPEN, W_FXTAB, W_SLOT,
        W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER, W_TIP, W_PREVIEW, W_PVSTEP, W_FXD, W_SWAP, W_LRUN, W_DRUN,
        W_SRC, W_GRIP, W_TAG, W_MBAR, W_MCLEAR, W_MDONE, W_MENU, W_CLRALL, W_CLRYES, W_CLRNO, W_MSG, W_NOMOVE, W_MAMT, W_MSM,
-       W_DICE, W_RND, W_RNDTICK, W_RNDGO, W_LVL, W_NAMEDICE, W_HELP, W_RNDMENU, W_TOUR, W_TOURLIT, W_TOURBTN, W_LOGO, W_VMS, W_BINMENU };
+       W_DICE, W_RND, W_RNDTICK, W_RNDGO, W_LVL, W_NAMEDICE, W_HELP, W_RNDMENU, W_TOUR, W_TOURLIT, W_TOURBTN, W_LOGO, W_VMS, W_BINMENU,
+       W_SDICE };
 enum { W_PREV = 6, W_NEXT = 7, W_LDN = 8, W_CLOSE = 11, W_PICKER = 20, W_LIST = 23, W_KEEP = 24 };
 #define ID_KEYS 0x10001u                 /* (bridge.h TXP_ID_KEYS) */
 static int gui_hit(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, int lane)   /* a click on a control */
@@ -1032,6 +1033,21 @@ static int gui_test5g(const clap_plugin_t *p, const txg_gui_shot_t *xs)
     CHECK(a == 2 && gui_mode(p, xs) == 0, "Esc did not leave the mode");
     if (!gui_hit(p, xs, W_SRC, 1) || !gui_hit(p, xs, W_SRC, 1)) return 5;
     CHECK(gui_mode(p, xs) == 0, "the tile again did not leave the mode");
+    /* MAP: a click arms it (LFO 1's mode), a plain click on LEVEL links it at +25 % (LEVEL itself kept, still armed),
+     * MAP again disarms */
+    if (!gui_hit(p, xs, W_GRIP, 1)) return 5;
+    a = gui_mode(p, xs);
+    if (!xs->find(p, W_PARAM, (int)lev, r)) { fprintf(stderr, "gui 5g: no LEVEL in the drawer\n"); return 5; }
+    v0 = gui_value(p, lev);
+    gui_click(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f, 0);
+    gui_wait(); gui_flush(p); xs->tick(p);
+    printf("gui 5g: MAP: mode %d; a click on LEVEL: LFO 1 moves it by %+d %%, LEVEL %g (was %g), mode %d\n", a, gui_amt(p, 1),
+           gui_value(p, lev), v0, gui_mode(p, xs));
+    CHECK(a == 1 && gui_amt(p, 1) == 25 && gui_value(p, lev) == v0 && gui_mode(p, xs) == 1, "MAP's click on a control");
+    if (!gui_hit(p, xs, W_GRIP, 1)) return 5;
+    CHECK(gui_mode(p, xs) == 0, "MAP again did not disarm");
+    gui_mat_clear(p);
+    gui_wait(); gui_flush(p); xs->tick(p);
     /* B10: the right-click menu: Move with LFO 1 (+25 %, its mode), then Remove movement */
     if (!xs->find(p, W_PARAM, (int)lev, r)) return 5;
     gui_rclick(p, xs, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f);
@@ -1206,6 +1222,47 @@ static int gui_test_dice(const clap_plugin_t *p, const txg_gui_shot_t *xs)
     dice_settle(p, xs);
     dice_kept(p, xs, nl, k1);
     if (k1[1 + lane * 6] != k0[1 + lane * 6]) { fprintf(stderr, "gui dice: UNDO did not take the lane's roll back\n"); bad = 1; }
+    {   /* the SOUND zone's dice: the selected lane's cards, nothing else (its engine, every kept value, the other lanes'
+         * cards, the effects, the movement); UNDO takes it back; an empty lane's: none to click */
+        static double c0[16 * 8], c1[16 * 8];
+        int sel = xs->sel(p), ch = 0, other = 0, back = 0;
+        dice_kept(p, xs, nl, k0); dice_read(p, v0);
+        for (int k = 0; k < nl; k++) for (int i = 0; i < 8; i++) c0[k * 8 + i] = gui_value(p, LANE_ID(k, 8 + i));
+        if (!gui_hit(p, xs, W_SDICE, sel)) return 5;
+        dice_settle(p, xs);
+        dice_kept(p, xs, nl, k1); dice_read(p, v1);
+        for (int k = 0; k < nl; k++)
+            for (int i = 0; i < 8; i++) {
+                c1[k * 8 + i] = gui_value(p, LANE_ID(k, 8 + i));
+                if (c1[k * 8 + i] != c0[k * 8 + i]) { if (k == sel) ch++; else other++; }
+            }
+        for (int i = 0; i < dice_nid; i++) other += v0[i] != v1[i];
+        printf("gui dice: the SOUND zone's dice: lane %d, %d cards changed, %d other values\n", sel + 1, ch, other);
+        if (!ch || other) { fprintf(stderr, "gui dice: the SOUND zone's dice did not roll the lane's cards alone\n"); bad = 1; }
+        if (!dice_kept_same(k0, k1, nl, 1, -1)) { fprintf(stderr, "gui dice: the SOUND zone's dice moved a kept value\n"); bad = 1; }
+        if (png_shot && xs->find(p, W_SDICE, sel, r)) {   /* (its hint, hovered) */
+            gui_ev(p, xs, FRG_MOVE, r[0] + r[2] * 0.5f, r[1] + r[3] * 0.5f);
+            (void)gui_png(p, xs, png_shot, "dice-sound");
+            gui_ev(p, xs, FRG_MOVE, 4.f, 300.f);
+        }
+        if (!gui_hit(p, xs, W_UNDO, -1)) return 5;
+        dice_settle(p, xs);
+        for (int i = 0; i < 8; i++) back += gui_value(p, LANE_ID(sel, 8 + i)) != c0[sel * 8 + i];
+        printf("gui dice: UNDO: %d of lane %d's cards off\n", back, sel + 1);
+        if (back) { fprintf(stderr, "gui dice: UNDO did not take the SOUND zone's roll back\n"); bad = 1; }
+        if (nl < 16 && gui_hit(p, xs, W_LUP, -1)) {   /* (a lane added, empty, selected: its dice not there) */
+            gui_wait(); gui_flush(p); xs->tick(p);
+            if (gui_hit(p, xs, W_ROW, nl)) {
+                gui_wait(); gui_flush(p); xs->tick(p);
+                printf("gui dice: an empty lane %d selected: its SOUND dice %s\n", nl + 1, xs->find(p, W_SDICE, nl, r) ? "CLICKABLE" : "dim");
+                if (xs->find(p, W_SDICE, nl, r)) { fprintf(stderr, "gui dice: an empty lane's SOUND dice is clickable\n"); bad = 1; }
+            }
+            (void)gui_hit(p, xs, W_LDN, -1);
+            gui_wait(); gui_flush(p); xs->tick(p);
+            (void)gui_hit(p, xs, W_ROW, sel);
+            gui_wait(); gui_flush(p); xs->tick(p);
+        }
+    }
     /* the top bar's dice's arrow: RANDOM's list; nothing ticked, ROLL rolls nothing */
     if (!gui_hit(p, xs, W_RNDMENU, -1)) return 5;
     if (!xs->find(p, W_RNDGO, -1, r) || !xs->find(p, W_RNDTICK, 3, r)) { fprintf(stderr, "gui dice: RANDOM's list did not open\n"); return 5; }

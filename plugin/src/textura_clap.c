@@ -757,19 +757,32 @@ void txp_ui_rec(txp_core *c) { uq_put(c, UQ_EV + TXP_EV_REC, 0, 0); ui_dirty(c);
 void txp_ui_undo(txp_core *c) { uq_put(c, UQ_EV + TXP_EV_UNDO, 0, 0); ui_dirty(c); }
 int txp_ui_dice(const txp_core *c) { return c->dice; }
 void txp_ui_dice_set(txp_core *c, int what) { if (c->dice != (what & 15)) { c->dice = what & 15; ui_dirty(c); } }
-int txp_ui_roll(txp_core *c, int lane)
+static uint32_t dice_seed_new(txp_core *c)   /* a roll's seed (never 0) */
 {
-    uint32_t seed, a;
-    if (lane >= (int)TXP_LANES) return -1;
-    if (lane < 0 && !(c->dice & 15)) return -1;
-    a = lane < 0 ? TXP_DICE_ALL | (uint32_t)c->dice : (uint32_t)lane;
+    uint32_t seed;
     c->dice_n++;
     if (c->dice_fixed) seed = c->dice_n * 7919u + 1u;   /* (the tests: the same rolls every run) */
     else {
         double t = mono_s();
         seed = (uint32_t)(uint64_t)(t * 1e6) ^ (uint32_t)(uint64_t)(t * 1e3) << 16 ^ c->dice_n * 2654435761u ^ (uint32_t)(uintptr_t)c;
     }
-    uq_put(c, UQ_EV + TXP_EV_DICE, a, (int32_t)(seed ? seed : 1u));   /* (no PRESET gesture: a roll loads no factory preset,
+    return seed ? seed : 1u;
+}
+int txp_ui_roll_cards(txp_core *c, int lane)
+{
+    if (lane < 0 || lane >= (int)TXP_LANES) return -1;
+    uq_put(c, UQ_EV + TXP_EV_SDICE, (uint32_t)lane, (int32_t)dice_seed_new(c));   /* (no PRESET gesture: as a roll) */
+    ui_dirty(c);
+    return 0;
+}
+int txp_ui_roll(txp_core *c, int lane)
+{
+    uint32_t seed, a;
+    if (lane >= (int)TXP_LANES) return -1;
+    if (lane < 0 && !(c->dice & 15)) return -1;
+    a = lane < 0 ? TXP_DICE_ALL | (uint32_t)c->dice : (uint32_t)lane;
+    seed = dice_seed_new(c);
+    uq_put(c, UQ_EV + TXP_EV_DICE, a, (int32_t)seed);   /* (no PRESET gesture: a roll loads no factory preset,
                                               * and a host answering one wrote PRESET back, loading the last factory
                                               * preset under the roll: LANES 10 to that preset's 4) */
     ui_dirty(c);

@@ -83,7 +83,8 @@ enum { TXG_W_NONE, TXG_W_ROW, TXG_W_VOL, TXG_W_MUTE, TXG_W_SOLO, TXG_W_DOT, TXG_
        TXG_W_VMS,     /* (the place's third tab, M/S: the mix's stereo picture) */
        /* OUTPUT's arrow at the EFFECTS band's end (BINAURAL's panel: OUTPUT, AMOUNT, HEAD SIZE; its area TXG_W_PICKER,
         * -5) */
-       TXG_W_BINMENU };
+       TXG_W_BINMENU,
+       TXG_W_SDICE }; /* (the SOUND zone's dice: the selected lane's cards rolled) */
 
 typedef struct txg txg_t;
 txg_t *txg_new(txp_core *c);             /* NULL: out of memory or the font did not load */

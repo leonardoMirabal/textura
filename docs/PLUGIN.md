@@ -125,14 +125,14 @@ catalog carries the target list (`txp_catalog_t` `nmt`, `mt_lane`: a lane 0 .. 3
 host parameter a target moves on each lane; `mt_learn`: not a legacy entry; filled by `slot_bridge.h` `sb_catalog`
 from `mod.c`), and the snapshot the envelopes' and followers' values (`txp_ui_snap_t` `envf`). A control's target is
 the one the app's own MOD learn would pick; a link is a slot with a source, a target and a depth. The window's 12
-sources are LFO 1 .. 8, ENV 1 .. 2 and FOLLOW 1 .. 2, each with a tile (`src_tile_draw`: a grip, its kind, its live
-trace, `moves N controls` / `not connected`). A click on a tile enters the source's **mode** (`g->msrc`): a red bar
+sources are LFO 1 .. 8, ENV 1 .. 2 and FOLLOW 1 .. 2, each with a tile (`src_tile_draw`: its name and kind, **MAP**, its live
+trace, `moves N controls` / `not connected`). A click on a tile or its MAP (`map_button`, `TXG_W_GRIP`: the label measured, red while armed) enters the source's **mode** (`g->msrc`): a red bar
 under the top bar (`draw_mbar`: CLEAR <SOURCE>, DONE; the content moves down by `MB_H`, `g->ct`), the controls the
 source can move outlined, the others dimmed and refused (`mode_marks`, `TXG_W_NOMOVE`; a choice, a lane past the
 fourth, which the matrix reaches only as ALL LANES), and a drag on a control sets the source's amount instead of the
 value (`mamt_at`: the reach's end where the pointer is on the control's own track, `wid_t` `t0`, `tw`; the wheel 4 %,
-shift 1 %; a double-click removes; ~0 at release frees the slot). Outside the mode: a control's tags enter their
-source's mode (`TXG_W_TAG`), a tile's grip dropped on a control makes a link at +25 % and opens the mode
+shift 1 %; a double-click removes; ~0 at release frees the slot; a plain click on a control the source has no link to makes one at +25 %, `g->mv_click`, MAP staying armed). Outside the mode: a control's tags enter their
+source's mode (`TXG_W_TAG`), a tile's MAP dragged onto a control makes a link at +25 % and opens the mode
 (`TXG_W_GRIP`), the right-click menu offers Move with each source and Remove movement (`draw_menu`, `TXG_W_MENU`),
 and CLEAR ALL MOVEMENT asks once (`TXG_W_CLRALL`, `TXG_W_CLRYES`, `TXG_W_CLRNO`). Every change is a host parameter's
 write (a new link in the first empty slot, spread 0; a full matrix: a message, nothing written); the window keeps the
@@ -176,8 +176,13 @@ change from anywhere else (a preset, the host) forgets them.
   A click anywhere on a row selects its lane (the name
   too: it does not open the browser); the row's controls (STOP / PLAY, HOW MANY, HOW ACTIVE, PAN, CH, VOL, M, S) select it as
   well; only the engine button opens the browser.
-- **Drawer** (the selected lane), the SOUND zone: a warmer, lighter ground (`C_SND`, cards `C_SNDCARD`, lines
-  `C_SNDLINE`), a 4 px red rail at its left, the tag SOUND · LANE n · FAMILY (`snd_tag`); its engine (a size down, to
+- **Drawer** (the selected lane), the SOUND zone: a lifted ground (`C_SND` #221F1E, cards `C_SNDCARD`, lines
+  `C_SNDLINE`, its top edge `C_SNDHI`), a 3 px red rail at its left (`SND_RAIL`), the tag SOUND · LANE n · FAMILY
+  (`snd_tag`) and at its right the sound's dice (`sdice_button`, `TXG_W_SDICE`, the rows' dice's box and glyph: a click
+  sends `TXP_EV_SDICE`, `txp_ui_roll_cards`, which the slot hands to `dice_lane_snd` in `firmware/src/dice.c`: the
+  lane's cards rolled as RANDOM's SOUND rolls them, nothing else, the undo a load's; dim and inert on an empty lane;
+  the left column is as wide as the widest tag, LANE 16 and the widest family, and the dice need, 214 px at least,
+  CHANGE ENGINE and STOP LANE sharing the rest, so the dice's right edge is STOP LANE's); its engine (a size down, to
   15 px, when too long; never cut), colour, MANY / ACTIVE / VOL and channel, CHANGE ENGINE and beside it **STOP LANE** / **PLAY LANE** (`TXG_W_DRUN`, the
   row button's twin); **every card** of the engine (up
   to `SCD_MAX`, 8) with its name, its value in its unit, and its hint (the FM-1 manual's line for that card:
@@ -185,9 +190,10 @@ change from anywhere else (a preset, the host) forgets them.
   a longer one whole on hover, `TXG_W_TIP`; 11 px in `C_DESC`, two lines), DIST among them; PAN, LEVEL, GROOVE PART
   (its short form GROOVE: the full name and OFFBEAT do not fit side by side) and CYCLE. A value the modulation moves now
   is red with a `~`. `pcell` draws in the zone set by `g->zone` (1 SOUND, 2 EFFECTS: its colours, the card's sizes).
-- **Strip** (bottom), the EFFECTS zone: darker and cooler (`C_FX`, sections `C_FXSEC`, MOVEMENT's `C_FXMOV`), a 4 px
-  dark gap over it and a 20 px band (EFFECTS · THE WHOLE MIX, AFTER ALL LANES, LEFT TO RIGHT; `FX_GAP`, `FX_BAND`,
-  taken from the strip's own 148 px, so nothing above it moves; at its right end OUTPUT, `out_switch`: its name and a
+- **Strip** (bottom), the EFFECTS zone: sunk (`C_FX` #090808, sections `C_FXSEC`, MOVEMENT's `C_FXMOV`), a 6 px
+  dark gap over it (`C_GAP`) and a 20 px title bar (`C_FXBAND`, its top edge `C_FXBANDHI`: EFFECTS set as the SOUND tag,
+  then THE WHOLE MIX, AFTER ALL LANES, LEFT TO RIGHT; `FX_GAP`, `FX_BAND`, in the strip's 150 px; the zones part by
+  structure and tone, neutral warm greys, red only on SOUND's rail; at its right end OUTPUT, `out_switch`: its name and a
   switch reading HEADPHONES or SPEAKERS in full, sized by the wider word, a click the other; its arrow, `TXG_W_BINMENU`,
   opens BINAURAL's panel, `draw_bin`, `OV_BIN`: OUTPUT, AMOUNT's slider, HEAD SIZE, two lines of help, over the strip's
   right end, a click outside closes it; SETTINGS has the same three in its BINAURAL group, the last column's top, over
@@ -347,7 +353,7 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
   expanded tab, a matrix SOURCE click, MOD CC, KEYS, a SAVE into U01, a row; each effect drawer with all its
   parameters, the rows usable above it, switching and closing; a preview on a stopped lane, its MANY step, CLOSE
   restoring engine, HOW MANY and a card, KEEP keeping the engine with the lane stopped, PLAY ALL's memory intact; a click
-  on a row's name and event line selecting, M selecting, a row's one ENGINE icon button selecting its lane and opening the browser; each lane's STOP / PLAY, in its row and in the drawer, sharing STOP ALL / PLAY ALL's memory, and nothing on an empty lane; the movement: a tile entering its source's mode, a drag setting the amount with the value kept, the wheel, a double-click removing, a control no source moves dimmed and refusing, CLEAR <SOURCE>, DONE, Esc, the tile again, the right-click menu's Move with and Remove movement, a tag entering its mode, a grip dropped on a control, CLEAR ALL then UNDO, a full matrix refused with a message, a link kept through the state) and checked against the parameters,
+  on a row's name and event line selecting, M selecting, a row's one ENGINE icon button selecting its lane and opening the browser; each lane's STOP / PLAY, in its row and in the drawer, sharing STOP ALL / PLAY ALL's memory, and nothing on an empty lane; the movement: a tile entering its source's mode, a drag setting the amount with the value kept, the wheel, a double-click removing, a control no source moves dimmed and refusing, CLEAR <SOURCE>, DONE, Esc, the tile again, the right-click menu's Move with and Remove movement, a tag entering its mode, MAP arming the mode and a plain click on LEVEL linking it at +25 % (the value kept, still armed), MAP again disarming, MAP dropped on a control, the SOUND zone's dice rolling the selected lane's cards alone (UNDO taking them back, none to click on an empty lane), CLEAR ALL then UNDO, a full matrix refused with a message, a link kept through the state) and checked against the parameters,
   the events sent to the host, the lane's engine, the mute and solo masks and the saved state (solo, lane, view,
   colour, keys, the user scene). The window at 1200 x 720, 1950 x 1210, 1440 x 1080, 960 x 600 and 840 x 504 (the smallest): the MAP a half
   circle (one scale both ways) with its labels inside the place; MAP | SPACE | M/S in one row with the place's head

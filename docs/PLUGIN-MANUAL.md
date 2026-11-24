@@ -130,10 +130,10 @@ From top to bottom:
   SETTINGS.
 - **The place** (left) and **the lanes** (right): where each engine stands, and one row for each lane.
 - **The drawer**, the **SOUND** zone: the selected lane's engine, all its cards (DIST among them), and its PAN, LEVEL
-  and groove, on a warmer, lighter ground with a red rail at its left.
+  and groove, on a lifted ground with a red rail at its left.
 - **The strip**, the **EFFECTS** zone: the whole mix, after all lanes: the effects in signal order (COMP, DRIVE, FILTER,
-  DELAY, REVERB, M/S) and the movement (the LFOs), darker and cooler, under a dark gap and its band. Every section
-  opens to all its parameters.
+  DELAY, REVERB, M/S) and the movement (the LFOs), sunk under a dark gap and its title bar. Every section opens to all
+  its parameters.
 
 Every value in the window works the same way. An amount is a **fader**: its name and value over a track, the part up
 to the value filled, a handle at the value (a bipolar one, as PAN or a route's DEPTH, fills from its middle). While an
@@ -270,10 +270,12 @@ its play triangle is red, the others play on, and PLAY ALL still brings lane 2 b
 
 ![The drawer: the selected lane's cards, moved ones red with their tags](plugin/img/window-4-lanes.png)
 
-Under the place and the rows, the **drawer** shows the selected lane. It is the **SOUND** zone: a warmer, lighter
-ground than the strip under it, a red rail along its left edge, its cards lifted off that ground.
+Under the place and the rows, the **drawer** shows the selected lane. It is the **SOUND** zone: a lifted ground
+with a light top edge, a red rail along its left edge (red: the selected lane), its cards a step lighter again.
 
-- **At the left**: the tag **SOUND · LANE n · FAMILY**, the engine in large letters (a long name a size smaller, never
+- **At the left**: the tag **SOUND · LANE n · FAMILY** and, at its right, the **dice**: one click gives the lane's
+  cards random values ([RANDOM](#random-the-dice)); its engine, PAN, LEVEL, HOW MANY, HOW ACTIVE, the other lanes and
+  the effects stay, and **UNDO** takes it back. On an empty lane it is dim. Then the engine in large letters (a long name a size smaller, never
   cut), the engine's colour (click it for the picker), a
   line with MANY, ACTIVE, VOL and the lane's MIDI channel, STOPPED or MUTED, **CHANGE ENGINE** (the engine browser) and **STOP LANE** / **PLAY LANE**: the row's STOP / PLAY button again.
 - **In the middle**: **every card** of the engine, up to eight, four to a row, each a fader. Each card shows its name,
@@ -285,8 +287,9 @@ ground than the strip under it, a red rail along its left edge, its cards lifted
 
 ### The strip
 
-The strip at the bottom is the **EFFECTS** zone: the whole mix, after all lanes. It is darker and cooler than the drawer,
-under a dark gap and a band that says so: **EFFECTS · THE WHOLE MIX, AFTER ALL LANES, LEFT TO RIGHT**. It shows the
+The strip at the bottom is the **EFFECTS** zone: the whole mix, after all lanes. It sits lower than the drawer: a dark
+gap, then a title bar that says what it is, **EFFECTS · THE WHOLE MIX, AFTER ALL LANES, LEFT TO RIGHT** (set as the
+drawer's SOUND tag), then its sections on a near-black ground. It shows the
 mix's effects in the order the sound goes through them, a small **›** between each and the next (COMP › DRIVE › FILTER ›
 DELAY › REVERB › M/S), then the movement, on a tinted ground: it moves values and takes no sound. Each section has a
 dot (lit while it acts), a small picture and its two main values. At the band's right end, where the mix leaves, is
@@ -300,7 +303,7 @@ OUTPUT ([BINAURAL](#binaural)).
 | **DELAY** | Its echoes | MIX, TIME | Its echoes: spaced by TIME, fading by FEEDBACK, each a cloud of GRAINS. TIME: TIME, FEEDBACK, SYNC, FREEZE · GRAINS: GRAINS, SIZE, SPRAY, SPREAD, REVERSE · COLOUR: PITCH, INTERVALS, TONE, GRAIN, MOD, MOD RATE · MIX |
 | **REVERB** | Its tail (dim while TYPE is OFF) | TYPE, MIX | Its tail: after PREDELAY, as long as DECAY, as dense as SIZE. SPACE: SIZE, DECAY, PREDELAY · COLOUR: TONE, LOWCUT, SHIMMER, SHIFT, MOD · TYPE, MIX |
 | **M/S** | Its meters, live: **L R M S** (the sides' in red) | MID, SIDE | The stereo picture, the correlation and the meters. LEVEL: MID, SIDE · WIDTH: WIDTH, MONO ([M/S](#ms)) |
-| **MOVEMENT** | Two source tiles (the connected ones first): each one's grip, name, kind, live trace and how many controls it moves | a click on a tile: its mode | [the movement](#the-movement) |
+| **MOVEMENT** | Two source tiles (the connected ones first): each one's name, kind, **MAP**, live trace and how many controls it moves | a click on a tile or its MAP: its mode | [the movement](#the-movement) |
 
 **Click a section's header** (or **ALL ›**) to open its **drawer**. It rises from the strip in place of the lane's
 drawer: a large live picture at the left, every parameter of the effect at the right in small titled groups. The place
@@ -385,20 +388,23 @@ The app holds 16 links (its matrix). You connect sources to controls in a **sour
 
 ![LFO 1's mode: the red bar, the controls LFO 1 can move outlined, the ones it moves red with their amount](plugin/img/movement-mode.png)
 
-1. **Click a source's tile**: one of the two in the strip's MOVEMENT, the large one in an LFO's tab, or one over each
-   envelope and follower in ENV · FOLLOW. The window enters **LFO 1 MODE**: a red bar under the top bar says so,
-   with **CLEAR LFO 1** and **DONE**. The rest of the window moves down; the bar never covers a control.
+1. **Click MAP** on a source's tile (or the tile itself): one of the two in the strip's MOVEMENT, the large one in an
+   LFO's tab, or one over each envelope and follower in ENV · FOLLOW. MAP turns red: it is armed, and the window
+   enters **LFO 1 MODE**: a red bar under the top bar says so, with **CLEAR LFO 1** and **DONE**. The rest of the
+   window moves down; the bar never covers a control.
 2. Every control LFO 1 can move gets a thin red outline. One it cannot move is dimmed (a choice such as a TYPE or
    ON, the MIDI channel, and the lane values of lanes 5 to 16, which the matrix reaches only as ALL LANES).
-3. **Drag a control.** You do not change its value: you set how far LFO 1 moves it. The value's handle turns grey,
+3. **Click a control** to link it: LFO 1 moves it by +25 %, its value stays, and MAP stays armed for the next one.
+   **Drag a control** to set the amount yourself. You do not change its value: you set how far LFO 1 moves it. The value's handle turns grey,
    and a red reach runs from the value to a red end handle where the pointer is; the control's number shows the
    amount (`+25%`, or a dim `0%`). Left of the value is a negative amount. The fader is its own depth control, on
    the same scale: nothing larger than the control appears. The mouse wheel sets it in 4 % steps (1 % with Shift).
    HOW MANY and HOW ACTIVE show the reach on their blocks; a choice shows it under its value.
-4. The link is made on the first drag, in the first free slot of the matrix. Drag back to the value (or near it),
+4. The link is made on the first click or drag, in the first free slot of the matrix. Drag back to the value (or near it),
    or **double-click** the control, and the link is removed. When all 16 slots are in use, a line says so and
    nothing changes.
-5. **CLEAR LFO 1** removes all of LFO 1's links. **DONE**, **Esc**, or a click on the tile again leaves the mode.
+5. **CLEAR LFO 1** removes all of LFO 1's links. **DONE**, **Esc**, or a click on MAP (or the tile) again leaves
+   the mode.
 
 ![A drag in LFO 1's mode: LOW PASS moved down by 33 %, its value kept](plugin/img/movement-drag.png)
 
@@ -415,8 +421,8 @@ cannot be moved.
 - **Small red tags** under it (`~ LFO 1 +25%`; `ALL` for a link on ALL LANES) say which sources move it.
   **Click a tag** to enter that source's mode. A source without a tile (velocity, a CC, ...) opens the MATRIX tab.
 - **Each tile** says **moves 3 controls** or **not connected**, and traces its source live.
-- **Shortcut: drag a tile's grip** (the red box of six dots) onto a control. The link is made at +25 % (one it had
-  is kept) and the source's mode opens, ready to set the amount.
+- **Shortcut: drag a tile's MAP** onto a control. The link is made at +25 % (one it had is kept) and the source's
+  mode opens, ready to set the amount.
 - **Right-click a control** (Control-click on a Mac): **Move with LFO 1** ... **Move with FOLLOW 2** enters that
   source's mode (a new link starts at +25 %; the menu shows the amounts it has), **Remove movement** removes the
   control's links. A control no source can move says so.
@@ -432,7 +438,7 @@ cannot be moved.
 
 ![The MOVEMENT drawer on LFO 1: its tile, what it moves and its ten parameters](plugin/img/lfo.png)
 
-- **LFO 1** to **LFO 8**: the LFO's tile (its grip, the trace of the last seconds, red when it moves something; a
+- **LFO 1** to **LFO 8**: the LFO's tile (its MAP, the trace of the last seconds, red when it moves something; a
   click: its mode), how many controls it moves, its value **NOW**, what it moves (each target with its amount), and
   all ten parameters: SHAPE (SINE, TRI, SAW UP, SAW DN, SQUARE, PULSE, S&H, SMOOTH, DRIFT, GUSTS, CHAOS, STEPS), RATE,
   SYNC, MODE, PHASE, WIDTH, JITTER, FADE, RESTART, LEVEL. A tab is red while its LFO is routed.
@@ -478,10 +484,15 @@ the dice and **SAVE**.
 
 ![RANDOM: the four groups a roll changes, ROLL, and what it keeps](plugin/img/random.png)
 
-Two kinds of dice roll new sounds, as the FM-1's OCT- and OCT+ pressed together do.
+Three kinds of dice roll new sounds, as the FM-1's OCT- and OCT+ pressed together do.
 
 - **A row's dice** (after the swap icon) gives that lane a random engine, from any family and never the one it had.
   Its cards start at the new engine's own values. The lane keeps its LEVEL, PAN, HOW MANY, HOW ACTIVE and MIDI CH.
+- **The SOUND zone's dice** (right of the drawer's SOUND tag) gives the selected lane's cards random values over their
+  ranges, gliding there. Nothing else changes: the engine, LEVEL, PAN, HOW MANY, HOW ACTIVE, MIDI CH, the other lanes,
+  the effects and the movement stay.
+
+![The SOUND zone's dice, right of the drawer's tag: random cards for the selected lane](plugin/img/dice-sound.png)
 - **The dice in the top bar** rolls in one click. Its arrow **▾** opens **RANDOM**, a small list with four ticks: what
   a roll changes. The ticks are kept; **ROLL** in the list rolls too. A roll changes everything ticked, on every lane
   in use. With **ENGINES** an empty lane gets a sound too and starts playing, sparse, somewhere on the map; a stopped
@@ -500,7 +511,7 @@ Two kinds of dice roll new sounds, as the FM-1's OCT- and OCT+ pressed together 
 - The effects **glide** to their new values, as on a preset load. A new engine comes in as a preset's does.
 - All four are ticked at first; the ticks are kept with the project. ROLL with nothing ticked does nothing and says so.
   The list stays open, so you can **ROLL** again; **CLOSE**, **Esc** or a click outside closes it.
-- The preset name reads **RANDOM \***. **UNDO** takes a whole roll back in one step (a row's dice too). **SAVE** keeps
+- The preset name reads **RANDOM \***. **UNDO** takes a whole roll back in one step (a row's dice and the SOUND zone's too). **SAVE** keeps
   a roll you like as a user preset.
 - Each roll is a new one: no fixed sequence. Your DAW sees a roll as it sees a preset load: the values change, as
   one step.
@@ -620,7 +631,7 @@ source, in every preset, takes it, for its dot, its event line and its row.
 
 What a source moves is red, everywhere in the window:
 
-- **In the strip's MOVEMENT**: two source tiles, the connected ones first, each with its grip, kind, live trace and
+- **In the strip's MOVEMENT**: two source tiles, the connected ones first, each with its MAP, kind, live trace and
   how many controls it moves. `+n` in the header says how many more sources are connected.
 - **A value a source moves** has a red name, its reach and live tick on its fader, and a red tag for each source
   ([the movement](#the-movement)); a row's PAN reads `~R12` while it moves.
@@ -782,7 +793,7 @@ opens: lanes 1 to 4 as saved, LANES 4.
 | **Tempo** | Its own, tap, MIDI clock in and out | The DAW's tempo leads; no MIDI clock |
 | **Saving** | U01 to U16 in flash, settings kept by themselves | SAVE: U01 to U16 in the project; the DAW's project or presets |
 | **Undo** | Hold SAVE | UNDO (a load, an engine kept, a roll); your DAW's undo for window edits (host parameter changes) |
-| **Random** | OCT- and OCT+ together: everything at once (with the sound browser open: that lane's engine) | The dice: one on each row, RANDOM in the top bar (all four ticked at first) |
+| **Random** | OCT- and OCT+ together: everything at once (with the sound browser open: that lane's engine) | The dice: one on each row, one in the SOUND zone (the lane's cards), RANDOM in the top bar (all four ticked at first) |
 | **Sample rate** | 44.1 kHz | Any; 44.1 kHz inside |
 | **Screen colour, clock, status line** | DISPLAY, MIDI CLOCK pages | Not in the plugin |
 | **Look** | One accent colour | Dark, red for selection and LFOs, a colour per engine |

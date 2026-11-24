@@ -522,7 +522,7 @@ GUI_VIEWS = ("", "space", "ms-tab", "sounds", "presets", "settings", "colour", "
 #                                        stopped lane, PLAY ALL; the rows with lane 3 selected; a lane stopped by its own
 #                                        button; Rain on a roof's drawer; RANDOM's list, the top bar's dice's arrow; the
 #                                        tour's eight steps, HELP's one click)
-GUI_TEST_VIEWS = ("dice-lane", "random-none", "random", "save-replace", "save-full", "output", "output-speakers",
+GUI_TEST_VIEWS = ("dice-lane", "dice-sound", "random-none", "random", "save-replace", "save-full", "output", "output-speakers",
                   "binaural", "binaural-speakers")
 #                                        clap_render --gui-test's (gui4's second run): a row's dice rolled (its hint hovered),
 #                                        ROLL with nothing ticked, ROLL with all four; SAVE on a used preset (SAVE replaces

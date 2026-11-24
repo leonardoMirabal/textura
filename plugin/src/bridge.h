@@ -61,8 +61,10 @@ enum { TXP_EV_MIDI = 1, TXP_EV_PARAM, TXP_EV_RESET, TXP_EV_RELEASE,
                                           * those even on a lane that plays), or TXP_PV_END | family << 4 | sound
                                           * (| TXP_PV_KEEP: that sound kept; | TXP_PV_VALS: and the preview's HOW MANY
                                           * and HOW ACTIVE); the lane as it was before the preview otherwise */
-       TXP_EV_DICE };                    /* the window's dice (firmware/src/dice.c): a random engine on lane a (v the
+       TXP_EV_DICE,                      /* the window's dice (firmware/src/dice.c): a random engine on lane a (v the
                                           * seed), or a TXP_DICE_ALL | the groups ticked (dice.c DICE_*): RANDOM's roll */
+       TXP_EV_SDICE };                   /* the SOUND zone's dice (dice.c dice_lane_snd): lane a's cards rolled, its
+                                          * engine and the rest kept (v the seed); UNDO takes it back */
 #define TXP_DICE_ALL 0x100
 #define TXP_SND_KEEP 0x1000
 #define TXP_PV_PLAY 0x1000000

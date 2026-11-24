@@ -370,6 +370,13 @@ static int dice_lane(uint32_t k, uint32_t seed)
     if (k >= DICE_NL || sc.snd[k] < 0) return -1;
     return dice_ask(DICE_LANE | k, DICE_ENG, seed);
 }
+/* lane k's cards at random over their ranges (as dice_roll's SOUND, one lane): its engine and the rest kept; the undo
+ * as a load's (-1: no sound on it) */
+static int dice_lane_snd(uint32_t k, uint32_t seed)
+{
+    if (k >= DICE_NL || sc.snd[k] < 0) return -1;
+    return dice_ask(DICE_LANE | k, DICE_SND, seed);
+}
 static int dice_busy(void) { return dice_q != 0 || dice_cp != 0; }
 static void dice_poll(void)
 {
