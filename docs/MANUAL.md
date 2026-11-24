@@ -513,7 +513,7 @@ It reverberates what the grain delay gives it, so the echoes ring in the space t
 
 | Knob | Card | What it does |
 | --- | --- | --- |
-| K1 | **SHIMMER** | The tail shifted up and fed back into the reverb: none .. a rising, ringing halo |
+| K1 | **SHIMMER** | The tail shifted up, heard beside the tail and fed back into it: none .. a clear, rising halo at the top, growing evenly all the way |
 | K2 | **SHIFT** | The shimmer's interval: +OCT, +5TH, +OCT+5, −OCT |
 
 ### M/S

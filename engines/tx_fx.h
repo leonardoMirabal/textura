@@ -226,6 +226,7 @@ typedef struct {
                                                   * gain */
     uint16_t shn, shq;                           /* its window's control blocks, the send's quiet ones */
     int32_t sh[HL_NC];                           /* the shifted mid, into the next control block's input */
+    int32_t shf;                                 /* the halo's gain (the shifted mid into the return), Q15 */
     int32_t m[HL_NC], s[HL_NC];                  /* the TYPE's mid / side, a control block */
     uint32_t r0, rn;                             /* ROOM: the gathered run's start and length */
     uint16_t rf[TX_BLOCK / CTL];                 /* ROOM: each control block's fade (0: none) */
