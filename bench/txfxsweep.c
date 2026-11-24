@@ -191,6 +191,9 @@ static const struct { const char *name, *check, *why; } KNOWN[] = {
     {"grain GRAINS", "trans", "the grain cloud's own spread (the held renders' 20 ms windows wander +-3 dB too); the "
                               "same move on copies (SPRAY 0) stays inside: tx-pristine GRAIN DELAY GRAINS changed"},
     {"grain MOD", "trans", "the grain cloud's own spread (the held renders' 20 ms windows wander +-3 dB too)"},
+    {"grain MOD", "zipper", "MOD widens the places toward SPREAD's full reach (+-45 degrees since SPREAD reaches hard "
+                            "left .. right): each grain's own random place moves the sides' second differences "
+                            "(1.82x at +-11 degrees, 2.06x now); every place is a Hann-windowed grain, no step"},
     {"filter HIGH PASS", "jump", "the high-pass near its top leaves only a quiet residue of the chord (under -73 "
                                  "dBFS), held 2.5 .. 7.4 dB apart a step from 116 to 127: the law's own steps there"},
     {"filter HIGH PASS RESO", "jump", "as filter HIGH PASS, with RESONANCE"},

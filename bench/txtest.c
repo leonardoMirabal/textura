@@ -1130,9 +1130,9 @@ static int run_layers(int chamber_on, char hex[65], int32_t *raw_peak, int32_t *
 }
 
 /* truepeak: dense crackle (fire, ice, glass, sparks at their worst) through the mix, COMP off and on (its defaults): no sample over
- * -2 dBFS, and nothing between the samples at full scale once rebuilt (4x, to 20 kHz), so a converter or the USB
- * audio's 48 kHz resampler does not clip (the FM-1 clipped -1 dBFS samples by up to +1 dB at 48 kHz before; this mix
- * rebuilt to +1.6 dBFS) */
+ * -2 dBFS, and nothing between the samples over it either once rebuilt (4x, to 20 kHz; 0.05 dB of slack), so a
+ * converter, the USB audio's or the plugin's 48 kHz resampler keeps the ceiling (the FM-1 clipped -1 dBFS samples by up
+ * to +1 dB at 48 kHz before; this mix rebuilt to +1.6 dBFS; with half-sample estimates only, to -1.04 dBFS) */
 static void check_truepeak(void)
 {
     static const char *const CRACK[4] = { "fire", "ice", "glass", "sparks" };
@@ -1147,9 +1147,9 @@ static void check_truepeak(void)
         snprintf(name, sizeof name, "COMP %s", AM[i] ? "ON" : "OFF");
         if (nb < 0) { verdict("truepeak", name, 0, "fire+ice+glass+sparks", " do not load"); continue; }
         snprintf(msg, sizeof msg, "fire+ice+glass+sparks at their worst, COMP %s: raw %.1f dBFS, samples %.2f (<= -2), "
-                 "rebuilt 4x %.2f dBFS (< 0), the limiter in %u of %d blocks", AM[i] ? "ON" : "OFF", 20.0 * log10(rp / 8388608.0 + 1e-12),
+                 "rebuilt 4x %.2f dBFS (<= -1.95), the limiter in %u of %d blocks", AM[i] ? "ON" : "OFF", 20.0 * log10(rp / 8388608.0 + 1e-12),
                  20.0 * log10(lp / 8388608.0 + 1e-12), 20.0 * log10(tp / 8388608.0 + 1e-12), lb, nb);
-        verdict("truepeak", name, lp <= 6663308 && tp < 8388608.0, msg, 0);
+        verdict("truepeak", name, lp <= 6663308 && tp <= 6702000.0, msg, 0);
     }
 }
 

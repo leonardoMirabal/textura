@@ -132,7 +132,9 @@ typedef struct {
     uint32_t ph;                                 /* the grains' clock (Q32) */
     uint32_t rng;
     uint32_t tap, tap0, tx;                      /* the echo's delay, the old one, the crossfade (0 = none) */
-    int32_t lp, dcy, lpe, dce;                   /* the feedback: its low-pass, its DC block, their remainders */
+    int32_t lp, dcy, lpe, dce;                   /* TONE's low-pass (the line's input), the feedback's DC block, their
+                                                  * remainders */
+    int32_t msq;                                 /* the loop's mid gain by SPREAD (Q15, glides a step a sample) */
     int32_t wg;                                  /* the write's gain (Q15: FREEZE fades it to 0) */
     int32_t gn, gnt;                             /* the grains' level (Q15, glides) and its target (begin: gd_level) */
     int32_t gnl, gnlt, xk;                       /* below the crossover: its level, target; the crossover (Q15) */

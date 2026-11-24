@@ -31,10 +31,10 @@
  * reason; OPEN lists a known finding whose fix is to come (reported, not failed); everything else that is flagged
  * fails (exit 1).
  *
- *   txaudit [-s SECS] [-n SEEDS] [-j THREADS] [-f SUBSTRING] [-v] [-d] [-x] [-e]   (defaults 33 s, 6 seeds, every
+ *   txaudit [-s SECS] [-n SEEDS] [-j THREADS] [-f SUBSTRING] [-v] [-d] [-x] [-e]   (defaults 33 s, 8 seeds, every
  *            core, every sound; -v: every row, not only the flagged and allowed ones; -d: each seed's lines and events
  *            too; -x: the corners EXTRA 0 / 127 and COUNT 1 / 127 too, the classic engines' ACTIVITY 0 / 127; -e: the
- *            classic engines no landscape plays; with -x or -e, 8 seeds unless -n says) */
+ *            classic engines no landscape plays) */
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -153,7 +153,7 @@ static const allow_t OPEN[] = {
 };
 #define NOPEN (sizeof OPEN / sizeof OPEN[0])
 
-static unsigned secs = 33, nseeds = 6, verbose, detail, engines;
+static unsigned secs = 33, nseeds = 8, verbose, detail, engines;
 static const char *filter;
 
 /* ---- biquads (Butterworth sections, bilinear) */
@@ -242,11 +242,11 @@ static double *render(const snd_t *s, const cor_t *cor, uint32_t seed, unsigned 
     if (q) {                                                 /* its activity map at C4 (ACT 0) or C6 (ACT 127) */
         unsigned k;
         for (k = 0; k < q->np; k++) {
-            int id = tx_param_find(e, q->p[k].name);
-            if (id >= 0) e->param(st, (uint8_t)id, (uint8_t)(cor->val ? q->p[k].hi : q->p[k].lo));
+            int id = tx_param_find(e, LS_QP_NAME[q->p0 + k]);
+            if (id >= 0) e->param(st, (uint8_t)id, LS_QP_LH[q->p0 + k][cor->val ? 1 : 0]);
         }
-        if (q->every_ms) {                                   /* a one-shot: pressed after the map's gaps */
-            gap = q->every_ms / 1000.0 * (cor->val ? pow(2.0, q->every_oct_q16 / 65536.0) : 1.0);
+        if (q->every_s) {                                   /* a one-shot: pressed after the map's gaps */
+            gap = LS_EVERY_MS(q) / 1000.0 * (cor->val ? pow(2.0, q->every_oct_q16 / 65536.0) : 1.0);
             next = 0;
         }
     }
@@ -475,10 +475,10 @@ int main(int argc, char **argv)
     unsigned nth = (unsigned)sysconf(_SC_NPROCESSORS_ONLN), i, s, c, sd, fails = 0, allows = 0, opens = 0;
     pthread_t *th;
     uint64_t t0 = tx_now_ns();
-    int a, nset = 0;
+    int a;
     for (a = 1; a < argc; a++) {
         if (!strcmp(argv[a], "-s") && a + 1 < argc) secs = (unsigned)atoi(argv[++a]);
-        else if (!strcmp(argv[a], "-n") && a + 1 < argc) nseeds = (unsigned)atoi(argv[++a]), nset = 1;
+        else if (!strcmp(argv[a], "-n") && a + 1 < argc) nseeds = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "-j") && a + 1 < argc) nth = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "-f") && a + 1 < argc) filter = argv[++a];
         else if (!strcmp(argv[a], "-v")) verbose = 1;
@@ -487,10 +487,8 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[a], "-e")) engines = 1;
         else { fprintf(stderr, "txaudit [-s SECS] [-n SEEDS] [-j THREADS] [-f SUBSTRING] [-v] [-d] [-x] [-e]\n"); return 2; }
     }
-    if (!nset && (ncor > 3u || engines)) nseeds = 8;   /* the corners and the engines: 8 seeds (at 6, a lone call or a
-                                                         * wave's run-up agrees in 4 of 6 by chance: skylark, curlew, wood
-                                                         * thrush at EXTRA / COUNT, waves on shingle, cave drips COUNT
-                                                         * 127; none at 8) */
+    /* 8 seeds by default: at 6, a lone call or a wave's run-up agrees in 4 of 6 by chance (skylark, curlew, wood
+     * thrush at EXTRA / COUNT, waves on shingle, cave drips COUNT 127; none at 8) */
     if (secs < 10) secs = 10;
     if (nseeds < 3) nseeds = 3;
     if (nseeds > MAXSEED) nseeds = MAXSEED;

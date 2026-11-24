@@ -2,8 +2,9 @@
 /* Textura #26 Storm (scene): rain, wind and thunder under one intensity control.
  *
  * A held key = the storm (it builds and fades over ~1 s); while it lasts, lightning strikes at random (Poisson, a few
- * per minute, more and nearer as the storm grows) and the rain and wind follow INTENSITY. A press also strikes a
- * flash now (velocity = how close). The parts:
+ * per minute, more and nearer as the storm grows) and the rain and wind follow INTENSITY. A press into a storm that
+ * sounds also strikes a flash now (velocity = how close); a storm pressed from calm builds first, its first flash
+ * coming as the others do (it never opens on a crack). The parts:
  *   rain     a rain engine run inside this one through the public engine API (its own state in an arena here):
  *            #2 rain on water, or #3 rain on surfaces (leaves .. metal roof), by SURFACE. INTENSITY sets the rain
  *            rate (0.5 .. 60 mm/h); AGE moves its size mix from a young convective cell (big drops, loud) to the
@@ -285,7 +286,11 @@ TX_AUDIO_CODE static void storm_render(void *st, int32_t *mix, unsigned n)
     if (!k && s->quiet) return;                              /* silent and nothing new */
     for (j = 0; j < n; j++) buf[j] = 0;
     held = tx_cloud_held(&s->cloud);
-    for (i = 0; i < k; i++) {                                /* a press: a flash now, unless one still rolls */
+    for (i = 0; i < k; i++) {                                /* a press: a flash now, unless one still rolls; a storm
+                                                              * from calm builds first (no crack at the press: a lane
+                                                              * opened ~6 dB louder than it went on), its first flash
+                                                              * coming as the others do */
+        if (!s->on) continue;
         if (s->fl.active && s->fl_age < 176400u) { s->pend = s->ev[i].vel; s->dropped++; }
         else strike(s, s->ev[i].vel);
     }

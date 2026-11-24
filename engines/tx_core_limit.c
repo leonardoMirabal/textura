@@ -3,7 +3,8 @@
 #include "tx_core_limit.h"
 
 #define T_Q23 6663308u             /* -2 dBFS (the FM-1's headphone jack clipped under -1 dBFS: Frodhes' LIM_T) */
-#define G_Q23 (T_Q23 * 3u / 7u)    /* the estimate's gate: 0.43 T (< T / 2.13 / 1.0625, the taps' sum, the +0.5 dB) */
+#define G_Q23 (T_Q23 * 2u / 5u)    /* the estimate's gate: 0.4 T (< T / 2.13 / 1.125, the half taps' sum, the +1 dB;
+                                    * the quarter taps' sum is 1.82) */
 #define PCLAMP (1 << 27)           /* (a pair's half sum, +24 dBFS: the products below stay in 32 bits) */
 
 
@@ -25,6 +26,30 @@ static uint32_t half(const int32_t *q, unsigned big)
     return (uint32_t)(acc < 0 ? -acc : acc);
 }
 
+/* the larger |quarter-sample point| between q[7] and q[8] (at 7.25 and 7.75; the same Kaiser-windowed sinc, Q11): the
+ * two are mirror images, so their sum runs on the pairs' half sums (HP) and their difference on the pairs' half
+ * differences (DP), 16 products for both. Without them a crack's peak a quarter sample off the half point passed T
+ * by up to 0.9 dB once rebuilt (the plugin's 48 kHz: -1.41 dBFS) */
+#define DP(i, h) ((((q[7 - (i)] >> 1) - (q[8 + (i)] >> 1)) >> 9) * (h))
+#define DC(i, h) ((PC((q[7 - (i)] >> 1) - (q[8 + (i)] >> 1)) >> 9) * (h))
+static uint32_t quarter(const int32_t *q, unsigned big)
+{
+    int32_t sm, df, a, b;
+    if (big) {
+        sm = HC(0, 2450) + HC(1, -592) + HC(2, 307) + HC(3, -180) + HC(4, 106) + HC(5, -60) + HC(6, 31) + HC(7, -14);
+        df = DC(0, 1238) + DC(1, -112) + DC(2, 43) + DC(3, -23) + DC(4, 14) + DC(5, -9) + DC(6, 6) + DC(7, -3);
+    } else {
+        sm = HP(0, 2450) + HP(1, -592) + HP(2, 307) + HP(3, -180) + HP(4, 106) + HP(5, -60) + HP(6, 31) + HP(7, -14);
+        df = DP(0, 1238) + DP(1, -112) + DP(2, 43) + DP(3, -23) + DP(4, 14) + DP(5, -9) + DP(6, 6) + DP(7, -3);
+    }                                                        /* 2^18 x 3740 and x 1448: in 32 bits; the points =
+                                                              * (sm +- df) / 4 (Q23) */
+    sm >>= 1; df >>= 1;
+    a = (sm + df) >> 1; b = (sm - df) >> 1;
+    if (a < 0) a = -a;
+    if (b < 0) b = -b;
+    return (uint32_t)(a > b ? a : b);
+}
+
 
 /* |x| above which a gain env under 1 passes T: T 2^16 / env, as T << 4 / ((env >> 12) + 1) (rounded down): env >> 12
  * takes 16 values, so a table (no division on the release) */
@@ -35,7 +60,7 @@ static const uint32_t THR[16] = {
 
 /* the estimate's gate for samples entering now: an estimate counts only over thr, and thr can only fall by the
  * release, at most 3 steps while a sample stays in the window (16 frames + the next sample's mb: 34 samples). So
- * below 3/8 of thr 3 steps on (and below 0.43 T) the estimate cannot reach thr: it is skipped, the output the same */
+ * below 3/8 of thr 3 steps on (and below 0.4 T) the estimate cannot reach thr: it is skipped, the output the same */
 static uint32_t gate_of(uint32_t env)
 {
     unsigned i;
@@ -60,10 +85,13 @@ TX_AUDIO_CODE void tx_limit_process(tx_limit_t *l, int32_t *x, unsigned n)
         q = w + k + 1u;                                      /* the window, oldest first: q[15] the newest */
         a = (uint32_t)(v < 0 ? -v : v);
         if (a > g) { *hot = 16; if (a > (uint32_t)PCLAMP) *big = 16; }
-        if (*hot) {                                          /* the point after the sample sent now (+0.5 dB: the
-                                                              * true peak may lie off the half point) */
+        if (*hot) {                                          /* the points after the sample sent now (+1 dB: the
+                                                              * true peak may lie between the quarter points) */
             (*hot)--;
-            ma = half(q, *big); ma += ma >> 4;
+            uint32_t m4 = quarter(q, *big);
+            ma = half(q, *big);
+            if (m4 > ma) ma = m4;
+            ma += ma >> 3;
             if (*big) (*big)--;                              /* (big <= hot: it counts down with it) */
         }
         s = q[7];                                            /* the sample sent now: 8 frames back */

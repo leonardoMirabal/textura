@@ -72,7 +72,7 @@ typedef struct {
     uint8_t p[NP], limit, quiet;
     int32_t level, wind_l2, gust, gsd, d_l2, lock, sinA, cosA, benv, bfl;
     int32_t gtgt, gcur, gmean, tb, tb2;   /* gust events: target, now, their running mean (Q15 of u); the turbulence */
-    uint16_t gclu, gpad;           /* blocks the gusts stay clustered */
+    uint16_t gclu, gn;             /* blocks the gusts stay clustered; blocks into gmean, to 2048 (its window grows) */
     uint16_t dropped;
     tx_vary_t vy;
 } aeol_t;
@@ -177,7 +177,11 @@ TX_AUDIO_CODE static void aeol_render(void *st, int32_t *mix, unsigned n)
         }
         s->gtgt -= (s->gtgt >> 8) + (s->gtgt > 0);           /* dies ~1.5 s */
         s->gcur += (s->gtgt - s->gcur) >> 5;                 /* rises ~0.25 s */
-        s->gmean += (s->gcur - s->gmean) >> 11;              /* (~12 s: WIND stays the mean speed, gusts over lulls) */
+        /* (~12 s: WIND stays the mean speed, gusts over lulls). The window grows from 1.5 s at the start to that, as
+         * the wind core's: from 0 the gusts blew on top of WIND until the mean had learnt them (a running mean over
+         * what there is so far, a 32-bit division per block) */
+        if (s->gn < 2048u) s->gn++;
+        s->gmean += (s->gcur - s->gmean) / (int32_t)(s->gn < 256u ? 256u : s->gn);
         s->tb += ((tx_rand_s15(r) * 3) / 4 - s->tb) >> 1;    /* white at the block rate, two poles: ~5-30 Hz */
         s->tb2 += (s->tb - s->tb2) >> 1;
     }

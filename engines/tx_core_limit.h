@@ -9,9 +9,11 @@
  *
  * The peaks between the samples too: a crack's edge can peak ~1.5 .. 3 dB above its samples once rebuilt (a converter,
  * the USB audio's 48 kHz resampler), so -1 dBFS samples came out at 0 dBFS, clipped. The limiter looks 8 frames ahead
- * (0.18 ms of latency) and estimates the half-sample point on each side of the sample it sends (a 16-tap
- * interpolator, weighted +0.5 dB: the true peak may lie off the half point); the gain keeps the larger of the three
- * within T. The estimate runs only near a sample over 0.43 T (below that it cannot reach T: its taps' sum is 2.13),
+ * (0.18 ms of latency) and estimates the quarter, half and three-quarter points on each side of the sample it sends
+ * (16-tap interpolators, weighted +1 dB: the true peak may lie between them, and the gain's own step reshapes the
+ * edge); the gain keeps the sample and the larger estimate on each side within T. Half points alone let a crack's
+ * peak a quarter sample off pass T by 0.7 dB in the plugin's 48 kHz (-1.31 dBFS). The estimates run only near a
+ * sample over 0.4 T (below that they cannot reach T: the largest taps' sum is 2.13, x 1.125),
  * and while the gain is down only near one over 3/8 of the threshold the release can reach within the window. */
 #ifndef TX_CORE_LIMIT_H
 #define TX_CORE_LIMIT_H
@@ -24,7 +26,7 @@ typedef struct {
     int32_t w[2][32];              /* each channel's last 16 inputs (a ring at k, held twice: k and k + 16, so
                                     * the window k + 1 .. k + 16 reads without wrapping): the lookahead, the
                                     * interpolator's */
-    uint32_t mb[2];                /* each channel's half-sample point before the sample sent next (its |estimate|) */
+    uint32_t mb[2];                /* each channel's largest point before the sample sent next (its |estimate|) */
     uint8_t hot[2];                /* frames left in which the window holds a sample over the estimate's gate */
     uint8_t big[2];                /* frames left in which it holds one over +24 dBFS (the estimate clamps its
                                     * pairs) */
@@ -33,7 +35,7 @@ typedef struct {
 
 void tx_limit_init(tx_limit_t *l);
 /* in place over n samples of a Q23 mix (ch interleaved), 8 frames late: afterwards |x| <= T (6663308, -2 dBFS) and so
- * are the estimated half-sample points between */
+ * are the estimated points between */
 TX_AUDIO_CODE void tx_limit_process(tx_limit_t *l, int32_t *x, unsigned n);
 /* the deepest gain reduction since the last call, dB x 10 (0 = none), and reset */
 uint32_t tx_limit_take(tx_limit_t *l);

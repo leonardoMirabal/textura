@@ -498,7 +498,7 @@ It reverberates what the grain delay gives it, so the echoes ring in the space t
 
 | Knob | Card | What it does |
 | --- | --- | --- |
-| K1 | **TYPE** | **OFF** (the tail rings out), **ROOM** (a small body and a short tail), **HALL**, **INFINITE** (DECAY 120 to 126 sustains, 127 freezes), **DARK** (the infinite space, darker and still: a deep frozen bed), **DRIFT** (the infinite space, slowly bending in pitch), **SWELL** (the infinite space, held down while the sound plays, swelling in after), **PLATE** (bright and dense) |
+| K1 | **TYPE** | **OFF** (the tail rings out), **ROOM** (a small body and a short tail), **HALL**, **INFINITE** (DECAY 120 to 126 sustains, 127 freezes), **DARK** (the infinite space, darker and nearly still: a deep frozen bed; MOD a quarter as deep), **DRIFT** (the infinite space, slowly bending in pitch), **SWELL** (the infinite space, held down while the sound plays, swelling in after), **PLATE** (bright and dense) |
 | K2 | **MIX** | DRY .. 50/50 .. WET |
 | K3 | **DECAY** | HALL: half to twice the time; the infinite types: 4 to 60 s, then sustain and freeze; PLATE: 0.8 to 6 s; ROOM: the walls (127: hard and long) |
 | K4 | **TONE** | The tail's top: dark .. as designed (64) .. bright. ROOM: the body's resonance. |

@@ -42,7 +42,7 @@ STORM NEARS  fx1 | T:rain on water n2 a4 rF p64 v88 | T:thunder n1 a1 rM p36 v12
 FULL STORM   fx1 | T:storm n1 a2 rF p64 v100 | T:thunder n1 a1 rM p30 v114 | A:wind n1 a3 rB p96 v43 | -
 STORM ROOF   fx2 | T:rain on a roof n3 a4 rF p64 v115 | T:thunder n1 a1 rM p32 v95 | A:wind n1 a3 rB p92 v41 | W:eaves dripping n2 a3 rM p44 v91
 HAILSTORM    fx1 | T:hail on a roof n2 a4 rF p64 v101 | T:thunder n1 a1 rM p36 v81 | A:wind n2 a4 rM p92 v55 | T:rain on a roof n1 a2 rB p44 v71
-HAIL ON CAR  fx1 | T:hail on a car n3 a4 rF p64 v99 | T:thunder n1 a0 rM p36 v59 | A:wind n1 a3 rB p92 v31 | T:rain on water n1 a2 rB p44 v29
+HAIL ON CAR  fx1 | T:hail on a car n3 a4 rF p64 v102 | T:thunder n1 a0 rM p36 v56 | A:wind n1 a3 rB p92 v43 | T:rain on water n1 a2 rB p44 v30
 HAIL TREES   fx1 | T:hail in leaves n2 a3 rF p64 v120 | T:thunder n1 a1 rM p36 v88 | A:leafy trees n1 a4 rM p92 v53 | -
 SLEET        fx2 | T:sleet on a window n2 a4 rF p64 v101 | - | T:winter storm n1 a3 rM p92 v65 | F:fireplace n1 a1 rB p36 v49
 GALE         fx1 | T:rain on water n2 a3 rM p64 v61 | T:thunder n1 a0 rB p36 v82 | T:ridge gale n1 a4 rF p88 v118 | D:spruce n1 a1 rM p28 v74
@@ -80,7 +80,7 @@ CUCKOO       fx1 | B:blackbird n1 a1 rM p56 v51 | Y:cuckoo n1 a1 rF p30 v103 | A
 WOODPECKER   fx1 | B:robin n1 a1 rM p56 v77 | Y:woodpecker n1 a2 rF p30 v110 | A:leafy trees n1 a1 rB p92 v50 | D:tree trunk n1 a0 r-10 p76 v55
 FOREST WALK  fx1 | B:song thrush n1 a1 rM p56 v60 | D:twigs underfoot n1 a2 rF p64 v112 | A:leafy trees n1 a2 rB p92 v44 | Y:woodpecker n1 a0 r-15 p30 v32
 DEEP FOREST  fx5 | B:hermit thrush n1 a1 rF p56 v72 | B:wood thrush n1 a1 rM p30 v73 | A:leafy trees n1 a1 rB p92 v50 | D:oak n1 a0 r-14 p76 v49
-PINE FOREST  fx2 | B:wren n1 a1 rF p56 v70 | Y:crow n1 a0 r-10 p30 v65 | A:wind in pines n1 a3 rB p92 v42 | D:spruce n1 a0 rM p76 v69
+PINE FOREST  fx2 | B:wren n1 a1 rF p56 v70 | Y:crow n1 a0 r-10 p30 v73 | A:wind in pines n1 a3 rB p92 v58 | D:spruce n1 a0 rM p76 v75
 AUTUMN WOOD  fx1 | B:robin n1 a1 rM p56 v77 | Y:crow n1 a1 rM p30 v96 | A:gusty autumn n1 a5 rF p92 v45 | D:maple n1 a0 rM p76 v68
 DUSK WOOD    fx10 | B:song thrush n1 a1 rF p56 v109 | Y:wood pigeon n1 a0 r-10 p30 v49 | A:wind in pines n1 a1 rB p92 v60 | X:tree cricket n1 a0 rB p76 v43
 
@@ -97,7 +97,7 @@ OLIVE GROVE  fx1 | X:cicada chorus n2 a2 rF p64 v104 | X:cicada n1 a1 rM p40 v10
 MIDDAY HEAT  fx1 | X:cicada chorus n3 a3 rF p64 v100 | X:grasshopper n1 a1 rM p40 v66 | A:desert wind n1 a1 rB p92 v42 | -
 
 = NIGHT
-CRICKETS     fx1 | X:field cricket n2 a2 rF p64 v81 | X:tree cricket n1 a1 rM p36 v55 | A:breeze in grass n1 a1 rB p92 v50 | -
+CRICKETS     fx1 | X:field cricket n2 a2 rF p64 v66 | X:tree cricket n1 a1 rM p36 v62 | A:breeze in grass n1 a1 rB p92 v72 | -
 JUNE NIGHT   fx1 | X:field cricket n2 a2 rF p64 v81 | X:katydid n1 a1 rM p36 v66 | A:leafy trees n1 a1 rB p92 v50 | Y:nightjar n1 a0 r-10 p24 v53
 NIGHTINGALE  fx12 | X:field cricket n1 a1 rM p64 v64 | B:nightingale n1 a2 rF p36 v93 | A:leafy trees n1 a1 rB p92 v53 | -
 WARM NIGHT   fx1 | X:katydid n2 a2 rF p64 v103 | X:tree cricket n1 a1 rM p36 v55 | W:lake lapping n1 a0 rB p92 v42 | Y:nightjar n1 a0 r-14 p24 v43
@@ -128,13 +128,13 @@ ROCK GONGS   fx9 | S:ringing rocks n1 a3 rF p64 v127 | S:stones n1 a0 rM p40 v10
 QUARRY       fx3 | S:stones n1 a1 rF p64 v107 | S:gravel n1 a1 rM p40 v102 | S:rockfall n1 a0 rB p88 v42 | Y:crow n1 a0 r-15 p30 v42
 SCREE SLOPE  fx3 | S:stones n1 a1 rM p64 v68 | S:rockfall n1 a1 rF p40 v110 | A:ridge gale n1 a2 rB p88 v39 | Y:crow n1 a0 r-15 p30 v42
 PEBBLES      fx1 | S:stones n1 a1 rF p64 v108 | S:gravel n1 a0 rM p40 v103 | W:brook n1 a1 rM p88 v88 | B:wren n1 a0 r-15 p30 v30
-GRAVEL PATH  fx1 | S:gravel n1 a1 rF p64 v126 | B:robin n1 a1 rM p40 v85 | A:leafy trees n1 a1 rB p88 v42 | Y:wood pigeon n1 a0 r-15 p30 v22
+GRAVEL PATH  fx1 | S:gravel n1 a1 rF p64 v127 | B:robin n1 a1 rM p40 v85 | A:leafy trees n1 a1 rB p88 v54 | Y:wood pigeon n1 a0 r-15 p30 v22
 DESERT WIND  fx1 | S:sand n1 a1 rM p64 v126 | S:singing dune n1 a0 rB p40 v60 | A:desert wind n1 a5 rF p88 v53 | -
 DUNES        fx15 | S:sand n1 a1 rM p64 v127 | S:singing dune n1 a2 rF p40 v86 | A:desert wind n1 a2 rB p88 v32 | -
 
 = ICE & WINTER
 FROST        fx8 | I:frost tinkling n1 a3 rF p64 v120 | I:icicles n1 a1 rM p40 v86 | A:wind n1 a1 rB p90 v50 | -
-ICICLES      fx9 | I:frost tinkling n1 a0 rB p64 v41 | I:icicles n1 a2 rF p40 v80 | W:eaves dripping n1 a1 rM p90 v48 | B:robin n1 a0 r-14 p26 v20
+ICICLES      fx9 | I:frost tinkling n1 a0 rB p64 v54 | I:icicles n1 a2 rF p40 v111 | W:eaves dripping n1 a1 rM p90 v64 | B:robin n1 a0 r-14 p26 v32
 THAW         fx1 | W:water drops n1 a1 rM p64 v53 | I:icicles n1 a1 rM p40 v104 | W:eaves dripping n1 a2 rF p90 v105 | B:robin n1 a1 rB p26 v40
 SNOW WALK    fx1 | I:snow underfoot n1 a1 rF p64 v104 | I:frost tinkling n1 a0 rM p40 v105 | A:winter storm n1 a1 rB p90 v46 | Y:crow n1 a0 r-10 p26 v56
 FROZEN LAKE  fx7 | I:frozen lake booming n1 a1 rF p64 v116 | I:lake ice n1 a1 rM p40 v88 | A:wind n1 a2 rB p90 v44 | -

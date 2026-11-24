@@ -19,9 +19,10 @@
  * carry their remainders, the allpasses are lifting steps; a quiet line truncates toward zero instead, so a tail that
  * is not held ends in exact zeros. SUSTAIN / FREEZE: every line's gain is 1 + dq, a level controller's.
  *
- * DARK (Textura): the same tank darker and still: no wander (MOD 0: the reads stand, nothing beats), TONE's damping
+ * DARK (Textura): the same tank darker and nearly still: a quarter of MOD's wander (MOD 0: the reads stand, nothing
+ * beats; at MOD 64 the swing a quarter of INFINITE's, a slow breath), TONE's damping
  * 60 steps darker (the input one-pole near 250 Hz and lower, the top's absolute damping up), so a FREEZE holds a deep,
- * soft bed. The framework sets c->dark; the kernel glides into it (dkw: damp + 60, mod 0, its gains and loss).
+ * soft bed. The framework sets c->dark; the kernel glides into it (dkw: damp + 60, mod / 4, its gains and loss).
  *
  * DRIFT (Textura): the same tank, its wander a slow random walk instead of the slow sines: each wandering read follows
  * two one-poles (0.75 s each) toward a target drawn at random every 1.5 .. 6 s, over twice the swing, so the tail
@@ -280,7 +281,8 @@ static void ri_tank(tx_inf_t *s, int32_t *mo, int32_t *so, const tx_rev_ctl_t *c
      * INFINITE and DARK alone render as before */
     if (!s->len[0] || !tx_inf_active(s)) s->dkw = c->dark ? RI_DKW : 0;
     else if (s->dkw != (c->dark ? RI_DKW : 0)) s->dkw = (uint8_t)(s->dkw + (c->dark ? 1 : -1));
-    mod = (c->mod * (int32_t)(RI_DKW - s->dkw)) >> 7;
+    mod = (c->mod * (int32_t)(RI_DKW - ((s->dkw * 3u) >> 2))) >> 7;   /* (DARK: a quarter of MOD's wander; none left
+                                                             * MOD doing nothing there) */
     kdd = 16 + (((RI_KDD - 16) * (int32_t)s->dkw) >> 7);
     if (!c->freeze && c->decay >= 120) {                   /* a release: the tail fades out in ~2 s */
         s->rd = s->rd > RI_REL + 2 * (int32_t)RI_CPT ? s->rd - 2 * (int32_t)RI_CPT : RI_REL;

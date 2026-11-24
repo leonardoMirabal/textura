@@ -18,7 +18,7 @@
 #                      cost curve and the mixes (build/bench/budget.txt, budget.csv): a report, nothing changed
 #   make tx-activity   each landscape sound as a player lane (the generator on) at ACTIVITY 0 / 9 / 64 / 118 / 127:
 #                      events/s, LUFS-S, gaps, a cloud at the top or not (ARGS="-s SECS -n SEEDS -f NAME")
-#   make tx-audit      every landscape sound at the defaults and ACTIVITY 0 / 127, 6 seeds: no hidden steady rhythm
+#   make tx-audit      every landscape sound at the defaults and ACTIVITY 0 / 127, 8 seeds: no hidden steady rhythm
 #                      (envelope lines the seeds agree on), no two events alike (near-identical event pairs), never
 #                      silent (half the seeds without a sound) nor hot (a peak over +24 dBFS); fails on a finding
 #                      outside its short allowlist of species' own rhythms (ARGS="-f NAME -d"; ARGS="-x -e": the

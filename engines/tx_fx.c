@@ -10,7 +10,7 @@
 #include "tx_fx.h"
 
 const tx_param_t tx_fx_reverb_params[TX_RV_NP] = {
-    {"TYPE", TX_RVT_N - 1, 0, TX_TEXT("the space: 0 off (the tail rings out) | 1 room (the CHAMBER: body modes + a short tail) | 2 hall | 3 infinite (DECAY 120..126 sustain, 127 freeze) | 4 dark (the infinite tank, darker and still: a deep frozen bed) | 5 drift (the infinite tank, slowly bending in pitch at random) | 6 swell (the infinite tank, held down while you play, swelling in after) | 7 plate (a bright, dense plate)")},
+    {"TYPE", TX_RVT_N - 1, 0, TX_TEXT("the space: 0 off (the tail rings out) | 1 room (the CHAMBER: body modes + a short tail) | 2 hall | 3 infinite (DECAY 120..126 sustain, 127 freeze) | 4 dark (the infinite tank, darker and nearly still: a deep frozen bed) | 5 drift (the infinite tank, slowly bending in pitch at random) | 6 swell (the infinite tank, held down while you play, swelling in after) | 7 plate (a bright, dense plate)")},
     {"MIX", 127, 35, TX_TEXT("0 the sound alone; up to 64 the reverb comes in, the sound stays whole; 64 both whole; above it the sound fades out, 127 the reverb alone")},
     {"DECAY", 127, 64, TX_TEXT("hall: x0.5 .. x2 the time; infinite / dark / drift / swell: T60 4 .. 60 s, 120..126 sustain, 127 freeze; plate: T60 0.8 .. 6 s; room: the walls (127 = hard, long)")},
     {"TONE", 127, 64, TX_TEXT("the tail's top: 0 dark .. 64 as designed .. 127 bright; room: the body's resonance")},
