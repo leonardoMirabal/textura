@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Read the Textura app's debug items on the FM-1 over USB-MIDI (firmware/src/textura.c tx_dbg_reply): CC 116 on
 channel 16 asks, the app answers CC 100 id / 101 - 102 value (14 bits) on channel 1. Installs and changes nothing on
-the unit: the ask only restarts the held "since the last ask" items (21, 23, 24, 35, 56-58).
+the unit: the ask only restarts the held "since the last ask" items (21, 23, 24, 35, 56-67, 71).
 
   tools/fm1_dbg.py [--port NAME] [--watch S] [--json]      (make fm1-dbg ARGS="...": under the DEVICE lock)
 
@@ -22,7 +22,7 @@ import mido
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # (python -I: the tools' own helper)
 import tx_ports  # noqa: E402
 
-LAST = 58                                            # the reply's last item
+LAST = 72                                            # the reply's last item
 ITEMS = {
     20: "grain cap now", 21: "grain cap lowest", 22: "grain room now (us)", 23: "grain room least (us)",
     24: "audio interrupt longest (us)", 25: "reverb (us, held)", 26: "lanes before the bus (us, held)",
@@ -33,6 +33,11 @@ ITEMS = {
     47: "core 1 jobs refused", 48: "late jobs", 49: "holds for good", 50: "retries", 51: "SYS_DIV (lo 14 bits)",
     52: "C1_HSB2 wrote SYS_DIV", 53: "crash count", 54: "crash vector", 55: "reset reason (P33)",
     56: "UI part drawn longest (us)", 57: "UI part drawn mean (us)", 58: "UI parts drawn",
+    59: "pan on core 0 longest (us)", 60: "pan on core 0 mean (us)", 61: "core 0 render longest (us)",
+    62: "core 1 job longest (us)", 63: "core 1 mix end longest (us)", 64: "audio interrupt mean (us)",
+    65: "interrupts over the target", 66: "interrupts over a block (late)", 67: "interrupts counted",
+    68: "binaural pans charged now (us)", 69: "OUTPUT (1 HP, +2 binaural on)", 70: "binaural AMOUNT (%)",
+    71: "interrupt spacing longest (us)", 72: "core 1 pan blocks (lo)",
 }
 
 

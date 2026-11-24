@@ -36,6 +36,9 @@
 #   make fm1-timing    the same table on the FM-1 over USB-MIDI (tools/fm1_timing.py; installs nothing; DEVICE lock)
 #   make fm1-dbg       the app's debug items on the FM-1 (tools/fm1_dbg.py: stacks' deepest, UI draw time, core 1,
 #                      the interrupt; ARGS="--watch 5"; installs nothing; DEVICE lock)
+#   make fm1-cpu       the audio's CPU on the FM-1 per OUTPUT mode, SPEAKERS against HEADPHONES (tools/hil_cpu.py: the
+#                      interrupt's mean, longest and late blocks, the pans, both cores; ARGS="--jack" also counts the
+#                      jack's clicks on the M6; installs nothing; DEVICE lock)
 #   make fm1-uitour    a heavy UI session on the FM-1 over USB-MIDI, no hands (tools/fm1_uitour.py, the app's dev hook),
 #                      then the stacks' deepest and the draw time (ARGS="--rounds 2 --no-save"; DEVICE lock)
 #   make tx-player     the browser player -> build/audition/ (Emscripten from .local/emsdk)
@@ -94,7 +97,7 @@ HOST_SRC := bench/tx_host.c bench/tx_script.c
 HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
-PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-dbg fm1-uitour fm1-timing fw-c1map fw-c1hot
+PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-dbg fm1-cpu fm1-uitour fm1-timing fw-c1map fw-c1hot
 .PHONY: hil hil-test $(PHONY_FM1) setup fw-host fw-test fw-web fw-web-serve fw-web-check docs-img fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-pristine tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-fx-sweep tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
 
 # Hardware-in-the-loop suite of the installed FM-1 (tools/hil_suite.py; the rig is in AGENTS.md). Run after every
@@ -416,6 +419,9 @@ fm1-app:
 
 fm1-dbg:
 	python3 -I tools/lock.py run DEVICE --why "make fm1-dbg" --wait 3600 -- .local/venv/bin/python -I tools/fm1_dbg.py $(ARGS)
+
+fm1-cpu:
+	python3 -I tools/lock.py run DEVICE --why "make fm1-cpu" --wait 3600 -- .local/venv/bin/python -I tools/hil_cpu.py $(ARGS)
 
 fm1-uitour:
 	python3 -I tools/lock.py run DEVICE --why "make fm1-uitour" --wait 3600 -- .local/venv/bin/python -I tools/fm1_uitour.py $(ARGS)

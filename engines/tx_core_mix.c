@@ -164,14 +164,43 @@ static TX_AUDIO_CODE void tx_mix_add_gated(tx_mix_t *m, unsigned k, const int32_
     if (n) m->lc[k] = lv;
 }
 
-/* one ear, one sample: its history read d (Q16) back between two samples, then the head's shadow: a one-pole low-pass
- * (a) as a high shelf (b: the highs kept). a = b = 1, d = 0: the sample itself, exactly. |r| <= 2^26: 32-bit products */
+/* HEADPHONES' path (tx_mix_add_bin and its parts) runs from RAM on the FM-1 (TX_RAM: four slots' ears a block, clear of
+ * XIP's cache misses) and goes over the block one job at a time: the slot's samples (the trim, the level, the gate)
+ * into a scratch after its history, then each ear on its own from there (its delay, shadow and gain; the near ear at rest:
+ * the sample itself), so each loop holds only its own state. Sample for sample the arithmetic of one loop doing both
+ * ears (bench/txbintest.c: the same samples as that loop, kept there as the reference) */
 #define TX_MULQ15(e, c) (((e) >> 15) * (c) + (int32_t)((((uint32_t)(e) & 32767u) * (uint32_t)(c)) >> 15))
-TX_INLINE int32_t tx_mix_ear(const int32_t *r, uint32_t w, int32_t d, int32_t a, int32_t b, int32_t *lp)
+#define TX_CLIP26(v) ((v) > (1 << 26) ? (1 << 26) : (v) < -(1 << 26) ? -(1 << 26) : (v))
+/* y at a gain g (Q14) added to o: |y| clipped to 32 full scale first, 32-bit products */
+#define TX_EAR_ADD(o, y, g) do { int32_t hi_ = (y) >> 14; uint32_t lo_ = (uint32_t)(y) & 0x3FFFu;              \
+        hi_ = hi_ > 131071 ? 131071 : hi_ < -131072 ? -131072 : hi_;                                          \
+        (o) += hi_ * (g) + (int32_t)((lo_ * (uint32_t)(g)) >> 14); } while (0)
+
+/* the slot's history into hb before its block; returns the block's place (h[j - d]: d samples before sample j) */
+TX_INLINE int32_t *tx_mix_bin_load(const tx_mix_t *m, unsigned k, int32_t *hb)
 {
-    uint32_t i = w - ((uint32_t)d >> 16);
-    int32_t f = (int32_t)(((uint32_t)d & 0xFFFFu) >> 1), x0 = r[i & (TX_BIN_N - 1u)], y, e;
-    y = x0 + TX_MULQ15(r[(i - 1u) & (TX_BIN_N - 1u)] - x0, f);
+    const int32_t *r = m->bin[k].r;
+    unsigned j;
+    for (j = 0; j < TX_BIN_N; j++) hb[j] = r[j];
+    return hb + TX_BIN_N;
+}
+/* the block's last TX_BIN_N samples (a short block: the history's last ones before them) kept as the slot's history */
+TX_INLINE void tx_mix_bin_keep(tx_mix_t *m, unsigned k, const int32_t *hb, unsigned n)
+{
+    int32_t *r = m->bin[k].r;
+    const int32_t *h = hb + n;
+    unsigned j;
+    for (j = 0; j < TX_BIN_N; j++) r[j] = h[j];
+}
+
+/* one ear, one sample: its history read d (Q16) back from hj (the sample now) between two samples, then the head's
+ * shadow: a one-pole low-pass (a) as a high shelf (b: the highs kept). a = b = 1, d = 0: the sample itself, exactly.
+ * |r| <= 2^26: 32-bit products */
+TX_INLINE int32_t tx_mix_ear(const int32_t *hj, int32_t d, int32_t a, int32_t b, int32_t *lp)
+{
+    uint32_t i = (uint32_t)d >> 16;
+    int32_t f = (int32_t)(((uint32_t)d & 0xFFFFu) >> 1), x0 = hj[-(int32_t)i], y, e;
+    y = x0 + TX_MULQ15(hj[-(int32_t)i - 1] - x0, f);
     e = y - *lp; *lp += TX_MULQ15(e, a);
     e = y - *lp;
     return *lp + TX_MULQ15(e, b);
@@ -179,75 +208,138 @@ TX_INLINE int32_t tx_mix_ear(const int32_t *r, uint32_t w, int32_t d, int32_t a,
 /* tx_mix_add_bin at rest (the gate open, the level unity, every ear where it aims): the near ear as SPEAKERS' (the
  * sample at its gain; at the centre both ears, so the centre is SPEAKERS' bit for bit), the far ear from the history a
  * whole number of samples back (tx_mix_aim's), its shelf and gain in one: g b on the sample, g (1 - b) on the low-pass */
-static TX_AUDIO_CODE void tx_mix_add_rest(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n, unsigned f)
+static TX_RAM void tx_mix_add_rest(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n, unsigned f, const tx_mix_to_t *to)
 {
     unsigned j;
-    int32_t pk = m->slot_peak[k], tg = m->tg[k], *r = m->bin[k].r, *nr = f ? m->L : m->R, *fr = f ? m->R : m->L;
+    int32_t pk = m->slot_peak[k], tg = m->tg[k], *h = tx_mix_bin_load(m, k, to->hb), *nr = f ? to->L : to->R;
+    int32_t *fr = f ? to->R : to->L;
     int32_t gn = m->bin[k].e[f ^ 1u].g >> 8, gf = m->bin[k].e[f].g >> 8, bq = m->bin[k].e[f].b >> 8;
     int32_t a = m->bin[k].e[f].a >> 8, gb = (gf * bq) >> 15, gc = (gf * (32768 - bq)) >> 15, lp = m->bin[k].e[f].lp;
-    uint32_t w = m->bin[k].w, di = (uint32_t)m->bin[k].e[f].d >> 16;
+    const int32_t *yd = h - (int32_t)((uint32_t)m->bin[k].e[f].d >> 16);
     for (j = 0; j < n; j++) {
-        int32_t v = x[j], av, hi, y;
-        uint32_t lo;
+        int32_t v = x[j], av, y;
         if (tg != 4096) {                                    /* (as tx_mix_add) */
-            v = v > (1 << 26) ? (1 << 26) : v < -(1 << 26) ? -(1 << 26) : v;
+            v = TX_CLIP26(v);
             v = (v >> 12) * tg + (int32_t)((((uint32_t)v & 4095u) * (uint32_t)tg) >> 12);
         }
-        av = v < 0 ? -v : v; hi = v >> 14;
-        lo = (uint32_t)v & 0x3FFFu;
+        av = v < 0 ? -v : v;
         if (av > pk) pk = av;
-        hi = hi > 131071 ? 131071 : hi < -131072 ? -131072 : hi;
-        nr[j] += hi * gn + (int32_t)((lo * (uint32_t)gn) >> 14);
-        r[++w & (TX_BIN_N - 1u)] = v > (1 << 26) ? (1 << 26) : v < -(1 << 26) ? -(1 << 26) : v;
-        y = r[(w - di) & (TX_BIN_N - 1u)];
+        TX_EAR_ADD(nr[j], v, gn);
+        h[j] = TX_CLIP26(v);
+        y = yd[j];
         lp += TX_MULQ15(y - lp, a);
         fr[j] += (y >> 14) * gb + (int32_t)((((uint32_t)y & 0x3FFFu) * (uint32_t)gb) >> 14)
                + (lp >> 14) * gc + (int32_t)((((uint32_t)lp & 0x3FFFu) * (uint32_t)gc) >> 14);
     }
-    m->slot_peak[k] = pk; m->bin[k].w = w; m->bin[k].e[f].lp = lp;
+    m->slot_peak[k] = pk; m->bin[k].e[f].lp = lp;
+    tx_mix_bin_keep(m, k, to->hb, n);
 }
 /* the centre at rest: both ears the sample at their gains (SPEAKERS' sum), the history kept */
-static TX_AUDIO_CODE void tx_mix_add_mid(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n)
+static TX_RAM void tx_mix_add_mid(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n, const tx_mix_to_t *to)
 {
     unsigned j;
-    int32_t pk = m->slot_peak[k], tg = m->tg[k], *r = m->bin[k].r, gl = m->bin[k].e[0].g >> 8, gr = m->bin[k].e[1].g >> 8;
-    uint32_t w = m->bin[k].w;
+    int32_t pk = m->slot_peak[k], tg = m->tg[k], *h = tx_mix_bin_load(m, k, to->hb), *L = to->L, *R = to->R;
+    int32_t gl = m->bin[k].e[0].g >> 8, gr = m->bin[k].e[1].g >> 8;
     for (j = 0; j < n; j++) {
-        int32_t v = x[j], av, hi;
-        uint32_t lo;
+        int32_t v = x[j], av;
         if (tg != 4096) {
-            v = v > (1 << 26) ? (1 << 26) : v < -(1 << 26) ? -(1 << 26) : v;
+            v = TX_CLIP26(v);
             v = (v >> 12) * tg + (int32_t)((((uint32_t)v & 4095u) * (uint32_t)tg) >> 12);
         }
-        av = v < 0 ? -v : v; hi = v >> 14;
-        lo = (uint32_t)v & 0x3FFFu;
+        av = v < 0 ? -v : v;
         if (av > pk) pk = av;
-        hi = hi > 131071 ? 131071 : hi < -131072 ? -131072 : hi;
-        m->L[j] += hi * gl + (int32_t)((lo * (uint32_t)gl) >> 14);
-        m->R[j] += hi * gr + (int32_t)((lo * (uint32_t)gr) >> 14);
-        r[++w & (TX_BIN_N - 1u)] = v > (1 << 26) ? (1 << 26) : v < -(1 << 26) ? -(1 << 26) : v;
+        TX_EAR_ADD(L[j], v, gl);
+        TX_EAR_ADD(R[j], v, gr);
+        h[j] = TX_CLIP26(v);
     }
-    m->slot_peak[k] = pk; m->bin[k].w = w;
-    for (j = 0; j < 2u; j++) m->bin[k].e[j].lp = r[w & (TX_BIN_N - 1u)];   /* (a = 1: the low-pass is the sample) */
+    m->slot_peak[k] = pk;
+    for (j = 0; j < 2u; j++) m->bin[k].e[j].lp = h[(int32_t)n - 1];   /* (a = 1: the low-pass is the sample) */
+    tx_mix_bin_keep(m, k, to->hb, n);
 }
 
 /* one ramp's step a sample: (target - now) / n, a whole block to its target */
 TX_INLINE int32_t tx_mix_step(int32_t now, int32_t to, unsigned n) { return n ? (to - now) / (int32_t)n : 0; }
 
-/* tx_mix_add in HEADPHONES (or gliding back to SPEAKERS): the trim, the level and the gate as tx_mix_add_gated, the
- * sample into the slot's history, then each ear from it (tx_mix_ear) at its gain; every ear's delay, shadow and gain
- * ramped over the block (the delay at most 1/16 sample a sample: a pitch +-6 % while it glides, 29 samples in
- * 10.5 ms; its rate's kinks small, and it never reads past the history a block wrote) */
-static TX_AUDIO_CODE void tx_mix_add_bin(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n)
+/* tx_mix_add_bin's first pass: the slot's block (the trim, the level and the gate as tx_mix_add_gated) after its
+ * history in hb (its place returned) */
+TX_INLINE int32_t *tx_mix_bin_in(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n, int32_t *hb)
 {
     const int32_t st = (int32_t)(32768u / TX_MIX_GATE_N);
-    unsigned j, i;
-    int32_t pk = m->slot_peak[k], tg = m->tg[k], g = m->gc[k], gt = m->gt[k];
+    unsigned j;
+    int32_t *h = tx_mix_bin_load(m, k, hb), pk = m->slot_peak[k], tg = m->tg[k], g = m->gc[k], gt = m->gt[k];
     int32_t lc = m->lc[k], lv = m->lv[k], ld = n ? (lv - lc) / (int32_t)n : 0;
-    int32_t dd[2], da[2], db[2], dg[2], d[2], a[2], b[2], gg[2], lp[2];
-    uint32_t w = m->bin[k].w;
-    int32_t *r = m->bin[k].r;
-    if (m->hp && g == 32768 && gt == 32768 && lc == 32768 && lv == 32768) {   /* at rest? (the gate, the level, the ears) */
+    if (tg == 4096 && lc == 32768 && lv == 32768 && g == 32768 && gt == 32768)   /* (unity: each step below exact) */
+        for (j = 0; j < n; j++) {
+            int32_t v = TX_CLIP26(x[j]), av = v < 0 ? -v : v;
+            if (av > pk) pk = av;
+            h[j] = v;
+        }
+    else
+        for (j = 0; j < n; j++) {
+            int32_t v = TX_CLIP26(x[j]), av, l;
+            if (tg != 4096) v = (v >> 12) * tg + (int32_t)((((uint32_t)v & 4095u) * (uint32_t)tg) >> 12);
+            l = j + 1u == n ? lv : lc + ld * (int32_t)(j + 1u);
+            if (l != 32768) {
+                v = TX_CLIP26(v);
+                v = (v >> 15) * l + (int32_t)((((uint32_t)v & 32767u) * (uint32_t)l) >> 15);
+            }
+            av = v < 0 ? -v : v;
+            if (av > pk) pk = av;
+            if (g != gt) g += g < gt ? st : -st;
+            v = TX_MULQ15(v, g);
+            h[j] = TX_CLIP26(v);                             /* (the history: 32-bit products) */
+        }
+    m->slot_peak[k] = pk; m->gc[k] = g;
+    if (n) m->lc[k] = lv;
+    return h;
+}
+/* tx_mix_add_bin's ear i (0 left, 1 right) over the block from h into o: its delay, shadow and gain ramped from where
+ * they are to where they aim (the delay at most 1/16 sample a sample: a pitch +-6 % while it glides, 29 samples in 10.5 ms;
+ * its rate's kinks small, and it never reads past the history a block wrote); its state left as the ramps leave it */
+static TX_RAM __attribute__((noinline)) void tx_mix_ear_run(tx_mix_t *m, unsigned k, unsigned i, const int32_t *h, unsigned n,
+                                                             int32_t *o)
+{
+    int32_t d = m->bin[k].e[i].d, a = m->bin[k].e[i].a, b = m->bin[k].e[i].b;
+    int32_t g = m->bin[k].e[i].g, lp = m->bin[k].e[i].lp, dt = m->bin[k].e[i].dt;
+    int32_t dd = tx_mix_step(d, dt, n), da = tx_mix_step(a, m->bin[k].e[i].at, n), db = tx_mix_step(b, m->bin[k].e[i].bt, n);
+    int32_t dg = tx_mix_step(g, m->bin[k].e[i].gt, n);
+    unsigned j;
+    dd = dd > 4096 ? 4096 : dd < -4096 ? -4096 : dd;
+    if (!d && !dd && a == (32768 << 8) && !da && b == (32768 << 8) && !db) {   /* the near ear, still: the sample */
+        if (!dg) { int32_t g8 = g >> 8; for (j = 0; j < n; j++) TX_EAR_ADD(o[j], h[j], g8); }
+        else for (j = 0; j < n; j++) { TX_EAR_ADD(o[j], h[j], g >> 8); g += dg; }
+        if (n) lp = h[n - 1u];                               /* (a = 1: the low-pass is the sample) */
+    } else if (!dd && !(d & 0xFFFF)) {                       /* a whole delay, still: no reading between two */
+        const int32_t *yd = h - (int32_t)((uint32_t)d >> 16);
+        for (j = 0; j < n; j++) {
+            int32_t y = yd[j], e = y - lp;
+            lp += TX_MULQ15(e, a >> 8);
+            e = y - lp; y = lp + TX_MULQ15(e, b >> 8);
+            TX_EAR_ADD(o[j], y, g >> 8);
+            a += da; b += db; g += dg;
+        }
+    } else
+        for (j = 0; j < n; j++) {
+            int32_t y = tx_mix_ear(h + j, d, a >> 8, b >> 8, &lp);
+            TX_EAR_ADD(o[j], y, g >> 8);
+            a += da; b += db; g += dg;
+            if (dd) {                                        /* (a glide at its 1/16 sample: stops at its target) */
+                d += dd;
+                if (dd > 0 ? d > dt : d < dt) d = dt, dd = 0;
+            }
+        }
+    m->bin[k].e[i].d = d; m->bin[k].e[i].a = a; m->bin[k].e[i].b = b; m->bin[k].e[i].g = g; m->bin[k].e[i].lp = lp;
+}
+
+/* tx_mix_add in HEADPHONES (or gliding back to SPEAKERS: tx_mix_binaural), into to's pair: the trim, the level and the
+ * gate as tx_mix_add_gated, the block into the slot's history, then each ear from it (tx_mix_ear_run) at its gain,
+ * every ear's delay, shadow and gain ramped over the block */
+TX_RAM void tx_mix_add_bin(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n, const tx_mix_to_t *to)
+{
+    unsigned j, i;
+    const int32_t *h;
+    if (m->hp && m->gc[k] == 32768 && m->gt[k] == 32768 && m->lc[k] == 32768 && m->lv[k] == 32768) {   /* at rest? (the
+                                                              * gate, the level, the ears) */
         unsigned f = 2u;
         for (i = 0; i < 2u; i++) {
             if (m->bin[k].e[i].d != m->bin[k].e[i].dt || m->bin[k].e[i].a != m->bin[k].e[i].at
@@ -255,62 +347,22 @@ static TX_AUDIO_CODE void tx_mix_add_bin(tx_mix_t *m, unsigned k, const int32_t 
             if (m->bin[k].e[i].dt || m->bin[k].e[i].at != (32768 << 8) || m->bin[k].e[i].bt != (32768 << 8)) f = i;
         }
         if (i == 2u) {
-            if (f == 2u) tx_mix_add_mid(m, k, x, n);
-            else tx_mix_add_rest(m, k, x, n, f);
+            if (f == 2u) tx_mix_add_mid(m, k, x, n, to);
+            else tx_mix_add_rest(m, k, x, n, f, to);
             return;
         }
     }
-    for (i = 0; i < 2u; i++) {
-        d[i] = m->bin[k].e[i].d; a[i] = m->bin[k].e[i].a; b[i] = m->bin[k].e[i].b; gg[i] = m->bin[k].e[i].g;
-        lp[i] = m->bin[k].e[i].lp;
-        dd[i] = tx_mix_step(d[i], m->bin[k].e[i].dt, n);
-        dd[i] = dd[i] > 4096 ? 4096 : dd[i] < -4096 ? -4096 : dd[i];
-        da[i] = tx_mix_step(a[i], m->bin[k].e[i].at, n);
-        db[i] = tx_mix_step(b[i], m->bin[k].e[i].bt, n);
-        dg[i] = tx_mix_step(gg[i], m->bin[k].e[i].gt, n);
-    }
-    for (j = 0; j < n; j++) {
-        int32_t v = x[j], av, l, y, hi;
-        uint32_t lo;
-        v = v > (1 << 26) ? (1 << 26) : v < -(1 << 26) ? -(1 << 26) : v;
-        if (tg != 4096) v = (v >> 12) * tg + (int32_t)((((uint32_t)v & 4095u) * (uint32_t)tg) >> 12);
-        l = j + 1u == n ? lv : lc + ld * (int32_t)(j + 1u);
-        if (l != 32768) {
-            v = v > (1 << 26) ? (1 << 26) : v < -(1 << 26) ? -(1 << 26) : v;
-            v = (v >> 15) * l + (int32_t)((((uint32_t)v & 32767u) * (uint32_t)l) >> 15);
-        }
-        av = v < 0 ? -v : v;
-        if (av > pk) pk = av;
-        if (g != gt) g += g < gt ? st : -st;
-        v = TX_MULQ15(v, g);
-        v = v > (1 << 26) ? (1 << 26) : v < -(1 << 26) ? -(1 << 26) : v;   /* (the history: 32-bit products) */
-        r[++w & (TX_BIN_N - 1u)] = v;
-        y = tx_mix_ear(r, w, d[0], a[0] >> 8, b[0] >> 8, &lp[0]);
-        hi = y >> 14; lo = (uint32_t)y & 0x3FFFu;
-        hi = hi > 131071 ? 131071 : hi < -131072 ? -131072 : hi;
-        m->L[j] += hi * (gg[0] >> 8) + (int32_t)((lo * (uint32_t)(gg[0] >> 8)) >> 14);
-        y = tx_mix_ear(r, w, d[1], a[1] >> 8, b[1] >> 8, &lp[1]);
-        hi = y >> 14; lo = (uint32_t)y & 0x3FFFu;
-        hi = hi > 131071 ? 131071 : hi < -131072 ? -131072 : hi;
-        m->R[j] += hi * (gg[1] >> 8) + (int32_t)((lo * (uint32_t)(gg[1] >> 8)) >> 14);
-        for (i = 0; i < 2u; i++) {
-            a[i] += da[i]; b[i] += db[i]; gg[i] += dg[i];
-            if (dd[i]) {                                     /* (a glide at its 1/16 sample: stops at its target) */
-                d[i] += dd[i];
-                if (dd[i] > 0 ? d[i] > m->bin[k].e[i].dt : d[i] < m->bin[k].e[i].dt) d[i] = m->bin[k].e[i].dt, dd[i] = 0;
-            }
-        }
-    }
-    m->slot_peak[k] = pk; m->gc[k] = g; m->bin[k].w = w;
-    if (n) m->lc[k] = lv;
+    h = tx_mix_bin_in(m, k, x, n, to->hb);
+    tx_mix_ear_run(m, k, 0u, h, n, to->L);
+    tx_mix_ear_run(m, k, 1u, h, n, to->R);
+    tx_mix_bin_keep(m, k, to->hb, n);
     i = !m->hp;                                              /* (i: every ear at rest, in SPEAKERS) */
     for (j = 0; j < 2u; j++) {
-        int32_t t = m->bin[k].e[j].dt;
-        if (n && (t - d[j] < (int32_t)n && d[j] - t < (int32_t)n)) d[j] = t;   /* (the delay there: exactly) */
-        if (n) { a[j] = m->bin[k].e[j].at; b[j] = m->bin[k].e[j].bt; gg[j] = m->bin[k].e[j].gt; }
-        m->bin[k].e[j].d = d[j]; m->bin[k].e[j].a = a[j]; m->bin[k].e[j].b = b[j]; m->bin[k].e[j].g = gg[j];
-        m->bin[k].e[j].lp = lp[j];
-        if (d[j] != t || a[j] != m->bin[k].e[j].at || b[j] != m->bin[k].e[j].bt || gg[j] != m->bin[k].e[j].gt) i = 0;
+        int32_t t = m->bin[k].e[j].dt, d = m->bin[k].e[j].d;
+        if (n && (t - d < (int32_t)n && d - t < (int32_t)n)) m->bin[k].e[j].d = d = t;   /* (the delay there: exactly) */
+        if (n) { m->bin[k].e[j].a = m->bin[k].e[j].at; m->bin[k].e[j].b = m->bin[k].e[j].bt; m->bin[k].e[j].g = m->bin[k].e[j].gt; }
+        if (d != t || m->bin[k].e[j].a != m->bin[k].e[j].at || m->bin[k].e[j].b != m->bin[k].e[j].bt
+            || m->bin[k].e[j].g != m->bin[k].e[j].gt) i = 0;
     }
     if (i) m->bin[k].run = 0;
 }
@@ -321,7 +373,9 @@ TX_AUDIO_CODE void tx_mix_add(tx_mix_t *m, unsigned k, const int32_t *x, unsigne
     int32_t gl, gr, pk, tg, gc, gt;
     if (k >= TX_MIX_SLOTS) return;
     if (m->hp | m->bin[k].run) {                             /* HEADPHONES (or gliding back): the slot's ears */
-        tx_mix_add_bin(m, k, x, n);
+        tx_mix_to_t to;
+        to.L = m->L; to.R = m->R; to.hb = m->hb;
+        TX_FAR(tx_mix_add_bin)(m, k, x, n, &to);             /* (in RAM on the FM-1) */
         return;
     }
     gl = m->gl[k]; gr = m->gr[k]; pk = m->slot_peak[k]; tg = m->tg[k];

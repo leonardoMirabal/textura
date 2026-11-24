@@ -117,9 +117,19 @@ static struct {
     volatile uint8_t spare_busy;                /* a switch holds the spare (main loop sets it, its fade clears it) */
     const tx_engine_t *next_e[LN_N];            /* prepared by ln_select, taken by LN_EV_SWAP */
     uint32_t ring_us;                           /* (the governor) the rings' cost this block: the pool carries it */
-    uint32_t mix_us;                            /* (the governor) HEADPHONES' binaural pan this block, over the level
-                                                 * pan's (tx_mix_phones_us): the pool carries it too, so the lanes give
-                                                 * it room and the interrupt stays as long as in SPEAKERS */
+    uint32_t mix_us;                            /* (the governor) HEADPHONES' binaural pan this block: the pool carries
+                                                 * it too, so the lanes give it room and the interrupt stays as long as
+                                                 * in SPEAKERS (LN_CLOCK: each binaural lane's pan as timed, its level
+                                                 * pan's share in it as a margin; else tx_mix_phones_us, the stand-in) */
+    uint32_t pan_us;                            /* (LN_CLOCK) every lane's pan on this core this block, us */
+    uint32_t pcost[LN_N];                       /* each lane's binaural pan, its last block, us (0: SPEAKERS); the
+                                                 * second core's split weighs it with the lane (LN_PAR: it pans where it
+                                                 * renders) */
+    uint32_t pan_max, pan_sum, pan_n, isr_sum, isr_n, isr_over, isr_late, pipe_max;   /* (LN_CLOCK, the debug reply,
+                                                 * textura.c; since its last read) the pan's longest and its sum over
+                                                 * pan_n blocks; the whole interrupt's sum over isr_n, those over
+                                                 * TX_GOV_ISR_TARGET and over a block (late: the jack plays the old
+                                                 * half); the second core's longest mix end (LN_PIPE) */
     volatile uint8_t hurry;                     /* ln_hurry: the rings skip the rest of their hold (ln_block) */
     volatile uint8_t busy[LN_N];                /* a switch is under way (main loop: wait before the next) */
     ln_ev_t q[LN_QN];
@@ -143,6 +153,7 @@ static struct {
     uint32_t par_n;                             /* (LN_PAR) the block's frames, for the second core's job */
     uint8_t par_mask, par_force;                /* the lanes it rendered this block; a fixed split (0: by cost) */
     uint32_t par_blocks, par_lost;              /* blocks it rendered lanes in; jobs lost (refused, held mid-job) */
+    uint32_t par_pans;                          /* blocks it panned lanes in (HEADPHONES: ln_c1p) */
     uint32_t gv_us[2], gv_pk;                   /* (LN_CLOCK) the grain voices' halves' last block, us; held, those on
                                                  * this core (ln_bus) */
     uint32_t isr_pk;                            /* (LN_BUS_TIMED) the whole interrupt, held (two cores: the grains' cap) */
@@ -159,12 +170,24 @@ typedef struct {                                /* a lane's engine block, writte
     tx_ring_t ring;                             /* the switched-out engine, ringing out (tx_core_ring.h): rendered
                                                  * with the lane, so on the lane's core */
     uint32_t rus, rhp;                          /* the ring's last block: (LN_CLOCK) us; its heroes sounding */
+    uint32_t pus;                               /* (LN_PAR) its binaural pan, done with its render on the second core:
+                                                 * (LN_CLOCK) us */
+    uint8_t pan;                                /* (LN_PAR) 1: so panned this block, into ln_c1p (the pan loop adds
+                                                 * nothing of its own for it, and clears this) */
     int32_t rpk;                                /* its peak (0: silent or done; the tests) */
 } __attribute__((aligned(64))) ln_out_t;
 static ln_out_t ln_out[LN_N] LN_POOL;
-static struct { uint32_t gv_us[2], busy_us, pipe_us; volatile uint8_t pipe_on; } __attribute__((aligned(64))) ln_c1t LN_POOL;
+static struct { uint32_t gv_us[2], busy_us, pipe_us; volatile uint8_t pipe_on, pair; } __attribute__((aligned(64))) ln_c1t LN_POOL;
                                                 /* (the second core's own line: its job's grain voices and busy time;
-                                                 * LN_PIPE: the mix end's us, and on while it runs it there) */
+                                                 * LN_PIPE: the mix end's us, and on while it runs it there; pair: its
+                                                 * job panned a lane into ln_c1p) */
+#ifdef LN_PAR
+/* HEADPHONES on two cores: the second core pans each binaural lane it renders (tx_mix_binaural) right after its render,
+ * into a pair of its own (and its own scratch), on lines of its own; this core adds that pair to the mix's after the
+ * wait. The pair is a sum of int32 terms as the mix's is, so the samples are the same whichever core pans which lane.
+ * SPEAKERS (and AMOUNT 0, once the ears are back) pan here as ever */
+static struct { int32_t L[TX_BLOCK], R[TX_BLOCK], hb[TX_BIN_N + TX_BLOCK]; } __attribute__((aligned(64))) ln_c1p LN_POOL;
+#endif
 #define LN_GV LN_N                              /* the split's items past the lanes: the grain delay's voices, the echo
                                                  * and the first half (LN_GV), the second half (LN_GV + 1) */
 
@@ -509,8 +532,32 @@ static void ln_par_job(uint32_t mask)           /* the second core's job: its la
 #ifdef LN_CLOCK
     uint32_t t0 = LN_CLOCK();
 #endif
+    uint32_t pair = 0, j;
     for (k = 0; k < 2u; k++) if (mask >> (LN_GV + k) & 1u) ln_gv(k, &ln_c1t.gv_us[k], 1u);
-    for (k = 0; k < LN_N; k++) if (mask >> k & 1u) ln_render_lane(k, ln.par_n);
+    for (k = 0; k < LN_N; k++) if (mask >> k & 1u) {
+        ln_render_lane(k, ln.par_n);
+        if (tx_mix_binaural(&ln.mix, k)) {      /* HEADPHONES: its binaural pan here too, into this core's pair */
+            ln_out_t *o = &ln_out[k];
+            tx_mix_to_t to;
+#ifdef LN_CLOCK
+            uint32_t tp;
+#endif
+            if (!pair) { for (j = 0; j < ln.par_n; j++) ln_c1p.L[j] = ln_c1p.R[j] = 0; pair = 1; }
+#ifdef LN_CLOCK
+            tp = LN_CLOCK();
+#endif
+            to.L = ln_c1p.L; to.R = ln_c1p.R; to.hb = ln_c1p.hb;
+            ln.mix.slot_peak[k] = 0;            /* (as the pan loop's: a peak a block) */
+            TX_C1(tx_mix_add_bin)(&ln.mix, k, o->x, ln.par_n, &to);
+#ifdef LN_CLOCK
+            o->pus = LN_CLOCK_US(LN_CLOCK() - tp);
+#else
+            o->pus = TX_MIX_HP_US;              /* (the stand-in, as tx_mix_phones_us before the pan) */
+#endif
+            o->pan = 1;
+        }
+    }
+    ln_c1t.pair = (uint8_t)pair;
 #ifdef LN_CLOCK
     ln_c1t.busy_us = LN_CLOCK_US(LN_CLOCK() - t0);
 #endif
@@ -525,7 +572,8 @@ static uint32_t ln_par_split(uint32_t on)
         uint32_t c0 = 0, c1 = 0, c;
         if ((m & on) != m || m == on) continue;
         for (k = 0; k <= LN_GV + 1u; k++) if (on >> k & 1u) {
-            uint32_t ck = (k >= LN_GV ? ln.gv_us[k - LN_GV] : ln.gov_cost[k]) + 1u;   /* (not timed yet: 1) */
+            uint32_t ck = (k >= LN_GV ? ln.gv_us[k - LN_GV] : ln.gov_cost[k] + ln.pcost[k]) + 1u;   /* (not timed yet:
+                                                 * 1; a lane's binaural pan with it: it pans where it renders) */
             if (m >> k & 1u) c1 += ck; else c0 += ck;
         }
         c = c0 > c1 ? c0 : c1;
@@ -557,9 +605,10 @@ static void ln_render(uint32_t n, int gv)
     if (ln.c0_us > ln.c0_max) ln.c0_max = ln.c0_us;
 #endif
 #ifdef LN_PAR
-    if (m1 && LN_PAR_WAIT()) {                  /* stopped mid-job: its items here, from where it left them */
+    if (m1 && LN_PAR_WAIT()) {                  /* stopped mid-job: its items here, from where it left them (a lane
+                                                 * it panned: panned again here, its pair dropped; a click at most) */
         for (k = 0; k < 2u; k++) if (m1 >> (LN_GV + k) & 1u) ln_gv(k, &ln.gv_us[k], 0u);
-        for (k = 0; k < LN_N; k++) if (m1 >> k & 1u) ln_render_lane(k, n);
+        for (k = 0; k < LN_N; k++) if (m1 >> k & 1u) { ln_out[k].pan = 0; ln_render_lane(k, n); }
         ln.par_lost++;
         m1 = 0;
     }
@@ -587,6 +636,11 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
         uint32_t post = (ln.blk_us > bus ? ln.blk_us - bus : 0u) + (isr > ln.blk_us ? isr - ln.blk_us : 0u);
         if (ln.blk_us) ln.post_pk = LN_HOLD(ln.post_pk, post);
         ln.isr_pk = LN_HOLD(ln.isr_pk, isr);
+        if (ln.blk_us) {                        /* (the debug reply's counts: a block that ran) */
+            ln.isr_sum += isr; ln.isr_n++;
+            ln.isr_over += isr > TX_GOV_ISR_TARGET;
+            ln.isr_late += isr > TX_BLOCK_US;
+        }
         ln.t_blk = LN_CLOCK();
         ln.t_bus = ln.t_blk;                    /* (a block with no bus call: its whole time counts as the rest) */
     }
@@ -599,6 +653,9 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
             ln.pipe_lost++;
             tx_mix_run(&ln.mix, ln.pipe_n, 0u);
         }
+#ifdef LN_CLOCK
+        else if (ln.pipe == 2u && ln_c1t.pipe_us > ln.pipe_max) ln.pipe_max = ln_c1t.pipe_us;
+#endif
         if (!ln.pipe) m = 0;
         tx_mix_out(&ln.mix, L, R, m);
         for (k = m; k < n; k++) L[k] = R[k] = 0;
@@ -623,6 +680,7 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
     tx_mix_begin(&ln.mix, n);
     ln.ring_us = 0;
     ln.mix_us = 0;
+    ln.pan_us = 0;
     if (ln.hurry) {                             /* (ln_hurry: a switch waits for the spare) */
         for (k = 0; k < LN_N; k++) if (tx_ring_holds(&ln_out[k].ring)) ln_out[k].ring.hold = 0;
         ln.hurry = 0;
@@ -674,9 +732,30 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
             if (!tx_ring_on(&o->ring)) { o->rpk = 0; continue; }
             ln_ring_lane(o, n);
         }
-        ln.mix.slot_peak[k] = 0;                /* (a peak a block: the lane's, its ring's under it) */
-        ln.mix_us += tx_mix_phones_us(&ln.mix, k);   /* (HEADPHONES: its binaural pan's extra; SPEAKERS: 0) */
-        tx_mix_add(&ln.mix, k, o->x, n);
+#ifdef LN_PAR
+        if (o->pan) {                           /* panned with its render on the second core (its pair: below) */
+            o->pan = 0;
+            ln.pcost[k] = o->pus;
+            ln.mix_us += ln.pcost[k];
+        } else
+#endif
+        {
+#ifdef LN_CLOCK
+            uint32_t t0 = LN_CLOCK(), bin = tx_mix_binaural(&ln.mix, k), d;
+#endif
+            ln.mix.slot_peak[k] = 0;            /* (a peak a block: the lane's, its ring's under it) */
+#ifdef LN_CLOCK
+            tx_mix_add(&ln.mix, k, o->x, n);
+            d = LN_CLOCK_US(LN_CLOCK() - t0);
+            ln.pan_us += d;
+            ln.pcost[k] = bin ? d : 0u;         /* (HEADPHONES: its binaural pan as timed, its level pan's share in
+                                                 * it as a margin; SPEAKERS: 0) */
+#else
+            ln.pcost[k] = tx_mix_phones_us(&ln.mix, k);   /* (HEADPHONES: the stand-in; SPEAKERS: 0) */
+            tx_mix_add(&ln.mix, k, o->x, n);
+#endif
+            ln.mix_us += ln.pcost[k];
+        }
         ln.lpk[k] = ln.mix.slot_peak[k];
         if (ln.mix.e[k] && ln.mix.e[k]->stats) {
             tx_stats_t st;
@@ -704,6 +783,16 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
             ln.busy[k] = 0;
         }
     }
+#ifdef LN_PAR
+    if (ln.par_mask && ln_c1t.pair) {           /* the lanes the second core panned: its pair into the mix's */
+        for (k = 0; k < n; k++) { ln.mix.L[k] += ln_c1p.L[k]; ln.mix.R[k] += ln_c1p.R[k]; }
+        ln.par_pans++;
+    }
+#endif
+#ifdef LN_CLOCK
+    if (ln.pan_us > ln.pan_max) ln.pan_max = ln.pan_us;
+    ln.pan_sum += ln.pan_us; ln.pan_n++;
+#endif
 #ifdef LN_GOV
     {                                           /* the governor: over the pool, the quietest lane gives a hero */
         uint8_t on[LN_N];

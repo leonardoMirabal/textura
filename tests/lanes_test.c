@@ -162,6 +162,8 @@ static const step_t SCENE[] = {
     {90, 'F', 0, 0, TX_FX_MF_ID + TX_MF_HIGH, 70, 0},   /* the mix's FILTER: LOW PASS (the DRIVE's group) */
     {95, 'F', 0, 0, TX_FX_MF_ID + TX_MF_LOW, 25, 0},    /* HIGH PASS */
     {100, 'F', 3, 0, 0, 80, 0},                 /* the GRAIN DELAY's MIX */
+    {100, 'O', 0, 0, 0, 1, 0},                  /* OUTPUT HEADPHONES (binaural: the second core pans the lanes it
+                                                 * renders), the pans moving from here to 400 (main) */
     {110, 'F', 0, 0, 3, 2, 0},                  /* the DRIVE's TYPE TSH8 (its left side owns the tables) */
     {115, 'F', 3, 0, 3, 15, 0},                 /* the GRAIN DELAY's GRAINS: 16 */
     {120, 'L', 0, 0, 0, 70, 0},                 /* lane 1's LEVEL */
@@ -176,6 +178,7 @@ static const step_t SCENE[] = {
     {231, 'G', 2, 0, 1, 777, 0},
     {231, 'K', 2, 0, 60, 100, 1},
     {232, 'F', 0, 0, 0, 90, 0},                 /* the DRIVE's AMOUNT up */
+    {250, 'O', 0, 0, 1, 50, 0},                 /* its AMOUNT 50 % */
     {260, 'F', 2, 0, 0, 7, 0},                  /* REVERB TYPE plate: the same */
     {270, 'F', 0, 0, 3, 3, 0},                  /* the DRIVE's TYPE OHCD (two cores: R on the second, its scratch
                                                  * the mix's), then BHLUE */
@@ -187,10 +190,12 @@ static const step_t SCENE[] = {
     {305, 'F', 3, 0, 3, 29, 0},                 /* GRAINS 30: over the cap (the model's 19), both halves */
     {310, 'F', 0, 0, 3, 1, 0},                  /* the DRIVE's TYPE KHLON: TSH8's tables free */
     {330, 'F', 3, 0, 6, 76, 0},                 /* PITCH up: pitched, the cap down to 6 (the second half silent) */
+    {330, 'O', 0, 0, 1, 100, 0},                /* AMOUNT 100 % again */
     {340, 'F', 0, 0, 3, 2, 0},                  /* and TSH8 again: the tables built anew */
     {350, 'G', 2, 0, 0, 0, 0},                  /* lane 3's generator off: its notes released */
     {360, 'G', 2, 0, 1, 99, 0},                 /* and on again: a new walk */
     {380, 'F', 2, 0, 0, 1, 0},                  /* REVERB TYPE room: its body on the second core (two cores) */
+    {400, 'O', 0, 0, 0, 0, 0},                  /* back to SPEAKERS: the ears glide back, then the speakers' path */
     {440, 'K', 2, 0, 60, 0, 0},
     {450, 0, 0, 0, 0, 0, 0},
 };
@@ -253,6 +258,11 @@ int main(void)
                 ln_gen_mute((uint32_t)t->k, (uint32_t)t->a);
                 rgen_mute[t->k] = t->a != 0;
                 break;
+            case 'O':                           /* OUTPUT (a 0) or its AMOUNT (a 1): lanes.c's LN_FX_PHONES */
+                ln_fx(LN_FX_PHONES, 0, (uint32_t)t->a, (uint32_t)t->v);
+                if (t->a == 1) tx_mix_phones_amt(&rm, (unsigned)t->v);
+                else tx_mix_phones(&rm, (unsigned)t->v);
+                break;
             case 'F':                           /* group k: 0 drive and the mix's FILTER, 2 reverb, 3 grain */
                 ln_fx((uint32_t)t->k, (uint32_t)t->c, (uint32_t)t->a, (uint32_t)t->v);
                 if (t->k == 0) tx_fx_drive_set(&rfx, (unsigned)t->a, (unsigned)t->v);
@@ -260,6 +270,12 @@ int main(void)
                 else tx_fx_grain_param(&rfx.gd, (unsigned)t->a, (unsigned)t->v);
                 break;
             }
+        }
+        if (b >= 100u && b < 400u) {            /* HEADPHONES: a lane's pan moved every block (its ears glide), a
+                                                 * hard pan now and then (the far ear's longest delay) */
+            uint32_t k = b % 3u, p = b % 37u == 0u ? 0u : b % 41u == 0u ? 127u : 24u + 40u * k + (b * 7u) % 9u;
+            ln_pan(k, p);
+            tx_mix_pan(&rm, k, p);
         }
 #ifdef LANES_TEST_PAR
         ln.par_force = (uint8_t)(b % 64u);      /* every split of the lanes and the grains' voices' halves in turn
@@ -308,6 +324,7 @@ int main(void)
 #ifdef LANES_TEST_PIPE
     par_wait();                                         /* (the last mix end done: the state read below is still) */
     if (!ln.par_blocks) { printf("FAIL the second core rendered nothing\n"); fails++; }
+    if (!ln.par_pans) { printf("FAIL the second core panned no lane (HEADPHONES)\n"); fails++; }
     if (par_pj != b + spare_w + TX_RING_N || ln.pipe_lost) {   /* (every block of the scene and the spare check's) */
         printf("FAIL the mix end: %u jobs on the second core for %u blocks, %u lost\n", par_pj, b + spare_w + TX_RING_N, ln.pipe_lost); fails++;
     }
@@ -316,6 +333,8 @@ int main(void)
            ln.par_blocks, par_pj, par_jobs);
 #elif defined(LANES_TEST_PAR)
     if (!ln.par_blocks) { printf("FAIL the second core rendered nothing\n"); fails++; }
+    if (!ln.par_pans) { printf("FAIL the second core panned no lane (HEADPHONES)\n"); fails++; }
+    printf("     HEADPHONES: %u blocks with lanes panned on the second core\n", ln.par_pans);
     if (!par_rj) { printf("FAIL the reverb's ROOM body never ran on the second core\n"); fails++; }
     if ((par_kt & (1u << TX_RVT_HALL | 1u << TX_RVT_INF | 1u << TX_RVT_PLATE)) != (1u << TX_RVT_HALL | 1u << TX_RVT_INF | 1u << TX_RVT_PLATE)) {
         printf("FAIL the reverb kernels' halves: not on the second core for every TYPE (0x%x)\n", par_kt); fails++;

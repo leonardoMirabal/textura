@@ -106,7 +106,9 @@ def hot_check(mapf, names):
     """every hot name placed, in one block at .text's start, in the list's order (a stale name: the build fails)"""
     at = {}
     for m in re.finditer(r"^ \.text\.([A-Za-z_0-9.]+)\s*\n?\s*(0x[0-9a-f]+)\s+(0x[0-9a-f]+)", mapf.read_text(), re.M):
-        at.setdefault(m.group(1), (int(m.group(2), 16), int(m.group(3), 16)))
+        x = (int(m.group(2), 16), int(m.group(3), 16))
+        if m.group(1) not in at or not at[m.group(1)][0]:   # (a discarded copy at 0, a twin's weak one: the kept wins)
+            at[m.group(1)] = x
     gone = [n for n in names if n not in at]
     if gone:
         raise SystemExit(f"fm1_bench: c1_hot.txt: {len(gone)} name(s) not in the image (stale: make fw-c1hot): {gone[:6]}")

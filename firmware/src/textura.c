@@ -52,7 +52,7 @@ static void tx_rtd_clear(void);
 static void c1_quiet(void);
 #define FL_C1_QUIET c1_quiet                     /* (the flash windows wait for core 1 idle: hal/fm1_flash_map.h) */
 /* a fault of core 0 or a freeze: back playing by itself, soon. The crash screen shows half a second (the record outlives
- * the reset: tx_dbg items 60..), the watchdog resets a main loop stopped for 1 s; the boot loads the last scene */
+ * the reset: tx_dbg items 53 .. 55), the watchdog resets a main loop stopped for 1 s; the boot loads the last scene */
 #define APP_CRASH_MS 500u
 #define APP_WDT_RUN 0x0Au
 #endif
@@ -205,7 +205,14 @@ static void ui_draw_timed(void)
  * (core1.h): 45 core 1's read-again recoveries, 46 core 0's, 47 the jobs core 1 refused (done here), 48 late jobs, 49
  * holds for good, 50 retries (C1_RETRY), 51 SYS_DIV's low 14 bits now, 52 1 = C1_HSB2 wrote it; 53 the crash count
  * (fm1_crash), 54 its vector, 55 the reset's P33 reason (bit 0 power-on, 2 watchdog, 6 soft); the screen (ui_draw_timed):
- * 56 the longest part drawn (us), 57 the mean (us), 58 the parts drawn (to 16383), all since the last ask */
+ * 56 the longest part drawn (us), 57 the mean (us), 58 the parts drawn (to 16383), all since the last ask; the audio's
+ * CPU (tools/hil_cpu.py), since the last ask: 59 / 60 the lanes' pan on core 0 (its lanes' tx_mix_add in a block, after
+ * the wait for core 1: HEADPHONES' binaural path) longest / mean (us), 61 core 0's render phase longest, 62 core 1's job
+ * longest (its lanes, their binaural pans), 63 core 1's mix end (LN_PIPE) longest (us), 64 the audio interrupt's mean
+ * (us), 65 the interrupts over TX_GOV_ISR_TARGET, 66 those over a block (5805 us: late, the jack repeats a half), 67 the
+ * interrupts counted (to 16383), 68 the binaural pans the governor's pool carries now (us, both cores), 69 OUTPUT (bit 0
+ * HEADPHONES, bit 1 the binaural path on), 70 its AMOUNT (%), 71 the longest spacing of two audio interrupts (us: a late
+ * entry), 72 the blocks core 1 panned lanes in (low 14 bits, since boot) */
 /* an item: three USB-MIDI events; it waits (up to 50 ms) for room in the 64-event out queue (usb.c drops what does
  * not fit: the reply is 23 items, 69 events, and its last ones were lost) */
 static void tx_dbg_item(uint32_t id, uint32_t v)
@@ -245,6 +252,17 @@ static void tx_dbg_reply(void)
     tx_dbg_item(55, fm1_boot.p3_rst);
     tx_dbg_item(56, ui_us_max); tx_dbg_item(57, ui_us_n ? ui_us_sum / ui_us_n : 0u); tx_dbg_item(58, ui_us_n);
     ui_us_max = 0; ui_us_sum = 0; ui_us_n = 0;
+    {                                           /* the audio's CPU (tools/hil_cpu.py), since the last ask */
+        uint32_t pm = ln.pan_max, ps = ln.pan_sum, pn = ln.pan_n, is = ln.isr_sum, in = ln.isr_n, io = ln.isr_over;
+        uint32_t il = ln.isr_late, c0 = ln.c0_max, c1 = ln.c1_max, pp = ln.pipe_max, pe = isr_st.per_max;
+        ln.pan_max = ln.pan_sum = ln.pan_n = ln.isr_sum = ln.isr_n = ln.isr_over = ln.isr_late = 0;
+        ln.c0_max = ln.c1_max = ln.pipe_max = 0; isr_st.per_max = 0;
+        tx_dbg_item(59, pm); tx_dbg_item(60, pn ? ps / pn : 0u);
+        tx_dbg_item(61, c0); tx_dbg_item(62, c1); tx_dbg_item(63, pp);
+        tx_dbg_item(64, in ? is / in : 0u); tx_dbg_item(65, io); tx_dbg_item(66, il); tx_dbg_item(67, in);
+        tx_dbg_item(68, ln.mix_us); tx_dbg_item(69, ln.mix.mode | (uint32_t)ln.mix.hp << 1); tx_dbg_item(70, ln.mix.amt);
+        tx_dbg_item(71, pe); tx_dbg_item(72, ln.par_pans & 16383u);
+    }
 }
 #endif
 

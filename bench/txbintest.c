@@ -23,7 +23,9 @@
  *             head the darker far ear
  *   loudall   the loud check at AMOUNT 0, 25, 50, 75, 100 and every head size: within +-1 dB of the centre
  *   moves     AMOUNT (0 / 50 / 100) and the head size moved every 20 blocks at a hard pan while a sine plays: <= 2x the
- *             held second difference, as sweep */
+ *             held second difference, as sweep
+ *   ref       four slots under a random scene (pans moving, OUTPUT, AMOUNT, head, levels, gates, trims, short blocks):
+ *             the mix's pass-per-ear path = the one-loop reference (below), bit for bit, samples and state */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -303,13 +305,196 @@ static void t_moves(void)
     check(a <= 2 * h && s <= 2 * h && w <= 2 * h, "AMOUNT and head size moves click-free (<= 2x the held)");
 }
 
+/* ---- the reference: HEADPHONES' path as one loop doing both ears a sample at a time over a ring of history (the mix's
+ * first version, 29c1263 .. 4ebfc58), on the mix's own state but its ring here; tx_core_mix.c goes a pass a job (the
+ * block into a scratch, then each ear), from RAM on the FM-1, and must give the same samples and leave the same state */
+#define REF_N 64u
+#define REF_MULQ15(e, c) (((e) >> 15) * (c) + (int32_t)((((uint32_t)(e) & 32767u) * (uint32_t)(c)) >> 15))
+#define REF_CLIP(v) ((v) > (1 << 26) ? (1 << 26) : (v) < -(1 << 26) ? -(1 << 26) : (v))
+static int32_t ref_r[TX_MIX_SLOTS][REF_N];
+static uint32_t ref_w[TX_MIX_SLOTS];
+static int32_t ref_ear(const int32_t *r, uint32_t w, int32_t d, int32_t a, int32_t b, int32_t *lp)
+{
+    uint32_t i = w - ((uint32_t)d >> 16);
+    int32_t f = (int32_t)(((uint32_t)d & 0xFFFFu) >> 1), x0 = r[i & (REF_N - 1u)], y, e;
+    y = x0 + REF_MULQ15(r[(i - 1u) & (REF_N - 1u)] - x0, f);
+    e = y - *lp; *lp += REF_MULQ15(e, a);
+    e = y - *lp;
+    return *lp + REF_MULQ15(e, b);
+}
+static void ref_out(int32_t *o, int32_t y, int32_t g)
+{
+    int32_t hi = y >> 14;
+    uint32_t lo = (uint32_t)y & 0x3FFFu;
+    hi = hi > 131071 ? 131071 : hi < -131072 ? -131072 : hi;
+    *o += hi * g + (int32_t)((lo * (uint32_t)g) >> 14);
+}
+static int32_t ref_trim(int32_t v, int32_t tg)
+{
+    if (tg == 4096) return v;
+    v = REF_CLIP(v);
+    return (v >> 12) * tg + (int32_t)((((uint32_t)v & 4095u) * (uint32_t)tg) >> 12);
+}
+static void ref_add_rest(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n, unsigned f)
+{
+    unsigned j;
+    int32_t pk = m->slot_peak[k], tg = m->tg[k], *r = ref_r[k], *nr = f ? m->L : m->R, *fr = f ? m->R : m->L;
+    int32_t gn = m->bin[k].e[f ^ 1u].g >> 8, gf = m->bin[k].e[f].g >> 8, bq = m->bin[k].e[f].b >> 8;
+    int32_t a = m->bin[k].e[f].a >> 8, gb = (gf * bq) >> 15, gc = (gf * (32768 - bq)) >> 15, lp = m->bin[k].e[f].lp;
+    uint32_t w = ref_w[k], di = (uint32_t)m->bin[k].e[f].d >> 16;
+    for (j = 0; j < n; j++) {
+        int32_t v = ref_trim(x[j], tg), av = v < 0 ? -v : v, y;
+        if (av > pk) pk = av;
+        ref_out(&nr[j], v, gn);
+        r[++w & (REF_N - 1u)] = REF_CLIP(v);
+        y = r[(w - di) & (REF_N - 1u)];
+        lp += REF_MULQ15(y - lp, a);
+        fr[j] += (y >> 14) * gb + (int32_t)((((uint32_t)y & 0x3FFFu) * (uint32_t)gb) >> 14)
+               + (lp >> 14) * gc + (int32_t)((((uint32_t)lp & 0x3FFFu) * (uint32_t)gc) >> 14);
+    }
+    m->slot_peak[k] = pk; ref_w[k] = w; m->bin[k].e[f].lp = lp;
+}
+static void ref_add_mid(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n)
+{
+    unsigned j;
+    int32_t pk = m->slot_peak[k], tg = m->tg[k], *r = ref_r[k], gl = m->bin[k].e[0].g >> 8, gr = m->bin[k].e[1].g >> 8;
+    uint32_t w = ref_w[k];
+    for (j = 0; j < n; j++) {
+        int32_t v = ref_trim(x[j], tg), av = v < 0 ? -v : v;
+        if (av > pk) pk = av;
+        ref_out(&m->L[j], v, gl); ref_out(&m->R[j], v, gr);
+        r[++w & (REF_N - 1u)] = REF_CLIP(v);
+    }
+    m->slot_peak[k] = pk; ref_w[k] = w;
+    for (j = 0; j < 2u; j++) m->bin[k].e[j].lp = r[w & (REF_N - 1u)];
+}
+static int32_t ref_step(int32_t now, int32_t to, unsigned n) { return n ? (to - now) / (int32_t)n : 0; }
+static void ref_add_bin(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n)
+{
+    const int32_t st = (int32_t)(32768u / TX_MIX_GATE_N);
+    unsigned j, i;
+    int32_t pk = m->slot_peak[k], tg = m->tg[k], g = m->gc[k], gt = m->gt[k];
+    int32_t lc = m->lc[k], lv = m->lv[k], ld = n ? (lv - lc) / (int32_t)n : 0;
+    int32_t dd[2], da[2], db[2], dg[2], d[2], a[2], b[2], gg[2], lp[2], *r = ref_r[k];
+    uint32_t w = ref_w[k];
+    if (m->hp && g == 32768 && gt == 32768 && lc == 32768 && lv == 32768) {
+        unsigned f = 2u;
+        for (i = 0; i < 2u; i++) {
+            if (m->bin[k].e[i].d != m->bin[k].e[i].dt || m->bin[k].e[i].a != m->bin[k].e[i].at
+                || m->bin[k].e[i].b != m->bin[k].e[i].bt || m->bin[k].e[i].g != m->bin[k].e[i].gt) break;
+            if (m->bin[k].e[i].dt || m->bin[k].e[i].at != (32768 << 8) || m->bin[k].e[i].bt != (32768 << 8)) f = i;
+        }
+        if (i == 2u) { if (f == 2u) ref_add_mid(m, k, x, n); else ref_add_rest(m, k, x, n, f); return; }
+    }
+    for (i = 0; i < 2u; i++) {
+        d[i] = m->bin[k].e[i].d; a[i] = m->bin[k].e[i].a; b[i] = m->bin[k].e[i].b; gg[i] = m->bin[k].e[i].g;
+        lp[i] = m->bin[k].e[i].lp;
+        dd[i] = ref_step(d[i], m->bin[k].e[i].dt, n);
+        dd[i] = dd[i] > 4096 ? 4096 : dd[i] < -4096 ? -4096 : dd[i];
+        da[i] = ref_step(a[i], m->bin[k].e[i].at, n);
+        db[i] = ref_step(b[i], m->bin[k].e[i].bt, n);
+        dg[i] = ref_step(gg[i], m->bin[k].e[i].gt, n);
+    }
+    for (j = 0; j < n; j++) {
+        int32_t v = REF_CLIP(x[j]), av, l;
+        if (tg != 4096) v = (v >> 12) * tg + (int32_t)((((uint32_t)v & 4095u) * (uint32_t)tg) >> 12);
+        l = j + 1u == n ? lv : lc + ld * (int32_t)(j + 1u);
+        if (l != 32768) { v = REF_CLIP(v); v = (v >> 15) * l + (int32_t)((((uint32_t)v & 32767u) * (uint32_t)l) >> 15); }
+        av = v < 0 ? -v : v;
+        if (av > pk) pk = av;
+        if (g != gt) g += g < gt ? st : -st;
+        v = REF_MULQ15(v, g);
+        r[++w & (REF_N - 1u)] = REF_CLIP(v);
+        ref_out(&m->L[j], ref_ear(r, w, d[0], a[0] >> 8, b[0] >> 8, &lp[0]), gg[0] >> 8);
+        ref_out(&m->R[j], ref_ear(r, w, d[1], a[1] >> 8, b[1] >> 8, &lp[1]), gg[1] >> 8);
+        for (i = 0; i < 2u; i++) {
+            a[i] += da[i]; b[i] += db[i]; gg[i] += dg[i];
+            if (dd[i]) {
+                d[i] += dd[i];
+                if (dd[i] > 0 ? d[i] > m->bin[k].e[i].dt : d[i] < m->bin[k].e[i].dt) d[i] = m->bin[k].e[i].dt, dd[i] = 0;
+            }
+        }
+    }
+    m->slot_peak[k] = pk; m->gc[k] = g; ref_w[k] = w;
+    if (n) m->lc[k] = lv;
+    i = !m->hp;
+    for (j = 0; j < 2u; j++) {
+        int32_t t = m->bin[k].e[j].dt;
+        if (n && (t - d[j] < (int32_t)n && d[j] - t < (int32_t)n)) d[j] = t;
+        if (n) { a[j] = m->bin[k].e[j].at; b[j] = m->bin[k].e[j].bt; gg[j] = m->bin[k].e[j].gt; }
+        m->bin[k].e[j].d = d[j]; m->bin[k].e[j].a = a[j]; m->bin[k].e[j].b = b[j]; m->bin[k].e[j].g = gg[j];
+        m->bin[k].e[j].lp = lp[j];
+        if (d[j] != t || a[j] != m->bin[k].e[j].at || b[j] != m->bin[k].e[j].bt || gg[j] != m->bin[k].e[j].gt) i = 0;
+    }
+    if (i) m->bin[k].run = 0;
+}
+/* the reference's tx_mix_add: its binaural path, else the mix's own (SPEAKERS: one code) */
+static void ref_add(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n)
+{
+    if (tx_mix_binaural(m, k)) ref_add_bin(m, k, x, n);
+    else tx_mix_add(m, k, x, n);
+}
+
+/* ref: four slots under a seeded random scene (pans moved and jumped, levels, gates, trims up to +6 dB, OUTPUT, AMOUNT
+ * and the head size changed, short blocks, peaks over 8 full scale): the pair, each slot's peak, gate, level and ears
+ * the same as the reference's, block for block */
+static void t_ref(void)
+{
+    static int32_t x[TX_MIX_SLOTS][TX_BLOCK];
+    unsigned s, b, k, j, diff = 0, blocks = 0, bin = 0;
+    for (s = 0; s < 40; s++) {
+        unsigned pan[TX_MIX_SLOTS] = {64, 64, 64, 64};
+        rng = 7u + s;
+        tx_mix_init(&ma); tx_mix_init(&mb);
+        memset(ref_r, 0, sizeof ref_r); memset(ref_w, 0, sizeof ref_w);
+        for (b = 0; b < 240; b++) {
+            unsigned n = b % 11u == 5u ? (unsigned)(noise() & 255) : TX_BLOCK, e = (unsigned)noise();
+#define BOTH(f, ...) do { f(&ma, __VA_ARGS__); f(&mb, __VA_ARGS__); } while (0)
+            if (b == 0 || e % 19u == 1u) BOTH(tx_mix_phones, b == 0 || e % 3u ? TX_MIX_HEADPHONES : TX_MIX_SPEAKERS);
+            if (e % 29u == 2u) BOTH(tx_mix_phones_amt, e % 4u ? (e >> 8) % 101u : 0u);
+            if (e % 31u == 3u) BOTH(tx_mix_phones_head, (e >> 8) % 3u);
+            for (k = 0; k < TX_MIX_SLOTS; k++) {
+                unsigned q = (unsigned)noise() & 0xFFFFFu;
+                if (s & 1u) { int p = (int)pan[k] + (int)(q % 7u) - 3; pan[k] = (unsigned)(p < 0 ? 0 : p > 127 ? 127 : p); BOTH(tx_mix_pan, k, pan[k]); }
+                switch (q % 23u) {
+                case 0: pan[k] = (q >> 5) % 128u; BOTH(tx_mix_pan, k, pan[k]); break;
+                case 1: pan[k] = q & 32u ? 0u : 127u; BOTH(tx_mix_pan, k, pan[k]); break;
+                case 2: BOTH(tx_mix_level, k, (q >> 5) % 128u); break;
+                case 3: BOTH(tx_mix_gate, k, (q >> 5) & 1u); break;
+                case 4: BOTH(tx_mix_trim, k, q & 32u ? 4096u : (q >> 6) % 8192u); break;
+                case 5: BOTH(tx_mix_level, k, 100); break;
+                default: break;
+                }
+                for (j = 0; j < n; j++) {
+                    int32_t v = noise();
+                    x[k][j] = (v & 255) == 7 ? v * 16 : (v & 31) == 3 ? v * 8 : k == 3u && (b / 10u) % 2u ? 0 : v;
+                }
+            }
+#undef BOTH
+            tx_mix_begin(&ma, n); tx_mix_begin(&mb, n);
+            for (k = 0; k < TX_MIX_SLOTS; k++) {
+                bin += tx_mix_binaural(&ma, k) != 0;
+                ma.slot_peak[k] = mb.slot_peak[k] = 0;
+                tx_mix_add(&ma, k, x[k], n); ref_add(&mb, k, x[k], n);
+            }
+            for (j = 0; j < n; j++) diff += ma.L[j] != mb.L[j] || ma.R[j] != mb.R[j];
+            for (k = 0; k < TX_MIX_SLOTS; k++)
+                diff += ma.slot_peak[k] != mb.slot_peak[k] || ma.gc[k] != mb.gc[k] || ma.lc[k] != mb.lc[k]
+                      || ma.bin[k].run != mb.bin[k].run || memcmp(ma.bin[k].e, mb.bin[k].e, sizeof ma.bin[k].e) != 0;
+            blocks++;
+        }
+    }
+    printf("ref: %u blocks x %u slots (%u binaural), %u differ from the one-loop reference\n", blocks, TX_MIX_SLOTS, bin, diff);
+    check(diff == 0 && bin > blocks, "the pass-per-ear path = the one-loop reference, bit for bit (samples and state)");
+}
+
 int main(void)
 {
     printf("txbintest: the mix's HEADPHONES mode\n");
     t_centre(); t_back(); t_itd();
     check(t_loud(), "loudness across pan 0..127 within +-1 dB");
     t_sweep(); t_mono();
-    t_amount(); t_head(); t_loudall(); t_moves();
+    t_amount(); t_head(); t_loudall(); t_moves(); t_ref();
     printf("txbintest: %s (%d failed)\n", fails ? "FAIL" : "ok", fails);
     return fails ? 1 : 0;
 }

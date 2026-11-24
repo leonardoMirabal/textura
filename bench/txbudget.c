@@ -190,7 +190,9 @@ static void keep6(preset_cost_t *p, const cost_t *c, const char *by)
     p->worst8_6 = tx_max(p->worst8_6, c->worst8);
 }
 
-/* ---- the output chain: the mix with L lanes (pan + sum; hp: HEADPHONES, binaural), CHAMBER, limiter ---- */
+/* ---- the output chain: the mix with L lanes (pan + sum; hp: HEADPHONES, binaural; 2: its pans moving every block, a
+ * step or two about their places, and the level every other block: each ear gliding, its dearest path), CHAMBER,
+ * limiter ---- */
 static double chain_us(unsigned lanes, int chamber_on, int hp)
 {
     tx_mix_t *m = malloc(sizeof *m);
@@ -210,6 +212,11 @@ static double chain_us(unsigned lanes, int chamber_on, int hp)
         t0 = tx_now_ns();
         for (b = 0; b < 400; b++) {
             tx_mix_begin(m, TX_BLOCK);
+            if (hp == 2)
+                for (k = 0; k < TX_MIX_SLOTS; k++) {
+                    tx_mix_pan(m, k, 20 + 30 * k + (b * (k + 1u) & 3u));
+                    if (b & 1u) tx_mix_level(m, k, 96 + (b >> 1 & 7u));
+                }
             for (k = 0; k < lanes; k++) tx_mix_add(m, k % TX_MIX_SLOTS, x, TX_BLOCK);   /* the mix has 4 slots today: */
             tx_mix_end(m, L, R, TX_BLOCK);                                            /* more lanes reuse their adds */
         }
@@ -363,7 +370,7 @@ int main(int argc, char **argv)
     static preset_cost_t P[64];
     unsigned np, i, k, j;
     int a;
-    double ch_on4, ch_off4, ch_off0, ch_off11, hp_off0, hp_off11, lane_us, lane_hp, chamber, plat, pool4p, pool4d, pool11p, pool11d;
+    double ch_on4, ch_off4, ch_off0, ch_off11, hp_off0, hp_off11, hpm_off11, lane_us, lane_hp, lane_hpm, chamber, plat, pool4p, pool4d, pool11p, pool11d;
     FILE *csv;
     static cost_t MC[8][4];
     for (a = 1; a < argc; a++) {
@@ -379,7 +386,7 @@ int main(int argc, char **argv)
     np = (unsigned)src->params[tx_param_find(src, "PRESET")].max + 1u;
     if (np > 64) np = 64;
 
-    ch_off0 = ch_off4 = ch_on4 = ch_off11 = hp_off0 = hp_off11 = 1e30;
+    ch_off0 = ch_off4 = ch_on4 = ch_off11 = hp_off0 = hp_off11 = hpm_off11 = 1e30;
     for (pass = 0; pass < passes; pass++) {
     cidx = 0;
     memset(P, 0, sizeof P);
@@ -430,12 +437,14 @@ int main(int argc, char **argv)
       if ((v = chain_us(4, 1, 0)) < ch_on4) ch_on4 = v;
       if ((v = chain_us(11, 0, 0)) < ch_off11) ch_off11 = v;
       if ((v = chain_us(0, 0, 1)) < hp_off0) hp_off0 = v;
-      if ((v = chain_us(11, 0, 1)) < hp_off11) hp_off11 = v; }
+      if ((v = chain_us(11, 0, 1)) < hp_off11) hp_off11 = v;
+      if ((v = chain_us(11, 0, 2)) < hpm_off11) hpm_off11 = v; }
     }
     fprintf(stderr, "\n");
 
     lane_us = (ch_off11 - ch_off0) / 11;
     lane_hp = (hp_off11 - hp_off0) / 11;
+    lane_hpm = (hpm_off11 - hp_off0) / 11;
     chamber = ch_on4 - ch_off4;
     plat = PLAT_FIXED_US + PLAT_TAIL48_US + PLAT_TICK_US;
     /* the sources' pool: the plan ceiling less the platform, then Textura's own (measured) parts */
@@ -455,17 +464,20 @@ int main(int argc, char **argv)
     printf("   output: mix fixed + limiter                              %6.0f    %5.1f   measured\n", ch_off0, 100 * ch_off0 / BLOCK_US);
     printf("   output: per lane (pan + sum)                             %6.1f    %5.2f   measured\n", lane_us, 100 * lane_us / BLOCK_US);
     printf("   output: per lane, HEADPHONES (binaural pan + sum)         %6.1f    %5.2f   measured (16 lanes: %.0f us)\n", lane_hp, 100 * lane_hp / BLOCK_US, 16 * lane_hp);
+    printf("   output: per lane, HEADPHONES, pans moving (ears gliding)  %6.1f    %5.2f   measured (16 lanes: %.0f us)\n", lane_hpm, 100 * lane_hpm / BLOCK_US, 16 * lane_hpm);
     printf("   output: CHAMBER                                          %6.0f    %5.1f   measured\n", chamber, 100 * chamber / BLOCK_US);
     printf("   effects reserve (granular delay)                         %6.0f    %5.1f   [E] not designed yet\n", FX_RESERVE_US, 100 * FX_RESERVE_US / BLOCK_US);
     printf("   SOURCES POOL, 4 lanes: device %5.0f us (%4.1f %%), planned on host estimates (/ %.1f) %5.0f us (%4.1f %%)\n",
            pool4d, 100 * pool4d / BLOCK_US, UNCERT, pool4p, 100 * pool4p / BLOCK_US);
     printf("   SOURCES POOL, 11 lanes: device %5.0f us (%4.1f %%), planned %5.0f us (%4.1f %%)   (the governor today: 3193 us, 55 %%)\n",
            pool11d, 100 * pool11d / BLOCK_US, pool11p, 100 * pool11p / BLOCK_US);
-    /* OUTPUT HEADPHONES: the binaural pan's extra over the level pan comes out of the pool (firmware/src/lanes.c: the
-     * governor's extra, TX_MIX_HP_US a lane in use), so the interrupt stays as long as in SPEAKERS */
-    printf("   HEADPHONES, 4 lanes: +%.0f us measured, the governor charges %u (%u a lane: %s); the pool left to the sources"
-           " %5.0f us on the device\n\n", 4 * (lane_hp - lane_us), 4u * TX_MIX_HP_US, TX_MIX_HP_US,
-           TX_MIX_HP_US >= lane_hp - lane_us ? "covered" : "UNDER the measure: raise TX_MIX_HP_US", pool4d - 4.0 * TX_MIX_HP_US);
+    /* OUTPUT HEADPHONES: the binaural pan comes out of the pool (firmware/src/lanes.c: the governor's extra; on the
+     * FM-1 each binaural lane's pan as timed, on the host and the web TX_MIX_HP_US a lane in use), so the interrupt stays
+     * as long as in SPEAKERS */
+    printf("   HEADPHONES, 4 lanes: +%.0f us measured (pans moving: +%.0f), the stand-in charges %u (%u a lane: %s); the pool"
+           " left to the sources %5.0f us on the device\n\n", 4 * (lane_hp - lane_us), 4 * (lane_hpm - lane_us),
+           4u * TX_MIX_HP_US, TX_MIX_HP_US,
+           TX_MIX_HP_US >= lane_hpm ? "covered" : "UNDER the measure: raise TX_MIX_HP_US", pool4d - 4.0 * TX_MIX_HP_US);
 
     printf("2. each SOURCE preset (FM-1 us): typical = mean at its defaults; worst / w8 = the worst block / the worst"
            " 8-block mean over every PARTICLES 6 configuration (ACTIVITY 0..127, PROXIMITY, knob extremes)\n");
