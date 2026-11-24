@@ -460,7 +460,10 @@ static void read_script(const char *path)
                 e.kind = EV_EXP_STATE;
             }
             else if (!strcmp(sub, "led")) { e.kind = EV_EXP_LED; sscanf(line, "%*u %*s %*s %d %d", &e.a, &e.b); }
-            else if (!strcmp(sub, "rms") && sscanf(line, "%*u %*s %*s %3s %lf", op, &db) == 2) { e.kind = EV_EXP_RMS; e.op = op[0]; e.a = (int32_t)(db * 100.0); }
+            else if ((!strcmp(sub, "rms") || !strcmp(sub, "mrms") || !strcmp(sub, "srms"))
+                     && sscanf(line, "%*u %*s %*s %3s %lf", op, &db) == 2) {   /* (mrms, srms: the M and S, (L +- R) / 2) */
+                e.kind = EV_EXP_RMS; e.op = op[0]; e.a = (int32_t)(db * 100.0); e.b = sub[0] == 'm' ? 1 : sub[0] == 's' ? 2 : 0;
+            }
             else if (!strcmp(sub, "image")) {
                 double co = 0, ba = 0;
                 int w = 2000, ps = -1;
@@ -660,13 +663,18 @@ static void host_ms(void)
         case EV_EXP_RMS: {
             uint32_t n = FS / 20u, i0 = wav_n > n ? wav_n - n : 0, i;
             double acc = 0, db;
-            for (i = i0; i < wav_n; i++) acc += (double)wav[2u * i] * wav[2u * i];
+            const char *nm = e->b == 1 ? "mrms" : e->b == 2 ? "srms" : "rms";
+            for (i = i0; i < wav_n; i++) {
+                double x = e->b == 1 ? ((double)wav[2u * i] + wav[2u * i + 1u]) / 2.0
+                         : e->b == 2 ? ((double)wav[2u * i] - wav[2u * i + 1u]) / 2.0 : (double)wav[2u * i];
+                acc += x * x;
+            }
             db = 10.0 * log10(acc / (double)(wav_n - i0 ? wav_n - i0 : 1) / (32767.0 * 32767.0) + 1e-20);
             if ((e->op == '<' && !(db < e->a / 100.0)) || (e->op == '>' && !(db > e->a / 100.0))) {
-                printf("%6u ms  FAIL expect rms %c %.1f dB (is %.1f)\n", fm1_ms, e->op, e->a / 100.0, db);
+                printf("%6u ms  FAIL expect %s %c %.1f dB (is %.1f)\n", fm1_ms, nm, e->op, e->a / 100.0, db);
                 host_fails++;
             } else
-                printf("%6u ms  ok   expect rms %c %.1f dB (%.1f)\n", fm1_ms, e->op, e->a / 100.0, db);
+                printf("%6u ms  ok   expect %s %c %.1f dB (%.1f)\n", fm1_ms, nm, e->op, e->a / 100.0, db);
             break;
         }
         case EV_EXP_IMAGE: {                    /* (the stereo image: "expect image") */

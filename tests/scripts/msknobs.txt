@@ -1,0 +1,157 @@
+# the M/S page walked with the knobs as a player does, its sound measured: M = (L + R) / 2 and S = (L - R) / 2 of the
+# last 50 ms ("expect mrms", "expect srms"). F003 with its lanes spread (CC 10: 8 40 88 120) so the mix has sides.
+# K1 MID to its end: no middle left, the sides kept; K2 SIDE up: the sides louder, still no middle; K2 to its end and
+# K1 back to 0 dB: no sides, the middle back. Then a preset load (EFFECTS ON LOAD: NEVER, the FM-1's default: the M/S
+# kept), MONO on and off, an LFO learnt onto MID and SIDE, a roll of the dice: each time the card, the value and the
+# sound agree
+1100 midi 0xC0 2 0
+1900 midi 0xB0 10 8
+1905 midi 0xB1 10 40
+1910 midi 0xB2 10 88
+1915 midi 0xB3 10 120
+1970 btn 8
+1975 btn 2
+1980 btn 2
+1985 btn 2
+1990 btn 2
+1995 btn 2
+2000 btn 2
+2005 btn 2
+2010 btn 2
+2015 btn 2
+2020 btn 2
+2025 btn 2
+2030 btn 2
+2035 btn 2
+2700 expect state page M/S
+2700 expect state p460 115
+2700 expect state p461 115
+2700 expect mrms > -45
+2700 expect srms > -55
+# K1 down to -INF
+2725 turn 2 -10
+2750 turn 2 -10
+2775 turn 2 -10
+2800 turn 2 -10
+2825 turn 2 -10
+2850 turn 2 -10
+2875 turn 2 -10
+2900 turn 2 -10
+2925 turn 2 -10
+2950 turn 2 -10
+2975 turn 2 -10
+3000 turn 2 -10
+3025 turn 2 -10
+3700 expect state p460 0
+3700 expect state card0 -INF_dB
+3700 expect state p461 115
+3700 expect state card1 0.0_dB
+3700 expect mrms < -100
+3700 expect srms > -55
+3700 expect state mspk2 0
+# K2 up to +6 dB: the sides louder, the middle still gone
+3725 turn 3 10
+3750 turn 3 10
+3775 turn 3 10
+4400 expect state p461 127
+4400 expect state card1 +6.0_dB
+4400 expect mrms < -100
+4400 expect srms > -50
+# K2 down to -INF, K1 back to 0 dB (115): the middle only
+4425 turn 3 -10
+4450 turn 3 -10
+4475 turn 3 -10
+4500 turn 3 -10
+4525 turn 3 -10
+4550 turn 3 -10
+4575 turn 3 -10
+4600 turn 3 -10
+4625 turn 3 -10
+4650 turn 3 -10
+4675 turn 3 -10
+4700 turn 3 -10
+4725 turn 3 -10
+4750 turn 3 -10
+4775 turn 2 10
+4800 turn 2 10
+4825 turn 2 10
+4850 turn 2 10
+4875 turn 2 10
+4900 turn 2 10
+4925 turn 2 10
+4950 turn 2 10
+4975 turn 2 10
+5000 turn 2 10
+5025 turn 2 10
+5050 turn 2 5
+5700 expect state p460 115
+5700 expect state card0 0.0_dB
+5700 expect state p461 0
+5700 expect state card1 -INF_dB
+5700 expect srms < -100
+5700 expect mrms > -50
+5700 expect state mspk3 0
+# a preset load (EFFECTS ON LOAD: NEVER): the M/S stays the player's, and sounds so
+5800 midi 0xC0 7 0
+6800 expect state scene F008_ATTIC_RAIN
+6800 expect state page M/S
+6800 expect state p460 115
+6800 expect state p461 0
+6800 expect srms < -100
+6800 expect mrms > -60
+# K1 to -INF, K2 to 0 dB: the sides only
+6825 turn 2 -10
+6850 turn 2 -10
+6875 turn 2 -10
+6900 turn 2 -10
+6925 turn 2 -10
+6950 turn 2 -10
+6975 turn 2 -10
+7000 turn 2 -10
+7025 turn 2 -10
+7050 turn 2 -10
+7075 turn 2 -10
+7100 turn 2 -10
+7125 turn 3 10
+7150 turn 3 10
+7175 turn 3 10
+7200 turn 3 10
+7225 turn 3 10
+7250 turn 3 10
+7275 turn 3 10
+7300 turn 3 10
+7325 turn 3 10
+7350 turn 3 10
+7375 turn 3 10
+7400 turn 3 5
+8000 expect state p460 0
+8000 expect state p461 115
+8000 expect mrms < -100
+8000 expect srms > -90
+8000 expect preset
+# K4 MONO on: nothing left (no middle, no sides); off: the sides again
+8100 turn 5 1
+8800 expect state p463 1
+8800 expect rms < -100
+8900 turn 5 -1
+9600 expect state p463 0
+9600 expect mrms < -100
+9600 expect srms > -90
+# LFO held + K1: LFO1 onto MID (+30 %); the base stays -INF and MID moves above it only
+9700 press 5
+9750 turn 2 30
+9800 release 5
+9850 expect state p460 0
+10500 expect srms > -90
+# ... and K1 turned after: the base moves, the route stays (the card the base)
+10600 turn 2 115
+11300 expect state p460 115
+11300 expect state card0 0.0_dB
+11300 expect mrms > -60
+# a roll of the dice: the M/S rolled near 0 dB (MID 108 .. 117, SIDE 100 .. 121): the middle sounds again
+11400 btn 0
+11400 btn 1
+13000 expect state scene RANDOM
+13000 expect state page M/S
+13000 expect mrms > -70
+13100 end
