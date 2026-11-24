@@ -274,14 +274,16 @@ def main():
         check(pg.evaluate(WHEEL, [[100, 0, 0], [100, 0, 150], [100, 0, 150]]) == -6, "mouse wheel notches: 2 each")
         check(pg.evaluate(WHEEL, [[-1, 2, 0]]) == 8, "a page of wheel (deltaMode 2): 8 detents")
         check(pg.evaluate("window.__max") == 1, "one detent per call (the queue, at most 2 a frame)")
-        # SAVE, SAVE: the scene into U01 (the bank in localStorage); a reload boots into it
+        # SAVE, SAVE: the scene into U01, the first free slot, under a generated name (the bank in localStorage); a
+        # reload boots into it
         save = pg.locator('button.b[data-name="SAVE"]')
         check(save.locator("small").inner_text() == "SCENE · HOLD: UNDO", "SAVE's caption: SCENE · HOLD: UNDO")
         save.click(delay=60)
         pg.wait_for_timeout(300)
         save.click(delay=60)
         pg.wait_for_timeout(1500)
-        check(pg.evaluate(SCENE) == "U01 WATER", f"SAVE, SAVE: U01 saved ({pg.evaluate(SCENE)})")
+        saved = pg.evaluate(SCENE)
+        check(saved.startswith("U01 ") and len(saved) > 4, f"SAVE, SAVE: U01 saved, a generated name ({saved})")
         pg.wait_for_timeout(2500)                      # (the settings: 2 s after the last change)
         check(pg.evaluate("!!localStorage.getItem('textura.scenes') && !!localStorage.getItem('textura.settings')"),
               "the scene bank and the settings in localStorage")
@@ -290,7 +292,7 @@ def main():
         pg.wait_for_function("window.Module && window.Module.calledRun", timeout=30000)
         pg.click("#start")                             # (the lanes' engines switch in the audio callback)
         pg.wait_for_timeout(1500)
-        check(pg.evaluate(SCENE) == "U01 WATER", f"a reload: U01 playing again ({pg.evaluate(SCENE)})")
+        check(pg.evaluate(SCENE) == saved, f"a reload: U01 playing again ({pg.evaluate(SCENE)})")
         pg.evaluate("localStorage.clear()")
         # ?selftest: the landscape started, its level, the screen
         st = b.new_page(viewport={"width": 1280, "height": 900})
