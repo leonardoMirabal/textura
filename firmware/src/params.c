@@ -653,7 +653,11 @@ static const char *p_text_v(uint32_t id, int32_t v, char *t)
     t[0] = 0;
     if (P_MODS(P_SCOPE(id))) return mod_text(id, t);
     switch (f) {
-    case F_ENUM: p_strcpy(t, p_names(id)[v], 10); return 0;
+    case F_ENUM:                                /* (SLOPE's "12 dB": the number, its unit apart as on every card; the
+                                                 * large face has no lower case) */
+        p_strcpy(t, p_names(id)[v], 10);
+        if (P_IDX(id) == PG_MF0 + TX_MF_SLOPE && !P_IS_LANE(P_SCOPE(id)) && t[0] && t[1] && t[2] == ' ') { t[2] = 0; return "dB"; }
+        return 0;
     case F_NOTE: t[0] = "CCDDEFFGGAAB"[v]; t[1] = 0x54Au >> v & 1u ? '#' : 0; t[2] = 0; return 0;   /* (ROOT: C .. B) */
     case F_GRV:                                 /* GROOVE's TYPE (11 characters at most), a lane's CYCLE (AUTO, 2 .. 9) */
         if (P_SCOPE(id) == P_GLOBAL) tx_groove_name((unsigned)v, t); else if (v) p_fmt_int(t, v + 1); else p_strcpy(t, "AUTO", 5);

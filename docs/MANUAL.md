@@ -222,7 +222,8 @@ USB powers the FM-1).
 right. What is drawn behind the value tells you what kind of control it is:
 
 - **An amount** (a time, a level, a size ...): the card fills from the left up to the value, with a bright edge.
-- **A pan or a pitch**: it fills from the middle, left or right.
+- **A pan or a pitch**: it fills from the middle, left or right. On the lane pages a pan is a thin bar under the
+  lane's name instead, so the name stays readable.
 - **A MIX** (DRIVE, DELAY, REVERB): the fill is in two colours, split by a thin line at the middle (64). Up to the line
   the effect comes in and the dry sound stays whole; past it the dry sound fades out. The card reads **DRY** at 0,
   **50/50** at 64 and **WET** at 127, and shows only the bar in between.
@@ -230,6 +231,9 @@ right. What is drawn behind the value tells you what kind of control it is:
 - **A switch** (ON / OFF): a small square light, lit when on.
 - **A modulated card** (an LFO or another source moves it): a `~` before its name, and two small ticks that move with
   its value now.
+
+A name too long for its place ends in "...". On the lane and GROOVE LANES pages a long sound name drops its lane
+number first (the card's K1 to K4 already says which lane it is).
 
 **The card you are turning** gets a thin frame and its name lights up, for about a second after you stop.
 

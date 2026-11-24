@@ -412,12 +412,20 @@ static void ft_two(int32_t yc, const char *a, const char *b, uint16_t c)   /* "A
     aa_text(x + 9, S_TOP(yc), &AF_S, b, c, FC_BG);
 }
 static void ft_big(int32_t yc, const char *s, uint16_t c) { aa_text_c(0, L_TOP(yc), 240, &AF_L, s, c, FC_BG); }
-/* a name cut to w px */
+/* a name fitted to w px: one too wide is cut and ends in "..." (never cut silently: the eye sees it goes on). The cut
+ * takes 3 characters at least, so the dots never write past what the string held */
 static void ui_fit(char *s, int32_t w)
 {
-    uint32_t n = 0;
+    uint32_t n = 0, n0;
+    int32_t ew = aa_text_w(&AF_S, "...");
     while (s[n]) n++;
-    while (n && aa_text_w(&AF_S, s) > w) s[--n] = 0;
+    if (aa_text_w(&AF_S, s) <= w) return;
+    n0 = n;
+    n = n0 > 3u ? n0 - 3u : 0u;
+    s[n] = 0;
+    while (n && aa_text_w(&AF_S, s) > w - ew) s[--n] = 0;
+    while (n && s[n - 1] == ' ') s[--n] = 0;   /* (no space before the dots) */
+    if (n) { s[n] = '.'; s[n + 1] = '.'; s[n + 2] = '.'; s[n + 3] = 0; }
 }
 
 /* ---- what is shown */
@@ -786,7 +794,8 @@ static void draw_strip(uint32_t k)
  * (LK_MIX) fills from the left too, its part to 64 in the accent and past it in the accent's complement (the wet
  * side), a 1 px line at 64 (dry and wet both whole), its text only DRY / 50/50 / WET there (ui_mix_text); a choice
  * is a row of segments under the label, the chosen one lit; a toggle is a light by the value */
-enum { LK_FILL, LK_MID, LK_MIX, LK_SEG, LK_LED, LK_TEXT };   /* (LK_TEXT: read only, the value alone) */
+enum { LK_FILL, LK_MID, LK_MIX, LK_SEG, LK_LED, LK_TEXT, LK_MIDL };   /* (LK_TEXT: read only, the value alone;
+                                                 * LK_MIDL: LK_MID as a thin bar, under a lane's name) */
 #define CD_PAD 6
 #define CD_PAD_R 12
 #define CD_UNIT_W 22
@@ -831,7 +840,9 @@ static void draw_card(uint32_t k, const char *lab, const char *v0, const char *u
     int32_t live = ui_card_live;
     int hot = ui_hot_card == k && ui_hot_t && ui_now() - ui_hot_t < HOT_MS;
     const int32_t ltop = CD_BASE - AF_S.asc, vtop = CD_BASE - AF_L.asc;
-    int big = aa_covers(&AF_L, v) && aa_text_w(&AF_L, v) <= CD_VR - CD_PAD - CD_LABMIN;
+    int32_t lwf = aa_text_w(&AF_S, lab) + (live >= 0 ? aa_text_w(&AF_S, "~") : 0);   /* (the label whole: kept whole
+                                                 * up to CD_LABMIN, then the value goes small) */
+    int big = aa_covers(&AF_L, v) && aa_text_w(&AF_L, v) <= CD_VR - CD_PAD - CD_GAP - (lwf < CD_LABMIN ? lwf : CD_LABMIN);
     int32_t kw = aa_text_w(&AF_S, kk), lw, vw = big ? aa_text_w(&AF_L, v) : aa_text_w(&AF_S, v), fw = 0;
     int filled;
     if (look <= LK_MIX && hi > 0) fw = (int32_t)RW_W * clampi(val, 0, hi) / hi;
@@ -839,6 +850,9 @@ static void draw_card(uint32_t k, const char *lab, const char *v0, const char *u
     ui_card_live = -1;
     if (live >= 0) { l[0] = '~'; p_strcpy(l + 1, lab, 30); }   /* (modulated: "~" and a marker at its value now) */
     else p_strcpy(l, lab, 31);
+    if (l[0] >= '1' && l[0] <= '9' && l[1] == ' ' && aa_text_w(&AF_S, l) > CD_VR - vw - CD_GAP - CD_PAD)
+        p_strcpy(l, l + 2, 29);                 /* (a lane's "1 FROZEN LAKE BOOMING" too long: the name alone, the K tag
+                                                 * says the lane; then ui_fit's dots) */
     ui_fit(l, CD_VR - vw - CD_GAP - CD_PAD);
     lw = aa_text_w(&AF_S, l);
     cv_begin(RW_W, RW_H, C_BLACK);
@@ -866,9 +880,20 @@ static void draw_card(uint32_t k, const char *lab, const char *v0, const char *u
         int32_t i, n = hi + 1, x0 = CD_PAD, w = CD_VR - CD_PAD, sw = (w - 2 * (n - 1)) / n;
         for (i = 0; i < n; i++) cv_rect(x0 + i * (sw + 2), RW_H - 6, sw, 3, i == val ? mt.edge : CD_SEGDIM);
     }
+    if (look == LK_MIDL && hi > 0) {            /* a pan under a lane's name: a thin bar from the middle, as a choice's
+                                                 * segments sit (a full fill would cover the name) */
+        int32_t w = CD_VR - CD_PAD, cx = CD_PAD + w / 2, px = CD_PAD + w * clampi(val, 0, hi) / hi;
+        cv_rect(CD_PAD, RW_H - 6, w, 3, CD_SEGDIM);
+        if (px < cx) cv_rect(px, RW_H - 6, cx - px, 3, mt.edge);
+        else if (px > cx) cv_rect(cx, RW_H - 6, px - cx, 3, mt.edge);
+        cv_rect(cx, RW_H - 8, 1, 7, RGB(150, 150, 156));   /* (the middle: C) */
+    }
     if (live >= 0 && hi > 0) {                  /* the live value: a tick at the top and the bottom */
         int32_t x = clampi((int32_t)RW_W * clampi(live, 0, hi) / hi - 1, 0, (int32_t)RW_W - 3);
-        cv_rect(x, 0, 3, 4, FC_VAL); cv_rect(x, RW_H - 4, 3, 4, FC_VAL);
+        if (look == LK_MIDL) {                  /* (on the thin bar's own span, a tick over it) */
+            x = CD_PAD + (CD_VR - CD_PAD) * clampi(live, 0, hi) / hi - 1;
+            cv_rect(x, RW_H - 10, 3, 3, FC_VAL);
+        } else { cv_rect(x, 0, 3, 4, FC_VAL); cv_rect(x, RW_H - 4, 3, 4, FC_VAL); }
     }
     if (look == LK_LED) cv_rect(CD_VR + CD_UGAP + 6, CD_BASE - 10, 10, 10, val ? mt.edge : CD_SEGDIM);
     if (filled) {                               /* a strong fill under the K tag / label: lighter greys */
@@ -902,7 +927,7 @@ static void draw_lane_row(uint32_t k)
     ui_mix_label(k, l);
     if (id == NOID) { draw_card(k, l, sc.mute[k] ? "MUTED" : "ON", 0, !sc.mute[k], 1, LK_LED); return; }
     if (ui_live(id, &lv)) ui_card_live = lv;
-    { const char *u = p_text(id, v); draw_card(k, l, v, u, p_ord(id, p_get(id)), p_hi(id), ui_look(id)); }
+    { const char *u = p_text(id, v); uint32_t lk = ui_look(id); draw_card(k, l, v, u, p_ord(id, p_get(id)), p_hi(id), lk == LK_MID ? LK_MIDL : lk); }
 }
 /* ---- GROOVE LANES: lane n's ROLE on Kn, one list over its PART and CYCLE (stored as they were: scenes and MIDI
  * unchanged): FREE, AUTO, PULSE, OFFBEAT, FILL, then its own cycle of 2 .. 9 pulses over the TYPE's span */
@@ -950,7 +975,12 @@ static void draw_groove_row(uint32_t k)
     x = (uint32_t)aa_text_ovr((int32_t)RW_W - 6 - aa_text_w(&AF_S, "K4") - 8, S_TOP(9), &AF_S, r, fr ? FC_DIM : FC_VAL);
     (void)x;
     ui_mix_label(k, l);
-    ui_fit(l, (int32_t)RW_W - 6 - aa_text_w(&AF_S, "K4") - 8 - aa_text_w(&AF_S, r) - 12);
+    {                                           /* (too long beside its role: the name alone, Kn says the lane; then
+                                                 * ui_fit's dots) */
+        int32_t nw = (int32_t)RW_W - 6 - aa_text_w(&AF_S, "K4") - 8 - aa_text_w(&AF_S, r) - 12;
+        if (aa_text_w(&AF_S, l) > nw) p_strcpy(l, l + 2, 29);
+        ui_fit(l, nw);
+    }
     aa_text_ov(6, S_TOP(9), &AF_S, l, fr ? FC_DIM : FC_LAB);
     if (fr) {                                   /* "WIND . FLOWS FREE", a flat line */
         int32_t e;
@@ -1170,7 +1200,8 @@ static void draw_row(uint32_t k)
         const char *u = p_text(id, v);
         int32_t lv, val = p_ord(id, p_get(id)), hi = p_hi(id);
         uint32_t look = ui_look(id);
-        if (P_SCOPE(id) == P_LFO && P_IDX(id) % 16u == ML_NOW) { look = LK_MID; hi = 64; }   /* (NOW: from the middle) */
+        if (P_SCOPE(id) == P_LFO && P_IDX(id) % 16u == ML_NOW) { look = LK_MID; hi = 32; }   /* (NOW: from the middle;
+                                                 * mod.c gives it in 32 steps, 16 = 0 %) */
         if (ui_live(id, &lv)) ui_card_live = lv;
         if (P_SCOPE(id) == P_GLOBAL && PG_IS_MS(P_IDX(id)) && P_IDX(id) != PG_MS0 + TX_MS_MONO) ui_ms_card(id, v, &val, &hi);
         draw_card(k, ui_lab(id), v, u, val, hi, look);
@@ -1303,7 +1334,7 @@ static void draw_footer(void)
     else {
         char t[32], v[24];
         uint32_t id = G_ALG(ui_g);
-        if (id != NOID) { (void)p_text(id, v); ft_alg(7, G_ALGN(ui_g), v); }
+        if (id != NOID) { const char *u = p_text(id, v); if (u) { p_cat(v, " ", 23); p_cat(v, u, 23); } ft_alg(7, G_ALGN(ui_g), v); }
         else if (ui_g == G_LANES) ft_c(7, "K1-K4: LANES 1-4", FC_LAB);
         else if (ui_g == G_SOUND) ft_c(7, sc.snd[sc.sel] < 0 ? "NO SOUND ON THIS LANE" : "ALGORITHM: PICK A SOUND", FC_LAB);
         else if (ui_g == G_LFO) { p_strcpy(v, "LFO 1", 23); v[4] = (char)('1' + ui_lfo); ft_alg(7, "WHICH LFO", v); }
@@ -1975,7 +2006,7 @@ static void ui_algorithm(int32_t d)
     {                                           /* "FREEZE ON", "REVERB HALL" */
         char t[32], v[24];
         p_strcpy(t, G_ALGN(ui_g), 12); p_cat(t, " ", 31);
-        (void)p_text(id, v); p_cat(t, v, 31);
+        { const char *u = p_text(id, v); p_cat(t, v, 31); if (u) { p_cat(t, " ", 31); p_cat(t, u, 31); } }
         ui_say(t);
     }
 }
