@@ -1268,7 +1268,7 @@ static void gui_drag_x(const clap_plugin_t *p, const txg_gui_shot_t *xs, float x
 }
 static int gui_test_binaural(const clap_plugin_t *p, const txg_gui_shot_t *xs)
 {
-    const uint32_t OUT = 4u << 8 | 45u, AMT = 4u << 8 | 46u, HEAD = 4u << 8 | 47u;
+    const uint32_t P_OUT = 4u << 8 | 45u, AMT = 4u << 8 | 46u, HEAD = 4u << 8 | 47u;
     float r[4];
     double a0, h0, h1, a1, o1, o2, a2, h2, h3, a3;
     int bad = 0, open, closed;
@@ -1283,11 +1283,11 @@ static int gui_test_binaural(const clap_plugin_t *p, const txg_gui_shot_t *xs)
     if (!xs->find(p, W_PARAM, (int)AMT, r)) { fprintf(stderr, "gui: no BINAURAL AMOUNT\n"); return 5; }
     gui_drag_x(p, xs, r[0] + r[2] - 8.f, r[1] + r[3] * 0.5f, -110.f);
     a1 = gui_value(p, AMT);
-    if (!gui_hit(p, xs, W_SEG, (int)((OUT & 0xFFFFu) << 8 | 0u))) return 5;
-    o1 = gui_value(p, OUT);
+    if (!gui_hit(p, xs, W_SEG, (int)((P_OUT & 0xFFFFu) << 8 | 0u))) return 5;
+    o1 = gui_value(p, P_OUT);
     if (png_shot) (void)gui_png(p, xs, png_shot, "binaural-speakers");
-    if (!gui_hit(p, xs, W_SEG, (int)((OUT & 0xFFFFu) << 8 | 1u))) return 5;
-    o2 = gui_value(p, OUT);
+    if (!gui_hit(p, xs, W_SEG, (int)((P_OUT & 0xFFFFu) << 8 | 1u))) return 5;
+    o2 = gui_value(p, P_OUT);
     gui_click(p, xs, 300.f, 200.f, 0);   /* (outside: the place) */
     closed = !xs->find(p, W_PICKER, -5, r);
     if (!gui_hit(p, xs, W_RND, -1)) return 5;
@@ -1319,22 +1319,22 @@ static int gui_test_binaural(const clap_plugin_t *p, const txg_gui_shot_t *xs)
  * HEADPHONES again; the top bar's dice (all four ticked) leave it, UNDO (its place: gui_zones) */
 static int gui_test_output(const clap_plugin_t *p, const txg_gui_shot_t *xs)
 {
-    const uint32_t OUT = 4u << 8 | 45u;
+    const uint32_t P_OUT = 4u << 8 | 45u;
     float r[4];
     double v0, v1, v2, v3;
     int bad = 0;
     gui_key(p, xs, FRK_ESCAPE);
-    if (!xs->find(p, W_PARAM, (int)OUT, r)) { fprintf(stderr, "gui: no OUTPUT\n"); return 5; }
-    v0 = gui_value(p, OUT);
+    if (!xs->find(p, W_PARAM, (int)P_OUT, r)) { fprintf(stderr, "gui: no OUTPUT\n"); return 5; }
+    v0 = gui_value(p, P_OUT);
     if (png_shot) (void)gui_png(p, xs, png_shot, "output");
     gui_click(p, xs, r[0] + r[2] - 12.f, r[1] + r[3] * 0.5f, 0);
-    v1 = gui_value(p, OUT);
+    v1 = gui_value(p, P_OUT);
     if (png_shot) (void)gui_png(p, xs, png_shot, "output-speakers");
     gui_click(p, xs, r[0] + 12.f, r[1] + r[3] * 0.5f, 0);
-    v2 = gui_value(p, OUT);
+    v2 = gui_value(p, P_OUT);
     if (!gui_hit(p, xs, W_RND, -1)) return 5;
     dice_settle(p, xs);
-    v3 = gui_value(p, OUT);
+    v3 = gui_value(p, P_OUT);
     if (!gui_hit(p, xs, W_UNDO, -1)) return 5;
     dice_settle(p, xs);
     printf("gui OUTPUT %g, a click %g, another %g; the dice: %g\n", v0, v1, v2, v3);
