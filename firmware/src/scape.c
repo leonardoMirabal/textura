@@ -86,7 +86,7 @@ static struct {
     uint8_t vol[LS_N][LS_SND_MAX];              /* each sound's volume (LEVEL, 100 = as tuned) */
     uint8_t mem_cnt[SC_N], mem_step[SC_N];      /* REC: what played when all stopped */
     tx_rng_t rng;
-} sc TX_RTD;
+} sc;                                           /* (.bss: RAMTEXT room went to the binaural crossover) */
 
 /* ---- the player's scales */
 static uint32_t sc_act_step(uint32_t w) { return 1u + (w * 26u + LS_NACT - 1u) / (2u * (LS_NACT - 1u)); }   /* HOW ACTIVE key

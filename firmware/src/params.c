@@ -324,7 +324,7 @@ typedef struct {
     uint8_t fam;
     uint8_t cv[SCD_MAX];                        /* the card's value as set (0xFF: never set: the engine's own) */
 } p_cards_t;
-static TX_RTD p_cards_t pc[P_LANES];
+static p_cards_t pc[P_LANES];                  /* (.bss: RAMTEXT room went to the binaural crossover) */
 
 static int p_quick_param(const tx_engine_t *e, const char *name)   /* a parameter the classic engine's map moves */
 {
