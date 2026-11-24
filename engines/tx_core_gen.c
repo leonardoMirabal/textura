@@ -4,7 +4,7 @@
 #include "tx_core_lin.h"
 
 const tx_param_t tx_gen_params[TX_GEN_NP] = {
-    {"ACTIVITY", 127, 64, TX_TEXT("the lane's activity (the fader): how much happens; EVOLVE wanders around it (+-20, narrowing to none at 0 and 127)")},
+    {"ACTIVITY", 127, 64, TX_TEXT("the lane's activity (the fader): how much happens; EVOLVE wanders around it (+-20, down at most a quarter of it, narrowing to none at 0 and 127)")},
     {"ROOT", 127, 60, TX_TEXT("the lowest note of the lane (MIDI; 60 = C4): its pitch sets the source's size, as a key")},
     {"SPAN", 36, 12, TX_TEXT("the lane's range above ROOT: 0 .. 36 semitones (chromatic)")},
     {"WANDER", 127, 64, TX_TEXT("how the pitch moves: anywhere in the span .. a walk of 1-3 semitones (64) .. close to a drifting centre")},
@@ -76,6 +76,15 @@ void tx_gen_init(tx_gen_t *g, uint32_t seed)
 
 void tx_gen_param(tx_gen_t *g, unsigned id, unsigned v)
 {
+    if (id == TX_GEN_START) {                                /* a start: a fresh draw for the next note, due within */
+        uint32_t j16 = g->p[TX_GEN_RANDOM] >= 64u ? 65536u : (uint32_t)g->p[TX_GEN_RANDOM] * 1024u;   /* 2.5 s */
+        g->acc = 0;
+        g->thr = (65536u - j16) + (uint32_t)(((uint64_t)j16 * exp16(&g->rng)) >> 16);
+        if (g->thr < 64u) g->thr = 64u;
+        if (g->thr > (6u << 16)) g->thr = 6u << 16;
+        g->first = 6615u + tx_rand_below(&g->rng, 103635u);   /* 0.15 .. 2.5 s */
+        return;
+    }
     if (id >= TX_GEN_NP) return;
     if (v > tx_gen_params[id].max) v = tx_gen_params[id].max;
     g->p[id] = (uint8_t)v;
@@ -110,7 +119,7 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
     tx_rng_t *r = &g->rng;
     unsigned k, ne = 0, ka = kact(g);
     int32_t ea = 0, ep = 0, base = (int32_t)g->p[TX_GEN_ACTIVITY] << 8, span = g->p[TX_GEN_SPAN];
-    int32_t aw, pw, ar, pr, wid;
+    int32_t aw, pw, ar, pr, wid, wdn;
     uint32_t hz = horizon_s(g);
     if (max > TX_GEN_EV_MAX) max = TX_GEN_EV_MAX;
     /* the walks (walk k every 2^k blocks), the 1/f sums over the horizon's walks */
@@ -124,7 +133,14 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
     ep = (int32_t)(((int64_t)ep * INV_SQRT[ka]) >> 15);
     wid = base < (127 << 8) - base ? base : (127 << 8) - base;   /* the wander narrows at the ends: 0 stays nothing, */
     wid = wid < 5120 ? wid : 5120;                                  /* 127 stays the full cloud */
-    aw = base + ((ea * wid) >> 15);                          /* +-20 knob units */
+    /* +-20 knob units, but at most a quarter of the fader (1 sd) and never under half of it: the sounds' rates go as the
+     * activity^2.5 (tx_core_lin.h), so a dip of 20 under a low fader (HOW ACTIVE 2 .. 4: 16 .. 48) left a lane all but
+     * silent for as long as the slow walks stayed down (minutes), a lull the next keys could not lift; now a dip costs
+     * about half the rate at 1 sd and at most ~0.8 of it. Both ways alike, so the mean stays at the fader (the keys'
+     * steps as even as before); from 80 up nothing changes */
+    wdn = base >> 2 < wid ? base >> 2 : wid;
+    wid = wdn;
+    aw = base + ((ea * wid) >> 15);
     pw = (span << 7) + ((ep * (span << 6)) >> 15);           /* the centre +-SPAN / 4 (1 sd) */
     /* the memory: the recalled stretch, glided in and out (~3 s) */
     g->g += ((g->r_len ? 32767 : 0) - g->g) >> 9;
@@ -138,7 +154,7 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
         aw += (int32_t)(((int64_t)(ar - aw) * g->g) >> 15);
         pw += (int32_t)(((int64_t)(pr - pw) * g->g) >> 15);
     }
-    g->a = clamp32(clamp32(aw, base - 3 * wid, base + 3 * wid), 0, 127 << 8);   /* (a recall stays near the fader) */
+    g->a = clamp32(clamp32(aw, base - 2 * wdn, base + 3 * wid), 0, 127 << 8);   /* (a recall stays near the fader) */
     if (pw < 0) pw = -pw;                                    /* a soft edge: the centre reflects, never sticks */
     if (pw > (span << 8)) pw = 2 * (span << 8) - pw;
     g->pc = clamp32(pw, 0, span << 8);
@@ -184,8 +200,10 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
         int32_t rand_ = clamp32((int32_t)g->p[TX_GEN_RANDOM] + ((g->wr * 16) >> 15), 0, 127);
         uint32_t j16 = rand_ >= 64 ? 65536u : (uint32_t)rand_ * 1024u;
         uint32_t n16 = rand_ > 64 ? (uint32_t)(rand_ - 64) * 832u : 0u;   /* branching 0 .. 0.8 */
-        uint32_t lam = 13u + ((5107u * tx_lin_frac(g->a)) >> 16);   /* notes/s Q8: 0.05 .. 20, perceptually even (each
-                                                             * step of the activity sounds the same more: tx_core_lin.h) */
+        uint32_t lam = 31u + ((5089u * tx_lin_frac(g->a)) >> 16);   /* notes/s Q8: 0.12 .. 20, perceptually even (each
+                                                             * step of the activity sounds the same more: tx_core_lin.h;
+                                                             * the floor 0.12, not 0.05: a lane at the rarest step heard
+                                                             * every ~8 s, not every 20, with the gap's cap below) */
         uint32_t lam0 = (uint32_t)(((uint64_t)lam * (65536u - n16)) >> 16) + (uint32_t)g->exc;
         uint32_t inc = ((lam0 > 6400u ? 6400u : lam0) * n * 380u) >> 16, prev = g->acc, gap = (TX_FS << 8) / (lam ? lam : 1u);
                                                              /* (the excited rate held at 25 /s, 1.25 x the top: on the
@@ -195,12 +213,20 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
         g->acc += inc;
         g->exc -= (int32_t)(((uint32_t)g->exc * 950u) >> 16) + (g->exc > 0);   /* tau 0.4 s */
         if (g->exc < 0) g->exc = 0;
+        if (g->since >= 29u * TX_FS && g->acc < g->thr) g->acc = g->thr;   /* no gap over 29 s: never half a
+                                                             * minute of nothing from a lane that plays (at the floor's
+                                                             * rate 3.5 mean gaps: an Exp cut there keeps a CV of 0.91,
+                                                             * still random, never a beat; faster rates never reach it) */
+        if (g->first) {                                      /* (TX_GEN_START: the first note due by now) */
+            if (g->first <= n) { g->first = 0; if (g->acc < g->thr) g->acc = g->thr; }
+            else g->first -= n;
+        }
         while (g->acc >= g->thr && ne < max) {
             unsigned off = inc ? (unsigned)(((g->thr > prev ? g->thr - prev : 0u) * n) / inc) : 0u;   /* (< 2^30) */
             int32_t p, vel;
             uint32_t dur;
             if (off >= n) off = n - 1u;
-            g->acc -= g->thr; prev = 0;
+            g->acc -= g->thr; prev = 0; g->first = 0;
             g->thr = (65536u - j16) + (uint32_t)(((uint64_t)j16 * exp16(r)) >> 16);
             if (g->thr < 64u) g->thr = 64u;
             if (g->thr > (6u << 16)) g->thr = 6u << 16;       /* (an Exp over 6: once in 400; the integral cap above it) */

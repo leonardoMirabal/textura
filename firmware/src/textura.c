@@ -125,11 +125,20 @@ static uint32_t tx_seed(void)
 
 /* ---- audio (the interrupt): the lanes, Q23 -> the platform's Q15, rounded and saturated */
 static TX_RTD int32_t tx_L[TX_BLOCK], tx_R[TX_BLOCK];
+#if defined(DINGHY_HOST) && !defined(DINGHY_WEB)
+static double host_lp2[LN_N];                   /* (the host's "lvl" state) each lane's block peaks squared, summed */
+static uint32_t host_lpn[LN_N];                 /* since the state was read last; and the blocks */
+static uint32_t host_lev[LN_N];                 /* (the host's "ev" state) each lane's engine events, block by block
+                                                 * (ln.lev: what the plugin's EVENTS lines show), summed */
+#endif
 static void app_audio(int32_t *out, uint32_t n)
 {
     uint32_t i;
     if (n > TX_BLOCK) n = TX_BLOCK;
     ln_block(tx_L, tx_R, n);
+#if defined(DINGHY_HOST) && !defined(DINGHY_WEB)
+    for (i = 0; i < LN_N; i++) { host_lp2[i] += (double)ln.lpk[i] * (double)ln.lpk[i]; host_lpn[i]++; host_lev[i] += ln.lev[i]; }
+#endif
     for (i = 0; i < n; i++) {
         int32_t l = (tx_L[i] + 128) >> 8, r = (tx_R[i] + 128) >> 8;
         out[2u * i] = l > 32767 ? 32767 : l < -32767 ? -32767 : l;
@@ -518,6 +527,18 @@ static int host_state(const char *key, char *v, unsigned n)
         snprintf(v, n, "%d", st.total != was[k]); was[k] = st.total;
     }
     else if (sscanf(key, "gen%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", ln.gen_on[k]);
+    else if (sscanf(key, "gact%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%d", (int)ln_gen_activity(k));   /* its
+                                                 * generator's activity now (0 .. 127: the fader and its wander) */
+#ifndef DINGHY_WEB
+    else if (sscanf(key, "ev%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", host_lev[k]);   /* the lane's engine
+                                                 * events so far, as its blocks reported them (the EVENTS lines') */
+    else if (sscanf(key, "lvl%u%c", &k, &c) == 1 && k < SC_N) {   /* the lane's level since this was read last: its
+                                                 * blocks' peaks, their power's mean, dBFS (-200: silent) */
+        double m = host_lpn[k] ? host_lp2[k] / host_lpn[k] : 0.0;
+        snprintf(v, n, "%.1f", m > 0.0 ? 10.0 * log10(m / (8388608.0 * 8388608.0)) : -200.0);
+        host_lp2[k] = 0.0; host_lpn[k] = 0;
+    }
+#endif
     else if (!strcmp(key, "bpm10")) snprintf(v, n, "%u", tempo_bpm10());          /* the tempo shown (tempo.c) */
     else if (!strcmp(key, "beatsmp")) snprintf(v, n, "%u", beat_smp);
     else if (!strcmp(key, "clklock")) snprintf(v, n, "%d", clk_follows());

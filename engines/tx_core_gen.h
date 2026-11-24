@@ -8,7 +8,7 @@
  *               constants 1 s x 2^k up to EVOLVE (10 s .. 2 h), equal power per octave; walk k is stepped every 2^k
  *               blocks with the same per-step constant (172), so a 2 h walk keeps its precision and the cost is flat.
  *               The pitch centre wanders on a second bank (+-SPAN / 4); the randomness on a third walk (+-16).
- *   notes       a rate 0.05 .. 20 /s (perceptually even, tx_core_lin.h) from the activity; RANDOMNESS 0 .. 64: steady .. Poisson (the next note
+ *   notes       a rate 0.12 .. 20 /s (perceptually even, tx_core_lin.h; no gap over 29 s) from the activity; RANDOMNESS 0 .. 64: steady .. Poisson (the next note
  *               when the integrated rate reaches a threshold (1 - j) + j Exp(1)); above 64 a self-exciting
  *               (Hawkes) part: each note raises the rate for ~0.4 s, branching up to 0.8, the base rate lowered so the
  *               mean stays: flurries and silences. Pitch (chromatic, ROOT .. ROOT + SPAN): WANDER 0 = anywhere in the
@@ -42,6 +42,10 @@
 enum { TX_GEN_ACTIVITY, TX_GEN_ROOT, TX_GEN_SPAN, TX_GEN_WANDER, TX_GEN_RANDOM, TX_GEN_EVOLVE, TX_GEN_RECALL,
        TX_GEN_MUTATE, TX_GEN_NP };
 extern const tx_param_t tx_gen_params[TX_GEN_NP];
+/* not a parameter: tx_gen_param(g, TX_GEN_START, 0) when its lane starts (switched on, a load): the first note comes
+ * soon, 0.15 .. 2.5 s on (or sooner, at the rate's own draw), instead of a whole mean gap on (20 s at the rarest
+ * activity), so a lane switched on answers within a few seconds; from then on its notes go at their own rate */
+#define TX_GEN_START 0xF0u
 
 typedef struct { uint16_t off; uint8_t note, vel; } tx_gen_ev_t;   /* vel 0 = a release */
 typedef struct { int8_t d[TX_GEN_MLEN]; uint8_t len, pad; } tx_gen_motif_t;
@@ -72,6 +76,7 @@ typedef struct {
     int16_t rlean;                             /* the rate's multiplier this block less 1 (Q12; 0: none): a GROOVE's lean, set by
                                                 * the lane before tx_gen_block (tx_groove.h) */
     uint32_t notes;                            /* notes since init */
+    uint32_t first;                            /* (TX_GEN_START) samples until the first note at the latest; 0: none */
     uint8_t hist[TX_GEN_HIST], phist[TX_GEN_PHIST];
 } tx_gen_t;
 

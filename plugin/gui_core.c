@@ -61,7 +61,8 @@ static const uint32_t PAL[TXP_COL_N] = { C_INK, 0xFFE07A4Au, 0xFFD9A650u, 0xFFCB
 static const char *const PAL_N[TXP_COL_N] = { "BONE", "EMBER", "AMBER", "SAND", "MOSS", "SAGE", "TEAL", "ICE", "SLATE",
                                               "LILAC", "ROSE" };
 
-#define NBLK 1034u                       /* the event lines' span: 6 s of app blocks (256 frames at 44.1 kHz) */
+#define NBLK 1024u                       /* the event lines' span: 5.9 s of app blocks (256 frames at 44.1 kHz); at
+                                          * most half the activity ring (TXP_ACT_N / 2: all txp_ui_act fills) */
 #define GLOW_BLK 26u                     /* a dot's glow: the last 0.15 s */
 /* the layout (logical pixels; the window is at least TXG_W x TXG_H of them, any aspect: g->W x g->H) */
 #define TOP_H 52.f                       /* the top bar */
@@ -1596,25 +1597,35 @@ static void draw_place(txg_t *g, frui_canvas *c)
 /* ---- the rows */
 static void draw_line(txg_t *g, frui_canvas *c, int k, float x, float y, float w, float h, float mf)
 {
+    /* The lane as it plays, the last NBLK blocks, oldest at the left; each pixel column the blocks under it. Its level
+     * (the loudest block's peak, -72 .. 0 dBFS from the floor up) is a body in the lane's colour with a brighter top
+     * edge, so a lane that sounds always shows: a long note, a bed, a song that runs on make few events but sound all
+     * along. Its engine's events are bright ticks over the body, taller with their level and never under half the
+     * height, brighter when the column holds several. A column with neither is silence (under -72 dBFS). Newer is a
+     * little brighter than older. */
     int X0 = (int)lroundf(x * g->S), X1 = (int)lroundf((x + w) * g->S), Y1 = (int)lroundf((y + h) * g->S);
     float H = h * g->S;
     uint32_t col = lane_col(g, k);
     RR(g, c, x, y, w, h, 2.f, C_WELL);
-    if (X1 <= X0) return;
+    if (X1 <= X0 || H < 4.f) return;
     for (int i = X0; i < X1; i++) {
-        uint32_t b0 = (uint32_t)((uint64_t)(i - X0) * NBLK / (uint32_t)(X1 - X0)), b1 = (uint32_t)((uint64_t)(i + 1 - X0) * NBLK / (uint32_t)(X1 - X0)), e = 0, p = 0;
-        float age = 1.f - (float)(i - X0) / (float)(X1 - X0), hh;
+        uint32_t b0 = (uint32_t)((uint64_t)(i - X0) * NBLK / (uint32_t)(X1 - X0)), b1 = (uint32_t)((uint64_t)(i + 1 - X0) * NBLK / (uint32_t)(X1 - X0)), e = 0, p = 0, pe = 0;
+        float fresh = (float)(i - X0) / (float)(X1 - X0), hh, a;
         if (b1 <= b0) b1 = b0 + 1u;
         for (uint32_t b = b0; b < b1 && b < NBLK; b++) {
             e += g->ev[b][k];
             if (g->pk[b][k] > p) p = g->pk[b][k];
+            if (g->ev[b][k] && g->pk[b][k] > pe) pe = g->pk[b][k];
         }
         if (!p) continue;
-        hh = (float)p / 255.f * (H - 2.f) * 0.85f;   /* the lane's level: a faint body */
-        frui_rect(c, (float)i, (float)Y1 - 1.f - hh, 1.f, hh, frui_alpha(C_ENV, mf));
-        if (!e) continue;                   /* its events: a bar each block that has one, as high as the peak */
-        hh = (0.18f + 0.82f * (float)p / 255.f) * (H - 4.f);
-        frui_rect(c, (float)i, (float)Y1 - 2.f - hh, 1.f, hh, frui_alpha(col, (0.22f + 0.62f * (1.f - age)) * mf));
+        hh = 1.f + (float)p / 255.f * (H - 3.f) * 0.8f;   /* the level: the body and its edge */
+        frui_rect(c, (float)i, (float)Y1 - 1.f - hh, 1.f, hh, frui_alpha(col, (0.16f + 0.14f * fresh) * mf));
+        frui_rect(c, (float)i, (float)Y1 - 1.f - hh, 1.f, 1.f, frui_alpha(col, (0.45f + 0.25f * fresh) * mf));
+        if (!e) continue;                   /* the events: a tick in each column that has one */
+        if (!pe) pe = p;
+        hh = (0.5f + 0.5f * (float)pe / 255.f) * (H - 3.f);
+        a = (0.55f + 0.3f * fresh + (e > 1u ? 0.15f : 0.f)) * mf;
+        frui_rect(c, (float)i, (float)Y1 - 1.f - hh, 1.f, hh, frui_alpha(col, a > 1.f ? 1.f : a));
     }
 }
 /* HOW MANY (6 blocks: 1 2 4 10 19 32; none lit: OFF) or HOW ACTIVE (9 blocks: rare .. busy), its name and value */

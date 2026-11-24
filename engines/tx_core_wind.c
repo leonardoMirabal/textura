@@ -160,7 +160,11 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
     }
     w->gtgt -= (w->gtgt * w->kd) >> 16;
     w->gcur += ((w->gtgt - w->gcur) * w->kr) >> 16;
-    w->gmean += (w->gcur - w->gmean) >> 12;                 /* (~24 s: U stays the mean, gusts over lulls) */
+    /* (~24 s: U stays the mean, gusts over lulls). The window grows from 1.5 s at the start to that: from 0 it took
+     * ~30 s to learn the gusts' (and the keys' presses') own mean, and all that time they blew on top of U, a lane
+     * opening 8 dB louder than it then played (a running mean over what there is so far, 32-bit division per block) */
+    if (w->gn < 4096u) w->gn++;
+    w->gmean += (w->gcur - w->gmean) / (int32_t)(w->gn < 256u ? 256u : w->gn);
     w->gcol -= w->gcol >> 9;                                 /* (the colour fades over ~3 s) */
     /* the key's envelope: on in ~0.4 s; released, the wind dies over ~4 s */
     if (w->held) w->env += (32768 - w->env) >> 6;

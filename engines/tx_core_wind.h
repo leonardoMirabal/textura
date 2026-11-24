@@ -75,6 +75,7 @@ typedef struct {
     int32_t fl[2];                 /* the rush's and the leaves' flutter walks, Q15 */
     int32_t gtgt, gcur, kr, kd;    /* gust/lull events: target, now (Q15 of U), rise and decay per block (Q16) */
     int32_t gmean;                 /* their running mean (Q15) */
+    uint32_t gn;                   /* blocks into that mean, to 4096 (its window grows from the start) */
     int32_t gcol;                  /* the last gust's colour, Q16 octaves */
     uint32_t clu;                  /* blocks the gusts stay clustered */
     int32_t env;                   /* the key's envelope, Q15 */

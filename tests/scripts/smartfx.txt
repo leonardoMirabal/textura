@@ -76,7 +76,8 @@
 8900 expect state saving 0
 8900 expect state scene U02_REED_REEF
 # ALWAYS: U01 from U02, only the MAKE-UP differs: the level falls ~12 dB over the glide (MAKE-UP 80 .. 0 in 500 ms
-# from the load: 42 half way), never in a step (no 2.9 ms window falls more than the sound's own ~2.6 dB)
+# from the load: 42 half way), never in a step (no 2.9 ms window falls more than the sound's own: up to ~4.2 dB in
+# this stretch with no load at all; the glide's own share is ~0.1 dB a window, a step would be ~15 dB)
 9000 turn 6 1
 9005 btn 2
 9010 expect state bropt 1
@@ -88,7 +89,7 @@
 9400 midi 0xC0 100 0
 9650 expect state p41F 42
 9650 expect state glides 5
-10100 expect drop < 3.5 700
+10100 expect drop < 5.5 700
 10100 expect rms < -24
 10100 expect state glides 0
 10100 expect state p41F 0

@@ -254,7 +254,10 @@ static void sc_sync(uint32_t k)
         ln_gen_param(k, TX_GEN_ACTIVITY, (uint32_t)w); sc.a_act[k] = (int16_t)w;
     }
     if ((uint8_t)!src != sc.a_mute[k]) { ln_gen_mute(k, !src); sc.a_mute[k] = (uint8_t)!src; }   /* a classic engine: no notes */
-    if (gen != sc.a_gen[k]) { ln_gen_on(k, (uint32_t)gen, tx_seed() | 1u); sc.a_gen[k] = (uint8_t)gen; }
+    if (gen != sc.a_gen[k]) {                   /* (on: a new walk, and its first note soon: TX_GEN_START) */
+        ln_gen_on(k, (uint32_t)gen, tx_seed() | 1u); sc.a_gen[k] = (uint8_t)gen;
+        if (gen) ln_gen_param(k, TX_GEN_START, 0);
+    }
     if (src && !sc.notes[k] && sc.run[k]) {     /* Notes off: the fader is the source's activity itself */
         int id = ln_act_id(sc.src);
         if (id >= 0) ln_param(k, (uint32_t)id, sc_act_val(sc.step[k]));
@@ -263,13 +266,19 @@ static void sc_sync(uint32_t k)
     if (held != sc.a_held[k]) { sc_keys(k, held); sc.a_held[k] = (uint8_t)held; }
 }
 
-/* ---- a classic engine's activity: its QUICK parameters glide toward the place HOW MANY and HOW ACTIVE give */
+/* ---- a classic engine's activity: its QUICK parameters glide toward the place HOW MANY and HOW ACTIVE give. HOW MANY
+ * alone takes it half way (c / 2 at the rarest HOW ACTIVE, as before); HOW ACTIVE then takes it the rest of the way to
+ * the top from wherever HOW MANY left it: x = 1 - (1 - c / 2) (1 - a). So every HOW ACTIVE step moves a classic lane at
+ * every HOW MANY, the busiest step reaching the sound's top (its C6) at any HOW MANY, and the rarest step stays as it was
+ * (the quiet start). (Before, a + c / 2 with a at most 0.5: at HOW MANY 1 the busiest step was a quarter of the way up the
+ * press rate's curve, and the rain stick, the thunder, the spring echo hardly moved with HOW ACTIVE.) */
 static uint32_t sc_quick_pos(uint32_t k)        /* 0 .. 65536 */
 {
     uint32_t c = sc.cnt[k] > 1u ? (sc.cnt[k] - 1u) * 65536u / (LS_NCNT - 2u) : 0u, a, x;
-    if (sc.notes[k]) a = (uint32_t)ln_gen_activity(k) * 65536u / 254u;   /* the generator's wander (/ 127, x 0.5) */
-    else a = sc.step[k] * 65536u / (2u * SC_STEPS);
-    x = c / 2u + a;
+    if (sc.notes[k]) a = (uint32_t)ln_gen_activity(k) * 65536u / 127u;   /* the generator's wander (0 .. 127) */
+    else a = sc.step[k] > 1u ? (sc.step[k] - 1u) * 65536u / (SC_STEPS - 1u) : 0u;
+    if (a > 65536u) a = 65536u;
+    x = 65536u - (((65536u - c / 2u) >> 1) * ((65536u - a) >> 1) >> 14);   /* (Q15 x Q15: 32 bits) */
     if (x > 65536u) x = 65536u;
     if (sc.q[k] && sc.q[k]->lin)                /* the sound's own measured curve: the place on its path */
         x = ((uint32_t)tx_lin_tab(LS_LIN[sc.q[k]->lin - 1u], (int32_t)((x * 127u) >> 8)) << 8) / 127u;

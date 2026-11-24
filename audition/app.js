@@ -896,7 +896,8 @@ function pidOf(k, name) {                             // a parameter id of layer
 }
 function quickPos(k) {                               // a classic engine has no population: how many and how active
   const c = laneMode ? Math.max(0, laneCnt[k] - 1) / (NCNT - 2) : 1;   // together move its density, 0 .. 1
-  const x = laneMode ? Math.min(1, 0.5 * c + 0.5 * quick[k].step / 14) : quick[k].step / 14, q = QUICK[engName(k)];
+  // (lane mode: HOW MANY takes it half way, HOW ACTIVE the rest from there: firmware/src/scape.c sc_quick_pos)
+  const x = laneMode ? Math.min(1, 1 - (1 - 0.5 * c) * (1 - Math.min(1, quick[k].step / 14))) : quick[k].step / 14, q = QUICK[engName(k)];
   return q && q.lin ? linTab(q.lin, x * 127) / 127 : x;
 }
 function linTab(t, u) {                              // a measured curve (tx_core_lin.h tx_lin_tab): the place at u = 0, 8 .. 120, 127

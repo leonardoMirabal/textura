@@ -397,6 +397,7 @@ EMSCRIPTEN_KEEPALIVE void txw_gen_on(int k, int on, unsigned seed)
         unsigned ne = tx_gen_stop(&gens[k], ev, TX_GEN_OFFS), q;
         for (q = 0; q < ne; q++) mixer.e[k]->key(mixer.st[k], ev[q].note, 0, 0);
     }
+    if (on && !gen_on[k]) tx_gen_param(&gens[k], TX_GEN_START, 0);   /* (its first note soon, as the firmware's lanes) */
     gen_on[k] = on != 0;
 }
 EMSCRIPTEN_KEEPALIVE void txw_gen_mute(int k, int m) { if (k >= 0 && k < (int)TX_MIX_SLOTS) gen_mute[k] = m != 0; }
