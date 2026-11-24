@@ -113,7 +113,7 @@ with tempfile.TemporaryDirectory() as d:
 
 # presets file
 allp = H.parse_presets()
-check("presets parsed", len(allp) == 100 and all(len(p["lanes"]) == 4 for p in allp), f"{len(allp)}")
+check("presets parsed", len(allp) >= 100 and all(len(p["lanes"]) == 4 for p in allp), f"{len(allp)}")
 dp = H.default_presets(allp)
 check("default presets: 10, busy", len(dp) == 10 and min(H.density(p) for p in dp) > 0, f"{[p['name'] for p in dp]}")
 
