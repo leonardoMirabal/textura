@@ -27,13 +27,15 @@
  * LANES, EFFECTS ON LOAD; the eight LFOs, the envelopes, the followers, the matrix and MOD CC; and the plugin's own
  * PRESET (F001 .. F100, a program change on channel 1); then, appended last, the M/S's MID, SIDE,
  * WIDTH (the sides after SIDE: its own, none of the three moves another) and MONO; then OUTPUT (HEADPHONES, the plugin's
- * default: the mix's binaural pan; SPEAKERS: its level pan), a setting: in the state, never a preset's nor the dice's.
+ * default: the mix's binaural pan; SPEAKERS: its level pan), its BINAURAL AMOUNT (0 .. 100 %, 100 at first) and HEAD
+ * SIZE (SMALL MEDIUM LARGE, MEDIUM at first), settings: in the state, never a preset's nor the dice's.
  * The FM-1's tempo, clock, screen and status settings are not host parameters: the host's tempo leads (step 6) when it
  * gives one.
  *
  * The state: what a user scene keeps (scenes.c scn_capture: the landscape, LANES, each lane's sound, HOW MANY, HOW
  * ACTIVE, level, pan, mute and cards, the effects, the modulation, GROOVE, the tempo), the scene loaded last, and the
- * settings that are parameters (the keys' SCALE, MIDI IN, EFFECTS ON LOAD, PRESETS CHANGE TEMPO, OUTPUT). Loaded, it is
+ * settings that are parameters (the keys' SCALE, MIDI IN, EFFECTS ON LOAD, PRESETS CHANGE TEMPO, OUTPUT and its binaural
+ * AMOUNT and HEAD SIZE). Loaded, it is
  * applied as a scene with its effects (scn_apply, scn_fx_force); outside processing the slot runs until the load is
  * done (sb_settle), so the values read back at once are the state's. Nothing is written to disk: the user scenes
  * U01 .. U16 (the window's SAVE: scenes.c scn_save_start, as the FM-1's save mode) live in the slot's flash window
@@ -68,7 +70,7 @@
 #define SB_HOST_RING 64u                 /* web_hal.c's mq[] */
 #define SB_PUB_EVERY 8u                  /* steps between two publications of the values */
 #define SB_SETTLE_MS 6000u               /* sb_settle's longest run (scenes.c SCN_STUCK_MS) */
-#define SB_NSET 25u                      /* the settings in the state */
+#define SB_NSET 27u                      /* the settings in the state */
 #define SB_SCN_HEX (2u * sizeof(scn_t))
 #define SB_SCN_V1_HEX (2u * sizeof(scn_v1_t))   /* (a state of before: the FM-1's four-lane scene record) */
 #define SB_USER_HEX (SCN_NU * 2u * sizeof(scn_t))   /* the user scenes, all sixteen saved */
@@ -80,8 +82,9 @@ static const uint8_t SB_SET_IDX[SB_NSET] = { PG_SCNFX, PG_SCNTEMPO, PG_SCMODE, P
                                              PG_LCH0, PG_LCH0 + 1, PG_LCH0 + 2, PG_LCH0 + 3,
                                              PG_LCH4, PG_LCH4 + 1, PG_LCH4 + 2, PG_LCH4 + 3, PG_LCH4 + 4, PG_LCH4 + 5,
                                              PG_LCH4 + 6, PG_LCH4 + 7, PG_LCH4 + 8, PG_LCH4 + 9, PG_LCH4 + 10,
-                                             PG_LCH4 + 11, PG_CHG, PG_OUTPUT };   /* (OUTPUT appended: a state of
-                                          * before has none, the plugin's default stays) */
+                                             PG_LCH4 + 11, PG_CHG, PG_OUTPUT, PG_BINAMT, PG_BINHEAD };   /* (OUTPUT, then
+                                          * its binaural AMOUNT and HEAD SIZE appended: a state of before has none,
+                                          * the plugin's defaults stay) */
 typedef char sb_set_lanes[SC_N == 16u ? 1 : -1];   /* (SB_SET_IDX names sixteen lanes' channels) */
 
 static struct {
@@ -216,8 +219,8 @@ static void sb_tab_make(void)
                                          * GROOVE PART / CYCLE, and p_set would write past pv_glob) */
         uint32_t id = PID(P_GLOBAL, i);
         const char *m, *px;
-        if (sb_glob_hidden(i) || PG_IS_MS(i) || i == PG_OUTPUT || !(p_fx_desc(id) || p_gx(id))) continue;   /* (the M/S,
-                                          * OUTPUT: last, below) */
+        if (sb_glob_hidden(i) || PG_IS_MS(i) || i == PG_OUTPUT || i == PG_BINAMT || i == PG_BINHEAD ||
+            !(p_fx_desc(id) || p_gx(id))) continue;   /* (the M/S, OUTPUT and its binaural settings: last, below) */
         if (i < PG_REVERB0) { m = "Grain delay"; px = "GRAIN "; }
         else if (i < PG_COMP0) { m = "Reverb"; px = "REVERB "; }
         else if (i < PG_BPM) { m = "Compressor"; px = "COMP "; }
@@ -255,6 +258,9 @@ static void sb_tab_make(void)
         sb_tab_add(PID(P_GLOBAL, i), (uint32_t)p_hi(PID(P_GLOBAL, i)), 0, p_kind(PID(P_GLOBAL, i)) != PK_AMOUNT, "M/S", "M/S ",
                    p_lab(PID(P_GLOBAL, i)));
     sb_tab_add(PID(P_GLOBAL, PG_OUTPUT), 1u, 0, 1, "Output", "", "OUTPUT");   /* (appended after the M/S: no id moves) */
+    sb_tab_add(PID(P_GLOBAL, PG_BINAMT), 100u, 0, 0, "Output", "", p_lab(PID(P_GLOBAL, PG_BINAMT)));   /* (then OUTPUT's */
+    sb_tab_add(PID(P_GLOBAL, PG_BINHEAD), TX_MIX_HEAD_N - 1u, 0, 1, "Output", "", p_lab(PID(P_GLOBAL, PG_BINHEAD)));   /* binaural
+                                          * AMOUNT and HEAD SIZE, appended after it) */
 }
 static uint32_t sb_params(txp_param_t *tab, uint32_t max)
 {

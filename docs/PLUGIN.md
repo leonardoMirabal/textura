@@ -188,7 +188,10 @@ change from anywhere else (a preset, the host) forgets them.
 - **Strip** (bottom), the EFFECTS zone: darker and cooler (`C_FX`, sections `C_FXSEC`, MOVEMENT's `C_FXMOV`), a 4 px
   dark gap over it and a 20 px band (EFFECTS · THE WHOLE MIX, AFTER ALL LANES, LEFT TO RIGHT; `FX_GAP`, `FX_BAND`,
   taken from the strip's own 148 px, so nothing above it moves; at its right end OUTPUT, `out_switch`: its name and a
-  switch reading HEADPHONES or SPEAKERS in full, sized by the wider word, a click the other), a small › between COMP .. M/S; COMP, DRIVE, FILTER,
+  switch reading HEADPHONES or SPEAKERS in full, sized by the wider word, a click the other; its arrow, `TXG_W_BINMENU`,
+  opens BINAURAL's panel, `draw_bin`, `OV_BIN`: OUTPUT, AMOUNT's slider, HEAD SIZE, two lines of help, over the strip's
+  right end, a click outside closes it; SETTINGS has the same three in its BINAURAL group, the last column's top, over
+  SOURCE COLOURS), a small › between COMP .. M/S; COMP, DRIVE, FILTER,
   DELAY, REVERB, M/S in the mix's order, each with its picture (COMP's meters:
   IN, OUT and GR read off the app's compressor every app block, `tx_comp_t` `ef` / `es`, `g`, `gr`, their most since
   the last publication, with a VU's ballistics in `txg_tick`; the expanded COMP adds its curve), drive curve, the filter's response with HIGH PASS then LOW PASS marked, the echoes, the tail) and its main values;
@@ -215,8 +218,9 @@ change from anywhere else (a preset, the host) forgets them.
   preset's lanes and plan; **LOAD** loads it the FM-1's way. EFFECTS ON LOAD and PRESETS CHANGE TEMPO under it.
 - **SETTINGS**: MIDI IN (each lane's channel; FX CHANNEL; SELECTED CH; MOD CC; **KEYS**: PLAY or FM-1 KEYS), SCALE
   (MODE, SCALE, ROOT, TRANSPOSE), TIMING (the app's tempo, a BPM and a 0.1 BPM step, the host's leading; GROOVE, its
-  AMOUNT and SHIFT), LOADING (EFFECTS ON LOAD, PRESETS CHANGE TEMPO, LANES), WINDOW (SIZE 100 .. 200 %, the view) and
-  SOURCE COLOURS.
+  AMOUNT and SHIFT), LOADING (EFFECTS ON LOAD, PRESETS CHANGE TEMPO, LANES), WINDOW (SIZE 100 .. 200 %, the view),
+  BINAURAL (OUTPUT, its AMOUNT, HEAD SIZE: the last column's top) and SOURCE COLOURS under it (in two columns, closer,
+  when the sources would not fit in one).
 - **KEYS** (a plugin parameter, `MIDI KEYS`, 0x10001, not automatable): **PLAY** (default) leaves SELECTED CH's notes
   to the app (`nt_midi`: the selected lane plays them as sent). **FM-1 KEYS** takes F3 .. G5 on SELECTED CH as the
   FM-1's 27 keys (`fm1_in.notes`, read by `nt_poll` in its LANDSCAPE mode): black groups select lanes 1 .. 4 (held
@@ -239,7 +243,7 @@ licence goes into every bundle's `Contents/Resources` (Windows / Linux: next to 
 
 ## Parameters
 
-484 host parameters, by the app's own stable ids, so automation stays put across versions. An id is the
+486 host parameters, by the app's own stable ids, so automation stays put across versions. An id is the
 scope times 256 plus the index (`firmware/src/params.c`): lanes 1 .. 4 are scopes 0 .. 3, the FM-1's own; lanes
 5 .. 16 are scopes 16 .. 27 (ids 0x1000 .. 0x1BFF). The new globals take indices after the FM-1's (LANE 5 .. 16
 CHANNEL 68 .. 79, FX CHANNEL 80, LANES 81). No FM-1 id moved, so NRPN numbers and FM-1 scenes stay valid.
@@ -257,10 +261,15 @@ CHANNEL 68 .. 79, FX CHANNEL 80, LANES 81). No FM-1 id moved, so NRPN numbers an
   lane 1 .. 4 or ALL LANES, as on the FM-1; ALL LANES reaches lanes 5 .. 16 too.
 - **M/S**, appended (0x460 .. 0x463): MID, SIDE, WIDTH (0 .. 100: 0 .. 200 %, 50 = 100 %; the sides' gain after
   SIDE, its own: none of the three moves another) and MONO.
-- **OUTPUT**, appended last (0x42D, group Output): 0 SPEAKERS, 1 HEADPHONES (the plugin's default; the FM-1's is
+- **OUTPUT**, appended (0x42D, group Output): 0 SPEAKERS, 1 HEADPHONES (the plugin's default; the FM-1's is
   SPEAKERS). How the mix pans its lanes: HEADPHONES places each lane by the delay between the ears and the head's
   shadow (the far ear later and darker), for headphones; SPEAKERS by level alone, for speakers and mixers. At the
   centre the two are the same. A setting, not a sound: in the state, never a scene's, never rolled by the dice.
+- **BINAURAL AMOUNT** and **HEAD SIZE**, appended last (0x42E, 0x42F, group Output): HEADPHONES' binaural placing,
+  0 .. 100 % of its cues (the far ear's delay, its shadow, the level softening; 100 the default, 0 as SPEAKERS bit for
+  bit) and the head it is worked out for, 0 SMALL, 1 MEDIUM (the default), 2 LARGE (a spherical head of radius 7.6,
+  8.8, 10.0 cm: the far ear up to 25, 29, 33 samples late at 44.1 kHz, its shadow from 2.08, 1.8, 1.58 kHz). Settings,
+  as OUTPUT: in the state, never a scene's, never rolled.
 
 The FM-1's tempo, clock, screen and status settings are not host parameters.
 
@@ -272,8 +281,8 @@ together with the ENGINE change is replaced by the new engine's default (as on t
 
 A host project keeps what a user scene keeps (the landscape, each lane's engine, HOW MANY, HOW ACTIVE, level, pan,
 mute and cards, the effects, the modulation, the groove, the tempo), the scene loaded last, and the settings that are
-parameters (scale, MIDI IN, EFFECTS ON LOAD, PRESETS CHANGE TEMPO, OUTPUT; a state saved before OUTPUT leaves it at
-HEADPHONES). It loads as a scene with its effects. Nothing is
+parameters (scale, MIDI IN, EFFECTS ON LOAD, PRESETS CHANGE TEMPO, OUTPUT, BINAURAL AMOUNT, HEAD SIZE; a state saved
+before them leaves HEADPHONES, 100 %, MEDIUM). It loads as a scene with its effects. Nothing is
 written to disk by the plugin: the user scene bank (U01 .. U16, the window's SAVE) is kept in the state.
 
 The state is version 2: the scene record of this build, 2040 bytes with its lane count and all 16 lanes. A project
@@ -317,6 +326,10 @@ is about 15 MB for the 16); more play silence and say so in the host's log.
   `plugin/tests/fixtures/state_v1.json`) loads into the 16-lane instance (lanes, effects, records, settings); also
   for instances never activated, every parameter set at random by a flush. OUTPUT: HEADPHONES at the start; set to
   SPEAKERS it stays through a preset's load and comes back from the state; a state without it leaves HEADPHONES.
+  BINAURAL AMOUNT and HEAD SIZE the same: 100 and MEDIUM at the start, set to 40 and LARGE they stay through the load
+  and come back from the state; a state without them leaves the defaults. gui4's second run opens BINAURAL's panel
+  (OUTPUT's arrow), sets its HEAD SIZE, drags its AMOUNT, switches its OUTPUT, closes it by a click outside; the dice
+  leave them; SETTINGS' BINAURAL sets them too; every text of the panel in its room.
 - **cpu**: the time per 512-frame process call at 48 kHz for heavy 4-lane scenes and for 16 heavy lanes (the heavy
   presets' lanes in one state), printed, not judged. On an Apple M-series machine: 4 heavy lanes about 110 .. 130 us
   a call on average (1.0 .. 1.2 % of the 10.7 ms the call has), 16 heavy lanes about 280 us (2.6 %), the worst call

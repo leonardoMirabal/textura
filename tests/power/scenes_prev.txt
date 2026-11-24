@@ -1,7 +1,10 @@
 # the power cycle, run 6: the settings record as a firmware before OUTPUT wrote it (settings_old.py 24: its first 24
-# bytes): everything loads as saved (power2's), OUTPUT at its default, SPEAKERS (run 1 set HEADPHONES)
+# bytes): everything loads as saved (power2's), OUTPUT and its binaural AMOUNT and HEAD SIZE at their defaults,
+# SPEAKERS, 100 %, MEDIUM (run 1 set HEADPHONES, 95 %, SMALL)
 1700 expect state palette PEACH
 1700 expect state p42D 0
+1700 expect state p42E 100
+1700 expect state p42F 1
 1700 expect state scene U05_COLD_HAIL
 1700 expect state bpm10 1390
 1700 expect state p43B 2

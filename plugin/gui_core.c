@@ -93,7 +93,8 @@ static const char *const PAL_N[TXP_COL_N] = { "BONE", "EMBER", "AMBER", "SAND", 
 #define MAX_W 900
 #define LIST_MAX 128
 
-enum { OV_NONE, OV_SET, OV_SND, OV_PRE, OV_FX, OV_SAVE, OV_RND };   /* (OV_RND: the top bar's dice's arrow, RANDOM's list) */
+enum { OV_NONE, OV_SET, OV_SND, OV_PRE, OV_FX, OV_SAVE, OV_RND, OV_BIN };   /* (OV_RND: the top bar's dice's arrow, RANDOM's
+                                          * list; OV_BIN: OUTPUT's arrow, BINAURAL's panel) */
 enum { PB_USER = 100, PB_LAND = 101 };   /* the presets browser's banks past the factory's categories */
 /* the strip's sections, in signal order (the expanded view's tabs: these, LFO 1 .. 8, ENV and FOLLOW, the matrix) */
 enum { SEC_COMP, SEC_DRIVE, SEC_FILTER, SEC_DELAY, SEC_REVERB, SEC_MS, SEC_MOVE, SEC_N };
@@ -126,6 +127,8 @@ static const float SEC_WT[SEC_N] = { 1.f, 1.f, 1.6f, 1.f, 1.f, 1.f, 1.3f };
 #define ID_MSWIDTH G_ID(TXP_PG_MSWIDTH)
 #define ID_MSMONO G_ID(TXP_PG_MSMONO)
 #define ID_OUTPUT G_ID(TXP_PG_OUTPUT)     /* OUTPUT: 0 SPEAKERS, 1 HEADPHONES (the band's right end: out_switch) */
+#define ID_BINAMT G_ID(TXP_PG_BINAMT)     /* its BINAURAL AMOUNT, 0 .. 100 %, and HEAD SIZE (BINAURAL's panel: draw_bin; */
+#define ID_BINHEAD G_ID(TXP_PG_BINHEAD)   /* SETTINGS' BINAURAL) */
 #define MS_0DB 115                       /* MID / SIDE: 0 dB */
 #define MS_W100 50                       /* WIDTH: 100 % */
 #define GON_H 8                          /* the goniometer's persistence: the last blocks of points it shows */
@@ -2304,23 +2307,110 @@ static void src_well(txg_t *g, frui_canvas *c, int src, float x, float y, float 
     grip(g, c, src, x + 8.f, y + 8.f, 20.f);
     lfo_trace(g, c, src_row(src), x + 38.f, y + 6.f, w - 48.f, h - 12.f, src_links(g, src) ? C_RED : C_DIM);
 }
-/* OUTPUT at the band's right end, where the mix leaves: its name and a switch with the mode in full, HEADPHONES (lit:
- * the binaural pan) or SPEAKERS (the level pan), sized by the wider word so it never moves, its right edge on the last
- * section's ALL; a click on either: the other. Returns its left edge */
+static int wrap_lines(txg_t *g, float w, const char *s, float lh, float sz);
+/* BINAURAL's texts (SETTINGS' section, OUTPUT's panel: draw_bin) and OUTPUT's names there */
+static const char BIN_WHY[] = "For headphones: each lane placed around your head. Kept, never in presets.";
+static const char BIN_SPK[] = "Speakers: level panning, for speakers and mixers. Also: OUTPUT at the end of the EFFECTS band.";
+static const char BIN_HOW[] = "Each lane placed around your head by the delay between the ears and the head's shadow.";
+static const char BIN_KEPT[] = "Kept with the plugin: presets and dice never change it.";
+static const char *const BIN_OUT_N[2] = { "SPEAKERS", "HEADPHONES (BINAURAL)" };
+/* OUTPUT at the band's right end, where the mix leaves: its name and a split switch (as the top bar's dice): the mode in
+ * full, HEADPHONES (lit: the binaural pan) or SPEAKERS (the level pan), sized by the wider word so it never moves, a click
+ * the other; then its arrow, BINAURAL's panel (draw_bin), its right edge on the last section's ALL. Returns its left
+ * edge */
+#define OUT_AW 18.f                      /* (the arrow's part) */
 static float out_switch(txg_t *g, frui_canvas *c, float y, float h, float by)
 {
-    int hp = txp_ui_get(g->c, ID_OUTPUT) > 0;
+    int hp = txp_ui_get(g->c, ID_OUTPUT) > 0, on = g->ov == OV_BIN, hm = g->hover_kind == TXG_W_BINMENU;
     const char *t = hp ? "HEADPHONES" : "SPEAKERS";
     float sw = fmaxf(LBLW(g, 9.f, "HEADPHONES"), LBLW(g, 9.f, "SPEAKERS")) + 16.f, sh = 16.f;
-    float sx = g->W - 16.f - sw, sy = y + (h - sh) * 0.5f, lx = sx - 8.f - LBLW(g, 9.f, "OUTPUT");
+    float sx = g->W - 16.f - OUT_AW - sw, sy = y + (h - sh) * 0.5f, lx = sx - 8.f - LBLW(g, 9.f, "OUTPUT"), ax = sx + sw;
+    float ac = ax + OUT_AW * 0.5f, ay = sy + sh * 0.5f;
     int hot = g->hover_kind == TXG_W_PARAM && g->hover_lane == (int)ID_OUTPUT;
     LBL(g, c, lx, by, 9.f, hot ? C_INK : C_FXHD, "OUTPUT");
-    RR(g, c, sx, sy, sw, sh, 2.f, hp ? C_FXSEG : C_FX); RRS(g, c, sx, sy, sw, sh, 2.f, hot ? C_DIM : C_FXLINE);
+    RR(g, c, sx, sy, sw + OUT_AW, sh, 2.f, C_FX);
+    if (hp) RR(g, c, sx, sy, sw, sh, 2.f, C_FXSEG);
+    if (on || hm) RR(g, c, ax, sy, OUT_AW, sh, 2.f, C_FXSEG);
+    RRS(g, c, sx, sy, sw + OUT_AW, sh, 2.f, hot || on || hm ? C_DIM : C_FXLINE);
+    R(g, c, ax, sy + 3.f, 1.f, sh - 6.f, C_FXLINE);
     if (hp) R(g, c, sx + 3.f, sy + sh - 2.f, sw - 6.f, 1.f, C_RED);
     LBL(g, c, sx + (sw - LBLW(g, 9.f, t)) * 0.5f, sy + sh * 0.5f + CAP(g, 9.f) * 0.5f, 9.f, C_INK, t);
-    wid_add2(g, TXG_W_PARAM, (int)ID_OUTPUT, ID_OUTPUT, 0, lx - 6.f, sy, g->W - 16.f - (lx - 6.f), sh);
+    LN(g, c, ac - 3.f, ay - 1.5f, ac, ay + 1.5f, 1.3f, on ? C_RED : hm ? C_INK : C_DIM);
+    LN(g, c, ac, ay + 1.5f, ac + 3.f, ay - 1.5f, 1.3f, on ? C_RED : hm ? C_INK : C_DIM);
+    wid_add2(g, TXG_W_PARAM, (int)ID_OUTPUT, ID_OUTPUT, 0, lx - 6.f, sy, ax - (lx - 6.f), sh);
+    wid_add(g, TXG_W_BINMENU, -1, ax, sy, OUT_AW, sh);
     ZFIT(sh + 2.f <= h);
     return lx - 6.f;
+}
+/* BINAURAL's panel, over the strip from OUTPUT's arrow (a click outside closes it): OUTPUT, AMOUNT (a slider and its
+ * %), HEAD SIZE, then what binaural does and that it is kept. Every text measured in its room (zone_fit) */
+static float bin_segs_w(txg_t *g, uint32_t id, const char *const *nm)   /* a row of choices' width */
+{
+    float w = -6.f;
+    for (int i = 0; i <= txp_ui_hi(id); i++) {
+        char t[32];
+        if (nm) snprintf(t, sizeof t, "%s", nm[i]); else ptext(id, i, t, sizeof t);
+        w += LBLW(g, 10.5f, t) + 20.f + 6.f;
+    }
+    return w;
+}
+static void bin_segs(txg_t *g, frui_canvas *c, float x, float y, float xr, uint32_t id, const char *const *nm)
+{
+    int hi = txp_ui_hi(id), v = txp_ui_get(g->c, id);
+    for (int i = 0; i <= hi; i++) {
+        char t[32];
+        float w;
+        if (nm) snprintf(t, sizeof t, "%s", nm[i]); else ptext(id, i, t, sizeof t);
+        w = LBLW(g, 10.5f, t) + 20.f;
+        RR(g, c, x, y, w, 26.f, 2.f, i == v ? C_REDBG : C_SEG);
+        RRS(g, c, x, y, w, 26.f, 2.f, i == v ? C_RED : C_FAINT);
+        LBL(g, c, x + 10.f, y + 13.f + CAP(g, 10.5f) * 0.5f, 10.5f, i == v ? C_INK : C_DIM, t);
+        wid_add2(g, TXG_W_SEG, (int)(id & 0xFFFFu) << 8 | i, id, i, x, y, w, 26.f);
+        x += w + 6.f;
+    }
+    ZFIT(x - 6.f <= xr);
+}
+static int bin_own(const wid_t *w)       /* a control of BINAURAL's panel (its OUTPUT, AMOUNT, HEAD SIZE) */
+{
+    return (w->kind == TXG_W_SEG && (w->id == ID_OUTPUT || w->id == ID_BINHEAD)) || (w->kind == TXG_W_PARAM && w->id == ID_BINAMT);
+}
+static void draw_bin(txg_t *g, frui_canvas *c)
+{
+    static const char *const ON[2] = { "SPEAKERS", "HEADPHONES" };
+    const float pad = 16.f, cx = pad + LBLW(g, 10.5f, "HEAD SIZE") + 20.f, lh = 16.f;
+    const float BIN_W = fmaxf(330.f, cx + fmaxf(bin_segs_w(g, ID_OUTPUT, ON), bin_segs_w(g, ID_BINHEAD, 0)) + pad), iw = BIN_W - 2.f * pad;
+    int nh = wrap_lines(g, iw, BIN_HOW, lh, 11.5f), nk = wrap_lines(g, iw, BIN_KEPT, lh, 11.5f), v = txp_ui_get(g->c, ID_BINAMT);
+    float h = pad + 18.f + 22.f + 26.f + 22.f + 26.f + 22.f + 26.f + 18.f + lh * (float)(nh + nk) + pad - 6.f;
+    float x = g->W - 16.f - BIN_W, y = g->fx_y + FX_GAP - 6.f - h, yy, tx, f;
+    char t[16];
+    wid_add(g, TXG_W_PICKER, -5, x, y, BIN_W, h);
+    frui_rrect_shadow(c, x * g->S, y * g->S, BIN_W * g->S, h * g->S, 6.f * g->S, 16.f * g->S, 0xAA000000u);
+    RR(g, c, x, y, BIN_W, h, 6.f, C_MENU); RRS(g, c, x, y, BIN_W, h, 6.f, 0xFF34312Fu);
+    yy = y + pad + CAP(g, 14.f);
+    tx = TX(g, c, x + pad, yy, 14.f, 700.f, 1.f, 0, C_RED, "BINAURAL");
+    tx += TX(g, c, x + pad + tx + 10.f, yy, 12.f, 600.f, 0.f, 0, C_DIM, "\xC2\xB7 HOW YOU LISTEN") + 10.f;
+    ZFIT(pad + tx <= BIN_W - pad);
+    yy = y + pad + 18.f + 22.f;
+    LBL(g, c, x + pad, yy + 13.f + CAP(g, 10.5f) * 0.5f, 10.5f, C_DIM, "OUTPUT");
+    bin_segs(g, c, x + cx, yy, x + BIN_W - pad, ID_OUTPUT, ON);
+    yy += 26.f + 22.f;
+    snprintf(t, sizeof t, "%d %%", v);
+    LBL(g, c, x + pad, yy + 13.f + CAP(g, 10.5f) * 0.5f, 10.5f, C_DIM, "AMOUNT");
+    TX(g, c, x + BIN_W - pad - TW(g, 11.5f, 600.f, 0.f, FRUI_TNUM, t), yy + 6.f + CAP(g, 11.5f) * 0.5f, 11.5f, 600.f, 0.f,
+       FRUI_TNUM, C_INK, t);
+    f = (float)(v < 0 ? 0 : v > 100 ? 100 : v) / 100.f;
+    R(g, c, x + cx, yy + 19.f, iw + pad - cx, 3.f, C_FAINT);
+    R(g, c, x + cx, yy + 19.f, (iw + pad - cx) * f, 3.f, C_RED);
+    R(g, c, x + cx + (iw + pad - cx) * f - 4.f, yy + 13.f, 8.f, 15.f, C_INK);
+    wid_add2(g, TXG_W_PARAM, (int)ID_BINAMT, ID_BINAMT, 0, x + cx - 4.f, yy, iw + pad - cx + 8.f, 26.f);
+    wid_track(g, x + cx, iw + pad - cx);
+    yy += 26.f + 22.f;
+    LBL(g, c, x + pad, yy + 13.f + CAP(g, 10.5f) * 0.5f, 10.5f, C_DIM, "HEAD SIZE");
+    bin_segs(g, c, x + cx, yy, x + BIN_W - pad, ID_BINHEAD, 0);
+    yy += 26.f + 18.f + CAP(g, 11.5f);
+    (void)wrapn(g, c, x + pad, yy, iw, BIN_HOW, nh, lh, 11.5f, C_DIM);
+    (void)wrapn(g, c, x + pad, yy + lh * (float)nh, iw, BIN_KEPT, nk, lh, 11.5f, C_FAINT + 0x00303030u);
+    ZFIT(y >= TOP_H);
 }
 /* the strip, the EFFECTS zone: the whole mix, after all lanes, darker and cooler than SOUND; a dark gap over it, its band
  * (what it is; OUTPUT at its right end: out_switch), then its sections, each on its own ground, a small arrow between
@@ -2679,25 +2769,37 @@ static void pb_code(const txg_t *g, int v, char *code, size_t nc, char *name, si
         for (int k = 0; k < 4; k++) if (g->cat->prl[v][k].fi != 0xFF) (*lanes)++;
     }
 }
-static void seg_param(txg_t *g, frui_canvas *c, float x, float y, float wmax, uint32_t id, float *yo)   /* a choice's
-                                          * segments (wrapped to wmax) */
+static void seg_param_n(txg_t *g, frui_canvas *c, float x, float y, float wmax, uint32_t id, const char *const *nm, float *yo)   /* a
+                                          * choice's segments (wrapped to wmax; nm: their names, else the parameter's;
+                                          * their sides 7 px instead of 10 when that keeps them on one line) */
 {
     int hi = txp_ui_hi(id), v = txp_ui_get(g->c, id);
-    float xx = x, yy = y, h = 22.f;
+    float xx = x, yy = y, h = 22.f, tw = 0.f, sp = 10.f;
     for (int i = 0; i <= hi; i++) {
-        char t[24];
+        char t[32];
+        if (nm) snprintf(t, sizeof t, "%s", nm[i]); else ptext(id, i, t, sizeof t);
+        tw += LBLW(g, 10.5f, t) + 4.f;
+    }
+    if (tw - 4.f + 20.f * (float)(hi + 1) > wmax && tw - 4.f + 14.f * (float)(hi + 1) <= wmax) sp = 7.f;
+    for (int i = 0; i <= hi; i++) {
+        char t[32];
         float w;
-        ptext(id, i, t, sizeof t);
-        w = LBLW(g, 10.5f, t) + 20.f;
+        if (nm) snprintf(t, sizeof t, "%s", nm[i]); else ptext(id, i, t, sizeof t);
+        w = LBLW(g, 10.5f, t) + 2.f * sp;
+        ZFIT(w <= wmax);
         if (xx + w > x + wmax && xx > x) { xx = x; yy += h + 4.f; }
         RR(g, c, xx, yy, w, h, 2.f, i == v ? C_SEG : C_PANEL);
         RRS(g, c, xx, yy, w, h, 2.f, C_LINE);
         if (i == v) R(g, c, xx + 1.f, yy + h - 2.f, w - 2.f, 2.f, C_RED);
-        LBL(g, c, xx + 10.f, yy + h * 0.5f + CAP(g, 10.5f) * 0.5f, 10.5f, i == v ? C_INK : C_DIM, t);
+        LBL(g, c, xx + sp, yy + h * 0.5f + CAP(g, 10.5f) * 0.5f, 10.5f, i == v ? C_INK : C_DIM, t);
         wid_add2(g, TXG_W_SEG, (int)(id & 0xFFFFu) << 8 | i, id, i, xx, yy, w, h);
         xx += w + 4.f;
     }
     if (yo) *yo = yy + h;
+}
+static void seg_param(txg_t *g, frui_canvas *c, float x, float y, float wmax, uint32_t id, float *yo)
+{
+    seg_param_n(g, c, x, y, wmax, id, 0, yo);
 }
 static void draw_presets(txg_t *g, frui_canvas *c)
 {
@@ -2878,7 +2980,7 @@ static void draw_settings(txg_t *g, frui_canvas *c)
     TX(g, c, 18.f + TW(g, 17.f, 700.f, 2.4f, 0, "SETTINGS") + 24.f, TOP_H + 23.f + CAP(g, 11.f) * 0.5f, 11.f, 450.f, 0.3f, 0, C_DIM,
        "Saved with the project; MIDI, scale and loading are host parameters too");
     for (int i = 1; i < 4; i++) R(g, c, gw * (float)i, OV_Y0, 1.f, g->H - OV_Y0, C_LINE);
-    R(g, c, gw, OV_Y0 + gh, 2.f * gw, 1.f, C_LINE);
+    R(g, c, gw, OV_Y0 + gh, 3.f * gw, 1.f, C_LINE);
     /* MIDI IN (the whole first column) */
     x = pad; y = OV_Y0 + 8.f;
     group(g, c, x, y, "MIDI IN", "Each lane listens on its own channel.");
@@ -2969,26 +3071,53 @@ static void draw_settings(txg_t *g, frui_canvas *c)
         snprintf(t, sizeof t, "HQ build  \xC2\xB7  %d lanes  \xC2\xB7  any size: drag the corner", (int)TXP_LANES);
         TX(g, c, x, y + 11.f, 12.f, 450.f, 0.f, 0, C_DIM, t);
     }
-    /* SOURCE COLOURS: the sources the lanes run on (the whole last column) */
+    /* BINAURAL (the last column's top): OUTPUT, its AMOUNT and HEAD SIZE, how you listen */
     x = 3.f * gw + pad; y = OV_Y0 + 8.f;
+    {
+        int nw = wrap_lines(g, iw, BIN_WHY, 16.f, 12.f), ns = wrap_lines(g, iw, BIN_SPK, 16.f, 12.f);
+        TX(g, c, x, y + 20.f, 15.f, 700.f, 2.4f, 0, C_INK, "BINAURAL");
+        (void)wrapn(g, c, x, y + 40.f, iw, BIN_WHY, nw, 16.f, 12.f, C_DIM);
+        y += 40.f + 16.f * (float)(nw - 1) + 18.f;
+        LBL(g, c, x, y + 4.f, 10.5f, C_DIM, "OUTPUT");
+        seg_param_n(g, c, x, y + 12.f, iw, ID_OUTPUT, BIN_OUT_N, &y);
+        y += 10.f;
+        y = field(g, c, x, y, iw, "Amount", ID_BINAMT) + 10.f;
+        LBL(g, c, x, y + 4.f, 10.5f, C_DIM, "HEAD SIZE");
+        seg_param(g, c, x, y + 12.f, iw, ID_BINHEAD, &y);
+        (void)wrapn(g, c, x, y + 36.f, iw, BIN_SPK, ns, 16.f, 12.f, C_DIM);
+        y += 36.f + 16.f * (float)(ns - 1);
+        ZFIT(y + 8.f <= OV_Y0 + gh);
+    }
+    /* SOURCE COLOURS: the sources the lanes run on (the last column, under BINAURAL): a column of them, two when they
+     * would not fit in one, closer when even two would not */
+    x = 3.f * gw + pad; y = OV_Y0 + gh + 8.f;
     group(g, c, x, y, "SOURCE COLOURS", "Bone at first; a colour follows its source.");
     y += 56.f;
     {
-        int seen[TXP_ENG_MAX] = {0}, n = 0;
+        int seen[TXP_ENG_MAX] = {0}, es[16], n = 0, rows, cols;
+        float room = g->H - 44.f - 8.f - y, pitch = 24.f, cw;
         for (int k = 0; k < g->nlane && n < 16; k++) {
             int e = g->sn.ui.lane[k].eng;
-            float cy;
-            char en[24];
             if (!used(g, k) || e >= (int)TXP_ENG_MAX || seen[e]) continue;
             seen[e] = 1;
-            cy = y + 24.f * (float)n;
-            cap_name(en, g->cat->eng[e], sizeof en);
-            TX(g, c, x, cy + 10.f + CAP(g, 12.5f) * 0.5f, 12.5f, 450.f, 0.f, 0, C_INK, en);
-            CI(g, c, x + iw - 12.f, cy + 10.f, 6.f, eng_col(g, e));
-            RI(g, c, x + iw - 12.f, cy + 10.f, 8.5f, 1.f, g->pick == e ? C_INK : C_FAINT);
-            wid_add2(g, TXG_W_COLDOT, -1, (uint32_t)e, 0, x, cy, iw, 20.f);
-            n++;
+            es[n++] = e;
         }
+        cols = (float)n * pitch <= room + 4.f ? 1 : 2;
+        rows = (n + cols - 1) / cols;
+        if (rows > 0 && (float)rows * pitch > room + 4.f) pitch = fmaxf(18.f, (room + 4.f) / (float)rows);
+        cw = cols == 1 ? iw : (iw - 12.f) * 0.5f;
+        for (int i = 0; i < n; i++) {
+            int e = es[i], r = rows > 0 ? rows : 1;
+            float cx = x + (float)(i / r) * (cw + 12.f), cy = y + pitch * (float)(i % r);
+            char en[24];
+            cap_name(en, g->cat->eng[e], sizeof en);
+            TX(g, c, cx, cy + 10.f + CAP(g, 12.5f) * 0.5f, 12.5f, 450.f, 0.f, 0, C_INK, en);
+            ZFIT(TW(g, 12.5f, 450.f, 0.f, 0, en) + 30.f <= cw);
+            CI(g, c, cx + cw - 12.f, cy + 10.f, 6.f, eng_col(g, e));
+            RI(g, c, cx + cw - 12.f, cy + 10.f, 8.5f, 1.f, g->pick == e ? C_INK : C_FAINT);
+            wid_add2(g, TXG_W_COLDOT, -1, (uint32_t)e, 0, cx, cy, cw, 20.f);
+        }
+        ZFIT((float)rows * pitch <= room + 4.f);
         if (!n) TX(g, c, x, y + 14.f, 12.f, 450.f, 0.f, 0, C_DIM, "No lane has an engine.");
         y = g->H - 44.f;
         button(g, c, x, y, 170.f, 26.f, "RESET ALL TO BONE", 0);
@@ -3844,6 +3973,7 @@ static void draw_all(txg_t *g, frui_canvas *c)
         if (g->drag == TXG_W_GRIP && g->drag_moved) draw_ghost(g, c);
         if (g->ov == OV_SAVE) draw_save(g, c);
         if (g->ov == OV_RND) draw_rnd(g, c);
+        if (g->ov == OV_BIN) draw_bin(g, c);
                 if (g->menu_on) draw_menu(g, c);
     }
     hint_tip(g, c);
@@ -4032,7 +4162,8 @@ static int paint_into(txg_t *g, frui_canvas *c)
     } else if (moved && g->ov == OV_SND && g->pick < 0) {   /* (the engine browser: its preview's event line, meter) */
         region(g, c, g->W - OV_PREV + 1.f, OV_Y0, g->W, g->H);
         frui_clip_base(c, 0, 0, c->w, c->h);
-    } else if (moved && (g->ov == OV_NONE || g->ov == OV_SAVE || g->ov == OV_RND || g->ov == OV_FX) && g->pick < 0) {
+    } else if (moved && (g->ov == OV_NONE || g->ov == OV_SAVE || g->ov == OV_RND || g->ov == OV_BIN || g->ov == OV_FX) &&
+               g->pick < 0) {
         rcol_t rc = rcols(g);
         top_r_t tr = top_r(g);
         region(g, c, 0, g->ct, g->PW, g->dr_y);
@@ -4103,7 +4234,7 @@ static const wid_t *hit(const txg_t *g, float x, float y)   /* the last-drawn co
         }
         return best;
     }
-    if (g->pick >= 0 || g->ov == OV_SAVE || g->ov == OV_RND) {
+    if (g->pick >= 0 || g->ov == OV_SAVE || g->ov == OV_RND || g->ov == OV_BIN) {
         for (int i = g->nw - 1; i >= 0; i--) {
             const wid_t *w = &g->w[i];
             int panel = w->kind == TXG_W_PICKER;
@@ -4113,10 +4244,12 @@ static const wid_t *hit(const txg_t *g, float x, float y)   /* the last-drawn co
                                                         w->kind == TXG_W_NAMEDICE)) return w;
                 if (g->ov == OV_RND && g->pick < 0 && (w->kind == TXG_W_RNDTICK || w->kind == TXG_W_RNDGO ||
                                                        (w->kind == TXG_W_CLOSE && w->lane == -3))) return w;
+                if (g->ov == OV_BIN && g->pick < 0 && bin_own(w)) return w;
                 if (panel && !best) best = w;
             }
         }
-        if (best) return best;
+        if (best && (g->ov != OV_BIN || best->lane == -5)) return best;
+        best = 0;
         if (g->pick >= 0) return 0;
     }
     for (int i = 0; i < g->nw; i++) {
@@ -4439,7 +4572,7 @@ static int ov_key(txg_t *g, const frg_input *e)   /* the keys while an overlay i
         }
         return 0;
     }
-    if (g->ov == OV_SET || g->ov == OV_RND) return 0;
+    if (g->ov == OV_SET || g->ov == OV_RND || g->ov == OV_BIN) return 0;
     if (e->key == FRK_UP || e->key == FRK_DOWN) { list_move(g, e->key == FRK_UP ? -1 : 1); return 3; }
     if (e->key == FRK_PGUP || e->key == FRK_PGDN) { list_move(g, e->key == FRK_PGUP ? -10 : 10); return 3; }
     if ((e->key == FRK_LEFT || e->key == FRK_RIGHT) && !g->q[0]) {   /* the next family / bank */
@@ -4622,6 +4755,11 @@ static int input_(txg_t *g, const frg_input *e)
             g->ov = OV_NONE;
             if (w && w->kind == TXG_W_SAVE) return 3;
         }
+        if (g->ov == OV_BIN && (!w || !(bin_own(w) || (w->kind == TXG_W_PICKER && w->lane == -5)))) {   /* (outside
+                                          * BINAURAL's panel: it closes; on its arrow: closed) */
+            g->ov = OV_NONE;
+            if (w && w->kind == TXG_W_BINMENU) return 3;
+        }
         if (g->ov == OV_RND && (!w || (w->kind != TXG_W_RNDTICK && w->kind != TXG_W_RNDGO && w->kind != TXG_W_CLOSE &&
                                        !(w->kind == TXG_W_PICKER && w->lane == -3)))) {   /* (outside RANDOM's list: it
                                           * closes, but on the dice (a roll, the list kept); on the arrow: closed) */
@@ -4646,6 +4784,7 @@ static int input_(txg_t *g, const frg_input *e)
             break;
         case TXG_W_SAVE: if (g->ov == OV_SND) sb_close(g, 0); mode_set(g, 0); save_open(g); break;
         case TXG_W_RNDMENU: if (g->ov == OV_SND) sb_close(g, 0); mode_set(g, 0); g->ov = OV_RND; g->pick = -1; break;
+        case TXG_W_BINMENU: if (g->ov == OV_SND) sb_close(g, 0); mode_set(g, 0); g->ov = OV_BIN; g->pick = -1; break;
         case TXG_W_RNDTICK: if (k >= 0 && k < 4) txp_ui_dice_set(g->c, txp_ui_dice(g->c) ^ 1 << k); break;
         case TXG_W_HELP: txg_tour_start(g, 0); break;
         case TXG_W_RND: case TXG_W_RNDGO:

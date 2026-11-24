@@ -34,7 +34,7 @@ an electric piano for the same keyboard by the same author.
    [PERFORM](#perform), [COMPRESSOR](#compressor), [DRIVE](#drive), [FILTER](#filter), [the grain delay](#the-grain-delay-delay-delay-motion-grains-grain-tone),
    [REVERB](#reverb-reverb-space-shimmer), [M/S](#ms), [LFO](#lfo-lfo-phase-lfo-level), [ENV and FOLLOW](#env-env-shape-and-follow),
    [MOD MATRIX](#mod-matrix), [GROOVE](#groove-and-groove-lanes), [TEMPO](#tempo), [SCALE](#scale),
-   [MIDI CLOCK](#midi-clock), [MIDI IN](#midi-in), [OUTPUT](#output), [DISPLAY](#display), [the sound browser](#the-sound-browser-sounds),
+   [MIDI CLOCK](#midi-clock), [MIDI IN](#midi-in), [BINAURAL](#binaural) (the OUTPUT page), [DISPLAY](#display), [the sound browser](#the-sound-browser-sounds),
    [the presets list](#the-presets-list-presets), [the save mode](#the-save-mode)
 5. [The sounds](#5-the-sounds): [all 103 at a glance](#all-103-sounds-at-a-glance), then each family and its engines
 6. [Presets, landscapes and scenes](#6-presets-landscapes-and-scenes): [RANDOM](#random)
@@ -695,19 +695,29 @@ The setup page: **HOME held** opens it, and GLO steps to it.
 | K1 to K4 | **LANE 1 to 4 CHANNEL** | The channel each lane listens on, for its notes and its CCs: OFF, 1 to 16 (lane n on channel n at first; two lanes on one channel both listen) |
 | ALGORITHM | **SELECTED CH** | The channel whose notes play the selected lane, whichever it is: OFF, 1 to 16 (1 at first) |
 
-### OUTPUT
+### BINAURAL
 
-![OUTPUT: SPEAKERS or HEADPHONES](manual/img/output.png)
+The **OUTPUT** page (GLO, after MIDI IN): how you listen. On headphones Textura places each sound binaurally, as your
+ears place a real one: a lane panned to one side reaches the far ear a little later and a little darker, the head's
+shadow, so the lanes stand apart around your head instead of inside it. It changes only how the lanes are placed, never
+the sounds. The three settings are kept by themselves: a preset, a scene or a roll of the dice never changes them,
+whatever EFFECTS ON LOAD says.
 
-How you listen. It changes how each lane is placed left to right, not the sounds. It is kept by itself: a preset, a
-scene or a roll of the dice never changes it, whatever EFFECTS ON LOAD says.
+![OUTPUT on HEADPHONES: AMOUNT and HEAD SIZE lit](manual/img/output-hp.png)
 
 | Knob | Card | What it does |
 | --- | --- | --- |
-| K1 | **OUTPUT** | **SPEAKERS** (the default): each lane is placed by its level in the left and right channels, for speakers and mixers. **HEADPHONES**: each lane is placed as your ears place a sound: it reaches the far ear a little later and a little darker, the head's shadow, so the lanes stand apart around your head. Listen on headphones with it; on speakers SPEAKERS is better. At the centre both are the same. |
+| K1 | **OUTPUT (BINAURAL)** | **SPEAKERS** (the default on the FM-1): each lane placed by its level in the left and right channels alone, for speakers and mixers. **HEADPHONES**: each lane placed binaurally, for headphones. At the centre both are the same. |
+| K2 | **BINAURAL AMOUNT** | How much of the binaural placing: 0 to 100 % (100 % at first). Less brings the far ear's delay, its shadow and the level difference back toward plain level panning; at 0 % HEADPHONES sounds exactly as SPEAKERS. |
+| K3 | **HEAD SIZE** | **SMALL**, **MEDIUM** (at first) or **LARGE**: the size of the head the placing is worked out for. A larger head delays the far ear more (up to 0.57, 0.66 or 0.75 ms at a hard pan) and shadows it from lower notes. Pick the one that sounds most natural to you. |
 
-HEADPHONES takes a little of the sources' CPU (about 45 µs a block for each lane playing): with four busy lanes the
-CPU governor may thin a crowded cloud slightly sooner.
+On SPEAKERS, K2 and K3 are dim: they act only on HEADPHONES, but you can still set them, ready for the next switch.
+The line under the cards says what the output does.
+
+![OUTPUT on SPEAKERS: AMOUNT and HEAD SIZE dim](manual/img/output.png)
+
+HEADPHONES takes a little of the sources' CPU (about 45 µs a block for each lane playing; AMOUNT 0 % none): with four
+busy lanes the CPU governor may thin a crowded cloud slightly sooner.
 
 ### DISPLAY
 

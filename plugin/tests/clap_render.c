@@ -220,7 +220,7 @@ enum { W_ROW = 1, W_VOL, W_MUTE, W_SOLO, W_DOT, W_LUP = 9, W_SET = 10, W_VMAP = 
        W_SWATCH, W_SEG = 26, W_FIELD = 27, W_PARAM = 30, W_MANY, W_ACT, W_REC, W_UNDO, W_SAVE, W_FXOPEN, W_FXTAB, W_SLOT,
        W_SAVEGO, W_NAME, W_TEMPO, W_ROWS, W_PLACE, W_MAPR, W_SELDOT, W_STEP, W_CMETER, W_TIP, W_PREVIEW, W_PVSTEP, W_FXD, W_SWAP, W_LRUN, W_DRUN,
        W_SRC, W_GRIP, W_TAG, W_MBAR, W_MCLEAR, W_MDONE, W_MENU, W_CLRALL, W_CLRYES, W_CLRNO, W_MSG, W_NOMOVE, W_MAMT, W_MSM,
-       W_DICE, W_RND, W_RNDTICK, W_RNDGO, W_LVL, W_NAMEDICE, W_HELP, W_RNDMENU, W_TOUR, W_TOURLIT, W_TOURBTN, W_LOGO, W_VMS };
+       W_DICE, W_RND, W_RNDTICK, W_RNDGO, W_LVL, W_NAMEDICE, W_HELP, W_RNDMENU, W_TOUR, W_TOURLIT, W_TOURBTN, W_LOGO, W_VMS, W_BINMENU };
 enum { W_PREV = 6, W_NEXT = 7, W_LDN = 8, W_CLOSE = 11, W_PICKER = 20, W_LIST = 23, W_KEEP = 24 };
 #define ID_KEYS 0x10001u                 /* (bridge.h TXP_ID_KEYS) */
 static int gui_hit(const clap_plugin_t *p, const txg_gui_shot_t *xs, int kind, int lane)   /* a click on a control */
@@ -1252,6 +1252,69 @@ static int gui_test_dice(const clap_plugin_t *p, const txg_gui_shot_t *xs)
     dice_settle(p, xs);
     return bad;
 }
+/* BINAURAL's panel, OUTPUT's arrow: AMOUNT 100 % and HEAD SIZE MEDIUM at first; open, its HEAD SIZE LARGE, its AMOUNT
+ * dragged down, its OUTPUT SPEAKERS then HEADPHONES; a click outside closes it; the dice leave AMOUNT and HEAD SIZE;
+ * SETTINGS' BINAURAL sets HEAD SIZE SMALL and AMOUNT one up by its value box; then the defaults again */
+static void gui_drag_x(const clap_plugin_t *p, const txg_gui_shot_t *xs, float x, float y, float dx)
+{
+    frg_input e;
+    memset(&e, 0, sizeof e);
+    e.kind = FRG_DOWN; e.button = FRG_LEFT; e.x = x; e.y = y;
+    xs->input(p, &e);
+    e.kind = FRG_MOVE; e.x = x + dx * 0.5f; xs->input(p, &e);
+    e.x = x + dx; xs->input(p, &e);
+    e.kind = FRG_UP; xs->input(p, &e);
+    gui_flush(p); xs->tick(p);
+}
+static int gui_test_binaural(const clap_plugin_t *p, const txg_gui_shot_t *xs)
+{
+    const uint32_t OUT = 4u << 8 | 45u, AMT = 4u << 8 | 46u, HEAD = 4u << 8 | 47u;
+    float r[4];
+    double a0, h0, h1, a1, o1, o2, a2, h2, h3, a3;
+    int bad = 0, open, closed;
+    gui_key(p, xs, FRK_ESCAPE);
+    a0 = gui_value(p, AMT); h0 = gui_value(p, HEAD);
+    if (!gui_hit(p, xs, W_BINMENU, -1)) return 5;
+    open = xs->find(p, W_PICKER, -5, r);
+    if (xs->fits(p, 5) != 1) { fprintf(stderr, "gui: a text of BINAURAL's panel does not fit its room\n"); bad = 1; }
+    if (png_shot) (void)gui_png(p, xs, png_shot, "binaural");
+    if (!gui_hit(p, xs, W_SEG, (int)((HEAD & 0xFFFFu) << 8 | 2u))) return 5;
+    h1 = gui_value(p, HEAD);
+    if (!xs->find(p, W_PARAM, (int)AMT, r)) { fprintf(stderr, "gui: no BINAURAL AMOUNT\n"); return 5; }
+    gui_drag_x(p, xs, r[0] + r[2] - 8.f, r[1] + r[3] * 0.5f, -110.f);
+    a1 = gui_value(p, AMT);
+    if (!gui_hit(p, xs, W_SEG, (int)((OUT & 0xFFFFu) << 8 | 0u))) return 5;
+    o1 = gui_value(p, OUT);
+    if (png_shot) (void)gui_png(p, xs, png_shot, "binaural-speakers");
+    if (!gui_hit(p, xs, W_SEG, (int)((OUT & 0xFFFFu) << 8 | 1u))) return 5;
+    o2 = gui_value(p, OUT);
+    gui_click(p, xs, 300.f, 200.f, 0);   /* (outside: the place) */
+    closed = !xs->find(p, W_PICKER, -5, r);
+    if (!gui_hit(p, xs, W_RND, -1)) return 5;
+    dice_settle(p, xs);
+    a2 = gui_value(p, AMT); h2 = gui_value(p, HEAD);
+    if (!gui_hit(p, xs, W_UNDO, -1)) return 5;
+    dice_settle(p, xs);
+    if (!gui_hit(p, xs, W_SET, -1)) return 5;
+    if (!gui_hit(p, xs, W_SEG, (int)((HEAD & 0xFFFFu) << 8 | 0u))) return 5;
+    if (!gui_hit(p, xs, W_FIELD, (int)AMT)) return 5;
+    h3 = gui_value(p, HEAD); a3 = gui_value(p, AMT);
+    gui_key(p, xs, FRK_ESCAPE);
+    printf("gui BINAURAL: AMOUNT %g, HEAD SIZE %g at first; the panel %s, LARGE %g, AMOUNT dragged %g, OUTPUT %g then %g, "
+           "a click outside %s; the dice: %g, %g; SETTINGS: HEAD SIZE %g, AMOUNT %g\n", a0, h0, open ? "open" : "SHUT", h1, a1,
+           o1, o2, closed ? "closes it" : "LEAVES IT", a2, h2, h3, a3);
+    if (a0 != 100.0 || h0 != 1.0 || !open || h1 != 2.0 || !(a1 < 100.0 && a1 > 0.0) || o1 != 0.0 || o2 != 1.0 || !closed ||
+        a2 != a1 || h2 != 2.0 || h3 != 0.0 || a3 != (a1 + 1.0 > 100.0 ? 0.0 : a1 + 1.0)) {
+        fprintf(stderr, "gui: BINAURAL's panel or SETTINGS' BINAURAL\n"); bad = 1;
+    }
+    {   /* (the defaults again, for what follows) */
+        const uint32_t id[2] = { AMT, HEAD };
+        const int v[2] = { 100, 1 };
+        gui_set(p, id, v, 2);
+        xs->tick(p);
+    }
+    return bad;
+}
 /* OUTPUT, at the effects band's right end: HEADPHONES at first (the plugin's default); a click SPEAKERS, another
  * HEADPHONES again; the top bar's dice (all four ticked) leave it, UNDO (its place: gui_zones) */
 static int gui_test_output(const clap_plugin_t *p, const txg_gui_shot_t *xs)
@@ -1276,6 +1339,7 @@ static int gui_test_output(const clap_plugin_t *p, const txg_gui_shot_t *xs)
     dice_settle(p, xs);
     printf("gui OUTPUT %g, a click %g, another %g; the dice: %g\n", v0, v1, v2, v3);
     if (v0 != 1.0 || v1 != 0.0 || v2 != 1.0 || v3 != 1.0) { fprintf(stderr, "gui: OUTPUT's switch\n"); bad = 1; }
+    bad |= gui_test_binaural(p, xs);
     return bad;
 }
 /* the top bar's items, left to right: TEXTURA, HELP, the previous scene, the scene's box, the next, SAVE, UNDO, PLAY ALL,
@@ -1333,6 +1397,11 @@ static int gui_zones(const clap_plugin_t *p, const txg_gui_shot_t *xs, int pw, i
     if (!xs->find(p, W_PARAM, 4 << 8 | 45, r) || r[0] < W * 0.4f || r[0] + r[2] > W - 13.f + 0.01f || r[1] < fy + 4.f - 0.01f ||
         r[1] + r[3] > fy + 24.f + 0.01f) {
         fprintf(stderr, "gui zones: OUTPUT not at the right end of the strip's band\n"); bad = 1;
+    } else {
+        float b[4];
+        if (!xs->find(p, W_BINMENU, -1, b) || b[0] < r[0] + r[2] - 0.01f || b[0] + b[2] > W - 13.f + 0.01f || b[1] != r[1] || b[3] != r[3]) {
+            fprintf(stderr, "gui zones: OUTPUT's arrow not beside it, at the band's end\n"); bad = 1;
+        }
     }
     fit = xs->fits(p, 5);
     if (!gui_hit(p, xs, W_FXOPEN, 0) || !gui_open_fx(p, xs, 0)) { fprintf(stderr, "gui zones: COMP's drawer did not open\n"); return 5; }

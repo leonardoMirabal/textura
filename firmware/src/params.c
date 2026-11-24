@@ -25,6 +25,9 @@
  *           45        OUTPUT: SPEAKERS (the FM-1's default: level panning, for speakers and mixers) / HEADPHONES (the
  *                     plugin's default: each lane placed by the delay between the ears and the head's shadow,
  *                     tx_mix_phones). The listening's, not the sound's: in the settings, never a scene's, never rolled
+ *           46 47     OUTPUT's binaural settings, the same kind (in the settings, never a scene's, never rolled): AMOUNT
+ *                     0 .. 100 % (100 the default; 0: as SPEAKERS) of every binaural cue (tx_mix_phones_amt), HEAD SIZE
+ *                     SMALL MEDIUM LARGE (MEDIUM the default; tx_mix_phones_head: the ear delay up to 25, 29, 33 samples)
  *           48 .. 51  DRIVE: AMOUNT TONE MIX TYPE (tx_fx_drive_params order): the mix's, right after the COMPRESSOR
  *                     (its first effect)
  *           52 .. 55  FILTER: HIGH PASS LOW PASS RESONANCE SLOPE (tx_fx_mfilter_params order): the mix's, right after the
@@ -107,10 +110,11 @@ enum { PL_SOUND, PL_COUNT, PL_ACTIVE, PL_LEVEL, PL_PAN, PL_CARD0 = 8, PL_ODRIVE0
        PL_GCYC };   /* (PL_OFILTER0:
                                                  * the retired lane FILTER's ids, 36 .. 41) */
 enum { PG_GRAIN0 = 0, PG_GSYNC = 12, PG_REVERB0 = 16, PG_COMP0 = 26, PG_BPM = 32, PG_FINE, PG_STATUS, PG_RUN, PG_TAP,
-       PG_SCNTEMPO, PG_SCNFX, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR, PG_OUTPUT, PG_DRIVE0 = 48, PG_MF0 = 52, PG_N_ = 56,
+       PG_SCNTEMPO, PG_SCNFX, PG_CLOCK = 40, PG_INUSB, PG_INTRS, PG_OUT, PG_COLOR, PG_OUTPUT, PG_BINAMT, PG_BINHEAD, PG_DRIVE0 = 48, PG_MF0 = 52, PG_N_ = 56,
        PG_GRV0 = 56, PG_GTYPE, PG_GSHIFT, PG_SCALE, PG_ROOT, PG_SELCH, PG_LCH0, PG_SCMODE = PG_LCH0 + 4, PG_TRANS,
        PG_MS0 = 96 };   /* (PG_MS0: the M/S, MID SIDE WIDTH MONO; past every lane's channel of the plugin's 16. PG_OUTPUT:
-                         * OUTPUT, SPEAKERS / HEADPHONES; PG_OUT is the clock's CLK OUT) */   /* (PL_ODRIVE0:
+                         * OUTPUT, SPEAKERS / HEADPHONES; PG_OUT is the clock's CLK OUT; PG_BINAMT, PG_BINHEAD: its
+                         * binaural AMOUNT and HEAD SIZE) */   /* (PL_ODRIVE0:
                                                  * the retired lane DRIVE's ids; pv_glob: the effects' values, 0 .. 55) */
 /* the GRAIN delay's ids: its params 0 .. 11 at 0 .. 11, SYNC 12 (the tempo's), its appended ones (MOD, MOD RATE,
  * INTERVALS) at 13 .. 15 */
@@ -141,7 +145,8 @@ static uint8_t p_chg = 5u;                      /* FX CHANNEL (1-based; 0 OFF) *
 /* how a value reads */
 enum { F_NUM, F_ENUM, F_ONOFF, F_SOUND, F_COUNT, F_ACTIVE, F_PAN, F_HZ_FL, F_MS_GD, F_MS_GS, F_MS_PD, F_SEMI,
        F_PLUS1, F_DIV, F_BPM, F_BPM10, F_STATUS, F_RUN, F_THR, F_R10, F_GAIN, F_MIX, F_HZ_LO, F_HZ_HI, F_GRV, F_MCH, F_NOTE,
-       F_TRANS, F_DB, F_W2 };   /* (F_DB: the M/S's MID, SIDE: -INF, -57.0 .. +6.0 dB; F_W2: its WIDTH, 2 % a step) */
+       F_TRANS, F_DB, F_W2, F_PCT };   /* (F_DB: the M/S's MID, SIDE: -INF, -57.0 .. +6.0 dB; F_W2: its WIDTH, 2 % a step;
+                                 * F_PCT: 0 .. 100 %, OUTPUT's binaural AMOUNT) */
 static const char *const N_DRIVE[] = {"FDRV", "KHLON", "TSH8", "OHCD", "BHLUE"};
 static const char *const N_REVERB[] = {"OFF", "ROOM", "HALL", "INFINITE", "DARK", "DRIFT", "SWELL", "PLATE"};
 static const char *const N_SHIFT[] = {"+OCT", "+5TH", "+OCT+5", "-OCT"};
@@ -165,6 +170,9 @@ static const char *const N_OUTPUT[] = {"SPEAKERS", "HEADPHONES"};   /* OUTPUT (t
 #endif
 #endif
 static uint8_t p_output = OUTPUT_DEF;           /* OUTPUT: 0 SPEAKERS, 1 HEADPHONES (the mix's pan: lanes.c LN_FX_PHONES) */
+static const char *const N_HEAD[] = {"SMALL", "MEDIUM", "LARGE"};   /* HEAD SIZE (tx_core_mix.h TX_MIX_HEAD_SMALL ..) */
+static uint8_t p_binamt = TX_MIX_AMT_DEF, p_binhead = TX_MIX_HEAD_MEDIUM;   /* OUTPUT's binaural AMOUNT (%) and HEAD
+                                                 * SIZE: tx_mix_init's (the mix's own defaults: nothing sent at first) */
 
 /* ---- COLOR (DISPLAY K1): the screen's palette, Frodhes' (its ui.c, COLOR_ACC) with RED first: step 0 RED and 1 AMBER
  * are gfx.c's own ramps (RED the default: the screen as before), then 25 pastel hues around the colour wheel, hue
@@ -273,7 +281,8 @@ static const p_gx_t PGX[] = {
     {PG_INUSB, "CLK IN USB", 1, F_ONOFF, PGX_NODEF}, {PG_INTRS, "CLK IN TRS", 1, F_ONOFF, PGX_NODEF},
     {PG_OUT, "CLK OUT", 1, F_ENUM, PGX_NODEF}, {PG_SCNTEMPO, "PRESETS CHANGE TEMPO", 1, F_ENUM, PGX_NODEF},
     {PG_SCNFX, "EFFECTS ON LOAD", 2, F_ENUM, PGX_NODEF}, {PG_COLOR, "COLOR", COLOR_N - 1u, F_ENUM, PGX_NODEF},
-    {PG_OUTPUT, "OUTPUT", 1, F_ENUM, PGX_NODEF},
+    {PG_OUTPUT, "OUTPUT", 1, F_ENUM, PGX_NODEF}, {PG_BINAMT, "BINAURAL AMOUNT", 100, F_PCT, PGX_NODEF},
+    {PG_BINHEAD, "HEAD SIZE", TX_MIX_HEAD_N - 1u, F_ENUM, PGX_NODEF},
     {PG_GRV0, "AMOUNT", 127, F_NUM, TX_GR_AMOUNT_DEF}, {PG_GTYPE, "TYPE", TX_GR_NTYPES - 1u, F_GRV, TX_GR_TYPE_DEF},
     {PG_GSHIFT, "SHIFT", 31, F_NUM, 0}, {PGX_LANE | PL_GPART, "PART", TX_GRP_N - 1, F_ENUM, 0},
     {PGX_LANE | PL_GCYC, "CYCLE", 8, F_GRV, 0},
@@ -507,6 +516,7 @@ static const char *const *p_names(uint32_t id)
     if (i == PG_SCMODE) return N_SCMODE;
     if (i == PG_MS0 + TX_MS_MONO) return N_OFFON;
     if (i == PG_OUTPUT) return N_OUTPUT;
+    if (i == PG_BINHEAD) return N_HEAD;
     return i == PG_REVERB0 + TX_RV_TYPE ? N_REVERB : i == PG_CLOCK ? N_CLOCK : i == PG_OUT ? N_CLKOUT : i == PG_SCNFX ? N_SCNFX : i == PG_SCNTEMPO ? N_NOYES : i == PG_COLOR ? COLOR_NAME : N_SHIFT;
 }
 static int32_t p_get(uint32_t id)
@@ -527,6 +537,8 @@ static int32_t p_get(uint32_t id)
         case PG_SCNFX: return scn_fx_mode;
         case PG_COLOR: return p_color;
         case PG_OUTPUT: return p_output;
+        case PG_BINAMT: return p_binamt;
+        case PG_BINHEAD: return p_binhead;
         case PG_SCALE: return nt_scale;
         case PG_SCMODE: return nt_scmode;
         case PG_TRANS: return nt_trans + 24;
@@ -579,6 +591,8 @@ static void p_set(uint32_t id, int32_t v)
         case PG_SCNFX: scn_fx_mode = (uint8_t)v; break;
         case PG_COLOR: color_apply((uint32_t)v); break;
         case PG_OUTPUT: p_output = (uint8_t)v; ln_fx(LN_FX_PHONES, 0, 0, (uint32_t)v); break;
+        case PG_BINAMT: p_binamt = (uint8_t)v; ln_fx(LN_FX_PHONES, 0, 1, (uint32_t)v); break;   /* (lanes.c: b 1 AMOUNT, */
+        case PG_BINHEAD: p_binhead = (uint8_t)v; ln_fx(LN_FX_PHONES, 0, 2, (uint32_t)v); break;   /* 2 HEAD SIZE) */
         case PG_SCALE: nt_scale = (uint8_t)v; break;
         case PG_SCMODE: nt_scmode = (uint8_t)v; break;
         case PG_TRANS: nt_trans = (int8_t)(v - 24); break;
@@ -682,6 +696,7 @@ static const char *p_text_v(uint32_t id, int32_t v, char *t)
         return "dB";
     }
     case F_W2: p_fmt_int(t, v * 2); return "%";   /* (the M/S's WIDTH) */
+    case F_PCT: p_fmt_int(t, v); return "%";      /* (OUTPUT's binaural AMOUNT) */
     case F_THR: {                               /* "-20": 0 .. -40 dBFS (Frodhes' THR) */
         int32_t d = (v * 400 + 635) / 1270;
         if (d) { t[0] = '-'; p_fmt_int(t + 1, d); } else p_strcpy(t, "0", 1);

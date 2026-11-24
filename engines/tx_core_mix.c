@@ -18,6 +18,7 @@ void tx_mix_init(tx_mix_t *m)
         }
         m->bin[k].run = 0;
     }
+    m->amt = TX_MIX_AMT_DEF; m->head = TX_MIX_HEAD_MEDIUM;
     tx_comp_init(&m->comp);
     tx_ms_init(&m->ms);
     tx_limit_init(&m->lim);
@@ -31,28 +32,41 @@ void tx_mix_set(tx_mix_t *m, unsigned k, const tx_engine_t *e, void *st, uint32_
     if (e && st) e->init(st, seed);
 }
 
-/* the slot's ears' targets: SPEAKERS (or the centre) the pan gains alone, no delay, no shadow; HEADPHONES the far ear
- * late by a spherical head's time difference (Woodworth: (theta + sin theta) / (pi/2 + 1) of 29.1 samples to the whole one, theta = 0 ..
- * pi/2 from the centre to a hard pan), shadowed (the low-pass coefficient from 1 to 0.226 = 1.8 kHz, the shelf's highs
- * from 1 to 0.4, both with sin theta) and constant power on 61 % of the speakers' arc about the centre (the far ear
- * -10 dB at a hard pan, the centre unchanged) */
+/* each head size's (tx_core_mix.h TX_MIX_HEAD_*): its time difference's scale, r (1 + pi/2) / c in samples / (pi/2 + 1)
+ * << 16 >> 15, x 1024 (MEDIUM, r = 8.8 cm: 29.1 samples at a hard pan, 23182; SMALL 7.6 cm: 25.1; LARGE 10.0 cm: 33.1),
+ * its largest whole delay, and its shadow's depth: 1 - the low-pass coefficient at a hard pan, Q15 (MEDIUM: 1 - exp(-2 pi
+ * 1800 / 44100) = 0.226 = 7406; SMALL 2084 Hz: 8419; LARGE 1584 Hz: 6620) */
+static const uint16_t TX_HEAD_ITD[TX_MIX_HEAD_N] = {20021u, 23182u, 26343u};
+static const uint8_t TX_HEAD_DMAX[TX_MIX_HEAD_N] = {25u, 29u, 33u};
+static const uint16_t TX_HEAD_SHADOW[TX_MIX_HEAD_N] = {24349u, 25362u, 26148u};
+
+/* the slot's ears' targets: SPEAKERS (or the centre, or AMOUNT 0) the pan gains alone, no delay, no shadow; HEADPHONES
+ * the far ear late by a spherical head's time difference (Woodworth: (theta + sin theta) / (pi/2 + 1) of the head's
+ * largest (TX_HEAD_ITD) to the whole sample, theta = 0 .. pi/2 from the centre to a hard pan), shadowed (the low-pass
+ * coefficient from 1 to the head's corner, the shelf's highs from 1 to 0.4, both with sin theta) and constant power on
+ * 61 % of the speakers' arc about the centre (the far ear -10 dB at a hard pan, the centre unchanged). AMOUNT scales the
+ * delay, both shadow depths and the arc's narrowing alike (100 %: as above, bit for bit) */
 static void tx_mix_aim(tx_mix_t *m, unsigned k)
 {
     unsigned p = m->bin[k].pan, f = 0;
     int32_t d = 0, a = 32768, b = 32768, gl = m->gl[k], gr = m->gr[k];
     if (m->hp && p != 64u) {
         uint32_t o = p < 64u ? 64u - p : p - 64u, c = 64u * 0x810204u, ph = p == 127u ? 0x40000000u : p * 0x810204u;
+        uint32_t am = m->amt > 100u ? 100u : m->amt, hd = m->head < TX_MIX_HEAD_N ? m->head : TX_MIX_HEAD_MEDIUM;
+        uint32_t ki = TX_HEAD_ITD[hd] * am / 100u, sa = TX_HEAD_SHADOW[hd] * am / 100u, sb = 19661u * am / 100u;
+        int32_t arc = 32768 - (int32_t)(12768u * am / 100u);   /* (100 %: 20000) */
         int32_t u = (int32_t)((o << 15) / (p < 64u ? 64u : 63u)), s;   /* Q15: 32768 at a hard pan */
         s = tx_sin_q15((uint32_t)u << 15);                   /* sin theta */
-        d = (int32_t)(((uint32_t)((u * 51472) >> 15) + (uint32_t)s) * 23182u >> 10);   /* (pi/2 Q15; 29.1 / (pi/2 + 1)
-                                                              * << 16 >> 15 = 22.64 = 23182 / 1024) */
+        d = (int32_t)(((uint32_t)((u * 51472) >> 15) + (uint32_t)s) * ki >> 10);   /* (pi/2 Q15; MEDIUM: 29.1 / (pi/2 + 1)
+                                                              * << 16 >> 15 = 22.64 = 23182 / 1024; under 84240 x
+                                                              * 26343 < 2^32) */
         d = (d + 32768) & ~0xFFFF;                           /* (a whole sample at rest: read between two samples, a
                                                               * linear interpolation dulls the highs, -3 dB at 11 kHz
                                                               * halfway; the glides between two are fractional) */
-        if (d > (29 << 16)) d = 29 << 16;
-        a = 32768 - ((s * 25362) >> 15);                     /* 1 - exp(-2 pi 1800 / 44100) = 0.226 = 7406 */
-        b = 32768 - ((s * 19661) >> 15);                     /* 0.4 = 13107 */
-        ph = c + (uint32_t)(((int32_t)(ph - c) >> 15) * 20000);   /* 20000 / 32768 = 0.61 of the arc */
+        if (d > ((int32_t)TX_HEAD_DMAX[hd] << 16)) d = (int32_t)TX_HEAD_DMAX[hd] << 16;
+        a = 32768 - ((s * (int32_t)sa) >> 15);
+        b = 32768 - ((s * (int32_t)sb) >> 15);               /* 0.4 = 13107 */
+        ph = c + (uint32_t)(((int32_t)(ph - c) >> 15) * arc);   /* 20000 / 32768 = 0.61 of the arc */
         gr = (tx_sin_q15(ph) * 23170) >> 15;
         gl = (tx_sin_q15(ph + 0x40000000u) * 23170) >> 15;
         f = p < 64u;                                         /* the far ear: right when panned left */
@@ -81,8 +95,19 @@ void tx_mix_pan(tx_mix_t *m, unsigned k, unsigned pan)
 void tx_mix_phones(tx_mix_t *m, unsigned mode)
 {
     unsigned k;
-    m->hp = mode == TX_MIX_HEADPHONES;
+    m->mode = (uint8_t)(mode == TX_MIX_HEADPHONES);
+    m->hp = m->mode && m->amt;                               /* (AMOUNT 0: the speakers' path, as SPEAKERS) */
     for (k = 0; k < TX_MIX_SLOTS; k++) tx_mix_aim(m, k);
+}
+void tx_mix_phones_amt(tx_mix_t *m, unsigned pct)
+{
+    m->amt = (uint8_t)(pct > 100u ? 100u : pct);
+    tx_mix_phones(m, m->mode);
+}
+void tx_mix_phones_head(tx_mix_t *m, unsigned size)
+{
+    m->head = (uint8_t)(size < TX_MIX_HEAD_N ? size : TX_MIX_HEAD_N - 1u);
+    tx_mix_phones(m, m->mode);
 }
 
 void tx_mix_trim(tx_mix_t *m, unsigned k, unsigned q12)

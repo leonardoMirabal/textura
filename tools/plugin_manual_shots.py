@@ -45,6 +45,7 @@ PICK = {   # the gate's picture -> the manual's
     "960x600": "window-960x600",
     "gui4-tour-2": "tour",
     "gui4-output": ("output", (0.55, 0.79, 1.0, 1.0)),   # (the strip's right end: its band with OUTPUT, M/S, MOVEMENT)
+    "gui4-binaural": ("binaural", (0.55, 0.42, 1.0, 1.0)),   # (OUTPUT's arrow: BINAURAL's panel over the strip's right end)
 }
 
 

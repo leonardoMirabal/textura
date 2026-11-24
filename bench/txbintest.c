@@ -16,7 +16,14 @@
  *             440 Hz. Reported, not judged: 0 <-> 127 every block (5.8 ms: no glide ever lands, each turns back,
  *             the slope kinks twice as much)
  *   mono      the mono sum (L + R) of a hard pan's impulse, 50 Hz .. 16 kHz: its notch below the speakers' hard pan
- *             (reported; fails under -6 dB) and its ripple, peak to notch (reported; fails over 8 dB) */
+ *             (reported; fails under -6 dB) and its ripple, peak to notch (reported; fails over 8 dB)
+ *   amount    AMOUNT 0 (tx_mix_phones_amt) = SPEAKERS bit for bit, panned (set at the start, and glided to from 100 %:
+ *             once the ears are back), and its cost 0; AMOUNT 50: a hard pan's far ear half as late (14..15 samples)
+ *   head      each head size (tx_mix_phones_head) at a hard pan: the far ear 25, 29, 33 samples late (+-1), the larger
+ *             head the darker far ear
+ *   loudall   the loud check at AMOUNT 0, 25, 50, 75, 100 and every head size: within +-1 dB of the centre
+ *   moves     AMOUNT (0 / 50 / 100) and the head size moved every 20 blocks at a hard pan while a sine plays: <= 2x the
+ *             held second difference, as sweep */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,6 +49,8 @@ static void block(tx_mix_t *m, const int32_t *x, int32_t *L, int32_t *R)
 }
 
 static tx_mix_t ma, mb;
+static unsigned amt_ = TX_MIX_AMT_DEF, head_ = TX_MIX_HEAD_MEDIUM;   /* (impulse's, t_loud's, sd_run's) */
+static void setup(tx_mix_t *m) { tx_mix_phones_amt(m, amt_); tx_mix_phones_head(m, head_); }
 
 static void t_centre(void)
 {
@@ -87,7 +96,7 @@ static void impulse(unsigned p, int hp)
 {
     int32_t x[TX_BLOCK], L[TX_BLOCK], R[TX_BLOCK];
     unsigned b, j;
-    tx_mix_init(&ma);
+    tx_mix_init(&ma); setup(&ma);
     tx_mix_pan(&ma, 0, p);
     tx_mix_phones(&ma, hp ? TX_MIX_HEADPHONES : TX_MIX_SPEAKERS);
     memset(x, 0, sizeof x);
@@ -133,7 +142,7 @@ static void t_itd(void)
     }
 }
 
-static void t_loud(void)
+static int t_loud(void)
 {
     int32_t x[TX_BLOCK], L[TX_BLOCK], R[TX_BLOCK];
     double ref = 0, lo = 1e9, hi = -1e9;
@@ -142,7 +151,7 @@ static void t_loud(void)
     for (pass = 0; pass < 2; pass++)
         for (p = pass ? 0 : 64; p < 128; p++) {
             double e = 0, db;
-            tx_mix_init(&ma); tx_mix_pan(&ma, 0, p); tx_mix_phones(&ma, TX_MIX_HEADPHONES);
+            tx_mix_init(&ma); setup(&ma); tx_mix_pan(&ma, 0, p); tx_mix_phones(&ma, TX_MIX_HEADPHONES);
             rng = 7;
             for (b = 0; b < 60; b++) {
                 for (j = 0; j < TX_BLOCK; j++) x[j] = noise();
@@ -154,8 +163,9 @@ static void t_loud(void)
             if (db < lo) lo = db, plo = p;
             if (db > hi) hi = db, phi = p;
         }
-    printf("loud: white noise, the pair's power against the centre: %.2f dB (pan %u) .. %+.2f dB (pan %u)\n", lo, plo, hi, phi);
-    check(lo >= -1 && hi <= 1, "loudness across pan 0..127 within +-1 dB");
+    printf("loud: AMOUNT %u %%, head %u: white noise, the pair's power against the centre: %.2f dB (pan %u) .. %+.2f dB"
+           " (pan %u)\n", amt_, head_, lo, plo, hi, phi);
+    return lo >= -1 && hi <= 1;
 }
 
 /* the largest |second difference| of both channels over blocks b0.. of a 440 Hz sine, pan / mode moved by mv */
@@ -164,7 +174,7 @@ static double sd_run(unsigned p0, int hp, void (*mv)(unsigned b))
     int32_t x[TX_BLOCK], L[TX_BLOCK], R[TX_BLOCK];
     double m = 0, l1 = 0, l2 = 0, r1 = 0, r2 = 0;
     unsigned b, j, t = 0;
-    tx_mix_init(&ma); tx_mix_pan(&ma, 0, p0);
+    tx_mix_init(&ma); setup(&ma); tx_mix_pan(&ma, 0, p0);
     if (hp) tx_mix_phones(&ma, TX_MIX_HEADPHONES);
     for (b = 0; b < 300; b++) {
         if (mv) mv(b);
@@ -182,6 +192,10 @@ static void mv_sweep(unsigned b) { if (b >= 10 && b < 264) tx_mix_pan(&ma, 0, b 
 static void mv_jump(unsigned b) { if (b >= 10 && !(b % 20)) tx_mix_pan(&ma, 0, (b / 20) & 1 ? 127 : 0); }
 static void mv_jump1(unsigned b) { if (b >= 10) tx_mix_pan(&ma, 0, b & 1 ? 127 : 0); }
 static void mv_mode(unsigned b) { if (b >= 10 && !(b % 20)) tx_mix_phones(&ma, (b / 20) & 1 ? TX_MIX_SPEAKERS : TX_MIX_HEADPHONES); }
+
+static void mv_amt(unsigned b) { if (b >= 10 && !(b % 20)) tx_mix_phones_amt(&ma, (b / 20) % 3 * 50u); }
+static void mv_head(unsigned b) { if (b >= 10 && !(b % 20)) tx_mix_phones_head(&ma, (b / 20) % 3); }
+static void mv_both(unsigned b) { if (b >= 10 && !(b % 10)) { tx_mix_phones_amt(&ma, (b / 10) % 5 * 25u); tx_mix_phones_head(&ma, (b / 10) % 3); } }
 
 static void t_sweep(void)
 {
@@ -213,10 +227,89 @@ static void t_mono(void)
     check(lo > -6 && hi - lo < 8, "mono sum: notch not under -6 dB, ripple under 8 dB");
 }
 
+static void t_amount(void)
+{
+    int32_t x[TX_BLOCK], La[TX_BLOCK], Ra[TX_BLOCK], Lb[TX_BLOCK], Rb[TX_BLOCK];
+    unsigned b, j, diff0 = 0, diff1 = 0, cost = 0, p, lag;
+    char what[120];
+    tx_mix_init(&ma); tx_mix_init(&mb);                      /* AMOUNT 0 from the start, panned, a trim and a level */
+    for (p = 0; p < 2; p++) {
+        tx_mix_pan(&ma, 0, p ? 100 : 20); tx_mix_pan(&mb, 0, p ? 100 : 20);
+        tx_mix_phones_amt(&mb, 0); tx_mix_phones(&mb, TX_MIX_HEADPHONES);
+        for (b = 0; b < 40; b++) {
+            if (b == 10) { tx_mix_level(&ma, 0, 80); tx_mix_level(&mb, 0, 80); }
+            for (j = 0; j < TX_BLOCK; j++) x[j] = noise();
+            block(&ma, x, La, Ra); block(&mb, x, Lb, Rb);
+            cost += tx_mix_phones_us(&mb, 0);
+            for (j = 0; j < TX_BLOCK; j++) diff0 += La[j] != Lb[j] || Ra[j] != Rb[j];
+        }
+    }
+    tx_mix_init(&ma); tx_mix_init(&mb);                      /* 100 %, then glided to 0 */
+    tx_mix_pan(&ma, 0, 10); tx_mix_pan(&mb, 0, 10);
+    tx_mix_phones(&mb, TX_MIX_HEADPHONES);
+    for (b = 0; b < 60; b++) {
+        if (b == 30) tx_mix_phones_amt(&mb, 0);
+        for (j = 0; j < TX_BLOCK; j++) x[j] = noise();
+        block(&ma, x, La, Ra); block(&mb, x, Lb, Rb);
+        if (b >= 33) { cost += tx_mix_phones_us(&mb, 0); for (j = 0; j < TX_BLOCK; j++) diff1 += La[j] != Lb[j] || Ra[j] != Rb[j]; }
+    }
+    printf("amount 0: %u samples differ from SPEAKERS (set at the start), %u (glided from 100 %%, after 3 blocks); cost %u us\n",
+           diff0, diff1, cost);
+    check(diff0 == 0 && diff1 == 0 && cost == 0 && !mb.bin[0].run, "AMOUNT 0 = SPEAKERS, bit for bit, at no cost");
+    amt_ = 50;
+    impulse(0, 1);
+    lag = peak_at(irr) - peak_at(irl);
+    amt_ = TX_MIX_AMT_DEF;
+    printf("amount 50: hard left, the far ear %u samples late (100 %%: 29)\n", lag);
+    snprintf(what, sizeof what, "AMOUNT 50: the far ear half as late (14..15 samples)");
+    check(lag >= 14 && lag <= 15, what);
+}
+
+static void t_head(void)
+{
+    static const unsigned want[3] = {25, 29, 33};
+    unsigned h, lag[3], ok = 1;
+    double dark[3];
+    for (h = 0; h < 3; h++) {
+        head_ = h;
+        impulse(127, 1);
+        lag[h] = peak_at(irl) - peak_at(irr);
+        dark[h] = 20 * log10(mag(irl, 4000) / mag(irl, 100));
+        if (lag[h] + 1 < want[h] || lag[h] > want[h] + 1) ok = 0;
+    }
+    head_ = TX_MIX_HEAD_MEDIUM;
+    printf("head: hard right, the far ear late by %u (SMALL), %u (MEDIUM), %u (LARGE) samples; at 4 kHz %.1f, %.1f, %.1f dB"
+           " (vs its 100 Hz)\n", lag[0], lag[1], lag[2], dark[0], dark[1], dark[2]);
+    check(ok && dark[0] > dark[1] && dark[1] > dark[2], "head sizes: 25, 29, 33 samples (+-1), the larger the darker");
+}
+
+static void t_loudall(void)
+{
+    unsigned a, h, ok = 1;
+    for (a = 0; a <= 100; a += 25)
+        for (h = 0; h < 3; h++) { amt_ = a; head_ = h; if (!t_loud()) ok = 0; }
+    amt_ = TX_MIX_AMT_DEF; head_ = TX_MIX_HEAD_MEDIUM;
+    check(ok, "loudness across pan within +-1 dB at every AMOUNT (0..100 by 25) and head size");
+}
+
+static void t_moves(void)
+{
+    double h = 0, a, s, w;
+    unsigned p;
+    for (p = 0; p < 3; p++) { double v = sd_run(p == 0 ? 0 : p == 1 ? 64 : 127, 1, 0); if (v > h) h = v; }
+    a = sd_run(0, 1, mv_amt); s = sd_run(127, 1, mv_head); w = sd_run(0, 1, mv_both);
+    printf("moves: largest |2nd difference| held %.0f; AMOUNT 0 / 50 / 100 %.2fx, head sizes %.2fx, both every 10 blocks %.2fx\n",
+           h, a / h, s / h, w / h);
+    check(a <= 2 * h && s <= 2 * h && w <= 2 * h, "AMOUNT and head size moves click-free (<= 2x the held)");
+}
+
 int main(void)
 {
     printf("txbintest: the mix's HEADPHONES mode\n");
-    t_centre(); t_back(); t_itd(); t_loud(); t_sweep(); t_mono();
+    t_centre(); t_back(); t_itd();
+    check(t_loud(), "loudness across pan 0..127 within +-1 dB");
+    t_sweep(); t_mono();
+    t_amount(); t_head(); t_loudall(); t_moves();
     printf("txbintest: %s (%d failed)\n", fails ? "FAIL" : "ok", fails);
     return fails ? 1 : 0;
 }

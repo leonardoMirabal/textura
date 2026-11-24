@@ -105,7 +105,8 @@ void tx_source_host_param(void *st, unsigned id, unsigned val);
 enum { LN_FX_DRIVE, LN_FX_REVERB = 2, LN_FX_GRAIN, LN_FX_RELATCH, LN_FX_COMP, LN_FX_MS, LN_FX_PHONES };   /* ln_fx groups (1: the lanes' FILTER, retired; as the player's
                                                  * txw_fx_param; RELATCH: a whole sound loaded, tx_fx_reverb_relatch;
                                                  * MS: the M/S, the mix's last effect, tx_core_ms.h; PHONES: OUTPUT,
-                                                 * the mix's pan: SPEAKERS or HEADPHONES, tx_mix_phones) */
+                                                 * the mix's pan: SPEAKERS or HEADPHONES, tx_mix_phones, and its
+                                                 * binaural AMOUNT and HEAD SIZE) */
 typedef struct { uint8_t kind, lane, a, b, c; } ln_ev_t;
 
 static struct {
@@ -442,7 +443,11 @@ static void ln_event(const ln_ev_t *v)
         else if (v->a == LN_FX_RELATCH) tx_fx_reverb_relatch(&ln.fx.rev);
         else if (v->a == LN_FX_COMP) tx_comp_param(&ln.mix.comp, v->b, v->c);
         else if (v->a == LN_FX_MS) tx_ms_param(&ln.mix.ms, v->b, v->c);
-        else if (v->a == LN_FX_PHONES) tx_mix_phones(&ln.mix, v->c);
+        else if (v->a == LN_FX_PHONES) {        /* (b: 0 OUTPUT, 1 its binaural AMOUNT, 2 its HEAD SIZE) */
+            if (v->b == 1u) tx_mix_phones_amt(&ln.mix, v->c);
+            else if (v->b == 2u) tx_mix_phones_head(&ln.mix, v->c);
+            else tx_mix_phones(&ln.mix, v->c);
+        }
         break;
     }
 }

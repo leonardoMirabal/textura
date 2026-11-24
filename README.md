@@ -1,7 +1,7 @@
 # Textura
 
 **A texture synthesizer for the M-VAVE FM-1: rain, streams, fire, sand and stones, ice, wood, wind, storms, insects
-and birds, computed live.**
+and birds, computed live, placed binaurally on headphones.**
 
 No samples. Every drop, crackle, grain and chirp is calculated as it sounds, from how the real source works: a drop
 hits water and rings a bubble, a log splits and spits, a pebble knocks and rolls. Each sound plays as a cloud of

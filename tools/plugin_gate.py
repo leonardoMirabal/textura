@@ -25,7 +25,7 @@ FM-1's app: the 16-lane plugin plays it sample for sample), sixteen-lane content
           of the four-lane plugin (plugin/tests/fixtures/state_v1.json: version 1, the FM-1's scene record) loads into
           lanes 1 .. 4, the others empty, LANES 4, its records and settings as they were; OUTPUT (HEADPHONES at
           first) set to SPEAKERS stays through a preset's load and comes back from the state; a state without it
-          leaves HEADPHONES
+          leaves HEADPHONES; its BINAURAL AMOUNT and HEAD SIZE (100, MEDIUM at first) the same
   cpu     the shipped time at 48 kHz, 512-frame buffers: average and worst time per process call for heavy 4-lane
           scenes (every lane at HOW MANY and HOW ACTIVE 127, the grain delay at all its grains, the reverb up), and
           for sixteen heavy lanes (the four heaviest presets' lanes side by side, by a state)
@@ -405,16 +405,18 @@ def check_param_ids(exe, bundle, tmp):
 
 
 OUTPUT_ID = 0x42D   # (params.c PG_OUTPUT: OUTPUT, 0 SPEAKERS, 1 HEADPHONES)
+BINAMT_ID, BINHEAD_ID = 0x42E, 0x42F   # (PG_BINAMT, PG_BINHEAD: its BINAURAL AMOUNT 0 .. 100, HEAD SIZE 0 .. 2)
 
 
 def check_output(exe, bundle, tmp):
     """OUTPUT: HEADPHONES at the start; set to SPEAKERS, it stays through a preset's load (EFFECTS ON LOAD at ALWAYS,
     the plugin's default), goes with the state and comes back from it in another instance; a state without it (saved
-    before OUTPUT) leaves the default"""
-    def get(script, extra):
+    before OUTPUT) leaves the default. Its BINAURAL AMOUNT and HEAD SIZE the same: 100 and MEDIUM at the start, set to
+    40 and LARGE they stay through the load and come back from the state; a state without them leaves the defaults"""
+    def get(script, extra, pid=OUTPUT_ID):
         r = plug_render(exe, bundle, script, os.path.join(tmp, "plug-out.wav"), 48000, test=False,
-                        extra=list(extra) + ["--get", hex(OUTPUT_ID)])
-        m = re.search(r"param %#x = (\S+)" % OUTPUT_ID, r.stdout)
+                        extra=list(extra) + ["--get", hex(pid)])
+        m = re.search(r"param %#x = (\S+)" % pid, r.stdout)
         return float(m.group(1)) if m else None
     end, pc = os.path.join(tmp, "end3000.txt"), os.path.join(tmp, "out-pc.txt")
     with open(end, "w") as f:
@@ -435,7 +437,25 @@ def check_output(exe, bundle, tmp):
     print("%s  OUTPUT: %s at the start, %s after SPEAKERS and a preset's load, %s from that state, %s from a state "
           "without it" % (("ok  " if good else "FAIL",) + tuple("-" if v is None else ("HEADPHONES" if v else "SPEAKERS")
                                                              for v in vals)))
-    return good
+    st2, old2 = os.path.join(tmp, "plug-bin.json"), os.path.join(tmp, "plug-bin-old.json")
+    setb = ["--param", "%#x=40" % BINAMT_ID, "--param", "%#x=2" % BINHEAD_ID]
+    bv = [(get(end, [], BINAMT_ID), get(end, [], BINHEAD_ID)),
+          (get(pc, setb, BINAMT_ID), get(pc, setb + ["--state-out", st2], BINHEAD_ID)),
+          (get(end, ["--state-in", st2], BINAMT_ID), get(end, ["--state-in", st2], BINHEAD_ID))]
+    try:
+        js = json.load(open(st2))
+        js["set"] = ",".join(x for x in js["set"].split(",")
+                             if not x.startswith(("%d=" % BINAMT_ID, "%d=" % BINHEAD_ID)))
+        json.dump(js, open(old2, "w"), separators=(",", ":"))
+        bv.append((get(end, ["--state-in", old2], BINAMT_ID), get(end, ["--state-in", old2], BINHEAD_ID)))
+    except (OSError, ValueError, KeyError):
+        bv.append((None, None))
+    goodb = bv == [(100.0, 1.0), (40.0, 2.0), (40.0, 2.0), (100.0, 1.0)]
+    print("%s  OUTPUT's BINAURAL AMOUNT, HEAD SIZE: %s at the start, %s set and after a preset's load, %s from that "
+          "state, %s from a state without them" % (("ok  " if goodb else "FAIL",) +
+                                                   tuple("%s %s" % (a, ("-" if h is None else ("SMALL", "MEDIUM", "LARGE")[int(h)]))
+                                                         for a, h in bv)))
+    return good and goodb
 
 
 def heavy16_state(exe, bundle, tmp):
@@ -502,10 +522,12 @@ GUI_VIEWS = ("", "space", "ms-tab", "sounds", "presets", "settings", "colour", "
 #                                        stopped lane, PLAY ALL; the rows with lane 3 selected; a lane stopped by its own
 #                                        button; Rain on a roof's drawer; RANDOM's list, the top bar's dice's arrow; the
 #                                        tour's eight steps, HELP's one click)
-GUI_TEST_VIEWS = ("dice-lane", "random-none", "random", "save-replace", "save-full", "output", "output-speakers")
+GUI_TEST_VIEWS = ("dice-lane", "random-none", "random", "save-replace", "save-full", "output", "output-speakers",
+                  "binaural", "binaural-speakers")
 #                                        clap_render --gui-test's (gui4's second run): a row's dice rolled (its hint hovered),
 #                                        ROLL with nothing ticked, ROLL with all four; SAVE on a used preset (SAVE replaces
-#                                        it), all 16 used; OUTPUT on HEADPHONES, then SPEAKERS (kept with --shots)
+#                                        it), all 16 used; OUTPUT on HEADPHONES, then SPEAKERS; BINAURAL's panel, then on SPEAKERS
+#                                        (kept with --shots)
 GUI_SIZES = ((1200, 720), (1950, 1210), (1440, 1080), (960, 600), (840, 504))   # real DAW window sizes and the smallest
 #                                        the window takes (gui_size.h): the MAP round in its place, the top bar, the tour
 

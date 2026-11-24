@@ -80,7 +80,10 @@ enum { TXG_W_NONE, TXG_W_ROW, TXG_W_VOL, TXG_W_MUTE, TXG_W_SOLO, TXG_W_DOT, TXG_
         * TXG_W_PICKER, -4); the tour: its card (lane: the step, 0 .. 7), the part of the window the step lights (never
         * hit; lane: the step), the card's SKIP, BACK, NEXT (lane 0 1 2); the logo (never hit: the tests' top bar) */
        TXG_W_HELP, TXG_W_RNDMENU, TXG_W_TOUR, TXG_W_TOURLIT, TXG_W_TOURBTN, TXG_W_LOGO,
-       TXG_W_VMS };   /* (the place's third tab, M/S: the mix's stereo picture) */
+       TXG_W_VMS,     /* (the place's third tab, M/S: the mix's stereo picture) */
+       /* OUTPUT's arrow at the EFFECTS band's end (BINAURAL's panel: OUTPUT, AMOUNT, HEAD SIZE; its area TXG_W_PICKER,
+        * -5) */
+       TXG_W_BINMENU };
 
 typedef struct txg txg_t;
 txg_t *txg_new(txp_core *c);             /* NULL: out of memory or the font did not load */

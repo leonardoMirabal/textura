@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """The power cycle's older settings records: the record cut to SIZE bytes (12: the firmwares before SCALE and the MIDI
-IN channels, scenes.c SET_OLD_SZ; 20: before Frodhes' SCALE page, SET_MID_SZ; 24: before OUTPUT, SET_PREV_SZ), its length and CRC set to match, so the
+IN channels, scenes.c SET_OLD_SZ; 20: before Frodhes' SCALE page, SET_MID_SZ; 24: before OUTPUT, SET_PREV_SZ; 26: before
+its binaural AMOUNT and HEAD SIZE, SET_OUT_SZ), its length and CRC set to match, so the
 boot reads a record as an older firmware left it (the record saved is 256 bytes: set_store.c's, the
 settings first, zero-padded). With L1 NF instead of a size: the whole record, its layout set back to 1 (the scenes
 as F001 .. F100 then the user's, scenes.c SET_LAYOUT) and its last scene moved there from a layout of NF factory
@@ -31,7 +32,7 @@ if len(sys.argv) > 2 and sys.argv[2] == "RND":
     open(path, "wb").write(img)
     sys.exit(0)
 size = int(sys.argv[2]) if len(sys.argv) > 2 else 12
-if magic != 0x54535854 or n != 256 or size not in (12, 20, 24):
+if magic != 0x54535854 or n != 256 or size not in (12, 20, 24, 26):
     sys.exit(f"settings_old: no 256-byte settings record in {path} (magic {magic:#x}, length {n}), or size {size}")
 rec = bytes(img[12:12 + size])
 struct.pack_into("<III", img, 0, magic, size, zlib.crc32(rec) & 0xFFFFFFFF)

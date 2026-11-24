@@ -28,7 +28,17 @@
  * centre the two modes are the same, bit for bit (a slot's peak never over 8 full scale) */
 #define TX_MIX_SPEAKERS 0u
 #define TX_MIX_HEADPHONES 1u
-#define TX_BIN_N 32u                       /* a slot's history for the far ear (a power of two over the 29 + 1 samples read) */
+/* HEADPHONES' two settings (tx_mix_phones_amt, tx_mix_phones_head): AMOUNT, 0 .. 100 % of every binaural cue (the far
+ * ear's delay, its shadow's depth, the level panning's softening; 0 %: SPEAKERS, bit for bit, and its cost), and the
+ * head's size: a spherical head of radius 7.6, 8.8 or 10.0 cm (c = 343 m/s), its largest time difference 25, 29 or 33
+ * samples (0.57, 0.66, 0.75 ms: Woodworth's r (1 + pi/2) / c), its shadow's corner 2.08, 1.8 or 1.58 kHz (a head's
+ * shadow scales as 1 / r: k r the same); the shelf's depth and the level softening are the same for all three */
+#define TX_MIX_HEAD_SMALL 0u
+#define TX_MIX_HEAD_MEDIUM 1u              /* (the default: tx_mix_init's, the 29 samples of before) */
+#define TX_MIX_HEAD_LARGE 2u
+#define TX_MIX_HEAD_N 3u
+#define TX_MIX_AMT_DEF 100u                /* AMOUNT's default: every cue in full */
+#define TX_BIN_N 64u                       /* a slot's history for the far ear (a power of two over the 33 + 1 samples read) */
 /* HEADPHONES' extra cost, FM-1 us a slot a block, over SPEAKERS' level pan (make tx-budget: 46.7 against 12.1 a lane on
  * the FM-1 in one run, 57.4 against 15.1 in another: 34.6 .. 42.3, rounded up with room): the sources' pool carries it (tx_mix_phones_us, firmware/src/lanes.c: the governor's extra) */
 #define TX_MIX_HP_US 45u
@@ -74,7 +84,8 @@ typedef struct {
      * shadow's low-pass coefficient a and high-shelf gain b, Q15; its gain, Q14; a, b and the gain kept << 8 so a
      * block's ramp lands on its target; now and wanted, ramped over a block, the delay at most 1/16 sample a sample) and
      * its history; run: the binaural path on (HEADPHONES, or back to SPEAKERS until every ear has reached it) */
-    unsigned hp;
+    unsigned hp;                         /* the binaural path wanted: HEADPHONES with AMOUNT over 0 */
+    uint8_t mode, amt, head;             /* tx_mix_phones', tx_mix_phones_amt's (0 .. 100), tx_mix_phones_head's */
     struct {
         struct { int32_t d, dt, a, at, b, bt, g, gt, lp; } e[2];   /* 0 left, 1 right */
         int32_t r[TX_BIN_N];
@@ -93,6 +104,10 @@ void tx_mix_pan(tx_mix_t *m, unsigned k, unsigned pan);   /* 0 left .. 64 centre
 /* the output mode: TX_MIX_SPEAKERS (the default: tx_mix_init's) or TX_MIX_HEADPHONES (binaural); every slot glides to
  * it over a block or two, no click */
 void tx_mix_phones(tx_mix_t *m, unsigned mode);
+/* HEADPHONES' AMOUNT, 0 .. 100 % (TX_MIX_AMT_DEF at first: every binaural cue scaled; 0: SPEAKERS, bit for bit, and its
+ * cost), and the head's size (TX_MIX_HEAD_SMALL .. LARGE; MEDIUM at first). Either glides as tx_mix_phones does */
+void tx_mix_phones_amt(tx_mix_t *m, unsigned pct);
+void tx_mix_phones_head(tx_mix_t *m, unsigned size);
 /* slot k's binaural path's extra cost in its last tx_mix_add, FM-1 us (0 in SPEAKERS at rest: its level pan alone) */
 static inline uint32_t tx_mix_phones_us(const tx_mix_t *m, unsigned k)
 {

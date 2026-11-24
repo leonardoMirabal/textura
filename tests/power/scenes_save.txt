@@ -1,5 +1,5 @@
 # the power cycle, run 1 (FRODHES_FLASH kept: make fw-test): a scene saved into U05, the settings (CLOCK AUTO, the
-# last scene, CLK OUT, PRESETS CHANGE TEMPO, EFFECTS ON LOAD (SMART), OUTPUT (HEADPHONES), COLOR, SCALE (MODE, SCALE, ROOT, TRANSP), SELECTED CH, the lanes' MIDI channels) saved 2 s after
+# last scene, CLK OUT, PRESETS CHANGE TEMPO, EFFECTS ON LOAD (SMART), OUTPUT (HEADPHONES, AMOUNT 95 %, HEAD SIZE SMALL), COLOR, SCALE (MODE, SCALE, ROOT, TRANSP), SELECTED CH, the lanes' MIDI channels) saved 2 s after
 # their last change; run 2 (scenes_boot.txt) starts from that flash
 1700 btn 13
 1800 midi 0xB4 91 110
@@ -42,6 +42,11 @@
 2986 turn 2 1
 2990 expect state p42D 1
 2990 expect state card0 HEADPHONES
+2992 turn 3 -5
+2994 turn 4 -1
+2997 expect state p42E 95
+2997 expect state p42F 0
+2997 expect state card2 SMALL
 3000 btn 7
 3005 expect state page DISPLAY
 3010 turn 2 2

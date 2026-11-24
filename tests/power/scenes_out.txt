@@ -1,0 +1,20 @@
+# the power cycle, run 7: the settings record as a firmware before OUTPUT's AMOUNT and HEAD SIZE wrote it
+# (settings_old.py 26: its first 26 bytes): everything loads as saved (power2's), OUTPUT HEADPHONES too, AMOUNT and
+# HEAD SIZE at their defaults, 100 % and MEDIUM (run 1 set 95 %, SMALL)
+1700 expect state palette PEACH
+1700 expect state p42D 1
+1700 expect state p42E 100
+1700 expect state p42F 1
+1700 expect state scene U05_COLD_HAIL
+1700 expect state bpm10 1390
+1700 expect state p43B 2
+1700 expect state p43C 2
+1700 expect state p43D 0
+1700 expect state p43E 1
+1700 expect state p43F 8
+1700 expect state p441 0
+1700 expect state p442 2
+1700 expect state p443 27
+1700 expect state p426 1
+1900 expect sound
+2000 end

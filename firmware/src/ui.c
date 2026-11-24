@@ -23,7 +23,8 @@
  *              ENV 1/2 2/2 (FOLLOW: one page), MATRIX, GROOVE 1/2 2/2 (every groove control together: TYPE AMOUNT
  *              SHIFT, then each lane's ROLE on its knob, its PART or own CYCLE), TEMPO (BPM FINE, the transport, what
  *              leads it), SCALE (MODE SCALE ROOT TRANSP, as Frodhes': the keys' notes), MIDI (the clock), MIDI IN (each
- *              lane's channel), OUTPUT (SPEAKERS / HEADPHONES: the mix's pan, how it is heard), DISPLAY (COLOR). Each
+ *              lane's channel), OUTPUT (SPEAKERS / HEADPHONES: the mix's pan, how it is heard; the binaural AMOUNT,
+ *              HEAD SIZE), DISPLAY (COLOR). Each
  *              page titled by what it does, no fractions: pips at the right for its button's pages
  *   ALGORITHM  named on the footer's ALGORITHM line with its value. LANDSCAPE: picks a landscape (the footer names it:
  *              EDIT loads it, HOME keeps what plays; a turn never loads); SOUND: opens the sound browser; PERFORM,
@@ -159,7 +160,10 @@ static const uint16_t FX_IDS[27][4] = {
                                                  * IN: each lane's channel */
     {MSP(TX_MS_MID), MSP(TX_MS_SIDE), MSP(TX_MS_WIDTH), MSP(TX_MS_MONO)},   /* M/S: the mix's last effect (the footer
                                                  * its L R M S meters and the correlation: draw_ms_meter) */
-    {PID(P_GLOBAL, PG_OUTPUT), NOID, NOID, NOID},   /* OUTPUT: SPEAKERS / HEADPHONES (the settings', never a scene's) */
+    {PID(P_GLOBAL, PG_OUTPUT), PID(P_GLOBAL, PG_BINAMT), PID(P_GLOBAL, PG_BINHEAD), NOID},   /* OUTPUT: SPEAKERS /
+                                                 * HEADPHONES, its binaural AMOUNT and HEAD SIZE (the settings', never a
+                                                 * scene's; AMOUNT and HEAD SIZE act on HEADPHONES only, editable on
+                                                 * SPEAKERS too, so the next switch finds them set) */
 };
 /* what ALGORITHM turns on an effect's page */
 #define ALG_DRIVE DRV(TX_DR_TYPE)
@@ -1054,6 +1058,52 @@ static void draw_opt_row(uint32_t k)
     }
     cv_blit(RW_X, RW_Y0 + RW_DY * k);
 }
+/* the OUTPUT page, drawn as LOAD OPTIONS is (the cards' ids and knobs as any page's, FX_IDS): K1 "OUTPUT (BINAURAL)", its choices
+ * (HEADPHONES read "HEADPHONES (BINAURAL)" when both fit the row), a line under it; K2 BINAURAL AMOUNT, its value and a
+ * bar; K3 HEAD SIZE, its choices; what the output does. On SPEAKERS K2 and K3 are dim (still turned: the next switch to
+ * HEADPHONES finds them set) */
+static void ui_chips(uint32_t id, const char *const *nm, int lit)   /* a row of choices at y 19, the chosen framed */
+{
+    uint32_t i, n = (uint32_t)p_hi(id) + 1u, c = (uint32_t)p_get(id);
+    int32_t x = 6;
+    for (i = 0; i < n; i++) {
+        int32_t w = aa_text_w(&AF_S, nm[i]) + 12;
+        if (i == c && lit) { cv_rect(x, 19, w, 17, mt.fill); cv_frame(x, 19, w, 17, 1); }
+        else if (i == c) { cv_rect(x, 19, w, 1, mt.dim); cv_rect(x, 35, w, 1, mt.dim); cv_rect(x, 19, 1, 17, mt.dim); cv_rect(x + w - 1, 19, 1, 17, mt.dim); }
+        aa_text_ov(x + 6, S_TOP(27), &AF_S, nm[i], !lit ? FC_DIM : i == c ? FC_VAL : FC_LAB);
+        x += w + 6;
+    }
+}
+static void draw_out_row(uint32_t k)
+{
+    static const char *const HP[2][2] = {{"SPEAKERS", "HEADPHONES (BINAURAL)"}, {"SPEAKERS", "HEADPHONES"}};
+    int hp = p_get(PID(P_GLOBAL, PG_OUTPUT)) != 0;
+    uint32_t id = ui_row_id(k);
+    char kk[3] = {'K', (char)('1' + k), 0};
+    cv_begin(RW_W, RW_H, C_BLACK);
+    if (k < 3u && id != NOID) {
+        int lit = k == 0u || hp;
+        aa_text_ov(6, S_TOP(9), &AF_S, k == 0u ? "OUTPUT (BINAURAL)" : ui_lab(id), lit ? FC_LAB : FC_DIM);
+        aa_text_ovr((int32_t)RW_W - 6, S_TOP(9), &AF_S, kk, lit ? mt.tag : FC_DIM);
+        if (k == 0u) {                          /* (the long name when both choices fit, framed, 6 px apart) */
+            int f = aa_text_w(&AF_S, HP[0][0]) + aa_text_w(&AF_S, HP[0][1]) + 2 * 12 + 6 + 6 > (int32_t)RW_W;
+            ui_chips(id, HP[f], 1);
+            cv_rect(0, RW_H - 2, RW_W, 2, UI_ACC);
+        } else if (k == 1u) {
+            char v[24];
+            const char *u = p_text(id, v);
+            int32_t x0 = 59, w = (int32_t)RW_W - 6 - x0, f = w * clampi(p_get(id), 0, 100) / 100;
+            if (u) { p_cat(v, " ", 23); p_cat(v, u, 23); }
+            aa_text_ov(6, S_TOP(27), &AF_S, v, hp ? FC_VAL : FC_DIM);
+            cv_rect(x0, 27, w, 2, MT_DIMLINE);
+            if (f > 0) cv_rect(x0, 27, f, 2, hp ? UI_ACC : mt.dim);
+        } else ui_chips(id, p_names(id), hp);
+    } else if (k == 3u) {
+        aa_text_ov(6, S_TOP(9), &AF_S, hp ? "EACH SOUND PLACED AROUND" : "LEVEL PANNING: FOR SPEAKERS", FC_LAB);
+        aa_text_ov(6, S_TOP(27), &AF_S, hp ? "YOUR HEAD: FOR HEADPHONES" : "AND MIXERS (K2 K3: HEADPHONES)", FC_LAB);
+    }
+    cv_blit(RW_X, RW_Y0 + RW_DY * k);
+}
 /* the toast: a box over rows 2 and 3 (both rows draw it whole, in two strips: the canvas holds 64 rows), its head
  * small in the accent with the family ("LOADED . COAST"), the name large when the large face has its letters and room */
 static void draw_toast(void)
@@ -1113,6 +1163,7 @@ static void draw_row(uint32_t k)
     if (ui_g == G_LAND) { draw_strip(k); return; }
     if (ui_g == G_LANES) { draw_lane_row(k); return; }
     if (UI_GLANES) { draw_groove_row(k); return; }
+    if (ui_g == G_OUTPUT) { draw_out_row(k); return; }
     id = ui_row_id(k);
     if (id == NOID) { cv_begin(RW_W, RW_H, C_BLACK); cv_blit(RW_X, RW_Y0 + RW_DY * k); return; }
     {
@@ -1261,8 +1312,9 @@ static void draw_footer(void)
             if (mod_cc_learn) ft_c(7, "SEND A CC: MOD CC", FC_LAB);
             else { p_strcpy(v, "SLOT ", 23); p_fmt_int(v + 5, ui_slot + 1); ft_alg(7, "WHICH SLOT", v); }
         }
+        else if (ui_g == G_OUTPUT) ft_two(7, "K1-K3: CHOOSE", "KEPT", FC_LAB);
         else ft_c(7, ui_g == G_TEMPO ? "PLAY: TAP, HOLD: START / STOP" : ui_g == G_MIDI ? "CLOCK OUT: IN MASTER" :
-                 ui_g == G_OUTPUT ? "HOW YOU LISTEN, KEPT" : "THE SCREEN'S COLOUR, KEPT", FC_LAB);
+                 "THE SCREEN'S COLOUR, KEPT", FC_LAB);
         if (ui_g == G_LANES) {                  /* (SELECT walks them) */
             p_strcpy(t, "SELECT: NEXT > ", 31); p_cat(t, ui_title_of(ui_sub < 3u ? G_LANES : G_FX, ui_sub < 3u ? ui_sub + 1u : 0u), 31);
             ft_c(22, t, FC_DIM);
@@ -1443,6 +1495,8 @@ static uint32_t ui_sig_of(uint32_t e)
             if (id != NOID) h = sig_mix(h, (uint32_t)p_get(id));
             if (ui_g == G_GRAIN) { h = sig_mix(h, tm.gsync); h = sig_mix(h, tm.gsync_half); }   /* (TIME: the division) */
             if (ui_g == G_MS) h = sig_mix(h, pv_glob[PG_MS0 + TX_MS_MONO]);   /* (MONO: SIDE, WIDTH read -INF, 0) */
+            if (ui_g == G_OUTPUT) h = sig_mix(h, (uint32_t)p_get(PID(P_GLOBAL, PG_OUTPUT)) + 2000u);   /* (SPEAKERS: K2, K3
+                                                 * dim; the help row) */
             if (id != NOID) { int32_t lv; if (mod_live(id, &lv)) h = sig_mix(h, (uint32_t)(lv * 32 / (p_hi(id) ? p_hi(id) : 1)) + 1000u); }
             if (ui_g == G_MATRIX || ui_g == G_LFO) { h = sig_mix(h, sc.sel); h = sig_mix(h, (uint32_t)sc.snd[sc.sel]); }
             if (ui_g == G_TEMPO || ui_g >= G_MIDI) { h = sig_mix(h, tempo_bpm10()); h = sig_mix(h, (uint32_t)clk_follows()); h = sig_mix(h, clk_src); }

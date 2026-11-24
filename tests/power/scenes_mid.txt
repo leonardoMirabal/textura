@@ -1,8 +1,10 @@
 # the power cycle, run 4: (EFFECTS ON LOAD saved at SMART by a firmware of before: NEVER, the new default) the settings record as a firmware before Frodhes' SCALE page wrote it (settings_old.py 20:
 # its first 20 bytes): its scale byte (the old list's DORIAN, saved for DEGREE) reads as SNAP DORIAN, ROOT kept,
-# TRANSP 0; the rest as saved (OUTPUT: SPEAKERS, the default)
+# TRANSP 0; the rest as saved (OUTPUT: SPEAKERS, AMOUNT 100 %, HEAD SIZE MEDIUM, the defaults)
 1700 expect state palette PEACH
 1700 expect state p42D 0
+1700 expect state p42E 100
+1700 expect state p42F 1
 1700 expect state scene U05_COLD_HAIL
 1700 expect state bpm10 1390
 1700 expect state p43B 2

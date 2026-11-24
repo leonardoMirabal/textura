@@ -290,7 +290,7 @@ under a dark gap and a band that says so: **EFFECTS · THE WHOLE MIX, AFTER ALL 
 mix's effects in the order the sound goes through them, a small **›** between each and the next (COMP › DRIVE › FILTER ›
 DELAY › REVERB › M/S), then the movement, on a tinted ground: it moves values and takes no sound. Each section has a
 dot (lit while it acts), a small picture and its two main values. At the band's right end, where the mix leaves, is
-[OUTPUT](#output-headphones-or-speakers).
+OUTPUT ([BINAURAL](#binaural)).
 
 | Section | Picture | In the strip | Its drawer (click the header) |
 | --- | --- | --- | --- |
@@ -345,21 +345,35 @@ for a second. COMP off: they read OFF. Quiet lanes under THR show no gain reduct
 
 ![The COMP drawer: its meters (IN, OUT, GR) and its curve, the dot where the input is now](plugin/img/compressor.png)
 
-#### OUTPUT: HEADPHONES or SPEAKERS
+#### BINAURAL
 
-How you listen, at the right end of the EFFECTS band. **Click it** to switch between the two:
+How you listen. On headphones Textura places each lane binaurally, as your ears place a real sound: a lane panned to
+one side reaches the far ear a little later and a little darker, the head's shadow, so the lanes stand apart around
+your head instead of inside it.
 
-- **HEADPHONES** (the default in the plugin): each lane is placed as your ears place a sound. A lane panned to one
-  side reaches the far ear a little later and a little darker, the head's shadow, so the lanes stand apart around your
-  head instead of inside it. For headphones.
-- **SPEAKERS**: each lane is placed by its level in the left and right channels alone, as a mixer pans. For speakers,
+**OUTPUT** sits at the right end of the EFFECTS band. **Click it** to switch between the two:
+
+- **HEADPHONES** (the default in the plugin): each lane placed binaurally. For headphones.
+- **SPEAKERS**: each lane placed by its level in the left and right channels alone, as a mixer pans. For speakers,
   and when you mix the plugin further in your DAW.
 
-At the centre both are the same; only the placing of panned lanes changes, never the sounds. OUTPUT is saved with
-the project, like the other settings, and no preset load, undo or roll of the dice changes it. The host parameter is
-**OUTPUT** (group **Output**).
-
 ![OUTPUT at the right end of the EFFECTS band: HEADPHONES](plugin/img/output.png)
+
+**Click its ▾** for the BINAURAL panel (a click outside closes it): OUTPUT again, and the two binaural settings:
+
+- **AMOUNT**, 0 to 100 % (100 % at first): how much of the binaural placing. Less brings the far ear's delay, its
+  shadow and the level difference back toward plain level panning; at 0 % HEADPHONES sounds exactly as SPEAKERS.
+  Drag the slider, or turn the wheel over it.
+- **HEAD SIZE**: **SMALL**, **MEDIUM** (at first) or **LARGE**, the head the placing is worked out for. A larger head
+  delays the far ear more (up to 0.57, 0.66 or 0.75 ms at a hard pan) and shadows it from lower notes. Pick the one
+  that sounds most natural to you.
+
+![BINAURAL's panel, from OUTPUT's arrow: OUTPUT, AMOUNT, HEAD SIZE](plugin/img/binaural.png)
+
+The same three are in [SETTINGS](#settings), BINAURAL. At the centre SPEAKERS and HEADPHONES are the same; only the
+placing of panned lanes changes, never the sounds. All three are saved with the project, like the other settings, and
+no preset load, undo or roll of the dice changes them. The host parameters are **OUTPUT**, **BINAURAL AMOUNT** and
+**HEAD SIZE** (group **Output**).
 
 ### The movement
 
@@ -551,9 +565,9 @@ The 110 factory presets by family, and their effects: [factory presets](MANUAL.m
 
 ### SETTINGS
 
-![SETTINGS: MIDI IN, SCALE, TIMING, LOADING, WINDOW and SOURCE COLOURS](plugin/img/settings.png)
+![SETTINGS: MIDI IN, SCALE, TIMING, LOADING, WINDOW, BINAURAL and SOURCE COLOURS](plugin/img/settings.png)
 
-Six groups, by function. All but SOURCE COLOURS, WINDOW and the tempo are host parameters too, so your DAW can
+Seven groups, by function. All but SOURCE COLOURS, WINDOW and the tempo are host parameters too, so your DAW can
 automate them. A box steps on a click (Shift- or Alt-click steps back), the wheel steps it, a double-click sets the
 default. A row of choices takes a click.
 
@@ -564,6 +578,7 @@ default. A row of choices takes a click.
 | **TIMING** | **Tempo** and **Fine** (0.1 BPM steps): the plugin's own tempo, used when your DAW gives none (your DAW's tempo leads). **Groove**, **Groove amount**, **Groove shift** ([the groove](MANUAL.md#the-groove)). |
 | **LOADING** | **EFFECTS ON LOAD**, **PRESETS CHANGE TEMPO** (as in the presets browser), **Lanes in use** (LANES). |
 | **WINDOW** | **SIZE**: 100 %, 125 %, 150 %, 200 % (at 5:3; drag the corner for any other size). **PLACE VIEW**: MAP, SPACE or M/S. The last line names the build (HQ build, 16 lanes). |
+| **BINAURAL** | **OUTPUT**: **SPEAKERS** or **HEADPHONES (BINAURAL)**; **Amount**, 0 to 100 %; **HEAD SIZE**: SMALL, MEDIUM, LARGE. How you listen, kept with the project, never in presets ([BINAURAL](#binaural)). |
 | **SOURCE COLOURS** | The sources the lanes' engines run on now, each with its colour dot: click one to choose its colour. **RESET ALL TO BONE** sets them all back. |
 
 Close SETTINGS with **CLOSE**, Esc or the SETTINGS button.
@@ -647,9 +662,9 @@ generic view of the plugin) for automation, and MIDI CCs and NRPNs reach them to
 | **Grain delay**, **Reverb**, **Compressor**, **Drive**, **Filter**, **M/S** | The effects, as on their FM-1 pages ([the effects](MANUAL.md#7-the-effects)) |
 | **Groove**, **Keys**, **MIDI** | The groove, the scale, the MIDI channels, EFFECTS ON LOAD, LANES |
 | **LFO**, envelopes, followers, matrix | LFO 1 to 8, ENV 1 and 2, FOLLOW 1 and 2, MOD 1 to 16, MOD CC |
-| **Output** | **OUTPUT**: SPEAKERS or HEADPHONES ([OUTPUT](#output-headphones-or-speakers)) |
+| **Output** | **OUTPUT**: SPEAKERS or HEADPHONES; **BINAURAL AMOUNT** 0 to 100 %; **HEAD SIZE** ([BINAURAL](#binaural)) |
 
-484 parameters in all. Their ids never change between versions, so automation stays put.
+486 parameters in all. Their ids never change between versions, so automation stays put.
 
 - **A lane's cards** (CARD 1 to 8) mean what the lane's engine says: a rain engine's cards are not a bird's. The FM-1
   manual lists every engine's cards ([the engines](MANUAL.md#5-the-sounds)). A card's value is 0 to 127 over the card's
@@ -715,7 +730,8 @@ Your DAW saves the plugin with the project, and its own preset function saves it
 
 - what a user preset keeps on the FM-1: the landscape, each lane's engine, HOW MANY, HOW ACTIVE, level, pan, mute and
   cards, the effects, the modulation, the groove and the tempo;
-- the preset loaded last, the scale, the MIDI channels, EFFECTS ON LOAD, PRESETS CHANGE TEMPO and OUTPUT;
+- the preset loaded last, the scale, the MIDI channels, EFFECTS ON LOAD, PRESETS CHANGE TEMPO, OUTPUT, BINAURAL
+  AMOUNT and HEAD SIZE;
 - your user presets, U01 to U16 ([SAVE](#save));
 - KEYS ON SELECTED CH, the selected lane;
 - the window's own: the solo, the size, MAP, SPACE or M/S, the sources' colours and RANDOM's ticks.
@@ -757,7 +773,7 @@ opens: lanes 1 to 4 as saved, LANES 4.
 | --- | --- | --- |
 | **Lanes** | 4 | 1 to 16 (LANES) |
 | **Thinning** | The CPU governor may thin a busy lane | Never (HQ build) |
-| **OUTPUT** | SPEAKERS at first (the OUTPUT page) | HEADPHONES at first (the EFFECTS band's right end) |
+| **OUTPUT** (binaural) | SPEAKERS at first (the OUTPUT page) | HEADPHONES at first (the EFFECTS band's right end, SETTINGS) |
 | **Playing** | Keys: lanes, HOW MANY, HOW ACTIVE, mute; PLAY mode | MIDI notes on each lane's channel play it as in PLAY mode; FM-1 KEYS on SELECTED CH plays the keys' way; the window's HOW MANY and HOW ACTIVE blocks |
 | **Starting** | REC starts and stops the lanes | PLAY ALL / STOP ALL (REC); a factory preset's lanes start when it loads, a landscape's start stopped; HOW MANY or HOW ACTIVE starts a lane |
 | **Editing** | Pages and knobs | The window: every parameter, in the rows, the drawer, the strip and SETTINGS |

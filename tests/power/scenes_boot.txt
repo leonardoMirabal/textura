@@ -1,4 +1,4 @@
-# the power cycle, run 2: the bank's names, the settings (OUTPUT HEADPHONES kept; EFFECTS ON LOAD SMART kept: a record saved since NEVER became the default; the record's spare byte set as a build that kept RANDOM's ticks there left it, settings_old.py RND: ignored, everything loads), and U05 (the scene loaded last) playing again, its toast
+# the power cycle, run 2: the bank's names, the settings (OUTPUT HEADPHONES, AMOUNT 95 %, HEAD SIZE SMALL kept; EFFECTS ON LOAD SMART kept: a record saved since NEVER became the default; the record's spare byte set as a build that kept RANDOM's ticks there left it, settings_old.py RND: ignored, everything loads), and U05 (the scene loaded last) playing again, its toast
 # shown once the splash is gone
 1700 expect state used5 1
 1700 expect state used1 0
@@ -9,6 +9,10 @@
 1700 expect state bpm10 1390
 1700 expect state palette PEACH
 1700 expect state p42D 1
+1700 expect state p42E 95
+1700 expect state p42F 0
+1700 expect state binamt 95
+1700 expect state binhead 0
 1700 expect preset
 1700 expect state p43B 2
 1700 expect state p43C 2

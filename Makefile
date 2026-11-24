@@ -221,9 +221,11 @@ fw-test: $(FW)/scn_bank_test $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_t
 	   python3 -I tests/power/settings_old.py $(FW)/power_l1.flash L1 $$(sed -n 's/^#define PR_N \([0-9]*\)u$$/\1/p' firmware/src/presets.h) && \
 	   FRODHES_FLASH=$(FW)/power_l1.flash $(FW)/textura-host $(FW)/power5 tests/power/scenes_l1.txt > $(FW)/power5.log 2>&1 && \
 	   cp $(FW)/power.flash $(FW)/power_prev.flash && python3 -I tests/power/settings_old.py $(FW)/power_prev.flash 24 && \
-	   FRODHES_FLASH=$(FW)/power_prev.flash $(FW)/textura-host $(FW)/power6 tests/power/scenes_prev.txt > $(FW)/power6.log 2>&1; \
+	   FRODHES_FLASH=$(FW)/power_prev.flash $(FW)/textura-host $(FW)/power6 tests/power/scenes_prev.txt > $(FW)/power6.log 2>&1 && \
+	   cp $(FW)/power.flash $(FW)/power_out.flash && python3 -I tests/power/settings_old.py $(FW)/power_out.flash 26 && \
+	   FRODHES_FLASH=$(FW)/power_out.flash $(FW)/textura-host $(FW)/power7 tests/power/scenes_out.txt > $(FW)/power7.log 2>&1; \
 	then echo "ok    host power cycle (tests/power: a scene and the settings across a restart; older settings records)"; \
-	else echo "FAIL  host power cycle ($(FW)/power1.log, power2.log, power3.log, power4.log, power5.log, power6.log)"; fail=1; fi; \
+	else echo "FAIL  host power cycle ($(FW)/power1.log, power2.log, power3.log, power4.log, power5.log, power6.log, power7.log)"; fail=1; fi; \
 	if HOST_ENGINE_DROP=thunder $(FW)/textura-host-ub $(FW)/fault_drop tests/fault/engine_drop.txt > $(FW)/fault_drop.log 2>&1 && \
 	   HOST_ENGINE_FAT=thunder $(FW)/textura-host-ub $(FW)/fault_fat tests/fault/engine_fat.txt > $(FW)/fault_fat.log 2>&1; \
 	then echo "ok    host faults (tests/fault: a scene's engine missing or too big: the lane empty, the load ends, UBSan clean)"; \

@@ -882,12 +882,12 @@ static void scn_pc(uint32_t p)                  /* MIDI program change (channel 
 #if SC_N > 4
 typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, scn_tempo, out_off; uint16_t bpm10; uint8_t scn_fx, layout;
                  uint8_t scale, root, selch, lch[4], spare, scm, scf, sct, spare2;
-                 uint8_t lchx[SC_N - 4u], chg, output, spare3; } tx_set_t;   /* (more lanes: lane 5 .. SC_N's channels, FX CHANNEL, each
+                 uint8_t lchx[SC_N - 4u], chg, output, spare3, binamt, binhead; } tx_set_t;   /* (more lanes: lane 5 .. SC_N's channels, FX CHANNEL, each
                                                  * XOR its default as lch) */
 #define SET_LCH_OF(s, k) ((k) < 4u ? (s)->lch[k] : (s)->lchx[(k) - 4u])
 #else
 typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, scn_tempo, out_off; uint16_t bpm10; uint8_t scn_fx, layout;
-                 uint8_t scale, root, selch, lch[SC_N], spare, scm, scf, sct, spare2, output, spare3; } tx_set_t;
+                 uint8_t scale, root, selch, lch[SC_N], spare, scm, scf, sct, spare2, output, spare3, binamt, binhead; } tx_set_t;
 #define SET_LCH_OF(s, k) ((s)->lch[k])
 #endif
                                                 /* (scn_tempo, out_off, palette, scn_fx, layout: once spare bytes, 0 = as
@@ -901,14 +901,18 @@ typedef struct { uint8_t ver, scene, clock, in_usb, in_trs, palette, scn_tempo, 
                                                  * others SNAP), SCALE (Frodhes' list), TRANSP + 24; scale then keeps the
                                                  * old list's number (OFF: 0), for a firmware of before). output appended:
                                                  * OUTPUT XOR its default (0: the default, SPEAKERS on the FM-1, as a
-                                                 * record of before, SET_PREV_SZ bytes, loads) */
+                                                 * record of before, SET_PREV_SZ bytes, loads). binamt, binhead
+                                                 * appended: OUTPUT's binaural AMOUNT XOR 100 and HEAD SIZE XOR MEDIUM
+                                                 * (0: the defaults, as a record of before, SET_OUT_SZ bytes or 256
+                                                 * with zeros there, loads) */
 #define SET_OLD_SZ 12u
 #define SET_MID_SZ 20u
 #define SET_PREV_SZ ((__builtin_offsetof(tx_set_t, output) + 1u) & ~1u)   /* (the record before output: 24 bytes on the FM-1) */
+#define SET_OUT_SZ ((__builtin_offsetof(tx_set_t, binamt) + 1u) & ~1u)   /* (the record before binamt: 26 bytes on the FM-1) */
 #if SC_N > 4
 _Static_assert(sizeof(tx_set_t) <= 256u && SET_OLD_SZ == 12u && SET_MID_SZ == 20u, "the settings: the old records, then the appended bytes");
 #else
-_Static_assert(sizeof(tx_set_t) == 26u && SET_PREV_SZ == 24u && SET_OLD_SZ == 12u && SET_MID_SZ == 20u, "the settings: the old records, then the appended bytes");
+_Static_assert(sizeof(tx_set_t) == 28u && SET_OUT_SZ == 26u && SET_PREV_SZ == 24u && SET_OLD_SZ == 12u && SET_MID_SZ == 20u, "the settings: the old records, then the appended bytes");
 #endif
 /* the old SCALE list's numbers (CHROMATIC MAJOR MINOR DORIAN PHRYGIAN LYDIAN MIXOLYDIAN HARMONIC MELODIC MAJ PENTA MIN
  * PENTA BLUES) <-> Frodhes' (MAJOR MINOR DORIAN MIXO LYDIAN PHRYG HARMON MELODIC PENTA MPENTA BLUES) */
@@ -938,6 +942,7 @@ static void set_take(tx_set_t *s)
     s->scm = (uint8_t)(nt_scmode + 1u); s->scf = nt_scale; s->sct = (uint8_t)(nt_trans + 24);
     s->selch = (uint8_t)(nt_selch ^ 1u);
     s->output = (uint8_t)(p_output ^ OUTPUT_DEF);
+    s->binamt = (uint8_t)(p_binamt ^ TX_MIX_AMT_DEF); s->binhead = (uint8_t)(p_binhead ^ TX_MIX_HEAD_MEDIUM);
 #if SC_N > 4
     for (k = 0; k < SC_N; k++) *(k < 4u ? &s->lch[k] : &s->lchx[k - 4u]) = (uint8_t)(nt_lch[k] ^ (k + 1u));
     s->chg = (uint8_t)(p_chg ^ 5u);
@@ -980,7 +985,7 @@ static void scn_init(void)
     }
     scn_bank_load();
     memset(&s, 0, sizeof s);
-    if ((!set_load256(&s) || !settings_load(&s, sizeof s) || !settings_load(&s, SET_PREV_SZ) || !settings_load(&s, SET_MID_SZ) ||
+    if ((!set_load256(&s) || !settings_load(&s, sizeof s) || !settings_load(&s, SET_OUT_SZ) || !settings_load(&s, SET_PREV_SZ) || !settings_load(&s, SET_MID_SZ) ||
          !settings_load(&s, SET_OLD_SZ))
         && s.ver == SET_VER) {
         if (s.scm) {                            /* (Frodhes' SCALE page saved it) */
@@ -995,6 +1000,8 @@ static void scn_init(void)
         p_set(PID(P_GLOBAL, PG_ROOT), s.root);
         p_set(PID(P_GLOBAL, PG_SELCH), s.selch ^ 1u);
         if (s.output) p_set(PID(P_GLOBAL, PG_OUTPUT), (s.output ^ OUTPUT_DEF) & 1u);   /* (0: the default, as booted) */
+        if (s.binamt) p_set(PID(P_GLOBAL, PG_BINAMT), s.binamt ^ TX_MIX_AMT_DEF);   /* (p_set keeps them in range) */
+        if (s.binhead) p_set(PID(P_GLOBAL, PG_BINHEAD), s.binhead ^ TX_MIX_HEAD_MEDIUM);
 #if SC_N > 4
         for (k = 0; k < SC_N; k++) p_set(PID(P_GLOBAL, PG_LCH(k)), SET_LCH_OF(&s, k) ^ (k + 1u));
         p_set(PID(P_GLOBAL, PG_CHG), s.chg ^ 5u);
