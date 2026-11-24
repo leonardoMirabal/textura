@@ -1,0 +1,63 @@
+# OUTPUT (params.c global 45, the setup's OUTPUT page after MIDI IN): SPEAKERS on the FM-1 at the boot (the mix's
+# level pan; F003 loaded), HEADPHONES by K1 (each lane placed by the ear delay and the head's shadow: tx_mix_phones), the scene not
+# edited by it; the governor's pool carries the binaural pan (govmix: 45 us a lane in use); it stays through a preset
+# load with EFFECTS ON LOAD at ALWAYS and through a roll of the dice; NRPN 4 / 45 sets it too (back to SPEAKERS)
+1100 midi 0xC0 2 0
+1800 expect state loading 0
+1800 expect state scene F003_GARDEN_RAIN
+1800 expect state p42D 0
+1800 expect state phones 0
+1800 expect state govmix 0
+1800 expect state edited 0
+1800 expect sound
+# HOME held: MIDI CLOCK; GLO: MIDI IN, then OUTPUT
+1900 press 8
+2600 release 8
+2610 expect state page MIDI
+2700 btn 7
+2710 expect state page MIDI_IN
+2800 btn 7
+2810 expect state page OUTPUT
+2810 expect state lab0 OUTPUT
+2810 expect state card0 SPEAKERS
+2810 expect state edited 0
+2890 shot
+2900 turn 2 1
+2950 expect state p42D 1
+2950 expect state card0 HEADPHONES
+2950 expect state edited 0
+3000 expect state phones 1
+3000 expect state govmix 180
+3000 expect sound
+3000 expect rms > -70
+3010 shot
+# EFFECTS ON LOAD at ALWAYS (NRPN 4 / 38, data 0): F012 loads with its effects, OUTPUT stays HEADPHONES
+3100 midi 0xB4 99 4
+3100 midi 0xB4 98 38
+3100 midi 0xB4 6 0
+3150 expect state p426 0
+3200 midi 0xC0 11 0
+3900 expect state loading 0
+3900 expect state scene F012_STORM_NEARS
+3900 expect state p42D 1
+3900 expect state phones 1
+3900 expect preset
+3900 expect sound
+# the dice (OCT- and OCT+ together): everything rolled, OUTPUT left alone
+4000 btn 0
+4000 btn 1
+4100 expect state toasthd RANDOM
+5500 expect state scene RANDOM
+5500 expect state p42D 1
+5500 expect state phones 1
+5500 expect sound
+# NRPN 4 / 45, data 0: SPEAKERS again (the mix glides back; nothing in the pool for it once there)
+5600 midi 0xB4 99 4
+5600 midi 0xB4 98 45
+5600 midi 0xB4 6 0
+5700 expect state p42D 0
+5700 expect state phones 0
+5800 expect state govmix 0
+5800 expect sound
+5900 expect state dropped 0
+6000 end

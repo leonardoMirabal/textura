@@ -459,8 +459,13 @@ int main(int argc, char **argv)
     printf("   effects reserve (granular delay)                         %6.0f    %5.1f   [E] not designed yet\n", FX_RESERVE_US, 100 * FX_RESERVE_US / BLOCK_US);
     printf("   SOURCES POOL, 4 lanes: device %5.0f us (%4.1f %%), planned on host estimates (/ %.1f) %5.0f us (%4.1f %%)\n",
            pool4d, 100 * pool4d / BLOCK_US, UNCERT, pool4p, 100 * pool4p / BLOCK_US);
-    printf("   SOURCES POOL, 11 lanes: device %5.0f us (%4.1f %%), planned %5.0f us (%4.1f %%)   (the governor today: 3193 us, 55 %%)\n\n",
+    printf("   SOURCES POOL, 11 lanes: device %5.0f us (%4.1f %%), planned %5.0f us (%4.1f %%)   (the governor today: 3193 us, 55 %%)\n",
            pool11d, 100 * pool11d / BLOCK_US, pool11p, 100 * pool11p / BLOCK_US);
+    /* OUTPUT HEADPHONES: the binaural pan's extra over the level pan comes out of the pool (firmware/src/lanes.c: the
+     * governor's extra, TX_MIX_HP_US a lane in use), so the interrupt stays as long as in SPEAKERS */
+    printf("   HEADPHONES, 4 lanes: +%.0f us measured, the governor charges %u (%u a lane: %s); the pool left to the sources"
+           " %5.0f us on the device\n\n", 4 * (lane_hp - lane_us), 4u * TX_MIX_HP_US, TX_MIX_HP_US,
+           TX_MIX_HP_US >= lane_hp - lane_us ? "covered" : "UNDER the measure: raise TX_MIX_HP_US", pool4d - 4.0 * TX_MIX_HP_US);
 
     printf("2. each SOURCE preset (FM-1 us): typical = mean at its defaults; worst / w8 = the worst block / the worst"
            " 8-block mean over every PARTICLES 6 configuration (ACTIVITY 0..127, PROXIMITY, knob extremes)\n");

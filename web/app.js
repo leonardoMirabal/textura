@@ -149,7 +149,7 @@ const HINT = { FX: "PERFORM", SEL: "KEY MODE · HOLD: LANE", ENV: "LEARN · AGAI
 const HINT_ON = {                                    // what a button does on a given page (else HINT)
   LANDSCAPE: { HOME: "BACK · HOLD: SETUP" }, SOUND: { EDIT: "NEXT" }, PERFORM: { FX: "COMPRESSOR" }, COMPRESSOR: { FX: "NEXT" }, DRIVE: { FX: "FILTER" }, FILTER: { FX: "GRAIN" }, GRAIN: { FX: "NEXT" }, REVERB: { FX: "NEXT" }, "M/S": { FX: "COMPRESSOR" },
   GROOVE: { GLO: "NEXT" }, TEMPO: { GLO: "SCALE" }, SCALE: { GLO: "MIDI" }, MIDI: { GLO: "MIDI IN" },
-  "MIDI IN": { GLO: "DISPLAY" }, DISPLAY: { GLO: "GROOVE" },
+  "MIDI IN": { GLO: "OUTPUT" }, OUTPUT: { GLO: "DISPLAY" }, DISPLAY: { GLO: "GROOVE" },
   LFO: { LFO: "NEXT" }, ENV: { ENV: "NEXT" },
 };
 let shownPage = "";

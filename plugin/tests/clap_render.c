@@ -1252,6 +1252,32 @@ static int gui_test_dice(const clap_plugin_t *p, const txg_gui_shot_t *xs)
     dice_settle(p, xs);
     return bad;
 }
+/* OUTPUT, at the effects band's right end: HEADPHONES at first (the plugin's default); a click SPEAKERS, another
+ * HEADPHONES again; the top bar's dice (all four ticked) leave it, UNDO (its place: gui_zones) */
+static int gui_test_output(const clap_plugin_t *p, const txg_gui_shot_t *xs)
+{
+    const uint32_t OUT = 4u << 8 | 45u;
+    float r[4];
+    double v0, v1, v2, v3;
+    int bad = 0;
+    gui_key(p, xs, FRK_ESCAPE);
+    if (!xs->find(p, W_PARAM, (int)OUT, r)) { fprintf(stderr, "gui: no OUTPUT\n"); return 5; }
+    v0 = gui_value(p, OUT);
+    if (png_shot) (void)gui_png(p, xs, png_shot, "output");
+    gui_click(p, xs, r[0] + r[2] - 12.f, r[1] + r[3] * 0.5f, 0);
+    v1 = gui_value(p, OUT);
+    if (png_shot) (void)gui_png(p, xs, png_shot, "output-speakers");
+    gui_click(p, xs, r[0] + 12.f, r[1] + r[3] * 0.5f, 0);
+    v2 = gui_value(p, OUT);
+    if (!gui_hit(p, xs, W_RND, -1)) return 5;
+    dice_settle(p, xs);
+    v3 = gui_value(p, OUT);
+    if (!gui_hit(p, xs, W_UNDO, -1)) return 5;
+    dice_settle(p, xs);
+    printf("gui OUTPUT %g, a click %g, another %g; the dice: %g\n", v0, v1, v2, v3);
+    if (v0 != 1.0 || v1 != 0.0 || v2 != 1.0 || v3 != 1.0) { fprintf(stderr, "gui: OUTPUT's switch\n"); bad = 1; }
+    return bad;
+}
 /* the top bar's items, left to right: TEXTURA, HELP, the previous scene, the scene's box, the next, SAVE, UNDO, PLAY ALL,
  * LANES' minus and plus, LEVEL, the dice and its arrow, SETTINGS: in order, apart, inside the bar; every text inside its box at its
  * widest (gui_core.c draw_top's own measure: the box at the widest scene name and lane count) */
@@ -1304,11 +1330,16 @@ static int gui_zones(const clap_plugin_t *p, const txg_gui_shot_t *xs, int pw, i
             fprintf(stderr, "gui zones: section %d's first control not under its head, inside it\n", i); bad = 1;
         }
     }
+    if (!xs->find(p, W_PARAM, 4 << 8 | 45, r) || r[0] < W * 0.4f || r[0] + r[2] > W - 13.f + 0.01f || r[1] < fy + 4.f - 0.01f ||
+        r[1] + r[3] > fy + 24.f + 0.01f) {
+        fprintf(stderr, "gui zones: OUTPUT not at the right end of the strip's band\n"); bad = 1;
+    }
     fit = xs->fits(p, 5);
     if (!gui_hit(p, xs, W_FXOPEN, 0) || !gui_open_fx(p, xs, 0)) { fprintf(stderr, "gui zones: COMP's drawer did not open\n"); return 5; }
     fit_open = xs->fits(p, 5);
     if (!gui_hit(p, xs, W_FXOPEN, 0) || !gui_open_fx(p, xs, -1)) { fprintf(stderr, "gui zones: COMP's drawer did not close\n"); return 5; }
-    printf("gui zones: SOUND's cards above the gap (%.0f), EFFECTS' 7 heads from %.0f, in order, 8 px apart or more; texts %s, with "
+    printf("gui zones: SOUND's cards above the gap (%.0f), EFFECTS' 7 heads from %.0f, in order, 8 px apart or more, OUTPUT at "
+           "the band's end; texts %s, with "
            "COMP's drawer open %s\n", fy, a[0][1], fit == 1 ? "whole" : "CUT", fit_open == 1 ? "whole" : "CUT");
     if (fit != 1 || fit_open != 1) { fprintf(stderr, "gui zones: a text of the drawer or the strip does not fit its room\n"); bad = 1; }
     return bad;
@@ -1736,6 +1767,7 @@ static int gui_shot(const clap_plugin_t *p, const char *png, int pw, int ph, int
         if (gui_test5f(p, xs)) bad = 1;
         if (gui_test5g(p, xs)) bad = 1;
         if (gui_test_dice(p, xs)) bad = 1;
+        if (gui_test_output(p, xs)) bad = 1;
         if (gui_test_save(p, xs)) bad = 1;
         if (xs->find(p, 1 /* TXG_W_ROW */, 2, r)) gui_click(p, xs, r[0] + 30.f, r[1] + r[3] * 0.5f, 0);   /* (lane 3 selected) */
     }

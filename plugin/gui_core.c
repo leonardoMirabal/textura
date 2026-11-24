@@ -125,6 +125,7 @@ static const float SEC_WT[SEC_N] = { 1.f, 1.f, 1.6f, 1.f, 1.f, 1.f, 1.3f };
 #define ID_MSSIDE G_ID(TXP_PG_MSSIDE)
 #define ID_MSWIDTH G_ID(TXP_PG_MSWIDTH)
 #define ID_MSMONO G_ID(TXP_PG_MSMONO)
+#define ID_OUTPUT G_ID(TXP_PG_OUTPUT)     /* OUTPUT: 0 SPEAKERS, 1 HEADPHONES (the band's right end: out_switch) */
 #define MS_0DB 115                       /* MID / SIDE: 0 dB */
 #define MS_W100 50                       /* WIDTH: 100 % */
 #define GON_H 8                          /* the goniometer's persistence: the last blocks of points it shows */
@@ -2303,9 +2304,27 @@ static void src_well(txg_t *g, frui_canvas *c, int src, float x, float y, float 
     grip(g, c, src, x + 8.f, y + 8.f, 20.f);
     lfo_trace(g, c, src_row(src), x + 38.f, y + 6.f, w - 48.f, h - 12.f, src_links(g, src) ? C_RED : C_DIM);
 }
+/* OUTPUT at the band's right end, where the mix leaves: its name and a switch with the mode in full, HEADPHONES (lit:
+ * the binaural pan) or SPEAKERS (the level pan), sized by the wider word so it never moves, its right edge on the last
+ * section's ALL; a click on either: the other. Returns its left edge */
+static float out_switch(txg_t *g, frui_canvas *c, float y, float h, float by)
+{
+    int hp = txp_ui_get(g->c, ID_OUTPUT) > 0;
+    const char *t = hp ? "HEADPHONES" : "SPEAKERS";
+    float sw = fmaxf(LBLW(g, 9.f, "HEADPHONES"), LBLW(g, 9.f, "SPEAKERS")) + 16.f, sh = 16.f;
+    float sx = g->W - 16.f - sw, sy = y + (h - sh) * 0.5f, lx = sx - 8.f - LBLW(g, 9.f, "OUTPUT");
+    int hot = g->hover_kind == TXG_W_PARAM && g->hover_lane == (int)ID_OUTPUT;
+    LBL(g, c, lx, by, 9.f, hot ? C_INK : C_FXHD, "OUTPUT");
+    RR(g, c, sx, sy, sw, sh, 2.f, hp ? C_FXSEG : C_FX); RRS(g, c, sx, sy, sw, sh, 2.f, hot ? C_DIM : C_FXLINE);
+    if (hp) R(g, c, sx + 3.f, sy + sh - 2.f, sw - 6.f, 1.f, C_RED);
+    LBL(g, c, sx + (sw - LBLW(g, 9.f, t)) * 0.5f, sy + sh * 0.5f + CAP(g, 9.f) * 0.5f, 9.f, C_INK, t);
+    wid_add2(g, TXG_W_PARAM, (int)ID_OUTPUT, ID_OUTPUT, 0, lx - 6.f, sy, g->W - 16.f - (lx - 6.f), sh);
+    ZFIT(sh + 2.f <= h);
+    return lx - 6.f;
+}
 /* the strip, the EFFECTS zone: the whole mix, after all lanes, darker and cooler than SOUND; a dark gap over it, its band
- * (what it is), then its sections, each on its own ground, a small arrow between them in the order the sound goes through
- * (COMP > DRIVE > FILTER > DELAY > REVERB > M/S; MOVEMENT, tinted, moves things and takes no sound). Every text measured
+ * (what it is; OUTPUT at its right end: out_switch), then its sections, each on its own ground, a small arrow between
+ * them in the order the sound goes through (COMP > DRIVE > FILTER > DELAY > REVERB > M/S; MOVEMENT, tinted, moves things and takes no sound). Every text measured
  * in its room (zone_fit) */
 static void draw_strip(txg_t *g, frui_canvas *c)
 {
@@ -2320,7 +2339,7 @@ static void draw_strip(txg_t *g, frui_canvas *c)
         R(g, c, 0, y0 + FX_GAP + FX_BAND - 1.f, g->W, 1.f, C_FXLINE);
         bx += TX(g, c, bx, by, 10.f, 620.f, 1.6f, 0, C_INK, B0) + 10.f;
         bx += TX(g, c, bx, by, 10.f, 620.f, 1.6f, 0, C_FXHD, B1);
-        ZFIT(bx <= g->W - 14.f);
+        ZFIT(bx + 16.f <= out_switch(g, c, y0 + FX_GAP, FX_BAND - 1.f, by));
     }
     g->zone = 2;
     for (int s = 0; s < SEC_N; s++) {

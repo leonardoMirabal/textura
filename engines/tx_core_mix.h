@@ -29,6 +29,9 @@
 #define TX_MIX_SPEAKERS 0u
 #define TX_MIX_HEADPHONES 1u
 #define TX_BIN_N 32u                       /* a slot's history for the far ear (a power of two over the 29 + 1 samples read) */
+/* HEADPHONES' extra cost, FM-1 us a slot a block, over SPEAKERS' level pan (make tx-budget: 46.7 against 12.1 a lane on
+ * the FM-1 in one run, 57.4 against 15.1 in another: 34.6 .. 42.3, rounded up with room): the sources' pool carries it (tx_mix_phones_us, firmware/src/lanes.c: the governor's extra) */
+#define TX_MIX_HP_US 45u
 #ifndef TX_LINE                    /* (as tx_fx_drv.h's: a buffer one core writes while the other works, its own lines) */
 #ifdef __PI32V2__
 #define TX_LINE __attribute__((aligned(64)))
@@ -90,6 +93,11 @@ void tx_mix_pan(tx_mix_t *m, unsigned k, unsigned pan);   /* 0 left .. 64 centre
 /* the output mode: TX_MIX_SPEAKERS (the default: tx_mix_init's) or TX_MIX_HEADPHONES (binaural); every slot glides to
  * it over a block or two, no click */
 void tx_mix_phones(tx_mix_t *m, unsigned mode);
+/* slot k's binaural path's extra cost in its last tx_mix_add, FM-1 us (0 in SPEAKERS at rest: its level pan alone) */
+static inline uint32_t tx_mix_phones_us(const tx_mix_t *m, unsigned k)
+{
+    return k < TX_MIX_SLOTS && (m->hp | m->bin[k].run) ? TX_MIX_HP_US : 0u;
+}
 void tx_mix_trim(tx_mix_t *m, unsigned k, unsigned q12);  /* the slot's level trim, Q12 (a landscape sound's own level) */
 /* the slot's level, 0..127 (100: unity; tx_level_q15's square law): on its output, whatever the engine (no voice
  * waits to renew), ramped over the next block so it never clicks */

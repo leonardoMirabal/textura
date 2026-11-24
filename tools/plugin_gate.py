@@ -23,7 +23,9 @@ FM-1's app: the 16-lane plugin plays it sample for sample), sixteen-lane content
           reads back the same and the state saves the same again (four lanes, and sixteen lanes playing); an instance
           never activated, every parameter set at random by a flush (as clap-validator does), the same; and a state
           of the four-lane plugin (plugin/tests/fixtures/state_v1.json: version 1, the FM-1's scene record) loads into
-          lanes 1 .. 4, the others empty, LANES 4, its records and settings as they were
+          lanes 1 .. 4, the others empty, LANES 4, its records and settings as they were; OUTPUT (HEADPHONES at
+          first) set to SPEAKERS stays through a preset's load and comes back from the state; a state without it
+          leaves HEADPHONES
   cpu     the shipped time at 48 kHz, 512-frame buffers: average and worst time per process call for heavy 4-lane
           scenes (every lane at HOW MANY and HOW ACTIVE 127, the grain delay at all its grains, the reverb up), and
           for sixteen heavy lanes (the four heaviest presets' lanes side by side, by a state)
@@ -79,6 +81,7 @@ def host_build(out, lanes=4):
     cc = os.environ.get("CC", "cc")
     lanes_def = [] if lanes == 4 else ["-DTX_MIX_SLOTS=%du" % lanes]
     lanes_def += ["-DSCN_FX_DEF=SCN_FX_ALWAYS"]   # (EFFECTS ON LOAD at the plugin's default, not the FM-1's)
+    lanes_def += ["-DOUTPUT_DEF=1u"]               # (OUTPUT at the plugin's default, HEADPHONES, not the FM-1's)
     run(["nice", "-n", "15", cc] + CFLAGS + lanes_def + ["-o", out] + HOST_SRC + eng + ["-lm"])
 
 
@@ -401,6 +404,40 @@ def check_param_ids(exe, bundle, tmp):
     return good
 
 
+OUTPUT_ID = 0x42D   # (params.c PG_OUTPUT: OUTPUT, 0 SPEAKERS, 1 HEADPHONES)
+
+
+def check_output(exe, bundle, tmp):
+    """OUTPUT: HEADPHONES at the start; set to SPEAKERS, it stays through a preset's load (EFFECTS ON LOAD at ALWAYS,
+    the plugin's default), goes with the state and comes back from it in another instance; a state without it (saved
+    before OUTPUT) leaves the default"""
+    def get(script, extra):
+        r = plug_render(exe, bundle, script, os.path.join(tmp, "plug-out.wav"), 48000, test=False,
+                        extra=list(extra) + ["--get", hex(OUTPUT_ID)])
+        m = re.search(r"param %#x = (\S+)" % OUTPUT_ID, r.stdout)
+        return float(m.group(1)) if m else None
+    end, pc = os.path.join(tmp, "end3000.txt"), os.path.join(tmp, "out-pc.txt")
+    with open(end, "w") as f:
+        f.write("3000 end\n")
+    with open(pc, "w") as f:
+        f.write("200 midi 0xC0 11 0\n2500 end\n")
+    st, old = os.path.join(tmp, "plug-out.json"), os.path.join(tmp, "plug-out-old.json")
+    vals = [get(end, []), get(pc, ["--param", "%#x=0" % OUTPUT_ID, "--state-out", st])]
+    vals.append(get(end, ["--state-in", st]))
+    try:
+        js = json.load(open(st))
+        js["set"] = ",".join(x for x in js["set"].split(",") if not x.startswith("%d=" % OUTPUT_ID))
+        json.dump(js, open(old, "w"), separators=(",", ":"))
+        vals.append(get(end, ["--state-in", old]))
+    except (OSError, ValueError, KeyError):
+        vals.append(None)
+    good = vals == [1.0, 0.0, 0.0, 1.0]
+    print("%s  OUTPUT: %s at the start, %s after SPEAKERS and a preset's load, %s from that state, %s from a state "
+          "without it" % (("ok  " if good else "FAIL",) + tuple("-" if v is None else ("HEADPHONES" if v else "SPEAKERS")
+                                                             for v in vals)))
+    return good
+
+
 def heavy16_state(exe, bundle, tmp):
     """a state with sixteen heavy lanes: the four heaviest presets' lanes side by side (each preset loaded and saved
     by the plugin, its lanes put at 4j .. 4j + 3), every one at HOW MANY and HOW ACTIVE their most, LANES 16"""
@@ -465,9 +502,10 @@ GUI_VIEWS = ("", "space", "ms-tab", "sounds", "presets", "settings", "colour", "
 #                                        stopped lane, PLAY ALL; the rows with lane 3 selected; a lane stopped by its own
 #                                        button; Rain on a roof's drawer; RANDOM's list, the top bar's dice's arrow; the
 #                                        tour's eight steps, HELP's one click)
-GUI_TEST_VIEWS = ("dice-lane", "random-none", "random", "save-replace", "save-full")   # clap_render --gui-test's (gui4's
-#                                        second run): a row's dice rolled (its hint hovered), ROLL with nothing ticked, ROLL
-#                                        with all four; SAVE on a used preset (SAVE replaces it), all 16 used (kept with --shots)
+GUI_TEST_VIEWS = ("dice-lane", "random-none", "random", "save-replace", "save-full", "output", "output-speakers")
+#                                        clap_render --gui-test's (gui4's second run): a row's dice rolled (its hint hovered),
+#                                        ROLL with nothing ticked, ROLL with all four; SAVE on a used preset (SAVE replaces
+#                                        it), all 16 used; OUTPUT on HEADPHONES, then SPEAKERS (kept with --shots)
 GUI_SIZES = ((1200, 720), (1950, 1210), (1440, 1080), (960, 600), (840, 504))   # real DAW window sizes and the smallest
 #                                        the window takes (gui_size.h): the MAP round in its place, the top bar, the tour
 
@@ -603,6 +641,7 @@ def main():
     if "state" in only:
         ok = check_state(args, exe, bundle, tmp) and ok
         ok = check_param_ids(exe, bundle, tmp) and ok
+        ok = check_output(exe, bundle, tmp) and ok
     if "gui" in only:
         ok = check_gui(args, exe, bundle, tmp) and ok
     if "cpu" in only:

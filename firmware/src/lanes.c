@@ -102,9 +102,10 @@ enum { LN_EV_KEY, LN_EV_PARAM, LN_EV_PAN, LN_EV_SWAP, LN_EV_OFF, LN_EV_FX, LN_EV
 const tx_engine_t *tx_source_hosted(const void *st);
 int tx_source_host_value(const void *st, unsigned id);
 void tx_source_host_param(void *st, unsigned id, unsigned val);
-enum { LN_FX_DRIVE, LN_FX_REVERB = 2, LN_FX_GRAIN, LN_FX_RELATCH, LN_FX_COMP, LN_FX_MS };   /* ln_fx groups (1: the lanes' FILTER, retired; as the player's
+enum { LN_FX_DRIVE, LN_FX_REVERB = 2, LN_FX_GRAIN, LN_FX_RELATCH, LN_FX_COMP, LN_FX_MS, LN_FX_PHONES };   /* ln_fx groups (1: the lanes' FILTER, retired; as the player's
                                                  * txw_fx_param; RELATCH: a whole sound loaded, tx_fx_reverb_relatch;
-                                                 * MS: the M/S, the mix's last effect, tx_core_ms.h) */
+                                                 * MS: the M/S, the mix's last effect, tx_core_ms.h; PHONES: OUTPUT,
+                                                 * the mix's pan: SPEAKERS or HEADPHONES, tx_mix_phones) */
 typedef struct { uint8_t kind, lane, a, b, c; } ln_ev_t;
 
 static struct {
@@ -115,6 +116,9 @@ static struct {
     volatile uint8_t spare_busy;                /* a switch holds the spare (main loop sets it, its fade clears it) */
     const tx_engine_t *next_e[LN_N];            /* prepared by ln_select, taken by LN_EV_SWAP */
     uint32_t ring_us;                           /* (the governor) the rings' cost this block: the pool carries it */
+    uint32_t mix_us;                            /* (the governor) HEADPHONES' binaural pan this block, over the level
+                                                 * pan's (tx_mix_phones_us): the pool carries it too, so the lanes give
+                                                 * it room and the interrupt stays as long as in SPEAKERS */
     volatile uint8_t hurry;                     /* ln_hurry: the rings skip the rest of their hold (ln_block) */
     volatile uint8_t busy[LN_N];                /* a switch is under way (main loop: wait before the next) */
     ln_ev_t q[LN_QN];
@@ -438,6 +442,7 @@ static void ln_event(const ln_ev_t *v)
         else if (v->a == LN_FX_RELATCH) tx_fx_reverb_relatch(&ln.fx.rev);
         else if (v->a == LN_FX_COMP) tx_comp_param(&ln.mix.comp, v->b, v->c);
         else if (v->a == LN_FX_MS) tx_ms_param(&ln.mix.ms, v->b, v->c);
+        else if (v->a == LN_FX_PHONES) tx_mix_phones(&ln.mix, v->c);
         break;
     }
 }
@@ -612,6 +617,7 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
 #endif
     tx_mix_begin(&ln.mix, n);
     ln.ring_us = 0;
+    ln.mix_us = 0;
     if (ln.hurry) {                             /* (ln_hurry: a switch waits for the spare) */
         for (k = 0; k < LN_N; k++) if (tx_ring_holds(&ln_out[k].ring)) ln_out[k].ring.hold = 0;
         ln.hurry = 0;
@@ -664,6 +670,7 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
             ln_ring_lane(o, n);
         }
         ln.mix.slot_peak[k] = 0;                /* (a peak a block: the lane's, its ring's under it) */
+        ln.mix_us += tx_mix_phones_us(&ln.mix, k);   /* (HEADPHONES: its binaural pan's extra; SPEAKERS: 0) */
         tx_mix_add(&ln.mix, k, o->x, n);
         ln.lpk[k] = ln.mix.slot_peak[k];
         if (ln.mix.e[k] && ln.mix.e[k]->stats) {
@@ -702,7 +709,8 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
         ln.gov.budget = LN_PAR_ON() ? 2u * LN_GOV_POOL_US : LN_GOV_POOL_US;
 #endif
         ex = ln.gov.extra;
-        ln.gov.extra = ex + ln.ring_us;         /* (a ringing engine: the pool carries it, no lane's heroes pay) */
+        ln.gov.extra = ex + ln.ring_us + ln.mix_us;   /* (a ringing engine, HEADPHONES' pan: the pool carries them, no
+                                                 * lane's heroes pay) */
         pk = tx_gov_block(&ln.gov, ln.gov_cost, ln.gov_lvl, on);
         ln.gov.extra = ex;
         if (pk >= 0 && ln.mix.e[pk]) ln.mix.e[pk]->param(ln.mix.st[pk], TX_PID_PARTICLES, ln.gov.cur[pk]);

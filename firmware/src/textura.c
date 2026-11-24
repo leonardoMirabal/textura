@@ -407,6 +407,7 @@ static int host_sound_check(char *msg, unsigned n)   /* 0 if every lane runs the
         if (ln.mix.comp.p[k] != pv_glob[PG_COMP0 + k]) { snprintf(msg, n, "comp %u: %u, not %u", k, ln.mix.comp.p[k], pv_glob[PG_COMP0 + k]); return 1; }
     for (k = 0; k < TX_MS_NP; k++)                  /* the M/S */
         if (ln.mix.ms.p[k] != pv_glob[PG_MS0 + k] && !mod_holds(PID(P_GLOBAL, PG_MS0 + k))) { snprintf(msg, n, "m/s %u: %u, not %u", k, ln.mix.ms.p[k], pv_glob[PG_MS0 + k]); return 1; }
+    if (ln.mix.hp != p_output) { snprintf(msg, n, "output %u, not %u", ln.mix.hp, p_output); return 1; }   /* (OUTPUT) */
     return 0;
 }
 static int host_state(const char *key, char *v, unsigned n)
@@ -452,6 +453,8 @@ static int host_state(const char *key, char *v, unsigned n)
     else if (sscanf(key, "mspk%u%c", &k, &c) == 1 && k < 4u) snprintf(v, n, "%d", (int)ln.mix.ms.pk[k]);
     else if (!strcmp(key, "govus")) snprintf(v, n, "%u", ln_gov_us());            /* the governor: the pool's cost */
     else if (!strcmp(key, "govpool")) snprintf(v, n, "%u", ln.gov.budget);
+    else if (!strcmp(key, "govmix")) snprintf(v, n, "%u", ln.mix_us);   /* HEADPHONES' pan in the pool, us (SPEAKERS: 0) */
+    else if (!strcmp(key, "phones")) snprintf(v, n, "%u", ln.mix.hp);   /* the mix's pan: 1 HEADPHONES (OUTPUT) */
     else if (!strcmp(key, "govcut")) { for (i = 0, k = 0; k < SC_N; k++) i += ln_gov_cur(k) < ln_gov_user(k); snprintf(v, n, "%u", i); }   /* lanes cut */
     else if (sscanf(key, "gov%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%u", ln_gov_cur(k));   /* heroes now */
     else if (sscanf(key, "lane%u%c", &k, &c) == 1 && k < SC_N) snprintf(v, n, "%s", ln_engine(k) ? ln_engine(k)->name : "-");

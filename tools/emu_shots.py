@@ -13,7 +13,7 @@ The README's (docs/img/):
 The manual's (docs/manual/img/, docs/MANUAL.md): every page and overlay of the firmware at 480 x 480 (the framebuffer
 doubled, nearest), walked to with the panel's own buttons and encoders (Module._web_btn / _web_enc / _web_keys, as
 tests/web_check.py drives them): the home page, the lane's SOUND pages, the lane pages, PERFORM and every effect page
-in signal order, the LFO, ENV / FOLLOW and MATRIX pages, GROOVE, TEMPO, SCALE, MIDI CLOCK, MIDI IN, DISPLAY, the
+in signal order, the LFO, ENV / FOLLOW and MATRIX pages, GROOVE, TEMPO, SCALE, MIDI CLOCK, MIDI IN, OUTPUT, DISPLAY, the
 sound browser, the presets list and its LOAD OPTIONS, the save mode, a load's toast, PLAY mode, a muted lane, mod
 learn. Then every landscape in turn, each of its sounds put on lane 1 (CC 20) and its SOUND page shot once per
 engine (eng-<engine>.png; each checked to have the gaps between its rows black, the firmware's "gaps"); --cards PATH
@@ -262,7 +262,7 @@ def manual_shots(pn, out, errs):
     take("follow", "FOLLOW", 1800)
     for nm, pgname in (("matrix", "MATRIX"), ("groove", "GROOVE 1/2"), ("groove2", "GROOVE 2/2"),
                        ("tempo", "TEMPO"), ("scale", "SCALE"), ("midiclock", "MIDI"), ("midiin", "MIDI IN"),
-                       ("display", "DISPLAY")):
+                       ("output", "OUTPUT"), ("display", "DISPLAY")):
         step(pgname, nm)
     pn.btn(HOME)
     pn.wait(1600)

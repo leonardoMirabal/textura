@@ -166,7 +166,7 @@ buttons do there. Press a button again on its page for its second job. Every con
 | SEQ | The sound browser: every family's sounds, heard before you keep one |
 | SELECT | The pages, in the order of the sound: the lane's sound, the mixer |
 | FX | PERFORM, then the effects' pages in signal order. Held: PERFORM from anywhere |
-| GLO | GROOVE, TEMPO, SCALE, MIDI, DISPLAY |
+| GLO | GROOVE, TEMPO, SCALE, MIDI, MIDI IN, OUTPUT, DISPLAY |
 | LFO / ENV / ARP | The LFOs, the envelopes and followers, the mod matrix. LFO held + turn a card: learn |
 | OCT− / OCT+ | Previous / next lane (in PLAY mode: octave) |
 | SEL | Keys: LANDSCAPE or PLAY |

@@ -3,7 +3,8 @@
 
 The gate paints the window and its views from plugin/tests/scripts/gui4.txt and gui16.txt (txp_clap_render --shot);
 this keeps the ones the manual shows, as 256-colour PNGs (the window is dark and nearly monochrome: no visible loss,
-about a tenth of the size). Needs Pillow.
+about a tenth of the size); a crop where the manual shows one part (fractions of the window: left, top, right, bottom).
+Needs Pillow.
 
   make plugin
   python3 -I tools/plugin_gate.py --build build/plugin --only gui --shots build/plugin/shots-manual
@@ -43,6 +44,7 @@ PICK = {   # the gate's picture -> the manual's
     "gui4-menu": "movement-menu",
     "960x600": "window-960x600",
     "gui4-tour-2": "tour",
+    "gui4-output": ("output", (0.55, 0.79, 1.0, 1.0)),   # (the strip's right end: its band with OUTPUT, M/S, MOVEMENT)
 }
 
 
@@ -52,6 +54,10 @@ def main():
     os.makedirs(dst, exist_ok=True)
     for k, v in PICK.items():
         im = Image.open(os.path.join(src, "textura-window-%s.png" % k)).convert("RGB")
+        if isinstance(v, tuple):
+            v, (x0, y0, x1, y1) = v
+            w, h = im.size
+            im = im.crop((round(x0 * w), round(y0 * h), round(x1 * w), round(y1 * h)))
         q = im.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
         out = os.path.join(dst, v + ".png")
         q.save(out, optimize=True)

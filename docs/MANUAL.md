@@ -34,7 +34,7 @@ an electric piano for the same keyboard by the same author.
    [PERFORM](#perform), [COMPRESSOR](#compressor), [DRIVE](#drive), [FILTER](#filter), [the grain delay](#the-grain-delay-delay-delay-motion-grains-grain-tone),
    [REVERB](#reverb-reverb-space-shimmer), [M/S](#ms), [LFO](#lfo-lfo-phase-lfo-level), [ENV and FOLLOW](#env-env-shape-and-follow),
    [MOD MATRIX](#mod-matrix), [GROOVE](#groove-and-groove-lanes), [TEMPO](#tempo), [SCALE](#scale),
-   [MIDI CLOCK](#midi-clock), [MIDI IN](#midi-in), [DISPLAY](#display), [the sound browser](#the-sound-browser-sounds),
+   [MIDI CLOCK](#midi-clock), [MIDI IN](#midi-in), [OUTPUT](#output), [DISPLAY](#display), [the sound browser](#the-sound-browser-sounds),
    [the presets list](#the-presets-list-presets), [the save mode](#the-save-mode)
 5. [The sounds](#5-the-sounds): [all 103 at a glance](#all-103-sounds-at-a-glance), then each family and its engines
 6. [Presets, landscapes and scenes](#6-presets-landscapes-and-scenes): [RANDOM](#random)
@@ -206,7 +206,8 @@ at the bottom: **K1 to K4 always turn the four cards you see**. The pages, in SE
 
 TEXTURA (home) · SOUND · HOW MANY · HOW ACTIVE · PAN · ON / MUTE · PERFORM · COMPRESSOR · COMP RELEASE · DRIVE ·
 FILTER · DELAY · DELAY MOTION · GRAINS · GRAIN TONE · REVERB · REVERB SPACE · SHIMMER · M/S · LFO · LFO PHASE ·
-LFO LEVEL · ENV · ENV SHAPE · MOD MATRIX · GROOVE · GROOVE LANES · TEMPO · SCALE · MIDI CLOCK · MIDI IN · DISPLAY
+LFO LEVEL · ENV · ENV SHAPE · MOD MATRIX · GROOVE · GROOVE LANES · TEMPO · SCALE · MIDI CLOCK · MIDI IN · OUTPUT ·
+DISPLAY
 
 The order follows the sound: first the source (the lane's SOUND), then the mixer (the lane pages), then the effects
 in the order the sound goes through them, then movement, then timing and the setup.
@@ -286,7 +287,7 @@ steps; a turn after a rest always starts with single steps. Choices and short ra
 | **LFO** | The LFO pages | The next LFO page | Hold LFO and turn a card: learn ([below](#learn)) |
 | **ENV** | The ENV / FOLLOW pages | The next ENV page | Hold ENV and turn a card: learn |
 | **ARP** | The MOD MATRIX page | | |
-| **GLO** | GROOVE | GROOVE LANES, TEMPO, SCALE, MIDI CLOCK, MIDI IN, DISPLAY, then round | |
+| **GLO** | GROOVE | GROOVE LANES, TEMPO, SCALE, MIDI CLOCK, MIDI IN, OUTPUT, DISPLAY, then round | |
 | **SEL** | Keys: LANDSCAPE / PLAY mode | | The other mode while held: in PLAY mode, SEL held + a black key picks that lane |
 | **SAVE** | The save mode | | 0.7 s: undo the last load, roll or sound kept (again: redo) |
 | **PLAY** | Tap tempo | | 0.6 s: the transport starts / stops |
@@ -693,6 +694,20 @@ The setup page: **HOME held** opens it, and GLO steps to it.
 | --- | --- | --- |
 | K1 to K4 | **LANE 1 to 4 CHANNEL** | The channel each lane listens on, for its notes and its CCs: OFF, 1 to 16 (lane n on channel n at first; two lanes on one channel both listen) |
 | ALGORITHM | **SELECTED CH** | The channel whose notes play the selected lane, whichever it is: OFF, 1 to 16 (1 at first) |
+
+### OUTPUT
+
+![OUTPUT: SPEAKERS or HEADPHONES](manual/img/output.png)
+
+How you listen. It changes how each lane is placed left to right, not the sounds. It is kept by itself: a preset, a
+scene or a roll of the dice never changes it, whatever EFFECTS ON LOAD says.
+
+| Knob | Card | What it does |
+| --- | --- | --- |
+| K1 | **OUTPUT** | **SPEAKERS** (the default): each lane is placed by its level in the left and right channels, for speakers and mixers. **HEADPHONES**: each lane is placed as your ears place a sound: it reaches the far ear a little later and a little darker, the head's shadow, so the lanes stand apart around your head. Listen on headphones with it; on speakers SPEAKERS is better. At the centre both are the same. |
+
+HEADPHONES takes a little of the sources' CPU (about 45 µs a block for each lane playing): with four busy lanes the
+CPU governor may thin a crowded cloud slightly sooner.
 
 ### DISPLAY
 

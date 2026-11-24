@@ -289,7 +289,8 @@ The strip at the bottom is the **EFFECTS** zone: the whole mix, after all lanes.
 under a dark gap and a band that says so: **EFFECTS · THE WHOLE MIX, AFTER ALL LANES, LEFT TO RIGHT**. It shows the
 mix's effects in the order the sound goes through them, a small **›** between each and the next (COMP › DRIVE › FILTER ›
 DELAY › REVERB › M/S), then the movement, on a tinted ground: it moves values and takes no sound. Each section has a
-dot (lit while it acts), a small picture and its two main values:
+dot (lit while it acts), a small picture and its two main values. At the band's right end, where the mix leaves, is
+[OUTPUT](#output-headphones-or-speakers).
 
 | Section | Picture | In the strip | Its drawer (click the header) |
 | --- | --- | --- | --- |
@@ -343,6 +344,22 @@ gain (the make-up counted), GR its gain reduction. They rise fast and fall about
 for a second. COMP off: they read OFF. Quiet lanes under THR show no gain reduction: lower THR to hear it act.
 
 ![The COMP drawer: its meters (IN, OUT, GR) and its curve, the dot where the input is now](plugin/img/compressor.png)
+
+#### OUTPUT: HEADPHONES or SPEAKERS
+
+How you listen, at the right end of the EFFECTS band. **Click it** to switch between the two:
+
+- **HEADPHONES** (the default in the plugin): each lane is placed as your ears place a sound. A lane panned to one
+  side reaches the far ear a little later and a little darker, the head's shadow, so the lanes stand apart around your
+  head instead of inside it. For headphones.
+- **SPEAKERS**: each lane is placed by its level in the left and right channels alone, as a mixer pans. For speakers,
+  and when you mix the plugin further in your DAW.
+
+At the centre both are the same; only the placing of panned lanes changes, never the sounds. OUTPUT is saved with
+the project, like the other settings, and no preset load, undo or roll of the dice changes it. The host parameter is
+**OUTPUT** (group **Output**).
+
+![OUTPUT at the right end of the EFFECTS band: HEADPHONES](plugin/img/output.png)
 
 ### The movement
 
@@ -630,8 +647,9 @@ generic view of the plugin) for automation, and MIDI CCs and NRPNs reach them to
 | **Grain delay**, **Reverb**, **Compressor**, **Drive**, **Filter**, **M/S** | The effects, as on their FM-1 pages ([the effects](MANUAL.md#7-the-effects)) |
 | **Groove**, **Keys**, **MIDI** | The groove, the scale, the MIDI channels, EFFECTS ON LOAD, LANES |
 | **LFO**, envelopes, followers, matrix | LFO 1 to 8, ENV 1 and 2, FOLLOW 1 and 2, MOD 1 to 16, MOD CC |
+| **Output** | **OUTPUT**: SPEAKERS or HEADPHONES ([OUTPUT](#output-headphones-or-speakers)) |
 
-483 parameters in all. Their ids never change between versions, so automation stays put.
+484 parameters in all. Their ids never change between versions, so automation stays put.
 
 - **A lane's cards** (CARD 1 to 8) mean what the lane's engine says: a rain engine's cards are not a bird's. The FM-1
   manual lists every engine's cards ([the engines](MANUAL.md#5-the-sounds)). A card's value is 0 to 127 over the card's
@@ -697,7 +715,7 @@ Your DAW saves the plugin with the project, and its own preset function saves it
 
 - what a user preset keeps on the FM-1: the landscape, each lane's engine, HOW MANY, HOW ACTIVE, level, pan, mute and
   cards, the effects, the modulation, the groove and the tempo;
-- the preset loaded last, the scale, the MIDI channels, EFFECTS ON LOAD and PRESETS CHANGE TEMPO;
+- the preset loaded last, the scale, the MIDI channels, EFFECTS ON LOAD, PRESETS CHANGE TEMPO and OUTPUT;
 - your user presets, U01 to U16 ([SAVE](#save));
 - KEYS ON SELECTED CH, the selected lane;
 - the window's own: the solo, the size, MAP, SPACE or M/S, the sources' colours and RANDOM's ticks.
@@ -739,6 +757,7 @@ opens: lanes 1 to 4 as saved, LANES 4.
 | --- | --- | --- |
 | **Lanes** | 4 | 1 to 16 (LANES) |
 | **Thinning** | The CPU governor may thin a busy lane | Never (HQ build) |
+| **OUTPUT** | SPEAKERS at first (the OUTPUT page) | HEADPHONES at first (the EFFECTS band's right end) |
 | **Playing** | Keys: lanes, HOW MANY, HOW ACTIVE, mute; PLAY mode | MIDI notes on each lane's channel play it as in PLAY mode; FM-1 KEYS on SELECTED CH plays the keys' way; the window's HOW MANY and HOW ACTIVE blocks |
 | **Starting** | REC starts and stops the lanes | PLAY ALL / STOP ALL (REC); a factory preset's lanes start when it loads, a landscape's start stopped; HOW MANY or HOW ACTIVE starts a lane |
 | **Editing** | Pages and knobs | The window: every parameter, in the rows, the drawer, the strip and SETTINGS |

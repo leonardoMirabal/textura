@@ -35,10 +35,11 @@ E_SELECT, E_ALGORITHM, E_K1, E_K2, E_K3, E_K4, E_PRESETS = range(7)
 ARM = 85
 TAP_HOLD_MS = 600                                    # (ui.c: FX / LFO / ENV held)
 # the pages SELECT walks from LANDSCAPE (0): SOUND 1-2, LANES 1-4, PERFORM, COMPRESSOR 1-2, DRIVE, FILTER, GRAIN 1-4,
-# REVERB 1-3, LFO 1-3, ENV 1-2, MATRIX, GROOVE 1-2, TEMPO (27), SCALE, MIDI (29), MIDI IN (30), DISPLAY (31: COLOR).
-# No knobs on TEMPO (K3 starts / stops the transport) nor on the MIDI pages (the channels the tour sends on)
-NPAGES = 32
-NOKNOBS = (27, 29, 30)
+# REVERB 1-3, M/S, LFO 1-3, ENV 1-2, MATRIX, GROOVE 1-2, TEMPO (28), SCALE, MIDI (30), MIDI IN (31), OUTPUT (32),
+# DISPLAY (33: COLOR). No knobs on TEMPO (K3 starts / stops the transport) nor on the MIDI pages (the channels the tour
+# sends on)
+NPAGES = 34
+NOKNOBS = (28, 30, 31)
 
 
 class Tour:
