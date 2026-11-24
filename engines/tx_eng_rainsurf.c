@@ -544,7 +544,29 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
     if (!k && s->quiet && !tx_cloud_held(&s->cloud)) return;   /* silent and nothing new: nothing to compute */
     for (i = 0; i < k; i++) {                                /* a press: one big drop near you (2 .. 6 mm by key) */
         const tx_event_t *e = &s->ev[i];
-        if (s->hk) {   /* a big stone near you: hail 12 .. 40 mm by key (lower: bigger), sleet 3 .. 6 mm */
+        if (s->hk && !s->wet) {   /* pressed from calm: the fall's first stone, one of its own (its class drawn by
+                                   * the size mix, its size and distance as the fall's), at once. A big stone near you
+                                   * here opened a lane louder than its fall went on (a car: +3.6 dB, -11 dBFS peaks) */
+            uint32_t x = tx_rand(r), y = tx_rand(r), tot = 0, pick, v;
+            unsigned u = x & (NAMP - 1u);
+            int32_t sz = (int32_t)tx_exp2((int32_t)((x >> 5) & 32767u) * 4 + (14 << 16)), a, ad;   /* 0.5 .. 2 x its class */
+            uint32_t len;
+            for (c = 0; c < NC; c++) tot += s->lam_q8[c] >> 8;
+            pick = tot ? tx_rand_below(r, tot) : 0u;
+            for (c = 0; c + 1u < NC && pick >= (s->lam_q8[c] >> 8); c++) pick -= s->lam_q8[c] >> 8;
+            a = (int32_t)(((int64_t)s->amp[c] * s->level) >> 15);
+            a = (int32_t)(((int64_t)a * sz) >> 15);
+            ad = a < 65536 ? (a * s->amp_t[u]) >> 15 : ((a >> 1) * s->amp_t[u]) >> 14;
+            len = (s->len[c] * (uint32_t)(sz >> 7)) >> 8;
+            if (len > CARRY) len = CARRY;
+            v = s->hv[c];
+            contact(s, r, e->offset, len, ad, 1);
+            if (c >= 2u || (y & 3u) == 0u) splash(s, y, e->offset, ad);
+            bounce(s, y, v, len, ad, s->bmax);
+            continue;
+        }
+        if (s->hk) {   /* a big stone near you: hail 12 .. 40 mm by key (lower: bigger), sleet 3 .. 6 mm (into a fall
+                        * that is on) */
             uint32_t v, len, D;
             int32_t a, fca, lo = s->hk == NHK ? 701223 : 917589, sp = s->hk == NHK ? 65536 : 113770;   /* log2 3 / 12 mm, + 1 / 1.74 oct */
             int32_t dl = lo + ((84 - (int32_t)(e->note < 48 ? 48 : e->note > 84 ? 84 : e->note)) * sp) / 36 - (tx_vary_tone(&s->vy) >> 3);

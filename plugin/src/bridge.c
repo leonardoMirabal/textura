@@ -16,7 +16,8 @@
  * -2 dBFS), at 44.1 kHz as they are; at 88.2 / 176.4 / 352.8 and 48 / 96 / 192 / 384 kHz through plugin/src/txp_os.h
  * (integer-ratio polyphase stages: 160/147, then 2x half-bands); any other rate (1 to 1536 kHz) through a
  * windowed-sinc resampler in float (RS_HALF zero crossings, a Kaiser window, the cutoff 0.96 x the lower Nyquist),
- * read at the 44.1 kHz time of each output frame.
+ * read at the 44.1 kHz time of each output frame. Both end in a ceiling (txp_os.h txp_ceil_t): every output frame
+ * within -2 dBFS, as the app's own at 44.1 kHz.
  *
  * The test mode (TEXTURA_PLUGIN_TEST=ms in the environment when the instance is made and activated;
  * tools/plugin_gate.py): the host build's time (tests/host.c): an event at host frame h is due at the app's millisecond
@@ -222,6 +223,8 @@ int txp_inst_activate(txp_inst_t *in, double rate)
         in->reach = RS_HALF / in->fc;
         in->lat = in->tmode == T_MS ? (uint32_t)ceil((TXP_LAT_MS + ceil(in->reach * 1000.0 / TXP_FS)) * rate / 1000.0)
                                     : (uint32_t)ceil((256.0 + in->reach) * rate / TXP_FS) + 2u;
+        txp_ceil_init(&in->os.c, rate);  /* (the ceiling after it: its look-ahead in the latency) */
+        in->lat += in->os.c.d;
         in->kin = 0;
         memset(in->rl, 0, sizeof in->rl); memset(in->rr, 0, sizeof in->rr);
     }
@@ -431,7 +434,7 @@ static void pull(txp_inst_t *in, uint32_t n)
 static void rs_render(txp_inst_t *in, float *l, float *r, uint32_t n)
 {
     const double step = TXP_FS / in->rate, sc = 1.0 / 32768.0, os = in->fc * RS_OS;
-    const double pre = (double)txp_inst_latency(in) * step;
+    const double pre = (double)(txp_inst_latency(in) - in->os.c.d) * step;   /* (the ceiling's look-ahead after) */
     for (uint32_t i = 0; i < n; i++) {
         double t = (double)(in->pos + i) * step - pre, al = 0.0, ar = 0.0, ws = 0.0;
         int64_t k0 = (int64_t)ceil(t - in->reach), k1 = (int64_t)floor(t + in->reach), k;
@@ -457,6 +460,7 @@ static void rs_render(txp_inst_t *in, float *l, float *r, uint32_t n)
         }
         if (ws > 0.0) { al /= ws; ar /= ws; }   /* (unity gain at DC whatever the phase) */
         l[i] = (float)(al * sc); r[i] = (float)(ar * sc);
+        if (in->os.c.d) txp_ceil_frame(&in->os.c, &l[i], &r[i]);
     }
 }
 void txp_inst_render(txp_inst_t *in, float *l, float *r, uint32_t n, uint32_t tempo_bpm10)

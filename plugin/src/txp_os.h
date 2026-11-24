@@ -21,7 +21,7 @@
  * taps K input frames (2K output frames); the 160/147 stage of TXP_OS_PT x 160 - 1 taps (its centre on a whole
  * high-rate sample, DH) reads the high-rate sample 147 t + phi for output t. txp_os_init places the chain so that
  * output frame T is the app's frame (T - lat) x 44100 / rate exactly (pre zero frames before the app's first, phi),
- * lat the latency asked for or the next one the chain can place exactly. */
+ * lat the latency asked for or the next one the chain can place exactly (the ceiling's look-ahead counted in). */
 #ifndef TEXTURA_PLUGIN_OS_H
 #define TEXTURA_PLUGIN_OS_H
 #include <math.h>
@@ -51,6 +51,50 @@ typedef struct {                         /* one 2x half-band stage */
 
 typedef void (*txp_os_src_fn)(void *ctx, float *l, float *r);   /* the app's next frame (x 1/32768) */
 
+/* The ceiling after the resampler (every rate but 44.1 kHz: this chain and bridge.c's sinc). The app's limiter holds
+ * its 44.1 kHz samples within -2 dBFS and estimates the points between them (engines/tx_core_limit.c), but a rebuilt
+ * crack can still peak a little over its estimate: the half-bands' samples between the app's passed -2 dBFS by up to
+ * 0.6 dB. So the output frames themselves are held within TXP_CEIL_T: a look-ahead of TXP_CEIL_D(rate) frames
+ * (0.73 ms: 32 app frames), the gain ramping down over it to T / |x| for a frame over T and recovering with a 50 ms
+ * time constant. Under T (nearly always) it changes nothing: the frames come out delayed, as they went in. */
+#define TXP_CEIL_T 0.794328f             /* -2 dBFS (the app's limiter's T) */
+#define TXP_CEIL_N 2048u                 /* the look-ahead's ring (power of 2, > the longest look-ahead: 1536 kHz) */
+#define TXP_CEIL_D(rate) ((uint32_t)ceil(32.0 * (rate) / 44100.0))
+typedef struct {
+    uint32_t d, w;                       /* the look-ahead (0: off); frames written */
+    float env, rel;                      /* the gain sent last; its recovery a frame */
+    float xl[TXP_CEIL_N], xr[TXP_CEIL_N], g[TXP_CEIL_N];   /* the frames held, and the gain each may have at most */
+} txp_ceil_t;
+static void txp_ceil_init(txp_ceil_t *c, double rate)
+{
+    uint32_t i;
+    memset(c, 0, sizeof *c);
+    c->d = rate == 44100.0 ? 0u : TXP_CEIL_D(rate);
+    if (c->d > TXP_CEIL_N - 1u) c->d = TXP_CEIL_N - 1u;
+    c->env = 1.0f;
+    c->rel = (float)(1.0 - exp(-1.0 / (0.05 * rate)));
+    for (i = 0; i < TXP_CEIL_N; i++) c->g[i] = 1.0f;
+}
+static void txp_ceil_frame(txp_ceil_t *c, float *l, float *r)   /* a frame in, the one d frames older out */
+{
+    uint32_t i = c->w & (TXP_CEIL_N - 1u), o = (c->w - c->d) & (TXP_CEIL_N - 1u), k;
+    float a = fabsf(*l) > fabsf(*r) ? fabsf(*l) : fabsf(*r), e;
+    c->xl[i] = *l; c->xr[i] = *r; c->g[i] = 1.0f;
+    if (a > TXP_CEIL_T) {                /* the frames before it (still held) ramp down to it: T / |x| at it */
+        float gr = TXP_CEIL_T / a * 0.99999f, step = (1.0f - gr) / (float)(c->d + 1u);
+        for (k = 0; k <= c->d; k++) {
+            uint32_t s = (c->w - k) & (TXP_CEIL_N - 1u);
+            float v = gr + step * (float)k;
+            if (v < c->g[s]) c->g[s] = v;
+        }
+    }
+    e = c->env + (1.0f - c->env) * c->rel;
+    if (e > c->g[o]) e = c->g[o];
+    c->env = e;
+    *l = c->xl[o] * e; *r = c->xr[o] * e;
+    c->w++;
+}
+
 typedef struct {
     int fam;                             /* 0 identity (44.1 kHz), 1 the 44.1 family, 2 the 48 family */
     int nhb;
@@ -62,6 +106,7 @@ typedef struct {
     uint32_t phi;
     uint32_t pre;                        /* zero frames still to feed before the app's first */
     uint32_t lat;                        /* output frames: the app's frame (T - lat) x 44100 / rate at output T */
+    txp_ceil_t c;                        /* the ceiling after the chain (off at 44.1 kHz) */
     txp_os_src_fn src;
     void *ctx;
 } txp_os_t;
@@ -134,6 +179,8 @@ static uint32_t txp_os_init(txp_os_t *o, double rate, uint32_t lat_min, txp_os_s
     if (fam == 2) txp_os_make_poly();
     m = 1u << nhb;
     for (int i = 0; i < nhb; i++) dhb = 2u * dhb + txp_hb_delay(&o->hb[i]);   /* the half-bands' delay at the output */
+    txp_ceil_init(&o->c, rate);
+    dhb += o->c.d;                       /* (and the ceiling's look-ahead) */
     if (fam != 2) {                      /* lat = m pre + dhb */
         uint32_t pre = lat_min > dhb ? (lat_min - dhb + m - 1u) / m : 0u;
         o->pre = pre; o->lat = m * pre + dhb;
@@ -210,6 +257,7 @@ static void txp_os_render(txp_os_t *o, float *l, float *r, uint32_t n)
     for (uint32_t i = 0; i < n; i++) {
         if (o->nhb) txp_os_stage(o, o->nhb - 1, &l[i], &r[i]);
         else txp_os_base(o, &l[i], &r[i]);
+        if (o->c.d) txp_ceil_frame(&o->c, &l[i], &r[i]);
     }
 }
 #endif

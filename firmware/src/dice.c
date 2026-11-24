@@ -5,7 +5,7 @@
  *   dice_roll   every lane in use gets the groups asked (an empty one, with ENGINES, a sound: it starts playing,
  *               sparse, somewhere on the map) (the FM-1's chord: all four, DICE_ALL; the plugin
  *               passes its window's ticks, kept with the project): ENGINES a new engine on each (any family,
- *               never the one it had, none twice where there are enough), SOUND each engine's cards at random over their ranges, EFFECTS the
+ *               never the one it had, none twice where there are enough), SOUND each engine's cards at random over their ranges (a card that sets the level, DIST and its kin, near its default: dice_card), EFFECTS the
  *               mix's COMP, DRIVE, FILTER, DELAY / GRAIN, REVERB and M/S (types and amounts, in musical, safe ranges:
  *               the filter's band never closes, the drive and the make-up stay moderate, MONO stays off, long, unreal
  *               reverbs can come up; the stereo image stays balanced and whole in mono: the sides never over the
@@ -147,11 +147,32 @@ static void dice_engine(scn_t *t, uint32_t k)
 }
 /* ---- SOUND: a lane that keeps its engine, its cards as records (they glide there); one that switches, once its new
  * engine is in (dice_poll) */
+/* a card's roll: over its whole range, but a card that sets how loud the sound is (its distance; how much of it there
+ * is) near its default, +-16 steps (~+-6 dB): over the whole range DIST alone moved oak 31 dB (-29.8 dBFS at 0 ..
+ * -60.9 at 127), a bird's DEPTH 13 .. 17 dB, the rain stick's TIME and the woodpecker's DRUM or EXCITE down to silence,
+ * so a roll could bury a lane 25 .. 30 dB under the others (200 rolls of each sound's cards, its level's 5 .. 95 %
+ * spread: 40 dB the median sound, 17 now; over 30 dB on 76 sounds, 9 now: SIZE and the like, the sound's own kind,
+ * keep their range). One draw a card either way (the dice's order stays). A hand-set card is free */
+static int dice_near(const char *lab)
+{
+    static const char *const NEAR[] = {"DIST", "NEAR", "FAR", "DEPTH", "AREA", "STONES", "VOLUME", "TIME", "DRUM",
+                                       "BURST", "EXCITE"};
+    uint32_t i;
+    for (i = 0; i < sizeof NEAR / sizeof NEAR[0]; i++) if (sc_eq(lab, NEAR[i])) return 1;
+    return 0;
+}
+static int32_t dice_card(const p_cards_t *c, uint32_t i)
+{
+    int32_t v;
+    if (!c->lab[i] || !dice_near(c->lab[i])) return dice_in(0, c->hi[i]);
+    v = (int32_t)c->def[i] + dice_in(-16, 16);
+    return v < 0 ? 0 : v > (int32_t)c->hi[i] ? (int32_t)c->hi[i] : v;
+}
 static void dice_cards(scn_t *t, uint32_t k)
 {
     p_cards_t *c = p_cards(k);
     uint32_t i;
-    for (i = 0; i < c->n; i++) dice_put(t, PID(P_LS(k), PL_CARD0 + i), dice_in(0, c->hi[i]));
+    for (i = 0; i < c->n; i++) dice_put(t, PID(P_LS(k), PL_CARD0 + i), dice_card(c, i));
 }
 
 /* ---- EFFECTS: types and amounts, musical and safe (the output's limiter is the mix's, last, always on) */
@@ -409,7 +430,7 @@ static void dice_poll(void)
     if (sc.snd[k] < 0 || sc.a_eng[k] != sc.eng[k] || sc.reswap[k]) return;
     {
         p_cards_t *c = p_cards(k);
-        for (i = 0; i < c->n; i++) scn_put(PID(P_LS(k), PL_CARD0 + i), dice_in(0, c->hi[i]));
+        for (i = 0; i < c->n; i++) scn_put(PID(P_LS(k), PL_CARD0 + i), dice_card(c, i));
         if (c->n) scn_edited = 1;
     }
 }
