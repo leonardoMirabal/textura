@@ -66,6 +66,11 @@ needs no copy of Frodhes to build or install.
   low-pass, 20 Hz .. 20 kHz, together a band), grain delay (its repeats grained, up to a slowly evolving cloud) and
   reverb (room, hall, plate and infinite spaces). Last in the chain, after the reverb, comes **M/S**: MID and SIDE
   levels, WIDTH and MONO. The pages follow the same order, left to right.
+- **Binaural on headphones**: OUTPUT HEADPHONES places each lane around your head, by the delay between the ears and
+  the head's shadow, as your ears place a real sound; BINAURAL AMOUNT and HEAD SIZE set how. SPEAKERS keeps plain level
+  panning for speakers and mixers. A listening setting: presets and the dice never change it.
+- **RANDOM**: roll the dice for new sounds, effects and movement in one go (OCT− + OCT+), or for one lane's sound;
+  empty lanes get a sound too, spread evenly left to right, and a stopped lane stays stopped.
 - **PERFORM**: one page for playing the effects live: HIGH PASS, LOW PASS, DELAY MIX and REVERB MIX.
 - **Movement**: 8 LFOs, 2 envelopes, 2 envelope followers and a 16-slot mod matrix. A groove makes the small events lean
   toward a shared, slowly drifting pulse, felt rather than heard, never a beat.
@@ -73,7 +78,9 @@ needs no copy of Frodhes to build or install.
   MIDI clock.
 - **Connections**: MIDI over USB and the TRS input (each lane on its own channel), and audio over USB as well as
   the headphone jack.
-- **Presets**: 110 factory presets in families, 16 slots for your own, and the 10 landscapes.
+- **Presets**: factory presets in families (DREAMS among them: long, unreal reverbs), 16 slots for your own (SAVE
+  picks a free slot and a name, so nothing is overwritten), and the 10 landscapes. EFFECTS ON LOAD says whether a
+  preset brings its effects (NEVER on the FM-1 at first, for playing live).
 - **On your computer too**: the same engines as a plugin, [below](#on-your-computer-the-desktop-plugin).
 
 ## On your computer: the desktop plugin
@@ -85,7 +92,11 @@ Audio Unit on macOS.
   spare, so nothing is thinned: every lane plays all its events.
 - **16 lanes** instead of 4, each on its own MIDI channel.
 - Its own window: the **MAP** and **SPACE** views to place sources, the lanes with a drawer for the selected one, and
-  an effects strip in signal order, ending with the M/S section (MID, SIDE, WIDTH, MONO).
+  an effects strip in signal order, ending with the M/S section (MID, SIDE, WIDTH, MONO); a third view, **M/S**, shows
+  the stereo picture.
+- **Binaural** by default (OUTPUT HEADPHONES, at the effects strip's end and in SETTINGS, with AMOUNT and HEAD SIZE).
+- **Dice**: one click rolls everything, its list picks what a roll may change; each lane has its own dice.
+- **HELP**: a short tour the first time the window opens, and again from HELP in one click.
 - **Movement**: LFOs, envelopes, followers and the mod matrix, drawn in the window.
 - **Engine browser** with preview: hear a sound before you keep it.
 - macOS 11 or newer (universal: Apple silicon and Intel), Windows x64, Linux x86_64 and aarch64.
