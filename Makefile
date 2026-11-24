@@ -95,7 +95,17 @@ HOST_HDR := bench/tx_host.h bench/tx_script.h
 UBSAN    := -fsanitize=undefined -fno-sanitize-recover=undefined
 
 PHONY_FM1 := fm1-gen fm1-host fm1-bench fm1-app fm1-dbg fm1-uitour fm1-timing fw-c1map fw-c1hot
-.PHONY: $(PHONY_FM1) setup fw-host fw-test fw-web fw-web-serve fw-web-check docs-img fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-pristine tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-fx-sweep tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
+.PHONY: hil hil-test $(PHONY_FM1) setup fw-host fw-test fw-web fw-web-serve fw-web-check docs-img fw-landscapes fw-presets fw-fonts tx-drive-tables tx-gen tx-test tx-pristine tx-render tx-bench _tx-bench-run tx-budget _tx-budget-run tx-activity tx-audit tx-grain tx-fx-sweep tx-calib _tx-calib-run tx-player tx-player-check tx-ab tx-baseline tx-tables tx-lin-tables tx-fx-tables tx-size tx-libcalls tx-clean
+
+# Hardware-in-the-loop suite of the installed FM-1 (tools/hil_suite.py; the rig is in AGENTS.md). Run after every
+# install, never while someone else uses the unit. ARGS="--only clicks --save .local/hil" passes options.
+HIL_PY := $(or $(wildcard .local/venv/bin/python3),$(wildcard $(CURDIR)/../../../.local/venv/bin/python3),python3)
+hil:
+	$(HIL_PY) tools/hil_suite.py $(ARGS)
+
+hil-test:
+	python3 -I tests/hil_suite_check.py
+
 
 $(B)/txrender: bench/txrender.c $(HOST_SRC) $(HOST_HDR) $(ENG_SRC) $(ENG_HDR)
 	@mkdir -p $(B)
