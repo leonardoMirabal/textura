@@ -5,22 +5,30 @@
  *
  *   centre    HEADPHONES at the centre = SPEAKERS, bit for bit (noise, a trim, the level and the gate moving)
  *   back      HEADPHONES, then SPEAKERS again: once the ears are back, the slot's own path, bit for bit as never left
- *   itd       a hard-left impulse: the right ear 28..30 samples late, darker (8 kHz against 200 Hz: 3 dB under the near's)
- *             and -10 dB +-2 at low frequencies; mirrored for a hard right
+ *   itd       a hard-left impulse: the right ear 28..31 samples late at 50 Hz (its phase delay: the time difference lives
+ *             below the far ear's crossover, its highs on time), darker (far / near 3 dB lower at 8 kHz than at 50 Hz)
+ *             and -10 dB +-2 at 50 Hz; mirrored for a hard right
  *   loud      white noise at every pan 0..127: the pair's power within +-1 dB of the centre's
  *   sweep     a 440 Hz sine under pan moves (0 -> 127 -> 0 a step a block; 0 <-> 127 jumps every 20 blocks; the
  *             mode switched both ways at a hard pan): the largest |second difference| at most 2x the largest of the
  *             renders held at 0, 64 and 127. Why 2x: a click is a step, 10x or more (txfxsweep flags over 10x); the
  *             delay's glide (at most 1/16 sample a sample) shifts the pitch by up to 1.06x (the second difference
  *             1.13x), and its start and stop kink the slope by A w / 16, about the held second difference A w^2 at
- *             440 Hz. Reported, not judged: 0 <-> 127 every block (5.8 ms: no glide ever lands, each turns back,
- *             the slope kinks twice as much)
+ *             440 Hz. The jumps 0 <-> 127 at most 2.5x: both ears glide at once, and 440 Hz sits at a hard pan's
+ *             crossover (380 Hz), where the far ear's late low band and its on-time highs meet, so its level there
+ *             turns with the delay over the glide's ~10 ms (1.94x before the crossover, 2.11x with it): a swell, no
+ *             step. Reported, not judged: 0 <-> 127 every block (5.8 ms: no glide ever lands, each turns back, the
+ *             slope kinks twice as much)
  *   mono      the mono sum (L + R) of a hard pan's impulse, 50 Hz .. 16 kHz: its notch below the speakers' hard pan
  *             (reported; fails under -6 dB) and its ripple, peak to notch (reported; fails over 8 dB)
+ *   tones     sines 200 Hz .. 8 kHz at pans 0 .. 127: L / R correlation >= 0.5, the mono sum (M against the pair's
+ *             mean power) under 1.5 dB below SPEAKERS' at that pan (a delayed far ear would cancel a tone at its half
+ *             cycle)
  *   amount    AMOUNT 0 (tx_mix_phones_amt) = SPEAKERS bit for bit, panned (set at the start, and glided to from 100 %:
- *             once the ears are back), and its cost 0; AMOUNT 50: a hard pan's far ear half as late (14..15 samples)
- *   head      each head size (tx_mix_phones_head) at a hard pan: the far ear 25, 29, 33 samples late (+-1), the larger
- *             head the darker far ear
+ *             once the ears are back), and its cost 0; AMOUNT 50: a hard pan's far ear half as late (14..15 samples at
+ *             50 Hz)
+ *   head      each head size (tx_mix_phones_head) at a hard pan: the far ear 25, 29, 33 samples late at 50 Hz (+-1), the
+ *             larger head the darker far ear (far / near at 4 kHz against at 50 Hz)
  *   loudall   the loud check at AMOUNT 0, 25, 50, 75, 100 and every head size: within +-1 dB of the centre
  *   moves     AMOUNT (0 / 50 / 100) and the head size moved every 20 blocks at a hard pan while a sine plays: <= 2x the
  *             held second difference, as sweep
@@ -122,25 +130,41 @@ static double mag(const double *h, double f)   /* |H(f)| */
     for (j = 0; j < IRN; j++) { re += h[j] * cos(w * j); im -= h[j] * sin(w * j); }
     return sqrt(re * re + im * im);
 }
-static double highs(const double *h) { return 20 * log10(mag(h, 8000) / mag(h, 200)); }   /* dB, 8 kHz vs 200 Hz */
+static double phase(const double *h, double f)   /* arg H(f), radians */
+{
+    double re = 0, im = 0, w = 2 * M_PI * f / 44100.0;
+    unsigned j;
+    for (j = 0; j < IRN; j++) { re += h[j] * cos(w * j); im -= h[j] * sin(w * j); }
+    return atan2(im, re);
+}
+/* the far ear's time difference: its phase delay behind the near ear's at 50 Hz, samples (the time difference lives in
+ * the lows: above its crossover the far ear's highs come on time, tx_core_mix.c TX_XO) */
+static double lag_lo(const double *nr, const double *fr)
+{
+    double p = phase(nr, 50) - phase(fr, 50);
+    while (p < -M_PI) p += 2 * M_PI;
+    while (p > M_PI) p -= 2 * M_PI;
+    return p * 44100.0 / (2 * M_PI * 50);
+}
 
 static void t_itd(void)
 {
     unsigned s;
     for (s = 0; s < 2; s++) {
-        double *nr, *fr, lo;
+        double *nr, *fr, lo, lg, dk;
         unsigned pn, pf;
         char what[120];
         impulse(s ? 127u : 0u, 1);
         nr = s ? irr : irl; fr = s ? irl : irr;
         pn = peak_at(nr); pf = peak_at(fr);
-        lo = 20 * log10(mag(fr, 100) / mag(nr, 100));
-        printf("itd %s: near ear peak at %u, far ear at %u (lag %d); far / near at 100 Hz %.2f dB; 8 kHz vs 200 Hz near %+.1f far %+.1f dB;"
-               " far ear at 1, 4, 10 kHz %.1f %.1f %.1f dB (vs its 100 Hz)\n", s ? "hard right" : "hard left", pn, pf,
-               (int)pf - (int)pn, lo, highs(nr), highs(fr), 20 * log10(mag(fr, 1000) / mag(fr, 100)),
+        lo = 20 * log10(mag(fr, 50) / mag(nr, 50)); lg = lag_lo(nr, fr);
+        dk = 20 * log10(mag(fr, 8000) / mag(nr, 8000)) - lo;   /* (the far ear's highs against its lows, the near's 0) */
+        printf("itd %s: near ear peak at %u, far ear at %u; the far ear %.1f samples late at 50 Hz; far / near at 50 Hz"
+               " %.2f dB, at 8 kHz %.1f dB under that; far ear at 1, 4, 10 kHz %.1f %.1f %.1f dB (vs its 100 Hz)\n",
+               s ? "hard right" : "hard left", pn, pf, lg, lo, -dk, 20 * log10(mag(fr, 1000) / mag(fr, 100)),
                20 * log10(mag(fr, 4000) / mag(fr, 100)), 20 * log10(mag(fr, 10000) / mag(fr, 100)));
-        snprintf(what, sizeof what, "%s: far ear 28..30 samples late, darker, -10 dB +-2 at 100 Hz", s ? "hard right" : "hard left");
-        check(pn == 0 && pf - pn >= 28 && pf - pn <= 30 && highs(fr) < highs(nr) - 3 && lo > -12 && lo < -8, what);
+        snprintf(what, sizeof what, "%s: far ear 28..31 samples late at 50 Hz, darker (3 dB), -10 dB +-2 at 50 Hz", s ? "hard right" : "hard left");
+        check(pn == 0 && lg >= 28 && lg <= 31 && dk < -3 && lo > -12 && lo < -8, what);
     }
 }
 
@@ -207,7 +231,7 @@ static void t_sweep(void)
     s = sd_run(0, 1, mv_sweep); j = sd_run(0, 1, mv_jump); md = sd_run(0, 0, mv_mode); j1 = sd_run(0, 1, mv_jump1);
     printf("sweep: largest |2nd difference| held %.0f; sweep %.2fx, jumps 0 <-> 127 %.2fx, mode switches %.2fx"
            " (jumps every block: %.2fx, not judged)\n", h, s / h, j / h, md / h, j1 / h);
-    check(s <= 2 * h && j <= 2 * h && md <= 2 * h, "pan moves and mode switches click-free (<= 2x the held)");
+    check(s <= 2 * h && j <= 2.5 * h && md <= 2 * h, "pan moves and mode switches click-free (<= 2x the held; jumps 2.5x)");
 }
 
 static void t_mono(void)
@@ -227,6 +251,40 @@ static void t_mono(void)
     printf("mono: hard left, L + R against the speakers' hard pan: %+.2f dB .. %+.2f dB, deepest notch at %.0f Hz;"
            " ripple %.2f dB\n", lo, hi, flo, hi - lo);
     check(lo > -6 && hi - lo < 8, "mono sum: notch not under -6 dB, ripple under 8 dB");
+}
+
+/* tones: a sine at each pan of 70, 80, 96, 112, 127 (and mirrored), 200 Hz .. 8 kHz: the pair's L / R correlation and
+ * what the mono sum keeps of its power (M against (L^2 + R^2) / 2), against SPEAKERS' at that pan (a hard pan's mono
+ * sum is 3 dB under its pair's mean there too): a tone the far ear's delay turned to the half cycle would cancel (a
+ * bird's whistle at 5.5 kHz and a 4-sample delay) */
+static void t_tones(void)
+{
+    static const unsigned P[10] = {70, 80, 96, 112, 127, 58, 48, 32, 16, 0};
+    static const double F[8] = {200, 400, 750, 1100, 1500, 2700, 5500, 8000};
+    int32_t x[TX_BLOCK], L[TX_BLOCK], R[TX_BLOCK];
+    double wc = 2, wm = 0, fc = 0, fm = 0;
+    unsigned p, f, b, j, t, pc = 0, pm = 0, hp;
+    for (p = 0; p < 10; p++)
+        for (f = 0; f < 8; f++) {
+            double co = 1, mo = 0;
+            for (hp = 0; hp < 2u; hp++) {
+                double ll = 0, rr = 0, lr = 0;
+                tx_mix_init(&ma); tx_mix_pan(&ma, 0, P[p]); tx_mix_phones(&ma, hp ? TX_MIX_HEADPHONES : TX_MIX_SPEAKERS);
+                for (b = 0, t = 0; b < 40; b++) {
+                    for (j = 0; j < TX_BLOCK; j++, t++) x[j] = (int32_t)(4194304.0 * sin(2 * M_PI * F[f] * t / 44100.0));
+                    block(&ma, x, L, R);
+                    if (b >= 8) for (j = 0; j < TX_BLOCK; j++) { ll += (double)L[j] * L[j]; rr += (double)R[j] * R[j]; lr += (double)L[j] * R[j]; }
+                }
+                if (hp) co = ll > 0 && rr > 0 ? lr / sqrt(ll * rr) : 1;
+                mo += (hp ? 1 : -1) * 10 * log10((ll + rr + 2 * lr) / 2 / (ll + rr));
+            }
+            if (co < wc) wc = co, pc = P[p], fc = F[f];
+            if (mo < wm) wm = mo, pm = P[p], fm = F[f];
+        }
+    printf("tones: the lowest L / R correlation %.2f (pan %u, %.0f Hz); the mono sum's largest loss %.2f dB against"
+           " SPEAKERS' (pan %u, %.0f Hz)\n",
+           wc, pc, fc, wm, pm, fm);
+    check(wc >= 0.5 && wm > -1.5, "tones at every pan: correlation >= 0.5, the mono sum loses under 1.5 dB");
 }
 
 static void t_amount(void)
@@ -260,7 +318,7 @@ static void t_amount(void)
     check(diff0 == 0 && diff1 == 0 && cost == 0 && !mb.bin[0].run, "AMOUNT 0 = SPEAKERS, bit for bit, at no cost");
     amt_ = 50;
     impulse(0, 1);
-    lag = peak_at(irr) - peak_at(irl);
+    lag = (unsigned)(lag_lo(irl, irr) + 0.5);
     amt_ = TX_MIX_AMT_DEF;
     printf("amount 50: hard left, the far ear %u samples late (100 %%: 29)\n", lag);
     snprintf(what, sizeof what, "AMOUNT 50: the far ear half as late (14..15 samples)");
@@ -275,13 +333,14 @@ static void t_head(void)
     for (h = 0; h < 3; h++) {
         head_ = h;
         impulse(127, 1);
-        lag[h] = peak_at(irl) - peak_at(irr);
-        dark[h] = 20 * log10(mag(irl, 4000) / mag(irl, 100));
+        lag[h] = (unsigned)(lag_lo(irr, irl) + 0.5);
+        dark[h] = 20 * log10(mag(irl, 4000) / mag(irr, 4000)) - 20 * log10(mag(irl, 50) / mag(irr, 50));   /* (far / near
+                                                 * at 4 kHz against at 50 Hz: the lows' ripple about the crossover kept out) */
         if (lag[h] + 1 < want[h] || lag[h] > want[h] + 1) ok = 0;
     }
     head_ = TX_MIX_HEAD_MEDIUM;
     printf("head: hard right, the far ear late by %u (SMALL), %u (MEDIUM), %u (LARGE) samples; at 4 kHz %.1f, %.1f, %.1f dB"
-           " (vs its 100 Hz)\n", lag[0], lag[1], lag[2], dark[0], dark[1], dark[2]);
+           " (far / near, vs at 50 Hz)\n", lag[0], lag[1], lag[2], dark[0], dark[1], dark[2]);
     check(ok && dark[0] > dark[1] && dark[1] > dark[2], "head sizes: 25, 29, 33 samples (+-1), the larger the darker");
 }
 
@@ -313,11 +372,20 @@ static void t_moves(void)
 #define REF_CLIP(v) ((v) > (1 << 26) ? (1 << 26) : (v) < -(1 << 26) ? -(1 << 26) : (v))
 static int32_t ref_r[TX_MIX_SLOTS][REF_N];
 static uint32_t ref_w[TX_MIX_SLOTS];
-static int32_t ref_ear(const int32_t *r, uint32_t w, int32_t d, int32_t a, int32_t b, int32_t *lp)
+static int32_t ref_rl[TX_MIX_SLOTS][REF_N];     /* (each slot's low band: its crossover's, tx_core_mix.c TX_XO) */
+static void ref_lo(tx_mix_t *m, unsigned k, int32_t x, int32_t c, int32_t *out)   /* the slot's low band, one sample */
+{
+    m->bin[k].s[0] += REF_MULQ15(x - m->bin[k].s[0], c);
+    m->bin[k].s[1] += REF_MULQ15(m->bin[k].s[0] - m->bin[k].s[1], c);
+    *out = m->bin[k].s[1];
+}
+static int32_t ref_ear(const int32_t *r, const int32_t *rl, uint32_t w, int32_t d, int32_t a, int32_t b, int32_t *lp)
 {
     uint32_t i = w - ((uint32_t)d >> 16);
-    int32_t f = (int32_t)(((uint32_t)d & 0xFFFFu) >> 1), x0 = r[i & (REF_N - 1u)], y, e;
-    y = x0 + REF_MULQ15(r[(i - 1u) & (REF_N - 1u)] - x0, f);
+    int32_t f = (int32_t)(((uint32_t)d & 0xFFFFu) >> 1), x0 = rl[i & (REF_N - 1u)], y, e;
+    y = x0 + REF_MULQ15(rl[(i - 1u) & (REF_N - 1u)] - x0, f);
+    y = r[w & (REF_N - 1u)] - rl[w & (REF_N - 1u)] + y;   /* (the highs now, the low band late) */
+    y = REF_CLIP(y);
     e = y - *lp; *lp += REF_MULQ15(e, a);
     e = y - *lp;
     return *lp + REF_MULQ15(e, b);
@@ -342,12 +410,15 @@ static void ref_add_rest(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n, 
     int32_t gn = m->bin[k].e[f ^ 1u].g >> 8, gf = m->bin[k].e[f].g >> 8, bq = m->bin[k].e[f].b >> 8;
     int32_t a = m->bin[k].e[f].a >> 8, gb = (gf * bq) >> 15, gc = (gf * (32768 - bq)) >> 15, lp = m->bin[k].e[f].lp;
     uint32_t w = ref_w[k], di = (uint32_t)m->bin[k].e[f].d >> 16;
+    int32_t c = m->bin[k].c >> 8, *rl = ref_rl[k];
     for (j = 0; j < n; j++) {
         int32_t v = ref_trim(x[j], tg), av = v < 0 ? -v : v, y;
         if (av > pk) pk = av;
         ref_out(&nr[j], v, gn);
         r[++w & (REF_N - 1u)] = REF_CLIP(v);
-        y = r[(w - di) & (REF_N - 1u)];
+        ref_lo(m, k, r[w & (REF_N - 1u)], c, &rl[w & (REF_N - 1u)]);
+        y = r[w & (REF_N - 1u)] - rl[w & (REF_N - 1u)] + rl[(w - di) & (REF_N - 1u)];
+        y = REF_CLIP(y);
         lp += REF_MULQ15(y - lp, a);
         fr[j] += (y >> 14) * gb + (int32_t)((((uint32_t)y & 0x3FFFu) * (uint32_t)gb) >> 14)
                + (lp >> 14) * gc + (int32_t)((((uint32_t)lp & 0x3FFFu) * (uint32_t)gc) >> 14);
@@ -363,10 +434,12 @@ static void ref_add_mid(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n)
         int32_t v = ref_trim(x[j], tg), av = v < 0 ? -v : v;
         if (av > pk) pk = av;
         ref_out(&m->L[j], v, gl); ref_out(&m->R[j], v, gr);
-        r[++w & (REF_N - 1u)] = REF_CLIP(v);
+        w++;
+        r[w & (REF_N - 1u)] = ref_rl[k][w & (REF_N - 1u)] = REF_CLIP(v);   /* (the crossover at 1: the low band is the
+                                                 * sample) */
     }
     m->slot_peak[k] = pk; ref_w[k] = w;
-    for (j = 0; j < 2u; j++) m->bin[k].e[j].lp = r[w & (REF_N - 1u)];
+    for (j = 0; j < 2u; j++) m->bin[k].e[j].lp = m->bin[k].s[j] = r[w & (REF_N - 1u)];
 }
 static int32_t ref_step(int32_t now, int32_t to, unsigned n) { return n ? (to - now) / (int32_t)n : 0; }
 static void ref_add_bin(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n)
@@ -375,9 +448,10 @@ static void ref_add_bin(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n)
     unsigned j, i;
     int32_t pk = m->slot_peak[k], tg = m->tg[k], g = m->gc[k], gt = m->gt[k];
     int32_t lc = m->lc[k], lv = m->lv[k], ld = n ? (lv - lc) / (int32_t)n : 0;
-    int32_t dd[2], da[2], db[2], dg[2], d[2], a[2], b[2], gg[2], lp[2], *r = ref_r[k];
+    int32_t dd[2], da[2], db[2], dg[2], d[2], a[2], b[2], gg[2], lp[2], *r = ref_r[k], *rl = ref_rl[k];
+    int32_t c = m->bin[k].c, dc = ref_step(c, m->bin[k].ct, n);
     uint32_t w = ref_w[k];
-    if (m->hp && g == 32768 && gt == 32768 && lc == 32768 && lv == 32768) {
+    if (m->hp && g == 32768 && gt == 32768 && lc == 32768 && lv == 32768 && m->bin[k].c == m->bin[k].ct) {
         unsigned f = 2u;
         for (i = 0; i < 2u; i++) {
             if (m->bin[k].e[i].d != m->bin[k].e[i].dt || m->bin[k].e[i].a != m->bin[k].e[i].at
@@ -405,8 +479,10 @@ static void ref_add_bin(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n)
         if (g != gt) g += g < gt ? st : -st;
         v = REF_MULQ15(v, g);
         r[++w & (REF_N - 1u)] = REF_CLIP(v);
-        ref_out(&m->L[j], ref_ear(r, w, d[0], a[0] >> 8, b[0] >> 8, &lp[0]), gg[0] >> 8);
-        ref_out(&m->R[j], ref_ear(r, w, d[1], a[1] >> 8, b[1] >> 8, &lp[1]), gg[1] >> 8);
+        ref_lo(m, k, r[w & (REF_N - 1u)], c >> 8, &rl[w & (REF_N - 1u)]);
+        c += dc;
+        ref_out(&m->L[j], ref_ear(r, rl, w, d[0], a[0] >> 8, b[0] >> 8, &lp[0]), gg[0] >> 8);
+        ref_out(&m->R[j], ref_ear(r, rl, w, d[1], a[1] >> 8, b[1] >> 8, &lp[1]), gg[1] >> 8);
         for (i = 0; i < 2u; i++) {
             a[i] += da[i]; b[i] += db[i]; gg[i] += dg[i];
             if (dd[i]) {
@@ -417,6 +493,7 @@ static void ref_add_bin(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n)
     }
     m->slot_peak[k] = pk; m->gc[k] = g; ref_w[k] = w;
     if (n) m->lc[k] = lv;
+    if (n) m->bin[k].c = m->bin[k].ct;
     i = !m->hp;
     for (j = 0; j < 2u; j++) {
         int32_t t = m->bin[k].e[j].dt;
@@ -446,7 +523,7 @@ static void t_ref(void)
         unsigned pan[TX_MIX_SLOTS] = {64, 64, 64, 64};
         rng = 7u + s;
         tx_mix_init(&ma); tx_mix_init(&mb);
-        memset(ref_r, 0, sizeof ref_r); memset(ref_w, 0, sizeof ref_w);
+        memset(ref_r, 0, sizeof ref_r); memset(ref_rl, 0, sizeof ref_rl); memset(ref_w, 0, sizeof ref_w);
         for (b = 0; b < 240; b++) {
             unsigned n = b % 11u == 5u ? (unsigned)(noise() & 255) : TX_BLOCK, e = (unsigned)noise();
 #define BOTH(f, ...) do { f(&ma, __VA_ARGS__); f(&mb, __VA_ARGS__); } while (0)
@@ -480,7 +557,8 @@ static void t_ref(void)
             for (j = 0; j < n; j++) diff += ma.L[j] != mb.L[j] || ma.R[j] != mb.R[j];
             for (k = 0; k < TX_MIX_SLOTS; k++)
                 diff += ma.slot_peak[k] != mb.slot_peak[k] || ma.gc[k] != mb.gc[k] || ma.lc[k] != mb.lc[k]
-                      || ma.bin[k].run != mb.bin[k].run || memcmp(ma.bin[k].e, mb.bin[k].e, sizeof ma.bin[k].e) != 0;
+                      || ma.bin[k].run != mb.bin[k].run || memcmp(ma.bin[k].e, mb.bin[k].e, sizeof ma.bin[k].e) != 0
+                      || ma.bin[k].c != mb.bin[k].c || ma.bin[k].s[0] != mb.bin[k].s[0] || ma.bin[k].s[1] != mb.bin[k].s[1];
             blocks++;
         }
     }
@@ -493,7 +571,7 @@ int main(void)
     printf("txbintest: the mix's HEADPHONES mode\n");
     t_centre(); t_back(); t_itd();
     check(t_loud(), "loudness across pan 0..127 within +-1 dB");
-    t_sweep(); t_mono();
+    t_sweep(); t_mono(); t_tones();
     t_amount(); t_head(); t_loudall(); t_moves(); t_ref();
     printf("txbintest: %s (%d failed)\n", fails ? "FAIL" : "ok", fails);
     return fails ? 1 : 0;

@@ -94,6 +94,18 @@ l = noise(seed=2)
 for lag in (25, 29, 33):
     r = np.concatenate([np.zeros(lag), l[:-lag]])
     check(f"lag {lag}", H.lag_of(l, r) == lag, f"{H.lag_of(l, r)}")
+    check(f"lag in the lows {lag}", abs(H.lag_lo(l, r, SR) - lag) < 0.5, f"{H.lag_lo(l, r, SR):.2f}")
+# HEADPHONES' far ear: its low band late, its highs on time (engines/tx_core_mix.c TX_XO: two one-poles at 380 Hz)
+c = 1 - np.exp(-2 * np.pi * 380 / SR)
+lo = l.copy()
+for _ in range(2):
+    acc, out_ = 0.0, np.empty_like(lo)
+    for i, v in enumerate(lo):
+        acc += c * (v - acc); out_[i] = acc
+    lo = out_
+r = l - lo + np.concatenate([np.zeros(29), lo[:-29]])
+check("lag in the lows, the highs on time: 29", abs(H.lag_lo(l, r, SR) - 29) <= 2 and H.lag_of(l, r) == 0,
+      f"lows {H.lag_lo(l, r, SR):.2f}, broadband {H.lag_of(l, r)}")
 
 # stereo stats: mono, anti-phase, wide
 m = noise(seed=3)

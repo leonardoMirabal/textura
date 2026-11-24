@@ -8,8 +8,11 @@
  *               never the one it had, none twice where there are enough), SOUND each engine's cards at random over their ranges, EFFECTS the
  *               mix's COMP, DRIVE, FILTER, DELAY / GRAIN, REVERB and M/S (types and amounts, in musical, safe ranges:
  *               the filter's band never closes, the drive and the make-up stay moderate, MONO stays off, long, unreal
- *               reverbs can come up), MOVEMENT the eight LFOs, the envelopes, the followers and the matrix (two to six
- *               routes onto the cards, the effects' amounts when EFFECTS is ticked, the LFOs' own RATE and LEVEL, at
+ *               reverbs can come up; the stereo image stays balanced and whole in mono: the sides never over the
+ *               middle, the grains' SPREAD and a long reverb's MIX held back, an empty lane placed near the centre;
+ *               tests/scripts/diceimage.txt and plugin/tests/scripts/diceimage16.txt judge it, written by
+ *               tools/gen_dice_image.py), MOVEMENT the eight LFOs, the envelopes, the followers and the matrix (two to
+ *               six routes onto the cards, the effects' amounts when EFFECTS is ticked, the LFOs' own RATE and LEVEL, at
  *               moderate depths: never onto a lane's LEVEL, PAN, HOW MANY or HOW ACTIVE)
  *   dice_lane   one lane a new engine (as dice_roll's ENGINES alone), its cards at the engine's own
  *
@@ -157,7 +160,7 @@ static void dice_fx(scn_t *t)
 {
     static const uint8_t PITCH[8] = {64, 64, 64, 64, 64, 127, 1, 101};   /* (as played mostly; an octave up or down, a
                                                  * fifth up) */
-    int32_t hp, lp, on;
+    int32_t hp, lp, on, w, mid;
     dice_drop(t, dice_is_fx, 0);
     /* COMP: on most times, a gentle ratio, a little make-up (its own make-up follows the threshold) */
     dice_g(t, PG_COMP0 + TX_CP_ON, dice_n(10) < 7u);
@@ -173,26 +176,35 @@ static void dice_fx(scn_t *t)
     if (dice_n(5) >= 3u) { hp = dice_n(2) ? 0 : dice_in(1, 40); lp = dice_n(2) ? 127 : dice_in(80, 126); }
     dice_g(t, PG_MF0 + TX_MF_LOW, hp); dice_g(t, PG_MF0 + TX_MF_HIGH, lp);
     dice_g(t, PG_MF0 + TX_MF_RESO, dice_in(0, 50)); dice_g(t, PG_MF0 + TX_MF_SLOPE, dice_in(0, TX_MF_SN - 1));
-    /* DELAY / GRAIN: on half the times, its repeats never running away (FEEDBACK under endless), never frozen */
-    on = dice_n(2);
-    dice_g(t, PG_GD(TX_GD_MIX), on ? dice_in(16, 56) : 0); dice_g(t, PG_GD(TX_GD_TIME), dice_in(20, 120));
+    /* DELAY / GRAIN: on half the times, its repeats never running away (FEEDBACK under endless), never frozen; SPREAD
+     * wide, never all sides, and the wider, the less MIX (56 down to 42), so the middle stays the louder */
+    on = dice_n(2); w = dice_in(30, 100);
+    dice_g(t, PG_GD(TX_GD_MIX), on ? dice_in(16, 56 - (w - 30) / 5) : 0); dice_g(t, PG_GD(TX_GD_TIME), dice_in(20, 120));
     dice_g(t, PG_GD(TX_GD_FEEDBACK), dice_in(10, 90)); dice_g(t, PG_GD(TX_GD_GRAINS), dice_in(0, 11));
     dice_g(t, PG_GD(TX_GD_SIZE), dice_in(20, 110)); dice_g(t, PG_GD(TX_GD_SPRAY), dice_in(0, 90));
     dice_g(t, PG_GD(TX_GD_PITCH), PITCH[dice_n(8)]); dice_g(t, PG_GD(TX_GD_REVERSE), dice_n(2) ? 0 : dice_in(10, 60));
-    dice_g(t, PG_GD(TX_GD_SPREAD), dice_in(30, 127)); dice_g(t, PG_GD(TX_GD_TONE), dice_in(60, 127));
+    dice_g(t, PG_GD(TX_GD_SPREAD), w); dice_g(t, PG_GD(TX_GD_TONE), dice_in(60, 127));
     dice_g(t, PG_GD(TX_GD_GRAIN), dice_in(0, 127)); dice_g(t, PG_GD(TX_GD_FREEZE), 0);
     dice_g(t, PG_GD(TX_GD_MOD), dice_n(2) ? 0 : dice_in(10, 90)); dice_g(t, PG_GD(TX_GD_MODRATE), dice_in(10, 100));
     dice_g(t, PG_GD(TX_GD_IVL), dice_in(0, TX_GDI_N - 1));
-    /* REVERB: a space always, its sound kept whole (MIX to 64); long and unreal decays can come (sustained, never
+    /* REVERB: a space always, its sound kept whole (MIX to 52); long and unreal decays can come (sustained, never
      * frozen), a shimmer now and then */
-    dice_g(t, PG_REVERB0 + TX_RV_TYPE, dice_in(TX_RVT_ROOM, TX_RVT_N - 1)); dice_g(t, PG_REVERB0 + TX_RV_MIX, dice_in(18, 60));
-    dice_g(t, PG_REVERB0 + TX_RV_DECAY, dice_in(30, 126)); dice_g(t, PG_REVERB0 + TX_RV_TONE, dice_in(30, 100));
+    on = dice_in(30, 126);                      /* (DECAY; the longer, the less MIX: a long tail, all sides, never swamps
+                                                 * the middle: 52 down to 36 at the longest) */
+    dice_g(t, PG_REVERB0 + TX_RV_TYPE, dice_in(TX_RVT_ROOM, TX_RVT_N - 1));
+    dice_g(t, PG_REVERB0 + TX_RV_MIX, dice_in(18, on > 60 ? 52 - (on - 60) / 4 : 52));
+    dice_g(t, PG_REVERB0 + TX_RV_DECAY, on); dice_g(t, PG_REVERB0 + TX_RV_TONE, dice_in(30, 100));
     dice_g(t, PG_REVERB0 + TX_RV_PREDELAY, dice_in(0, 50)); dice_g(t, PG_REVERB0 + TX_RV_SIZE, dice_n(3) ? 0 : dice_in(20, 127));
     dice_g(t, PG_REVERB0 + TX_RV_MOD, dice_in(20, 110)); dice_g(t, PG_REVERB0 + TX_RV_LOWCUT, dice_in(0, 50));
     dice_g(t, PG_REVERB0 + TX_RV_SHIMMER, dice_n(3) ? 0 : dice_in(10, 60)); dice_g(t, PG_REVERB0 + TX_RV_SHIFT, dice_in(0, 3));
-    /* M/S: near 0 dB, WIDTH 80 .. 140 %: a little narrower or wider; MONO off (never MID and SIDE both gone) */
-    dice_g(t, PG_MS0 + TX_MS_MID, dice_in(108, 117)); dice_g(t, PG_MS0 + TX_MS_SIDE, dice_in(100, 121));
-    dice_g(t, PG_MS0 + TX_MS_WIDTH, dice_in(40, 70));   /* (80 .. 140 %) */
+    /* M/S: MID near 0 dB, WIDTH 80 .. 120 %, the sides never louder than the middle (SIDE x WIDTH at most MID: 0 .. 4 dB
+     * under it, and what WIDTH adds over 100 % taken off SIDE), so the image stays whole in mono; MONO off */
+    w = dice_in(40, 60);                        /* (80 .. 120 %) */
+    mid = dice_in(111, 117);                    /* (MID -2 .. +1 dB) */
+    dice_g(t, PG_MS0 + TX_MS_MID, mid);
+    dice_g(t, PG_MS0 + TX_MS_SIDE, mid - dice_in(0, 8) - (w > 50 ? ((w - 50) * 7 + 19) / 20 : 0));   /* (WIDTH's dB over
+                                                 * 100 %, in SIDE's half-dB steps: 20 log10(w / 50) x 2, rounded up) */
+    dice_g(t, PG_MS0 + TX_MS_WIDTH, w);
     dice_g(t, PG_MS0 + TX_MS_MONO, 0);
 }
 
@@ -277,19 +289,22 @@ static void dice_mov(scn_t *t, uint32_t what)
     }
 }
 
-/* ---- an empty lane's place: the PAN farthest from every lane placed (m: their bits), a little jitter, so the left and
- * the right stay even however many lanes fill */
-#define DICE_PAN_LO 16
-#define DICE_PAN_HI 112
-static uint8_t dice_pan(const scn_t *t, uint32_t m)
+/* ---- an empty lane's place: centred, so a roll keeps the stereo image balanced. Inside 64 +- DICE_PAN_W (narrower
+ * when it fills few lanes: one at most +- 16, two +- 28), the PAN farthest from every lane placed (m: their bits) and
+ * pulling the lanes' sum of pans back to the centre (the lanes kept where they were count too), a little jitter, so the
+ * left and the right stay even however many lanes fill */
+#define DICE_PAN_W 32
+static uint8_t dice_pan(const scn_t *t, uint32_t m, uint32_t nf)
 {
-    int32_t p, best = 64, bs = -1;
+    int32_t w = nf >= 3u ? DICE_PAN_W : 4 + 12 * (int32_t)nf, p, best = 64, bs = -100000, e = 0;
     uint32_t k;
-    for (p = DICE_PAN_LO; p <= DICE_PAN_HI; p += 2) {
-        int32_t d = 2 * (DICE_PAN_HI - DICE_PAN_LO);
+    for (k = 0; k < DICE_NL; k++) if (m >> k & 1u) e += (int32_t)t->pan[k] - 64;   /* (the placed lanes' sum) */
+    for (p = 64 - w; p <= 64 + w; p += 2) {
+        int32_t d = 4 * DICE_PAN_W, b = e + p - 64;
         for (k = 0; k < DICE_NL; k++)
-            if (m >> k & 1u) { int32_t e = p - (int32_t)t->pan[k]; if (e < 0) e = -e; if (e < d) d = e; }
-        d = d * 4 + (int32_t)dice_n(5);         /* (ties and near ties: at random) */
+            if (m >> k & 1u) { int32_t a = p - (int32_t)t->pan[k]; if (a < 0) a = -a; if (a < d) d = a; }
+        if (b < 0) b = -b;
+        d = d * 4 - b * 3 + (int32_t)dice_n(9);  /* (apart, the sum near the centre; ties and near ties: at random) */
         if (d > bs) { bs = d; best = p; }
     }
     return (uint8_t)best;
@@ -316,7 +331,7 @@ static void dice_say(uint32_t what, int lane, const scn_t *t)   /* the toast (ui
 static void dice_go(uint32_t what, int lane)
 {
     scn_t *t = &scn_b[scn_u ^ 1u];
-    uint32_t k, used, placed;
+    uint32_t k, used, placed, nf;
     scn_capture(&scn_b[scn_u]);                 /* (what played: the undo) */
     scn_bidx[scn_u] = scn_cur;
     scn_undo_ok = 1;
@@ -325,13 +340,14 @@ static void dice_go(uint32_t what, int lane)
     dice_drop(t, dice_is_id, PID(P_GLOBAL, PG_FINE));   /* (the tempo stays, whatever PRESETS CHANGE TEMPO says) */
     placed = used = dice_used(t);
     dice_cp = 0;
+    for (k = 0, nf = 0; k < DICE_NL; k++) nf += !(used >> k & 1u);   /* (the lanes it may fill) */
     if ((what & DICE_ENG) && lane < 0)          /* (an empty lane in use: a sound, playing sparse, its own place) */
         for (k = 0; k < DICE_NL; k++) {
             if (used >> k & 1u) continue;
             dice_engine(t, k);
             if (t->snd[k] < 0) continue;
             t->cnt[k] = (uint8_t)dice_in(1, 2); t->step[k] = (uint8_t)sc_act_step((uint32_t)dice_in(1, 3)); t->run[k] = 1;
-            t->pan[k] = dice_pan(t, placed);
+            t->pan[k] = dice_pan(t, placed, nf);
             placed |= 1u << k;
             if (what & DICE_SND) dice_cp |= (scn_lm_t)(1u << k);   /* (its cards: once its engine is in) */
         }

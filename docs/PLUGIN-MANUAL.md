@@ -352,7 +352,8 @@ for a second. COMP off: they read OFF. Quiet lanes under THR show no gain reduct
 
 How you listen. On headphones Textura places each lane binaurally, as your ears place a real sound: a lane panned to
 one side reaches the far ear a little later and a little darker, the head's shadow, so the lanes stand apart around
-your head instead of inside it.
+your head instead of inside it. The delay is in the low notes only; the far ear's highs arrive on time, so the mix
+stays whole when it is summed to mono.
 
 **OUTPUT** sits at the right end of the EFFECTS band. **Click it** to switch between the two:
 
@@ -368,7 +369,7 @@ your head instead of inside it.
   shadow and the level difference back toward plain level panning; at 0 % HEADPHONES sounds exactly as SPEAKERS.
   Drag the slider, or turn the wheel over it.
 - **HEAD SIZE**: **SMALL**, **MEDIUM** (at first) or **LARGE**, the head the placing is worked out for. A larger head
-  delays the far ear more (up to 0.57, 0.66 or 0.75 ms at a hard pan) and shadows it from lower notes. Pick the one
+  delays the far ear more (in the low notes, up to 0.57, 0.66 or 0.75 ms at a hard pan) and shadows it from lower notes. Pick the one
   that sounds most natural to you.
 
 ![BINAURAL's panel, from OUTPUT's arrow: OUTPUT, AMOUNT, HEAD SIZE](plugin/img/binaural.png)
@@ -508,6 +509,8 @@ Three kinds of dice roll new sounds, as the FM-1's OCT- and OCT+ pressed togethe
 - A roll **keeps** LANES and each lane's LEVEL, PAN, HOW MANY, HOW ACTIVE and MIDI CH. Levels stay even (each
   engine's own trim), the limiter stays on, DRIVE and COMP's make-up stay moderate, and the movement's amounts stay
   moderate: a roll never silences the mix or jumps in level.
+- A roll keeps the stereo image balanced and safe in mono: the sides never louder than the middle, and a lane it
+  fills sits near the centre, so the left and the right stay even.
 - The effects **glide** to their new values, as on a preset load. A new engine comes in as a preset's does.
 - All four are ticked at first; the ticks are kept with the project. ROLL with nothing ticked does nothing and says so.
   The list stays open, so you can **ROLL** again; **CLOSE**, **Esc** or a click outside closes it.

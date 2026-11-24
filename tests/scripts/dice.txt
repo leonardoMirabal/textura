@@ -36,8 +36,8 @@
 3500 expect state act0 1
 3500 expect state vol0 100
 3500 expect state vol1 100
-3500 expect state p411 27
-3500 expect state p403 4
+3500 expect state p411 34
+3500 expect state p403 10
 3500 expect state p430 0
 3500 expect state scene RANDOM
 3500 expect state edited 1

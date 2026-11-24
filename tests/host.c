@@ -336,6 +336,13 @@ static void eng_host_report(void);              /* engine.c: the engines' host c
  *                        as the FM-1's converter would measure it; without one a key plays at once at CONTEXT)
  *   T expect led ID V    fails the run unless LED ID is V (0/1)
  *   T expect rms OP DB   fails unless the RMS of the last 50 ms is OP (< or >) DB dBFS
+ *   T expect image MS CORR BAL [W [PS]]  the stereo image of the last W ms (2000): fails unless the middle (L + R) / 2 is
+ *                        at least MS dB louder than the sides (L - R) / 2, the L / R correlation at least CORR, and
+ *                        the left and the right within BAL dB of each other; a window under -70 dBFS passes (silent).
+ *                        Prints the levels (L R M S, dBFS), M - S, the correlation, L - R and what MONO keeps of the
+ *                        level (M against (L + R) / 2's power: 0 dB all of it). With PS also the placement: the lanes
+ *                        with a sound, playing, their PANs' sum off the centre (sum of PAN - 64) within +- PS (printed
+ *                        as "pans"), checked even in a silent window
  *   T expect jump OP DB [MS]  fails unless the largest step from one sample to the next (left) in the last MS ms
  *                        (50) is OP (< or >) DB dBFS: a click, a cut
  *   T expect drop OP DB [MS]  fails unless the largest fall of the level (both sides) from one 128-frame window
@@ -366,7 +373,7 @@ static void eng_host_report(void);              /* engine.c: the engines' host c
  * With FRODHES_FLASH=FILE the flash is kept in FILE across runs (host_flash_load / host_flash_save). */
 enum { EV_KEYS, EV_BTN, EV_PRESS, EV_RELEASE, EV_TURN, EV_MIDI, EV_SHOT, EV_EXP_LED, EV_EXP_RMS, EV_EXP_PRESET,
        EV_EXP_SOUND, EV_EXP_STATE, EV_DUMP, EV_USBREC, EV_USBLINK, EV_VKEY, EV_TRS,
-       EV_VEL, EV_XKEY, EV_PAD, EV_FADER, EV_WHEEL, EV_PEDAL, EV_STALL, EV_RLOAD, EV_WEB, EV_GOVPOOL, EV_EXP_JUMP, EV_EXP_DROP, EV_EXP_CUT };
+       EV_VEL, EV_XKEY, EV_PAD, EV_FADER, EV_WHEEL, EV_PEDAL, EV_STALL, EV_RLOAD, EV_WEB, EV_GOVPOOL, EV_EXP_JUMP, EV_EXP_DROP, EV_EXP_CUT, EV_EXP_IMAGE };
 static void ui_click_learn_set(int on);          /* (Textura's ui.c: "T web V") */
 static void host_gov_pool(uint32_t us);         /* (Textura's textura.c: "T govpool US") */
 static int host_preset_check(char *msg, unsigned n);   /* frodhes.c: 0 if the panel is the shown preset */
@@ -454,6 +461,14 @@ static void read_script(const char *path)
             }
             else if (!strcmp(sub, "led")) { e.kind = EV_EXP_LED; sscanf(line, "%*u %*s %*s %d %d", &e.a, &e.b); }
             else if (!strcmp(sub, "rms") && sscanf(line, "%*u %*s %*s %3s %lf", op, &db) == 2) { e.kind = EV_EXP_RMS; e.op = op[0]; e.a = (int32_t)(db * 100.0); }
+            else if (!strcmp(sub, "image")) {
+                double co = 0, ba = 0;
+                int w = 2000, ps = -1;
+                if (sscanf(line, "%*u %*s %*s %lf %lf %lf %d %d", &db, &co, &ba, &w, &ps) < 3) continue;
+                e.d1 = (uint8_t)(ps >= 0 && ps < 255 ? ps : 255);
+                e.kind = EV_EXP_IMAGE; e.a = (int32_t)(db * 100.0); e.b = (int32_t)(co * 100.0);
+                e.keys = (uint32_t)(ba * 100.0); e.btn = w > 0 ? w : 2000;
+            }
             else if (!strcmp(sub, "cut") && sscanf(line, "%*u %*s %*s %3s %lf %d %u", op, &db, &e.b, &e.keys) == 4) {
                 e.kind = EV_EXP_CUT; e.op = op[0]; e.a = (int32_t)(db * 100.0);
             }
@@ -652,6 +667,42 @@ static void host_ms(void)
                 host_fails++;
             } else
                 printf("%6u ms  ok   expect rms %c %.1f dB (%.1f)\n", fm1_ms, e->op, e->a / 100.0, db);
+            break;
+        }
+        case EV_EXP_IMAGE: {                    /* (the stereo image: "expect image") */
+            uint32_t n = FS / 1000u * (uint32_t)e->btn, i0 = wav_n > n ? wav_n - n : 0, i;
+            double ll = 0, rr = 0, lr = 0, mm, ss, k = (double)(wav_n - i0 ? wav_n - i0 : 1) * 32767.0 * 32767.0;
+            double dl, dr, dm, ds, co, ba, mo;
+            int bad, ps = 0;
+            char sv[64];
+            unsigned q;
+            for (q = 0; q < 64u; q++) {         /* (the placement: the PANs' sum off the centre, lanes playing a sound) */
+                char kk[16];
+                int pn;
+                snprintf(kk, sizeof kk, "pan%u", q);
+                if (host_state(kk, sv, sizeof sv)) break;
+                pn = atoi(sv) - 64;
+                snprintf(kk, sizeof kk, "snd%u", q);
+                if (host_state(kk, sv, sizeof sv) || !strcmp(sv, "-")) continue;
+                snprintf(kk, sizeof kk, "run%u", q);
+                if (host_state(kk, sv, sizeof sv) || atoi(sv) == 0) continue;
+                ps += pn;
+            }
+            for (i = i0; i < wav_n; i++) {
+                double l = wav[2u * i], r = wav[2u * i + 1u];
+                ll += l * l; rr += r * r; lr += l * r;
+            }
+            mm = (ll + rr + 2.0 * lr) / 4.0; ss = (ll + rr - 2.0 * lr) / 4.0;
+            dl = 10.0 * log10(ll / k + 1e-20); dr = 10.0 * log10(rr / k + 1e-20);
+            dm = 10.0 * log10(mm / k + 1e-20); ds = 10.0 * log10(ss / k + 1e-20);
+            co = ll > 0 && rr > 0 ? lr / sqrt(ll * rr) : 1.0; ba = dl - dr; mo = dm - 10.0 * log10((ll + rr) / 2.0 / k + 1e-20);
+            bad = 10.0 * log10((ll + rr) / 2.0 / k + 1e-20) >= -70.0 &&
+                  (dm - ds < e->a / 100.0 || co < e->b / 100.0 || fabs(ba) > (int32_t)e->keys / 100.0);
+            bad |= e->d1 != 255u && (ps < 0 ? -ps : ps) > (int)e->d1;
+            printf("%6u ms  %s expect image M-S >= %.1f dB, corr >= %.2f, |L-R| <= %.1f dB (L %.1f R %.1f M %.1f S %.1f "
+                   "dBFS; M-S %.1f dB, corr %.2f, L-R %.1f dB, mono %.1f dB; pans %+d)\n", fm1_ms, bad ? "FAIL" : "ok  ",
+                   e->a / 100.0, e->b / 100.0, (int32_t)e->keys / 100.0, dl, dr, dm, ds, dm - ds, co, ba, mo, ps);
+            if (bad) host_fails++;
             break;
         }
         case EV_EXP_CUT: {

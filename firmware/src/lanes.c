@@ -186,7 +186,7 @@ static struct { uint32_t gv_us[2], busy_us, pipe_us; volatile uint8_t pipe_on, p
  * into a pair of its own (and its own scratch), on lines of its own; this core adds that pair to the mix's after the
  * wait. The pair is a sum of int32 terms as the mix's is, so the samples are the same whichever core pans which lane.
  * SPEAKERS (and AMOUNT 0, once the ears are back) pan here as ever */
-static struct { int32_t L[TX_BLOCK], R[TX_BLOCK], hb[TX_BIN_N + TX_BLOCK]; } __attribute__((aligned(64))) ln_c1p LN_POOL;
+static struct { int32_t L[TX_BLOCK], R[TX_BLOCK], hb[TX_BIN_SCR]; } __attribute__((aligned(64))) ln_c1p LN_POOL;
 #endif
 #define LN_GV LN_N                              /* the split's items past the lanes: the grain delay's voices, the echo
                                                  * and the first half (LN_GV), the second half (LN_GV + 1) */

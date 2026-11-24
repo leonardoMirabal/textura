@@ -12,7 +12,8 @@ FM-1's app: the 16-lane plugin plays it sample for sample), sixteen-lane content
           a clip: the plugin's float x 32768, clipped the same way, must be equal). stop, lanes, hq, presets (every
           factory preset, not with --quick): against the four-lane build; lanes16 (sixteen lanes playing, every
           channel, then a factory preset over them: lanes 5 .. 16 empty again), against the 16-lane build, whose
-          expects must pass too
+          expects must pass too; then the 16-lane build alone: dice16 (a roll fills the empty lanes) and diceimage16
+          (120 rolls, each one's stereo image: tools/gen_dice_image.py)
   rates   48, 96 and 88.2 kHz (the oversampler) and 32 kHz (the sinc), the test time: the host build's render taken to
           that rate offline (a long polyphase filter) against the plugin's: the residual under -90 dB of the signal
           below 12 kHz (or a quarter of the rate; the two resamplers' own filters differ in their transition bands)
@@ -54,6 +55,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = ["tests/scripts/stop.txt", "plugin/tests/scripts/lanes.txt", "plugin/tests/scripts/hq.txt"]
 SCRIPTS16 = ["plugin/tests/scripts/lanes16.txt"]   # (against the 16-lane host build)
 DICE16 = "plugin/tests/scripts/dice16.txt"   # (the 16-lane host build alone: its expects)
+IMAGE16 = "plugin/tests/scripts/diceimage16.txt"   # (the same: 120 rolls, each one's stereo image; tools/gen_dice_image.py)
 V1_STATE = "plugin/tests/fixtures/state_v1.json"   # (the four-lane plugin's state: F034 WATERFALL, a card, effects)
 LONG = ["tests/scripts/presets.txt"]   # (not with --quick: every factory preset, 400 s)
 HOST_SRC = ["firmware/src/textura.c"]
@@ -655,6 +657,12 @@ def main():
             "ok  " if r.returncode == 0 else "FAIL", DICE16))
         if r.returncode:
             sys.stderr.write(r.stdout[-800:])
+        ok = ok and r.returncode == 0
+        r = run([host16, os.path.join(tmp, "diceimage16"), os.path.join(ROOT, IMAGE16)], check=False)   # (its expects)
+        print("%s  diceimage16: after each of 120 rolls the stereo image balanced and whole in mono (%s)" % (
+            "ok  " if r.returncode == 0 else "FAIL", IMAGE16))
+        if r.returncode:
+            sys.stderr.write("".join(l + "\n" for l in r.stdout.splitlines() if "FAIL" in l)[-1600:])
         ok = ok and r.returncode == 0
     if "hq" in only:
         ok = check_hq(args, host, tmp) and ok

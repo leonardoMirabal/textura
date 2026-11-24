@@ -1,6 +1,6 @@
 # OUTPUT (params.c global 45, the setup's OUTPUT page after MIDI IN): SPEAKERS on the FM-1 at the boot (the mix's
 # level pan; F003 loaded), HEADPHONES by K1 (each lane placed binaurally, by the ear delay and the head's shadow:
-# tx_mix_phones), the scene not edited by it; the governor's pool carries the binaural pan (govmix: 100 us a lane in
+# tx_mix_phones), the scene not edited by it; the governor's pool carries the binaural pan (govmix: 140 us a lane in
 # use); K2 its binaural AMOUNT (global 46: 100 % at first), K3 its HEAD SIZE (global 47: MEDIUM at first), neither a
 # scene's edit; all three stay through a preset load with EFFECTS ON LOAD at ALWAYS and through a roll of the dice;
 # NRPN 4 / 46 sets AMOUNT 0: the speakers' pan again, at no cost, OUTPUT still HEADPHONES; NRPN 4 / 45 SPEAKERS
@@ -37,7 +37,7 @@
 2950 expect state card0 HEADPHONES
 2950 expect state edited 0
 3000 expect state phones 1
-3000 expect state govmix 400
+3000 expect state govmix 560
 3000 expect sound
 3000 expect rms > -70
 3010 shot

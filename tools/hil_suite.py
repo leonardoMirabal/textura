@@ -12,7 +12,8 @@ change on channel 1.
 
 Checks (each prints ok / FAIL with its numbers; the exit code is the number of failures):
   clicks    busy presets x OUTPUT SPEAKERS / HEADPHONES: jack and USB recorded at once; clicks, repeated blocks, dropouts
-  binaural  all lanes hard left: far ear lag and level per HEAD SIZE; AMOUNT 0 equals SPEAKERS
+  binaural  all lanes hard left: far ear lag (in the lows, 20 .. 80 Hz: its highs come on time) and level per HEAD SIZE;
+            AMOUNT 0 equals SPEAKERS
   ms        M/S section: MID off, SIDE off, WIDTH 0, MONO, default
   stereo    per preset after its load: MID against SIDE, |L-R|, correlation
   activity  per lane soloed, three windows: a lane that should play must not go silent
@@ -165,6 +166,24 @@ def lag_of(l, r, maxlag=64, n=1 << 16):
     c = np.fft.irfft(R * np.conj(L))
     c = np.concatenate([c[-maxlag:], c[:maxlag + 1]])
     return int(np.argmax(c)) - maxlag
+
+
+def lag_lo(l, r, sr, band=(20.0, 80.0), n=1 << 16):
+    """samples by which r lags l in the lows: the slope of the cross-spectrum's phase over band (Hz), weighted by its
+    magnitude. HEADPHONES delays the far ear only below its crossover (engines/tx_core_mix.c TX_XO: 380 Hz at a hard
+    pan), its highs come on time, so a broadband cross-correlation peaks at 0"""
+    l = np.asarray(l[:n], dtype=np.float64)
+    r = np.asarray(r[:n], dtype=np.float64)
+    m = min(len(l), len(r))
+    l, r = l[:m] - l[:m].mean(), r[:m] - r[:m].mean()
+    x = np.fft.rfft(r, 2 * m) * np.conj(np.fft.rfft(l, 2 * m))
+    f = np.fft.rfftfreq(2 * m, 1.0 / sr)
+    k = (f >= band[0]) & (f <= band[1])
+    if not k.any():
+        return 0.0
+    ph = np.unwrap(np.angle(x[1:]))[k[1:]]
+    w, om = np.abs(x[1:])[k[1:]], 2 * np.pi * f[1:][k[1:]] / sr
+    return float(-np.sum(w * ph * om) / max(np.sum(w * om * om), 1e-30))
 
 
 def stereo_stats(x):
@@ -479,7 +498,7 @@ def check_binaural(src, rep, presets, sec, state):
             continue
         x, sr = cap["usb"]
         s = stereo_stats(x)
-        lag = lag_of(x[:, 0], x[:, 1]) * USB_SR / sr
+        lag = lag_lo(x[:, 0], x[:, 1], sr) * USB_SR / sr
         far = s["r"] - s["l"]
         got[name] = (lag, far, s)
         if name == "SPEAKERS":

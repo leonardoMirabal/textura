@@ -23,7 +23,8 @@
 #define TX_MIX_GATE_N 512u                 /* the gate's ramp: 11.6 ms at 44.1 kHz, no click */
 /* the output mode (tx_mix_phones): SPEAKERS pans by level alone (constant power), HEADPHONES binaurally: the far ear
  * gets the slot late (the interaural time difference of a spherical head, up to 29 samples = 0.66 ms at a hard pan,
- * whole samples at rest, read between two while it glides), through the head's shadow (a one-pole low-pass, 1.8 kHz at a hard pan, as a high shelf:
+ * whole samples at rest, read between two while it glides; late only below a crossover at a quarter cycle of that
+ * delay, 1.5 kHz at most, 380 Hz at a hard pan, its highs on time, so a tone never cancels in mono), through the head's shadow (a one-pole low-pass, 1.8 kHz at a hard pan, as a high shelf:
  * its highs kept at 0.4) and softer (constant power on a narrower arc: the far ear -10 dB at a hard pan). At the
  * centre the two modes are the same, bit for bit (a slot's peak never over 8 full scale) */
 #define TX_MIX_SPEAKERS 0u
@@ -41,12 +42,15 @@
 #define TX_BIN_N 36u                       /* a slot's history for the far ear: its last samples, at least the 33 + 1 read
                                             * back (the largest delay, and the sample before it while a glide reads
                                             * between two); a multiple of 4 */
+#define TX_BIN_HL (TX_BIN_N + TX_BLOCK)   /* HEADPHONES' scratch: the slot's history and block, then its low band's */
+#define TX_BIN_SCR (2u * TX_BIN_HL)       /* (the scratch's words: tx_mix_to_t's hb) */
 /* HEADPHONES' cost, FM-1 us a slot a block, as the governor's stand-in where nothing is timed (the host, the web: the
  * sources' pool carries it, tx_mix_phones_us, firmware/src/lanes.c: the governor's extra; on the FM-1 each binaural
- * lane's pan is timed instead). Its dearest path, the pans moving every block (each ear gliding): make tx-budget 90.0 a
- * lane (2026-11-24; 133.5 before the pass-per-ear rewrite; held pans 49.6, the level pan 13.1), rounded up with room.
- * Was 45: the held pans' extra alone, under a moving scene's cost by ~3x */
-#define TX_MIX_HP_US 100u
+ * lane's pan is timed instead). Its dearest path, the pans moving every block (each ear gliding): make tx-budget 131.2
+ * a lane (2026-11-24, with the far ear's crossover: 94.5 without it, 133.5 before the pass-per-ear rewrite; held pans
+ * 66.5, 51.0 without the crossover; the level pan 13.8), rounded up with room. Was 100 before the crossover, 45 before
+ * that (the held pans' extra alone, under a moving scene's cost by ~3x) */
+#define TX_MIX_HP_US 140u
 #ifndef TX_LINE                    /* (as tx_fx_drv.h's: a buffer one core writes while the other works, its own lines) */
 #ifdef __PI32V2__
 #define TX_LINE __attribute__((aligned(64)))
@@ -85,8 +89,9 @@ typedef struct {
     int32_t L[TX_BLOCK];
     int32_t R[TX_BLOCK] TX_LINE;         /* (its own lines: the pair's DRIVE may run R on the other core) */
     int32_t blk[TX_BLOCK], mid[TX_BLOCK], ilv[2 * TX_BLOCK];   /* (free while pre runs: TX_MIX_SCR) */
-    int32_t hb[TX_BIN_N + TX_BLOCK];     /* HEADPHONES: the slot being added, its history then its block in a row (the
-                                          * ears read back from it in one pass each: tx_mix_add_bin) */
+    int32_t hb[TX_BIN_SCR];              /* HEADPHONES: the slot being added, its history then its block in a row, then
+                                          * the same of its low band (the ears read back from them in one pass each:
+                                          * tx_mix_add_bin) */
     /* HEADPHONES (tx_mix_phones): the mode, and per slot its ears' state (each ear: its delay, Q16 samples; its
      * shadow's low-pass coefficient a and high-shelf gain b, Q15; its gain, Q14; a, b and the gain kept << 8 so a
      * block's ramp lands on its target; now and wanted, ramped over a block, the delay at most 1/16 sample a sample) and
@@ -96,6 +101,9 @@ typedef struct {
     struct {
         struct { int32_t d, dt, a, at, b, bt, g, gt, lp; } e[2];   /* 0 left, 1 right */
         int32_t r[TX_BIN_N];             /* the slot's last TX_BIN_N samples, the oldest first */
+        int32_t rl[TX_BIN_N];            /* the same of its low band (below the far ear's crossover: tx_core_mix.c TX_XO) */
+        int32_t c, ct, s[2];             /* the crossover's coefficient, Q15 << 8, now and wanted (ramped over a block),
+                                          * and its two low-passes */
         uint8_t pan, run;
     } bin[TX_MIX_SLOTS];
 } tx_mix_t;
@@ -122,7 +130,7 @@ static inline uint32_t tx_mix_phones_us(const tx_mix_t *m, unsigned k)
 /* slot k pans binaurally (HEADPHONES, or gliding back to SPEAKERS until every ear is there): tx_mix_add takes
  * tx_mix_add_bin's path */
 static inline int tx_mix_binaural(const tx_mix_t *m, unsigned k) { return k < TX_MIX_SLOTS && (m->hp | m->bin[k].run); }
-/* that path, into a pair of the caller's: to->L, to->R added to, to->hb its scratch (TX_BIN_N + TX_BLOCK words); slot
+/* that path, into a pair of the caller's: to->L, to->R added to, to->hb its scratch (TX_BIN_SCR words); slot
  * k's state as tx_mix_add leaves it (its peak, gate, level and ears). tx_mix_add's own with the mix's pair; a caller
  * may pan a slot on the other core into a pair of its own and add that pair to the mix's (firmware/src/lanes.c
  * LN_PAR: core 1's copy, TX_C1). In RAM on the FM-1 (TX_RAM) */

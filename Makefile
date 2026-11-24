@@ -216,6 +216,7 @@ $(FW)/scn_bank_test: tests/scn_bank_test.c tests/fl_host_model.h firmware/src/sc
 fw-test: $(FW)/scn_bank_test $(FW)/lanes_test $(FW)/lanes_test_par $(FW)/lanes_test_pipe $(FW)/textura-host $(FW)/textura-host-ub $(FW)/set_ab_test $(FW)/set_ab_test_align
 	@python3 -I tools/gen_landscapes.py --check || exit 1; \
 	python3 -I tools/gen_presets.py --check || exit 1; python3 -I tools/gen_font1.py --check || exit 1; \
+	python3 -I tools/gen_dice_image.py --check || exit 1; \
 	$(FW)/lanes_test || exit 1; \
 	$(FW)/lanes_test_par || exit 1; \
 	$(FW)/lanes_test_pipe || exit 1; \

@@ -16,6 +16,7 @@ void tx_mix_init(tx_mix_t *m)
             m->bin[k].e[i].d = m->bin[k].e[i].dt; m->bin[k].e[i].a = m->bin[k].e[i].at;
             m->bin[k].e[i].b = m->bin[k].e[i].bt; m->bin[k].e[i].g = m->bin[k].e[i].gt;
         }
+        m->bin[k].c = m->bin[k].ct;
         m->bin[k].run = 0;
     }
     m->amt = TX_MIX_AMT_DEF; m->head = TX_MIX_HEAD_MEDIUM;
@@ -39,13 +40,22 @@ void tx_mix_set(tx_mix_t *m, unsigned k, const tx_engine_t *e, void *st, uint32_
 static const uint16_t TX_HEAD_ITD[TX_MIX_HEAD_N] = {20021u, 23182u, 26343u};
 static const uint8_t TX_HEAD_DMAX[TX_MIX_HEAD_N] = {25u, 29u, 33u};
 static const uint16_t TX_HEAD_SHADOW[TX_MIX_HEAD_N] = {24349u, 25362u, 26148u};
+/* the far ear's crossover by its delay D (whole samples, 1 .. 33): the coefficient of a one-pole low-pass at fs / 4 D,
+ * 1.5 kHz at most, 1 - exp(-2 pi fc / fs), Q15 (D 29: 380 Hz; D 7 and under: 1.5 kHz), run twice on the slot. Below it
+ * the far ear is late (the time difference: a quarter of a cycle at the corner, never the half that cancels in mono),
+ * above it the far ear's highs come at once, its level and shadow alone telling where the sound is (as hearing does:
+ * above ~1.5 kHz a time difference is ambiguous). The far ear: the sample less its low band, plus its low band late */
+static const uint16_t TX_XO[34] = {32768u, 6305u, 6305u, 6305u, 6305u, 6305u, 6305u, 6305u, 5842u, 5248u, 4763u, 4361u,
+                                   4020u, 3730u, 3478u, 3258u, 3064u, 2892u, 2738u, 2600u, 2475u, 2362u, 2258u, 2163u,
+                                   2076u, 1996u, 1921u, 1852u, 1788u, 1728u, 1672u, 1619u, 1570u, 1523u};
 
 /* the slot's ears' targets: SPEAKERS (or the centre, or AMOUNT 0) the pan gains alone, no delay, no shadow; HEADPHONES
  * the far ear late by a spherical head's time difference (Woodworth: (theta + sin theta) / (pi/2 + 1) of the head's
  * largest (TX_HEAD_ITD) to the whole sample, theta = 0 .. pi/2 from the centre to a hard pan), shadowed (the low-pass
  * coefficient from 1 to the head's corner, the shelf's highs from 1 to 0.4, both with sin theta) and constant power on
- * 61 % of the speakers' arc about the centre (the far ear -10 dB at a hard pan, the centre unchanged). AMOUNT scales the
- * delay, both shadow depths and the arc's narrowing alike (100 %: as above, bit for bit) */
+ * 61 % of the speakers' arc about the centre (the far ear -10 dB at a hard pan, the centre unchanged); late only below
+ * its crossover (TX_XO: the highs on time, so the pair stays whole in mono). AMOUNT scales the delay, both shadow depths
+ * and the arc's narrowing alike (100 %: as above, bit for bit) */
 static void tx_mix_aim(tx_mix_t *m, unsigned k)
 {
     unsigned p = m->bin[k].pan, f = 0;
@@ -73,6 +83,8 @@ static void tx_mix_aim(tx_mix_t *m, unsigned k)
     }
     m->bin[k].e[f].dt = d; m->bin[k].e[f].at = a << 8; m->bin[k].e[f].bt = b << 8;
     m->bin[k].e[f ^ 1u].dt = 0; m->bin[k].e[f ^ 1u].at = m->bin[k].e[f ^ 1u].bt = 32768 << 8;
+    m->bin[k].ct = (int32_t)TX_XO[(uint32_t)d >> 16 < 34u ? (uint32_t)d >> 16 : 33u] << 8;   /* (the centre: 1, the low
+                                                              * band the sample itself) */
     m->bin[k].e[0].gt = gl << 8; m->bin[k].e[1].gt = gr << 8;
     if (m->hp) m->bin[k].run = 1;
     else if (!m->bin[k].run)                                 /* SPEAKERS at rest: its own path, the pan a step as ever
@@ -179,28 +191,32 @@ static TX_AUDIO_CODE void tx_mix_add_gated(tx_mix_t *m, unsigned k, const int32_
 /* the slot's history into hb before its block; returns the block's place (h[j - d]: d samples before sample j) */
 TX_INLINE int32_t *tx_mix_bin_load(const tx_mix_t *m, unsigned k, int32_t *hb)
 {
-    const int32_t *r = m->bin[k].r;
+    const int32_t *r = m->bin[k].r, *rl = m->bin[k].rl;
     unsigned j;
-    for (j = 0; j < TX_BIN_N; j++) hb[j] = r[j];
+    for (j = 0; j < TX_BIN_N; j++) { hb[j] = r[j]; hb[TX_BIN_HL + j] = rl[j]; }   /* (the low band's: TX_BIN_HL on) */
     return hb + TX_BIN_N;
 }
 /* the block's last TX_BIN_N samples (a short block: the history's last ones before them) kept as the slot's history */
 TX_INLINE void tx_mix_bin_keep(tx_mix_t *m, unsigned k, const int32_t *hb, unsigned n)
 {
-    int32_t *r = m->bin[k].r;
+    int32_t *r = m->bin[k].r, *rl = m->bin[k].rl;
     const int32_t *h = hb + n;
     unsigned j;
-    for (j = 0; j < TX_BIN_N; j++) r[j] = h[j];
+    for (j = 0; j < TX_BIN_N; j++) { r[j] = h[j]; rl[j] = h[TX_BIN_HL + j]; }
 }
 
-/* one ear, one sample: its history read d (Q16) back from hj (the sample now) between two samples, then the head's
- * shadow: a one-pole low-pass (a) as a high shelf (b: the highs kept). a = b = 1, d = 0: the sample itself, exactly.
- * |r| <= 2^26: 32-bit products */
-TX_INLINE int32_t tx_mix_ear(const int32_t *hj, int32_t d, int32_t a, int32_t b, int32_t *lp)
+/* the slot's low band, one sample: x through two one-pole low-passes at c (Q15; 1: x itself, exactly) */
+#define TX_XO_LO(x, c, s0, s1) do { (s0) += TX_MULQ15((x) - (s0), (c)); (s1) += TX_MULQ15((s0) - (s1), (c)); } while (0)
+/* one ear, one sample: the sample now (hj[0]) less its low band now (lj[0]), plus its low band read d (Q16) back between
+ * two samples, then the head's shadow: a one-pole low-pass (a) as a high shelf (b: the highs kept). a = b = 1, d = 0:
+ * the sample itself, exactly. |r| <= 2^26: 32-bit products */
+TX_INLINE int32_t tx_mix_ear(const int32_t *hj, const int32_t *lj, int32_t d, int32_t a, int32_t b, int32_t *lp)
 {
     uint32_t i = (uint32_t)d >> 16;
-    int32_t f = (int32_t)(((uint32_t)d & 0xFFFFu) >> 1), x0 = hj[-(int32_t)i], y, e;
-    y = x0 + TX_MULQ15(hj[-(int32_t)i - 1] - x0, f);
+    int32_t f = (int32_t)(((uint32_t)d & 0xFFFFu) >> 1), x0 = lj[-(int32_t)i], y, e;
+    y = x0 + TX_MULQ15(lj[-(int32_t)i - 1] - x0, f);
+    y = hj[0] - lj[0] + y;
+    y = TX_CLIP26(y);
     e = y - *lp; *lp += TX_MULQ15(e, a);
     e = y - *lp;
     return *lp + TX_MULQ15(e, b);
@@ -215,7 +231,8 @@ static TX_RAM void tx_mix_add_rest(tx_mix_t *m, unsigned k, const int32_t *x, un
     int32_t *fr = f ? to->R : to->L;
     int32_t gn = m->bin[k].e[f ^ 1u].g >> 8, gf = m->bin[k].e[f].g >> 8, bq = m->bin[k].e[f].b >> 8;
     int32_t a = m->bin[k].e[f].a >> 8, gb = (gf * bq) >> 15, gc = (gf * (32768 - bq)) >> 15, lp = m->bin[k].e[f].lp;
-    const int32_t *yd = h - (int32_t)((uint32_t)m->bin[k].e[f].d >> 16);
+    int32_t c = m->bin[k].c >> 8, s0 = m->bin[k].s[0], s1 = m->bin[k].s[1], *hl = h + TX_BIN_HL;
+    const int32_t *yd = hl - (int32_t)((uint32_t)m->bin[k].e[f].d >> 16);
     for (j = 0; j < n; j++) {
         int32_t v = x[j], av, y;
         if (tg != 4096) {                                    /* (as tx_mix_add) */
@@ -226,12 +243,15 @@ static TX_RAM void tx_mix_add_rest(tx_mix_t *m, unsigned k, const int32_t *x, un
         if (av > pk) pk = av;
         TX_EAR_ADD(nr[j], v, gn);
         h[j] = TX_CLIP26(v);
-        y = yd[j];
+        TX_XO_LO(h[j], c, s0, s1);
+        hl[j] = s1;
+        y = h[j] - s1 + yd[j];                               /* (the highs now, the low band late) */
+        y = TX_CLIP26(y);
         lp += TX_MULQ15(y - lp, a);
         fr[j] += (y >> 14) * gb + (int32_t)((((uint32_t)y & 0x3FFFu) * (uint32_t)gb) >> 14)
                + (lp >> 14) * gc + (int32_t)((((uint32_t)lp & 0x3FFFu) * (uint32_t)gc) >> 14);
     }
-    m->slot_peak[k] = pk; m->bin[k].e[f].lp = lp;
+    m->slot_peak[k] = pk; m->bin[k].e[f].lp = lp; m->bin[k].s[0] = s0; m->bin[k].s[1] = s1;
     tx_mix_bin_keep(m, k, to->hb, n);
 }
 /* the centre at rest: both ears the sample at their gains (SPEAKERS' sum), the history kept */
@@ -250,10 +270,11 @@ static TX_RAM void tx_mix_add_mid(tx_mix_t *m, unsigned k, const int32_t *x, uns
         if (av > pk) pk = av;
         TX_EAR_ADD(L[j], v, gl);
         TX_EAR_ADD(R[j], v, gr);
-        h[j] = TX_CLIP26(v);
+        h[j] = h[TX_BIN_HL + j] = TX_CLIP26(v);             /* (the crossover at 1: the low band is the sample) */
     }
     m->slot_peak[k] = pk;
-    for (j = 0; j < 2u; j++) m->bin[k].e[j].lp = h[(int32_t)n - 1];   /* (a = 1: the low-pass is the sample) */
+    for (j = 0; j < 2u; j++) m->bin[k].e[j].lp = m->bin[k].s[j] = h[(int32_t)n - 1];   /* (a = 1: the low-pass is the
+                                                              * sample) */
     tx_mix_bin_keep(m, k, to->hb, n);
 }
 
@@ -261,7 +282,7 @@ static TX_RAM void tx_mix_add_mid(tx_mix_t *m, unsigned k, const int32_t *x, uns
 TX_INLINE int32_t tx_mix_step(int32_t now, int32_t to, unsigned n) { return n ? (to - now) / (int32_t)n : 0; }
 
 /* tx_mix_add_bin's first pass: the slot's block (the trim, the level and the gate as tx_mix_add_gated) after its
- * history in hb (its place returned) */
+ * history in hb (its place returned), its low band after that's (TX_BIN_HL on: the crossover ramped over the block) */
 TX_INLINE int32_t *tx_mix_bin_in(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n, int32_t *hb)
 {
     const int32_t st = (int32_t)(32768u / TX_MIX_GATE_N);
@@ -289,6 +310,14 @@ TX_INLINE int32_t *tx_mix_bin_in(tx_mix_t *m, unsigned k, const int32_t *x, unsi
             v = TX_MULQ15(v, g);
             h[j] = TX_CLIP26(v);                             /* (the history: 32-bit products) */
         }
+    {
+        int32_t c = m->bin[k].c, dc = tx_mix_step(c, m->bin[k].ct, n), s0 = m->bin[k].s[0], s1 = m->bin[k].s[1];
+        int32_t *hl = h + TX_BIN_HL;
+        if (!dc) { int32_t c8 = c >> 8; for (j = 0; j < n; j++) { TX_XO_LO(h[j], c8, s0, s1); hl[j] = s1; } }
+        else for (j = 0; j < n; j++) { TX_XO_LO(h[j], c >> 8, s0, s1); hl[j] = s1; c += dc; }
+        m->bin[k].s[0] = s0; m->bin[k].s[1] = s1;
+        if (n) m->bin[k].c = m->bin[k].ct;
+    }
     m->slot_peak[k] = pk; m->gc[k] = g;
     if (n) m->lc[k] = lv;
     return h;
@@ -310,9 +339,10 @@ static TX_RAM __attribute__((noinline)) void tx_mix_ear_run(tx_mix_t *m, unsigne
         else for (j = 0; j < n; j++) { TX_EAR_ADD(o[j], h[j], g >> 8); g += dg; }
         if (n) lp = h[n - 1u];                               /* (a = 1: the low-pass is the sample) */
     } else if (!dd && !(d & 0xFFFF)) {                       /* a whole delay, still: no reading between two */
-        const int32_t *yd = h - (int32_t)((uint32_t)d >> 16);
+        const int32_t *hl = h + TX_BIN_HL, *yd = hl - (int32_t)((uint32_t)d >> 16);
         for (j = 0; j < n; j++) {
-            int32_t y = yd[j], e = y - lp;
+            int32_t y = h[j] - hl[j] + yd[j], e;
+            y = TX_CLIP26(y); e = y - lp;
             lp += TX_MULQ15(e, a >> 8);
             e = y - lp; y = lp + TX_MULQ15(e, b >> 8);
             TX_EAR_ADD(o[j], y, g >> 8);
@@ -320,7 +350,7 @@ static TX_RAM __attribute__((noinline)) void tx_mix_ear_run(tx_mix_t *m, unsigne
         }
     } else
         for (j = 0; j < n; j++) {
-            int32_t y = tx_mix_ear(h + j, d, a >> 8, b >> 8, &lp);
+            int32_t y = tx_mix_ear(h + j, h + TX_BIN_HL + j, d, a >> 8, b >> 8, &lp);
             TX_EAR_ADD(o[j], y, g >> 8);
             a += da; b += db; g += dg;
             if (dd) {                                        /* (a glide at its 1/16 sample: stops at its target) */
@@ -338,8 +368,9 @@ TX_RAM void tx_mix_add_bin(tx_mix_t *m, unsigned k, const int32_t *x, unsigned n
 {
     unsigned j, i;
     const int32_t *h;
-    if (m->hp && m->gc[k] == 32768 && m->gt[k] == 32768 && m->lc[k] == 32768 && m->lv[k] == 32768) {   /* at rest? (the
-                                                              * gate, the level, the ears) */
+    if (m->hp && m->gc[k] == 32768 && m->gt[k] == 32768 && m->lc[k] == 32768 && m->lv[k] == 32768
+        && m->bin[k].c == m->bin[k].ct) {                    /* at rest? (the gate, the level, the crossover, the
+                                                              * ears) */
         unsigned f = 2u;
         for (i = 0; i < 2u; i++) {
             if (m->bin[k].e[i].d != m->bin[k].e[i].dt || m->bin[k].e[i].a != m->bin[k].e[i].at

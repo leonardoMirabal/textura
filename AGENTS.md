@@ -126,7 +126,7 @@ still to be designed (**todo**).
 `make hil` (`tools/hil_suite.py`) tests the unit after every install; ask before using the FM-1. Rig: USB MIDI port
 "Textura" (the only port it sends to), USB audio "Textura FM-1" and the headphone jack into the MOTU M6 inputs 5/6
 (never change the M6's gain). Checks (`--only`): `clicks` (busy presets, SPEAKERS and HEADPHONES, jack and USB at once:
-clicks, repeated blocks, dropouts), `binaural` (far ear lag 25/29/33 samples, 10 to 20 dB down; AMOUNT 0 = SPEAKERS),
+clicks, repeated blocks, dropouts), `binaural` (far ear lag in the lows 25/29/33 samples, 10 to 20 dB down; AMOUNT 0 = SPEAKERS),
 `ms`, `stereo` (MID >= SIDE + 3 dB, |L-R| <= 3 dB, correlation >= 0.3), `activity` (no lane goes silent). The exit code
 is the number of failures; the unit is restored to its defaults at the end. `--save DIR` keeps the WAVs and a summary,
 `--wav DIR` re-analyses them with no hardware, `--dry-run` prints the plan. The analysis is tested on synthetic signals

@@ -274,7 +274,8 @@ CHANNEL 68 .. 79, FX CHANNEL 80, LANES 81). No FM-1 id moved, so NRPN numbers an
 - **BINAURAL AMOUNT** and **HEAD SIZE**, appended last (0x42E, 0x42F, group Output): HEADPHONES' binaural placing,
   0 .. 100 % of its cues (the far ear's delay, its shadow, the level softening; 100 the default, 0 as SPEAKERS bit for
   bit) and the head it is worked out for, 0 SMALL, 1 MEDIUM (the default), 2 LARGE (a spherical head of radius 7.6,
-  8.8, 10.0 cm: the far ear up to 25, 29, 33 samples late at 44.1 kHz, its shadow from 2.08, 1.8, 1.58 kHz). Settings,
+  8.8, 10.0 cm: the far ear up to 25, 29, 33 samples late at 44.1 kHz below a crossover at a quarter cycle of that
+  delay, 1.5 kHz at most, its highs on time so the pair stays whole in mono; its shadow from 2.08, 1.8, 1.58 kHz). Settings,
   as OUTPUT: in the state, never a scene's, never rolled.
 
 The FM-1's tempo, clock, screen and status settings are not host parameters.

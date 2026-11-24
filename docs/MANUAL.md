@@ -699,8 +699,9 @@ The setup page: **HOME held** opens it, and GLO steps to it.
 
 The **OUTPUT** page (GLO, after MIDI IN): how you listen. On headphones Textura places each sound binaurally, as your
 ears place a real one: a lane panned to one side reaches the far ear a little later and a little darker, the head's
-shadow, so the lanes stand apart around your head instead of inside it. It changes only how the lanes are placed, never
-the sounds. The three settings are kept by themselves: a preset, a scene or a roll of the dice never changes them,
+shadow, so the lanes stand apart around your head instead of inside it. The delay is in the low notes only; the far
+ear's highs arrive on time, so the mix stays whole when it is summed to mono. It changes only how the lanes are placed,
+never the sounds. The three settings are kept by themselves: a preset, a scene or a roll of the dice never changes them,
 whatever EFFECTS ON LOAD says.
 
 ![OUTPUT on HEADPHONES: AMOUNT and HEAD SIZE lit](manual/img/output-hp.png)
@@ -709,7 +710,7 @@ whatever EFFECTS ON LOAD says.
 | --- | --- | --- |
 | K1 | **OUTPUT (BINAURAL)** | **SPEAKERS** (the default on the FM-1): each lane placed by its level in the left and right channels alone, for speakers and mixers. **HEADPHONES**: each lane placed binaurally, for headphones. At the centre both are the same. |
 | K2 | **BINAURAL AMOUNT** | How much of the binaural placing: 0 to 100 % (100 % at first). Less brings the far ear's delay, its shadow and the level difference back toward plain level panning; at 0 % HEADPHONES sounds exactly as SPEAKERS. |
-| K3 | **HEAD SIZE** | **SMALL**, **MEDIUM** (at first) or **LARGE**: the size of the head the placing is worked out for. A larger head delays the far ear more (up to 0.57, 0.66 or 0.75 ms at a hard pan) and shadows it from lower notes. Pick the one that sounds most natural to you. |
+| K3 | **HEAD SIZE** | **SMALL**, **MEDIUM** (at first) or **LARGE**: the size of the head the placing is worked out for. A larger head delays the far ear more (in the low notes, up to 0.57, 0.66 or 0.75 ms at a hard pan) and shadows it from lower notes. Pick the one that sounds most natural to you. |
 
 On SPEAKERS, K2 and K3 are dim: they act only on HEADPHONES, but you can still set them, ready for the next switch.
 The line under the cards says what the output does.
@@ -1803,6 +1804,8 @@ Hold **SAVE** to undo a roll in one step (hold it again to redo); **SAVE** keeps
 - A roll **keeps** LANES and each lane's LEVEL, PAN, HOW MANY, HOW ACTIVE, mute and MIDI channel, and the tempo, the
   clock, the keys and GROOVE. Levels stay even, the limiter stays on, DRIVE, COMP's make-up and the movement's depths
   stay moderate: a roll never silences the mix or jumps in level.
+- A roll keeps the stereo image balanced and safe in mono: the sides never louder than the middle, and a lane it
+  fills sits near the centre, so the left and the right stay even.
 - New engines come in as a preset's do (one lane at a time, the old one ringing out); rolled effects glide.
 - Each roll is a new one.
 
