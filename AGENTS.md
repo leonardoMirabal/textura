@@ -124,10 +124,17 @@ still to be designed (**todo**).
 ## 8. Hardware-in-the-loop (the installed FM-1)
 
 `make hil` (`tools/hil_suite.py`) tests the unit after every install; ask before using the FM-1. Rig: USB MIDI port
-"Textura" (the only port it sends to), USB audio "Textura FM-1" and the headphone jack into the MOTU M6 inputs 5/6
-(never change the M6's gain). Checks (`--only`): `clicks` (busy presets, SPEAKERS and HEADPHONES, jack and USB at once:
-clicks, repeated blocks, dropouts), `binaural` (far ear lag in the lows 25/29/33 samples, 10 to 20 dB down; AMOUNT 0 = SPEAKERS),
-`ms`, `stereo` (MID >= SIDE + 3 dB, |L-R| <= 3 dB, correlation >= 0.3), `activity` (no lane goes silent). The exit code
+"Textura", USB audio "Textura FM-1" (opened at 44.1 kHz so the recording is the unit's 16-bit samples, never resampled
+by the computer), the headphone jack into the MOTU M6 inputs 5/6 (never change the M6's gain; which input carries which
+side is found from the signal) and the M6's MIDI OUT into the FM-1's TRS MIDI IN (`--midi usb|trs|both`; debug replies
+always come back over USB). Checks (`--only`): `midi` (with `--midi both`: each path's debug reply, an NRPN read back,
+NRPN and program change heard), `clicks` (per preset, SPEAKERS and HEADPHONES: digital artefacts only, crackle is the
+sound: USB blocks repeated or zeroed bit for bit, spikes on the 256-frame grid, the jack against the USB with the analog
+path fitted, late blocks from the CPU debug reply; the crackle rate and the spectrum against the host's render),
+`binaural` (far ear lag in the lows 25/29/33 samples, 10 to 20 dB down; AMOUNT 0 = SPEAKERS), `ms` (each case alternated
+with the default in one recording; MID must stay), `stereo` (MID >= SIDE + 3 dB, L-R within the host render's span,
+correlation >= 0.3), `activity` (a lane's silent window fails only when the host's render of that lane never rests so
+long). `--presets all` scans the 110; the host's renders need `make fw-host` (`--no-host` skips them). The exit code
 is the number of failures; the unit is restored to its defaults at the end. `--save DIR` keeps the WAVs and a summary,
 `--wav DIR` re-analyses them with no hardware, `--dry-run` prints the plan. The analysis is tested on synthetic signals
-by `make hil-test` (`tests/hil_suite_check.py`).
+and the host's FULL STORM by `make hil-test` (`tests/hil_suite_check.py`).
