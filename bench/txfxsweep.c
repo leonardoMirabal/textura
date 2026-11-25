@@ -184,6 +184,9 @@ static const struct { const char *name, *check, *why; } KNOWN[] = {
                               "louder than now (+5 dB at the default TIME, 220 ms after the freeze); no click"},
     {"reverb PREDELAY", "trans", "a time, as delay TIME: the tail rings on with the send shifted, so held tones "
                                  "interfere (one step, 63 -> 64, does it too); no click, the move crossfades in 46 ms"},
+    {"reverb PREDELAY", "jump", "as its trans: the shifted send's tail beats with the old one's on the held tones; the "
+                                "lows, coherent in L and R (tx_fx.c rv_cohere), beat alike on both sides where they "
+                                "were apart (a step of 1.6 dB, was 1.2); no click, no zipper"},
     {"grain TIME", "jump", "a time: each step crossfades two taps of the chord 23 ms apart, whose partials interfere "
                            "(+-3 dB a step on the plain echo too: GRAIN 0, FEEDBACK 0, the wet alone); no click"},
     {"grain MIX", "jump", "the grain cloud's own spread (SPRAY's random reads): gone with SPRAY 0 or GRAIN 0"},

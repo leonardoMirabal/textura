@@ -238,6 +238,8 @@ typedef struct {
     int32_t xin;                                 /* a TYPE's start: its send faded in (Q15, 128 a sample: 5.8 ms) */
     int32_t xd, xw;                              /* MIX's place for the dry (TYPE OFF: 0, the dry whole) and for the
                                                   * wet, gliding (Q15) */
+    int32_t cm, cs;                              /* the lows' coherence: the mid's and the side's one-poles
+                                                  * (tx_fx.c rv_cohere: Q6 over the kernels' step) */
     int32_t gw[TX_BLOCK / CTL + 1u];             /* the wet's gain at each control block's edge, this block (Q15) */
     int32_t pd[TX_PD_LEN];
     /* ROOM on two cores (bit-exact): the block's sends first (sv; each control block's

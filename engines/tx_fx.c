@@ -183,11 +183,36 @@ static void rev_begin(tx_fx_reverb_t *r, uint32_t t)
     tx_fx_memset(r->m, 0, sizeof r->m); tx_fx_memset(r->s, 0, sizeof r->s); r->hp = r->he = 0;
     tx_fx_memset(r->sh, 0, sizeof r->sh); tx_fx_memset(r->shb, 0, sizeof r->shb); r->shlp = r->shlp2 = 0;
     r->shm = r->shp = 0; r->shn = r->shq = 0; r->shd = 32768; r->shf = 0;
-    r->cur = (uint8_t)kern(t); r->xin = 0;
+    r->cur = (uint8_t)kern(t); r->xin = 0; r->cm = r->cs = 0;
     if (r->cur == TX_RVT_HALL) tx_hq_start(&r->u.hq.q, r->u.hq.mem, HQ_HALL_WORDS);
     else if (r->cur == TX_RVT_INF) tx_inf_start(&r->u.i);
     else if (r->cur == TX_RVT_PLATE) tx_plate_start(&r->u.p), r->pz = -1;
     else if (r->cur == TX_RVT_ROOM) { tx_chamber_init(&r->u.rm.c); tx_chamber_param(&r->u.rm.c, TX_CH_TAIL, 0); tx_hall_start(&r->u.rm.h); }
+}
+/* the lows' coherence (HALL, INFINITE, DARK, DRIFT, SWELL, PLATE: ROOM's body is coherent by itself). A tank's two
+ * outputs were uncorrelated at every frequency: L / R correlation ~0 down to the lowest notes ("hard left and right,
+ * nothing in the middle"), and its lows went with SIDE. In a real room the two ears' coherence is high in the lows and
+ * falls with frequency. Here the side's low part goes into the mid: S - LP(S), M + (sqrt 2 - 1) LP(M), LP a one-pole
+ * at ~340 Hz (3/64 a sample: two shifts). With x = f / 340 the side keeps x^2 / (1 + x^2) of its power, the mid gains
+ * (2 + x^2) / (1 + x^2): their sum stays 2, so each side's level is as it was band by band (a tank's mid and side
+ * equally loud: ~0 correlation), and the correlation becomes 1 / (1 + x^2): 0.92 at 100 Hz, 0.48 at 350, 0.10 at
+ * 1 kHz, ~0 over 3 kHz (the mids and highs as wide as before); the lows fold to mono whole (mono loss of a tail
+ * ~1 dB, was 3). Symmetric: HALL's tank has R up to 4 dB over L in the lows, its lows now even. No multiply; turned
+ * into L / R here: m <- L, s <- R. The poles' state in Q6, floored: at rest it stays in (-1/2, 0] of a step, and the
+ * outputs, rounded, are exact zeros */
+static void rv_cohere(int32_t *m, int32_t *s, int32_t *cm, int32_t *cs)
+{
+    int32_t ym = *cm, ys = *cs;
+    uint32_t i;
+    for (i = 0; i < HL_NC; i++) {
+        int32_t a = m[i], b = s[i], dm = a * 64 - ym, ds = b * 64 - ys, lm;
+        ym += (dm >> 5) + (dm >> 6); ys += (ds >> 5) + (ds >> 6);
+        lm = (ym + 32) >> 6;
+        a += (lm >> 2) + (lm >> 3) + (lm >> 5) + (lm >> 7);   /* (x 0.4141: sqrt 2 - 1) */
+        b -= (ys + 32) >> 6;
+        m[i] = a + b; s[i] = a - b;
+    }
+    *cm = ym; *cs = ys;
 }
 static int rev_active(const tx_fx_reverb_t *r)
 {
@@ -445,9 +470,10 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
                 TX_FAR(tx_plate_run)(&r->u.p, r->x, om, os, &c);
             }
             if (cur && (r->p[TX_RV_SHIMMER] || shon)) {         /* the shimmer for the next control block */
-                int32_t hm[HL_NC];                              /* (ROOM's tail at 2^HL_HS: the mid at Q15) */
-                if (cur == TX_RVT_ROOM) for (i = 0; i < HL_NC; i++) hm[i] = sh_tz(om[i], HL_HS);
-                shimmer(r, cur == TX_RVT_ROOM ? hm : om, ipk > SH_LIVE, om, cur == TX_RVT_ROOM ? 1 << HL_HS : 1);
+                int32_t hm[HL_NC], q = cur == TX_RVT_ROOM || cur == TX_RVT_INF;   /* (ROOM's tail and INFINITE's tank
+                                                                 * at 2^HL_HS: the mid at Q15) */
+                if (q) for (i = 0; i < HL_NC; i++) hm[i] = sh_tz(om[i], HL_HS);
+                shimmer(r, q ? hm : om, ipk > SH_LIVE, om, q ? 1 << HL_HS : 1);
                 shon = r->p[TX_RV_SHIMMER] != 0;
                 if (!shon) for (i = 0; i < HL_NC; i++) shon |= r->sh[i] != 0;   /* (its last feed still to go in) */
                 if (!r->p[TX_RV_SHIMMER]) { for (i = 0; i < HL_NC; i++) r->sh[i] = 0; shon = 0; }
@@ -465,9 +491,11 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
                 for (i = 0; i < HL_NC; i++) act |= om[i] | os[i];
             b = sb / CTL;                               /* the dry x its gain at MIX's place, the return x the wet's (the tail at
                                                          * half: MIX 127 as the old full send's); mid / side -> L, R */
-            if (cur && (r->gw[b] || r->gw[b + 1u])) {
+            if (cur && cur != TX_RVT_ROOM) rv_cohere(om, os, &r->cm, &r->cs);   /* (mid / side -> L, R: the lows coherent) */
+            else if (cur && (r->gw[b] || r->gw[b + 1u]))
                 for (i = 0; i < HL_NC; i++) { int32_t a = om[i]; om[i] = a + os[i]; os[i] = a - os[i]; }
-                tx_fx_drywet(L + sb, R + sb, om, os, CTL, gd[b], gd[b + 1u], r->gw[b] >> 1, r->gw[b + 1u] >> 1, cur == TX_RVT_ROOM ? 256 >> HL_HS : 256);
+            if (cur && (r->gw[b] || r->gw[b + 1u])) {
+                tx_fx_drywet(L + sb, R + sb, om, os, CTL, gd[b], gd[b + 1u], r->gw[b] >> 1, r->gw[b + 1u] >> 1, cur == TX_RVT_ROOM || cur == TX_RVT_INF ? 256 >> HL_HS : 256);
             } else tx_fx_drywet(L + sb, R + sb, 0, 0, CTL, gd[b], gd[b + 1u], 0, 0, 0);
             done = b + 1u;
         }
@@ -476,7 +504,7 @@ TX_AUDIO_CODE void tx_fx_reverb_process(tx_fx_reverb_t *r, int32_t *L, int32_t *
             TX_FAR(rev_begin)(r, tgt ? (uint32_t)tgt : cur ? cur : TX_RVT_HALL);
         }
         else if (!send && !act && !TX_FAR(rev_active)(r)) {             /* the tail has ended in exact silence */
-            r->running = 0; r->pd_on = 0; quiet = 1;
+            r->running = 0; r->pd_on = 0; quiet = 1; r->cm = r->cs = 0;
             for (j = 0; j < sizeof r->inb / sizeof r->inb[0]; j++) r->inb[j] = 0;
             break;
         }

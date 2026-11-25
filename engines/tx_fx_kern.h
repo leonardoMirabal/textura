@@ -213,6 +213,10 @@ typedef struct {
                                                  * their index, wrapped once (bits) */
     int32_t x[RI_NB];
     int32_t m[RI_NB], s[RI_NB];
+#define RI_OAL 167u                     /* the outputs' allpasses (tx_fx_inf.c ri_oap): L's, R's lengths */
+#define RI_OAR 233u
+    int32_t oal[RI_OAL], oar[RI_OAR];
+    uint16_t oaw[2];
     struct { int32_t y[RI_NB][RI_NL / 2u]; } TX_LINE hy[2];   /* their ends, a tank block */
     int16_t ap[RI_APSUM];
     int16_t xt[(RI_NB + 1u) * RI_NL];            /* a SIZE fade: each line's blended rows (line k in column k: the two

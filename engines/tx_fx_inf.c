@@ -221,14 +221,42 @@ static int32_t ri_mix(const int32_t *y, const int32_t *z, const int32_t *xp, int
         o[6] = (int16_t)hl_c16(y7 + q);
         o[7] = (int16_t)hl_c16(y0 + q);
         A -= B;
-        *mo++ = (u + 4) >> (RI_HOT + 1u);         /* (rounded: the tank 8x the output's step) */
-        *so++ = (A + 4) >> (RI_HOT + 1u);
+        *mo++ = u;                                /* (the tank's own step, 8x finer than Q15: 2^HL_HS, as ROOM's tail;
+                                                   * the outputs' allpasses and the framework take it down, one
+                                                   * rounding at the end) */
+        *so++ = A;
         ab += u ^ (u >> 31);
         act |= u | A;
     }
     *tep = te;
     *abp += ab;
     return act;
+}
+
+/* the outputs' allpasses: L and R each through its own (g 0.5; 3.8 ms, 5.3 ms). The tank's reads stand still in DARK
+ * (MOD 0), and every pair of lines gives two paths of the same length (through k then j, through j then k), one
+ * ending in L, the other in R: over the damped lines' few passes the highs held a fixed share common to both, the
+ * top's L / R correlation +0.15 .. 0.3 by SIZE where a room's is ~0. Two different allpasses turn that share's phase
+ * fast across frequency: over any band it averages out (within +-0.1 at every SIZE). The lows are made coherent
+ * after (tx_fx.c rv_cohere, from the mid's and side's power: these phases do not reach it). Shifts only; the
+ * feedback truncated toward zero (no limit cycle: a tail still ends in exact zeros). m = A + B, s = A - B (A, B:
+ * L, R at the tank's step): A and B exact from them. Returns non-zero while either rings */
+static int32_t ri_oap(tx_inf_t *s)
+{
+    uint32_t i, wl = s->oaw[0], wr = s->oaw[1];
+    int32_t nz = 0;
+    for (i = 0; i < RI_NB; i++) {
+        int32_t a = (s->m[i] + s->s[i]) >> 1, b = (s->m[i] - s->s[i]) >> 1, dl = s->oal[wl], dr = s->oar[wr], vl, vr;
+        vl = a + sh_tz(dl, 1); vr = b + sh_tz(dr, 1);
+        s->oal[wl] = vl; s->oar[wr] = vr;
+        a = dl - (vl >> 1); b = dr - (vr >> 1);
+        s->m[i] = a + b; s->s[i] = a - b;
+        nz |= vl | vr | a | b;
+        wl = wl + 1u < RI_OAL ? wl + 1u : 0u;
+        wr = wr + 1u < RI_OAR ? wr + 1u : 0u;
+    }
+    s->oaw[0] = (uint16_t)wl; s->oaw[1] = (uint16_t)wr;
+    return nz;
 }
 
 /* the ends of lines 4 hf .. 4 hf + 3, a tank block, into hy[hf] (hs[hf] their state: the two halves may run on two
@@ -396,6 +424,7 @@ static void ri_tank(tx_inf_t *s, int32_t *mo, int32_t *so, const tx_rev_ctl_t *c
         s->dh = hp, s->de = he;
     }
     act = ri_mix(&s->hy[0].y[0][0], &s->hy[1].y[0][0], s->x, s->ring + w * RI_NL, mo, so, &s->te, &ab);
+    act |= ri_oap(s);                                      /* (its outputs' allpasses: m, s in place) */
     if (!w) { uint32_t i; for (i = 0; i < RI_NL; i++) s->ring[RI_N * RI_NL + i] = s->ring[i]; }   /* (not memcpy: bytes) */
     w += RI_NB;
     if (s->xf && (s->xw += RI_NB * RI_XS) >= 16384) {     /* a line faded: the next; the end: the new lengths' own

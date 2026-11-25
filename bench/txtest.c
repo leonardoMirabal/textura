@@ -19,7 +19,7 @@
  *          determinism + baseline (drip hold / max, gravel tap, test chord through the chamber at its defaults).
  * NOISE: the band filter at every corner (20 Hz .. 20 kHz, Q 0.5 .. 8, both paths, full gain) stays bounded.
  * FX: off = untouched; silence in = exact silence out; each reverb TYPE's tail ends in exact zeros; FREEZE holds its level
- *     for 3 minutes; the grain delay's FEEDBACK 127 runs up into a bounded wall that ends when FEEDBACK comes down;
+ *     for 3 minutes; each TYPE but ROOM: its L / R coherence high in the lows, ~0 over 1 kHz, the lows even; the grain delay's FEEDBACK 127 runs up into a bounded wall that ends when FEEDBACK comes down;
  *     renders against the baselines (fx-*).
  * Keys: every engine over the SMK-37's keybed (notes 48..84) at v1 / v127: no overflow, quiet after.
  * Distance: rockfall's DIST never makes a tap louder, nor its peak higher; under full scale from its default out.
@@ -2480,6 +2480,88 @@ static void check_mfilter(void)
              "after: %u nonzero samples in its last 200 blocks", pk / 8388608.0, nz);
     verdict("fx", "mfilter stable", pk < (1 << 30) && !nz, msg, 0);
 }
+/* ---- the reverb's coherence (each TYPE but ROOM, MIX 127: the wet alone): steady noise into the send (the mid), 2 s
+ * to fill the tank, then 8 s measured; per band the L / R correlation of the averaged cross spectrum (4096-point FFTs,
+ * Hann, half overlapped). As in a real room: high in the lows (< 150 Hz: 0.80 .. 0.98), about half around 300 .. 400
+ * Hz (0.35 .. 0.70), ~0 over 1 kHz and over 3 kHz (+-0.15: the mids and highs stay wide); the lows even between the
+ * sides (< 200 Hz: L and R within 1 dB). The tanks alone gave ~0 everywhere (the lows "hard left and right") */
+#define RC_N 4096
+static void rc_fft(double *re, double *im)
+{
+    unsigned i, j, k, m;
+    for (i = 1, j = 0; i < RC_N; i++) {
+        unsigned b = RC_N / 2;
+        for (; j & b; b >>= 1) j ^= b;
+        j |= b;
+        if (i < j) { double t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+    }
+    for (m = 2; m <= RC_N; m <<= 1)
+        for (k = 0; k < RC_N; k += m)
+            for (i = 0; i < m / 2; i++) {
+                double wr = cos(-2 * M_PI * i / m), wi = sin(-2 * M_PI * i / m);
+                double xr = re[k + i + m / 2] * wr - im[k + i + m / 2] * wi, xi = re[k + i + m / 2] * wi + im[k + i + m / 2] * wr;
+                re[k + i + m / 2] = re[k + i] - xr; im[k + i + m / 2] = im[k + i] - xi;
+                re[k + i] += xr; im[k + i] += xi;
+            }
+}
+static void check_rev_coherence(void)
+{
+    static const char *const NAME[TX_RVT_N] = {"", "ROOM", "HALL", "INFINITE", "DARK", "DRIFT", "SWELL", "PLATE"};
+    static const double LO[5] = {20, 300, 1000, 3000, 20}, HI[5] = {150, 400, 20000, 20000, 200};
+    static double lr[RC_N], rr[RC_N], li[RC_N], ri[RC_N], pl[RC_N / 2 + 1], pr[RC_N / 2 + 1], cx[RC_N / 2 + 1];
+    static int32_t xl[RC_N * 2], xr[RC_N * 2];
+    tx_fx_reverb_t *r = malloc(sizeof *r);
+    unsigned t;
+    for (t = TX_RVT_HALL; t < TX_RVT_N; t++) {
+        int32_t L[TX_BLOCK], R[TX_BLOCK];
+        uint32_t b, j, i, k, rng = 12345u, nb = 10u * 44100u / TX_BLOCK, w0 = 2u * 44100u / TX_BLOCK, nx = 0, nf = 0;
+        double c[5], dl = 0, lv = 0, rv = 0;
+        char msg[300];
+        int ok;
+        for (i = 0; i <= RC_N / 2; i++) pl[i] = pr[i] = cx[i] = 0;
+        tx_fx_reverb_init(r);
+        tx_fx_reverb_param(r, TX_RV_TYPE, t); tx_fx_reverb_param(r, TX_RV_MIX, 127);
+        for (b = 0; b < nb; b++) {
+            for (j = 0; j < TX_BLOCK; j++) {
+                rng = rng * 1664525u + 1013904223u;
+                L[j] = R[j] = ((int32_t)(rng >> 8) - (1 << 23)) >> 3;   /* (white noise, -21 dBFS rms) */
+            }
+            tx_fx_reverb_process(r, L, R, TX_BLOCK);
+            if (b < w0) continue;
+            for (j = 0; j < TX_BLOCK; j++) xl[nx] = L[j], xr[nx] = R[j], nx++;
+            if (nx < RC_N) continue;
+            for (i = 0; i < RC_N; i++) {                          /* a frame, then the next half a frame on */
+                double h = 0.5 - 0.5 * cos(2 * M_PI * i / RC_N);
+                lr[i] = xl[i] * h; rr[i] = xr[i] * h; li[i] = ri[i] = 0;
+            }
+            rc_fft(lr, li); rc_fft(rr, ri);
+            for (i = 0; i <= RC_N / 2; i++) {
+                pl[i] += lr[i] * lr[i] + li[i] * li[i]; pr[i] += rr[i] * rr[i] + ri[i] * ri[i];
+                cx[i] += lr[i] * rr[i] + li[i] * ri[i];
+            }
+            nf++;
+            for (i = 0; i < nx - RC_N / 2; i++) xl[i] = xl[i + RC_N / 2], xr[i] = xr[i + RC_N / 2];
+            nx -= RC_N / 2;
+        }
+        for (k = 0; k < 5u; k++) {
+            double sl = 0, sr = 0, sc = 0;
+            for (i = 1; i <= RC_N / 2; i++) {
+                double f = i * 44100.0 / RC_N;
+                if (f >= LO[k] && f < HI[k]) sl += pl[i], sr += pr[i], sc += cx[i];
+            }
+            c[k] = sl > 0 && sr > 0 ? sc / sqrt(sl * sr) : 0;
+            if (k == 4u) dl = 10 * log10((sl + 1e-9) / (sr + 1e-9));
+        }
+        for (i = 1; i <= RC_N / 2; i++) lv += pl[i], rv += pr[i];
+        ok = nf > 100u && c[0] >= 0.80 && c[0] <= 0.98 && c[1] >= 0.35 && c[1] <= 0.70 && fabs(c[2]) <= 0.15
+             && fabs(c[3]) <= 0.15 && fabs(dl) <= 1.0;
+        snprintf(msg, sizeof msg, "%-8s L/R correlation < 150 Hz %+.2f (0.80 .. 0.98), 300 .. 400 %+.2f (0.35 .. 0.70), > 1 kHz %+.2f, > 3 kHz %+.2f (+-0.15); lows L - R %+.2f dB (+-1); level L %.1f R %.1f dBFS",
+                 NAME[t], c[0], c[1], c[2], c[3], dl, 10 * log10(lv / ((double)nf * RC_N * 0.375 * RC_N) / 7.03687e13 + 1e-30),
+                 10 * log10(rv / ((double)nf * RC_N * 0.375 * RC_N) / 7.03687e13 + 1e-30));
+        verdict("fx", "coherence", ok, msg, 0);
+    }
+    free(r);
+}
 static void check_fx(FILE *update)
 {
     static const char *const TN[TX_RVT_N] = {"off", "room", "hall", "infinite", "dark", "drift", "swell", "plate"};
@@ -3117,6 +3199,10 @@ int main(int argc, char **argv)
         check_mfilter_ends();
         return fails ? 1 : 0;
     }
+    if (argc > 1 && !strcmp(argv[1], "--coherence")) {     /* the reverb's L / R coherence alone */
+        check_rev_coherence();
+        return fails ? 1 : 0;
+    }
     if (argc > 1 && !strcmp(argv[1], "--grain")) {         /* the grain delay's loop checks alone */
         tx_fx_t *fx = malloc(sizeof *fx);
         check_fx_grain_loop(fx);
@@ -3145,6 +3231,7 @@ int main(int argc, char **argv)
     check_chamber(update);
     check_layers(update);
     check_fx(update);
+    check_rev_coherence();
     check_mfilter_recip();
     check_mfilter();
     check_mfilter_shape();
