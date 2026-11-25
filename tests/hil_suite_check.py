@@ -119,6 +119,12 @@ y[200000:200300] = 0
 check("usb zero gap of 300 (not a block): not flagged", not H.usb_digital(y)["zeros"])
 y = np.concatenate([u[:SR * 3], np.zeros((SR, 2)), u[SR * 4:]])
 check("usb sound that stops and starts: not flagged", not H.usb_digital(y)["zeros"])
+y = u.copy()                                   # a grain decaying to the 16-bit floor, a block of exact zero, the next
+k = np.arange(4000)                            # grain out of it (BLOOM, TORCHLIT 11-25): no lost block
+y[196000:200000] = q16(0.3 * np.exp(-k / 300.0) * np.sin(k * 0.2))[:, None]
+y[200000:200130] = 0
+d = H.usb_digital(y)
+check("usb gap after a decay to the floor: not flagged", not d["zeros"], f"{d['zeros'][:3]}")
 y = stereo(5) * 0.5
 for b in range(20, 1300, 37):
     y[b * 256 + 77:, 0] += 0.2 * (1 if b % 2 else -1)      # steps at one phase of the block grid
@@ -144,6 +150,15 @@ check("jack repeated half block: a glitch", r and r["glitches"], f"{r and r['gli
 jd = np.concatenate([j[:180000], j[180279:]])
 r = H.jack_vs_usb(u, SR, jd, 48000)
 check("jack dropped block (a slip): not ok (a step, or no one offset)", r and r["ok"] is False and r["steps"], f"{r and r['steps']}")
+ud = np.concatenate([u[:150000], u[150556:]])  # the USB lost 556 frames (F012 11-25), past the old +-400 search
+r = H.jack_vs_usb(ud, SR, j[:len(j) - 700], 48000)
+check("usb lost 556 frames: a step near 3.4 s", r and r["steps"] and any(abs(t - 150000 / SR) < 0.4 for t, d in r["steps"]),
+      f"{r and r['steps']}")
+jt = j.copy()                                  # a tick the same in both ears, not in the USB (the analog path's)
+jt[260000:260040] += (0.1 * np.exp(-np.arange(40) / 8.0) * np.cos(np.arange(40) * 1.3))[:, None]
+r = H.jack_vs_usb(u, SR, jt, 48000)
+check("jack tick alike in both ears: noted, no glitch", r and r.get("ticks") and not r["glitches"],
+      f"{r and (r['glitches'][:3], r.get('ticks'))}")
 
 # ---- the verdict on a capture
 f, notes, num = H.judge_clicks({"usb": (u, SR), "jack": (j, 48000)})
@@ -288,9 +303,9 @@ with tempfile.TemporaryDirectory() as d:
     cut = lambda a: a[:SR * sec]
     leak = lambda: np.stack([base, 10 ** (-34 / 20) * noise(seed=77)], axis=1)     # far ear: reverb-like, incoherent
     put(d, "binaural__SPEAKERS", cut(leak()))
-    put(d, "binaural__HEADPHONES_SMALL", cut(left(25, 10 ** (-14 / 20))))
-    put(d, "binaural__HEADPHONES_MEDIUM", cut(left(29, 10 ** (-14 / 20))))
-    put(d, "binaural__HEADPHONES_LARGE", cut(left(33, 10 ** (-14 / 20))))
+    put(d, "binaural__HEADPHONES_SMALL", cut(left(H.HEAD_LAG["SMALL"], 10 ** (-14 / 20))))
+    put(d, "binaural__HEADPHONES_MEDIUM", cut(left(H.HEAD_LAG["MEDIUM"], 10 ** (-14 / 20))))
+    put(d, "binaural__HEADPHONES_LARGE", cut(left(H.HEAD_LAG["LARGE"], 10 ** (-14 / 20))))
     put(d, "binaural__HEADPHONES_AMOUNT_0", cut(leak()))
     rc, out = run_suite(d, "binaural")
     check("suite binaural good (AMOUNT 0: an incoherent far ear, no lag to measure): exit 0", rc == 0,

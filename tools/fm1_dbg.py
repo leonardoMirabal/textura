@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Read the Textura app's debug items on the FM-1 over USB-MIDI (firmware/src/textura.c tx_dbg_reply): CC 116 on
 channel 16 asks, the app answers CC 100 id / 101 - 102 value (14 bits) on channel 1. Installs and changes nothing on
-the unit: the ask only restarts the held "since the last ask" items (21, 23, 24, 35, 56-67, 71).
+the unit: the ask only restarts the held "since the last ask" items (21, 23, 24, 35, 56-67, 71, 73-76).
 
   tools/fm1_dbg.py [--port NAME] [--watch S] [--json]      (make fm1-dbg ARGS="...": under the DEVICE lock)
 
@@ -22,7 +22,7 @@ import mido
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # (python -I: the tools' own helper)
 import tx_ports  # noqa: E402
 
-LAST = 72                                            # the reply's last item
+LAST, OLD_LAST = 76, 72                              # the reply's last item (an app without the USB audio's: 72)
 ITEMS = {
     20: "grain cap now", 21: "grain cap lowest", 22: "grain room now (us)", 23: "grain room least (us)",
     24: "audio interrupt longest (us)", 25: "reverb (us, held)", 26: "lanes before the bus (us, held)",
@@ -38,6 +38,8 @@ ITEMS = {
     65: "interrupts over the target", 66: "interrupts over a block (late)", 67: "interrupts counted",
     68: "binaural pans charged now (us)", 69: "OUTPUT (1 HP, +2 binaural on)", 70: "binaural AMOUNT (%)",
     71: "interrupt spacing longest (us)", 72: "core 1 pan blocks (lo)",
+    73: "USB audio ring dry (packets)", 74: "USB audio blocks dropped (ring full)", 75: "USB audio IN tokens missed",
+    76: "USB audio stops (host)",
 }
 
 
@@ -46,10 +48,12 @@ def ask(i, o, timeout=2.0):
     while i.poll() is not None:                       # (stale events)
         pass
     o.send(mido.Message("control_change", channel=15, control=116, value=0))
-    got, cur, msb, t0 = {}, None, 0, time.time()
+    got, cur, msb, t0, tl = {}, None, 0, time.time(), None
     while time.time() - t0 < timeout:
         m = i.poll()
         if m is None:
+            if tl is not None and time.time() - tl > 0.2:   # (an app before items 73-76 ends its reply at 72)
+                return got
             time.sleep(0.002)
             continue
         if m.type != "control_change" or m.channel != 0:
@@ -60,6 +64,7 @@ def ask(i, o, timeout=2.0):
             msb = m.value
         elif m.control == 102 and cur is not None:
             got[cur] = msb << 7 | m.value
+            tl = time.time() if cur == OLD_LAST else tl
             if cur == LAST:
                 return got
     return got or None

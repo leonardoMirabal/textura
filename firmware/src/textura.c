@@ -221,7 +221,10 @@ static void ui_draw_timed(void)
  * (us), 65 the interrupts over TX_GOV_ISR_TARGET, 66 those over a block (5805 us: late, the jack repeats a half), 67 the
  * interrupts counted (to 16383), 68 the binaural pans the governor's pool carries now (us, both cores), 69 OUTPUT (bit 0
  * HEADPHONES, bit 1 the binaural path on), 70 its AMOUNT (%), 71 the longest spacing of two audio interrupts (us: a late
- * entry), 72 the blocks core 1 panned lanes in (low 14 bits, since boot) */
+ * entry), 72 the blocks core 1 panned lanes in (low 14 bits, since boot); the USB audio (usb.c uac), since the last
+ * ask: 73 packets the ring ran dry in (a frame repeated), 74 blocks dropped with the ring full (the computer stopped
+ * reading: its frames lost), 75 IN tokens that found no packet queued (the unit's poll late: a packet lost), 76 the
+ * computer's stops (no packet taken for 20 ms) */
 /* an item: three USB-MIDI events; it waits (up to 50 ms) for room in the 64-event out queue (usb.c drops what does
  * not fit: the reply is 23 items, 69 events, and its last ones were lost) */
 static void tx_dbg_item(uint32_t id, uint32_t v)
@@ -272,6 +275,15 @@ static void tx_dbg_reply(void)
         tx_dbg_item(68, ln.mix_us); tx_dbg_item(69, ln.mix.mode | (uint32_t)ln.mix.hp << 1); tx_dbg_item(70, ln.mix.amt);
         tx_dbg_item(71, pe); tx_dbg_item(72, ln.par_pans & 16383u);
     }
+#if FELUCCA_UAC
+    {                                           /* the USB audio (usb.c uac), since the last ask (tools/hil_suite.py:
+                                                 * a gap in the USB recording, its cause) */
+        static uint32_t u0, u1, u2, u3;
+        uint32_t a = uac.underruns, b = uac.overruns, c = uac.missed, d = uac.stalls;
+        tx_dbg_item(73, a - u0); tx_dbg_item(74, b - u1); tx_dbg_item(75, c - u2); tx_dbg_item(76, d - u3);
+        u0 = a; u1 = b; u2 = c; u3 = d;
+    }
+#endif
 }
 #endif
 

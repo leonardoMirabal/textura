@@ -73,7 +73,10 @@ G_MID, G_SIDE, G_WIDTH, G_MONO = 96, 97, 98, 99
 OUT_SPEAKERS, OUT_HEADPHONES = 0, 127
 AMOUNT_100, AMOUNT_0 = 127, 0
 HEAD = {"SMALL": 0, "MEDIUM": 64, "LARGE": 127}
-HEAD_LAG = {"SMALL": 25, "MEDIUM": 29, "LARGE": 33}      # far ear lag at 44.1 kHz
+HEAD_LAG = {"SMALL": 26, "MEDIUM": 30, "LARGE": 34}      # far ear lag in the lows at 44.1 kHz, as lag_lo reads it:
+# the delay D (engines/tx_core_mix.c TX_HEAD_DMAX 25 / 29 / 33) less what the crossover leaves on time (TX_XO, 441 /
+# 380 / 334 Hz) plus the head shadow's shelf (its low-pass, 0.6 of it at a hard pan: 1.7 / 2.1 / 2.4 samples); white
+# noise through that filter reads 26.2 / 29.8 / 33.7, the host's F001 hard left 26.4 / 30.3 / 34.2 (8 loads, +-1.5)
 MS_DEFAULT = {G_MID: 115, G_SIDE: 115, G_WIDTH: 64, G_MONO: 0}
 
 # thresholds
@@ -84,17 +87,29 @@ EXACT_RUN = 64                         # USB: samples in a row equal to those a 
                                        # sides, not constant): a repeated block; natural audio never does it
 ZERO_LENS = ((120, 136), (248, 264))   # USB: an exact-zero gap of a half or a whole block inside sound
 ZERO_SIDE = 10 ** (-65 / 20)           # the sound on both sides of such a gap (rms of 512 samples)
+ZERO_EDGE = 10 ** (-80 / 20)           # ... and right at its edges (rms of 32 samples, the louder side): a lost block
+                                       # cuts the sound off; a grain that decays to the 16-bit floor first (-91 ..
+                                       # -102 dBFS) or starts out of it leaves such a gap too (BLOOM, TORCHLIT)
 GRID_P = 1e-4                          # spikes on one phase of the 256-frame grid: chance under this (of 256 phases)
 GLITCH_DB = -8.0                       # jack vs USB: what the fitted analog path leaves in 32 samples, over the signal
                                        # around (dB); the rig's own at worst: -12 (STEADY RAIN, loud), -15 (BONFIRE),
                                        # -26 (FULL STORM); a zeroed / repeated half block, a dropped block, a 0.02
                                        # click on one path: -7 .. +22 (real recordings, injected)
 GLITCH_LOC_DB = 10.0                   # ... and over the residual's median around it (+-0.1 s) by this
-JACK_FLOOR_DB = -70.0                  # jack vs USB: the band's level (jack dBFS, ~ -57 at the USB) under which nothing
-                                       # counts (the jack's own hum, noise and small pops come and go at -75 .. -100)
+JACK_FLOOR_DB = -64.0                  # jack vs USB: the band's level (jack dBFS, ~ -51 at the USB) under which nothing
+                                       # counts (the jack's own hum, noise and small pops come and go at -64 .. -100:
+                                       # the -5 .. -8 dB "glitches" of 11-25 in quiet passages, e -74 .. -80)
+CM_DB, CM_SEP, CM_OVER = -15.0, 10.0, 8.0   # jack vs USB: a hit alike in both ears (its side or mid this far under
+                                       # the other) where the sound is not (its own this much more two-sided), and
+                                       # louder than the sound around by CM_OVER dB (a lost, zeroed or repeated
+                                       # block leaves at most the sound's own twice, +6): an electrical tick
+                                       # (common_mode), noted, not a glitch; or quieter than CM_QUIET (jack dBFS,
+                                       # ~ -47 at the USB: the rig's small ticks in quiet passages, -64 .. -72)
+CM_QUIET = -60.0
 RES_FLOOR_K = 2.0                      # jack vs USB: the residual's floor, this many times its 10th percentile (a
                                        # loose fit is left to GLITCH_LOC_DB)
-STEP_SEARCH, STRONG_PK = 400, 0.15     # jack vs USB: each chunk's lag searched +-400 around the line; a chunk with a
+STEP_SEARCH, STRONG_PK = 2048, 0.15    # jack vs USB: each chunk's lag searched +-2048 around the line (46 ms: the USB
+                                       # once lost 556 frames, F012 11-25, past the +-400 before); a chunk with a
                                        # whitened peak this high is sure of its lag (noise alone: ~0.03)
 ALIGN_FIT = 0.5                        # jack vs USB: at least this share of the chunks on the fitted lag line, else
                                        # nothing judged (a sparse scene, drips in silence: nothing to align on)
@@ -243,8 +258,8 @@ def usb_digital(x, block=BLOCK):
     """digital artefacts in the USB recording (the unit's own samples, 44.1 kHz, never resampled):
       repeats  [(index, lag)]: EXACT_RUN+ samples in a row equal (both sides) to those a half or a whole block before,
                the run not constant (a block sent twice)
-      zeros    [(index, length)]: an exact-zero gap (both sides) of a half or a whole block with sound on both sides
-               (a block lost; a sound that stops and starts is no such gap)
+      zeros    [(index, length)]: an exact-zero gap (both sides) of a half or a whole block with sound on both sides,
+               up to its edges (a block lost; a sound that stops and starts, or decays into the gap, is no such gap)
       grid     (count, expected, phase, p): the loudest 0.1 % of second-difference spikes counted per phase of the
                256-frame grid; p the chance that the busiest phase holds so many (a step at a block edge: low p)"""
     x = _two(x)
@@ -269,7 +284,9 @@ def usb_digital(x, block=BLOCK):
             continue
         left = math.sqrt((cs[s] - cs[s - 512]) / 512)
         right = math.sqrt((cs[s + ln + 512] - cs[s + ln]) / 512)
-        if min(left, right) > ZERO_SIDE:
+        e0 = np.sqrt(np.mean(x[s - 32:s] ** 2, axis=0)).max()
+        e1 = np.sqrt(np.mean(x[s + ln:s + ln + 32] ** 2, axis=0)).max()
+        if min(left, right) > ZERO_SIDE and min(e0, e1) > ZERO_EDGE:
             zeros.append((s, ln))
     grid = (0, 0.0, 0, 1.0)
     if n > 16 * block:
@@ -385,6 +402,31 @@ def align_jack(u, su, j, sj, W=16384, iters=3, drift0=RIG_DRIFT, start=None):
             break
         if abs(a[0]) < 2e-7:
             break
+    # every chunk again, searched wide around the line: the strong ones (a clear peak) must sit on it; a run of
+    # strong chunks off it by the same amount is a step (samples lost or added on one path)
+    jm2 = _resample(jm, n)
+
+    def chunks():
+        w2, V = [], W // 2
+        for s in range(64, len(m) - V - 64, V // 2):
+            c = int(round(np.polyval(a, s)))
+            if s + c - STEP_SEARCH < 0 or s + c + V + STEP_SEARCH > len(jm2):
+                continue
+            l, pk = gcc_lag(m[s:s + V], jm2[s + c:s + c + V], STEP_SEARCH)
+            w2.append((s, c + l - np.polyval(a, s), pk))
+        w2 = np.array(w2) if w2 else np.zeros((0, 3))
+        return w2, (w2[w2[:, 2] >= STRONG_PK] if len(w2) else w2)
+    V, shift = W // 2, 0.0
+    w2, strong = chunks()
+    if len(strong) >= 4:                     # (the tracked line on an echo, the true lag out of its +-64: most of the
+        r = np.round(strong[:, 1])           # sure chunks agree on another offset; the line moves there)
+        vals, cnt = np.unique(r, return_counts=True)
+        best = vals[np.argmax(cnt)]
+        if abs(best) > 2 and np.sum(np.abs(strong[:, 1] - best) < 1.0) > np.sum(np.abs(strong[:, 1]) < 1.0):
+            k_ = np.abs(strong[:, 1] - best) < 1.0
+            shift = float(np.median(strong[k_, 1]))
+            a = np.array([a[0], a[1] + shift])
+            w2, strong = chunks()
     jr = np.stack([_resample(j[:, c], n) for c in range(j.shape[1])], 1)   # (the last pass's n: a and o are its)
     pos = np.arange(len(u)) + np.polyval(a, np.arange(len(u)))           # jr's position of each USB sample
     ok = np.nonzero((pos >= 16) & (pos < len(jr) - 17))[0]
@@ -392,25 +434,18 @@ def align_jack(u, su, j, sj, W=16384, iters=3, drift0=RIG_DRIFT, start=None):
         return None
     lo, hi = int(ok[0]), int(ok[-1]) + 1
     ja = np.stack([_interp(jr[:, c], pos[lo:hi]) for c in range(jr.shape[1])], 1)
-    # every chunk again, searched wide around the line: the strong ones (a clear peak) must sit on it; a run of
-    # strong chunks off it by the same amount is a step (samples lost or added on one path)
-    jm2 = _resample(jm, n)
-    w2, V = [], W // 2
-    for s in range(64, len(m) - V - 64, V // 2):
-        c = int(round(np.polyval(a, s)))
-        if s + c - STEP_SEARCH < 0 or s + c + V + STEP_SEARCH > len(jm2):
-            continue
-        l, pk = gcc_lag(m[s:s + V], jm2[s + c:s + c + V], STEP_SEARCH)
-        w2.append((s, c + l - np.polyval(a, s), pk))
-    w2 = np.array(w2) if w2 else np.zeros((0, 3))
-    strong = w2[w2[:, 2] >= STRONG_PK] if len(w2) else w2
     fit = float(np.mean(np.abs(strong[:, 1]) < 1.0)) if len(strong) >= 4 else 0.0
-    steps = []
+    steps, past = [], -1
     for i in range(len(strong) - 2):
         r0, r1, r2 = strong[i:i + 3, 1]
-        if abs(r0) > 2 and abs(r1 - r0) < 1 and abs(r2 - r0) < 1 and not any(abs(t - strong[i, 0]) < 3 * V for t, _ in steps):
-            steps.append((float(strong[i, 0]), float(r0)))
-    res = o[:, 1] - np.polyval(a, o[:, 0])
+        if i > past and abs(r0) > 2 and abs(r1 - r0) < 1 and abs(r2 - r0) < 1 and not any(abs(t - strong[i, 0]) < 3 * V for t, _ in steps):
+            k = i
+            while k + 1 < len(strong) and abs(strong[k + 1, 1] - r0) < 1:
+                k += 1
+            t = strong[i, 0] if i else strong[min(k + 1, len(strong) - 1), 0]   # (a run from the start: the slip is
+            steps.append((float(t), float(r0)))                                 # where it ends)
+            past = k
+    res = o[:, 1] + shift - np.polyval(a, o[:, 0])      # (the tracked chunks' jitter about their own line)
     return u[lo:hi], ja, lo, dict(drift_ppm=drift * 1e6, offset=float(a[1]), jitter=float(np.std(res[np.abs(res) < 1.0]))
                                   if np.any(np.abs(res) < 1.0) else 99.0, fit=fit, strong=len(strong),
                                   steps=[(t / su, d) for t, d in steps])
@@ -516,9 +551,31 @@ def jack_one(u, su, j, sj, nfft=4096, w=32, edge=4410, start=None):
     med = np.maximum(med, np.maximum(np.r_[med[1:], med[-1:]], np.r_[med[:1], med[:-1]]))
     loc = 10 * np.log10(erm / (np.repeat(med, B)[:nw] + 1e-30) + 1e-30)
     hit = np.nonzero((sc > GLITCH_DB) & (loc > GLITCH_LOC_DB))[0]
-    gl = [(round((i * w + edge + lo) / su, 3), round(float(sc[i]), 1)) for i in _merge(hit, 8)]
-    return dict(model_db=float(model), swap=bool(swap), drift_ppm=info["drift_ppm"], glitches=gl,
+    hit = hit[(hit >= 3) & (hit < nw - 3)]   # (the first / last 3 windows cannot see the sound around on both sides:
+                                             # an onset just past the end scored as a glitch, F088 11-25)
+    gl, ticks = [], []
+    for i in _merge(hit, 8):
+        t = (round((i * w + edge + lo) / su, 3), round(float(sc[i]), 1))
+        seg = eb[max(i - 1, 0) * w:(i + 3) * w]
+        q = rms_db(seg) < CM_QUIET
+        cm = (t[1] > CM_OVER or q) and common_mode(seg, yb[max(i - 1, 0) * w:(i + 3) * w], q)
+        (ticks if cm else gl).append(t)
+    return dict(model_db=float(model), swap=bool(swap), drift_ppm=info["drift_ppm"], glitches=gl, ticks=ticks,
                 worst=float(sc.max()) if len(sc) else -99.0, ok=model >= MODEL_MIN_DB and not gl, fit=info["fit"], steps=[])
+
+
+def common_mode(e, y, quiet=False):
+    """what the fit left (e, both sides) is the same in both ears (up to the sign) while the sound around (y) is not:
+    an electrical tick on the analog path (the rig's ground, the unit's supply), not the audio data (a lost, repeated
+    or zeroed block leaves the sound's own left / right difference); quiet (under CM_QUIET): alike in both ears is
+    enough (a mono sound cannot tell, and a block lost that quietly is no audible fault)"""
+    def lop(x):                                  # the weaker of mid and side under the stronger (dB)
+        m, d = np.sum((x[:, 0] + x[:, 1]) ** 2), np.sum((x[:, 0] - x[:, 1]) ** 2)
+        return 10 * math.log10((min(m, d) + 1e-30) / (max(m, d) + 1e-30))
+    if len(e) < 8:
+        return False
+    re, ry = lop(e), lop(y)
+    return re < CM_DB and (quiet or re < ry - CM_SEP)
 
 
 def crackle_rate(x, sr):
@@ -808,6 +865,10 @@ def judge_clicks(cap, host=None, ref=None):
                              f"on one path?)")
             for t, s in jv["glitches"][:3]:
                 fails.append(f"jack vs USB glitch at {t:.3f} s ({s:+.1f} dB)")
+            tk = jv.get("ticks") or []
+            if tk:                               # (alike in both ears, not in the USB: the analog path's, not the data's)
+                notes.append(f"jack ticks alike in both ears ({len(tk)}, first at {tk[0][0]:.3f} s, {tk[0][1]:+.1f} dB; "
+                             f"electrical, not in the audio data)")
     elif "jack" in cap:
         x, sr = cap["jack"]
         rep, _, tonal = find_repeats(x, block_for(sr))
@@ -1177,7 +1238,29 @@ def cpu_of(it):
     if not it or 24 not in it:
         return None
     return dict(isr_max=it.get(24), isr_mean=it.get(64), late=it.get(66), blocks=it.get(67), output=it.get(69),
-                c1_lost=it.get(34), pool=it.get(42))
+                c1_lost=it.get(34), pool=it.get(42),
+                uac=[it.get(k) for k in (73, 74, 75, 76)] if 73 in it else None)   # (USB audio: ring dry, blocks
+                                                                                   # dropped, tokens missed, stops)
+
+
+def uac_verdict(c, fails, notes):
+    """the USB audio's counters (cpu_of: since the setup's ask) on the capture's verdict: an IN token that found no
+    packet is the unit's (a FAIL); blocks dropped with the ring full are the computer's pause (it stopped reading),
+    so a slip between the jack and the USB then is the rig's (a note)"""
+    u = (c or {}).get("uac")
+    if not u:
+        return fails
+    dry, drop, miss, stop = (v or 0 for v in u)
+    if miss:
+        fails = fails + [f"USB audio: {miss} packet(s) not ready for the computer (the unit's poll late)"]
+    if drop or stop:
+        slip = [f for f in fails if f.startswith("jack and USB slip") or f.startswith("jack and USB disagree")]
+        fails = [f for f in fails if f not in slip]
+        notes.append(f"the computer stopped reading the USB audio ({drop} block(s) dropped, {stop} stop(s))"
+                     + (": " + "; ".join(slip) + ", the rig's" if slip else ""))
+    if dry:
+        notes.append(f"USB audio ring ran dry {dry} time(s) (a frame repeated)")
+    return fails
 
 
 def cpu_verdict(c):
@@ -1218,6 +1301,7 @@ def check_clicks(src, rep, presets, sec, state):
                 continue
             fails, notes, num = judge_clicks(audio(cap), host if mode == "SPEAKERS" else None, ref)
             info = cap.get("info") or {}
+            fails = uac_verdict(info.get("cpu"), fails, notes)
             parts = []
             if "usb" in num:
                 k, lam, ph, pp = num["usb"]["grid"]
