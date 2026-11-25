@@ -14,12 +14,17 @@
  *               mean stays: flurries and silences. Pitch (chromatic, ROOT .. ROOT + SPAN): WANDER 0 = anywhere in the
  *               span .. 64 = a walk of 1-3 semitones .. 127 = close to the wandering centre. Velocity with the
  *               activity, +-20. Each note lasts ~0.8 of the mean gap (30 ms .. 1.5 s).
- *   memory      the activity's mean over each 4 s and the pitch centre's over each 40 s, read back interpolated, as
- *               long as the horizon (2 h: 2 KB);
+ *   memory      the activity's mean over each 4 s (as its distance from the fader, in units of the wander's width) and
+ *               the pitch centre's over each 40 s, rounded to the nearest, read back interpolated, as long as the
+ *               horizon (2 h: 2 KB);
  *               phrases (notes closer than twice the mean gap, up to 8) into 16 motifs. At decision times (Poisson,
- *               mean horizon / 32) with probability RECALL the activity and centre glide (3 s) toward a recorded
- *               stretch (older ones likelier), held for horizon / 16 .. / 4, the walk keeping MUTATE of its own
- *               motion under it; a new phrase replays a stored motif with probability RECALL, each note moved
+ *               mean horizon / 32, once half the horizon is remembered) with probability RECALL the activity and
+ *               centre glide (3 s) toward a recorded stretch (older ones likelier), held for horizon / 16 .. / 4. The
+ *               activity's slow walks (16 s and up; the fast ones go on under it) become the stretch x b + the walk x
+ *               sqrt(1 - b^2), b = sqrt(1 - m^2) x the glide (m = MUTATE / 127): an OU step around the fader, so a
+ *               recall of a recall neither drifts nor narrows and the long run stays as the first minutes (the spread
+ *               and the mean at the fader for hours); the centre the stretch + the walk x m;
+ *               a new phrase replays a stored motif with probability RECALL, each note moved
  *               +-1-2 semitones with probability MUTATE / 2.
  * Integers only; per block a few walks and a draw per note. ~2.6 KB per lane (the memory: it may live in slow RAM). */
 #ifndef TX_CORE_GEN_H
@@ -29,6 +34,7 @@
 #include "tx_core_math.h"
 
 #define TX_GEN_K 14u                /* walks: 1 s .. 2^13 s */
+#define TX_GEN_KF 4u                /* the fast walks (1 .. 8 s): never recalled (the memory keeps 4 s means) */
 #define TX_GEN_HSECS 7200u          /* the memory: 2 h */
 #define TX_GEN_HSTEP 4u             /* activity: each 4 s's mean (read interpolated) */
 #define TX_GEN_PSTEP 40u            /* pitch centre: each 40 s's mean */
@@ -46,6 +52,11 @@ extern const tx_param_t tx_gen_params[TX_GEN_NP];
  * soon, 0.15 .. 2.5 s on (or sooner, at the rate's own draw), instead of a whole mean gap on (20 s at the rarest
  * activity), so a lane switched on answers within a few seconds; from then on its notes go at their own rate */
 #define TX_GEN_START 0xF0u
+/* not a parameter: tx_gen_param(g, TX_GEN_RECENTRE, 0) when its lane's sound stays across a load: the memory is
+ * forgotten and a recall under way glides out, so nothing of the last place comes back; the walks, the note timing and
+ * the random state go on (the walks are stationary around the fader: nothing to reset there). With v 1 (a lane started,
+ * after a new seed) the walks are drawn anew too, at their own spread: each start a fresh, independent wander */
+#define TX_GEN_RECENTRE 0xF1u
 
 typedef struct { uint16_t off; uint8_t note, vel; } tx_gen_ev_t;   /* vel 0 = a release */
 typedef struct { int8_t d[TX_GEN_MLEN]; uint8_t len, pad; } tx_gen_motif_t;

@@ -165,15 +165,17 @@
 8720 expect state p426 1
 8800 expect state dropped 0
 # the front PERFORM page (HOME, FX tapped): K2 LOW PASS down to its bottom, a low-pass at 20 Hz: nearly nothing left once
-# the delay's tail has gone (the FILTER is before the GRAIN DELAY and the REVERB); up to its top: OFF
+# the delay's tail has gone (the FILTER is before the GRAIN DELAY and the REVERB); up to its top: OFF. (Under -55 dB:
+# the sources' own content under 35 Hz passes the 20 Hz low-pass at -60 .. -71 dB as their events come, -36 dB open;
+# the -70 held for one run of the generator only, before its walks came to be drawn anew at each start)
 8810 btn 8
 8820 btn 2
 8830 expect state page PERFORM
 8830 expect state lab1 LOW_PASS
 8840 turn 3 -127
 8850 expect state p435 0
-10300 expect rms < -70
+10300 expect rms < -55
 10310 turn 3 127
 10320 expect state p435 127
-10400 expect rms > -70
+10400 expect rms > -55
 10500 end

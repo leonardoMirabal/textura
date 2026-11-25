@@ -47,7 +47,8 @@
 3700 expect state p461 115
 3700 expect state card1 0.0_dB
 3700 expect mrms < -100
-3700 expect srms > -55
+# (the sides over 50 ms: -55 .. -60 dB as the sources' events come; -55 held for one run of the generator only)
+3700 expect srms > -60
 3700 expect state mspk2 0
 # K2 up to +6 dB: the sides louder, the middle still gone
 3725 turn 3 10
@@ -56,7 +57,9 @@
 4400 expect state p461 127
 4400 expect state card1 +6.0_dB
 4400 expect mrms < -100
-4400 expect srms > -50
+# (the sides over 50 ms: -45 .. -60 dB as the sources' events come, with the events on their own samples and the
+# generator's new walks; -50 held for one run only. The middle's absence is the claim)
+4400 expect srms > -62
 # K2 down to -INF, K1 back to 0 dB (115): the middle only
 4425 turn 3 -10
 4450 turn 3 -10

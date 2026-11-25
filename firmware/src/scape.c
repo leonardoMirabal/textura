@@ -256,7 +256,10 @@ static void sc_sync(uint32_t k)
     if ((uint8_t)!src != sc.a_mute[k]) { ln_gen_mute(k, !src); sc.a_mute[k] = (uint8_t)!src; }   /* a classic engine: no notes */
     if (gen != sc.a_gen[k]) {                   /* (on: a new walk, and its first note soon: TX_GEN_START) */
         ln_gen_on(k, (uint32_t)gen, tx_seed() | 1u); sc.a_gen[k] = (uint8_t)gen;
-        if (gen) ln_gen_param(k, TX_GEN_START, 0);
+        if (gen) { ln_gen_param(k, TX_GEN_RECENTRE, 1); ln_gen_param(k, TX_GEN_START, 0); }   /* (new walks from the
+                                                 * new seed, nothing of an earlier run recalled: before, only the seed
+                                                 * was new, the walks went on from the boot's, so every start since
+                                                 * power-on began from the same slow state) */
     }
     if (src && !sc.notes[k] && sc.run[k]) {     /* Notes off: the fader is the source's activity itself */
         int id = ln_act_id(sc.src);

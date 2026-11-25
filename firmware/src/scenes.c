@@ -513,7 +513,12 @@ static void scn_lanes(const scn_t *s)
             sc.cnt[k] = (uint8_t)(s->cnt[k] < LS_NCNT ? s->cnt[k] : LS_NCNT - 1u);
             sc.step[k] = (uint8_t)(s->step[k] < 1u ? 1u : s->step[k] > SC_STEPS ? SC_STEPS : s->step[k]);
             if (!sc.run[k]) sc_start(k, 1);
-            else sc_sync(k);
+            else {
+                sc_sync(k);
+                if (how == SCN_LANE_SAME && sc.a_gen[k]) ln_gen_param(k, TX_GEN_RECENTRE, 0);   /* (the sound plays on
+                                                 * through the load, its generator too: its memory of the last place
+                                                 * forgotten, so a long session's load starts as a fresh one) */
+            }
         } else if (sc.run[k]) sc_start(k, 0);
         else sc_sync(k);
     }

@@ -828,6 +828,51 @@ static void check_gen(void)
     }
 }
 
+/* ---- GEN: the long run stays as the first minutes (no drift). 256 lanes (seeds) of the generator alone at the
+ * firmware's settings (EVOLVE 64, RECALL 50, MUTATE 40), each 60 min, at ACTIVITY 16 and 32 (HOW ACTIVE 1 and 2, where a
+ * dip silences a lane): over minutes 0-10 and 50-60 the notes, the mean activity and the time with no note for 4 s.
+ * The late notes within 5 % of the early ones; the late activity within 0.12 of the wander's width (1 sd: 4 and 8 knob
+ * units here) of the fader, within 0.15 of it of the early; the late quiet time within 2 points of the early (the
+ * margins ~3 standard errors of 256 lanes). Before (a 4 s memory floored on every recall of a recall) the late hour ran
+ * 0.2 .. 0.4 sd under the fader, 3 .. 6 % fewer notes, quiet up to 2.5 points more */
+static void check_gen_drift(void)
+{
+    static const uint8_t ACT[2] = {16, 32};
+    unsigned c;
+    for (c = 0; c < 2; c++) {
+        uint32_t s, nseed = 256u, nb = 3600u * TX_FS / TX_BLOCK, w10 = 600u * TX_FS / TX_BLOCK;
+        double notes[2] = {0, 0}, asum[2] = {0, 0}, quiet[2] = {0, 0}, cnt = 0, rn, da, dfa, dq, sd = ACT[c] / 4.0;
+        char msg[240];
+        for (s = 0; s < nseed; s++) {
+            tx_gen_t *g = malloc(sizeof *g);
+            uint32_t b, smp = 0, last = 0;
+            tx_gen_init(g, 0x5EED0000u + s * 7919u);
+            tx_gen_param(g, TX_GEN_ACTIVITY, ACT[c]);
+            tx_gen_param(g, TX_GEN_START, 0);
+            for (b = 0; b < nb; b++) {
+                tx_gen_ev_t ev[TX_GEN_EV_MAX];
+                uint8_t in;
+                unsigned ne = tx_gen_block(g, TX_BLOCK, ev, TX_GEN_EV_MAX, &in), k;
+                int w = b < w10 ? 0 : b >= nb - w10 ? 1 : -1;
+                for (k = 0; k < ne; k++)
+                    if (ev[k].vel && smp + ev[k].off >= last) { last = smp + ev[k].off; if (w >= 0) notes[w]++; }
+                if (w >= 0) { asum[w] += g->a / 256.0; if (smp - last > 4u * TX_FS) quiet[w]++; }
+                if (!w) cnt++;
+                smp += TX_BLOCK;
+            }
+            free(g);
+        }
+        rn = notes[1] / notes[0];
+        da = (asum[1] - asum[0]) / cnt / sd;
+        dfa = (asum[1] / cnt - ACT[c]) / sd;
+        dq = 100.0 * (quiet[1] - quiet[0]) / cnt;
+        snprintf(msg, sizeof msg, "ACTIVITY %u, %u lanes x 60 min: minutes 50-60 against 0-10: notes x %.3f, activity %+.3f"
+                 " sd (%+.3f sd from the fader), quiet (4 s without a note) %+.2f points", ACT[c], nseed, rn, da, dfa, dq);
+        verdict("gen", "drift", rn > 0.95 && rn < 1.05 && da > -0.15 && da < 0.15 && dfa > -0.12 && dfa < 0.12 && dq < 2.0 && dq > -2.0,
+                msg, 0);
+    }
+}
+
 /* ---- GOV: the CPU governor (v2). Lanes whose cost is base + per x heroes: over the pool it cuts where a hero saves
  * the most per level lost (the quiet, dear lane first), learns that a lane whose heroes cost nothing is not worth
  * cutting, counts the inserts (tx_gov_fixed), never goes under 2; back under 3/4 of the pool it gives every hero back
@@ -3111,7 +3156,7 @@ int main(int argc, char **argv)
     check_comp();
     check_ms();
     check_truepeak();
-    if (!update) { check_gen(); check_gov(); check_switch(); check_keyrange(); check_rockfall_dist(); check_grid(); }
+    if (!update) { check_gen(); check_gen_drift(); check_gov(); check_switch(); check_keyrange(); check_rockfall_dist(); check_grid(); }
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }
     printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);
     return fails ? 1 : 0;

@@ -39,6 +39,27 @@ static int32_t ou(tx_rng_t *r, int32_t w)
     return clamp32(w, -98304, 98304);
 }
 
+/* sqrt(x), x < 2^30 (bit by bit) */
+static int32_t isqrt30(uint32_t x)
+{
+    uint32_t r = 0, b = 1u << 30;
+    while (b > x) b >>= 2;
+    while (b) {
+        if (x >= r + b) { x -= r + b; r = (r >> 1) + b; } else r >>= 1;
+        b >>= 2;
+    }
+    return (int32_t)r;
+}
+
+/* s / n rounded to the nearest, a half to the even one: no bias either way (a memory read back again and again, through
+ * recalls of recalls, must not creep: the old floor lost ~0.9 knob units each time round, the lanes ran sparser by the
+ * hour) */
+static uint32_t rdiv(uint32_t s, uint32_t n)
+{
+    uint32_t q = s / n, r = s - q * n;
+    return 2u * r > n || (2u * r == n && (q & 1u)) ? q + 1u : q;
+}
+
 /* the horizon: seconds, 10 .. 7200 (log) */
 static uint32_t horizon_s(const tx_gen_t *g) { return tx_exp2(217706 + (int32_t)g->p[TX_GEN_EVOLVE] * 4898); }
 /* walks within it: 1 .. 14 */
@@ -65,7 +86,9 @@ void tx_gen_init(tx_gen_t *g, uint32_t seed)
     tx_zero(b, sizeof *g);
     tx_rng_seed(&g->rng, seed ^ 0x6E4E4E21u);
     for (i = 0; i < TX_GEN_NP; i++) g->p[i] = tx_gen_params[i].def;
-    for (i = 0; i < TX_GEN_K; i++) { g->wa[i] = gauss12(&g->rng) * 6; g->wp[i] = gauss12(&g->rng) * 6; }
+    for (i = 0; i < TX_GEN_K; i++) { g->wa[i] = gauss12(&g->rng) * 8; g->wp[i] = gauss12(&g->rng) * 8; }
+    g->wr = gauss12(&g->rng) * 8;                            /* (the walks drawn at their own spread, sd 1: the first
+                                                              * minutes wander as the hours after them, not narrower) */
     g->a = 64 << 8;
     g->pc = (int32_t)g->p[TX_GEN_SPAN] << 7;
     g->last = g->p[TX_GEN_SPAN] / 2;
@@ -83,6 +106,14 @@ void tx_gen_param(tx_gen_t *g, unsigned id, unsigned v)
         if (g->thr < 64u) g->thr = 64u;
         if (g->thr > (6u << 16)) g->thr = 6u << 16;
         g->first = 6615u + tx_rand_below(&g->rng, 103635u);   /* 0.15 .. 2.5 s */
+        return;
+    }
+    if (id == TX_GEN_RECENTRE) {                             /* the memory forgotten, a recall glides out (~3 s) */
+        unsigned i;
+        g->hlen = 0;
+        g->r_len = 0;
+        if (v)                                               /* (and new walks, drawn at their own spread) */
+            for (i = 0; i < TX_GEN_K; i++) { g->wa[i] = gauss12(&g->rng) * 8; g->wp[i] = gauss12(&g->rng) * 8; }
         return;
     }
     if (id >= TX_GEN_NP) return;
@@ -119,17 +150,19 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
     tx_rng_t *r = &g->rng;
     unsigned k, ne = 0, ka = kact(g);
     int32_t ea = 0, ep = 0, base = (int32_t)g->p[TX_GEN_ACTIVITY] << 8, span = g->p[TX_GEN_SPAN];
-    int32_t aw, pw, ar, pr, wid, wdn;
+    int32_t aw, pw, ar, pr, wid, wdn, ef = 0, af, as;
     uint32_t hz = horizon_s(g);
     if (max > TX_GEN_EV_MAX) max = TX_GEN_EV_MAX;
     /* the walks (walk k every 2^k blocks), the 1/f sums over the horizon's walks */
     for (k = 0; k < TX_GEN_K; k++) {
         if (!(g->blk & ((1u << k) - 1u))) { g->wa[k] = ou(r, g->wa[k]); g->wp[k] = ou(r, g->wp[k]); }
         if (k < ka) { ea += g->wa[k]; ep += g->wp[k]; }
+        if (k == TX_GEN_KF - 1u) ef = ea;                    /* (the fast walks: the memory's 4 s means miss them) */
     }
     if (!(g->blk & 63u)) g->wr = ou(r, g->wr);
     g->blk++;
     ea = (int32_t)(((int64_t)ea * INV_SQRT[ka]) >> 15);      /* sd ~1 (Q15) whatever the horizon */
+    ef = (int32_t)(((int64_t)ef * INV_SQRT[ka]) >> 15);
     ep = (int32_t)(((int64_t)ep * INV_SQRT[ka]) >> 15);
     wid = base < (127 << 8) - base ? base : (127 << 8) - base;   /* the wander narrows at the ends: 0 stays nothing, */
     wid = wid < 5120 ? wid : 5120;                                  /* 127 stays the full cloud */
@@ -141,17 +174,25 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
     wdn = base >> 2 < wid ? base >> 2 : wid;
     wid = wdn;
     aw = base + ((ea * wid) >> 15);
+    af = (ef * wid) >> 15;                                   /* the fast walks' part: never recalled, always on */
+    as = aw - base - af;                                     /* the slow walks' part (what the memory keeps) */
     pw = (span << 7) + ((ep * (span << 6)) >> 15);           /* the centre +-SPAN / 4 (1 sd) */
     /* the memory: the recalled stretch, glided in and out (~3 s) */
     g->g += ((g->r_len ? 32767 : 0) - g->g) >> 9;
     if (g->g > 64 || g->r_len) {
-        int32_t m = g->p[TX_GEN_MUTATE];
+        int32_t c2 = (int32_t)g->p[TX_GEN_MUTATE] * 258, c1 = isqrt30((1u << 30) - (uint32_t)(c2 * c2));
+        int32_t rb = (c1 * (g->g > 32767 ? 32767 : g->g)) >> 15, ra = isqrt30((1u << 30) - (uint32_t)(rb * rb));
         uint32_t x = (g->r_at + g->r_el) % TX_GEN_HSECS;
-        ar = mem_at(g->hist, TX_GEN_HIST, TX_GEN_HSTEP, x, g->hpos);
+        ar = ((mem_at(g->hist, TX_GEN_HIST, TX_GEN_HSTEP, x, g->hpos) - (128 << 8)) * wid) / 8192;   /* (its distance
+                                                             * from the fader, now at this fader's width) */
         pr = mem_at(g->phist, TX_GEN_PHIST, TX_GEN_PSTEP, x, g->hpos);
-        ar += ((aw - base) * m) / 127;                       /* the walk keeps MUTATE of its motion */
-        pr += ((pw - (span << 7)) * m) / 127;
-        aw += (int32_t)(((int64_t)(ar - aw) * g->g) >> 15);
+        /* the activity's slow part: the stretch x b + the walk x sqrt(1 - b^2), b = sqrt(1 - m^2) x the glide (m = MUTATE):
+         * an OU step around the fader, its spread kept all through the glide (the fast walks go on under it). Was the
+         * stretch + the walk x m, glided straight: a recall of a recall lost the fast walks' share and the floors' 0.9,
+         * and the lane drifted sparser by the hour */
+        as = ((ar * rb) >> 15) + ((as * ra) >> 15);
+        aw = base + af + as;
+        pr += ((pw - (span << 7)) * (int32_t)g->p[TX_GEN_MUTATE]) / 127;   /* the walk keeps MUTATE of its motion */
         pw += (int32_t)(((int64_t)(pr - pw) * g->g) >> 15);
     }
     g->a = clamp32(clamp32(aw, base - 2 * wdn, base + 3 * wid), 0, 127 << 8);   /* (a recall stays near the fader) */
@@ -166,10 +207,14 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
         g->secs++;
         {                                                    /* the memory: this second into its slots' means */
             uint32_t j = g->hpos % TX_GEN_HSTEP, q = g->hpos % TX_GEN_PSTEP;
-            g->hsum = (uint16_t)((j ? g->hsum : 0u) + (uint32_t)(g->a >> 8));
-            g->psum = (uint16_t)((q ? g->psum : 0u) + (uint32_t)(g->pc >> 8));
-            g->hist[g->hpos / TX_GEN_HSTEP] = (uint8_t)(g->hsum / (j + 1u));
-            g->phist[g->hpos / TX_GEN_PSTEP] = (uint8_t)(g->psum / (q + 1u));
+            int32_t d = as * 32, z = 0;                      /* the activity's slow part: its distance from the
+                                                             * fader, 1/32 of the wander's width (+-4), rounded */
+            if (wid) z = d >= 0 ? (d + (wid >> 1)) / wid : -((-d + (wid >> 1)) / wid);
+            z = clamp32(z, -128, 127) + 128;
+            g->hsum = (uint16_t)((j ? g->hsum : 0u) + (uint32_t)z);
+            g->psum = (uint16_t)((q ? g->psum : 0u) + (uint32_t)((g->pc + 128) >> 8));
+            g->hist[g->hpos / TX_GEN_HSTEP] = (uint8_t)rdiv(g->hsum, j + 1u);
+            g->phist[g->hpos / TX_GEN_PSTEP] = (uint8_t)rdiv(g->psum, q + 1u);
         }
         g->hpos = (uint16_t)((g->hpos + 1u) % TX_GEN_HSECS);
         if (g->hlen < TX_GEN_HSECS) g->hlen++;
@@ -177,7 +222,9 @@ unsigned tx_gen_block(tx_gen_t *g, unsigned n, tx_gen_ev_t *ev, unsigned max, ui
         if (!g->dec || !--g->dec) {
             uint32_t mean = hz / 32u < 2u ? 2u : hz / 32u, avail = g->hlen < hz ? g->hlen : hz;
             g->dec = 1u + (uint32_t)(((uint64_t)mean * exp16(r)) >> 16);
-            if (!g->r_len && avail > 8u && (tx_rand(r) >> 25) < g->p[TX_GEN_RECALL]) {
+            /* (a recall once half the horizon is remembered: a return to somewhere else, not a copy of a moment ago,
+             * which, still close to the walk under it, widened the first minutes' wander and left them unlike the rest) */
+            if (!g->r_len && avail > 8u && avail >= hz / 2u && (tx_rand(r) >> 25) < g->p[TX_GEN_RECALL]) {
                 uint32_t lo = hz / 16u, hi = hz / 4u, len, back, u1 = tx_rand(r) >> 16, u2 = tx_rand(r) >> 16;
                 len = lo + (uint32_t)(((uint64_t)(hi - lo) * (tx_rand(r) >> 16)) >> 16);
                 if (len > avail / 2u) len = avail / 2u;

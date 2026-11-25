@@ -74,8 +74,9 @@
 2800 expect state grcyc0 2
 2820 turn 0 -1
 # the counts afresh once the depth has glided in (grnear: the share near the pulse so far, %; by chance ~4 %; these
-# exact shares re-read when a lane's generator came to start with a note within 2.5 s: grfeel is the claim)
-5000 expect state grnear0 13
+# exact shares re-read when a lane's generator came to start with a note within 2.5 s, and again when its walks came to
+# be drawn anew at each start (TX_GEN_RECENTRE): grfeel is the claim)
+5000 expect state grnear0 3
 5000 expect state grm1 4096
 65000 expect state grfeel0 LEANS
 65000 expect state grm1 4096
@@ -85,13 +86,13 @@
 65120 expect state card1 0
 70000 expect state grm0 4096
 70000 expect state grm1 4096
-70000 expect state grnear0 2
+70000 expect state grnear0 3
 130000 expect state grfeel0 FREE
 # another tempo (CC 3: 90 BPM), AMOUNT 127 again: the pulse follows it
 130100 midi 0xB4 3 32
 130100 midi 0xB4 84 127
 130120 expect state bpm10 900
-135000 expect state grnear0 3
+135000 expect state grnear0 11
 195000 expect state grfeel0 LEANS
 # a scene keeps it: U01 saved with AMOUNT 127, 3:4, lane 1's cycle of 2, lane 2 OFFBEAT (GROOVE 2/2, K2)
 195100 btn 7
@@ -327,7 +328,7 @@
 207950 midi 0xF8 0 0
 207975 midi 0xF8 0 0
 208000 midi 0xF8 0 0
-208000 expect state grnear0 7
+208000 expect state grnear0 5
 208025 midi 0xF8 0 0
 208050 midi 0xF8 0 0
 208075 midi 0xF8 0 0
