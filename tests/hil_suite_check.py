@@ -211,6 +211,8 @@ check("expected L-R: centre 0, hard left one lane None, two lanes", abs(H.expect
 hx = np.stack([m * 1.0, m * 0.8], axis=1)
 span = H.host_lr_span((hx, SR), 2.0)
 check("host L-R span", span and abs(span[0] - 1.94) < 0.05 and abs(span[1] - 1.94) < 0.05, f"{span}")
+span = H.host_lr_span([(hx, SR), (np.stack([m * 0.8, m * 1.0], axis=1), SR)], 2.0)
+check("host L-R span over several renders (seeds)", span and abs(span[0] + 1.94) < 0.05 and abs(span[1] - 1.94) < 0.05, f"{span}")
 check("L-R verdict: in span, out of span, no host", H.lr_verdict(2.5, 0.0, (1.0, 2.0))[0] and not H.lr_verdict(4.0, 0.0, (1.0, 2.0))[0]
       and H.lr_verdict(2.5, 0.0, None)[0] and not H.lr_verdict(3.5, 0.0, None)[0])
 

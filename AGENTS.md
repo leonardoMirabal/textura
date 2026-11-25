@@ -130,11 +130,12 @@ side is found from the signal) and the M6's MIDI OUT into the FM-1's TRS MIDI IN
 always come back over USB). Checks (`--only`): `midi` (with `--midi both`: each path's debug reply, an NRPN read back,
 NRPN and program change heard), `clicks` (per preset, SPEAKERS and HEADPHONES: digital artefacts only, crackle is the
 sound: USB blocks repeated or zeroed bit for bit, spikes on the 256-frame grid, the jack against the USB with the analog
-path fitted, late blocks from the CPU debug reply; the crackle rate and the spectrum against the host's render),
+path fitted, late blocks from the CPU debug reply; the crackle rate and the spectrum against the host's renders),
 `binaural` (far ear lag in the lows 25/29/33 samples, 10 to 20 dB down; AMOUNT 0 = SPEAKERS), `ms` (each case alternated
-with the default in one recording; MID must stay), `stereo` (MID >= SIDE + 3 dB, L-R within the host render's span,
-correlation >= 0.3), `activity` (a lane's silent window fails only when the host's render of that lane never rests so
-long). `--presets all` scans the 110; the host's renders need `make fw-host` (`--no-host` skips them). The exit code
-is the number of failures; the unit is restored to its defaults at the end. `--save DIR` keeps the WAVs and a summary,
-`--wav DIR` re-analyses them with no hardware, `--dry-run` prints the plan. The analysis is tested on synthetic signals
-and the host's FULL STORM by `make hil-test` (`tests/hil_suite_check.py`).
+with the default in one recording; MID must stay), `stereo` (MID >= SIDE + 3 dB, L-R within the host renders' span,
+correlation >= 0.3), `activity` (a lane's silent window fails only when the host's renders of that lane never rest so
+long). `--presets all` scans the 110; the host's renders (eight per preset, each loaded at another moment: other seeds,
+the scene's spread) need `make fw-host` (`--no-host` skips them). The exit code is the number of failures; the unit is
+restored to its defaults at the end. `--save DIR` keeps the WAVs and a summary, `--wav DIR` re-analyses them with no
+hardware, `--dry-run` prints the plan. The analysis is tested on synthetic signals and the host's FULL STORM by
+`make hil-test` (`tests/hil_suite_check.py`).

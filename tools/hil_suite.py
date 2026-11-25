@@ -115,6 +115,11 @@ STEREO_MS, STEREO_LR, STEREO_CORR = 3.0, 3.0, 0.3       # STEREO_LR: |(L-R) - th
 SILENT_DB = -70.0
 HOST_LR_SEC, LR_MARGIN = 60.0, 1.5     # stereo: the host's render this long; the device's L-R within its span +- this
 HOST_ACT_SEC = 60.0                    # the host's render of a soloed lane for the activity check
+HOST_SEEDS, HOST_SEED_MS = 8, 173      # the host's renders compared against: this many, each load this many ms later
+                                       # than the last (an engine's seed is the moment it starts: tx_seed), so the
+                                       # reference spans the scene's variance; one render alone is one draw of it (one
+                                       # FULL STORM: crackle 1530 / 10 s at most, five: 6212; a sparse scene's L-R moves
+                                       # by +-6 dB from one to the next)
 
 
 # ---------------------------------------------------------------- analysis (pure numpy)
@@ -650,14 +655,15 @@ def expected_lr(p):
 
 def host_lr_span(h, sec):
     """(lowest, highest) L-R (dB) over the host render's windows of sec s (half overlap): what the preset's own
-    sounds give over as long a window (a sparse loud lane, thunder on one side, moves it)"""
-    hx, hsr = h
-    w = int(sec * hsr)
+    sounds give over as long a window (a sparse loud lane, thunder on one side, moves it); h one render (x, sr) or
+    a list of them (Host.renders: every seed's windows)"""
     v = []
-    for i in range(0, len(hx) - w + 1, max(w // 2, 1)):
-        st = stereo_stats(hx[i:i + w])
-        if st["mid"] > -90:
-            v.append(st["l"] - st["r"])
+    for hx, hsr in (h if isinstance(h, list) else [h]):
+        w = int(sec * hsr)
+        for i in range(0, len(hx) - w + 1, max(w // 2, 1)):
+            st = stereo_stats(hx[i:i + w])
+            if st["mid"] > -90:
+                v.append(st["l"] - st["r"])
     return (min(v), max(v)) if v else None
 
 
@@ -730,9 +736,12 @@ def analyse_clicks(x, sr):
 
 
 def judge_clicks(cap, host=None, ref=None):
-    """the verdict on one capture {'usb': (x, sr), 'jack': (x, sr)}, the host's render (x, sr) of the same preset as
-    long (or None: no crackle or sound comparison) and a long one (ref, or None: host) for the block grid (an engine
-    that starts its events on a block's first sample shows there over a minute): (fails [str], notes [str], numbers)"""
+    """the verdict on one capture {'usb': (x, sr), 'jack': (x, sr)}, the host's render (x, sr) of the same preset (or
+    a list of renders, Host.renders: the crackle and level judged over all their windows as long as the capture;
+    None: no crackle or sound comparison) and a long one (ref, or None: host) for the block grid (an engine that
+    starts its events on a block's first sample shows there over a minute): (fails [str], notes [str], numbers)"""
+    hosts = host if isinstance(host, list) else [host] if host is not None else None
+    host = hosts[0] if hosts else None
     fails, notes, num = [], [], {}
     if "usb" in cap:
         x, sr = cap["usb"]
@@ -762,11 +771,18 @@ def judge_clicks(cap, host=None, ref=None):
         num["crackle"] = crackle_rate(x, sr)
         if host is not None:
             hx, hsr = host
-            num["host_level"] = rms_db(hx)
+            sec = len(x) / sr
+            hr, hl = [], []                      # (every render's windows as long as the capture: their crackle, level)
+            for hx_, hsr_ in hosts:
+                w = int(sec * hsr_)
+                if w <= 0 or len(hx_) < w:
+                    hr.append(crackle_rate(hx_, hsr_)); hl.append(rms_db(hx_))
+                    continue
+                for i in range(0, len(hx_) - w + 1, w):
+                    hr.append(crackle_rate(hx_[i:i + w], hsr_)); hl.append(rms_db(hx_[i:i + w]))
+            num["host_level"] = float(np.median(hl))
             g = 10 ** ((num["host_level"] - num["level"]) / 20)      # (crackle counted at the host's level)
             num["crackle_n"] = crackle_rate(x * g, sr)
-            sec = len(x) / sr
-            hr = window_rates(hx, hsr, sec) or [crackle_rate(hx, hsr)]
             num["host_crackle"] = (float(np.median(hr)), float(np.max(hr)))
             bl, hb = band_levels(x, sr), band_levels(hx, hsr)
             num["id_db"] = band_dist(bl - bl.mean(), hb - hb.mean())     # the spectrum's shape
@@ -918,15 +934,15 @@ class Host:
         self.bin = binary if os.path.exists(binary) else None
         self.cache = {}
 
-    def render(self, p, sec, solo=None, settle=2.0):
+    def render(self, p, sec, solo=None, settle=2.0, seed=0):
         """(x, sr) of preset p after its load and `settle` s, `sec` s long (solo: only that lane, 0 .. 3, the
-        others' CC 7 at 0); None without the host binary"""
+        others' CC 7 at 0; seed: the load HOST_SEED_MS x seed later, other seeds); None without the host binary"""
         if not self.bin:
             return None
-        key = (p["num"], round(sec, 2), solo, settle)
+        key = (p["num"], round(sec, 2), solo, settle, seed)
         if key in self.cache:
             return self.cache[key]
-        t0 = 1500
+        t0 = 1500 + HOST_SEED_MS * seed
         lines = ["1000 midi 0xB4 99 4", "1000 midi 0xB4 98 38", f"1000 midi 0xB4 6 {FX_ALWAYS}",
                  f"{t0} midi 0xC0 {prog(p)} 0"]
         if solo is not None:
@@ -948,6 +964,11 @@ class Host:
         x = x[int(start / 1000 * sr):int((start / 1000 + sec) * sr)]
         self.cache[key] = (x, sr)
         return self.cache[key]
+
+    def renders(self, p, sec, solo=None, settle=2.0, n=HOST_SEEDS):
+        """[(x, sr)] of n renders (seeds 0 .. n-1: the scene's variance), None without the host binary"""
+        out = [r for r in (self.render(p, sec, solo, settle, k) for k in range(n)) if r is not None]
+        return out or None
 
 
 # ---------------------------------------------------------------- the rig
@@ -1173,8 +1194,8 @@ def check_clicks(src, rep, presets, sec, state):
     prev = None
     for i, p in enumerate(presets):
         via_pc, via_out = paths(state, i)
-        host = src.host.render(p, sec, settle=2.5) if not src.dry else None
-        ref = src.host.render(p, HOST_LR_SEC, settle=2.5) if not src.dry else None
+        host = src.host.renders(p, HOST_LR_SEC, settle=2.5) if not src.dry else None    # (every seed: the crackle's
+        ref = host[0] if host else None                                                 # and level's reference)
         for mode, ov in (("SPEAKERS", OUT_SPEAKERS), ("HEADPHONES", OUT_HEADPHONES)):
             def setup(p=p, ov=ov, mode=mode):
                 state.first(p)
@@ -1356,7 +1377,7 @@ def check_stereo(src, rep, presets, sec, state):
         s = stereo_stats(x)
         lr = s["l"] - s["r"]
         exp = expected_lr(p)
-        h = src.host.render(p, HOST_LR_SEC, settle=2.5)
+        h = src.host.renders(p, HOST_LR_SEC, settle=2.5)
         span = host_lr_span(h, len(x) / sr) if h is not None else None
         good_lr, lr_t = lr_verdict(lr, exp, span)
         good = s["mid"] >= s["side"] + STEREO_MS and good_lr and s["corr"] >= STEREO_CORR
@@ -1392,11 +1413,12 @@ def check_activity(src, rep, presets, sec, state):
             w = int(win * sr)
             levels = [rms_db(x[i * w:(i + 1) * w]) for i in range(3) if len(x[i * w:(i + 1) * w])]
             hq = None
-            h = src.host.render(p, HOST_ACT_SEC, solo=li, settle=3.0) if want else None
+            h = src.host.renders(p, HOST_ACT_SEC, solo=li, settle=3.0) if want else None
             if h is not None:
-                hx, hsr = h
-                hw = int(win * hsr)
-                hl = [rms_db(hx[i:i + hw]) for i in range(0, len(hx) - hw + 1, hw // 2)]
+                hl = []                         # (every seed's windows: a sparse lane's rests vary from run to run)
+                for hx, hsr in h:
+                    hw = int(win * hsr)
+                    hl += [rms_db(hx[i:i + hw]) for i in range(0, len(hx) - hw + 1, hw // 2)]
                 hq = float(np.mean([v < SILENT_DB for v in hl])) if hl else None
             dead, why = activity_verdict(levels, hq, want)
             rep.ok(f"activity  {preset_tag(p)} {p['name']} lane {li + 1}", not dead,
