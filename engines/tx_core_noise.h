@@ -45,7 +45,8 @@ TX_AUDIO_CODE void tx_noise_roar_add(tx_noise_t *z, int32_t g_q15, int32_t *out,
  * Signal Q15 (the input, Q23, is clamped to +-2 full scale; bands saturate at +-4.0): every product < 2^31.
  * A Chamberlin band whose damping q band rounds to zero freezes at a small constant; so when the input block is
  * silent, a mode that is small (|band| and |low| < 16: under -66 dBFS; low and band are in quadrature, so both are
- * tested) or did not move at all is set to exact zero.
+ * tested) or did not move at all lets go: its output ramped to zero over that block, then exact zero (never cut on the
+ * block's grid).
  * For Q > 32 the damping term itself (band / Q) is under 1 LSB below |band| ~ 2^14 / q: it is computed with error
  * feedback (the remainder carried to the next sample), so high-Q modes keep decaying (else quartz rang forever). */
 #define TX_SVF_MAX 8u              /* modes per bank call */

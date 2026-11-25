@@ -18,7 +18,10 @@
  * Parameters: each engine has its OWN list, taken from its physics (tx_param_t, values 0..max, max <= 127). Only two
  * things are shared by all engines and set through the same param() call with the reserved ids below:
  *   TX_PID_PARTICLES  the hero-pool limit, 1..particles_max (density vs CPU)
- *   TX_PID_LEVEL      output level 0..127, 100 = unity (tx_level_q15) */
+ *   TX_PID_LEVEL      output level 0..127, 100 = unity (tx_level_q15)
+ *   TX_PID_KEYAT      the next key() lands this many samples (0..255) into the coming render block, not at its start
+ *                     (a caller that knows an event's sample: the source's clock, a lane's generator). One-shot: any
+ *                     key() call takes it back to 0. An engine without it ignores it (its key stays at the start) */
 #ifndef TX_ENGINE_H
 #define TX_ENGINE_H
 #include <stdint.h>
@@ -81,6 +84,7 @@ void tx_zero(void *p, uint32_t n);
 
 #define TX_PID_PARTICLES 0x80u     /* shared parameter ids (param()) */
 #define TX_PID_LEVEL 0x81u
+#define TX_PID_KEYAT 0x82u         /* (see above: a key's sample offset in the coming block) */
 
 typedef struct {
     const char *name;              /* short label, upper case: "RATE" */

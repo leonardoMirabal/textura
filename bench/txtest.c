@@ -23,6 +23,8 @@
  *     renders against the baselines (fx-*).
  * Keys: every engine over the SMK-37's keybed (notes 48..84) at v1 / v127: no overflow, quiet after.
  * Distance: rockfall's DIST never makes a tap louder, nor its peak higher; under full scale from its default out.
+ * Grid: the sounds that once started events (or let tails go) on the block's start show no excess on any phase of the
+ *       256-sample block (the hits' busiest phase within chance: p >= 1e-4).
  * Hosts: every engine run inside another (the source's hosted sounds, the storm's rain) fits its arena: one that does
  *        not is left out silently by its host, so it fails here.
  * Sources: no float / double / floating literal in engines/ (comments and strings stripped). */
@@ -2957,6 +2959,99 @@ static void check_hosts(void)
     verdict("storm", "hosts", !n, n ? "rain engine over ARENA: " : "both rain engines fit ARENA", n ? bad : 0);
 }
 
+/* ---- the block grid: no sound's events (nor its tails' let-go) may fall on the 256-sample block's start. A 20 s render
+ * (seed 1, the first second skipped); its hits are the loudest 0.1 % of |second difference|, merged within 16
+ * samples; each hit's phase in the block (sample mod 256). Fails when the busiest phase holds more than chance allows:
+ * 256 x P(Poisson(hits / 256) >= its count) < 1e-4. The sounds and settings that once fell on the grid. */
+typedef struct { uint32_t *d2; uint32_t n, cap; int32_t x1, x2; uint32_t t; } grid_acc_t;
+
+static void grid_block(void *u, uint32_t blk, const int32_t *mix, const tx_stats_t *st)
+{
+    grid_acc_t *g = u;
+    unsigned j;
+    (void)blk; (void)st;
+    for (j = 0; j < TX_BLOCK; j++, g->t++) {
+        int32_t x = mix[j], d = x - 2 * g->x1 + g->x2;   /* (|x| < 2^27: no overflow) */
+        if (g->t >= 44032u + 2u && g->n < g->cap) g->d2[g->n++] = (uint32_t)(d < 0 ? -d : d);   /* centred on t - 1 */
+        g->x2 = g->x1; g->x1 = x;
+    }
+}
+
+static int cmp_u32(const void *a, const void *b)
+{
+    uint32_t x = *(const uint32_t *)a, y = *(const uint32_t *)b;
+    return x < y ? -1 : x > y;
+}
+
+/* the grid's p for a scene: 256 x P(X >= the busiest phase's count); *hits, *k, *ph for the message */
+static double grid_p(const tx_engine_t *e, const char *scene, unsigned *hits, unsigned *kmax, unsigned *phase)
+{
+    tx_script_t *s = malloc(sizeof *s);
+    void *st = tx_state_new(e);
+    grid_acc_t g;
+    uint32_t *srt, thr, i, last = 0, cnt[256] = {0}, nh = 0, k = 0, ph = 0;
+    double lam, term, cdf, p;
+    memset(&g, 0, sizeof g);
+    g.cap = 20u * TX_FS;
+    g.d2 = malloc(g.cap * sizeof *g.d2);
+    srt = malloc(g.cap * sizeof *srt);
+    if (tx_script_parse(s, e, scene)) { free(s); free(st); free(g.d2); free(srt); return -1; }
+    tx_script_run(e, st, s, grid_block, &g);
+    memcpy(srt, g.d2, g.n * sizeof *srt);
+    qsort(srt, g.n, sizeof *srt, cmp_u32);
+    thr = g.n ? srt[(uint32_t)(((uint64_t)(g.n - 1u) * 999u) / 1000u)] : 0u;
+    for (i = 0; i < g.n && thr; i++) {
+        uint32_t t = 44032u + 1u + i;                    /* the hit's own sample (a multiple of 256 skipped first) */
+        if (g.d2[i] <= thr) continue;
+        if (nh && t - last <= 16u) continue;             /* (merged with the hit before) */
+        last = t; nh++; cnt[t & 255u]++;
+    }
+    for (i = 0; i < 256u; i++) if (cnt[i] > k) { k = cnt[i]; ph = i; }
+    lam = nh / 256.0; term = exp(-lam); cdf = 0;
+    for (i = 0; i < k; i++) { cdf += term; term *= lam / (i + 1); }
+    p = 256.0 * (1.0 - cdf);
+    *hits = nh; *kmax = k; *phase = ph;
+    free(s); free(st); free(g.d2); free(srt);
+    return p < 0 ? 0 : p > 1 ? 1 : p;
+}
+
+static void check_grid(void)
+{
+    static const struct { const char *name; uint8_t pre, type, count, act; } SRC[] = {   /* the landscape's sounds */
+        {"stones", 1, 0, 77, 96}, {"minerals", 13, 0, 77, 96}, {"icicles", 11, 8, 77, 96}, {"ice in a glass", 11, 24, 77, 96},
+        {"frost tinkling", 11, 40, 77, 96}, {"campfire", 5, 0, 77, 96}, {"bonfire", 5, 12, 77, 96},
+        {"fireplace", 5, 20, 77, 96}, {"embers", 5, 28, 77, 96}, {"kindling", 5, 36, 39, 40}, {"pine fire", 5, 44, 39, 40},
+        {"leaves, paper", 5, 52, 77, 96}, {"torch", 5, 60, 77, 96}, {"flame", 5, 96, 77, 96}, {"spruce", 12, 9, 77, 96},
+        {"oak", 12, 64, 77, 96}, {"tree trunk", 12, 100, 77, 96}, {"open moor", 4, 28, 39, 40}, {"sea wind", 4, 35, 39, 40},
+        {"winter storm", 4, 54, 39, 40}, {"desert wind", 4, 61, 96, 120}, {"breeze in grass", 4, 9, 20, 8},
+        {"wind in pines", 4, 16, 20, 8}, {"bittern (default)", 34, 0, 77, 96},
+        {"bottles", 14, 64, 77, 96}, {"shards settling", 14, 110, 39, 40}, {"singing dune", 7, 96, 39, 40},
+        {"frozen lake booming", 11, 104, 39, 40}, {"bittern", 34, 0, 39, 40}, {"eaves dripping", 3, 32, 1, 24},
+        {"ringing rocks", 1, 100, 96, 120}, {"hail on a car", 0, 110, 20, 8},
+    };
+    static const char *const CLASSIC[] = {"candle", "pebble", "chimes", "ice"};
+    const tx_engine_t *src = tx_engine_find("source");
+    char scene[256], msg[200];
+    unsigned i, hits, k, ph;
+    double p;
+    for (i = 0; src && i < sizeof SRC / sizeof SRC[0]; i++) {
+        snprintf(scene, sizeof scene, "0 param PRESET %u\n0 param TYPE %u\n0 param COUNT %u\n0 param ACTIVITY %u\n0 on C4 100\n20000 end\n",
+                 SRC[i].pre, SRC[i].type, SRC[i].count, SRC[i].act);
+        p = grid_p(src, scene, &hits, &k, &ph);
+        snprintf(msg, sizeof msg, "%s (COUNT %u, ACTIVITY %u): %u hits, %u at phase %u, p %.2g", SRC[i].name, SRC[i].count,
+                 SRC[i].act, hits, k, ph, p);
+        verdict("source", "grid", p >= 1e-4, msg, 0);
+    }
+    if (!src) verdict("source", "grid", 0, "source not found", 0);
+    for (i = 0; i < sizeof CLASSIC / sizeof CLASSIC[0]; i++) {
+        const tx_engine_t *e = tx_engine_find(CLASSIC[i]);
+        if (!e) { verdict(CLASSIC[i], "grid", 0, "not found", 0); continue; }
+        p = grid_p(e, "0 on F3 100\n0 on C4 100\n0 on G4 100\n0 on C5 100\n20000 end\n", &hits, &k, &ph);
+        snprintf(msg, sizeof msg, "a four-key chord: %u hits, %u at phase %u, p %.2g", hits, k, ph, p);
+        verdict(CLASSIC[i], "grid", p >= 1e-4, msg, 0);
+    }
+}
+
 int main(int argc, char **argv)
 {
     unsigned k;
@@ -2989,6 +3084,11 @@ int main(int argc, char **argv)
         free(fx);
         return fails ? 1 : 0;
     }
+    if (argc > 1 && !strcmp(argv[1], "--grid")) {          /* the block-grid check alone */
+        check_grid();
+        printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);
+        return fails ? 1 : 0;
+    }
     if (argc > 1 && !strcmp(argv[1], "--update")) {
         if (!(update = fopen(BASELINE, "w"))) { perror(BASELINE); return 2; }
     } else
@@ -3011,7 +3111,7 @@ int main(int argc, char **argv)
     check_comp();
     check_ms();
     check_truepeak();
-    if (!update) { check_gen(); check_gov(); check_switch(); check_keyrange(); check_rockfall_dist(); }
+    if (!update) { check_gen(); check_gov(); check_switch(); check_keyrange(); check_rockfall_dist(); check_grid(); }
     if (update) { fclose(update); printf("wrote %s\n", BASELINE); }
     printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);
     return fails ? 1 : 0;

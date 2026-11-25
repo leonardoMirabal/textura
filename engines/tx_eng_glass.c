@@ -78,7 +78,7 @@ typedef struct {
 
 typedef struct {
     tx_mode_t m[NMS];
-    uint8_t used, pad[3];
+    uint8_t used, done, pad[2];    /* done: rendered up to this sample of the block (a strike lands on its own sample) */
 } ringv_t;
 
 typedef struct {
@@ -99,7 +99,7 @@ typedef struct {
     uint32_t q_x16;
     uint16_t dropped;
     tx_vary_t vy;
-    uint8_t rk, rd, kind, pad2;    /* this break's clicks: high-pass and decay shifts; KIND */
+    uint8_t rk, rd, kind, fdone;   /* this break's clicks: high-pass and decay shifts; KIND; the floor rendered up to */
     tx_rng_t srng;                 /* where each impact lands on its shard (its own: the times stay) */
 } glass_t;
 
@@ -155,6 +155,7 @@ static void glass_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void glass_param(void *st, uint8_t id, uint8_t val)
 {
     glass_t *s = (glass_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) {
         unsigned i, k;
         s->limit = (uint8_t)(val < 1u ? 1u : val > NRING ? NRING : val);
@@ -178,6 +179,7 @@ static void impact(glass_t *s, shard_t *h, unsigned o, int32_t v_mm)
         uint32_t u = s->kind == K_BOTTLES ? 0u : tx_rand(&s->srng);   /* (a bottle: knocked shell to shell, its
                                                               * weights below) */
         unsigned k;
+        tx_modal_upto(r->m, NMS, s->buf, &r->done, o);
         for (k = 0; k < NMS; k++) if (r->m[k].inc) {
             int32_t ak = s->kind == K_BOTTLES ? a >> (k == 1u ? 0 : k == 0u ? 2 : 1) : a >> k;   /* (a bottle: its shell ring
                                                               * first; the whole bottle's bending -12 dB: the references'
@@ -189,9 +191,11 @@ static void impact(glass_t *s, shard_t *h, unsigned o, int32_t v_mm)
             }
             tx_mode_strike(&r->m[k], (k & 1u) ? -ak : ak);
         }
-        if (h->a > A_REF / 3 && s->kind == K_PANE)                                /* the floor: the big shards only, softly (ours; every */
+        if (h->a > A_REF / 3 && s->kind == K_PANE) {                              /* the floor: the big shards only, softly (ours; every */
+            tx_modal_upto(s->floor, 2, s->buf, &s->fdone, o);
             tx_mode_strike(&s->floor[o & 1u], a >> 5);      /* ringing shard at -18 dB made a pulsing low bed between the
                                                               * breaks: session 5's spectrogram review) */
+        }
     }
     s->bpush[o] += (int32_t)(((int64_t)h->c * v_mm) >> (h->ring == 0xFF ? 12 : 10));   /* the click (every shard: ~ L,
                                                               * ours; the chips that do not ring -12 dB: together they
@@ -253,6 +257,7 @@ static void glass_break(glass_t *s, const tx_event_t *e)
             if (h->ring != 0xFF) {
                 ringv_t *v = &s->rv[h->ring];
                 unsigned k;
+                tx_modal_upto(v->m, NMS, s->buf, &v->done, e->offset);
                 for (k = 0; k < NMS; k++) if (v->m[k].inc) tx_mode_strike(&v->m[k], (int32_t)(((int64_t)(a >> k) * tx_contact_weight(tc, v->m[k].inc / 97391u)) >> 15));
             }
         }
@@ -276,6 +281,7 @@ static void glass_break(glass_t *s, const tx_event_t *e)
     {   /* the blow knocks the frame / floor: the low body of the break (a recording's loudest moment, 65-180 Hz) */
         int32_t b = (int32_t)(((int64_t)A_REF * 3 * s->level) >> 16);   /* (-6 dB: the 62-125 Hz octave was -9 .. -15 dB
                                                               * of the whole, the references' -14 .. -29) */
+        tx_modal_upto(s->floor, 2, s->buf, &s->fdone, e->offset);
         tx_mode_strike(&s->floor[0], b);
         tx_mode_strike(&s->floor[1], -b / 2);
     }
@@ -422,13 +428,15 @@ TX_AUDIO_CODE static void glass_render(void *st, int32_t *mix, unsigned n)
         ringv_t *v = &s->rv[i];
         unsigned m, live = 0, held = 0;
         if (!v->used) continue;
-        tx_modal_run(v->m, NMS, s->buf, 0, n);              /* (strikes land at the block start: <= 5.8 ms) */
+        if (v->done < n) tx_modal_run(v->m, NMS, s->buf, v->done, n);   /* (each strike landed on its own sample) */
+        v->done = 0;
         for (m = 0; m < NMS; m++) live |= v->m[m].amp != 0;
         for (m = 0; m < NF; m++) held |= s->sh[m].alive && s->sh[m].ring == i;
         if (!live && !held) v->used = 0;
         any |= (int32_t)v->used;
     }
-    tx_modal_run(s->floor, 2, s->buf, 0, n);
+    if (s->fdone < n) tx_modal_run(s->floor, 2, s->buf, s->fdone, n);
+    s->fdone = 0;
     any |= s->floor[0].amp | s->floor[1].amp;
     if (s->shn | s->shn_in) {                                /* the shattering: rising over ~25 ms, falling with */
         int32_t e = s->shn, x1 = s->shn_x1, in = s->shn_in;  /* tau ~90 ms (ours). Not a noise (the user, session 5: */

@@ -250,6 +250,7 @@ static void storm_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void storm_param(void *st, uint8_t id, uint8_t val)
 {
     storm_t *s = (storm_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) return;                      /* one flash, the rain's heroes fixed (RAIN_P) */
     if (id == TX_PID_LEVEL) {
         s->lv = (uint8_t)(val > 127u ? 127u : val);

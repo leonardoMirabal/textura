@@ -103,6 +103,7 @@ typedef struct {
     /* leaf skitter: runs of clicks (a dry leaf tumbling over the ground), sharing one click envelope and filter */
     struct { int32_t env, amp, left, p; } sv[TX_WIND_NS];   /* (env Q15, amp Q15, blocks left, click chance Q16 / 16 samples) */
     int32_t se, shp, slp;          /* the click envelope (Q15 x 2^7), HP and LP states */
+    int32_t skg;                   /* the skitter's gain in the last block (its ramp's start) */
     tx_rng_t ns;
     /* whooshes */
     tx_wwhoosh_t wv[TX_WIND_NW];

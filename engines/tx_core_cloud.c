@@ -130,8 +130,9 @@ static void aftershocks(tx_cloud_t *c, uint32_t t0, int32_t main_size, uint8_t n
 /* ---- keys */
 void tx_cloud_key(tx_cloud_t *c, uint8_t note, uint8_t vel, uint8_t on)
 {
-    unsigned i, pick = TX_CLOUD_EMITTERS;
+    unsigned i, pick = TX_CLOUD_EMITTERS, ko = c->koff;   /* (ko: TX_PID_KEYAT, one-shot) */
     tx_emitter_t *e;
+    c->koff = 0;
     if (!on) {
         for (i = 0; i < TX_CLOUD_EMITTERS; i++)
             if (c->em[i].held && c->em[i].note == note) {
@@ -149,9 +150,9 @@ void tx_cloud_key(tx_cloud_t *c, uint8_t note, uint8_t vel, uint8_t on)
     if (pick == TX_CLOUD_EMITTERS) pick = c->em_rr++ % TX_CLOUD_EMITTERS;   /* all held: take the next in turn */
     e = &c->em[pick];
     e->note = note; e->vel = vel ? vel : 1u; e->held = 1; e->fade = 32767;
-    e->next_q8 = c->period_q8 ? stream_gap(c, e) : 0;
+    e->next_q8 = c->period_q8 ? stream_gap(c, e) + (ko << 8) : 0;   /* (from the press's own sample) */
     {
-        uint32_t acc = 0;                                    /* the burst: MAIN at once, then Poisson spaced */
+        uint32_t acc = ko << 8;                              /* the burst: MAIN at once, then Poisson spaced */
         for (i = 0; i < c->burst_n; i++) {
             int32_t s = tx_cloud_pareto(c, c->size_inv_q12, c->size_max_l2);
             pend_push(c, c->now + (acc >> 8), s, note, e->vel, i ? TX_EV_BURST : TX_EV_MAIN, (uint8_t)pick);

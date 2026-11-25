@@ -869,18 +869,18 @@ TX_AUDIO_CODE int tx_bird_render(tx_bird_voice_t *v, int32_t *out, unsigned n)
             v->wait -= m;
             continue;
         }
-        {   /* a syllable: 16-sample steps */
+        {   /* a syllable: 16-sample steps on its own clock (a step the block's end cut goes on where it was: the
+             * steps' pitch, jitter and cavity never move on the 256-sample grid) */
             const tx_bird_syl_t *s = &v->s;
             int32_t f, k, a0, a1v, fi, ta = 0;
-            uint32_t inc, inc2 = 0;
+            uint32_t inc, inc2 = 0, s0 = v->pos & ~15u, se = s0 + 16u > s->len ? s->len : s0 + 16u;
             int32_t bk;
-            unsigned m = 16u, q, si, sf, sh = v->closed > 1u ? 17u : 15u;
+            unsigned m = se - v->pos, q, si, sf, sh = v->closed > 1u ? 17u : 15u, q0 = v->pos - s0;
             if (m > n - j) m = n - j;
-            if (m > s->len - v->pos) m = s->len - v->pos;
-            v->jw += ((tx_rand_s15(&v->rng) * v->jsd) >> 15) - (v->jw >> 6);   /* the tension's roughness */
-            at(v, v->pos, &f, &k, &a0);
-            at(v, v->pos + m, &fi, &k, &a1v);
-            if (!(v->sub++ & 3u) || v->pos == 0u) {          /* the cavity, every 64 samples (and at a syllable's start) */
+            if (!q0) v->jw += ((tx_rand_s15(&v->rng) * v->jsd) >> 15) - (v->jw >> 6);   /* the tension's roughness */
+            at(v, s0, &f, &k, &a0);
+            at(v, se, &fi, &k, &a1v);
+            if (!q0 && (!(v->sub++ & 3u) || v->pos == 0u)) { /* the cavity, every 64 samples (and at a syllable's start) */
                 uint32_t fc = tx_exp2(v->track ? f + v->oec_l2 : v->oec_l2 + s->spot * 256);
                 tx_ireso_coefs(fc > 12000u ? 12000u : fc, (uint32_t)v->oec_q, &a1, &a2, &b0);
             }
@@ -894,7 +894,7 @@ TX_AUDIO_CODE int tx_bird_render(tx_bird_voice_t *v, int32_t *out, unsigned n)
                 uint32_t ix = v->phase >> 24, fr = (v->phase >> 16) & 255u;
                 int32_t w0 = t0[ix] + (((t0[ix + 1] - t0[ix]) * (int32_t)fr) >> 8);
                 int32_t w1 = t1[ix] + (((t1[ix + 1] - t1[ix]) * (int32_t)fr) >> 8);
-                int32_t w = w0 + (((w1 - w0) * (int32_t)sf) >> 8), amp = a0 + (((a1v - a0) * (int32_t)q) >> 4), x, pin, y;
+                int32_t w = w0 + (((w1 - w0) * (int32_t)sf) >> 8), amp = a0 + (((a1v - a0) * (int32_t)(q + q0)) >> 4), x, pin, y;
                 v->phase += inc;
                 if (ta) { w += (tx_sin_q15(v->phase2) * ta) >> 8; v->phase2 += inc2; }   /* the second voice */
                 x = (w * (amp >> 2)) >> sh;                      /* Q13 (closed 2: a resonant throat, the source 1/4) */

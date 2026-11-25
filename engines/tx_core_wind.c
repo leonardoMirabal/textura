@@ -101,18 +101,22 @@ int tx_wind_quiet(const tx_wind_t *w)
     return !z;
 }
 
-/* the Chamberlin band over white noise (>> shift), added with a gain ramped g0 -> g1 (Q15 -> Q23 through >> 5) */
+/* the Chamberlin band over white noise (>> shift), added with a gain ramped g0 -> g1 (Q15 -> Q23 through >> 5). Every
+ * gain ramp here runs with 8 more bits (g << 8): a small gain's step per sample, (g1 - g0) / n, was 0 under 256 units,
+ * so a quiet path held its gain the whole block and stepped at the next block's start (the block grid, in the gusts);
+ * and those 8 bits reach the output (x (g >> 13) alone stepped a quiet path's gain by whole units, on the same
+ * samples of every block) */
 TX_AUDIO_CODE static void svf_noise(tx_wsvf_t *s, tx_rng_t *r, int32_t f, int32_t q, int32_t g0, int32_t g1,
                                     int32_t *out, unsigned n, unsigned shift)
 {
-    int32_t low = s->low, band = s->band, g = g0, d = (g1 - g0) / (int32_t)n;
+    int32_t low = s->low, band = s->band, g = g0 << 8, d = ((g1 - g0) * 256) / (int32_t)n;
     unsigned j;
     for (j = 0; j < n; j++) {
         int32_t x = ((int32_t)(tx_rand(r) >> 18) - 8192) >> shift, y;
         low += (f * band) >> 14;
         y = x - low - ((q * band) >> 14);
         band += (f * y) >> 14;
-        out[j] += band * (g >> 5);
+        out[j] += band * (g >> 13) + ((band * ((g >> 5) & 255)) >> 8);
         g += d;
     }
     s->low = low; s->band = band;
@@ -220,7 +224,7 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
     if (rg) rg = clampi((int32_t)(((int64_t)rg * tx_exp2((653124 - lfr) / 2 + (15 << 16))) >> 15), 0, 524288);
     if (rg || w->rg) {
         int32_t al = op_coef(tx_exp2(lfr)), ah = op_coef(tx_exp2(lfr - w->k.rbw) + 20u), h1 = w->r.low, l1 = w->r.band;
-        int32_t g = w->rg, d = (rg - w->rg) / (int32_t)n;
+        int32_t g = w->rg << 8, d = ((rg - w->rg) * 256) / (int32_t)n;
         if (w->k.r2) {   /* a second pole: the top falls at 12 dB / octave */
             int32_t a2 = op_coef(tx_exp2(clampi(lfr + w->k.r2, 314572, 890000))), l2s = w->rl2;
             for (j = 0; j < n; j++) {
@@ -228,7 +232,7 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
                 h1 += ((x - h1) * ah) >> 15;
                 l1 += ((x - h1 - l1) * al) >> 15;
                 l2s += ((l1 - l2s) * a2) >> 15;
-                out[j] += l2s * (g >> 5);
+                out[j] += l2s * (g >> 13) + ((l2s * ((g >> 5) & 255)) >> 8);
                 g += d;
             }
             w->rl2 = rg ? l2s : 0;
@@ -236,7 +240,7 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
             int32_t x = (int32_t)(tx_rand(&w->nr) >> 18) - 8192;
             h1 += ((x - h1) * ah) >> 15;
             l1 += ((x - h1 - l1) * al) >> 15;
-            out[j] += l1 * (g >> 5);
+            out[j] += l1 * (g >> 13) + ((l1 * ((g >> 5) & 255)) >> 8);
             g += d;
         }
         if (!rg) h1 = l1 = 0;
@@ -248,8 +252,9 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
     if (lg || w->lg) {
         int32_t lR = 604820 + ilog2((uint32_t)(77 + w->foliage * 2)) - (8 << 16) + ((w->k.lp * (l2e + 65536)) >> 8)
                    + w->k.lr + ilog2(w->nsrc);              /* log2 R (COUNT: more canopy, more flaps) */
-        int32_t mean_q4, norm, a400 = op_coef((uint32_t)w->k.lhp), lk, sh = w->k.lsh, dg = (lg - w->lg) / (int32_t)n, g = w->lg;
+        int32_t mean_q4, norm, a400 = op_coef((uint32_t)w->k.lhp), lk, sh = w->k.lsh, dg = ((lg - w->lg) * 256) / (int32_t)n, g = w->lg << 8;
         int32_t le = w->le, lhp = w->lhp, llp = w->llp, ll2 = w->llp2;
+        int32_t acc[16] = {0};                              /* (cleared as it is read: zeroed once a block) */
         uint32_t sb;
         lR = clampi(lR, 2 << 16, 980930 /* 20000 /s */);
         mean_q4 = (int32_t)tx_exp2(1011122 + (4 << 16) - lR);   /* 44100 / R samples, Q4 */
@@ -259,18 +264,20 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
         lk = op_coef(tx_exp2(clampi(lfl, 10 << 16, 890000 /* 12.3 kHz */)));
         for (sb = 0; sb < n; sb += 16u) {
             unsigned m = n - sb < 16u ? n - sb : 16u, c = 0;
-            int32_t acc = 0;
-            if (lg) while ((int32_t)w->lacc < (16 << 4) && c < 32u) {   /* the flaps arriving in these 16 samples */
-                int32_t u1 = (int32_t)(tx_rand(&w->nl) >> 17);
-                acc += (((u1 * u1) >> 17) * norm) >> 13;
+            int32_t any = 0;
+            if (lg) while ((int32_t)w->lacc < (16 << 4) && c < 32u) {   /* the flaps arriving in these 16 samples, */
+                int32_t u1 = (int32_t)(tx_rand(&w->nl) >> 17);   /* each on its own sample (not all at the 16's start: */
+                unsigned at = ((int32_t)w->lacc > 0 ? w->lacc >> 4 : 0u) & 15u;   /* a grid of 16) */
+                if (at >= m) at = m - 1u;
+                acc[at] += (((u1 * u1) >> 17) * norm) >> 13;
+                any = 1;
                 w->lacc += (uint32_t)((((mean_q4 > 176400 ? 176400 : mean_q4)) * (expo(&w->nl) >> 4)) >> 8);
                 c++;
             }
             if ((int32_t)w->lacc >= (16 << 4)) w->lacc -= 16u << 4; else w->lacc = 0;
-            le += acc;
-            if (le > (1 << 22)) le = 1 << 22;
             for (j = sb; j < sb + m; j++) {
                 int32_t x = (int32_t)(tx_rand(&w->nl) >> 18) - 8192, h;
+                if (any) { le += acc[j - sb]; acc[j - sb] = 0; if (le > (1 << 22)) le = 1 << 22; }
                 x = (x * (le >> 4)) >> 11;
                 x = clampi(x, -32767, 32767);
                 le -= le >> sh;
@@ -278,7 +285,7 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
                 h = x - lhp;
                 llp += ((h - llp) * (lk >> 1)) >> 14;           /* (|h - llp| < 2^17: lk halved, < 2^31) */
                 ll2 += ((llp - ll2) * (lk >> 1)) >> 14;
-                out[j] += ll2 * (g >> 5);
+                out[j] += ll2 * (g >> 13) + ((ll2 * ((g >> 5) & 255)) >> 8);
                 g += dg;
             }
         }
@@ -288,12 +295,12 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
     w->lg = lg;
     /* buffet: two one-poles at 90 Hz (x SCALE / 2) on white */
     if (bg || w->bg) {
-        int32_t b1 = w->b1, b2 = w->b2, ab = op_coef(tx_exp2(425000 + w->scale / 2)), g = w->bg, d = (bg - w->bg) / (int32_t)n;
+        int32_t b1 = w->b1, b2 = w->b2, ab = op_coef(tx_exp2(425000 + w->scale / 2)), g = w->bg << 8, d = ((bg - w->bg) * 256) / (int32_t)n;
         for (j = 0; j < n; j++) {
             int32_t x = (int32_t)(tx_rand(&w->nb) >> 16) - 32768;
             b1 += ((x - b1) * ab) >> 15;
             b2 += ((b1 - b2) * ab) >> 15;
-            out[j] += b2 * (g >> 5);
+            out[j] += b2 * (g >> 13) + ((b2 * ((g >> 5) & 255)) >> 8);
             g += d;
         }
         if (!bg) b1 = b2 = 0;
@@ -326,26 +333,33 @@ TX_AUDIO_CODE void tx_wind_block(tx_wind_t *w, int32_t *out, unsigned n)
             else if (w->sv[i].env > 0) { w->sv[i].env -= (w->sv[i].env >> 4) + 8; act = 1; if (w->sv[i].env < 0) w->sv[i].env = 0; }
         }
         if (act || w->se) {
-            int32_t se = w->se, shp = w->shp, slp = w->slp, ah = op_coef(1200u), al = op_coef(7000u);
+            int32_t se = w->se, shp = w->shp, slp = w->slp, ah = op_coef(1200u), al = op_coef(7000u), dk;
+            int32_t ck[16] = {0};                           /* (cleared as it is read: zeroed once a block) */
             uint32_t sb;
             g = (int32_t)(((int64_t)SK_REF * upow(l2, 8) * w->k.sk) >> 24);
             g = clampi(gmul(g, w->level), 0, 524288);
+            dk = ((g - w->skg) * 256) / (int32_t)n;           /* (ramped from the last block's: no step at the start) */
+            { int32_t t8 = g; g = w->skg << 8; w->skg = t8; }
             for (sb = 0; sb < n; sb += 16u) {
                 unsigned m = n - sb < 16u ? n - sb : 16u;
+                int32_t any = 0;
                 for (i = 0; i < TX_WIND_NS; i++)
                     if (w->sv[i].env > 0 && (int32_t)(tx_rand(q) >> 16) < w->sv[i].p) {
-                        int32_t c = (int32_t)(tx_rand(q) >> 17);                   /* each click its own size */
-                        se += (((w->sv[i].amp * (w->sv[i].env >> 1)) >> 14) * (8192 + ((c * c) >> 17))) >> 13;
+                        uint32_t rr = tx_rand(q);
+                        int32_t c = (int32_t)(rr >> 17);                           /* each click its own size, on its */
+                        ck[(rr & 15u) < m ? rr & 15u : m - 1u] += (((w->sv[i].amp * (w->sv[i].env >> 1)) >> 14) * (8192 + ((c * c) >> 17))) >> 13;
+                        any = 1;                                                   /* own sample (no grid of 16) */
                     }
-                if (se > (1 << 17)) se = 1 << 17;
                 for (j = sb; j < sb + m; j++) {
                     int32_t x = (int32_t)(tx_rand(q) >> 18) - 8192, h;
+                    if (any) { se += ck[j - sb]; ck[j - sb] = 0; if (se > (1 << 17)) se = 1 << 17; }
                     x = clampi((x * (se >> 3)) >> 13, -32767, 32767);
                     se -= se >> 7;                                  /* 2.9 ms: a scrape's grain */
                     shp += ((x - shp) * ah) >> 15;
                     h = x - shp;
                     slp += ((h - slp) * (al >> 1)) >> 14;
-                    out[j] += slp * (g >> 5);
+                    out[j] += slp * (g >> 13) + ((slp * ((g >> 5) & 255)) >> 8);
+                    g += dk;
                 }
             }
             if (!act && se < 64) se = shp = slp = 0;

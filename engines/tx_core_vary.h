@@ -118,26 +118,27 @@ TX_AUDIO_CODE static inline void tx_vary_block(tx_vary_t *v, int32_t *x, unsigne
     if (gl > 65535) gl = 65535;
     if (gh > 65535) gh = 65535;
     if (!n) return;
-    dgl = (gl - v->gl) / (int32_t)n;                        /* a ramp over the block, ending on the target */
-    dgh = (gh - v->gh) / (int32_t)n;
+    dgl = ((gl - v->gl) * 256) / (int32_t)n;                 /* a ramp over the block, ending on the target, in Q20 (a */
+    dgh = ((gh - v->gh) * 256) / (int32_t)n;                 /* Q12 gain stepped by a unit on the block's grid: the slow
+                                                              * drift's change is a few units a block) */
     tl = gl; th = gh;
     if (!lp) {                                              /* silence in, nothing held: the gains move on, the samples */
         for (j = 0; j < n && !x[j]; j++) {}                 /* stay exact zeros (the split of 0 is 0) */
         if (j == n) { v->gl = tl; v->gh = th; return; }
     }
-    gl = v->gl; gh = v->gh;
+    gl = v->gl << 8; gh = v->gh << 8;
     if (!k)                                                 /* the two-tap split: lp holds the last input */
         for (j = 0; j < n; j++) {
             int32_t a = x[j], m = (a + lp) >> 1;
             lp = a;
             gl += dgl; gh += dgh;
-            x[j] = tx_trim1(m, gl) + tx_trim1(a - m, gh);
+            x[j] = tx_trim1(m, gl >> 8) + tx_trim1(a - m, gh >> 8) + (((m >> 12) * (gl & 255) + ((a - m) >> 12) * (gh & 255)) >> 8);
         }
     else for (j = 0; j < n; j++) {
         int32_t h = x[j] - lp;
         lp += (h + (h > 0 ? r : 0)) >> k;                   /* one pole; rounds away from 0: reaches x, silence is 0 */
         gl += dgl; gh += dgh;
-        x[j] = tx_trim1(lp, gl) + tx_trim1(x[j] - lp, gh);
+        x[j] = tx_trim1(lp, gl >> 8) + tx_trim1(x[j] - lp, gh >> 8) + (((lp >> 12) * (gl & 255) + ((x[j] - lp) >> 12) * (gh & 255)) >> 8);
     }
     v->lp = lp;
     v->gl = tl; v->gh = th;

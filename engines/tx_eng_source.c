@@ -364,7 +364,7 @@ typedef struct {
 } caller_t;
 
 typedef struct {
-    uint8_t kind, pre, pad[2];
+    uint8_t kind, pre, pad[2];      /* (pad[1]: a stone's first sample in the block it was struck in) */
     int32_t last;                   /* for the declick when cut */
     union {
         tx_bubble_t b;
@@ -437,7 +437,7 @@ typedef struct {
     uint8_t ovv[32];                /* their values */
     uint8_t start, hpad4;           /* start: a first press (the population starts: ACTIVITY at the fader) */
     uint16_t hrenew;                /* blocks to the next renewed key */
-    uint8_t hoff, hpn, hpad2[2];    /* blocks to its release, its note */         /* keys the source holds on the hosted engine (k curves; the first is the player's) */
+    uint8_t hoff, hpn, koff, hpad2; /* blocks to its release, its note; koff: TX_PID_KEYAT (a lane key's sample) */         /* keys the source holds on the hosted engine (k curves; the first is the player's) */
     int32_t hgain, last_out, hlp;        /* the hosted output gain (Q12, ramped), the last sample out (for a switch) */
     int32_t buf[TX_BLOCK], ck[TX_BLOCK];
     uint8_t p[NP], limit, quiet, held, pad0;
@@ -455,7 +455,7 @@ typedef struct {
     int32_t gust;                   /* their walk now, Q15 */
     int32_t life_s, life_d;         /* their offsets now (Q16 log2) */
     /* the beds: rain's two bands, stones' residue, the callers' chorus */
-    int32_t res, res_x1;            /* the stones' attack residue */
+    int32_t res, res_x1, res_in;    /* the stones' attack residue; res_in: this block's, added at sample res_at */
     int32_t clp;                    /* click low-pass */
     uint16_t dropped, events;
     uint32_t total, steals;
@@ -465,7 +465,7 @@ typedef struct {
     uint32_t x32;                   /* bed noise */
     tx_clu_t clu;                   /* stage 1's clock: Cox walk, children (tx_core_cluster.h) */
     indiv_t ind[NI];                /* the events' individuals (rain patches, stones, drip points), ni drawn */
-    uint8_t ni, cur_on, ipad[2];
+    uint8_t ni, cur_on, res_at, ipad1;
     int32_t cur_r, cur_sz;          /* the individual of the event being made (cur_on) */
     uint32_t ev_est;                /* rain: its events a block lately (Q8), for the thinning (EV_BLK) */
     uint32_t owe_q8;                /* rain: the drops held back by EV_HARD, carried by the next kept one (Q8) */
@@ -1049,7 +1049,6 @@ static void knock(src_t *s, unsigned off, int32_t lv, int32_t size_l2, unsigned 
     int k;
     unsigned i;
     voice_t *v;
-    (void)off;                                               /* (the modes start at the block's start) */
     tx_clu_vary(r, &STONE_VAR, &vr);
     size_l2 += vr.size;
     q = (int32_t)tx_exp2(tx_place_log2(2880u) + knob(s, P_TONE) * 2048 + clampi(vr.decay, -(1 << 16), 1 << 16));   /* Q x16: granite 180, x/ 4 */
@@ -1070,6 +1069,7 @@ static void knock(src_t *s, unsigned off, int32_t lv, int32_t size_l2, unsigned 
     s->events++;
     v = &s->v[k];
     v->kind = V_STONE; v->pre = (uint8_t)pre; v->last = 0;
+    v->pad[1] = (uint8_t)(off < TX_BLOCK ? off : TX_BLOCK - 1u);   /* (the modes start at the knock's own sample) */
     f_l2 = tx_log2_q16(4300u) - 194372 - size_l2;            /* f1 = 0.128 c / L, granite c 4.3 km/s */
     for (i = 0; i < NMO; i++) {
         uint32_t f;
@@ -1088,8 +1088,9 @@ static void knock(src_t *s, unsigned off, int32_t lv, int32_t size_l2, unsigned 
         gm = (int32_t)(((int64_t)gm * tx_place_air_q15(f, r_l2)) >> 15);
         tx_mode_strike(&v->u.s.m[i], (int32_t)(((int64_t)a * gm) >> 15));
     }
-    s->res += (int32_t)(((int64_t)(a >> 5) * tx_contact_weight(tc, 6000u)) >> 15);
-    if (s->res > (1 << 28)) s->res = 1 << 28;
+    if (!s->res_in || off < s->res_at) s->res_at = (uint8_t)(off < TX_BLOCK ? off : TX_BLOCK - 1u);   /* (the block's */
+    s->res_in += (int32_t)(((int64_t)(a >> 5) * tx_contact_weight(tc, 6000u)) >> 15);   /* first knock's sample) */
+    if (s->res_in > (1 << 28)) s->res_in = 1 << 28;
 }
 
 /* a knock of the cloud: size around the preset's (SIZE, the key, the slide's bigger stones), power-law energy; lv_off
@@ -1499,6 +1500,7 @@ static void birds_block(src_t *s, unsigned n)
         if ((singing < allowed || b->near) && j >= NB) {     /* (the bird close by is not held back by far ones) */
             bird_sing(s, i, type, 0, 0);
             if (b->voice != 0xFF) {
+                s->v[b->voice].u.bv.wait = b->wait < n ? b->wait : n - 1u;   /* (its first note on its own sample) */
                 singing++;
                 unsigned idle = 0;
                 int32_t ex = knob(s, P_HARD) ? clampi(a + knob(s, P_HARD) * 256, 0, 127 << 8) : a;   /* (excited: they
@@ -1557,12 +1559,21 @@ static unsigned host_hot(const host_t *hd, uint32_t r_q8)
     return 0u;
 }
 
+/* a press on the hosted engine at sample at of the coming block (TX_PID_KEYAT: never on the block grid) */
+static void host_press(src_t *s, uint8_t note, uint8_t vel, unsigned at)
+{
+    s->hst->param(s->host, TX_PID_KEYAT, (uint8_t)(at < TX_BLOCK ? at : TX_BLOCK - 1u));
+    s->hst->key(s->host, note, vel, 1);
+}
+/* a press decided per block (a Bernoulli draw, a counter in blocks): anywhere in the block, as likely */
+static unsigned host_at(src_t *s) { return tx_rand(&s->rng) >> 24; }
+
 /* an event engine's presses: stage 1's clock (tx_core_cluster.h: the preset's runs and the breaks one break sets off;
  * a child's level step moves the velocity), at most one press per block; a strike's key is released after 150 ms */
 static void host_clock(src_t *s)
 {
     tx_clu_ev_t ce;
-    int off, got = 0;
+    int off, got = 0, at = 0;
     int32_t lv = 0;
     if (!s->hd->e64) return;
     if (s->hoff && !--s->hoff) s->hst->key(s->host, s->hpn, 0, 0);
@@ -1576,7 +1587,7 @@ static void host_clock(src_t *s)
         tx_clu_block(&s->clu, &s->rng, &s->cf, s->clu.next_q8 == 0xFFFFFFFFu && rq && rq < HOST_FIRST ? HOST_FIRST : rq);
     }                                                        /* (the first press: its gap drawn at 0.5 /s at least, so the
                                                              * rarest setting is heard within seconds, then sparse) */
-    while ((off = tx_clu_next(&s->clu, &s->rng, &s->cf, TX_BLOCK, &ce)) >= 0) if (!got) { got = 1; lv = ce.lv; }
+    while ((off = tx_clu_next(&s->clu, &s->rng, &s->cf, TX_BLOCK, &ce)) >= 0) if (!got) { got = 1; lv = ce.lv; at = off; }
     tx_clu_end(&s->clu, TX_BLOCK);
     if (got && s->hon) {                                     /* (presses: each an individual's event, COUNT / 8 x) */
         int32_t v = (int32_t)(((int64_t)s->vel * tx_exp2(clampi(lv / 2, -(3 << 16), 1 << 16) + (16 << 16))) >> 16);
@@ -1591,8 +1602,9 @@ static void host_clock(src_t *s)
             if (!s->hd->oneshot && nt != s->hpn) s->hst->key(s->host, s->hpn, 0, 0);   /* (the last one coasts on) */
             s->hpn = nt;
         }
-        if (s->hd->oneshot) { s->hst->key(s->host, s->hpn, (uint8_t)v, 1); s->hoff = 26; }
-        else { s->hst->key(s->host, s->hpn, 0, 0); s->hst->key(s->host, s->hpn, (uint8_t)v, 1); }
+        if (!s->hd->oneshot) s->hst->key(s->host, s->hpn, 0, 0);
+        host_press(s, s->hpn, (uint8_t)v, (unsigned)at);    /* (at the clock's own sample, never on the grid) */
+        if (s->hd->oneshot) s->hoff = 26;
     }
 }
 
@@ -1626,7 +1638,7 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
         unsigned want = s->hon ? (unsigned)clampi((int32_t)count_n(s), 1, s->hd->k127 > 8 ? 8 : s->hd->k127) : 0u;   /* (COUNT: one key an individual) */
         if (s->hkeys <= 1) s->hbase = s->note;               /* (the extras keep the note they were pressed from) */
         if (s->hkeys && s->hkeys < want && !tx_rand_below(&s->rng, (s->hd->k0 & 4u) ? 344u : 32u)) {   /* one at a time (~0.2 s apart: logs */
-            s->hst->key(s->host, (uint8_t)(s->hbase + HOST_KEYS[s->hkeys]), s->vel, 1);   /* thrown on together */
+            host_press(s, (uint8_t)(s->hbase + HOST_KEYS[s->hkeys]), s->vel, host_at(s));   /* thrown on together */
             s->hkeys++;                                      /* would crack at once) */
         }
         while (s->hkeys > want && s->hkeys > 1) { s->hkeys--; s->hst->key(s->host, (uint8_t)(s->hbase + HOST_KEYS[s->hkeys]), 0, 0); }
@@ -1635,7 +1647,7 @@ static void host_apply(src_t *s, int force)               /* the curves at the i
             unsigned k = tx_rand_below(&s->rng, s->hkeys);   /* (any of them: no round) */
             uint8_t nt = (uint8_t)(k ? s->hbase + HOST_KEYS[k] : s->note);
             s->hst->key(s->host, nt, 0, 0);
-            s->hst->key(s->host, nt, s->vel, 1);
+            host_press(s, nt, s->vel, host_at(s));
             { uint32_t g = 516u + gate_draw(s, 1200u); s->hrenew = (uint16_t)(g > 65535u ? 65535u : g); }   /* 3 s + exponential, mean 7 s more (no clock) */
         }
     }
@@ -1757,7 +1769,7 @@ static void host_switch(src_t *s, unsigned pre)
     s->hst = ne; s->hd = hd;
     s->hnear = hd ? host_near(hd->eng) : 32767;
     /* the particle presets' beds and filters start from silence (their last output went to the declick) */
-    s->res = s->res_x1 = s->clp = 0;
+    s->res = s->res_x1 = s->res_in = s->clp = 0;
     s->hp.x1 = s->hp.y1 = 0; s->vy.lp = 0; s->run = 0; s->hgain = 0;
     for (i = 0; i < TX_BLOCK; i++) s->buf[i] = s->ck[i] = 0;
     if (ne && ne->state_bytes <= HOST_BYTES) {
@@ -1953,7 +1965,7 @@ TX_AUDIO_CODE static void host_render(src_t *s, int32_t *mix, unsigned n)
             s->hon = 1;
             if (!s->hkeys) s->hkeys = 1;
             host_apply(s, 1);                                /* (the engine reads them at the press) */
-            if (!s->hd->oneshot) s->hst->key(s->host, s->note, s->vel, 1);
+            if (!s->hd->oneshot) host_press(s, s->note, s->vel, s->koff ? s->koff : host_at(s));   /* (a lane key's sample, else a gate's: anywhere) */
         }
     }
     host_clock(s);
@@ -2029,7 +2041,7 @@ static void indiv_act(src_t *s)
     tx_clu_kid_t *k;
     if (s->clu.nk >= TX_CLU_Q) return;
     k = &s->clu.k[s->clu.nk++];
-    k->t = s->clu.now; k->lv = 0; k->gen = 0;
+    k->t = s->clu.now + s->koff; k->lv = 0; k->gen = 0;     /* (at the lane key's own sample) */
     k->tag = (uint8_t)(s->ni > 1u ? tx_rand_below(&s->rng, s->ni) : 0u);
     s->total++;
 }
@@ -2041,7 +2053,7 @@ static void host_act(src_t *s)
     tx_clu_kid_t *k;
     if (s->clu.nk >= TX_CLU_Q) return;
     k = &s->clu.k[s->clu.nk++];
-    k->t = s->clu.now; k->lv = 0; k->gen = 0; k->tag = 0;
+    k->t = s->clu.now + s->koff; k->lv = 0; k->gen = 0; k->tag = 0;
     s->total++;
 }
 
@@ -2063,7 +2075,8 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
                 uint8_t nt = (uint8_t)(k ? s->hbase + HOST_KEYS[k] : s->note);   /* engine's keys stay theirs */
                 s->held++; s->quiet = 0;                     /* (at its own velocity: the lane's, not the note's) */
                 s->hst->key(s->host, nt, 0, 0);
-                s->hst->key(s->host, nt, s->vel, 1);
+                host_press(s, nt, s->vel, s->koff);
+                s->koff = 0;
                 return;
             }
             if (s->held && --s->held) return;
@@ -2076,7 +2089,7 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
         if (on && vel && s->held && s->hd) {                 /* a press while held: */
             s->held++;                                       /* one of them acts at its own level (an event engine: its */
             if (s->hd->e64) host_act(s);                     /* clock's next press now; an engine with its own */
-            else if (s->hcid >= 0 && s->hon) s->hst->key(s->host, s->note, s->vel, 1);   /* individuals: its key again, */
+            else if (s->hcid >= 0 && s->hon) host_press(s, s->note, s->vel, s->koff);   /* individuals: its key again, */
             return;                                          /* one in a pause sings now (crickets, katydids); others */
                                                              /* sing on by themselves: no new key at the note's pitch) */
         }
@@ -2092,7 +2105,10 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
         } else if (s->held) s->held--;
         if (!s->held) s->hon = 0;
         if (s->hd) { if (!s->held) s->hst->key(s->host, s->note, 0, 0); }   /* (a hosted engine has the first key only) */
-        else s->hst->key(s->host, note, vel, on);
+        else {                                               /* (a classic engine: the lane's key at its own sample) */
+            if (on && vel) s->hst->param(s->host, TX_PID_KEYAT, s->koff);
+            s->hst->key(s->host, note, vel, on);
+        }
         if (!s->held && s->hd && !s->hd->oneshot && s->hpn != note) s->hst->key(s->host, s->hpn, 0, 0);   /* the last key up: the
                                                                      * one the clock pressed afresh is released too */
         return;
@@ -2111,7 +2127,7 @@ static void src_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
             for (q = 0; q < NB; q++) c += s->bm[q].active && s->bm[q].voice == 0xFF;
             if (c) {
                 pick = tx_rand_below(&s->rng, c);
-                for (q = 0; q < NB; q++) if (s->bm[q].active && s->bm[q].voice == 0xFF && !pick--) { s->bm[q].wait = 0; break; }
+                for (q = 0; q < NB; q++) if (s->bm[q].active && s->bm[q].voice == 0xFF && !pick--) { s->bm[q].wait = s->koff; break; }   /* (at the press's sample) */
             }
         } else if (s->held > 1 && PRE[pre].kind == 1) {
             unsigned q, c = 0, pick;
@@ -2163,6 +2179,7 @@ static void keep_loudest(src_t *s, unsigned lim)
 static void src_param(void *st, uint8_t id, uint8_t val)
 {
     src_t *s = (src_t *)st;
+    if (id == TX_PID_KEYAT) { s->koff = val; return; }     /* (the next key's sample: kept to the block's end) */
     if (s->hst && id == TX_PID_LEVEL) s->hst->param(s->host, id, val);
     if (s->hst && id == TX_PID_PARTICLES) {                  /* (the governor's: at most the engine's cap) */
         s->hpart = (uint8_t)host_heroes(s->hd, val);
@@ -2211,8 +2228,9 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     unsigned i, j, pa = s->p[P_PRESET], pb = pa;
     int32_t w = morph(s), any = 0;
     if (n > TX_BLOCK) n = TX_BLOCK;
-    if (s->quiet && !s->held) return;
-    if (s->hst) { host_render(s, mix, n); return; }
+    if (s->quiet && !s->held) { s->koff = 0; return; }
+    if (s->hst) { host_render(s, mix, n); s->koff = 0; return; }   /* (a lane key's sample: this block's only) */
+    s->koff = 0;
     /* (buf and ck are cleared after each block, not here: a key's press may already have put its click in them) */
     s->events = 0;
     /* the source on / off: in ~0.2 s; out at once (a key up, or COUNT 0: no new event, no queued child, only the tails
@@ -2312,7 +2330,8 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
         else if (v->kind == V_STONE) {
             int32_t l = 0;
             unsigned k;
-            tx_modal_run(v->u.s.m, NMO, s->buf, 0, n);
+            tx_modal_run(v->u.s.m, NMO, s->buf, v->pad[1] < n ? v->pad[1] : 0u, n);   /* (struck in this block: from */
+            v->pad[1] = 0;                                   /* its sample) */
             for (k = 0; k < NMO; k++) l += v->u.s.m[k].amp >> 1;
             s->pool.level[i] = (uint32_t)l;
             v->last = 0;
@@ -2353,16 +2372,20 @@ TX_AUDIO_CODE static void src_render(void *st, int32_t *mix, unsigned n)
     /* the far drops (rain): grains, each its own bubble or splash (tx_core_grains.h) */
     if (PRE[pa].kind == 0) tx_gr_render(&s->gr, r, s->buf, n);
     /* the stones' residue: low-passed noise, tau 2 ms */
-    if (s->res) {
+    if (s->res || s->res_in) {                               /* (a knock's share from its own sample) */
         int32_t en = s->res, x1 = s->res_x1;
+        unsigned at = s->res_in ? s->res_at : n;
         for (j = 0; j < n; j++) {
-            int32_t x = (int32_t)(tx_rand(r) >> 17) - 16384;
+            int32_t x;
+            if (j == at) { en += s->res_in; if (en > (1 << 28)) en = 1 << 28; s->res_in = 0; }
+            if (en <= 0) { if (j >= at) break; j = at - 1u; continue; }   /* (silent up to the knock) */
+            x = (int32_t)(tx_rand(r) >> 17) - 16384;
             x1 += (x - x1) >> 1;
             s->buf[j] += (x1 * (en >> 14)) >> 3;
             en -= (en >> 6) + 1;
-            if (en <= 0) { en = 0; break; }
+            if (en <= 0) en = 0;
         }
-        s->res = en; s->res_x1 = en ? x1 : 0;
+        s->res = en; s->res_x1 = en ? x1 : 0; s->res_in = 0;
     }
     /* the far callers' clicks (grains at their carriers) */
     if (PRE[pa].kind == 1) tx_gr_render(&s->cg, r, s->buf, n);

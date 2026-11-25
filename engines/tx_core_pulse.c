@@ -32,7 +32,7 @@ void tx_pulse_start(tx_pulses_t *b, unsigned shape, uint32_t dur, int32_t amp_q1
     if (!p->step) p->step = 1;
     p->amp = (int16_t)amp_q15;
     p->shape = (uint8_t)(shape & 3u);
-    p->wait = (uint8_t)(offset < 255u ? offset : 255u);
+    p->wait = (uint16_t)(offset < 65535u ? offset : 65535u);
     p->age = ++b->clock;
 }
 
@@ -45,8 +45,9 @@ TX_AUDIO_CODE void tx_pulses_add(tx_pulses_t *b, int32_t *out, unsigned n)
         uint32_t pos = p->pos, step = p->step;
         int32_t a = p->amp;
         if (pos >= DONE) continue;
-        j = p->wait < n ? p->wait : n;
-        p->wait = (uint8_t)(p->wait - j);
+        if (p->wait >= n) { p->wait = (uint16_t)(p->wait - n); continue; }   /* (it starts in a later block) */
+        j = p->wait;
+        p->wait = 0;
         for (; j < n && pos < DONE; j++, pos += step) {
             uint32_t k = pos >> 16, fr = (pos >> 8) & 0xFFu;
             int32_t s = t[k] + (((int32_t)t[k + 1] - t[k]) * (int32_t)fr >> 8);   /* Q15 */

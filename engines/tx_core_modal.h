@@ -33,6 +33,13 @@ uint32_t tx_mode_decay(uint32_t f_hz, uint32_t q_x16, uint32_t sigma0_q8);
 void tx_mode_strike(tx_mode_t *m, int32_t a_q30);
 /* render modes m[0..nm) over samples j0..j1 of out (Q23, added) */
 TX_AUDIO_CODE void tx_modal_run(tx_mode_t *m, unsigned nm, int32_t *out, unsigned j0, unsigned j1);
+/* a strike at sample o of the block on modes m[0..nm) rendered so far up to *done (0 at the block's start): render
+ * them on to o first, so the strike lands at its own sample, never on the block grid; at the block's end the caller
+ * renders from *done to n and sets *done = 0 */
+TX_INLINE void tx_modal_upto(tx_mode_t *m, unsigned nm, int32_t *out, uint8_t *done, unsigned o)
+{
+    if (o > *done) { tx_modal_run(m, nm, out, *done, o); *done = (uint8_t)(o < 255u ? o : 255u); }
+}
 /* log2(x) in Q16 for x >= 1 (control rate) */
 int32_t tx_log2_q16(uint32_t x);
 

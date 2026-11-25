@@ -77,6 +77,19 @@ void tx_ireso_set(tx_ireso_t *r, uint32_t f_hz, uint32_t q_x16) { tx_ireso_coefs
 
 /* two resonators on the same impulses in one pass (a katydid's wing modes): as tx_ireso_add on each, the input's
  * (1 - z^-2) / 2 shared */
+/* a resonator held in a DC limit cycle (silent input, y1 = y2 its own fixed point under the rounding): drained to
+ * exact zero across the block, a ramp; cut at once it stepped by the whole offset at a block's start (an onset on the
+ * block grid, the grid statistic's spike in sparse ice). 1 when it did (the state is then zero) */
+TX_AUDIO_CODE static int dc_drain(tx_ireso_t *r, int32_t *out, unsigned n)
+{
+    int32_t y = r->y1, g = r->g;
+    unsigned j;
+    if (!y || y != r->y2 || r->p1 | r->p2 || ((r->a1 * y) >> 14) - ((r->a2 * y) >> 14) != y) return 0;
+    for (j = 0; j < n; j++) out[j] += (y - (y * (int32_t)(j + 1u)) / (int32_t)n) * g;
+    r->y1 = r->y2 = 0;
+    return 1;
+}
+
 TX_AUDIO_CODE void tx_ireso_add2(tx_ireso_t *r, tx_ireso_t *q, const uint16_t *off, const int16_t *imp, unsigned nimp,
                                  int32_t *out, unsigned n)
 {
@@ -84,6 +97,10 @@ TX_AUDIO_CODE void tx_ireso_add2(tx_ireso_t *r, tx_ireso_t *q, const uint16_t *o
     int32_t z1 = q->y1, z2 = q->y2, b1 = q->a1, b2 = q->a2, h = q->g, z01 = z1, z02 = z2;
     unsigned j, k = 0;
     if (!nimp && !(y1 | y2 | p1 | p2 | z1 | z2 | q->p1 | q->p2)) return;
+    if (!nimp && (dc_drain(r, out, n) | dc_drain(q, out, n))) {   /* (a held offset: ramped out) */
+        y1 = r->y1; y2 = r->y2; z1 = q->y1; z2 = q->y2; y01 = y1; y02 = y2; z01 = z1; z02 = z2;
+        if (!(y1 | y2 | z1 | z2)) return;
+    }
     for (j = 0; j < n; j++) {
         int32_t x = 0, y, z, d;
         while (k < nimp && off[k] == j) { x += imp[k]; k++; }
@@ -99,8 +116,8 @@ TX_AUDIO_CODE void tx_ireso_add2(tx_ireso_t *r, tx_ireso_t *q, const uint16_t *o
     }
     {
         int32_t zl = r->zlim ? r->zlim : 8, zq = q->zlim ? q->zlim : 8;
-        if (!nimp && !(p1 | p2) && ((y1 > -zl && y1 < zl && y2 > -zl && y2 < zl) || (y1 == y01 && y2 == y02))) y1 = y2 = 0;
-        if (!nimp && !(p1 | p2) && ((z1 > -zq && z1 < zq && z2 > -zq && z2 < zq) || (z1 == z01 && z2 == z02))) z1 = z2 = 0;
+        if (!nimp && !(p1 | p2) && ((y1 > -zl && y1 < zl && y2 > -zl && y2 < zl) || (y1 == y01 && y2 == y02 && y1 != y2))) y1 = y2 = 0;
+        if (!nimp && !(p1 | p2) && ((z1 > -zq && z1 < zq && z2 > -zq && z2 < zq) || (z1 == z01 && z2 == z02 && z1 != z2))) z1 = z2 = 0;
     }
     r->y1 = y1; r->y2 = y2; r->p1 = p1; r->p2 = p2;
     q->y1 = z1; q->y2 = z2; q->p1 = p1; q->p2 = p2;
@@ -163,6 +180,7 @@ TX_AUDIO_CODE void tx_ireso_add(tx_ireso_t *r, const uint16_t *off, const int16_
     int32_t y1 = r->y1, y2 = r->y2, p1 = r->p1, p2 = r->p2, a1 = r->a1, a2 = r->a2, g = r->g, y01 = y1, y02 = y2;
     unsigned j, k = 0;
     if (!nimp && !(y1 | y2 | p1 | p2)) return;
+    if (!nimp && dc_drain(r, out, n)) return;                /* (a held offset: ramped out, never cut on the grid) */
     for (j = 0; j < n; j++) {
         int32_t x = 0, y;
         while (k < nimp && off[k] == j) { x += imp[k]; k++; }
@@ -175,7 +193,7 @@ TX_AUDIO_CODE void tx_ireso_add(tx_ireso_t *r, const uint16_t *off, const int16_
     {   /* silent input: small (under zlim, default 8) or frozen -> exact zero. Rounding holds limit cycles of up to
          * ~1 / (2 (1 - r)) LSB in a high-r two-pole: a caller with such poles raises zlim. */
         int32_t zl = r->zlim ? r->zlim : 8;
-        if (!nimp && !(p1 | p2) && ((y1 > -zl && y1 < zl && y2 > -zl && y2 < zl) || (y1 == y01 && y2 == y02))) y1 = y2 = 0;
-    }
+        if (!nimp && !(p1 | p2) && ((y1 > -zl && y1 < zl && y2 > -zl && y2 < zl) || (y1 == y01 && y2 == y02 && y1 != y2))) y1 = y2 = 0;
+    }                                                        /* (a DC one: dc_drain, the next block) */
     r->y1 = y1; r->y2 = y2; r->p1 = p1; r->p2 = p2;
 }

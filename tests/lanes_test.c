@@ -133,7 +133,10 @@ static void r_block(int32_t *L, int32_t *R)
             unsigned ne = tx_gen_block(&rgen[k], TX_BLOCK, ev, TX_GEN_EV_MAX, &in), q;
             int ip = tx_param_find(rm.e[k], "ACTIVITY");
             if (ip >= 0 && !strcmp(rm.e[k]->name, "source")) rm.e[k]->param(rm.st[k], (uint8_t)ip, in);
-            for (q = 0; q < ne && !rgen_mute[k]; q++) rm.e[k]->key(rm.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
+            for (q = 0; q < ne && !rgen_mute[k]; q++) {   /* (each note on its own sample: TX_PID_KEYAT, as the firmware) */
+                if (ev[q].vel) rm.e[k]->param(rm.st[k], TX_PID_KEYAT, (uint8_t)(ev[q].off < TX_BLOCK ? ev[q].off : TX_BLOCK - 1u));
+                rm.e[k]->key(rm.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
+            }
         }
         if (rm.e[k]) {                          /* the engine over its ring, through the slot's insert */
             tx_ring_block(&rring[k], rm.blk, TX_BLOCK, 0);

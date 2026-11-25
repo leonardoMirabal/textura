@@ -80,6 +80,7 @@ typedef struct {
     uint32_t total;                /* events since init */
     uint32_t pend_full;            /* burst / aftershock events lost to a full store */
     uint16_t last_events, last_dropped;   /* of the last block (dropped: over TX_CLOUD_EV_MAX) */
+    uint8_t koff, kpad[3];         /* TX_PID_KEYAT: the next press's sample in the coming block (tx_cloud_keyat) */
 } tx_cloud_t;
 
 typedef struct {
@@ -97,6 +98,14 @@ typedef struct { int32_t x1, y1; } tx_dcblock_t;
 /* cloud */
 void tx_cloud_init(tx_cloud_t *c, uint32_t seed);
 void tx_cloud_key(tx_cloud_t *c, uint8_t note, uint8_t vel, uint8_t on);
+/* an engine's param() hook for TX_PID_KEYAT: 1 when id is it (the next press, its burst and its stream, start val
+ * samples into the coming block: a press lands at its own sample, never on the block grid), else 0 */
+static inline int tx_cloud_keyat(tx_cloud_t *c, uint8_t id, uint8_t val)
+{
+    if (id != TX_PID_KEYAT) return 0;
+    c->koff = val;
+    return 1;
+}
 TX_AUDIO_CODE unsigned tx_cloud_block(tx_cloud_t *c, tx_event_t *ev, unsigned n);   /* -> events, by offset */
 unsigned tx_cloud_held(const tx_cloud_t *c);                   /* keys held now */
 uint32_t tx_cloud_level(const tx_cloud_t *c);                  /* held keys + released keys' fades, Q15 per key */

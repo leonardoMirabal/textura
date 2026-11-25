@@ -175,6 +175,7 @@ static unsigned lit_count(const candle_t *s)
 static void candle_param(void *st, uint8_t id, uint8_t val)
 {
     candle_t *s = (candle_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) {
         unsigned i, n;
         s->limit = (uint8_t)(val < 1u ? 1u : val > NFL ? NFL : val);
@@ -293,7 +294,7 @@ TX_AUDIO_CODE static void candle_render(void *st, int32_t *mix, unsigned n)
             int32_t amp = (int32_t)a;
             for (c = 0; c < nc; c++) {
                 tx_pulse_start(&s->ticks, TX_PULSE_SHAPE_CLICK, 3u + tx_rand_below(r, 10u), (tx_rand(r) & 1u) ? amp : -amp,
-                               off > 255u ? 255u : off);
+                               off);                         /* (past the block's end: in the next, at its own sample) */
                 off += 4u + tx_rand_below(r, 56u);
                 amp = (amp >> 8) * (int32_t)(110u + tx_rand_below(r, 130u));
             }

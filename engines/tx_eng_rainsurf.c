@@ -419,6 +419,7 @@ static void rain_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void rain_param(void *st, uint8_t id, uint8_t val)
 {
     rain_t *s = (rain_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) s->limit = (uint8_t)(val < 1u ? 1u : val > 32u ? 32u : val);
     else if (id == TX_PID_LEVEL) s->level = tx_level_q15(val > 127u ? 127u : val);
     else set_param(s, id, val);
@@ -587,8 +588,11 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
         pulse(s, e->offset, L, a);
         }
     }
-    if (s->nbq) {   /* the bounces landing in this block */
-        unsigned q = 0;
+    if (s->nbq) {   /* the bounces landing in this block (a bounce landing again within it: another pass, on its own
+                     * sample, not at the next block's start) */
+        unsigned q = 0, pass, land = 1;
+        for (pass = 0; land && pass < 4u; pass++) {
+        land = 0; q = 0;
         for (i = 0; i < s->nbq; i++) {
             bounce_t b = s->bnc[i];
             if (b.t < n) {
@@ -600,14 +604,16 @@ TX_AUDIO_CODE static void rain_render(void *st, int32_t *mix, unsigned n)
                     e = e > 230u ? 230u : e;
                     f = s->hk == 3u ? 2205u + ((x >> 16) * 15435u >> 16) : (b.f * e) >> 8;
                     bounce_t *nb = &s->bnc[q];
-                    nb->t = b.t + f > n ? b.t + f - n : 0u; nb->f = f;
+                    nb->t = b.t + f; nb->f = f;              /* (from this block's start: it may land in it) */
                     nb->a = (int32_t)((b.a * (int32_t)(e + 96u)) >> 9);
                     nb->len = (uint16_t)(b.len + 1u); nb->n = (uint16_t)(b.n - 1u);
-                    if (nb->a >= 64) q++;
+                    if (nb->a >= 64) { land |= nb->t < n; q++; }
                 }
-            } else { s->bnc[q] = b; s->bnc[q].t -= n; q++; }
+            } else { s->bnc[q] = b; q++; }
         }
         s->nbq = (uint8_t)q;
+        }
+        for (i = 0; i < s->nbq; i++) s->bnc[i].t = s->bnc[i].t >= n ? s->bnc[i].t - n : 0u;   /* (to the next block) */
     }
     {   /* rain: on while a key is held; released, the shower passes over ~3-4 s (session 5: no hard stop) */
         unsigned held = tx_cloud_held(&s->cloud);

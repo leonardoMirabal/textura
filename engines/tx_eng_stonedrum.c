@@ -74,6 +74,7 @@ typedef struct {
     uint16_t q_eff;                /* Q x 16 while young */
     uint8_t nm, note, young, alive;
     uint16_t moff[2];              /* micro-collisions: samples from the block start */
+    uint16_t done, dpad;           /* rendered up to this sample of the block (a strike lands on its own sample) */
     int32_t mamp[2];               /* their impulse (Q15 of the main) */
     int32_t a0;                    /* the main hit's amplitude (Q30) */
     int16_t gw[NM];                /* each mode's gain x the force spectrum at its frequency (Q15), of the last hit */
@@ -87,6 +88,8 @@ typedef struct {
     int32_t buf[TX_BLOCK];
     tx_mallet_t mallet;
     int32_t res, res_x1;           /* the attack residue: envelope (Q23-ish), the last noise (high-pass) */
+    int32_t res_in;                /* .. a strike's share still to come, at sample res_at of this block */
+    uint16_t res_at, rpad;
     uint8_t p[NP], limit, quiet;
     int32_t level, f1_l2;
     uint32_t q_x16, s0_q8;
@@ -135,6 +138,7 @@ static void drum_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void drum_param(void *st, uint8_t id, uint8_t val)
 {
     drum_t *s = (drum_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) {
         unsigned i, k;
         s->limit = (uint8_t)(val < 1u ? 1u : val > NV ? NV : val);
@@ -191,6 +195,24 @@ static void strike(stone_t *v, int32_t a)
     for (k = 0; k < v->nm; k++) if (v->f[k] && v->gw[k]) tx_mode_strike(&v->m[k], (int32_t)(((int64_t)a * v->gw[k]) >> 15));
 }
 
+/* a voice rendered on from where it is to sample o of the block (its micro-collisions before o on their samples) */
+static void voice_upto(drum_t *s, stone_t *v, unsigned o)
+{
+    unsigned j = v->done, k;
+    if (o <= j) return;
+    for (k = 0; k < 2; k++) {
+        if (v->moff[k] < o) {                                /* a bounce: the same contact, smaller */
+            unsigned at = v->moff[k] > j ? v->moff[k] : j;
+            tx_modal_run(v->m, v->nm, s->buf, j, at);
+            j = at;
+            strike(v, (int32_t)(((int64_t)v->a0 * v->mamp[k]) >> 15));
+            v->moff[k] = 0xFFFF;
+        }
+    }
+    tx_modal_run(v->m, v->nm, s->buf, j, o);
+    v->done = (uint16_t)o;
+}
+
 static void tune(drum_t *s, stone_t *v, const uint32_t *ratio, unsigned n, unsigned note, uint32_t qx16)
 {
     int32_t vy = s->p[P_VARY];
@@ -231,6 +253,8 @@ static void hit(drum_t *s, const tx_event_t *e, unsigned *which)
         stolen = 1;
     }
     if (!v) return;
+    if (v->alive) voice_upto(s, v, e->offset);               /* (its ring up to this strike's sample) */
+    else v->done = e->offset;
     *which = (unsigned)(v - s->v);
     lv = 65536 + ((int32_t)e->vel - 100) * 1638;            /* 2 m/s at v100, +-1 octave per 40 */
     lv += (tx_rand_s15(&s->cloud.rng) * s->p[P_VARY]) >> 6;  /* no two hits alike: +-0.8 oct of speed at VARY 100
@@ -263,7 +287,8 @@ static void hit(drum_t *s, const tx_event_t *e, unsigned *which)
         /* the attack residue: the many short-lived high modes a real stone has beyond the NM kept (and the contact's
          * own noise), as a ~3 ms low-passed noise burst weighted by the force spectrum at 4 kHz (ours; by the reference: the
          * first 10 ms of a hammer on a ringing rock is ~2.4 kHz centroid, > 4 kHz at -15 dB) */
-        s->res += (int32_t)(((int64_t)(int32_t)tx_vary_scale((uint32_t)(a >> 1), tx_vary_tone(&s->vy) >> 1)
+        if (!s->res_in || e->offset < s->res_at) s->res_at = (uint16_t)e->offset;   /* (from its sample) */
+        s->res_in += (int32_t)(((int64_t)(int32_t)tx_vary_scale((uint32_t)(a >> 1), tx_vary_tone(&s->vy) >> 1)
                              * tx_contact_weight(tc, 4000u)) >> 15);   /* (brighter: more of it) */
     }
     v->alive = 1; v->note = e->note; v->a0 = a;
@@ -279,17 +304,10 @@ static void hit(drum_t *s, const tx_event_t *e, unsigned *which)
 
 static void render_voice(drum_t *s, stone_t *v, unsigned n)
 {
-    unsigned j = 0, k;
-    for (k = 0; k < 2; k++) {
-        if (v->moff[k] < n) {                                /* a bounce: the same contact, smaller */
-            tx_modal_run(v->m, v->nm, s->buf, j, v->moff[k]);
-            j = v->moff[k];
-            strike(v, (int32_t)(((int64_t)v->a0 * v->mamp[k]) >> 15));
-            v->moff[k] = 0xFFFF;
-        } else if (v->moff[k] != 0xFFFF)
-            v->moff[k] = (uint16_t)(v->moff[k] - n);
-    }
-    tx_modal_run(v->m, v->nm, s->buf, j, n);
+    unsigned k;
+    voice_upto(s, v, n);
+    v->done = 0;
+    for (k = 0; k < 2; k++) if (v->moff[k] != 0xFFFF) v->moff[k] = (uint16_t)(v->moff[k] - n);
 }
 
 TX_AUDIO_CODE static void drum_render(void *st, int32_t *mix, unsigned n)
@@ -312,8 +330,8 @@ TX_AUDIO_CODE static void drum_render(void *st, int32_t *mix, unsigned n)
                 for (m = 0; m < v->nm; m++) v->m[m].inc = v->inc0[m] - (uint32_t)(((uint64_t)v->inc0[m] * (uint32_t)v->flat) >> 15);
             }
         }
-        for (e = 0; e < k; e++) {                            /* key strikes land at the block start (keys are */
-            unsigned w = NV;                                 /* block-rate events); micro-collisions at their sample */
+        for (e = 0; e < k; e++) {                            /* each strike on its own sample (its stone rendered up */
+            unsigned w = NV;                                 /* to it first); micro-collisions at theirs */
             hit(s, &s->ev[e], &w);
             (void)w;
         }
@@ -329,16 +347,20 @@ TX_AUDIO_CODE static void drum_render(void *st, int32_t *mix, unsigned n)
         }
         if (!live && v->moff[0] == 0xFFFF && v->moff[1] == 0xFFFF) v->alive = 0;
     }
-    if (s->res) {                                            /* residue: noise x e^(-t / 3 ms) */
+    if (s->res || s->res_in) {                               /* residue: noise x e^(-t / 3 ms), a strike's from its sample */
         int32_t e = s->res, x1 = s->res_x1;
+        unsigned at = s->res_in ? s->res_at : n;
         for (j = 0; j < n; j++) {
-            int32_t x = (int32_t)(tx_rand(&s->cloud.rng) >> 17) - 16384;   /* +-2^14 */
+            int32_t x;
+            if (j == at) { e += s->res_in; s->res_in = 0; }
+            if (e <= 0) { if (j >= at) { e = 0; break; } j = at - 1u; continue; }   /* (silent up to the strike) */
+            x = (int32_t)(tx_rand(&s->cloud.rng) >> 17) - 16384;   /* +-2^14 */
             x1 += (x - x1) >> 1;                             /* a gentle low-pass (~7 kHz) */
             s->buf[j] += (x1 * (e >> 14)) >> 3;
             e -= (e >> 7) + 1;                               /* tau 128 samples = 2.9 ms */
-            if (e <= 0) { e = 0; break; }
+            if (e <= 0) { e = 0; if (j >= at) break; }
         }
-        s->res = e; s->res_x1 = e ? x1 : 0;
+        s->res = e; s->res_x1 = e ? x1 : 0; s->res_in = 0;
     }
     tx_vary_block(&s->vy, s->buf, n);
     tx_trim(s->buf, n, OUT_TRIM);

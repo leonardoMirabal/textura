@@ -14,7 +14,8 @@
  *            its band with a random sign (power adds), so the cost stays flat however dense the cloud.
  *   render   per band, its impulses in time order through the resonator ((1 - z^-2) / 2 band-pass: no DC).
  * Cost: per sample 2 multiplies per sounding band; per event a few operations (each goes into its block's time slot of 8
- * samples: no sorting). Header-only, integer, an instance (~0.9 KB). */
+ * samples: no sorting; within its slot it starts on its own sample, never on a grid). Header-only, integer, an instance
+ * (~1 KB). */
 #ifndef TX_CORE_GRAINS_H
 #define TX_CORE_GRAINS_H
 #include <stdint.h>
@@ -23,7 +24,7 @@
 
 #define TX_GR_BANKS 6u
 #define TX_GR_MAX 96u
-#define TX_GR_SLOTS 32u           /* a block's time slots (8 samples, 0.18 ms: a far grain's onset is placed in its slot) */
+#define TX_GR_SLOTS 32u           /* a block's time slots (8 samples, 0.18 ms: a slot's grains found at once) */
 #define TX_GR_PITCH 16u           /* pitches per band (coefficients made once: a grain picks one) */
 
 typedef struct {
@@ -33,6 +34,7 @@ typedef struct {
     uint16_t q[TX_GR_BANKS];                     /* Q x16 */
     int16_t amp[TX_GR_MAX];
     uint8_t bank[TX_GR_MAX], next[TX_GR_MAX];   /* a grain's band; the next grain in its slot (0xFF: none) */
+    uint8_t off[TX_GR_MAX];                      /* its sample in the block */
     uint8_t head[TX_GR_SLOTS];                   /* each slot's first grain (0xFF: none) */
     uint8_t n, nb, pad[2];
 } tx_grains_t;
@@ -80,7 +82,7 @@ static inline void tx_gr_add(tx_grains_t *g, tx_rng_t *r, unsigned off, uint32_t
     if (g->n < TX_GR_MAX) {                                  /* into its time slot */
         unsigned sl = off * TX_GR_SLOTS / TX_BLOCK;
         i = g->n++;
-        g->amp[i] = (int16_t)amp; g->bank[i] = (uint8_t)b;
+        g->amp[i] = (int16_t)amp; g->bank[i] = (uint8_t)b; g->off[i] = (uint8_t)off;
         g->next[i] = g->head[sl]; g->head[sl] = (uint8_t)i;
     } else {                                                 /* full: joins an earlier one (power adds) */
         unsigned k = tx_rand_below(r, TX_GR_MAX);
@@ -100,6 +102,25 @@ TX_AUDIO_CODE static inline void tx_gr_render(tx_grains_t *g, tx_rng_t *r, int32
         unsigned has = 0, i;
         for (i = 0; i < g->n; i++) if (g->bank[i] == b) { has = 1; break; }
         if (!has && !(y1 | y2 | p1 | p2)) continue;
+        if (!has && !(p1 | p2) && y1 == y2 && ((a1 * y1) >> 14) - ((a2 * y2) >> 14) == y1) {   /* a ring rounded to its
+                                                              * own fixed point (a DC): let go over the block, not cut
+                                                              * at its end (a step on the block's grid) */
+            for (j = 0; j < n; j++) out[j] += (y1 - (y1 * (int32_t)(j + 1u)) / (int32_t)n) * gg;   /* (|y1| < 2^17) */
+            q->y1 = q->y2 = 0;
+            continue;
+        }
+        zl = q->zlim ? q->zlim : 8;
+        if (!has && !(p1 | p2) && y1 > -zl && y1 < zl && y2 > -zl && y2 < zl) {   /* small (a rounding cycle): faded out
+                                                              * over this block, then exact zero (a cut at the block's
+                                                              * end was a step on its grid) */
+            for (j = 0; j < n; j++) {
+                int32_t y = ((a1 * y1) >> 14) - ((a2 * y2) >> 14);
+                y2 = y1; y1 = y;
+                out[j] += (y * gg * (int32_t)(n - 1u - j)) / (int32_t)n;   /* (|y| < zl: < 2^31) */
+            }
+            q->y1 = q->y2 = 0;
+            continue;
+        }
         j = 0;
         for (sl = 0; sl <= TX_GR_SLOTS; sl++) {              /* slot by slot: a tight loop to the slot's start, then */
             unsigned end = sl < TX_GR_SLOTS ? sl * n / TX_GR_SLOTS : n;   /* its grains of this band at once */
@@ -119,22 +140,30 @@ TX_AUDIO_CODE static inline void tx_gr_render(tx_grains_t *g, tx_rng_t *r, int32
                 out[j] += y * gg;
             }
             if (sl == TX_GR_SLOTS || !has) { if (sl < TX_GR_SLOTS) continue; break; }
-            for (k = g->head[sl]; k != 0xFFu; k = g->next[k]) if (g->bank[k] == b) {
-                unsigned pk = tx_rand(r) >> 28;                  /* each grain its own pitch in the band */
-                a1 = g->c1[b][pk]; a2 = g->c2[b][pk];
-                x += g->amp[k];
-            }
-            if (x && j < n) {
-                int32_t y = ((a1 * y1) >> 14) - ((a2 * y2) >> 14) + ((x - p2) >> 1);
-                y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
-                p2 = p1; p1 = x;
-                y2 = y1; y1 = y;
-                out[j] += y * gg;
-                j++;
+            for (k = g->head[sl]; k != 0xFFu && g->bank[k] != b; k = g->next[k]) { }
+            if (k == 0xFFu) continue;                        /* (none of this band in the slot) */
+            {   /* the slot sample by sample: each grain on its own sample (a short block: all at the slot's start) */
+                unsigned e1 = sl + 1u < TX_GR_SLOTS ? (sl + 1u) * n / TX_GR_SLOTS : n, s0 = j;
+                for (; j < e1; j++) {
+                    int32_t y;
+                    x = 0;
+                    for (k = g->head[sl]; k != 0xFFu; k = g->next[k])
+                        if (g->bank[k] == b && (n == TX_BLOCK ? g->off[k] == j : j == s0)) {
+                            unsigned pk = tx_rand(r) >> 28;  /* each grain its own pitch in the band */
+                            a1 = g->c1[b][pk]; a2 = g->c2[b][pk];
+                            x += g->amp[k];
+                        }
+                    y = ((a1 * y1) >> 14) - ((a2 * y2) >> 14) + (x ? (x - p2) >> 1 : -(p2 >> 1));
+                    y = y > 65535 ? 65535 : y < -65535 ? -65535 : y;
+                    p2 = p1; p1 = x;
+                    y2 = y1; y1 = y;
+                    out[j] += y * gg;
+                }
             }
         }
-        zl = q->zlim ? q->zlim : 8;                          /* silent: small or frozen -> exact zero */
-        if (!has && !(p1 | p2) && ((y1 > -zl && y1 < zl && y2 > -zl && y2 < zl) || (y1 == y01 && y2 == y02))) y1 = y2 = 0;
+        if (!has && !(p1 | p2) && y1 == y01 && y2 == y02 && y1 != y2 && !(y1 > -zl && y1 < zl && y2 > -zl && y2 < zl))
+            y1 = y2 = 0;                                     /* silent: frozen -> exact zero (small or a DC: let go over
+                                                              * the next block, above) */
         q->y1 = y1; q->y2 = y2; q->p1 = p1; q->p2 = p2; q->a1 = a1; q->a2 = a2;
     }
     for (sl = 0; sl < TX_GR_SLOTS; sl++) g->head[sl] = 0xFF;

@@ -705,6 +705,9 @@ static void ln_block(int32_t *L, int32_t *R, uint32_t n)
 #endif
             if (ln.int_id[k] >= 0) ln.mix.e[k]->param(ln.mix.st[k], (uint8_t)ln.int_id[k], in);
             for (q = 0; q < ne && !ln.gen_mute[k]; q++) {
+                if (ev[q].vel)                  /* the note's own sample in the block (TX_PID_KEYAT): no onsets on
+                                                 * the block's grid */
+                    ln.mix.e[k]->param(ln.mix.st[k], TX_PID_KEYAT, (uint8_t)(ev[q].off < TX_BLOCK ? ev[q].off : TX_BLOCK - 1u));
                 ln.mix.e[k]->key(ln.mix.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
 #ifdef LN_MOD
                 if (ev[q].vel) mod_key_isr(k, ev[q].vel);

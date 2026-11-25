@@ -95,7 +95,9 @@ typedef struct {
     uint32_t sw_ph, sw_inc;        /* the swing: phase, step per block */
     int32_t sw_d;                  /* its depth (Q15), dying */
     int32_t bforce[2];             /* their force (Q15), signed */
-    uint8_t em, note, alive, nm, ak, pad[3];
+    int32_t qf[4];                 /* this block's blows, each at its own sample: force (Q15) and sample (qo), qn of */
+    uint8_t qo[4], qn, pad[3];     /* them (the tube renders up to each, then it is struck: never on the block grid) */
+    uint8_t em, note, alive, nm, ak, pad2[3];
 } tube_t;
 
 typedef struct {
@@ -169,6 +171,7 @@ static int32_t coef_q16(uint32_t f_q8)
 static void chimes_param(void *st, uint8_t id, uint8_t val)
 {
     chimes_t *s = (chimes_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) {
         unsigned i;
         s->limit = (uint8_t)(val < 1u ? 1u : val > NT ? NT : val);
@@ -203,7 +206,7 @@ static void kick_mode(tx_pmode_t *m, int32_t a)
  * (the user's session 3): the force +-0.4 oct, the clapper's hardness +-0.5 of the tilt (and the press's tone), the point along the tube
  * (each mode weighted 0.15 .. 1 by its shape there: SHAPE), and 1-2 bounces 3-40 ms later at -6 .. -18 dB that add to the
  * ring in phase or against it (ours) */
-static void strike(chimes_t *s, tube_t *t, int32_t force_q15, int bounce)
+static void strike(chimes_t *s, tube_t *t, int32_t force_q15, int bounce, unsigned o)
 {
     tx_rng_t *r = &s->cloud.rng;
     unsigned i;
@@ -233,7 +236,7 @@ static void strike(chimes_t *s, tube_t *t, int32_t force_q15, int bounce)
     {   /* the clapper's click: a Hertz pulse of 4-18 samples (harder clapper = shorter), ~ the force (ours) */
         int32_t ca = (int32_t)(((int64_t)force_q15 * A_STRIKE >> 15) * s->level >> 15) >> 1;
         uint32_t dur = 4u + (uint32_t)(tilt >> 13) + tx_rand_below(r, 4u);
-        tx_pulse_start(&s->clicks, TX_PULSE_SHAPE_HERTZ, dur, ca > 32767 ? 32767 : ca, 0);
+        tx_pulse_start(&s->clicks, TX_PULSE_SHAPE_HERTZ, dur, ca > 32767 ? 32767 : ca, o);
     }
     if (!bounce) {                                           /* the blow sets the tube swinging */
         t->sw_inc = 14984956u + (tx_rand(r) >> 16) * 228u;   /* 0.6 .. 1.2 Hz at 172.3 blocks / s */
@@ -241,10 +244,17 @@ static void strike(chimes_t *s, tube_t *t, int32_t force_q15, int bounce)
         t->sw_d = 4915 + (int32_t)tx_rand_below(r, 11469u); /* 15 .. 50 % */
         unsigned nb = 1u + tx_rand_below(r, 2u), k;           /* a clapper on a string rebounds */
         for (k = 0; k < 2u; k++) {
-            t->bdue[k] = k < nb ? 132u + tx_rand_below(r, 1632u) * (k + 1u) : 0u;
+            t->bdue[k] = k < nb ? o + 132u + tx_rand_below(r, 1632u) * (k + 1u) : 0u;   /* (from the blow's sample) */
             t->bforce[k] = (int32_t)(((int64_t)force_q15 * (4129 + (int32_t)tx_rand_below(r, 12288u))) >> 15) * ((tx_rand(r) & 1u) ? 1 : -1);
         }
     }
+}
+
+/* a blow at sample o of this block: queued on the tube, struck in time order as the tube renders (chimes_render) */
+static void blow(tube_t *t, int32_t force_q15, unsigned o)
+{
+    if (t->qn >= 4u) return;                                 /* (a fifth in one block on one tube: too close to hear) */
+    t->qf[t->qn] = force_q15; t->qo[t->qn] = (uint8_t)(o < TX_BLOCK ? o : TX_BLOCK - 1u); t->qn++;
 }
 
 static void hang(chimes_t *s, const tx_event_t *e)
@@ -277,7 +287,7 @@ static void hang(chimes_t *s, const tx_event_t *e)
     }
     t->alive = 1; t->em = e->emitter; t->note = e->note;
     t->tmax = s->q * 291060u / (t->f1 ? t->f1 : 1u);         /* 3 T60 = 6.6 Q / f1 s, samples */
-    strike(s, t, (int32_t)e->vel * e->vel * 2, 0);
+    blow(t, (int32_t)e->vel * e->vel * 2, e->offset);
 }
 
 TX_AUDIO_CODE static void chimes_render(void *st, int32_t *mix, unsigned n)
@@ -315,7 +325,8 @@ TX_AUDIO_CODE static void chimes_render(void *st, int32_t *mix, unsigned n)
                 unsigned pick = tx_rand_below(r, hanging), c = 0;
                 for (i = 0; i < NT; i++)
                     if (s->t[i].alive && c++ == pick) {
-                        strike(s, &s->t[i], (int32_t)(((s->energy >> 1) + (int32_t)(tx_rand(r) >> 18)) >> 0), 0);
+                        blow(&s->t[i], (int32_t)(((s->energy >> 1) + (int32_t)(tx_rand(r) >> 18)) >> 0), tx_rand(r) >> 24);   /* (a
+                                                     * gust's blow: anywhere in the block, as likely) */
                         break;
                     }
             }
@@ -324,19 +335,27 @@ TX_AUDIO_CODE static void chimes_render(void *st, int32_t *mix, unsigned n)
     for (i = 0; i < NT; i++) {
         tube_t *t = &s->t[i];
         unsigned q;
-        {   /* the clapper's bounces due in this block (at its start) */
-            unsigned k;
-            for (k = 0; k < 2u; k++)
-                if (t->bdue[k]) {
-                    if (t->bdue[k] <= n) { t->bdue[k] = 0; if (t->nm) strike(s, t, t->bforce[k], 1); }
-                    else t->bdue[k] -= n;
-                }
-        }
-        if (!t->nm || tube_quiet(t)) continue;
+        unsigned done = 0, nmo = t->nm + (t->nm < NB ? t->nm : NB);
+        int32_t lvl;
+        if (!t->nm || (tube_quiet(t) && !t->qn && !((t->bdue[0] && t->bdue[0] <= n) || (t->bdue[1] && t->bdue[1] <= n)))) { t->qn = 0; for (q = 0; q < 2u; q++) t->bdue[q] = t->bdue[q] > n ? t->bdue[q] - n : 0u; continue; }
         t->sw_ph += t->sw_inc;
         t->sw_d -= t->sw_d >> 8;                             /* the swing dies (~1.5 s) */
-        tx_pmode_add(t->m, t->nm + (t->nm < NB ? t->nm : NB), 32767 - t->sw_d + ((t->sw_d * tx_sin_q15(t->sw_ph)) >> 15),
-                     buf, n);                                /* the envelope ramps to g x the swing over the block */
+        lvl = 32767 - t->sw_d + ((t->sw_d * tx_sin_q15(t->sw_ph)) >> 15);
+        for (;;) {   /* the blows and the clapper's bounces due in this block, in time order, each at its own sample:
+                      * the tube renders up to it (the envelope ramps to g x the swing), then it is struck */
+            unsigned o = TX_BLOCK, pick = 8u, k;
+            for (k = 0; k < t->qn; k++) if (t->qo[k] < o) { o = t->qo[k]; pick = k; }
+            for (k = 0; k < 2u; k++) if (t->bdue[k] && t->bdue[k] <= n && t->bdue[k] - 1u < o) { o = t->bdue[k] - 1u; pick = 4u + k; }
+            if (pick == 8u) break;
+            if (o > done) { tx_pmode_add(t->m, nmo, lvl, buf + done, o - done); done = o; }
+            if (pick < 4u) {
+                int32_t f = t->qf[pick];
+                t->qn--; t->qf[pick] = t->qf[t->qn]; t->qo[pick] = t->qo[t->qn];
+                strike(s, t, f, 0, o);
+            } else { t->bdue[pick - 4u] = 0; strike(s, t, t->bforce[pick - 4u], 1, o); }
+        }
+        for (q = 0; q < 2u; q++) t->bdue[q] = t->bdue[q] > n ? t->bdue[q] - n : 0u;
+        if (n > done) tx_pmode_add(t->m, nmo, lvl, buf + done, n - done);
         for (q = 0; q < t->nm + (t->nm < NB ? t->nm : NB); q++) {   /* then decays one block */
             int32_t e = t->ge[q];
             if ((e >> 8) != t->m[q].g) e = t->m[q].g << 8;   /* (struck since: from the mode's amplitude) */

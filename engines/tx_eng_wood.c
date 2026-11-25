@@ -197,6 +197,7 @@ static void wood_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void wood_param(void *st, uint8_t id, uint8_t val)
 {
     wood_t *s = (wood_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) {
         unsigned i, k;
         s->limit = (uint8_t)(val < 1u ? 1u : val > NP_ ? NP_ : val);
@@ -266,7 +267,9 @@ static void take(wood_t *s, const tx_event_t *e)
     p->thud.m16 = tx_mode_decay(p->thud.inc / 97391u, 48u, 0u);
     p->t = 0;
     p->tau = s->k->snap == 2u ? 882u + tx_rand_below(&s->cloud.rng, 3529u)   /* a step: 20 .. 100 ms (ours) */
-           : s->k->snap && s->tau_s ? s->tau_s - (s->tau_s >> 2) + (uint32_t)(((uint64_t)s->tau_s * (tx_rand(&s->cloud.rng) >> 16)) >> 17) : 0u;   /* +-25 % (ours) */ p->next_q8 = 0; p->snapped = 0;
+           : s->k->snap && s->tau_s ? s->tau_s - (s->tau_s >> 2) + (uint32_t)(((uint64_t)s->tau_s * (tx_rand(&s->cloud.rng) >> 16)) >> 17) : 0u;   /* +-25 % (ours) */ p->snapped = 0;
+    if (p->tau) p->tau += e->offset;                         /* (the load starts at the event's own sample, as its */
+    p->next_q8 = (uint32_t)e->offset << 8;                   /* first precursor: never on the block grid) */
     for (k = 0; k < NAF; k++) p->af[k] = 0;
     p->tl = 0;
     p->cenv = 0; p->cgoal = s->k->groan ? 0 : 32767;
@@ -357,7 +360,8 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
     for (i = 0; i < k; i++) take(s, &s->ev[i]);
     for (i = 0; i < NP_; i++) {
         piece_t *p = &s->pc[i];
-        unsigned ne = 0, a, j0 = 0;
+        unsigned ne = 0, a, j0 = 0, tho = 0;
+        int32_t tha = 0;                                     /* (the snap's thud: struck at the snap's sample) */
         if (piece_quiet(p)) continue;
         any = 1;
         if (p->alive) {
@@ -386,7 +390,8 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
                     if (s->k->thud) {
                         int32_t g = (int32_t)(((int64_t)tx_rand_s15(r) + tx_rand_s15(r) + tx_rand_s15(r)) * 65536 >> 15);
                         g = g > (1 << 16) ? (1 << 16) : g;
-                        tx_mode_strike(&p->thud, (int32_t)(((int64_t)(A_REF / 3) * (int32_t)tx_exp2(g - 98304 + (15 << 16)) >> 15) * s->level >> 15));
+                        tha = (int32_t)(((int64_t)(A_REF / 3) * (int32_t)tx_exp2(g - 98304 + (15 << 16)) >> 15) * s->level >> 15);
+                        tho = o < n ? o : n - 1u;
                     }
                     for (a = 0; a < 16; a++) c2 += bits >> a & 1u;   /* binomial(16, 1/2): mean 8 */
                     if (s->k->snap == 2u) c2 >>= 2;                  /* (a thin twig: ~2, within 0.5 s: ours) */
@@ -484,7 +489,8 @@ TX_AUDIO_CODE static void wood_render(void *st, int32_t *mix, unsigned n)
             for (m = 0; m < NMW; m++) if (p->m[m].inc) tx_mode_strike(&p->m[m], (int32_t)(s->ea[a] * ((m & 1u) ? -12000 : 16000)) >> 0);
         }
         tx_modal_run(p->m, NMW, s->buf, j0, n);
-        tx_modal_run(&p->thud, 1, s->buf, 0, n);
+        if (tha) { tx_modal_run(&p->thud, 1, s->buf, 0, tho); tx_mode_strike(&p->thud, tha); }
+        tx_modal_run(&p->thud, 1, s->buf, tho, n);
     }
     {   /* the clicks: a 1-3 sample spike and a ~1 ms burst */
         int32_t e = s->res, x1 = s->res_x1, dry = 32767 - (int32_t)s->p[P_MOIST] * 258;

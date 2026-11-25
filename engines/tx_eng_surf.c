@@ -220,6 +220,7 @@ static void surf_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void surf_param(void *st, uint8_t id, uint8_t val)
 {
     surf_t *s = (surf_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) {
         uint32_t cut, i;
         s->limit = (uint8_t)(val < 1u ? 1u : val > NH ? NH : val);

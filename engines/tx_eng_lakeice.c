@@ -183,6 +183,7 @@ static void ice_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void ice_param(void *st, uint8_t id, uint8_t val)
 {
     ice_t *s = (ice_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) {
         uint32_t cut = tx_pool_set_limit(&s->pool, val), i;
         for (i = 0; i < TX_POOL_MAX; i++) if (cut >> i & 1u) s->ch[i].on = 0;   /* (a cut chirp stops at once) */
@@ -212,6 +213,10 @@ static void crack(ice_t *s, const tx_event_t *e)
     a = (int32_t)(((int64_t)(a > 32767 ? 32767 : a) * s->level) >> 15);
     slot = tx_pool_take(&s->pool, (uint32_t)a, &stolen);
     if (slot >= 0) {
+        if (stolen && s->ch[slot].on) {                     /* a stolen chirp fades out up to the new crack's sample */
+            s->ch[slot].Tend = 0;                            /* (not cut at the block's start) */
+            tx_chirp_add(&s->ch[slot], s->buf, e->offset);
+        }
         tx_chirp_start(&s->ch[slot], x, tx_exp2(hl2), (uint32_t)s->q, a);
         s->ch[slot].wait += e->offset;
         if (!s->ch[slot].on) tx_pool_free(&s->pool, (unsigned)slot);
@@ -229,11 +234,22 @@ static void crack(ice_t *s, const tx_event_t *e)
         s->dropped++;
 }
 
+/* the sheet's tone and the boom over samples a .. b of the block (an air wave retunes them on its own sample) */
+TX_AUDIO_CODE static void rings(ice_t *s, unsigned a, unsigned b)
+{
+    int32_t g = 1024, gi = s->tg, gb = 2048, gbi = s->bgin;
+    if (b <= a) return;
+    tx_svf_bank_add_g(&s->tone, &s->tf, s->tq, &gi, &g, 1, s->ex + a, s->buf + a, b - a);
+    tx_svf_bank_add_g(&s->boom, &s->bf, 16384 / 16, &gbi, &gb, 1, s->bx + a, s->buf + a, b - a);   /* (Q 16: it rings
+                                                              * ~0.1-0.3 s) */
+}
+
 TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
 {
     ice_t *s = (ice_t *)st;
     unsigned k, i, j;
-    int32_t *buf = s->buf, *ex = s->ex, *bx = s->bx, any = 0, bany = 0;
+    int32_t *buf = s->buf, *ex = s->ex, *bx = s->bx, any = 0;
+    unsigned rd = 0;                                         /* the rings rendered up to here */
     uint32_t rej0 = s->pool.rejected;
     if (n > TX_BLOCK) n = TX_BLOCK;
     for (j = 0; j < n; j++) buf[j] = ex[j] = bx[j] = 0;
@@ -254,6 +270,7 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
         d = (int32_t)(w->due - s->now);
         if (d < (int32_t)n) {
             unsigned off = d < 0 ? 0u : (unsigned)d;
+            if (off > rd) { rings(s, rd, off); rd = off; }
             tx_pulse_start(&s->clicks, TX_PULSE_SHAPE_NWAVE, w->dur, w->amp, off);
             tone_set(s, w->hl2);
             ex[off] += w->amp * 2048;                        /* rings the sheet's tone (calibrated by render) */
@@ -265,18 +282,9 @@ TX_AUDIO_CODE static void ice_render(void *st, int32_t *mix, unsigned n)
     }
     tx_pulses_add(&s->clicks, buf, n);
     for (j = 0; j < n; j++) any |= ex[j];
-    {
-        int32_t g = 1024, gi = s->tg;
-        tx_svf_bank_add_g(&s->tone, &s->tf, s->tq, &gi, &g, 1, ex, buf, n);
-        s->tsilent = any ? 0u : s->tsilent + n;              /* a high-Q band can hold a tiny rounding cycle: */
-        if (s->tsilent > s->tmax) s->tone.low = s->tone.band = s->tone.ef = 0;   /* 3 T60 after its last ring */
-    }
-    for (j = 0; j < n; j++) bany |= bx[j];
-    {   /* the boom (Q 16: it rings ~0.1-0.3 s) */
-        int32_t g = 2048, gi = s->bgin;
-        tx_svf_bank_add_g(&s->boom, &s->bf, 16384 / 16, &gi, &g, 1, bx, buf, n);
-        (void)bany;
-    }
+    rings(s, rd, n);
+    s->tsilent = any ? 0u : s->tsilent + n;                  /* a high-Q band can hold a tiny rounding cycle: */
+    if (s->tsilent > s->tmax) s->tone.low = s->tone.band = s->tone.ef = 0;   /* 3 T60 after its last ring */
     s->now += n;
     tx_vary_block(&s->vy, buf, n);
     if (s->k->near) {   /* a one-pole high-pass at ~700 Hz (c = 1/8 - 1/64 ~ 2 pi 700 / fs): the references are flat 0.5-12 kHz */

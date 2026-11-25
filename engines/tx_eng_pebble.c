@@ -83,7 +83,7 @@ typedef struct {
     tx_dcblock_t hp;
     voice_t v[NV];
     tx_svf_t surf[NM];
-    int32_t sf[NM], sgin[NM], sg[NM], sq;
+    int32_t sf[NM], sgin[NM], sg[NM], sgi[NM], sq;   /* sgi: the input gains x the shape at the contact */
     uint32_t kph[NM], mph[NM];     /* each mode's spatial frequency (phase per mm Q8) and its phase at the contact */
     uint16_t kq[NM];               /* this node-to-node span's length factor, Q8 (the path's own) */
     uint32_t prng;                 /* the path's draws (apart from the cloud's) */
@@ -116,6 +116,7 @@ static void set_surface(pebble_t *s)
         s->sf[i] = tx_svf_coef(hz);
         s->sgin[i] = (int32_t)tx_svf_gin_noise(hz, q * 16u);
         s->sg[i] = SURF_G[i];
+        s->sgi[i] = s->sgin[i];
         s->kph[i] = 83886u * isqrt32(hz * 109u) / 256u;     /* 2^24 / lambda, lambda = 200 mm sqrt(600 Hz / f) */
     }
 }
@@ -182,6 +183,7 @@ static void cut(pebble_t *s, voice_t *v)
 static void pebble_param(void *st, uint8_t id, uint8_t val)
 {
     pebble_t *s = (pebble_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) {
         unsigned i;
         s->limit = (uint8_t)(val < 1u ? 1u : val > NV ? NV : val);
@@ -336,11 +338,13 @@ TX_AUDIO_CODE static void pebble_render(void *st, int32_t *mix, unsigned n)
             }
             sh = tx_sin_q15(s->mph[m]);
             sh = (sh * sh) >> 15;                            /* the shape's power at the contact: 0 at a node */
-            s->sg[m] = (int32_t)((SURF_G[m] * (uint32_t)(983 + ((sh * 31785) >> 15))) >> 15);   /* 0.03 .. 1 */
+            s->sgi[m] = (int32_t)(((uint32_t)s->sgin[m] * (uint32_t)(983 + ((sh * 31785) >> 15))) >> 15);   /* 0.03 .. 1: the
+                                                              * force drives the mode as its shape there (its input; an
+                                                              * output gain stepped at each block's start: on the grid) */
         }
     }
     for (j = 0; j < n; j++) buf[j] = force[j] >> 1;         /* the contact itself (the clicks' edge) */
-    tx_svf_bank_add_g(s->surf, s->sf, s->sq, s->sgin, s->sg, NM, force, buf, n);   /* the surface */
+    tx_svf_bank_add_g(s->surf, s->sf, s->sq, s->sgi, s->sg, NM, force, buf, n);   /* the surface */
     tx_declick_run(&s->dc, buf, n);
     tx_vary_block(&s->vy, buf, n);
     tx_trim(buf, n, OUT_TRIM);

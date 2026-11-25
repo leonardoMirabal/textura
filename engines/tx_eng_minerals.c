@@ -74,8 +74,8 @@ typedef struct {
     tx_mode_t m[NMV];
     uint16_t f[NMV];
     int16_t gw[NMV];
-    uint16_t moff[3];              /* rattles: samples from the block start (0xFFFF none) */
-    int16_t mamp[3];               /* Q15 of the knock */
+    uint16_t moff[4];              /* the knock (0), then its rattles: samples from the block start (0xFFFF none) */
+    int16_t mamp[4];               /* Q15 of the knock */
     int32_t a0;
     uint32_t next_q8;              /* rub: samples to the next micro-impact */
     uint8_t note, vel, alive, em, rub, pad[3];
@@ -147,6 +147,7 @@ static void min_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void min_param(void *st, uint8_t id, uint8_t val)
 {
     min_t *s = (min_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) {
         unsigned i, k;
         s->limit = (uint8_t)(val < 1u ? 1u : val > NV ? NV : val);
@@ -232,12 +233,12 @@ static void knock(min_t *s, const tx_event_t *e)
     v->note = e->note; v->vel = e->vel; v->em = e->emitter; v->a0 = a;
     build(s, v, tc);
     v->rub = (uint8_t)(act == 2u);
-    v->next_q8 = 0;
-    if (!v->rub) strike(v, a);
-    v->moff[0] = v->moff[1] = v->moff[2] = 0xFFFF;
+    v->next_q8 = (uint32_t)e->offset << 8;                   /* (a rub from the event's own sample) */
+    v->moff[0] = v->moff[1] = v->moff[2] = v->moff[3] = 0xFFFF;
+    if (!v->rub) { v->moff[0] = e->offset; v->mamp[0] = 32767; }   /* (the knock at its own sample, not the block's start) */
     if (act == 1u) {                                         /* clink: the pair rattles */
         uint32_t n = 1u + tx_rand_below(&s->cloud.rng, 3u), k, t = e->offset;
-        for (k = 0; k < n; k++) {
+        for (k = 1; k <= n; k++) {
             t += 40u + tx_rand_below(&s->cloud.rng, 220u);   /* within ~15 ms */
             v->moff[k] = (uint16_t)t;
             v->mamp[k] = (int16_t)(5800 + tx_rand_below(&s->cloud.rng, 10600u));   /* -15 .. -6 dB */
@@ -266,23 +267,24 @@ TX_AUDIO_CODE static void min_render(void *st, int32_t *mix, unsigned n)
             if (!held) v->rub = 0;
             unsigned sb;
             for (sb = 0; v->rub && sb < n; sb += 128u) {    /* the impacts of each 128-sample slice (2.9 ms), summed */
-                int32_t sum = 0;                             /* into one strike at its start (CPU: 2 per block) */
-                unsigned e1 = sb + 128u < n ? sb + 128u : n;
+                int32_t sum = 0;                             /* into one strike at its first one's sample (CPU: 2 per */
+                unsigned e1 = sb + 128u < n ? sb + 128u : n, fo = e1;   /* block; never on the slice grid) */
                 while ((v->next_q8 >> 8) < e1) {
+                    if (fo == e1) fo = (v->next_q8 >> 8) > j0 ? v->next_q8 >> 8 : j0;
                     int32_t x = (int32_t)(((int64_t)tx_neglog2_q12(tx_rand(&s->cloud.rng)) * 8192) >> 12);   /* alpha 1.5 */
                     int32_t a = (int32_t)(((int64_t)(v->a0 >> 3) * (int32_t)tx_exp2(-(x > 65536 * 6 ? 65536 * 6 : x) + (15 << 16))) >> 15);
                     sum += (tx_rand(&s->cloud.rng) & 1u) ? a : -a;
                     v->next_q8 += tx_cloud_exp_q8(&s->cloud, per_q8);
                 }
                 if (sum) {
-                    tx_modal_run(v->m, NMV, s->buf, j0, sb);
-                    j0 = sb;
+                    tx_modal_run(v->m, NMV, s->buf, j0, fo);
+                    j0 = fo;
                     strike(v, sum);
                 }
             }
             if (v->rub) v->next_q8 -= (uint32_t)n << 8;
         }
-        for (m = 0; m < 3; m++) {
+        for (m = 0; m < 4; m++) {
             if (v->moff[m] < n && v->moff[m] >= j0) {
                 tx_modal_run(v->m, NMV, s->buf, j0, v->moff[m]);
                 j0 = v->moff[m];
@@ -293,7 +295,7 @@ TX_AUDIO_CODE static void min_render(void *st, int32_t *mix, unsigned n)
         }
         tx_modal_run(v->m, NMV, s->buf, j0, n);
         for (m = 0; m < NMV; m++) live |= v->m[m].amp != 0;
-        if (!live && !v->rub && v->moff[0] == 0xFFFF && v->moff[1] == 0xFFFF && v->moff[2] == 0xFFFF) v->alive = 0;
+        if (!live && !v->rub && v->moff[0] == 0xFFFF && v->moff[1] == 0xFFFF && v->moff[2] == 0xFFFF && v->moff[3] == 0xFFFF) v->alive = 0;
     }
     {   /* masking (CPU): a mode 30 dB under the loudest one sounding, or under -90 dBFS, is not heard in the clinking;
          * nor, once its specimen has rung down 12 dB from the knock, one 24 dB under the specimen's loudest: it stops */

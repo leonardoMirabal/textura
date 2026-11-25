@@ -136,6 +136,7 @@ static void cut(stick_t *s, voice_t *v)
 static void stick_param(void *st, uint8_t id, uint8_t val)
 {
     stick_t *s = (stick_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) {
         unsigned i;
         s->limit = (uint8_t)(val < 1u ? 1u : val > NV ? NV : val);

@@ -117,6 +117,7 @@ static void test_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void test_param(void *st, uint8_t id, uint8_t val)
 {
     test_t *s = (test_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) {
         uint32_t cut = tx_pool_set_limit(&s->pool, val), i;
         for (i = 0; i < TX_POOL_MAX; i++)

@@ -64,14 +64,14 @@ TX_AUDIO_CODE void tx_chirp_add(tx_chirp_t *c, int32_t *out, unsigned n)
     T1 = c->T + (n - j);
     if (T1 >= c->Tend) { at(c, c->T, &inc1, &g1); g1 = 0; c->on = 0; }   /* the end: fade out in this block */
     else at(c, T1, &inc1, &g1);
-    inc = c->inc; g = c->g;
-    gs = (g1 - g) / (int32_t)(n - j);
+    inc = c->inc; g = c->g << 8;                             /* (the level ramp in Q23: a slow swell moves a few Q15 units */
+    gs = ((g1 - c->g) * 256) / (int32_t)(n - j);              /* a block, which steps at the block's start in Q15) */
     is = (int32_t)(inc1 - inc) / (int32_t)(n - j);
     for (; j < n; j++) {
         ph += inc;
         {
             int32_t sv = tx_sin_q15(ph);
-            out[j] += sv * (g >> 7) + ((sv * (g & 127)) >> 7);   /* Q15 x Q15 -> Q23: a quiet chirp fades smoothly */
+            out[j] += sv * (g >> 15) + ((sv * (g & 32767)) >> 15);   /* Q15 x Q23 -> Q23: a quiet chirp fades smoothly */
         }
         inc += (uint32_t)is;
         g += gs;

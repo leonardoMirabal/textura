@@ -155,6 +155,7 @@ static void sparks_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void sparks_param(void *st, uint8_t id, uint8_t val)
 {
     sparks_t *s = (sparks_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) s->limit = (uint8_t)(val < 1u ? 1u : val > SPARK_MAX ? SPARK_MAX : val);
     else if (id == TX_PID_LEVEL) s->level = tx_level_q15(val > 127u ? 127u : val);
     else set_param(s, id, val);

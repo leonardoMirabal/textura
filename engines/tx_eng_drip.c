@@ -106,6 +106,9 @@ typedef struct {
     tx_rng_t dr_rng;               /* .. its own draws (the drops' stay as they were) */
     uint32_t dr_rate;              /* .. its rate, drops /s Q8 (0: none) */
     int32_t dr_w;                  /* .. its slow walk, log2 Q16 (the run-off comes and goes in surges) */
+    uint16_t pk_f[8];              /* .. plinks due in the next block (a splash late in a block: its plink after the */
+    int16_t pk_a[8];               /*    block's end, on its own sample, not piled on the last one) */
+    uint8_t pk_o[8], pk_n, pk_pad[3];
 } drip_t;
 
 static uint32_t isqrt32(uint32_t x)                          /* floor(sqrt(x)), control rate */
@@ -194,6 +197,7 @@ static void drip_key(void *st, uint8_t note, uint8_t vel, uint8_t on)
 static void drip_param(void *st, uint8_t id, uint8_t val)
 {
     drip_t *s = (drip_t *)st;
+    if (tx_cloud_keyat(&s->cloud, id, val)) return;          /* (a press's own sample: TX_PID_KEYAT) */
     if (id == TX_PID_PARTICLES) {
         uint32_t cut = tx_pool_set_limit(&s->pool, val), i;
         for (i = 0; i < TX_POOL_MAX; i++)
@@ -365,6 +369,8 @@ static void dribble(drip_t *s, unsigned n)
     tx_rng_t *r = &s->dr_rng;
     uint32_t mu, mean, acc, k, i;
     int32_t lu;
+    for (i = 0; i < s->pk_n; i++) tx_gr_add(&s->gr, r, s->pk_o[i], s->pk_f[i], s->pk_a[i]);   /* (last block's late ones) */
+    s->pk_n = 0;
     if (!s->dr_rate || !tx_cloud_held(&s->cloud)) return;
     s->dr_w += (int32_t)(((int64_t)tx_rand_s15(r) * (WALK * (int32_t)s->p[P_CLUMP])) >> 15) - s->dr_w / 172;
     mu = (uint32_t)(((uint64_t)s->dr_rate * tx_exp2(s->dr_w + (16 << 16))) >> 16) * n / 44100u;   /* this block, Q8 */
@@ -380,7 +386,13 @@ static void dribble(drip_t *s, unsigned n)
         tx_gr_add(&s->gr, r, off, tx_exp2(SPL_L2 + (int32_t)(((i >> 16) * SPL_SPAN) >> 16)), (i & 1u) ? a : -a);   /* the splash */
         if ((i >> 8 & 0xFFu) < BUBP) {                       /* a plink */
             uint32_t f = tx_exp2(745000 + (int32_t)(((tx_rand(r) >> 16) * 131072u) >> 16));   /* 2.5 .. 10 kHz */
-            tx_gr_add(&s->gr, r, off + tx_rand_below(r, 64u), f, (i & 2u) ? a / 2 : -a / 2);
+            uint32_t o2 = off + tx_rand_below(r, 64u);
+            int32_t a2 = (i & 2u) ? a / 2 : -a / 2;
+            if (o2 < n) tx_gr_add(&s->gr, r, o2, f, a2);
+            else if (s->pk_n < 8u) {
+                a2 = a2 > 32767 ? 32767 : a2 < -32767 ? -32767 : a2;
+                s->pk_o[s->pk_n] = (uint8_t)(o2 - n); s->pk_f[s->pk_n] = (uint16_t)f; s->pk_a[s->pk_n] = (int16_t)a2; s->pk_n++;
+            }
         }
     }
 }

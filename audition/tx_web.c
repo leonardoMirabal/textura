@@ -197,7 +197,10 @@ EMSCRIPTEN_KEEPALIVE float *txw_render(int blocks)
                 unsigned ne = tx_gen_block(&gens[k], TX_BLOCK, ev, TX_GEN_EV_MAX, &in), q;
                 int ip = tx_param_find(mixer.e[k], "ACTIVITY");
                 if (ip >= 0 && !strcmp(mixer.e[k]->name, "source")) mixer.e[k]->param(mixer.st[k], (uint8_t)ip, in);
-                for (q = 0; q < ne && !gen_mute[k]; q++) mixer.e[k]->key(mixer.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
+                for (q = 0; q < ne && !gen_mute[k]; q++) {   /* (each note on its own sample: TX_PID_KEYAT, as the firmware) */
+                    if (ev[q].vel) mixer.e[k]->param(mixer.st[k], TX_PID_KEYAT, (uint8_t)(ev[q].off < TX_BLOCK ? ev[q].off : TX_BLOCK - 1u));
+                    mixer.e[k]->key(mixer.st[k], ev[q].note, ev[q].vel, ev[q].vel != 0);
+                }
             }
             if (mixer.e[k]) {                                /* the engine over its ring, through the layer's insert */
                 tx_ring_block(&ring[k], mixer.blk, TX_BLOCK, 0);

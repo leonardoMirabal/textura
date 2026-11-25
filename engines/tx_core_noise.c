@@ -157,12 +157,33 @@ TX_INLINE int32_t svf_mul14(int32_t f, int32_t h)
 #define SVF_IN(m, k) int32_t lo##k = r[m].low, bd##k = r[m].band, ef##k = r[m].ef, f##k = f[m], g##k = g_q11[m],  \
                              gi##k = gin_q8 ? gin_q8[m] : 256
 #define SVF_OUT(m, k) do {                                                                                \
-        if (silent && ((bd##k > -16 && bd##k < 16 && lo##k > -16 && lo##k < 16)                            \
-                       || (bd##k == r[m].band && lo##k == r[m].low)))                                     \
+        if (silent && bd##k == r[m].band && lo##k == r[m].low)   /* (small or stuck: let go at the next     \
+                                                                  * block's start, svf_let_go) */         \
             lo##k = bd##k = 0;                                                                            \
         if (!lo##k && !bd##k) ef##k = 0;                                                                  \
         r[m].low = lo##k; r[m].band = bd##k; r[m].ef = ef##k;                                             \
     } while (0)
+/* a silent block's start: each mode that is small or stuck (one step leaves it where it is) lets go, its output now
+ * ramped to zero over the block (a cut at the block's end was a step on the block's grid: a high-gain band's 16 LSB
+ * can be -60 dBFS) */
+TX_INLINE void svf_let_go(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *g_q11, unsigned nr, int32_t *out,
+                          unsigned n)
+{
+    unsigned i, j;
+    for (i = 0; i < nr; i++) {
+        int32_t lo = r[i].low, bd = r[i].band, lo1, bd1, h, y0, dv;
+        if (!(lo | bd)) continue;
+        lo1 = lo + ((f[i] * bd) >> 14);
+        if (q >= 512) { h = -lo1 - ((q * bd) >> 14); bd1 = bd + ((f[i] * h) >> 14); }
+        else { int32_t e1 = r[i].ef + q * bd, d = e1 >> 14; h = -lo1 - d; bd1 = bd + svf_mul14(f[i], h); }
+        if (!((bd > -16 && bd < 16 && lo > -16 && lo < 16) || (lo1 == lo && bd1 == bd))) continue;
+        y0 = (bd * g_q11[i]) >> 3;                           /* (its output now, Q23) */
+        dv = y0 / (int32_t)n;
+        for (j = 0; j < n; j++) out[j] += y0 - dv * (int32_t)(j + 1u);
+        r[i].low = r[i].band = r[i].ef = 0;
+    }
+}
+
 /* the modes two at a time over the block (two independent chains side by side, their state in registers; each pair's
  * sum added into out: the same total as all the modes' sum, sample for sample), an odd last one alone */
 TX_INLINE void svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, const int32_t *gin_q8,
@@ -174,6 +195,7 @@ TX_INLINE void svf_bank_add_g(tx_svf_t *r, const int32_t *f, int32_t q, const in
     for (j = 0; j < n; j++) silent |= in[j];
     silent = !silent;
     if (silent && tx_svf_bank_quiet(r, nr)) return;
+    if (silent) { svf_let_go(r, f, q, g_q11, nr, out, n); if (tx_svf_bank_quiet(r, nr)) return; }
     if (nr >= 4u && n <= TX_BLOCK) {                       /* two pairs or more: the input's x once for all of them */
         int32_t xs[TX_BLOCK];
         for (j = 0; j < n; j++) {
